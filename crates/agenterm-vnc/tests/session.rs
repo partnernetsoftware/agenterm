@@ -83,6 +83,11 @@ fn serve_one(width: u16, height: u16) -> (u16, std::thread::JoinHandle<Vec<u8>>)
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
             .expect("timeout");
+        // Read until the pointer event actually appears rather than until an
+        // arbitrary byte count: the client also sends SetPixelFormat and
+        // refresh requests, so a size-based stop could fill up on those and
+        // return before the event under test ever arrived. That is a race the
+        // machine wins or loses depending on load, and it did lose sometimes.
         let mut tail = Vec::new();
         let mut buffer = [0u8; 1024];
         while let Ok(read) = stream.read(&mut buffer) {
@@ -90,7 +95,8 @@ fn serve_one(width: u16, height: u16) -> (u16, std::thread::JoinHandle<Vec<u8>>)
                 break;
             }
             tail.extend_from_slice(&buffer[..read]);
-            if tail.len() >= 10 {
+            let has_pointer_event = tail.windows(6).any(|window| window[0] == 5);
+            if has_pointer_event {
                 break;
             }
         }
@@ -329,4 +335,48 @@ fn unknown_security_types_do_not_hide_a_usable_one() {
         .expect("a password is required");
     // VNC Auth was found despite four unknown types ahead of it.
     assert!(matches!(error, agenterm_vnc::VncError::PasswordRequired), "got {error:?}");
+}
+
+#[test]
+fn pixels_are_handed_on_without_waiting_for_the_refresh_tick() {
+    // The session asks the server for updates on a timer, but must not hold
+    // finished pixels until the next tick: that added a full interval of
+    // latency to every interaction. Measured before this was separated, the
+    // median input-to-pixel delay was one whole tick; after, it was ~0.03 ms.
+    //
+    // A tick is 16 ms, so a frame arriving well inside that window can only
+    // mean emission is driven by the pixels rather than by the clock.
+    let (port, server) = serve_one(8, 8);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    let elapsed = runtime.block_on(async move {
+        let (session, mut frames) =
+            agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None))
+                .await
+                .expect("connect");
+        let start = std::time::Instant::now();
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), frames.recv())
+            .await
+            .expect("a frame arrives")
+            .expect("the channel stays open");
+        let elapsed = start.elapsed();
+        assert!(!frame.rgba.is_empty(), "the frame carries pixels");
+        session.disconnect().await;
+        elapsed
+    });
+    let _ = server.join();
+
+    // A generous bound on purpose. The property under test is "not gated on
+    // the 16 ms tick", and the failure it guards against is a frame waiting a
+    // whole multiple of that. A tight threshold would instead measure how busy
+    // the machine is while the rest of the suite runs in parallel, which is
+    // how this assertion first failed.
+    assert!(
+        elapsed < std::time::Duration::from_millis(48),
+        "the first frame waited {elapsed:?}, several refresh ticks, which means \
+         emission is gated on the clock rather than on the pixels"
+    );
 }

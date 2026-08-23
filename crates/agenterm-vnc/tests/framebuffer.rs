@@ -139,3 +139,67 @@ fn a_region_is_clipped_to_the_surface() {
     let region = fb.region_rgba(Rect { x: 2, y: 2, width: 8, height: 8 });
     assert_eq!(region.len(), 2 * 2 * BYTES_PER_PIXEL);
 }
+
+/// The byte-at-a-time definition the word-wise swizzle must match exactly.
+///
+/// Kept as the scalar truth: the optimised path in the crate reads and writes
+/// whole words, and this is what "correct" means for it.
+fn scalar_truth_blit(width: u16, height: u16, rect: Rect, data: &[u8]) -> Vec<u8> {
+    let mut pixels = vec![0u8; width as usize * height as usize * BYTES_PER_PIXEL];
+    for chunk in pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
+        chunk[3] = 0xff;
+    }
+    for row in 0..rect.height as usize {
+        let dst_y = rect.y as usize + row;
+        if dst_y >= height as usize {
+            break;
+        }
+        let visible = (rect.width as usize).min((width as usize).saturating_sub(rect.x as usize));
+        for column in 0..visible {
+            let s = (row * rect.width as usize + column) * BYTES_PER_PIXEL;
+            let d = (dst_y * width as usize + rect.x as usize + column) * BYTES_PER_PIXEL;
+            let Some(src) = data.get(s..s + BYTES_PER_PIXEL) else {
+                return pixels;
+            };
+            pixels[d] = src[2];
+            pixels[d + 1] = src[1];
+            pixels[d + 2] = src[0];
+            pixels[d + 3] = 0xff;
+        }
+    }
+    pixels
+}
+
+#[test]
+fn the_word_wise_swizzle_matches_the_scalar_definition() {
+    // Widths either side of the four-byte word and of common vector lanes, so
+    // a tail handled wrongly shows up rather than hiding behind a round size.
+    for width in [1u16, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 33, 64] {
+        for height in [1u16, 2, 5] {
+            let rect = Rect { x: 0, y: 0, width, height };
+            // A pattern where every channel differs, so a swapped or dropped
+            // lane cannot coincidentally compare equal.
+            let data: Vec<u8> = (0..rect.byte_len()).map(|i| (i * 7 % 251) as u8).collect();
+
+            let mut fb = Framebuffer::new(width, height);
+            fb.blit_bgra(rect, &data);
+            assert_eq!(
+                fb.as_rgba(),
+                scalar_truth_blit(width, height, rect, &data),
+                "width {width} height {height}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_swizzle_matches_the_scalar_definition_at_an_offset() {
+    // An offset rect exercises the clipped-row path, where source and
+    // destination have different strides.
+    let rect = Rect { x: 3, y: 1, width: 5, height: 3 };
+    let data: Vec<u8> = (0..rect.byte_len()).map(|i| (i * 13 % 251) as u8).collect();
+
+    let mut fb = Framebuffer::new(9, 6);
+    fb.blit_bgra(rect, &data);
+    assert_eq!(fb.as_rgba(), scalar_truth_blit(9, 6, rect, &data));
+}

@@ -19,8 +19,10 @@ use crate::{Frame, MouseButtons, VncError};
 
 /// How often the session asks the server for an incremental update.
 ///
-/// RFB is request-driven: the server sends nothing until the client asks. This
-/// interval is therefore the frame ceiling, not a polling overhead — ~60/s.
+/// RFB is request-driven: the server sends nothing until the client asks, so
+/// this sets the ceiling on how often new pixels can arrive — ~60/s. It does
+/// *not* gate how quickly they are handed on once they do; see the note on
+/// `emit` in the session loop.
 const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Commands the handle sends to the session task.
@@ -237,6 +239,16 @@ async fn run_session(
                                 Some(existing) => union(existing, changed),
                                 None => changed,
                             });
+                            // Hand pixels on the moment they are composited.
+                            // Waiting for the next refresh tick would add up to
+                            // a full interval of latency to every interaction,
+                            // on top of the round trip that already happened.
+                            // If the consumer is busy the region stays pending
+                            // and merges into the next one, which is why this
+                            // cannot outrun the UI.
+                            if !emit(&frames, &framebuffer, &mut dirty) {
+                                break;
+                            }
                         }
                     }
                     Ok(None) => {}
@@ -247,26 +259,9 @@ async fn run_session(
                 if client.input(X11Event::Refresh).await.is_err() {
                     break;
                 }
-                if let Some(region) = dirty.filter(|_| framebuffer.width() > 0) {
-                    let frame = Frame {
-                        width: framebuffer.width(),
-                        height: framebuffer.height(),
-                        x: region.x,
-                        y: region.y,
-                        region_width: region.width,
-                        region_height: region.height,
-                        rgba: framebuffer.region_rgba(region),
-                    };
-                    // `try_send` on a full channel keeps the region pending
-                    // rather than dropping it: unlike a whole-surface frame, a
-                    // dropped region would leave those pixels stale forever,
-                    // because nothing later redraws what the server already
-                    // told us about.
-                    match frames.try_send(frame) {
-                        Ok(()) => dirty = None,
-                        Err(mpsc::error::TrySendError::Full(_)) => {}
-                        Err(mpsc::error::TrySendError::Closed(_)) => break,
-                    }
+                // Retry anything the consumer was too busy to take earlier.
+                if !emit(&frames, &framebuffer, &mut dirty) {
+                    break;
                 }
             }
         }
@@ -276,6 +271,39 @@ async fn run_session(
     let _ = client.close().await;
     if let Some(ack) = shutdown_ack {
         let _ = ack.send(());
+    }
+}
+
+/// Hand the pending region to the consumer, if there is one and it will take it.
+///
+/// Returns false only when the consumer is gone, which ends the session.
+fn emit(
+    frames: &mpsc::Sender<Frame>,
+    framebuffer: &Framebuffer,
+    dirty: &mut Option<Rect>,
+) -> bool {
+    let Some(region) = dirty.filter(|_| framebuffer.width() > 0) else {
+        return true;
+    };
+    let frame = Frame {
+        width: framebuffer.width(),
+        height: framebuffer.height(),
+        x: region.x,
+        y: region.y,
+        region_width: region.width,
+        region_height: region.height,
+        rgba: framebuffer.region_rgba(region),
+    };
+    // A full channel keeps the region pending rather than dropping it: unlike
+    // a whole-surface frame, a dropped region would leave those pixels stale
+    // forever, because nothing later redraws what the server already sent.
+    match frames.try_send(frame) {
+        Ok(()) => {
+            *dirty = None;
+            true
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => true,
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
     }
 }
 

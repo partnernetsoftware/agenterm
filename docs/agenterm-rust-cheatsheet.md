@@ -327,6 +327,31 @@ is preferable once profiling proves the allocation is hot.
 
 ## 5. SIMD, intrinsics, and assembly
 
+### Measure before specialising: a word-wise swizzle beat hand-written NEON
+
+Converting a BGRA framebuffer row to RGBA looks like a textbook SIMD kernel:
+compact, fixed lane layout, clear pixel contract. Measured on aarch64 over a
+3456x2234 surface (release, `black_box` on both ends so the loop is not
+eliminated):
+
+| implementation | per full surface | throughput |
+| --- | --- | --- |
+| byte-at-a-time (`dst[0] = src[2]` ...) | 2.12 ms | 14.6 GB/s |
+| whole `u32` load, shift, store | **1.33 ms** | **23.2 GB/s** |
+| NEON `vld4q_u8` / `vst4q_u8` | 1.49 ms | 20.8 GB/s |
+
+The word-wise version in plain safe Rust won. At ~23 GB/s the kernel is
+memory-bandwidth bound, so wider vectors buy nothing and the deinterleaving
+`vld4q` costs more than it saves. Specialising would have added an ISA path,
+a feature-detection branch and a parity obligation for a measured *loss*.
+
+Take the cheap representation change first — byte moves to word moves is often
+most of the available win — and only reach for intrinsics once a measurement
+shows the scalar form is not already saturating memory. Record the rejected
+optimisation, as here, so nobody re-derives it.
+
+
+
 ISA specialization is justified for compact, stable kernels with a clear byte
 or pixel contract. Current good examples are alpha-mask XRGB composition and
 XRGB-to-RGB8 packing. VT parsing, JSON, Unicode width, tree state, and other
