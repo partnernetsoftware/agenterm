@@ -47,18 +47,21 @@ let connected = false;
 
 /* Rendering ------------------------------------------------------------ */
 
-/** Paint one frame, resizing and refitting when the resolution changes. */
-function drawFrame({ width, height, rgba }) {
+/** Paint one changed region, resizing and refitting when the screen changes. */
+function drawFrame({ width, height, x, y, regionWidth, regionHeight, rgba }) {
   const bytes = rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba);
   const resized = canvas.width !== width || canvas.height !== height;
   if (resized) {
+    // Resizing clears the canvas, so the server owes us a full repaint; it
+    // sends one because a resolution change invalidates its own history too.
     canvas.width = width;
     canvas.height = height;
   }
+  if (!regionWidth || !regionHeight) return;
   // `ImageData` needs a Uint8ClampedArray over the same buffer; this view is
-  // free, unlike a copy of a multi-megabyte surface every frame.
+  // free, unlike copying the region again on every update.
   const clamped = new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  context.putImageData(new ImageData(clamped, width, height), 0, 0);
+  context.putImageData(new ImageData(clamped, regionWidth, regionHeight), x, y);
   if (resized) viewport.fit();
 }
 

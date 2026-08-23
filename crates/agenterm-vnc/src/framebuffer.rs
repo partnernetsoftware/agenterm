@@ -66,6 +66,23 @@ impl Framebuffer {
         &self.pixels
     }
 
+    /// Copy one region out as a tightly packed RGBA image.
+    ///
+    /// The region is clipped to the surface, so a caller cannot ask for
+    /// pixels that do not exist.
+    #[must_use]
+    pub fn region_rgba(&self, rect: Rect) -> Vec<u8> {
+        let right = (rect.x as usize + rect.width as usize).min(self.width as usize);
+        let bottom = (rect.y as usize + rect.height as usize).min(self.height as usize);
+        let visible_width = right.saturating_sub(rect.x as usize);
+        let mut out = Vec::with_capacity(visible_width * bottom.saturating_sub(rect.y as usize) * BYTES_PER_PIXEL);
+        for y in rect.y as usize..bottom {
+            let start = (y * self.width as usize + rect.x as usize) * BYTES_PER_PIXEL;
+            out.extend_from_slice(&self.pixels[start..start + visible_width * BYTES_PER_PIXEL]);
+        }
+        out
+    }
+
     /// Resize to a new resolution, discarding previous contents.
     ///
     /// A `SetResolution` mid-session invalidates every coordinate the old

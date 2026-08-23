@@ -23,17 +23,31 @@ mod ard;
 mod des;
 mod framebuffer;
 mod preflight;
+mod resolve;
 mod session;
 
 pub use framebuffer::{BYTES_PER_PIXEL, Framebuffer, Rect};
 pub use session::{ConnectOptions, SessionHandle, connect};
 
-/// One composited screen surface, ready for a canvas or texture upload.
+/// One update to the screen, ready for a canvas or texture upload.
+///
+/// Only the region that changed is carried. A full screen is a legitimate
+/// value of that region, but the common case -- a cursor moving, a character
+/// appearing in a terminal -- is a few thousand bytes rather than the whole
+/// surface, which is the difference between a responsive session and one that
+/// spends all its time copying pixels nobody looked at.
 #[derive(Debug, Clone)]
 pub struct Frame {
+    /// The full framebuffer size, so a consumer can size its canvas.
     pub width: u16,
     pub height: u16,
-    /// Row-major RGBA, exactly `width * height * 4` bytes.
+    /// Where `rgba` belongs within that framebuffer.
+    pub x: u16,
+    pub y: u16,
+    /// The width and height of the changed region.
+    pub region_width: u16,
+    pub region_height: u16,
+    /// Row-major RGBA for the region, `region_width * region_height * 4` bytes.
     pub rgba: Vec<u8>,
 }
 

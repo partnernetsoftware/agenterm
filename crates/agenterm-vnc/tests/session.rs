@@ -156,7 +156,11 @@ fn a_session_delivers_composited_frames_and_forwards_input() {
             frame.rgba.chunks_exact(4).any(|pixel| pixel[..3] != [0, 0, 0]),
             "the first frame should contain painted pixels, not just a resize"
         );
-        assert_eq!((frame.width, frame.height), (4, 2));
+        assert_eq!((frame.width, frame.height), (4, 2), "full screen size");
+        // The update covers the whole screen here because that is what the
+        // server sent; the payload is sized to the region, not the screen.
+        assert_eq!((frame.x, frame.y), (0, 0));
+        assert_eq!((frame.region_width, frame.region_height), (4, 2));
         assert_eq!(frame.rgba.len(), 4 * 2 * 4);
         // The server sent BGRA red; the frame must expose it as RGBA red.
         assert_eq!(&frame.rgba[0..4], &[0xff, 0x00, 0x00, 0xff]);

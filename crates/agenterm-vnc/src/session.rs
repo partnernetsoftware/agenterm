@@ -14,6 +14,7 @@ use vnc::{PixelFormat, VncConnector, VncEvent, X11Event};
 use crate::ard;
 use crate::framebuffer::{Framebuffer, Rect};
 use crate::preflight::{self, Credentials, PreflightError};
+use crate::resolve;
 use crate::{Frame, MouseButtons, VncError};
 
 /// How often the session asks the server for an incremental update.
@@ -127,7 +128,9 @@ pub async fn connect(
         PreflightError::Io(reason) => VncError::Handshake(reason),
         })?;
 
-    let stream = tokio::net::TcpStream::connect(&address)
+    let targets = resolve::resolve(&options.host, options.port)
+        .map_err(|source| VncError::Connect { address: address.clone(), source })?;
+    let stream = tokio::net::TcpStream::connect(&targets[..])
         .await
         .map_err(|source| VncError::Connect { address: address.clone(), source })?;
     // Nagle batches small writes, which is exactly wrong for input events:
@@ -197,7 +200,10 @@ async fn run_session(
     alive: Arc<AtomicBool>,
 ) {
     let mut framebuffer = Framebuffer::new(0, 0);
-    let mut dirty = false;
+    // The union of every rect touched since the last frame went out. Sending
+    // only this, rather than the whole surface, is what keeps a 4K session
+    // from spending its entire budget copying unchanged pixels.
+    let mut dirty: Option<Rect> = None;
     let mut ticker = tokio::time::interval(REFRESH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut shutdown_ack: Option<oneshot::Sender<()>> = None;
@@ -226,8 +232,11 @@ async fn run_session(
             event = client.poll_event() => {
                 match event {
                     Ok(Some(event)) => {
-                        if apply_event(&mut framebuffer, event) {
-                            dirty = true;
+                        if let Some(changed) = apply_event(&mut framebuffer, event) {
+                            dirty = Some(match dirty {
+                                Some(existing) => union(existing, changed),
+                                None => changed,
+                            });
                         }
                     }
                     Ok(None) => {}
@@ -238,17 +247,23 @@ async fn run_session(
                 if client.input(X11Event::Refresh).await.is_err() {
                     break;
                 }
-                if dirty && framebuffer.width() > 0 {
+                if let Some(region) = dirty.filter(|_| framebuffer.width() > 0) {
                     let frame = Frame {
                         width: framebuffer.width(),
                         height: framebuffer.height(),
-                        rgba: framebuffer.as_rgba().to_vec(),
+                        x: region.x,
+                        y: region.y,
+                        region_width: region.width,
+                        region_height: region.height,
+                        rgba: framebuffer.region_rgba(region),
                     };
-                    // `try_send` on a full channel drops this frame on
-                    // purpose: the next tick composites a newer one, so
-                    // skipping beats queueing stale pixels behind a slow UI.
+                    // `try_send` on a full channel keeps the region pending
+                    // rather than dropping it: unlike a whole-surface frame, a
+                    // dropped region would leave those pixels stale forever,
+                    // because nothing later redraws what the server already
+                    // told us about.
                     match frames.try_send(frame) {
-                        Ok(()) => dirty = false,
+                        Ok(()) => dirty = None,
                         Err(mpsc::error::TrySendError::Full(_)) => {}
                         Err(mpsc::error::TrySendError::Closed(_)) => break,
                     }
@@ -264,29 +279,40 @@ async fn run_session(
     }
 }
 
-/// Fold one protocol event into the surface; returns whether pixels changed.
-fn apply_event(framebuffer: &mut Framebuffer, event: VncEvent) -> bool {
+/// Fold one protocol event into the surface, returning the region it touched.
+fn apply_event(framebuffer: &mut Framebuffer, event: VncEvent) -> Option<Rect> {
     match event {
         VncEvent::SetResolution(screen) => {
             framebuffer.resize(screen.width, screen.height);
             // Sizing the surface is not painting it. Reporting this as dirty
             // would publish a blank frame ahead of the server's first rect,
             // which the UI then shows as a black flash on connect.
-            false
+            None
         }
         VncEvent::RawImage(rect, data) => {
-            framebuffer.blit_bgra(convert_rect(rect), &data);
-            true
+            let rect = convert_rect(rect);
+            framebuffer.blit_bgra(rect, &data);
+            Some(rect)
         }
         VncEvent::Copy(dst, src) => {
-            framebuffer.copy_rect(convert_rect(dst), convert_rect(src));
-            true
+            let dst = convert_rect(dst);
+            framebuffer.copy_rect(dst, convert_rect(src));
+            Some(dst)
         }
         // Cursor and clipboard events carry no framebuffer pixels the canvas
         // consumer can use; the server also paints the cursor into the
         // framebuffer itself, so ignoring these leaves no visible gap.
-        _ => false,
+        _ => None,
     }
+}
+
+/// The smallest rectangle containing both inputs.
+fn union(a: Rect, b: Rect) -> Rect {
+    let x = a.x.min(b.x);
+    let y = a.y.min(b.y);
+    let right = (a.x + a.width).max(b.x + b.width);
+    let bottom = (a.y + a.height).max(b.y + b.height);
+    Rect { x, y, width: right - x, height: bottom - y }
 }
 
 fn convert_rect(rect: vnc::Rect) -> Rect {

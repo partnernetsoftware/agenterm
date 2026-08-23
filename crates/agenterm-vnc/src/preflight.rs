@@ -70,7 +70,12 @@ pub(crate) async fn probe(
     credentials: Credentials<'_>,
 ) -> Result<Handshake, PreflightError> {
     let password = credentials.password;
-    let mut stream = TcpStream::connect(address)
+    // Resolution goes through `resolve` so a `.local` name behaves the same
+    // here as it does on the real connection.
+    let (host, port) = address.rsplit_once(':').unwrap_or((address, "5900"));
+    let targets = crate::resolve::resolve(host, port.parse().unwrap_or(5900))
+        .map_err(|error| PreflightError::Io(error.to_string()))?;
+    let mut stream = TcpStream::connect(&targets[..])
         .await
         .map_err(|error| PreflightError::Io(error.to_string()))?;
 

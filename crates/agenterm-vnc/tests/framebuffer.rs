@@ -117,3 +117,25 @@ fn resize_to_the_same_size_keeps_contents() {
     fb.resize(2, 2);
     assert_eq!(pixel(&fb, 0, 0), (0xff, 0, 0, 0xff));
 }
+
+#[test]
+fn a_region_is_extracted_tightly_packed() {
+    let mut fb = Framebuffer::new(4, 4);
+    let rect = Rect { x: 1, y: 1, width: 2, height: 2 };
+    fb.blit_bgra(rect, &bgra_fill(rect, 0, 0, 0xff));
+
+    let region = fb.region_rgba(rect);
+    // Two by two pixels, with no stride from the wider surface left in.
+    assert_eq!(region.len(), 2 * 2 * BYTES_PER_PIXEL);
+    for pixel in region.chunks_exact(BYTES_PER_PIXEL) {
+        assert_eq!(pixel, [0xff, 0, 0, 0xff], "every pixel in the region");
+    }
+}
+
+#[test]
+fn a_region_is_clipped_to_the_surface() {
+    let fb = Framebuffer::new(4, 4);
+    // Asking past the edge must yield what exists, not read out of bounds.
+    let region = fb.region_rgba(Rect { x: 2, y: 2, width: 8, height: 8 });
+    assert_eq!(region.len(), 2 * 2 * BYTES_PER_PIXEL);
+}

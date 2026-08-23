@@ -29,13 +29,22 @@ struct Connected {
     height: u16,
 }
 
-/// Frame payload. `rgba` rides Tauri's IPC as a byte array rather than base64,
-/// which keeps a 1080p surface at its natural ~8MB instead of inflating it by
-/// a third on every single frame.
+/// Frame payload: one changed region, not the whole screen.
+///
+/// `rgba` rides Tauri's IPC as a byte array rather than base64, which avoids
+/// inflating every update by a third. Sending only the dirty region matters
+/// more still: a cursor moving across a 4K desktop is a few kilobytes here
+/// rather than the ~33MB a full surface would cost, sixty times a second.
 #[derive(Clone, Serialize)]
 struct FramePayload {
     width: u16,
     height: u16,
+    x: u16,
+    y: u16,
+    #[serde(rename = "regionWidth")]
+    region_width: u16,
+    #[serde(rename = "regionHeight")]
+    region_height: u16,
     rgba: Vec<u8>,
 }
 
@@ -82,8 +91,15 @@ async fn connect(
     tauri::async_runtime::spawn(async move {
         let mut frame = Some(first);
         while let Some(current) = frame {
-            let payload =
-                FramePayload { width: current.width, height: current.height, rgba: current.rgba };
+            let payload = FramePayload {
+                width: current.width,
+                height: current.height,
+                x: current.x,
+                y: current.y,
+                region_width: current.region_width,
+                region_height: current.region_height,
+                rgba: current.rgba,
+            };
             if pump.emit(FRAME_EVENT, payload).is_err() {
                 break;
             }
