@@ -58,23 +58,28 @@ fn take_frame(state: State<'_, AppState>) -> Response {
         return Response::new(Vec::new());
     };
 
-    let mut body = Vec::with_capacity(HEADER_LEN + frame.rgba.len());
-    for value in [
-        frame.width,
-        frame.height,
-        frame.x,
-        frame.y,
-        frame.region_width,
-        frame.region_height,
-    ] {
-        body.extend_from_slice(&value.to_le_bytes());
+    // Layout: screen width and height, the tile count, then that many tile
+    // records of x, y, width, height, and finally every tile's pixels
+    // concatenated in the same order.
+    let mut body = Vec::with_capacity(
+        HEADER_LEN + frame.tiles.len() * TILE_RECORD_LEN + frame.rgba.len(),
+    );
+    body.extend_from_slice(&frame.width.to_le_bytes());
+    body.extend_from_slice(&frame.height.to_le_bytes());
+    body.extend_from_slice(&(frame.tiles.len() as u32).to_le_bytes());
+    for tile in &frame.tiles {
+        for value in [tile.x, tile.y, tile.width, tile.height] {
+            body.extend_from_slice(&value.to_le_bytes());
+        }
     }
     body.extend_from_slice(&frame.rgba);
     Response::new(body)
 }
 
-/// Six little-endian `u16` fields ahead of the pixels.
-const HEADER_LEN: usize = 12;
+/// Screen width, screen height, then the tile count.
+const HEADER_LEN: usize = 8;
+/// Four little-endian `u16` fields per tile.
+const TILE_RECORD_LEN: usize = 8;
 
 /// Diagnostic channel from the webview, so a frontend fault is visible in the
 /// terminal instead of only in a devtools console nobody has open.

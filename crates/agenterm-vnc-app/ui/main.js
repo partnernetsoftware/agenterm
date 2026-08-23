@@ -47,8 +47,10 @@ let connected = false;
 
 /* Rendering ------------------------------------------------------------ */
 
-/** Header size in the frame buffer: six little-endian u16 fields. */
-const FRAME_HEADER_BYTES = 12;
+/** Screen width and height as u16, then the tile count as u32. */
+const FRAME_HEADER_BYTES = 8;
+/** Four u16 fields per tile record. */
+const TILE_RECORD_BYTES = 8;
 
 /** Fetch and paint whatever frame is waiting, if any. */
 async function pullFrame() {
@@ -67,35 +69,36 @@ async function pullFrame() {
     : Array.isArray(buffer) ? Uint8Array.from(buffer)
     : null;
   if (!bytes || bytes.byteLength <= FRAME_HEADER_BYTES) return;
-  const header = new DataView(bytes.buffer, bytes.byteOffset, FRAME_HEADER_BYTES);
-  drawFrame({
-    width: header.getUint16(0, true),
-    height: header.getUint16(2, true),
-    x: header.getUint16(4, true),
-    y: header.getUint16(6, true),
-    regionWidth: header.getUint16(8, true),
-    regionHeight: header.getUint16(10, true),
-    rgba: bytes.subarray(FRAME_HEADER_BYTES),
-  });
-}
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint16(0, true);
+  const height = view.getUint16(2, true);
+  const tileCount = view.getUint32(4, true);
 
-/** Paint one changed region, resizing and refitting when the screen changes. */
-function drawFrame({ width, height, x, y, regionWidth, regionHeight, rgba }) {
-  const bytes = rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba);
-  const resized = canvas.width !== width || canvas.height !== height;
-  if (resized) {
-    // Resizing clears the canvas, so the server owes us a full repaint; it
-    // sends one because a resolution change invalidates its own history too.
+  if (canvas.width !== width || canvas.height !== height) {
+    // Resizing clears the canvas; the server sends a full repaint after a
+    // resolution change because its own history is invalid too.
     canvas.width = width;
     canvas.height = height;
+    viewport.fit();
   }
-  if (!regionWidth || !regionHeight) return;
-  // `ImageData` needs a Uint8ClampedArray over the same buffer; this view is
-  // free, unlike copying the region again on every update.
-  const clamped = new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  context.putImageData(new ImageData(clamped, regionWidth, regionHeight), x, y);
-  if (resized) viewport.fit();
+
+  // Pixels start after the tile records and run in the same order.
+  let pixels = FRAME_HEADER_BYTES + tileCount * TILE_RECORD_BYTES;
+  for (let i = 0; i < tileCount; i += 1) {
+    const record = FRAME_HEADER_BYTES + i * TILE_RECORD_BYTES;
+    const x = view.getUint16(record, true);
+    const y = view.getUint16(record + 2, true);
+    const w = view.getUint16(record + 4, true);
+    const h = view.getUint16(record + 6, true);
+    const length = w * h * 4;
+    if (!w || !h || pixels + length > bytes.byteLength) break;
+    // A view, not a copy: the frame's bytes are already here.
+    const clamped = new Uint8ClampedArray(bytes.buffer, bytes.byteOffset + pixels, length);
+    context.putImageData(new ImageData(clamped, w, h), x, y);
+    pixels += length;
+  }
 }
+
 
 /* Input ---------------------------------------------------------------- */
 

@@ -165,8 +165,10 @@ fn a_session_delivers_composited_frames_and_forwards_input() {
         assert_eq!((frame.width, frame.height), (4, 2), "full screen size");
         // The update covers the whole screen here because that is what the
         // server sent; the payload is sized to the region, not the screen.
-        assert_eq!((frame.x, frame.y), (0, 0));
-        assert_eq!((frame.region_width, frame.region_height), (4, 2));
+        assert_eq!(frame.tiles.len(), 1, "one rect, one tile");
+        let tile = frame.tiles[0];
+        assert_eq!((tile.x, tile.y), (0, 0));
+        assert_eq!((tile.width, tile.height), (4, 2));
         assert_eq!(frame.rgba.len(), 4 * 2 * 4);
         // The server sent BGRA red; the frame must expose it as RGBA red.
         assert_eq!(&frame.rgba[0..4], &[0xff, 0x00, 0x00, 0xff]);
@@ -507,14 +509,16 @@ fn scattered_updates_do_not_become_a_whole_screen_send() {
             // backlog is exactly when a bounding box degenerates.
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
-            let pixels = frame.region_width as u32 * frame.region_height as u32;
-            assert!(
-                pixels <= 16 * 16,
-                "a {}x{} region came back for a 16x16 update, so scattered rects \
-                 are being merged into their bounding box",
-                frame.region_width,
-                frame.region_height
-            );
+            for tile in &frame.tiles {
+                let pixels = tile.width as u32 * tile.height as u32;
+                assert!(
+                    pixels <= 16 * 16,
+                    "a {}x{} tile came back for a 16x16 update, so scattered rects \
+                     are being merged into their bounding box",
+                    tile.width,
+                    tile.height
+                );
+            }
             seen += 1;
         }
         assert!(seen > 0, "no incremental frames arrived");
@@ -645,7 +649,8 @@ fn tight_jpeg_rects_are_decoded_rather_than_dropped() {
             .expect("a JPEG rect must produce a frame")
             .expect("the channel stays open");
 
-        assert_eq!((frame.region_width, frame.region_height), (16, 16));
+        assert_eq!(frame.tiles.len(), 1);
+        assert_eq!((frame.tiles[0].width, frame.tiles[0].height), (16, 16));
         // The fixture is a solid red-ish tile. JPEG is lossy, so this asserts
         // the colour is recognisably right rather than exact.
         let (red, green, blue) = (frame.rgba[0], frame.rgba[1], frame.rgba[2]);

@@ -29,6 +29,18 @@ mod session;
 pub use framebuffer::{BYTES_PER_PIXEL, Framebuffer, Rect};
 pub use session::{ColourDepth, ConnectOptions, SessionHandle, connect};
 
+/// One changed rectangle within a [`Frame`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tile {
+    /// Where this tile belongs in the framebuffer.
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+    /// Byte offset of this tile's pixels within the frame's `rgba`.
+    pub offset: usize,
+}
+
 /// One update to the screen, ready for a canvas or texture upload.
 ///
 /// Only the region that changed is carried. A full screen is a legitimate
@@ -41,13 +53,15 @@ pub struct Frame {
     /// The full framebuffer size, so a consumer can size its canvas.
     pub width: u16,
     pub height: u16,
-    /// Where `rgba` belongs within that framebuffer.
-    pub x: u16,
-    pub y: u16,
-    /// The width and height of the changed region.
-    pub region_width: u16,
-    pub region_height: u16,
-    /// Row-major RGBA for the region, `region_width * region_height * 4` bytes.
+    /// The rectangles this frame carries, in draw order.
+    ///
+    /// A server tiles one update into many small rects -- macOS sends 64x64 --
+    /// and they arrive together. Carrying them in a single frame keeps one
+    /// update to one handoff: sending a frame each turned a repaint into
+    /// thousands of round trips, which no consumer could drain in time.
+    pub tiles: Vec<Tile>,
+    /// The tiles' pixels, concatenated in `tiles` order. Each tile's bytes
+    /// start at its `offset` and run `width * height * 4`.
     pub rgba: Vec<u8>,
 }
 
