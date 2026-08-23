@@ -45,6 +45,24 @@ Added:
   length, prime modulus and server public key; invoke the handler; write the
   ciphertext and the client public key; check `SecurityResult`.
 
+## 3. Accept Apple's version banner and unknown security types
+
+Two further changes, both found against a real macOS Screen Sharing server
+that announces `RFB 003.889` and offers types 30, 33, 36, 31, 32, 2 and 35.
+
+- `VncVersion::from` mapped anything it did not recognise to RFB 3.3, citing
+  RFC 6143's advice for unknown versions. That advice assumes such a server
+  does not implement the newer handshake; Apple does. Read as 3.3, the client
+  waits for the server to dictate a security type while the server waits for
+  the client to choose one, and the connection hangs. Any `003.<minor>` at or
+  above 008 is now read as 3.8.
+- `SecurityType::read` propagated an error for any unrecognised byte while
+  merely *reading* the offered list, so a usable type further along it was
+  never reached. Unknown types are now skipped, and the list is only an error
+  when nothing in it is understood.
+
+## Notes
+
 The cryptography deliberately stays **outside** this vendored copy, in
 `crates/agenterm-vnc/src/ard.rs`, so the local diff remains small and the
 Diffie-Hellman / MD5 / AES-ECB work is tested against an independent

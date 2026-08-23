@@ -131,9 +131,22 @@ pub(crate) async fn probe(
     Ok(handshake)
 }
 
-/// The minor component of a `RFB 003.008\n` banner, or 3 if unparseable.
+/// The effective minor version of a `RFB 003.008\n` banner.
+///
+/// Apple's Screen Sharing announces `RFB 003.889`, which is not a real RFB
+/// minor version: it means 3.8 plus Apple's extensions. Parsing it as a `u8`
+/// overflows, and treating the failure as 3.3 sends the client down the branch
+/// where the *server* dictates the security type, so it never selects one and
+/// the handshake stalls. Anything at or above 8 is therefore clamped to 8.
 fn parse_minor(banner: &[u8; 12]) -> u8 {
-    std::str::from_utf8(&banner[8..11]).ok().and_then(|text| text.parse().ok()).unwrap_or(3)
+    let Some(text) = std::str::from_utf8(&banner[8..11]).ok() else {
+        return 3;
+    };
+    match text.trim().parse::<u16>() {
+        Ok(minor) if minor >= 8 => 8,
+        Ok(minor) => minor as u8,
+        Err(_) => 3,
+    }
 }
 
 /// Read the security-type list, honouring the 3.3 and 3.7+ encodings.

@@ -86,9 +86,25 @@ impl SecurityType {
                     reader.read_to_string(&mut err_msg).await?;
                     return Err(VncError::General(err_msg));
                 }
+                // AGENTERM PATCH: a server may offer types this client does
+                // not know (macOS Screen Sharing lists 31, 32, 33 and 36
+                // alongside 30 and 2). Upstream made any unrecognised byte
+                // fatal while merely *reading* the list, so a usable type later
+                // in it was never reached. Skip what we cannot name instead.
                 let mut sec_types = vec![];
                 for _ in 0..num {
-                    sec_types.push(reader.read_u8().await?.try_into()?);
+                    let raw = reader.read_u8().await?;
+                    match SecurityType::try_from(raw) {
+                        Ok(security_type) => sec_types.push(security_type),
+                        Err(_) => {
+                            tracing::debug!("ignoring unknown security type {raw}");
+                        }
+                    }
+                }
+                if sec_types.is_empty() {
+                    return Err(VncError::General(
+                        "the server offered no security type this client understands".to_owned(),
+                    ));
                 }
                 tracing::trace!("Server supported security type: {:?}", sec_types);
                 Ok(sec_types)

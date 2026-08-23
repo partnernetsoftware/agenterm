@@ -59,11 +59,27 @@ impl From<[u8; 12]> for VncVersion {
             b"RFB 003.003\n" => VncVersion::RFB33,
             b"RFB 003.007\n" => VncVersion::RFB37,
             b"RFB 003.008\n" => VncVersion::RFB38,
-            // https://www.rfc-editor.org/rfc/rfc6143#section-7.1.1
-            //  Other version numbers are reported by some servers and clients,
-            //  but should be interpreted as 3.3 since they do not implement the
-            //  different handshake in 3.7 or 3.8.
-            _ => VncVersion::RFB33,
+            // AGENTERM PATCH: macOS Screen Sharing announces `RFB 003.889`,
+            // meaning 3.8 plus Apple's extensions. RFC 6143's advice to read
+            // unknown versions as 3.3 assumes such a server does not implement
+            // the newer handshake; Apple does, and reading it as 3.3 leaves the
+            // client waiting for a security type the server expects it to pick.
+            // Treat any 003.<minor> at or above 008 as 3.8.
+            _ => {
+                let minor = std::str::from_utf8(&version[8..11])
+                    .ok()
+                    .and_then(|text| text.trim().parse::<u16>().ok());
+                match minor {
+                    Some(minor) if version.starts_with(b"RFB 003.") && minor >= 8 => {
+                        VncVersion::RFB38
+                    }
+                    // https://www.rfc-editor.org/rfc/rfc6143#section-7.1.1
+                    //  Other version numbers are reported by some servers and
+                    //  clients, but should be interpreted as 3.3 since they do
+                    //  not implement the different handshake in 3.7 or 3.8.
+                    _ => VncVersion::RFB33,
+                }
+            }
         }
     }
 }
