@@ -56,9 +56,17 @@ async function pullFrame() {
   // payload instead would serialise them as a JSON array of numbers, measured
   // at 4.6x the raw size, and cost a parse of that text on this side.
   const buffer = await invoke("take_frame");
-  if (!buffer || buffer.byteLength <= FRAME_HEADER_BYTES) return;
-
-  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  // Tauri hands a command's raw body back as an ArrayBuffer only when the IPC
+  // runs over the custom protocol; on the postMessage path it arrives as a
+  // plain Array of numbers. Both shapes have to work, and testing the wrong
+  // one is why this drew nothing at all: `byteLength` is undefined on an
+  // Array, so the length guard rejected every frame.
+  const bytes =
+    buffer instanceof ArrayBuffer ? new Uint8Array(buffer)
+    : ArrayBuffer.isView(buffer) ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    : Array.isArray(buffer) ? Uint8Array.from(buffer)
+    : null;
+  if (!bytes || bytes.byteLength <= FRAME_HEADER_BYTES) return;
   const header = new DataView(bytes.buffer, bytes.byteOffset, FRAME_HEADER_BYTES);
   drawFrame({
     width: header.getUint16(0, true),

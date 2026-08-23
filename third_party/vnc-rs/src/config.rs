@@ -18,21 +18,31 @@ pub enum VncEncoding {
     LastRectPseudo = -224,
 }
 
-impl From<u32> for VncEncoding {
-    fn from(num: u32) -> Self {
-        // Safe match instead of transmute — unknown encoding IDs fall back to Raw
-        // instead of causing UB (the original transmute is unsound for any value
-        // not matching a valid discriminant).
+impl TryFrom<u32> for VncEncoding {
+    type Error = i32;
+
+    /// AGENTERM PATCH: was `From<u32>` mapping anything unrecognised to `Raw`.
+    ///
+    /// That is far worse than it sounds. An unknown encoding's bytes are not
+    /// raw pixels, so decoding them as such paints the framebuffer with
+    /// whatever the compressed stream happened to contain and then leaves the
+    /// reader misaligned for every rect after it. The visible result is a
+    /// screen of scrambled tiles, with nothing logged to explain it -- which
+    /// is exactly what macOS Screen Sharing produced, because it offers
+    /// private Apple encodings this client never asked for and cannot read.
+    ///
+    /// An unreadable rect has to be an error, so the session can say so.
+    fn try_from(num: u32) -> Result<Self, Self::Error> {
         match num as i32 {
-            0 => VncEncoding::Raw,
-            1 => VncEncoding::CopyRect,
-            7 => VncEncoding::Tight,
-            15 => VncEncoding::Trle,
-            16 => VncEncoding::Zrle,
-            -239 => VncEncoding::CursorPseudo,
-            -223 => VncEncoding::DesktopSizePseudo,
-            -224 => VncEncoding::LastRectPseudo,
-            _ => VncEncoding::Raw,
+            0 => Ok(VncEncoding::Raw),
+            1 => Ok(VncEncoding::CopyRect),
+            7 => Ok(VncEncoding::Tight),
+            15 => Ok(VncEncoding::Trle),
+            16 => Ok(VncEncoding::Zrle),
+            -239 => Ok(VncEncoding::CursorPseudo),
+            -223 => Ok(VncEncoding::DesktopSizePseudo),
+            -224 => Ok(VncEncoding::LastRectPseudo),
+            other => Err(other),
         }
     }
 }

@@ -31,9 +31,12 @@ struct ImageRect {
     encoding: VncEncoding,
 }
 
-impl From<[u8; 12]> for ImageRect {
-    fn from(buf: [u8; 12]) -> Self {
-        Self {
+impl TryFrom<[u8; 12]> for ImageRect {
+    /// The raw encoding id, when it is not one this client can decode.
+    type Error = i32;
+
+    fn try_from(buf: [u8; 12]) -> Result<Self, Self::Error> {
+        Ok(Self {
             rect: Rect {
                 x: ((buf[0] as u16) << 8) | buf[1] as u16,
                 y: ((buf[2] as u16) << 8) | buf[3] as u16,
@@ -44,8 +47,8 @@ impl From<[u8; 12]> for ImageRect {
                 | ((buf[9] as u32) << 16)
                 | ((buf[10] as u32) << 8)
                 | (buf[11] as u32))
-                .into(),
-        }
+                .try_into()?,
+        })
     }
 }
 
@@ -56,7 +59,15 @@ impl ImageRect {
     {
         let mut rect_buf = [0_u8; 12];
         reader.read_exact(&mut rect_buf).await?;
-        Ok(rect_buf.into())
+        // AGENTERM PATCH: an encoding this client cannot read leaves the
+        // stream misaligned for everything after it, so there is no way to
+        // continue; say which one it was.
+        ImageRect::try_from(rect_buf).map_err(|encoding| {
+            VncError::General(format!(
+                "the server sent encoding {encoding}, which this client did not \
+                 request and cannot decode"
+            ))
+        })
     }
 }
 

@@ -25,6 +25,19 @@ use crate::{Frame, MouseButtons, VncError};
 /// `emit` in the session loop.
 const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 
+/// How long to keep collecting rects before handing a frame over.
+///
+/// Short enough to be invisible next to a network round trip, long enough that
+/// the rects of one server update land in the same frame.
+const FLUSH_DELAY: Duration = Duration::from_millis(2);
+
+/// How long to wait for an answer before allowing another request.
+///
+/// An idle server may hold a request open indefinitely, which is legal: it
+/// replies when something changes. This only bounds how long a lost or ignored
+/// request can stall the session.
+const IDLE_TIMEOUT: Duration = Duration::from_millis(500);
+
 /// Commands the handle sends to the session task.
 enum Command {
     Pointer { x: u16, y: u16, buttons: u8 },
@@ -271,6 +284,18 @@ async fn run_session(
     // Decode failures reported by the engine. Collected rather than dropped so
     // a stream this client cannot read is diagnosable instead of merely ugly.
     let mut decode_errors: Vec<String> = Vec::new();
+    // RFB is request/response: the server answers one update request with one
+    // update. Firing on a timer regardless issues requests faster than a busy
+    // server can answer them, and the backlog is what turns an idle desktop
+    // into a continuous stream of redundant pixels. Ask again only once the
+    // previous answer has arrived.
+    let mut awaiting_update = false;
+    // Held across iterations; see the flush arm below for why.
+    let flush_at = tokio::time::sleep(FLUSH_DELAY);
+    tokio::pin!(flush_at);
+    let mut flush_armed = false;
+    // Bounds how long a request that is never answered can stall the session.
+    let mut last_request = std::time::Instant::now();
     let mut ticker = tokio::time::interval(REFRESH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut shutdown_ack: Option<oneshot::Sender<()>> = None;
@@ -303,26 +328,48 @@ async fn run_session(
                             apply_event(&mut framebuffer, event, colour, &mut decode_errors)
                         {
                             accumulate(&mut dirty, changed);
-                            // Hand pixels on the moment they are composited.
-                            // Waiting for the next refresh tick would add up to
-                            // a full interval of latency to every interaction,
-                            // on top of the round trip that already happened.
-                            // If the consumer is busy the region stays pending
-                            // and merges into the next one, which is why this
-                            // cannot outrun the UI.
-                            if !emit(&frames, &framebuffer, &mut dirty) {
-                                break;
-                            }
+                            // Do not emit yet. A server tiles a large update
+                            // into many small rects -- macOS sends 64x64, so a
+                            // 2160x3840 screen is nearly two thousand of them
+                            // -- and handing each one over separately turns a
+                            // single refresh into two thousand round trips.
+                            // Push the flush out instead: it fires once the
+                            // rects stop arriving, which is the end of one
+                            // server update.
+                            flush_at.as_mut().reset(tokio::time::Instant::now() + FLUSH_DELAY);
+                            flush_armed = true;
                         }
                     }
                     Ok(None) => {}
                     Err(_) => break,
                 }
             }
-            _ = ticker.tick() => {
+            // Flush shortly after the last rect arrived. `poll_event` above is
+            // ready continuously while a burst is being decoded, so this arm
+            // only wins the select once the server pauses -- which is exactly
+            // the end of one update. That keeps the batching from costing
+            // latency: a lone rect still goes out within this interval, and a
+            // burst goes out as one frame instead of hundreds.
+            // Flush shortly after the last rect arrived, and treat that pause
+            // as the end of the server's answer.
+            //
+            // `flush_at` is a single timer held across iterations. A `sleep`
+            // constructed inside the select would restart on every loop, and
+            // while a burst is decoding `poll_event` is ready continuously, so
+            // it would never once elapse.
+            () = &mut flush_at, if flush_armed => {
+                flush_armed = false;
+                awaiting_update = false;
+                if !emit(&frames, &framebuffer, &mut dirty) {
+                    break;
+                }
+            }
+            _ = ticker.tick(), if !awaiting_update || last_request.elapsed() > IDLE_TIMEOUT => {
                 if client.input(X11Event::Refresh).await.is_err() {
                     break;
                 }
+                awaiting_update = true;
+                last_request = std::time::Instant::now();
                 // Retry anything the consumer was too busy to take earlier.
                 if !emit(&frames, &framebuffer, &mut dirty) {
                     break;
@@ -407,7 +454,7 @@ fn accumulate(dirty: &mut Vec<Rect>, changed: Rect) {
     // Fold in everything the new rect meets, which may chain several together.
     let mut index = 0;
     while index < dirty.len() {
-        if overlaps_or_touches(dirty[index], merged) {
+        if worth_merging(dirty[index], merged) {
             merged = union(dirty.swap_remove(index), merged);
             // Restart: the wider rect may now reach regions checked earlier.
             index = 0;
@@ -421,6 +468,30 @@ fn accumulate(dirty: &mut Vec<Rect>, changed: Rect) {
         let all = dirty.drain(..).reduce(union).expect("the list is not empty");
         dirty.push(all);
     }
+}
+
+/// Whether merging two regions sends fewer pixels than keeping them apart.
+///
+/// Adjacency alone is the wrong test. A server tiles an update into a grid of
+/// small rects, and every tile touches its neighbours, so a touch-based rule
+/// chains the whole grid into one bounding box: a scattered update across a
+/// 2160x3840 screen collapsed into a single 16 MB send. Merge only when the
+/// box costs no more than the parts, which keeps genuinely contiguous runs
+/// together -- a full row of tiles really is one band -- while leaving
+/// scattered ones alone.
+fn worth_merging(a: Rect, b: Rect) -> bool {
+    if !overlaps_or_touches(a, b) {
+        return false;
+    }
+    let separate = area(a) + area(b);
+    // Overlapping regions double-count their shared pixels above, so the union
+    // can legitimately be smaller than the sum; that is a merge worth making.
+    area(union(a, b)) <= separate
+}
+
+/// Pixel count, wide enough that a full 4K rect cannot overflow it.
+fn area(rect: Rect) -> u64 {
+    rect.width as u64 * rect.height as u64
 }
 
 /// Whether two rectangles intersect or share an edge.

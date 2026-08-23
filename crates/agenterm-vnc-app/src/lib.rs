@@ -76,6 +76,13 @@ fn take_frame(state: State<'_, AppState>) -> Response {
 /// Six little-endian `u16` fields ahead of the pixels.
 const HEADER_LEN: usize = 12;
 
+/// Diagnostic channel from the webview, so a frontend fault is visible in the
+/// terminal instead of only in a devtools console nobody has open.
+#[tauri::command]
+fn log_from_ui(message: String) {
+    eprintln!("[ui] {message}");
+}
+
 /// Open a session, replacing any existing one.
 ///
 /// Returns the initial resolution. The server may still resize later, and the
@@ -197,6 +204,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             connect,
             take_frame,
+            log_from_ui,
             disconnect,
             send_mouse,
             send_key,
