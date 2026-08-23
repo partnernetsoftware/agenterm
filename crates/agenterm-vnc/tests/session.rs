@@ -20,12 +20,15 @@ fn serve_one(width: u16, height: u16) -> (u16, std::thread::JoinHandle<Vec<u8>>)
     let handle = std::thread::spawn(move || {
         // The client preflights the handshake on a throwaway connection before
         // opening the real one, so the first accept is answered and dropped.
-        let (mut probe, _) = listener.accept().expect("accept probe");
-        probe.write_all(b"RFB 003.008\n").expect("probe version");
-        let mut probe_version = [0u8; 12];
-        probe.read_exact(&mut probe_version).expect("probe client version");
-        probe.write_all(&[1, 1]).expect("probe security list");
-        drop(probe);
+        // Every step here is best-effort: the probe hangs up as soon as it has
+        // read the security list, and a half-finished exchange on this side is
+        // normal rather than a reason to fail the test.
+        if let Ok((mut probe, _)) = listener.accept() {
+            let _ = probe.write_all(b"RFB 003.008\n");
+            let mut probe_version = [0u8; 12];
+            let _ = probe.read_exact(&mut probe_version);
+            let _ = probe.write_all(&[1, 1]);
+        }
 
         let (mut stream, _) = listener.accept().expect("accept");
 
@@ -277,5 +280,49 @@ fn a_missing_password_is_reported_before_the_handshake_stalls() {
     let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
         .err()
         .expect("a VncAuth-only server needs a password");
+    assert!(matches!(error, agenterm_vnc::VncError::PasswordRequired), "got {error:?}");
+}
+
+/// Serve a greeting with an arbitrary version banner and security list.
+fn serve_banner(banner: &'static [u8], types: &'static [u8]) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.write_all(banner);
+            let mut version = [0u8; 12];
+            let _ = stream.read_exact(&mut version);
+            let _ = stream.write_all(&[types.len() as u8]);
+            let _ = stream.write_all(types);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+    });
+    port
+}
+
+#[test]
+fn apples_nonstandard_version_is_read_as_three_eight() {
+    // macOS Screen Sharing announces `RFB 003.889`, which does not fit a u8.
+    // Falling back to 3.3 sends the client down the branch where the server
+    // dictates the security type, so it never picks one and the handshake
+    // stalls -- the "handshake failed" a real Mac produced.
+    let port = serve_banner(b"RFB 003.889\n", &[30]);
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
+        .err()
+        .expect("no username was supplied");
+    // Reaching the credential check at all proves the 3.8 path was taken.
+    assert!(matches!(error, agenterm_vnc::VncError::UsernameRequired), "got {error:?}");
+}
+
+#[test]
+fn unknown_security_types_do_not_hide_a_usable_one() {
+    // A real Mac offers 30, 33, 36, 31, 32, 2, 35. Treating an unrecognised
+    // byte as fatal while reading the list meant type 2, late in it, was
+    // never reached.
+    let port = serve_banner(b"RFB 003.889\n", &[33, 36, 31, 32, 2]);
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
+        .err()
+        .expect("a password is required");
+    // VNC Auth was found despite four unknown types ahead of it.
     assert!(matches!(error, agenterm_vnc::VncError::PasswordRequired), "got {error:?}");
 }
