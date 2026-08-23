@@ -16,3 +16,6 @@ target-click-release/
 .reasonix-dispatch/
 # reasonix CLI 在项目根落的会话/任务工作区
 .reasonix/
+
+# tauri-build regenerates these ACL schemas on every build
+crates/agenterm-vnc-app/gen/

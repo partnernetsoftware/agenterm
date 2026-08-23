@@ -1,0 +1,33 @@
+# Vendored from vnc-rs 0.5.3 (MIT OR Apache-2.0), upstream
+# https://github.com/HsuJv/vnc-rs. See PATCHES.md for the local changes.
+[package]
+name = "agenterm-vnc-rs"
+version = "0.5.3"
+edition = "2021"
+rust-version = "1.97"
+description = "Vendored vnc-rs with Apple Remote Management auth and the SecurityResult transmute removed"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "vnc"
+path = "src/lib.rs"
+
+[dependencies]
+async_io_stream = "0.3"
+flate2 = "1"
+futures = "0.3"
+thiserror = "1"
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["compat"] }
+tracing = { version = "0.1", features = ["log"] }
+tokio = { version = "1", features = ["net", "rt", "sync", "time", "macros", "io-util"] }
+
+# Vendored upstream code is kept as close to its original form as possible, so
+# its lint findings are not actionable here. Local edits are marked
+# `AGENTERM PATCH` and reviewed by hand; see PATCHES.md.
+[lints.clippy]
+all = { level = "allow", priority = -1 }
+
+[lints.rust]
+warnings = { level = "allow", priority = -1 }
