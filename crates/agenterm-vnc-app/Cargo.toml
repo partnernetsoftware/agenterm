@@ -1,0 +1,29 @@
+[package]
+name = "agenterm-vnc-app"
+version = "0.1.16"
+edition = "2024"
+rust-version = "1.97"
+description = "Agenterm VNC client: a Tauri 2 shell over the agenterm-vnc session mechanism"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/partnernetsoftware/agenterm"
+publish = false
+
+[lib]
+# Tauri's mobile targets build the app as a library and generate their own
+# entry point, so the desktop binary is a thin wrapper over `lib::run`.
+name = "agenterm_vnc_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "agenterm-vnc-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+agenterm-vnc = { path = "../agenterm-vnc" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }

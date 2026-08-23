@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>AgenTerm VNC</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<!-- Connection sheet. Shown until a session is live. -->
+<div id="connect-sheet" class="sheet">
+  <form id="connect-form" class="card" autocomplete="off">
+    <h1>AgenTerm VNC</h1>
+    <label for="host">Host</label>
+    <input id="host" name="host" type="text" inputmode="url" placeholder="192.0.2.10" required />
+    <label for="port">Port</label>
+    <input id="port" name="port" type="number" min="1" max="65535" value="5900" required />
+    <label for="username">Username <span class="hint">(macOS 屏幕共享需要)</span></label>
+    <input id="username" name="username" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" />
+    <label for="password">Password <span class="hint">(blank for none)</span></label>
+    <input id="password" name="password" type="password" />
+    <button id="connect-button" type="submit">Connect</button>
+    <p id="connect-error" class="error" role="alert" hidden></p>
+  </form>
+</div>
+
+<!-- The remote surface. Panning and zooming is a CSS transform on this canvas,
+     so the bitmap keeps its native resolution and the mapping back to server
+     coordinates stays a pure division. -->
+<div id="stage">
+  <canvas id="screen" width="1" height="1"></canvas>
+</div>
+
+<!-- Floating HUD -->
+<div id="hud" hidden>
+  <button type="button" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+  <button type="button" data-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+  <button type="button" data-action="fit" title="Fit to window" aria-label="Fit to window">&#9633;</button>
+  <button type="button" data-action="keyboard" title="Toggle keyboard" aria-label="Toggle keyboard">&#9000;</button>
+  <button type="button" data-action="disconnect" class="danger" title="Disconnect" aria-label="Disconnect">&#10005;</button>
+</div>
+
+<!-- Off-screen input that exists only to raise the soft keyboard on touch
+     devices; keystrokes are read from key events, never from its value. -->
+<input id="keyboard-trap" type="text" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" aria-hidden="true" />
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[package]
+name = "agenterm-vnc"
+version = "0.1.16"
+edition = "2024"
+rust-version = "1.97"
+description = "Agenterm VNC session mechanism: RFB client sessions over TCP with a frame/event channel surface"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/partnernetsoftware/agenterm"
+
+[dependencies]
+# The RFB protocol engine, vendored under `third_party/vnc-rs`. The local copy
+# adds Apple Remote Management (security type 30) and removes two unsound
+# transmutes; see `third_party/vnc-rs/PATCHES.md`.
+vnc = { package = "agenterm-vnc-rs", path = "../../third_party/vnc-rs" }
+serde = { version = "1", features = ["derive"] }
+# `net` for TcpStream, `rt-multi-thread` for the session task, `sync` for the
+# command/frame channels, `time` for the refresh tick. `full` is deliberately
+# avoided so the dependency graph stays inspectable.
+tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "sync", "time", "macros"] }
+# Apple Remote Management (security type 30) is Diffie-Hellman + MD5 + AES-ECB.
+# `vnc-rs` does not implement it, so `ard` owns that exchange; these are the
+# primitives it needs and nothing else uses.
+num-bigint = { version = "0.4", default-features = false }
+md-5 = "0.11"
+aes = "0.9"
+cipher = "0.5"
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
