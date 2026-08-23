@@ -46,12 +46,43 @@ pub struct ConnectOptions {
     pub password: Option<String>,
     /// Share the desktop rather than displacing other clients.
     pub shared: bool,
+    /// How much colour to ask the server for.
+    pub colour: ColourDepth,
+}
+
+/// How many bits of colour to negotiate.
+///
+/// This is not a free choice between two independent axes. Halving the bits
+/// halves what an *uncompressed* rect costs, but the Tight encoding -- which
+/// compresses far better than that, and which macOS Screen Sharing leans on --
+/// only operates on 32-bit formats. Asking for sixteen bits therefore also
+/// gives up Tight, and on a photographic desktop Tight wins by more than the
+/// factor of two that sixteen bits saves.
+///
+/// So the default stays at millions of colours with Tight available, and
+/// [`Self::Thousands`] exists for the case it is actually good at: a link slow
+/// enough that raw bytes dominate, with content flat enough that Tight's
+/// advantage is small.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColourDepth {
+    /// 32-bit BGRA, and Tight stays available. The right default.
+    #[default]
+    Millions,
+    /// 16-bit RGB565: half the raw bytes, but no Tight, so ZRLE and Raw only.
+    Thousands,
 }
 
 impl ConnectOptions {
     #[must_use]
     pub fn new(host: impl Into<String>, port: u16, password: Option<String>) -> Self {
-        Self { host: host.into(), port, username: None, password, shared: true }
+        Self {
+            host: host.into(),
+            port,
+            username: None,
+            password,
+            shared: true,
+            colour: ColourDepth::default(),
+        }
     }
 }
 
@@ -140,8 +171,28 @@ pub async fn connect(
     let _ = stream.set_nodelay(true);
 
     let password = options.password.clone();
+    // Tight cannot decode a 16-bit format, so requesting both would leave the
+    // server free to send rects this client must then refuse.
+    let encodings: &[vnc::VncEncoding] = match options.colour {
+        ColourDepth::Millions => &[
+            vnc::VncEncoding::Tight,
+            vnc::VncEncoding::Zrle,
+            vnc::VncEncoding::CopyRect,
+            vnc::VncEncoding::Raw,
+        ],
+        ColourDepth::Thousands => &[
+            vnc::VncEncoding::Zrle,
+            vnc::VncEncoding::CopyRect,
+            vnc::VncEncoding::Raw,
+        ],
+    };
+
     let mut connector = VncConnector::new(stream)
         .set_auth_method(async move { Ok(password.unwrap_or_default()) });
+    for encoding in encodings {
+        connector = connector.add_encoding(*encoding);
+    }
+    let mut connector = connector;
 
     // Apple Remote Management: the vendored engine does the RFB framing and
     // calls back here for the Diffie-Hellman and AES work.
@@ -169,17 +220,16 @@ pub async fn connect(
     }
 
     let client = connector
-        .add_encoding(vnc::VncEncoding::Tight)
-        .add_encoding(vnc::VncEncoding::Zrle)
-        .add_encoding(vnc::VncEncoding::CopyRect)
-        .add_encoding(vnc::VncEncoding::Raw)
         .add_encoding(vnc::VncEncoding::DesktopSizePseudo)
         // Lets a server close an update without having declared a rect count
         // up front, which Apple's does. Without it the engine waits for rects
         // that never come.
         .add_encoding(vnc::VncEncoding::LastRectPseudo)
         .allow_shared(options.shared)
-        .set_pixel_format(PixelFormat::bgra())
+        .set_pixel_format(match options.colour {
+            ColourDepth::Thousands => PixelFormat::rgb565(),
+            ColourDepth::Millions => PixelFormat::bgra(),
+        })
         .build()
         .map_err(VncError::Protocol)?
         .try_start()
@@ -194,13 +244,20 @@ pub async fn connect(
     let (frame_tx, frame_rx) = mpsc::channel(2);
     let alive = Arc::new(AtomicBool::new(true));
 
-    tokio::spawn(run_session(client, command_rx, frame_tx, Arc::clone(&alive)));
+    tokio::spawn(run_session(
+        client,
+        options.colour,
+        command_rx,
+        frame_tx,
+        Arc::clone(&alive),
+    ));
 
     Ok((SessionHandle { commands: command_tx, alive }, frame_rx))
 }
 
 async fn run_session(
     client: vnc::VncClient,
+    colour: ColourDepth,
     mut commands: mpsc::Receiver<Command>,
     frames: mpsc::Sender<Frame>,
     alive: Arc<AtomicBool>,
@@ -243,7 +300,7 @@ async fn run_session(
                 match event {
                     Ok(Some(event)) => {
                         if let Some(changed) =
-                            apply_event(&mut framebuffer, event, &mut decode_errors)
+                            apply_event(&mut framebuffer, event, colour, &mut decode_errors)
                         {
                             accumulate(&mut dirty, changed);
                             // Hand pixels on the moment they are composited.
@@ -382,6 +439,7 @@ fn overlaps_or_touches(a: Rect, b: Rect) -> bool {
 fn apply_event(
     framebuffer: &mut Framebuffer,
     event: VncEvent,
+    colour: ColourDepth,
     decode_errors: &mut Vec<String>,
 ) -> Option<Rect> {
     match event {
@@ -394,7 +452,12 @@ fn apply_event(
         }
         VncEvent::RawImage(rect, data) => {
             let rect = convert_rect(rect);
-            framebuffer.blit_bgra(rect, &data);
+            // The decoders hand pixels back in whatever format was negotiated,
+            // so this has to follow that choice rather than assume four bytes.
+            match colour {
+                ColourDepth::Thousands => framebuffer.blit_rgb565(rect, &data),
+                ColourDepth::Millions => framebuffer.blit_bgra(rect, &data),
+            }
             Some(rect)
         }
         VncEvent::Copy(dst, src) => {

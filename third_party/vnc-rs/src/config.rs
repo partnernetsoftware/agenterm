@@ -260,6 +260,26 @@ impl PixelFormat {
         PixelFormat::default()
     }
 
+    /// AGENTERM PATCH: 16-bit RGB565, what RFB calls "thousands of colours".
+    ///
+    /// Halves the bytes a server puts on the wire before any compression,
+    /// which is the format Apple's own client negotiates. Provided as a
+    /// constructor because the padding fields are private, so an embedder
+    /// cannot build one with a struct literal.
+    pub fn rgb565() -> PixelFormat {
+        Self {
+            bits_per_pixel: 16,
+            depth: 16,
+            red_max: 31,
+            green_max: 63,
+            blue_max: 31,
+            red_shift: 11,
+            green_shift: 5,
+            blue_shift: 0,
+            ..Default::default()
+        }
+    }
+
     // (a << 24 | b << 16 | g << 8 | r) in le
     // which is [r, g, b, a] in network
     pub fn rgba() -> PixelFormat {

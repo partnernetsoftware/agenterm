@@ -203,3 +203,40 @@ fn the_swizzle_matches_the_scalar_definition_at_an_offset() {
     fb.blit_bgra(rect, &data);
     assert_eq!(fb.as_rgba(), scalar_truth_blit(9, 6, rect, &data));
 }
+
+#[test]
+fn rgb565_expands_so_full_channels_reach_255() {
+    // Naively shifting left leaves white at 248, which reads as a grey cast
+    // over the whole screen. Replicating the high bits into the low ones is
+    // what keeps full channels full.
+    let mut fb = Framebuffer::new(3, 1);
+    let rect = Rect { x: 0, y: 0, width: 3, height: 1 };
+    // White, then pure red, then pure blue, little-endian RGB565.
+    let mut data = Vec::new();
+    for pixel in [0xffffu16, 0xf800, 0x001f] {
+        data.extend_from_slice(&pixel.to_le_bytes());
+    }
+    fb.blit_rgb565(rect, &data);
+
+    assert_eq!(pixel(&fb, 0, 0), (255, 255, 255, 255), "white must be full");
+    assert_eq!(pixel(&fb, 1, 0), (255, 0, 0, 255), "red");
+    assert_eq!(pixel(&fb, 2, 0), (0, 0, 255, 255), "blue");
+}
+
+#[test]
+fn rgb565_black_stays_black() {
+    let mut fb = Framebuffer::new(1, 1);
+    fb.blit_rgb565(Rect { x: 0, y: 0, width: 1, height: 1 }, &0u16.to_le_bytes());
+    assert_eq!(pixel(&fb, 0, 0), (0, 0, 0, 255));
+}
+
+#[test]
+fn rgb565_clips_like_the_other_blits() {
+    let mut fb = Framebuffer::new(2, 2);
+    // A rect overhanging both edges must fill what it can and stop.
+    let rect = Rect { x: 1, y: 1, width: 4, height: 4 };
+    let data = vec![0xffu8; rect.width as usize * rect.height as usize * 2];
+    fb.blit_rgb565(rect, &data);
+    assert_eq!(pixel(&fb, 1, 1), (255, 255, 255, 255));
+    assert_eq!(pixel(&fb, 0, 0), (0, 0, 0, 255), "untouched pixels stay black");
+}

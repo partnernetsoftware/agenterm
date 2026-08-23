@@ -27,7 +27,7 @@ mod resolve;
 mod session;
 
 pub use framebuffer::{BYTES_PER_PIXEL, Framebuffer, Rect};
-pub use session::{ConnectOptions, SessionHandle, connect};
+pub use session::{ColourDepth, ConnectOptions, SessionHandle, connect};
 
 /// One update to the screen, ready for a canvas or texture upload.
 ///

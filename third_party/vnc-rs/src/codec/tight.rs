@@ -46,12 +46,22 @@ impl Decoder {
             | ((format.green_max as u32) << format.green_shift)
             | ((format.blue_max as u32) << format.blue_shift);
 
+        // AGENTERM PATCH: upstream reached `unreachable!()` for any mask other
+        // than the four 32bpp arrangements, so negotiating a 16-bit format and
+        // then receiving a Tight rect aborted the process. Tight carries no
+        // alpha channel of its own at 16bpp; report the mismatch as an error
+        // the session can surface instead of killing it.
         self.alpha_shift = match pixel_mask {
             0xff_ff_ff_00 => 0,
             0xff_ff_00_ff => 8,
             0xff_00_ff_ff => 16,
             0x00_ff_ff_ff => 24,
-            _ => unreachable!(),
+            _ => {
+                return Err(VncError::General(format!(
+                    "the Tight decoder needs a 32-bit pixel format, but the session \
+                     negotiated a mask of {pixel_mask:#010x}"
+                )));
+            }
         };
 
         let ctrl = input.read_u8().await?;

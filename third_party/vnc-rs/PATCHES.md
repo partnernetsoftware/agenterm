@@ -61,6 +61,15 @@ that announces `RFB 003.889` and offers types 30, 33, 36, 31, 32, 2 and 35.
   never reached. Unknown types are now skipped, and the list is only an error
   when nothing in it is understood.
 
+## 4. Two more places an untrusted value could abort the process
+
+`Tight::read` derived an alpha shift from the negotiated pixel mask and hit
+`unreachable!()` for anything but the four 32-bit arrangements, so negotiating
+a 16-bit format and then receiving a Tight rect killed the process. It now
+returns an error the session can report. `PixelFormat::rgb565` was also added,
+because the padding fields are private and an embedder cannot otherwise
+construct a 16-bit format.
+
 ## Notes
 
 The cryptography deliberately stays **outside** this vendored copy, in
