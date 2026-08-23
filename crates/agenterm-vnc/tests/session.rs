@@ -521,3 +521,139 @@ fn scattered_updates_do_not_become_a_whole_screen_send() {
         session.disconnect().await;
     });
 }
+
+/// Serve one Tight-encoded rect carrying a real JPEG.
+///
+/// This is the shape macOS Screen Sharing sends most desktop content as, and
+/// the one that rendered as a grid of stale tiles when it was not decoded.
+fn serve_tight_jpeg(width: u16, height: u16) -> u16 {
+    const JPEG: &[u8] = include_bytes!("fixtures/red-16x16.jpg");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut probe, _)) = listener.accept() {
+            let _ = probe.write_all(b"RFB 003.008\n");
+            let mut version = [0u8; 12];
+            let _ = probe.read_exact(&mut version);
+            let _ = probe.write_all(&[1, 1]);
+        }
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ = stream.write_all(b"RFB 003.008\n");
+        let mut version = [0u8; 12];
+        if stream.read_exact(&mut version).is_err() {
+            return;
+        }
+        let _ = stream.write_all(&[1, 1]);
+        let mut chosen = [0u8; 1];
+        let _ = stream.read_exact(&mut chosen);
+        let _ = stream.write_all(&0u32.to_be_bytes());
+        let mut shared = [0u8; 1];
+        let _ = stream.read_exact(&mut shared);
+
+        let mut init = Vec::new();
+        init.extend_from_slice(&width.to_be_bytes());
+        init.extend_from_slice(&height.to_be_bytes());
+        init.extend_from_slice(&[32, 24, 0, 1]);
+        for _ in 0..3 {
+            init.extend_from_slice(&255u16.to_be_bytes());
+        }
+        init.extend_from_slice(&[16, 8, 0, 0, 0, 0]);
+        init.extend_from_slice(&4u32.to_be_bytes());
+        init.extend_from_slice(b"test");
+        let _ = stream.write_all(&init);
+
+        loop {
+            let mut kind = [0u8; 1];
+            if stream.read_exact(&mut kind).is_err() {
+                return;
+            }
+            match kind[0] {
+                0 => {
+                    let mut rest = [0u8; 19];
+                    let _ = stream.read_exact(&mut rest);
+                }
+                2 => {
+                    let mut header = [0u8; 3];
+                    let _ = stream.read_exact(&mut header);
+                    let count = u16::from_be_bytes([header[1], header[2]]);
+                    let mut body = vec![0u8; count as usize * 4];
+                    let _ = stream.read_exact(&mut body);
+                }
+                3 => {
+                    let mut rest = [0u8; 9];
+                    let _ = stream.read_exact(&mut rest);
+
+                    let mut update = vec![0u8, 0];
+                    update.extend_from_slice(&1u16.to_be_bytes());
+                    update.extend_from_slice(&0u16.to_be_bytes()); // x
+                    update.extend_from_slice(&0u16.to_be_bytes()); // y
+                    update.extend_from_slice(&16u16.to_be_bytes());
+                    update.extend_from_slice(&16u16.to_be_bytes());
+                    update.extend_from_slice(&7i32.to_be_bytes()); // Tight
+                    update.push(0x90); // compression control: JPEG
+                    // Tight's compact length: seven bits per byte, low first.
+                    let mut remaining = JPEG.len();
+                    loop {
+                        let mut byte = (remaining & 0x7f) as u8;
+                        remaining >>= 7;
+                        if remaining > 0 {
+                            byte |= 0x80;
+                        }
+                        update.push(byte);
+                        if remaining == 0 {
+                            break;
+                        }
+                    }
+                    update.extend_from_slice(JPEG);
+                    if stream.write_all(&update).is_err() {
+                        return;
+                    }
+                }
+                4 => {
+                    let mut rest = [0u8; 7];
+                    let _ = stream.read_exact(&mut rest);
+                }
+                5 => {
+                    let mut rest = [0u8; 5];
+                    let _ = stream.read_exact(&mut rest);
+                }
+                _ => return,
+            }
+        }
+    });
+    port
+}
+
+#[test]
+fn tight_jpeg_rects_are_decoded_rather_than_dropped() {
+    // Unhandled, these rects leave whatever was underneath, which is why a
+    // real macOS desktop rendered as a grid of stale tiles. A pure-JPEG server
+    // like this one produced no frames at all before they were decoded.
+    let port = serve_tight_jpeg(64, 64);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    runtime.block_on(async move {
+        let (session, mut frames) =
+            agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None))
+                .await
+                .expect("connect");
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), frames.recv())
+            .await
+            .expect("a JPEG rect must produce a frame")
+            .expect("the channel stays open");
+
+        assert_eq!((frame.region_width, frame.region_height), (16, 16));
+        // The fixture is a solid red-ish tile. JPEG is lossy, so this asserts
+        // the colour is recognisably right rather than exact.
+        let (red, green, blue) = (frame.rgba[0], frame.rgba[1], frame.rgba[2]);
+        assert!(
+            red > 180 && green < 90 && blue < 110,
+            "decoded pixel was ({red}, {green}, {blue}), not the fixture's red"
+        );
+        assert_eq!(frame.rgba[3], 0xff, "alpha stays opaque");
+        session.disconnect().await;
+    });
+}

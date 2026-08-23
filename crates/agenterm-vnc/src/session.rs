@@ -174,6 +174,10 @@ pub async fn connect(
         .add_encoding(vnc::VncEncoding::CopyRect)
         .add_encoding(vnc::VncEncoding::Raw)
         .add_encoding(vnc::VncEncoding::DesktopSizePseudo)
+        // Lets a server close an update without having declared a rect count
+        // up front, which Apple's does. Without it the engine waits for rects
+        // that never come.
+        .add_encoding(vnc::VncEncoding::LastRectPseudo)
         .allow_shared(options.shared)
         .set_pixel_format(PixelFormat::bgra())
         .build()
@@ -207,6 +211,9 @@ async fn run_session(
     // 4K screen share a bounding box of the whole screen: 2 KB of real content
     // becomes a 31 MB send, which is the case a naive union gets badly wrong.
     let mut dirty: Vec<Rect> = Vec::new();
+    // Decode failures reported by the engine. Collected rather than dropped so
+    // a stream this client cannot read is diagnosable instead of merely ugly.
+    let mut decode_errors: Vec<String> = Vec::new();
     let mut ticker = tokio::time::interval(REFRESH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut shutdown_ack: Option<oneshot::Sender<()>> = None;
@@ -235,7 +242,9 @@ async fn run_session(
             event = client.poll_event() => {
                 match event {
                     Ok(Some(event)) => {
-                        if let Some(changed) = apply_event(&mut framebuffer, event) {
+                        if let Some(changed) =
+                            apply_event(&mut framebuffer, event, &mut decode_errors)
+                        {
                             accumulate(&mut dirty, changed);
                             // Hand pixels on the moment they are composited.
                             // Waiting for the next refresh tick would add up to
@@ -266,6 +275,17 @@ async fn run_session(
     }
 
     alive.store(false, Ordering::SeqCst);
+    if !decode_errors.is_empty() {
+        // Repeats are the norm when one encoding is unsupported, so report the
+        // distinct messages with a count rather than a flood of duplicates.
+        decode_errors.sort();
+        decode_errors.dedup();
+        eprintln!(
+            "agenterm-vnc: {} decode failure(s) during the session: {}",
+            decode_errors.len(),
+            decode_errors.join("; ")
+        );
+    }
     let _ = client.close().await;
     if let Some(ack) = shutdown_ack {
         let _ = ack.send(());
@@ -359,7 +379,11 @@ fn overlaps_or_touches(a: Rect, b: Rect) -> bool {
 }
 
 /// Fold one protocol event into the surface, returning the region it touched.
-fn apply_event(framebuffer: &mut Framebuffer, event: VncEvent) -> Option<Rect> {
+fn apply_event(
+    framebuffer: &mut Framebuffer,
+    event: VncEvent,
+    decode_errors: &mut Vec<String>,
+) -> Option<Rect> {
     match event {
         VncEvent::SetResolution(screen) => {
             framebuffer.resize(screen.width, screen.height);
@@ -378,9 +402,50 @@ fn apply_event(framebuffer: &mut Framebuffer, event: VncEvent) -> Option<Rect> {
             framebuffer.copy_rect(dst, convert_rect(src));
             Some(dst)
         }
+        // Tight sends most photographic and desktop content as JPEG. Dropping
+        // these leaves whatever was underneath, which is why an unhandled
+        // JPEG path renders as a grid of stale tiles rather than as nothing.
+        VncEvent::JpegImage(rect, data) => {
+            let rect = convert_rect(rect);
+            match decode_jpeg(&data) {
+                Some(pixels) => {
+                    framebuffer.blit_rgb(rect, &pixels);
+                    Some(rect)
+                }
+                // A rect we cannot decode is left alone rather than painted
+                // with garbage; the next full refresh replaces it.
+                None => None,
+            }
+        }
+        // A decode failure. There is nothing to paint, but staying silent is
+        // how a broken stream turns into "the screen looks wrong" with no
+        // explanation, so it is surfaced for the caller to log.
+        VncEvent::Error(message) => {
+            decode_errors.push(message);
+            None
+        }
         // Cursor and clipboard events carry no framebuffer pixels the canvas
         // consumer can use; the server also paints the cursor into the
         // framebuffer itself, so ignoring these leaves no visible gap.
+        _ => None,
+    }
+}
+
+/// Decode one JPEG rect to packed RGB, or `None` if it cannot be read.
+///
+/// RFB's Tight encoding carries baseline JPEG. A grayscale image decodes to
+/// one byte per pixel, so it is expanded here rather than left for the blit to
+/// misread as RGB.
+fn decode_jpeg(data: &[u8]) -> Option<Vec<u8>> {
+    let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(data));
+    let pixels = decoder.decode().ok()?;
+    match decoder.info()?.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => Some(pixels),
+        jpeg_decoder::PixelFormat::L8 => {
+            Some(pixels.iter().flat_map(|&value| [value, value, value]).collect())
+        }
+        // CMYK and 16-bit grayscale do not occur in RFB Tight streams; a
+        // future server that sends one gets a skipped rect, not garbage.
         _ => None,
     }
 }

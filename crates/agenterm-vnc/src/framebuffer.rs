@@ -121,6 +121,41 @@ impl Framebuffer {
         }
     }
 
+    /// Composite one packed RGB rect into the surface.
+    ///
+    /// JPEG rects arrive as three bytes per pixel with no alpha, unlike the
+    /// four-byte BGRA the rest of the session negotiates, so they need their
+    /// own path rather than a reinterpretation of [`Self::blit_bgra`].
+    pub fn blit_rgb(&mut self, rect: Rect, data: &[u8]) {
+        const SRC_BYTES: usize = 3;
+        let row_pixels = rect.width as usize;
+        for row in 0..rect.height {
+            let dst_y = rect.y as usize + row as usize;
+            if dst_y >= self.height as usize {
+                break;
+            }
+            let visible = row_pixels.min((self.width as usize).saturating_sub(rect.x as usize));
+            if visible == 0 {
+                continue;
+            }
+            let src_start = row as usize * row_pixels * SRC_BYTES;
+            let Some(src_row) = data.get(src_start..src_start + visible * SRC_BYTES) else {
+                break;
+            };
+            let dst_start = (dst_y * self.width as usize + rect.x as usize) * BYTES_PER_PIXEL;
+            let dst_row = &mut self.pixels[dst_start..dst_start + visible * BYTES_PER_PIXEL];
+            for (dst, src) in dst_row
+                .chunks_exact_mut(BYTES_PER_PIXEL)
+                .zip(src_row.chunks_exact(SRC_BYTES))
+            {
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = src[2];
+                dst[3] = 0xff;
+            }
+        }
+    }
+
     /// Apply an RFB `CopyRect`: move an existing region to a new origin.
     ///
     /// The source is staged into a scratch buffer first because source and

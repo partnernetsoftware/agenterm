@@ -14,6 +14,7 @@ Copyright and license terms remain with their respective authors.
 | `atspi` | Apache-2.0 OR MIT |
 | `cc` (dev dependency) | MIT OR Apache-2.0 |
 | `itoa` | MIT OR Apache-2.0 |
+| `jpeg-decoder` | MIT OR Apache-2.0 |
 | `libc` | MIT OR Apache-2.0 |
 | `libloading` | ISC |
 | `md-5` | MIT OR Apache-2.0 |
