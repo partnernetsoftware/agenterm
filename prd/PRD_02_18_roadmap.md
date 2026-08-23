@@ -718,8 +718,5 @@ track remains planned, but every declared dependency must still pass.
   Owned by [agenterm-dyn](PRD_02_34_agenterm_dyn.md). First cut is on `main`.
   Resume after Grok Bot Cursor quota resets: harden leftovers, pointer-buffer
   Linux probes, paired examples. No cu/platform/JIT unless 政委 orders it.
-- [~] `agenterm-tinyvm` — WASM 1.0 interpret slot A; one face `eval(bytes)`.
-  Owned by [agenterm-tinyvm](PRD_02_35_agenterm_tinyvm.md). Kernel is the
-  interpreter (stripped static core < 100 KiB); multi-arch/APE packaging is
-  not the engine. Slot B (dyn/AOT) is deferred. Does not merge cu or touch
-  dyn / chassis / #78.
+- [~] `agenterm-tinyvm` — **已迁出**到独立仓 `partnernetsoftware/tinyvm`（本地 `../tinyvm`）。WASM 1.0 interpret slot A；核 < 100 KiB。agenterm 只作下游 embedder，不再持有其写刀。
+- [ ] (待派单) **wasm/qjs 引擎重构为依赖 tinyvm** — 把 agenterm 内 `agenterm-wasmcore` / `agenterm-qjs` 的处理改为基于独立 tinyvm 运行时（依赖方向 agenterm → tinyvm）。**2026-08-23 记录，等另行下单再动工**；下单前不写代码、不改 Cargo 依赖。关联：tinyvm 独立仓 PRD、`plan/plan-v0.1.16.md` 脚本引擎小节。
