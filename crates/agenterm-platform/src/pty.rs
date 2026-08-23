@@ -17,6 +17,37 @@ pub use crate::selected::pty::{ChildCommand, PtyChild, PtyMaster, login_shell_ar
 #[cfg(windows)]
 pub const CONSOLE_AGENT_ARGUMENT: &str = crate::selected::console_agent::AGENT_ARGUMENT;
 
+/// Which PTY backend this machine will actually get, and why.
+///
+/// Exists because the answer is a property of the running system, not of the
+/// build: the same executable uses a pseudoconsole on one machine and a
+/// console agent on another. Asking a user to describe a symptom is a poor
+/// substitute for the program stating which half of itself is in play.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BackendReport {
+    /// A stable identifier, not a sentence: `conpty`, `console-agent` or
+    /// `unix-pty`. Automation matches on this.
+    pub kind: &'static str,
+    /// One line a person can act on. Empty when there is nothing to explain.
+    pub detail: String,
+}
+
+/// Reports the backend without opening one.
+#[must_use]
+pub fn backend_report() -> BackendReport {
+    #[cfg(windows)]
+    {
+        crate::selected::pty::backend_report()
+    }
+    #[cfg(not(windows))]
+    {
+        BackendReport {
+            kind: "unix-pty",
+            detail: String::new(),
+        }
+    }
+}
+
 /// Runs the pre-ConPTY console agent if these arguments ask for it.
 ///
 /// On Windows builds without a pseudoconsole this executable re-executes

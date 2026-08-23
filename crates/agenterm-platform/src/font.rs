@@ -62,6 +62,60 @@ pub fn rasterizer_name() -> Result<String, FontError> {
     selected::font::rasterizer_name()
 }
 
+/// What the terminal grid was actually built on, measured rather than
+/// requested.
+///
+/// A font is chosen from a wish list, and on Windows the system substitutes
+/// silently for anything missing — so the family a build asks for and the face
+/// a machine renders with are different questions. This answers the second
+/// one, which is the only one a user reporting "the font looks wrong" can help
+/// with.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrimaryFaceReport {
+    /// The face the system resolved to, as it names itself — which may be a
+    /// localized name rather than the family that was requested.
+    pub face: String,
+    pub cell_width: u32,
+    pub cell_height: u32,
+    /// `None` where the platform cannot measure a single character's advance.
+    pub ascii_advance: Option<u32>,
+    pub full_width_advance: Option<u32>,
+}
+
+impl PrimaryFaceReport {
+    /// Whether a full-width character occupies exactly two cells.
+    ///
+    /// The invariant a character grid depends on. `None` means it could not be
+    /// measured, which is not the same as false and must not be reported as
+    /// though it were.
+    #[must_use]
+    pub fn full_width_is_double(&self) -> Option<bool> {
+        match (self.ascii_advance, self.full_width_advance) {
+            (Some(ascii), Some(full)) if ascii > 0 => Some(full == ascii * 2),
+            _ => None,
+        }
+    }
+}
+
+/// Measures the face the grid is built on at `size_px`.
+pub fn primary_face_report(size_px: u16) -> Result<PrimaryFaceReport, FontError> {
+    #[cfg(windows)]
+    {
+        selected::font::primary_face_report(size_px)
+    }
+    #[cfg(not(windows))]
+    {
+        let metrics = primary_metrics(size_px)?;
+        Ok(PrimaryFaceReport {
+            face: rasterizer_name()?,
+            cell_width: crate::numeric::ceil_f32(metrics.cell_width).max(1.0) as u32,
+            cell_height: crate::numeric::ceil_f32(metrics.cell_height).max(1.0) as u32,
+            ascii_advance: None,
+            full_width_advance: None,
+        })
+    }
+}
+
 /// Rasterizes one Unicode scalar without exposing font files or native handles.
 pub fn rasterize(ch: char, size_px: u16) -> Result<Option<RasterGlyph>, FontError> {
     selected::font::rasterize(ch, size_px)

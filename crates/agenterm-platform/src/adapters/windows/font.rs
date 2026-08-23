@@ -476,6 +476,30 @@ pub(crate) fn primary_metrics(size_px: u16) -> Result<FontMetrics, FontError> {
     })
 }
 
+/// Reports the face selection with the measurements it was decided on.
+///
+/// Runs the same selection `primary_metrics` does rather than reading a cache,
+/// so a status line cannot disagree with what is being rendered.
+pub(crate) fn primary_face_report(
+    size_px: u16,
+) -> Result<crate::font::PrimaryFaceReport, FontError> {
+    let size_px = size_px.clamp(MIN_SIZE_PX, MAX_SIZE_PX);
+    let (_, face, shape) = select_primary(size_px)?;
+    Ok(crate::font::PrimaryFaceReport {
+        face: face.actual_name()?,
+        cell_width: shape.map_or_else(
+            || face.metrics.tmAveCharWidth.max(1),
+            |shape| shape.cell_width.max(1),
+        ) as u32,
+        cell_height: face.metrics.tmHeight.max(1) as u32,
+        // A face that failed measurement reports nothing rather than a
+        // fabricated number: "unknown" is the honest answer and the one that
+        // tells a reader the selection fell through.
+        ascii_advance: shape.map(|shape| shape.cell_width.max(0) as u32),
+        full_width_advance: char_advance(face.dc, FULL_WIDTH_PROBE).map(|width| width as u32),
+    })
+}
+
 pub(crate) fn probe_capability() -> Result<(), FontError> {
     Ok(())
 }
@@ -844,6 +868,71 @@ mod tests {
         assert_eq!(
             primary_metrics(40).expect("metrics").cell_width,
             large.cell_width
+        );
+    }
+
+    /// A status line that can disagree with what is rendered is worse than no
+    /// status line: it sends whoever reads it after the wrong thing. The
+    /// report must therefore agree with the metrics the grid is built from.
+    #[test]
+    fn the_face_report_agrees_with_the_metrics_the_grid_uses() {
+        for size in [12_u16, 15, 16, 24] {
+            let report = primary_face_report(size).expect("report");
+            let metrics = primary_metrics(size).expect("metrics");
+            assert_eq!(report.cell_width, metrics.cell_width as u32, "at {size}px");
+            assert_eq!(report.cell_height, metrics.cell_height as u32, "at {size}px");
+            assert_eq!(
+                report.face,
+                rasterizer_name().unwrap_or_default(),
+                "the reported face is the one the rasterizer names"
+            );
+        }
+    }
+
+    /// The measurement is the whole point of the report: without an advance it
+    /// cannot answer the half/full-width question, and reporting `false` for
+    /// "not measured" would send a reader hunting a font problem that is not
+    /// there.
+    #[test]
+    fn an_unmeasured_face_reports_unknown_rather_than_false() {
+        let unmeasured = crate::font::PrimaryFaceReport {
+            face: "whatever".to_owned(),
+            cell_width: 8,
+            cell_height: 16,
+            ascii_advance: None,
+            full_width_advance: None,
+        };
+        assert_eq!(unmeasured.full_width_is_double(), None);
+
+        let good = crate::font::PrimaryFaceReport {
+            ascii_advance: Some(8),
+            full_width_advance: Some(16),
+            ..unmeasured.clone()
+        };
+        assert_eq!(good.full_width_is_double(), Some(true));
+
+        let bad = crate::font::PrimaryFaceReport {
+            ascii_advance: Some(9),
+            full_width_advance: Some(16),
+            ..unmeasured
+        };
+        assert_eq!(bad.full_width_is_double(), Some(false));
+    }
+
+    /// On this machine the invariant holds, so the report must say so — a
+    /// report that cannot produce a positive answer proves nothing when it
+    /// produces a negative one elsewhere.
+    #[test]
+    fn this_machine_reports_a_measured_double_width() {
+        let report = primary_face_report(16).expect("report");
+        assert!(!report.face.is_empty());
+        assert_eq!(
+            report.full_width_is_double(),
+            Some(true),
+            "face {:?} measured ascii={:?} full={:?}",
+            report.face,
+            report.ascii_advance,
+            report.full_width_advance
         );
     }
 

@@ -1644,6 +1644,49 @@ fn force_console_agent() -> bool {
     env::var_os("AGENTERM_FORCE_CONSOLE_AGENT").is_some_and(|value| value == "1")
 }
 
+/// Answers "which backend will this machine use" without opening a session.
+///
+/// Deliberately re-runs the same two questions `spawn` asks, in the same
+/// order, rather than reporting a value cached somewhere: a status that can
+/// disagree with the behaviour is worse than no status.
+pub(crate) fn backend_report() -> crate::pty::BackendReport {
+    let build = current_windows_build().ok();
+    let describe_build = || {
+        build.map_or_else(
+            || "Windows build unknown".to_owned(),
+            |build| format!("Windows build {build}"),
+        )
+    };
+    if force_console_agent() {
+        return crate::pty::BackendReport {
+            kind: "console-agent",
+            detail: format!(
+                "forced by AGENTERM_FORCE_CONSOLE_AGENT=1 ({})",
+                describe_build()
+            ),
+        };
+    }
+    if conpty::is_available() {
+        crate::pty::BackendReport {
+            kind: "conpty",
+            detail: describe_build(),
+        }
+    } else {
+        crate::pty::BackendReport {
+            kind: "console-agent",
+            detail: format!(
+                "{} has no ConPTY; a pseudoconsole needs build {CONPTY_MIN_BUILD} (1809)",
+                describe_build()
+            ),
+        }
+    }
+}
+
+/// The Windows build number, for callers that only want to print it.
+pub(crate) fn windows_build() -> Option<u32> {
+    current_windows_build().ok()
+}
+
 /// The pre-ConPTY path: an agent process stands in for the pseudoconsole.
 ///
 /// Deliberately built from the same pieces as the ConPTY path — the same
