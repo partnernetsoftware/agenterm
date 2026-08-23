@@ -12,6 +12,11 @@
 
 use std::{io, mem, panic::AssertUnwindSafe, ptr, sync::OnceLock};
 
+// Only the message filter needs these, and only the native window host calls
+// it, so they follow the same gate rather than being imported unconditionally.
+#[cfg(any(feature = "native-pixel-window", test))]
+use windows_sys::Win32::UI::WindowsAndMessaging::{IsDialogMessageW, MSG};
+
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, WPARAM},
     Graphics::Gdi::{COLOR_WINDOW, DEFAULT_GUI_FONT, GetStockObject},
@@ -22,11 +27,11 @@ use windows_sys::Win32::{
             BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CREATESTRUCTW, CS_DBLCLKS, CW_USEDEFAULT,
             CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOVSCROLL, ES_MULTILINE,
             ES_WANTRETURN, GWLP_USERDATA, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW,
-            HWND_TOP, IDC_ARROW, IsDialogMessageW, LoadCursorW, MSG, RegisterClassW, SW_SHOW,
-            SWP_NOMOVE, SWP_NOSIZE, SendMessageW, SetForegroundWindow, SetWindowLongPtrW,
-            SetWindowPos, ShowWindow, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_NCCREATE, WM_SETFONT,
-            WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_OVERLAPPED,
-            WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+            HWND_TOP, IDC_ARROW, LoadCursorW, RegisterClassW, SW_SHOW, SWP_NOMOVE, SWP_NOSIZE,
+            SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+            WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_NCCREATE, WM_SETFONT, WNDCLASSW, WS_CAPTION,
+            WS_CHILD, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
+            WS_VISIBLE, WS_VSCROLL,
         },
     },
 };
@@ -49,6 +54,11 @@ thread_local! {
 ///
 /// A host that never calls this still completes reviews through mouse input;
 /// it only loses keyboard navigation inside them.
+///
+/// The native window host is the only caller and its own feature gates it, so
+/// without that feature this is genuinely dead rather than merely unreferenced
+/// — kept compiled under `test` so its behaviour stays pinned either way.
+#[cfg(any(feature = "native-pixel-window", test))]
 pub(crate) fn filter_dialog_message(message: &MSG) -> bool {
     let hwnd = ACTIVE_DIALOG.with(std::cell::Cell::get);
     if hwnd.is_null() {

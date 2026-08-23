@@ -6,9 +6,10 @@ use std::cell::Cell;
 use windows_sys::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateFontW,
     DEFAULT_CHARSET, DeleteDC, DeleteObject, FF_MODERN, FIXED, FIXED_PITCH, FW_NORMAL, GDI_ERROR,
-    GetCharWidth32W, GGI_MARK_NONEXISTING_GLYPHS, GGO_GLYPH_INDEX, GGO_GRAY8_BITMAP, GLYPHMETRICS, GetDC,
-    GetDeviceCaps, GetFontData, GetGlyphIndicesW, GetGlyphOutlineW, GetTextFaceW, GetTextMetricsW,
-    HGDIOBJ, LOGPIXELSY, MAT2, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, TEXTMETRICW,
+    GGI_MARK_NONEXISTING_GLYPHS, GGO_GLYPH_INDEX, GGO_GRAY8_BITMAP, GLYPHMETRICS, GetCharWidth32W,
+    GetDC, GetDeviceCaps, GetFontData, GetGlyphIndicesW, GetGlyphOutlineW, GetTextFaceW,
+    GetTextMetricsW, HGDIOBJ, LOGPIXELSY, MAT2, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject,
+    TEXTMETRICW,
 };
 
 use crate::contract::font::{
@@ -836,8 +837,14 @@ mod tests {
             small.cell_width
         );
         // Re-reading returns the same numbers rather than a neighbour's.
-        assert_eq!(primary_metrics(10).expect("metrics").cell_width, small.cell_width);
-        assert_eq!(primary_metrics(40).expect("metrics").cell_width, large.cell_width);
+        assert_eq!(
+            primary_metrics(10).expect("metrics").cell_width,
+            small.cell_width
+        );
+        assert_eq!(
+            primary_metrics(40).expect("metrics").cell_width,
+            large.cell_width
+        );
     }
 
     /// A proportional face must be refused, or the selection is decorative.
@@ -948,7 +955,6 @@ mod tests {
         });
     }
 
-    #[test]
     /// Rasterizing the whole printable ASCII range must cost no more native
     /// faces than rasterizing one character.
     ///

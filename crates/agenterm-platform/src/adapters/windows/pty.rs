@@ -712,7 +712,9 @@ impl ConptySession {
     fn resize(&self, size: TerminalSize) -> io::Result<()> {
         let coord = coord_from_size(size)?;
         if let Some(agent) = &self.agent {
-            let guard = agent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let guard = agent
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             // A resize racing teardown is benign here for the same reason it
             // is below: the session is going away and the new size with it.
             let Some(control) = guard.as_ref() else {
@@ -771,7 +773,9 @@ impl ConptySession {
             // Dropping the control pipe is what ends the agent's control
             // thread. The agent itself exits with its child, and the host's
             // Job Object is the authority that kills both if it does not.
-            let mut guard = agent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut guard = agent
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             drop(guard.take());
         }
         if let Some(hpc) = self.take_hpc() {

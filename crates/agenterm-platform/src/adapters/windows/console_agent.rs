@@ -34,10 +34,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadFile, WriteFile,
 };
 use windows_sys::Win32::System::Console::{
-    AllocConsole, CHAR_INFO, CHAR_INFO_0, COORD, CONSOLE_SCREEN_BUFFER_INFO, CTRL_BREAK_EVENT,
-    CTRL_C_EVENT, FreeConsole, GenerateConsoleCtrlEvent, SetConsoleCtrlHandler,
-    GetConsoleScreenBufferInfo, GetConsoleWindow, INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT,
-    KEY_EVENT_RECORD, KEY_EVENT_RECORD_0, ReadConsoleOutputW, SMALL_RECT,
+    AllocConsole, CHAR_INFO, CHAR_INFO_0, CONSOLE_SCREEN_BUFFER_INFO, COORD, CTRL_BREAK_EVENT,
+    CTRL_C_EVENT, FreeConsole, GenerateConsoleCtrlEvent, GetConsoleScreenBufferInfo,
+    GetConsoleWindow, INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD,
+    KEY_EVENT_RECORD_0, ReadConsoleOutputW, SMALL_RECT, SetConsoleCtrlHandler,
     SetConsoleScreenBufferSize, SetConsoleWindowInfo, WriteConsoleInputW,
 };
 use windows_sys::Win32::System::JobObjects::{
@@ -51,10 +51,16 @@ use windows_sys::Win32::System::Threading::{
     WaitForSingleObject,
 };
 
-/// The argument that turns this executable into an agent. Deliberately long
-/// and prefixed: it must never collide with a real option, and a user who
-/// finds it in a process list should be able to tell what it belongs to.
-pub const AGENT_ARGUMENT: &str = "--agenterm-console-agent";
+/// The argument that turns an executable into an agent.
+///
+/// Carries no product name, on purpose. This adapter is shared, so whichever
+/// name it took would appear in some *other* product's command line — and a
+/// process list is public: a product with its own trademark should not be
+/// seen re-executing itself under a different one. `--internal-` marks it as
+/// not part of any command surface, matching the convention the other
+/// internal arguments already use, and makes a collision with a real option
+/// implausible.
+pub const AGENT_ARGUMENT: &str = "--internal-console-agent";
 
 /// How often the screen buffer is polled when the child is producing output.
 /// The console API offers no change notification, so this is the floor on
@@ -357,7 +363,12 @@ pub fn run_if_agent(arguments: &[String]) -> Option<i32> {
 }
 
 fn parse_and_run(rest: &[String]) -> io::Result<i32> {
-    let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "malformed console agent request");
+    let invalid = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "malformed console agent request",
+        )
+    };
     if rest.len() < 6 {
         return Err(invalid());
     }
@@ -410,7 +421,10 @@ fn run_agent(
     // orphan attached to a console nobody can see.
     unsafe {
         // SAFETY: both handles are live and owned by this frame.
-        AssignProcessToJobObject(job.0.as_raw_handle() as HANDLE, child.as_raw_handle() as HANDLE);
+        AssignProcessToJobObject(
+            job.0.as_raw_handle() as HANDLE,
+            child.as_raw_handle() as HANDLE,
+        );
     }
 
     let input_console = Portable(console.input.as_raw_handle() as HANDLE);
@@ -460,7 +474,11 @@ fn run_agent(
             let _ = screen.poll_and_emit(&console, output_write);
             break;
         }
-        std::thread::sleep(if idle >= IDLE_POLLS { POLL_IDLE } else { POLL_BUSY });
+        std::thread::sleep(if idle >= IDLE_POLLS {
+            POLL_IDLE
+        } else {
+            POLL_BUSY
+        });
     }
 
     let mut code: u32 = 0;
@@ -803,7 +821,8 @@ impl ScreenMirror {
         let width = usize::from(self.cols);
         let shift = lines.min(usize::from(self.rows)) * width;
         self.cells.drain(..shift);
-        self.cells.resize(width * usize::from(self.rows), Cell::default());
+        self.cells
+            .resize(width * usize::from(self.rows), Cell::default());
     }
 
     /// Rewrites one row from column one. Erasing to end of line first is what
@@ -880,7 +899,9 @@ fn decode_cell(raw: CHAR_INFO) -> Cell {
         raw.Char.UnicodeChar
     };
     Cell {
-        text: char::from_u32(u32::from(unit)).filter(|c| *c != '\0').unwrap_or(' '),
+        text: char::from_u32(u32::from(unit))
+            .filter(|c| *c != '\0')
+            .unwrap_or(' '),
         // The width bits describe layout, not appearance; keeping them would
         // make two identical-looking cells compare unequal.
         attributes: raw.Attributes & !(COMMON_LVB_LEADING_BYTE | COMMON_LVB_TRAILING_BYTE),
@@ -1216,7 +1237,9 @@ fn decode_csi(bytes: &[u8]) -> Option<(Key, usize)> {
     const VK_F1: u16 = 0x70;
 
     // Find the final byte of the sequence, which is what identifies it.
-    let end = bytes[2..].iter().position(|byte| byte.is_ascii_alphabetic() || *byte == b'~')?;
+    let end = bytes[2..]
+        .iter()
+        .position(|byte| byte.is_ascii_alphabetic() || *byte == b'~')?;
     let final_byte = bytes[2 + end];
     let parameters = &bytes[2..2 + end];
     let used = 3 + end;
@@ -1292,10 +1315,15 @@ fn write_all(handle: HANDLE, mut bytes: &[u8]) -> io::Result<()> {
             )
         };
         if ok == 0 {
-            return Err(io::Error::from_raw_os_error(unsafe { GetLastError() } as i32));
+            return Err(io::Error::from_raw_os_error(
+                unsafe { GetLastError() } as i32
+            ));
         }
         if written == 0 {
-            return Err(io::Error::new(io::ErrorKind::WriteZero, "pipe accepted nothing"));
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "pipe accepted nothing",
+            ));
         }
         bytes = &bytes[written as usize..];
     }
@@ -1315,7 +1343,9 @@ fn read_some(handle: HANDLE, buffer: &mut [u8]) -> io::Result<usize> {
         )
     };
     if ok == 0 {
-        return Err(io::Error::from_raw_os_error(unsafe { GetLastError() } as i32));
+        return Err(io::Error::from_raw_os_error(
+            unsafe { GetLastError() } as i32
+        ));
     }
     Ok(read as usize)
 }
@@ -1359,8 +1389,16 @@ mod tests {
     /// every coloured prompt.
     #[test]
     fn console_colours_map_to_ansi_with_red_and_blue_swapped() {
-        assert!(sgr_for(FOREGROUND_RED).contains(";31;"), "{}", sgr_for(FOREGROUND_RED));
-        assert!(sgr_for(FOREGROUND_BLUE).contains(";34;"), "{}", sgr_for(FOREGROUND_BLUE));
+        assert!(
+            sgr_for(FOREGROUND_RED).contains(";31;"),
+            "{}",
+            sgr_for(FOREGROUND_RED)
+        );
+        assert!(
+            sgr_for(FOREGROUND_BLUE).contains(";34;"),
+            "{}",
+            sgr_for(FOREGROUND_BLUE)
+        );
         assert!(sgr_for(FOREGROUND_GREEN).contains(";32;"));
         assert!(
             sgr_for(FOREGROUND_RED | FOREGROUND_INTENSITY).contains(";91;"),
@@ -1500,7 +1538,11 @@ mod tests {
             out.ends_with(b"\x1b[K"),
             "a blank row erases and writes nothing: {out:?}"
         );
-        assert_eq!(mirror.cells[..4], row[..], "mirror starts equal to a blank row");
+        assert_eq!(
+            mirror.cells[..4],
+            row[..],
+            "mirror starts equal to a blank row"
+        );
     }
 
     #[test]
@@ -1559,7 +1601,24 @@ mod tests {
     fn only_the_agent_argument_turns_this_binary_into_an_agent() {
         assert_eq!(run_if_agent(&["--help".to_owned()]), None);
         assert_eq!(run_if_agent(&[]), None);
-        assert!(AGENT_ARGUMENT.starts_with("--agenterm-"));
+        assert!(AGENT_ARGUMENT.starts_with("--internal-"));
+    }
+
+    /// This adapter is shared, and the argument it spawns with is visible in
+    /// any process list. A product name here would put one product's brand
+    /// inside another's command line, which matters for a name someone
+    /// intends to hold a trademark on.
+    #[test]
+    fn the_agent_argument_carries_no_product_name() {
+        // Product names, not substrings of ordinary words: "console" legally
+        // contains "con", and refusing that would forbid the only accurate
+        // word for what this is.
+        for brand in ["agenterm", "minicon", "agenterm-con"] {
+            assert!(
+                !AGENT_ARGUMENT.contains(brand),
+                "{AGENT_ARGUMENT} names the product {brand:?}"
+            );
+        }
     }
 
     /// A malformed agent request must fail with a distinct code rather than

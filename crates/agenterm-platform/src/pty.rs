@@ -6,6 +6,17 @@ pub use crate::contract::pty::{
 };
 pub use crate::selected::pty::{ChildCommand, PtyChild, PtyMaster, login_shell_argument};
 
+/// The argument this executable re-executes itself with to host a child's
+/// hidden console on a Windows without a pseudoconsole.
+///
+/// Exported so a consumer can spawn it, look for it, or assert on it by
+/// *referring* to it rather than by repeating the text. Repeating it is how
+/// the two sides come apart: a blanket product rename once rewrote a copy of
+/// this literal in a test, which no compiler could catch and which silently
+/// disabled the journeys guarding this backend.
+#[cfg(windows)]
+pub const CONSOLE_AGENT_ARGUMENT: &str = crate::selected::console_agent::AGENT_ARGUMENT;
+
 /// Runs the pre-ConPTY console agent if these arguments ask for it.
 ///
 /// On Windows builds without a pseudoconsole this executable re-executes
