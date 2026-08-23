@@ -326,31 +326,26 @@ itself still exists and is load-bearing — it carries the
 `aarch64-unknown-linux-gnu` linker setting the `lnx × aarch64` cell below
 depends on. Do not delete it. Default `build.bat` stages **release-fast** into
 `dist/` (optimized, no LTO, parallel codegen, incremental under
-`target/release-fast/`; only the small `agenterm-con` package uses one codegen
-unit so its staged development PE stays below the strict 1 MiB release ceiling).
+`target/release-fast/`).
 Pure debug PE remains `target/debug/` via ordinary
 `cargo build` or explicit `build.bat dev`. A final `release` build uses the
 dedicated repo-local `target-release/` scratch directory, stages all
 distributable files in `dist/`, and then reclaims both `target-release/` and
 development `target/`. The reusable bootstrap worker is stored outside Cargo
 output so this is safe on Windows. Dev and `release-fast` loops retain target
-output for incremental feedback. Release-only LTO belongs in `[profile.release]`;
-do not remove the con-only codegen-unit override without replacing its measured
-staged-size benefit. The staging path is one named Rhai task; do not split it
+output for incremental feedback. Release-only LTO belongs in `[profile.release]`.
+The staging path is one named Rhai task; do not split it
 back into one interpreter startup per artifact.
-`agenterm-con` is the deliberate panic-strategy exception: official build tasks
-compile its complete dependency graph with `con-dev`, `con-release-fast`, or
-`con-release` (`panic = "unwind"`) and merge that executable into the ordinary
-profile directory before the single staging task. Never qualify or distribute a
-direct `dev` / `release-fast` / `release` con artifact; those workspace profiles
-abort and cannot satisfy the native callback containment contract. Panic tests
-must run under the matching `con-*` profile, not only Cargo's test profile.
-The pinned toolchain includes `rust-src`; the con subprocess uses an explicit
-target plus Rust 1.97 `build-std` with `panic-unwind` and
-`backtrace-trace-only`. Keep that target explicit even for native builds, and
-keep the scoped `RUSTC_BOOTSTRAP` out of workbench compilation. This preserves
-FFI panic containment while omitting std backtrace symbolization from the con
-artifact.
+`agenterm-con` was the deliberate panic-strategy exception here until
+2026-08-23, when it left for the `minicon` repository; the `con-*` profiles and
+its `build-std` subprocess went with it. `agenterm-abi` keeps the same shape for
+the same reason — the libagenterm cdylib wraps every export in `catch_unwind`,
+so it compiles under `abi-dev` / `abi-release` (`panic = "unwind"`) and merges
+its dynamic library into the ordinary profile directory before the single
+staging task. Never qualify or distribute a direct `dev` / `release-fast` /
+`release` abi artifact; those workspace profiles abort and cannot satisfy the
+native callback containment contract. The pinned toolchain includes `rust-src`,
+and that explicit target is still required even for native builds.
 Build-identity freezing first reuses an existing compatible Script worker and
 falls back to bootstrapping one only when it is absent or incompatible. Do not
 restore an unconditional pre-identity worker build: compile-time

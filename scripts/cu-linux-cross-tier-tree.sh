@@ -2,6 +2,9 @@
 # Black-box harness: prove `tree` is semantically conformant across Linux
 # current, loopback SSH, and dedicated loopback VNC on one cut-owned second
 # agenterm-con. Observe-only; no screenshots, coordinates, RDP, or actuation.
+# NOTE 2026-08-23: agenterm-con left this repository for `minicon`. This
+# research script still drives a prebuilt con binary through $CON; point it
+# at a minicon build, or treat the run as historical.
 #
 # Usage (from repository root, graphical session env set):
 #   ./scripts/cu-linux-cross-tier-tree.sh

@@ -185,9 +185,6 @@ policy.
   minimal Windows Console-subsystem PE. Windows command resolution selects it
   for extensionless `agenterm cli` and `agenterm tui`, while all behavior
   remains implemented by `agenterm.exe`.
-- `dist/agenterm-con.exe` — standalone multi-terminal tree without server or
-  script runtime, built from its own workspace package (`crates/agenterm-con`);
-  `--version` and `--help` are synchronous and never open a window.
 - `dist/agenterm-cu.exe` — computer-use CLI and Windows notification-area
   host. It is the sole computer-use executable; CLI, menu, and global placement
   shortcuts share one command executor.

@@ -3,9 +3,6 @@ use std::sync::LazyLock;
 static AGENTERM: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/ci-agenterm.yml.disabled").replace("\r\n", "\n")
 });
-static CON: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../.github/workflows/ci-agenterm-con.yml.disabled").replace("\r\n", "\n")
-});
 static LIB: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/ci-libagenterm.yml.disabled").replace("\r\n", "\n")
 });
@@ -17,7 +14,6 @@ static CHASSIS: LazyLock<String> = LazyLock::new(|| {
 fn split_feedback_ci_has_no_cross_product_cache_or_artifact_authority() {
     for source in [
         AGENTERM.as_str(),
-        CON.as_str(),
         LIB.as_str(),
         CHASSIS.as_str(),
     ] {
@@ -30,7 +26,7 @@ fn split_feedback_ci_has_no_cross_product_cache_or_artifact_authority() {
         assert!(source.contains("github.event_name == 'workflow_dispatch' && github.sha"));
         assert!(source.contains("github.event.pull_request.number || github.ref"));
     }
+    // `con-release-fast` left with the product; the workbench CI must not
+    // resurrect a profile this repo no longer defines.
     assert!(!AGENTERM.contains("con-release-fast"));
-    assert!(!CON.contains("check.cmd"));
-    assert!(!CON.contains("release.cmd"));
 }

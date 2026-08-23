@@ -338,11 +338,12 @@ fn entry() {
         cargo_output = std::path::join(repo, "target-release").display;
     }
     let development_target = std::path::join(repo, "target").display;
-    // `-Z build-std` needs an explicit target even for a native build. Without
-    // one Cargo can compile compiler_builtins with host-dependency semantics,
-    // leaving target intrinsics unresolved at the final link.
-    let con_target = target;
-    if con_target == "" {
+    // `-Z build-std` and the dedicated-profile merges below need an explicit
+    // target even for a native build. Without one, Cargo can compile
+    // compiler_builtins with host-dependency semantics, leaving target
+    // intrinsics unresolved at the final link.
+    let explicit_target = target;
+    if explicit_target == "" {
         let rustc_host_path = repo + ".build-rustc-host.tmp";
         let rustc_host_code = std::process::command_stdout_file(
             "rustc",
@@ -351,24 +352,24 @@ fn entry() {
             rustc_host_path,
             #{ current_dir: repo }
         );
-        require(rustc_host_code == 0, "build_con_rustc_host");
+        require(rustc_host_code == 0, "build_rustc_host");
         let rustc_metadata = std::fs::read_to_string(rustc_host_path);
         std::fs::try_remove_file(rustc_host_path);
         for source_line in rustc_metadata.split("\n") {
             let line = source_line;
             line.trim();
             if line.starts_with("host: ") {
-                con_target = line;
-                con_target.replace("host: ", "");
-                con_target.trim();
+                explicit_target = line;
+                explicit_target.replace("host: ", "");
+                explicit_target.trim();
                 break;
             }
         }
-        require(con_target != "", "build_con_rustc_host_missing");
-        let con_facts = target_facts(con_target);
+        require(explicit_target != "", "build_rustc_host_missing");
+        let explicit_facts = target_facts(explicit_target);
         require(
-            con_facts.os != "",
-            "build_con_rustc_host_unsupported:" + con_target
+            explicit_facts.os != "",
+            "build_rustc_host_unsupported:" + explicit_target
         );
     }
     let profile_name = profile;
@@ -381,11 +382,6 @@ fn entry() {
     }
     let profile_directory =
         std::path::join(cargo_profile_root, profile_name).display;
-    let con_profile_name = "con-" + profile;
-    let con_profile_root =
-        std::path::join(cargo_output, con_target).display;
-    let con_profile_directory =
-        std::path::join(con_profile_root, con_profile_name).display;
 
     let identity = build_identity::facts(repo, profile);
     let environment = build_identity::environment(identity);
@@ -489,7 +485,7 @@ fn entry() {
     if action == "build" && cross_client == 0 && unix_bootstrap == 0 {
         let unlock_manifest_path =
             std::path::join(repo, "scripts/artifacts.json").display;
-        let output_directories = [profile_directory, con_profile_directory];
+        let output_directories = [profile_directory];
         for output_directory in output_directories {
             let deps_directory =
                 std::path::join(output_directory, "deps").display;
@@ -552,28 +548,14 @@ fn entry() {
     if cross_client != 0 || unix_bootstrap != 0 {
         executable_entries = platform_executables(repo, os_name, arch);
         library_entries = platform_libraries(repo, os_name, arch);
-        // Both owning packages. `agenterm-con` is its own workspace package, so
-        // it is excluded from the `--bin` list below (a bare `--bin agenterm-con`
-        // resolves only within the selected packages) -- but it still has to be
-        // SELECTED, or the cross build simply never produces it. The artifact
-        // manifest lists `agenterm-con.exe` for windows-aarch64, so packaging
-        // then failed with `package_client_binary_missing` (Candidate run
-        // 31540288943). This was fixed once in bb77ebb2 and lost to a later edit
-        // of this file; the assertion that catches it lives in packaging, four
-        // steps downstream, which is why it costs a full Candidate round.
         cargo_args.push("--package");
         cargo_args.push("agenterm");
-        cargo_args.push("--package");
-        cargo_args.push("agenterm-con");
         cargo_args.push("--package");
         cargo_args.push("agenterm-cu");
         for executable in executable_entries {
             let executable_name = "" + executable.name;
-            if executable_name != "agenterm-con"
-                    && executable_name != "agenterm-con.exe" {
-                cargo_args.push("--bin");
-                cargo_args.push(cargo_binary(executable_name));
-            }
+            cargo_args.push("--bin");
+            cargo_args.push(cargo_binary(executable_name));
         }
     } else {
         cargo_args.push("--package");
@@ -663,129 +645,6 @@ fn entry() {
     std::fs::try_remove_file(stdout_path);
     std::fs::try_remove_file(stderr_path);
 
-    // `agenterm-con` promises callback panic containment, while the workbench
-    // binaries intentionally keep the workspace aborting profiles. Build the
-    // complete con dependency graph under its matching unwind profile, then
-    // merge only that executable into the ordinary staging directory.
-    let con_cargo_args = [];
-    if driver == "cargo-xwin" {
-        con_cargo_args.push("xwin");
-    }
-    con_cargo_args.push(action);
-    con_cargo_args.push("-Z");
-    // Rust 1.97 core formats f16 and therefore references compiler-rt half
-    // conversion intrinsics. Keep compiler_builtins in the explicit build-std
-    // root set so its target cfg is rebuilt with core; reusing an older
-    // non-f16 builtins archive otherwise leaves __truncsfhf2/__extendhfsf2
-    // unresolved on MSVC.
-    con_cargo_args.push("build-std=std,panic_unwind,compiler_builtins");
-    con_cargo_args.push("-Z");
-    con_cargo_args.push(
-        "build-std-features=panic-unwind,backtrace-trace-only"
-    );
-    con_cargo_args.push("--locked");
-    con_cargo_args.push("--profile");
-    con_cargo_args.push(con_profile_name);
-    con_cargo_args.push("--target");
-    con_cargo_args.push(con_target);
-    con_cargo_args.push("--package");
-    con_cargo_args.push("agenterm-con");
-    if action == "clippy" {
-        con_cargo_args.push("--");
-        con_cargo_args.push("-D");
-        con_cargo_args.push("warnings");
-    }
-
-    let con_cargo_command = std::process::command("cargo");
-    con_cargo_command.args(con_cargo_args);
-    con_cargo_command.current_dir(repo);
-    con_cargo_command.timeout(std::time::Duration::from_millis(3600000));
-    con_cargo_command.stdout_file(stdout_path);
-    // Cargo 1.97 keeps build-std unstable. Scope the bootstrap escape hatch to
-    // this pinned-toolchain con subprocess; the workbench build remains stable.
-    con_cargo_command.env("RUSTC_BOOTSTRAP", "1");
-    if stream_stderr != 0 {
-        con_cargo_command.stderr_inherit();
-    } else {
-        con_cargo_command.stderr_file(stderr_path);
-    }
-    if environment_text.contains("\"AGENTERM_BUILD_IDENTITY_VERSION\":") != 0 {
-        con_cargo_command.env("AGENTERM_BUILD_IDENTITY_VERSION", "" + environment.AGENTERM_BUILD_IDENTITY_VERSION);
-        con_cargo_command.env("AGENTERM_BUILD_GIT_COMMIT", "" + environment.AGENTERM_BUILD_GIT_COMMIT);
-        con_cargo_command.env("AGENTERM_BUILD_GIT_DIRTY", "" + environment.AGENTERM_BUILD_GIT_DIRTY);
-        con_cargo_command.env("AGENTERM_BUILD_CARGO_LOCK_SHA256", "" + environment.AGENTERM_BUILD_CARGO_LOCK_SHA256);
-        con_cargo_command.env("AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256", "" + environment.AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256);
-        con_cargo_command.env("AGENTERM_BUILD_PROFILE", "" + environment.AGENTERM_BUILD_PROFILE);
-    }
-    if environment_text.contains("\"CARGO_TARGET_DIR\":") != 0 {
-        con_cargo_command.env("CARGO_TARGET_DIR", "" + environment.CARGO_TARGET_DIR);
-    }
-    if environment_text.contains("\"RUSTC_WRAPPER\":") != 0 {
-        con_cargo_command.env("RUSTC_WRAPPER", "" + environment.RUSTC_WRAPPER);
-        con_cargo_command.env("AGENTERM_INTERNAL_RUSTC_WRAPPER", "" + environment.AGENTERM_INTERNAL_RUSTC_WRAPPER);
-        con_cargo_command.env("AGENTERM_INCREMENTAL_INVOCATION_ID", "" + environment.AGENTERM_INCREMENTAL_INVOCATION_ID);
-        con_cargo_command.env("AGENTERM_INCREMENTAL_TARGET", "" + environment.AGENTERM_INCREMENTAL_TARGET);
-        con_cargo_command.env("AGENTERM_INCREMENTAL_ROOT", "" + environment.AGENTERM_INCREMENTAL_ROOT);
-        con_cargo_command.env("AGENTERM_INCREMENTAL_STATE", "" + environment.AGENTERM_INCREMENTAL_STATE);
-    }
-    let con_cargo_result = con_cargo_command.output();
-    let con_cargo_code = con_cargo_result.exit_code;
-    if con_cargo_code != 0 {
-        if incremental_producer != 0 {
-            cleanup_incremental_state(incremental_state);
-        }
-        let con_failure_stdout = std::fs::read_to_string(stdout_path);
-        con_failure_stdout.trim();
-        if con_failure_stdout != "" {
-            print(con_failure_stdout);
-        }
-        std::fs::try_remove_file(stdout_path);
-        let con_failure_detail = "stderr_streamed_above";
-        if stream_stderr == 0 {
-            let con_failure_stderr = std::fs::read_to_string(stderr_path);
-            con_failure_stderr.trim();
-            con_failure_detail = con_failure_stderr;
-            std::fs::try_remove_file(stderr_path);
-        }
-        require(
-            con_cargo_code == 0,
-            "build_con_cargo:exit=" + con_cargo_code + ":" + con_failure_detail
-        );
-    }
-    let con_cargo_stdout = std::fs::read_to_string(stdout_path);
-    con_cargo_stdout.trim();
-    if con_cargo_stdout != "" {
-        print(con_cargo_stdout);
-    }
-    std::fs::try_remove_file(stdout_path);
-    std::fs::try_remove_file(stderr_path);
-
-    if action == "build" {
-        let con_binary_name = "agenterm-con";
-        let windows_con_source =
-            std::path::join(con_profile_directory, "agenterm-con.exe").display;
-        if direct_file(windows_con_source) != 0 {
-            con_binary_name = "agenterm-con.exe";
-        }
-        let con_source =
-            std::path::join(con_profile_directory, con_binary_name).display;
-        let con_destination =
-            std::path::join(profile_directory, con_binary_name).display;
-        require(
-            direct_file(con_source) != 0,
-            "build_con_artifact_source:" + con_source
-        );
-        std::fs::try_remove_file(con_destination);
-        require(
-            std::fs::try_copy(con_source, con_destination) == 1,
-            "build_con_artifact_copy:" + con_source
-        );
-        require(
-            direct_file(con_destination) != 0,
-            "build_con_artifact_destination:" + con_destination
-        );
-    }
-
     // libagenterm is a C ABI boundary and must retain unwind support. Build it
     // under the dedicated ABI profile, then merge only the dynamic library into the normal
     // profile directory consumed by staging and cross-platform packaging.
@@ -803,7 +662,7 @@ fn entry() {
         abi_args.push("--profile");
         abi_args.push(abi_profile_name);
         abi_args.push("--target");
-        abi_args.push(con_target);
+        abi_args.push(explicit_target);
         abi_args.push("--package");
         abi_args.push("agenterm-abi");
         let abi_command = std::process::command("cargo");
@@ -829,7 +688,7 @@ fn entry() {
             abi_output.success != 0,
             "build_abi_cargo:" + abi_output.stdout_text() + abi_output.stderr_text()
         );
-        let abi_root = std::path::join(cargo_output, con_target).display;
+        let abi_root = std::path::join(cargo_output, explicit_target).display;
         let abi_directory =
             std::path::join(abi_root, abi_profile_name).display;
         let abi_library_name = "agenterm.dll";

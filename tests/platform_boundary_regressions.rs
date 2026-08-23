@@ -27,20 +27,16 @@ const FORBIDDEN_HOST_BRANCH_MARKERS: [(&str, &str); 12] = [
 // three Rust-runtime entrypoints and separately constrains the size-bounded,
 // no_std CUI trampoline.
 //
-// `crates/agenterm-con/src/startup.rs` joins them as a loader entry: it defines the
-// linker-visible entry symbol and the `.CRT$X*` initializer arrays of its own
-// binary, plus the per-architecture `global_asm!` thunk that jumps to rustc's
-// generated `main`. All three are properties of the crate being linked, so
-// there is no form of them that could live behind the platform crate's API.
+// The lightweight host's `main.rs`/`startup.rs` used to join them as loader
+// entries; that product left for the `minicon` repository and took its
+// exemptions with it.
 // Keep this list in step with NATIVE_ENTRYPOINT_EXEMPTIONS in
 // src/platform/boundary_tests.rs -- the two suites audit the same tree and a
 // file exempt from one but not the other reddens only the lane that runs both.
 const HOST_BRANCH_ENTRYPOINT_EXEMPTIONS: &[&str] = &[
     "src/bin/agenterm.rs",
     "src/bin/agenterm-cc.rs",
-    "crates/agenterm-con/src/main.rs",
     "src/bin/agenterm-com.rs",
-    "crates/agenterm-con/src/startup.rs",
 ];
 
 #[test]
@@ -48,11 +44,6 @@ fn non_platform_src_has_no_runtime_host_branching_references() {
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     collect_rs_files(&src_root, &mut files).expect("collect src tree");
-    collect_rs_files(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/agenterm-con/src"),
-        &mut files,
-    )
-    .expect("collect agenterm-con src tree");
 
     let mut violations = Vec::new();
     for file in files {

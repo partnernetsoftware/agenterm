@@ -53,7 +53,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   cannot honor an existing verb it omits it rather than shipping a weaker
   impostor. The workbench CLI contract is
   [15](PRD_02_15_command_line.md); the con contract is
-  [26](PRD_02_26_con_control_cli.md).
+  [26](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_26_con_control_cli.md).
 - [ ] machine-readable output is the primary interface and the human rendering
   is derived from it, never the reverse.
 - [~] standalone `clipboard-read` is target-neutral and requires the Observe

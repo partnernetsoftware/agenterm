@@ -81,21 +81,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agenterm-con"
-version = "0.1.16"
-dependencies = [
- "agenterm-platform",
- "agenterm-ui-core",
- "itoa",
- "object",
- "png",
- "serde_json",
- "unicode-width",
- "vt100",
- "winresource",
-]
-
-[[package]]
 name = "agenterm-cu"
 version = "0.1.16"
 dependencies = [

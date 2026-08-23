@@ -169,7 +169,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   packaging, even when the redundant GUI smoke suites are skipped
 - [x] ordinary feedback CI has two independent product owners:
   `.github/workflows/ci-agenterm.yml` covers the server/script/Fleet workbench
-  and shared mechanism contracts, while `.github/workflows/ci-agenterm-con.yml`
+  and shared mechanism contracts. The lightweight host's CI left with the
+  product on 2026-08-23; what follows describes the arrangement while
+  `.github/workflows/ci-agenterm-con.yml`
   covers the lightweight package, matching `con-*` unwind profile, public GUI
   control journeys, and its six target cells. The pre-split monolithic CI is
   preserved under `archive/ci/pre-product-split-2026-08-12/` and cannot execute.
@@ -177,7 +179,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   the exact source SHA; one product's green status cannot substitute for the
   other. This module owns the cross-product rule; the con-side workflow content,
   profiles and artifact budget are owned by
-  [`agenterm-con` package and delivery](PRD_02_27_con_delivery.md).
+  [`agenterm-con` package and delivery](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_27_con_delivery.md).
 - [x] ordinary push/PR feedback remains replaceable by mutable ref, while an
   explicit `workflow_dispatch` qualification is grouped by immutable
   `github.sha` in all three Candidate prerequisite workflows. A later `main`

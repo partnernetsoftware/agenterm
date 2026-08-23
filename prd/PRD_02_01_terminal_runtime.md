@@ -224,10 +224,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [x] GUI shell appears before the initial ConPTY/cmd process is ready
 - [x] initial terminal loads asynchronously with visible starting feedback
 - [x] exited process retains its final screen and exit code
-- [~] `agenterm-con` is a separate lightweight product rather than a mode of
+- [–] `agenterm-con` **迁出本仓（2026-08-23）**，见 minicon 仓。它当初就是一个独立的轻量产品而不是本程序的模式：
   this runtime. Its PTY ownership, VT damage, present, glyph and ISA behavior,
   workspace/composer chrome, public control CLI, package profiles and artifact
-  budget are owned by the [`agenterm-con` subtree](PRD_02_23_agenterm_con.md).
+  budget are owned by the [`agenterm-con` subtree](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_23_minicon.md).
   This module keeps only the kernels both products share.
 - [x] explicit tab/server close cancels I/O, closes ConPTY ownership, and
   waits within a 750 ms bound for the process-wait and reader workers; success

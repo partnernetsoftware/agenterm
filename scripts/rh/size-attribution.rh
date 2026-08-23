@@ -40,11 +40,6 @@ fn entry() {
     } else {
         return rh::fail("size_attribution_profile_invalid:" + profile);
     }
-    if (profile == "con-release-fast" || profile == "con-release") &&
-            bin != "agenterm-con" {
-        return rh::fail("size_attribution_con_profile_requires_agenterm_con");
-    }
-
     let dist = std::path::join(repo, "dist").display;
     std::fs::create_dir_all(dist);
     let stdout_path =
@@ -63,10 +58,6 @@ fn entry() {
     };
 
     let cargo_args = ["bloat", "--profile", profile];
-    if bin == "agenterm-con" {
-        cargo_args.push("--package");
-        cargo_args.push("agenterm-con");
-    }
     cargo_args.push("--bin");
     cargo_args.push(bin);
     cargo_args.push("--crates");

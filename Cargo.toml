@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "examples/size-probe", "crates/agenterm-con", "crates/agenterm-cu", "crates/agenterm-platform", "crates/agenterm-abi", "crates/agenterm-ui-core", "crates/agenterm-script-common", "crates/agenterm-rh", "crates/agenterm-lua", "crates/agenterm-qjs", "crates/agenterm-sql", "crates/agenterm-wasmcore", "crates/agenterm-dyn", "crates/agenterm-chassis"]
+members = [".", "examples/size-probe", "crates/agenterm-cu", "crates/agenterm-platform", "crates/agenterm-abi", "crates/agenterm-ui-core", "crates/agenterm-script-common", "crates/agenterm-rh", "crates/agenterm-lua", "crates/agenterm-qjs", "crates/agenterm-sql", "crates/agenterm-wasmcore", "crates/agenterm-dyn", "crates/agenterm-chassis"]
 resolver = "2"
 
 [package]
@@ -103,34 +103,12 @@ lto = false
 codegen-units = 16
 incremental = true
 
-# The lightweight host is small enough that one codegen unit adds little local
-# latency but prevents the default staged development PE from fragmenting past
-# its strict sub-1-MiB product budget. Other workspace packages retain 16-way codegen.
-[profile.release-fast.package.agenterm-con]
-codegen-units = 1
-
-# The standalone host is built with panic = "unwind" so FFI callbacks may unwind.
-# The agenterm-abi cdylib has the same requirement (§3.8 of the libagenterm spec):
-# every exported function is wrapped in catch_unwind, which needs unwind support.
-[profile.con-dev]
-inherits = "dev"
-panic = "unwind"
-
-[profile.con-release-fast]
-inherits = "release-fast"
-panic = "unwind"
-
-[profile.con-release-fast.package.agenterm-con]
-codegen-units = 1
-
-[profile.con-release]
-inherits = "release"
-panic = "unwind"
-
 # agenterm-abi is the libagenterm cdylib: every export is wrapped in
-# catch_unwind (§3.8 of the libagenterm spec), which requires unwind. Mirror
-# the con-* approach with dedicated unwind profiles; per-package panic overrides
-# are not allowed by Cargo.
+# catch_unwind (§3.8 of the libagenterm spec), which requires unwind. The
+# workspace profiles are aborting, and per-package panic overrides are not
+# allowed by Cargo, so this needs dedicated unwind profiles of its own. The
+# lightweight host used to carry the same pair as `con-*`; it left for the
+# `minicon` repository, where the default profiles are already unwind.
 [profile.abi-dev]
 inherits = "dev"
 panic = "unwind"

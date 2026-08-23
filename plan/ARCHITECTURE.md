@@ -85,7 +85,7 @@ src/platform/adapters/       主机实现（物理目录）
   unix/frontend/             embedded 窗口 + 产品状态机
   linux|macos/               契约/manifest 等（非第二套业务策略）
 
-crates/agenterm-con/         第二产品 package：Cargo.toml + build.rs + 自有源码/测试
+（`crates/agenterm-con/` 已于 2026-08-23 迁出至独立仓 minicon）
                              autobins=false；无跨回工作台树的 [[bin]]/[[test]] 路径
   src/main.rs                宿主主体 6,630 行（生产 5,502 + 测试 1,128；见 §4 C1 债务）
                              ConApp / ConTerminal / SessionStore /
@@ -126,7 +126,7 @@ owning PRD 授权并同批更新本结构 SSOT。
 | `agenterm` | `src/bin/agenterm.rs` | GUI 启动器；`server` = 无窗权威；`cli` = 共享控制平面入口 |
 | `agenterm-com` | `src/bin/agenterm-com.rs` | 极简 Windows Console-subsystem 转发器；交付名 `agenterm.com`，同步等待 `agenterm.exe` |
 | `agenterm-cc` | `src/bin/agenterm-cc.rs` | Control Center 投影 |
-| `agenterm-con` | `crates/agenterm-con/Cargo.toml` + `crates/agenterm-con/src/*` | 独立最小依赖 package；conhost 等价物（单 GUI 进程内多 PTY 树，无 server/Fleet/script；平台 pixel-window 直调；`startup.rs` 独占 Windows loader/CRT 边界；局部纯 UI 规则与适配状态机分离） |
+| `agenterm-con` | **已迁出** → [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`） | 2026-08-23 随 PRD 23–27 迁出。conhost 等价物（单 GUI 进程内多 PTY 树，无 server/Fleet/script）。仍按 revision 复用本仓 `agenterm-platform` / `agenterm-ui-core` 与 vendored `vt100` / `softbuffer` fork；依赖方向 minicon → agenterm |
 
 `agenterm-con` 的窗口机制仍只能从 `agenterm-platform` 选择。Windows 已有
 `native-pixel-window` host：直接使用 User32 消息泵、GDI XRGB buffer 与
@@ -185,13 +185,6 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 | Win 主机 | `src/platform/adapters/windows/{frontend,remote_frontend}.rs` | remote 客户端；`remote_frontend` 巨石见 L2 |
 | Unix 主机 | `src/platform/adapters/unix/frontend/` | embedded 状态机；`mod`/`render` 巨石见 L2 |
 | 机制 crate | `crates/agenterm-platform/src/{selected,window,numeric,input,ipc,pty,process,shared_memory}.rs` | 无产品名；`numeric` 固化 native geometry 的 IEEE-754 取整叶 |
-| con 宿主 | `crates/agenterm-con/src/main.rs` | 6,630 行巨石（con 源码 12,995 行的 51%）；VT 回调/终端状态机/应用状态与 paint policy 仍同居，见 §4 C1 |
-| con 自动化 | `crates/agenterm-con/src/{control,json,agent_interface}.rs` | ATC1 语法 + 有界 JSON + 自省；公开面契约归 `prd/PRD_02_26_con_control_cli.md` |
-| con 待决控制 | `crates/agenterm-con/src/control_pending.rs` | bounded wait/screenshot、deadline、tab/window 取消、reply exactly-once；session/frame 探针仍由宿主提供 |
-| con 性能观测 | `crates/agenterm-con/src/perf.rs` | 计数、platform-present 基线、稳定 JSON 投影与 owning 单测；不拥有渲染/PTY/control policy |
-| con raster target | `crates/agenterm-con/src/raster_surface.rs` | clip、XRGB rect fill、glyph-mask blend；不拥有 terminal/chrome paint policy、window 或 frame commit |
-| con terminal paint | `crates/agenterm-con/src/terminal_paint.rs` | vt100 cell 属性、选区反色、宽字符跨度、glyph/decorations 与 cursor visibility/overlay；不拥有 IME、chrome、window 或 frame commit |
-| con 纯规则叶 | `crates/agenterm-con/src/{ui,workspace,composer}.rs` | 孵化层：无 window/PTY 依赖；证据稳定后按下方提升顺序迁入 `src/frontend/*` |
 | 边界闸 | `src/platform/boundary_tests.rs` | 规则见 §8.2；**不**解析本文全文 |
 
 ---
@@ -209,7 +202,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 | L4 | **结构 SSOT 未机读双向**（本文 prose + 局部 `boundary_tests`；目录树/分层文案漂移靠人） | 见 §8.4；版本 plan **S 组**执行；本文只定契约 |
 | D1 | shared_memory 名长 ≤31 | **本机已绿**：unit + `shared_memory_process` 名式 `apm-…` ≤31 |
 | C1 | **进行中**：`perf.rs` 已拥有性能观测，`control_pending.rs` 已拥有 bounded request 生命周期，`raster_surface.rs` 已拥有 clipped XRGB target，`terminal_paint.rs` 已拥有 vt100 cell 与 cursor visibility/overlay paint policy，`composer.rs` 已统一 external-input 状态与编辑不变量，`session_store.rs` 已拥有小规模稳定 TabId 到会话值的存储策略；IME/chrome 组合及 clipboard/PTY authority 仍留宿主，未把旧巨石换成新巨石。精确 unwind profile 基线为 104 单测、23 GUI 黑盒、控制与吞吐门全绿；VT 回调、终端状态机、应用编排与 `PixelWindowApplication` 仍同居 | 下一叶按 PRD 24/25/26 边界继续切工作区/输入编排；每步保持公开 CLI/JSON 字节不变 |
-| C2 | **已收**：源码与测试均在 `crates/agenterm-con/` 内，manifest 无 `../../` 回指；根包边界测试继续扫描 con 源码 | 保持 package 物理所有权与 Cargo 所有权一致；迁移不得形成 native API 审计盲区 |
+| C2 | **已迁出**：源码与测试整体移入 minicon 仓；根包边界测试不再扫描 con 源码，其 native 入口豁免也随之移除 | package 物理所有权与 Cargo 所有权一致这一条，现在由 minicon 仓自己保证 |
 | C3 | con 的 PE 体积史/证据计数在本文（§体积与复用）与 `prd/PRD_02_2{4,7}` 两处平行记录，且本文一度领先 PRD 两代增量 | 单主：PE 字节、perf 探针、证据计数归 PRD 27/24；本文只留结构规则与提升顺序。新增量禁止双写 |
 
 已清理：`src/platform/services/frontend.rs` 孤儿 re-export（无人 `mod`）——删除；入口以 `src/frontend/` 为准。
@@ -224,7 +217,7 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 | 结构如何被自动勾住 / 工具边界？ | **本文 §8** |
 | 本版要修哪些叶？ | 当前版本 `plan/plan-v0.1.*.md`（结构机读化 → **S 组**） |
 | 能力是否 shipped / 验收？ | owning `prd/PRD_*.md` + `prd/alignment-contract.json` + `scripts/rh/prd-alignment.rh`（**能力**对齐，**不是**结构树） |
-| `agenterm-con` 的能力 / 边界 / 预算 / 体积史？ | `prd/PRD_02_23`（子树根）+ `24` 终端渲染 / `25` 工作区输入 / `26` 控制与 CLI / `27` package 与交付。**本文只管 con 的代码怎么摆和欠什么结构债**（§1.1 / §3 / §4 C1–C3） |
+| `agenterm-con` 的能力 / 边界 / 预算 / 体积史？ | **已迁出**，见 minicon 仓 `prd/PRD_02_23_minicon.md`（子树根）+ `24` 终端渲染 / `25` 工作区输入 / `26` 控制与 CLI / `27` package 与交付。**本文只管 con 的代码怎么摆和欠什么结构债**（§1.1 / §3 / §4 C1–C3） |
 | Win↔Unix 可见行为差距？ | `plan/plan-unix-gui-win-parity.md` + evidence matrix（**差距地图，不是结构 SSOT**） |
 | Agent 操作纪律？ | `AGENTS.md` |
 | 产品总树？ | `PRD.md` |
@@ -247,16 +240,22 @@ Cargo 版本号见根 `Cargo.toml`（与公开 tag 可能暂时脱节——发�
 
 ### 6.2 `agenterm` / `agenterm-con` 协同边界
 
+> **2026-08-23：con 已迁出。** 源码与 PRD 23–27 现在归独立仓
+> [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地
+> `../minicon`）。本节保留，因为**协同边界本身仍然成立**——minicon 按 revision 复用本仓的
+> `agenterm-platform` / `agenterm-ui-core` 与 vendored `vt100` / `softbuffer` fork，依赖方向
+> 是 minicon → agenterm，绝不反向。下文凡说「本文/本仓拥有 con 的某某」的，现在都归 minicon 仓。
+
 - **文档分工（单主）**：con 的产品能力、边界、状态、预算数字、PE 体积史与证据
-  计数归 `prd/PRD_02_23`–`27` 子树；本文只拥有 con 的物理布局（§1.1）、热文件
-  （§3）、结构债（§4 C1–C3）和下方的机制提升顺序。新增量只写一处——写 PE 字节
+  计数归 minicon 仓的 `prd/PRD_02_23`–`27` 子树；con 的物理布局、热文件与结构债
+  也随之迁出，本文不再拥有它们。新增量只写一处——写 PE 字节
   或证据计数就写进 PRD 27/24，写目录/mod/巨石切分就写进本文。见 §4 C3。
 - UI/UX 可分化：主程序是 server/script/Fleet 工作台；`agenterm-con` 是随 GUI
   生命周期结束的轻量多终端，两者不共享产品导航、持久化或 authority policy。
 - 日常 CI 与产品边界一致：`.github/workflows/ci-agenterm.yml` 拥有主程序与共享
-  mechanism gate，`.github/workflows/ci-agenterm-con.yml` 拥有 con package、`con-*`
-  unwind profile、公开 GUI 黑盒与六平台编译。Candidate 只在同一 SHA 的两条 CI
-  都成功后进入集成资格与封装；旧大一统工作流只保存在 `archive/ci/`。
+  mechanism gate。con 的那条 CI 随产品迁出，现在是 minicon 仓的
+  `ci-minicon.yml.disabled`（停放中）。Candidate 因此**不再等待** con 的 CI；
+  跨仓的绿不能互相顶替这一条，迁出后依然成立。旧大一统工作流只保存在 `archive/ci/`。
 - 底层机制应汇合：PTY 生命周期、VT/宽字符、字体与渲染缓存、选择/剪贴板、
   IME/focus、鼠标/滚轮、DPI geometry、背压/调度及黑盒观测接口优先形成纯函数或
   typed platform/frontend contract；host adapter 只 present/wake/接 OS 事件。

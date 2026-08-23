@@ -23,11 +23,11 @@
     Read-only: it loads libraries and resolves addresses, and calls nothing.
 
 .PARAMETER Path
-    The executable or DLL to inspect. Defaults to `agenterm-con.exe` beside
+    The executable or DLL to inspect. Defaults to `agenterm.exe` beside
     this script or in a sibling `dist` directory.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File probe-imports.ps1 -Path .\agenterm-con.exe
+    powershell -ExecutionPolicy Bypass -File probe-imports.ps1 -Path .\agenterm.exe
 #>
 [CmdletBinding()]
 param(
@@ -48,13 +48,13 @@ function Resolve-Target {
     }
     $here = Split-Path -Parent $PSCommandPath
     foreach ($candidate in @(
-            (Join-Path $here 'agenterm-con.exe'),
-            (Join-Path $here '..\dist\agenterm-con.exe'))) {
+            (Join-Path $here 'agenterm.exe'),
+            (Join-Path $here '..\dist\agenterm.exe'))) {
         if (Test-Path -LiteralPath $candidate) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
-    throw 'agenterm-con.exe not found; pass -Path explicitly.'
+    throw 'agenterm.exe not found; pass -Path explicitly.'
 }
 
 # --- PE import table -------------------------------------------------------

@@ -3,9 +3,6 @@ use std::sync::LazyLock;
 static WORKFLOW: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/ci-agenterm.yml.disabled").replace("\r\n", "\n")
 });
-static CON_WORKFLOW: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../.github/workflows/ci-agenterm-con.yml.disabled").replace("\r\n", "\n")
-});
 static CANDIDATE: LazyLock<String> =
     LazyLock::new(|| include_str!("../.github/workflows/candidate.yml").replace("\r\n", "\n"));
 static RELEASE: LazyLock<String> =
@@ -295,14 +292,7 @@ fn linux_x86_64_ci_proves_rh_aot_pipeline() {
 }
 
 #[test]
-fn split_ci_keeps_script_authority_out_of_con() {
-    assert!(!CON_WORKFLOW.contains("rh-check"));
-    assert!(!CON_WORKFLOW.contains("agenterm-rh"));
-    assert!(!CON_WORKFLOW.contains("task run"));
-}
-
-#[test]
-fn main_and_con_keep_complete_six_cell_target_sets() {
+fn main_keeps_a_complete_six_cell_target_set() {
     for target in [
         "x86_64-pc-windows-msvc",
         "aarch64-pc-windows-msvc",
@@ -312,7 +302,6 @@ fn main_and_con_keep_complete_six_cell_target_sets() {
         "x86_64-apple-darwin",
     ] {
         assert!(WORKFLOW.contains(target));
-        assert!(CON_WORKFLOW.contains(target));
     }
 }
 

@@ -62,7 +62,6 @@
     "Cargo.toml",
     "crates/agenterm-platform/Cargo.toml",
     "crates/agenterm-platform/src/lib.rs",
-    "crates/agenterm-con/",
     "crates/agenterm-cu/",
     "crates/agenterm-chassis/Cargo.toml",
     "crates/agenterm-chassis/src/bytecode.rs",

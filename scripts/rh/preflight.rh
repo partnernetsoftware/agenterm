@@ -635,7 +635,6 @@ fn entry() {
             "agenterm.exe",
             "agenterm.com",
             "agenterm-cc.exe",
-            "agenterm-con.exe",
             "agenterm-cu.exe",
         ];
         let names = #{};

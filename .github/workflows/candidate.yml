@@ -38,7 +38,7 @@ jobs:
           [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$SOURCE_SHA" origin/main
-          for workflow in ci-agenterm.yml ci-agenterm-con.yml ci-libagenterm.yml ci-chassis.yml; do
+          for workflow in ci-agenterm.yml ci-libagenterm.yml ci-chassis.yml; do
             success_count="$(
               gh api \
                 "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&status=success&per_page=20" \

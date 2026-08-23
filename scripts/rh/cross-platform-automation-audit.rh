@@ -275,9 +275,6 @@ fn entry() {
     let ci_source = std::fs::read_to_string(
         std::path::join(repo, ".github/workflows/ci-agenterm.yml").display
     );
-    let con_ci_source = std::fs::read_to_string(
-        std::path::join(repo, ".github/workflows/ci-agenterm-con.yml").display
-    );
     let ci_targets = [
         "x86_64-pc-windows-msvc",
         "aarch64-pc-windows-msvc",
@@ -291,25 +288,11 @@ fn entry() {
             ci_source.contains(target),
             "cross_platform_ci_agenterm_target:" + target
         );
-        require(
-            con_ci_source.contains(target),
-            "cross_platform_ci_con_target:" + target
-        );
     }
     require(
         ci_source.contains("cargo xwin check --locked -p agenterm"),
         "cross_platform_ci_agenterm_xwin"
     );
-    require(
-        con_ci_source.contains("cargo xwin check --locked -p agenterm-con"),
-        "cross_platform_ci_con_xwin"
-    );
-    require(
-        con_ci_source.contains("--profile con-release-fast") &&
-            con_ci_source.contains("build-std=std,panic_unwind,compiler_builtins"),
-        "cross_platform_ci_con_unwind_profile"
-    );
-
     let release_source = std::fs::read_to_string(
         std::path::join(repo, ".github/workflows/candidate.yml").display
     );

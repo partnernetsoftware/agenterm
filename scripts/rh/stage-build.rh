@@ -64,7 +64,11 @@ fn entry() {
         "agenterm-script.exe",
         "agenterm-script",
         "agenterm-cli.exe",
-        "agenterm-con-native.exe"
+        "agenterm-con-native.exe",
+        // The lightweight host left for the `minicon` repository; staged copies
+        // from earlier builds must be swept, not shipped.
+        "agenterm-con.exe",
+        "agenterm-con"
     ];
     for obsolete in obsolete_names {
         let _removed =
@@ -148,7 +152,11 @@ fn entry() {
         "agenterm-script.exe",
         "agenterm-script",
         "agenterm-cli.exe",
-        "agenterm-con-native.exe"
+        "agenterm-con-native.exe",
+        // The lightweight host left for the `minicon` repository; staged copies
+        // from earlier builds must be swept, not shipped.
+        "agenterm-con.exe",
+        "agenterm-con"
     ];
     for obsolete in obsolete_names_again {
         let _removed_again =

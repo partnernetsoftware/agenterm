@@ -598,14 +598,13 @@ track remains planned, but every declared dependency must still pass.
   assigned**; this track must not borrow v0.1.18 / v0.1.19. Native-shell
   engineering, if ever authorized, stays in
   [`plan/plan-mobile.md`](../plan/plan-mobile.md).
-- [~] `agenterm-con` second-product track (independent of the workbench version
-  gates): the standalone host ships in ordinary builds and has its own CI, but
-  no release version is committed to it yet. Its promotion gate is explicit —
-  the strict sub-1-MiB artifact budget met without reverting to abort, and a
-  sustained high-throughput/long-output qualification of its own — and both
-  belong to the [`agenterm-con` subtree](PRD_02_23_agenterm_con.md). Until both
-  pass, con is delivered as an ordinary artifact rather than a versioned product
-  claim, and it may not borrow a workbench milestone to appear shipped.
+- [~] `agenterm-con` — **已迁出**到独立仓 [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`），2026-08-23。
+  轻量终端宿主不再随 agenterm 的 dist 出货，`agenterm-con.exe` 已从
+  `scripts/artifacts.json` 与 rh 打包管线移除；晋升门（严格 <1 MiB 产物预算、
+  自有持续高吞吐资格）随 PRD 23–27 一并迁入该仓。依赖方向是 minicon → agenterm
+  （按 revision 钉 `agenterm-platform` / `agenterm-ui-core` 与 vendored
+  `vt100` / `softbuffer` fork），agenterm 不再持有其写刀。
+  **注意：迁出时体积门与独立 CI 都还没在新仓生效**，见该仓 PRD 27。
 - [ ] M8 evidence-gated optional intelligence: deterministic rules establish
   the baseline; any learned worker advances only after a concrete user case
   and portable Windows CPU evidence beat simpler methods

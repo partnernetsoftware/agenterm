@@ -17,15 +17,18 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   UI-only commands (`ui-snapshot`, screenshots, composer HWND, settings)
   stay host-specific. Headless authority is likewise `agenterm server`
   (same binary, separate process), not a second executable.
-- [~] `agenterm-con`: independently packaged lightweight terminal host
-  (`crates/agenterm-con`), not a bin target or mode of `agenterm`. It is a
+- [–] `agenterm-con`: **left this repository on 2026-08-23** for
+  [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)
+  (locally `../minicon`). It is no longer built, staged or shipped here, and
+  `agenterm-con.exe` is gone from `scripts/artifacts.json` and the rh packaging
+  path. What follows describes the product as it was while it lived here. It is a
   second product with its own dependency graph, `con-dev`/`con-release-fast`/
   `con-release` unwind profiles, a strict sub-1-MiB artifact ceiling, and its own
   CI. It contains no server, Fleet, mux, MCP or script runtime, and never
   autostarts or connects to `agenterm server`. Role detail, budget status and
   measured artifact history are owned by
-  [`agenterm-con` package and delivery](PRD_02_27_con_delivery.md); the product
-  itself by [`agenterm-con`](PRD_02_23_agenterm_con.md).
+  [`agenterm-con` package and delivery](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_27_con_delivery.md); the product
+  itself by [`agenterm-con`](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_23_minicon.md).
 - [~] `agenterm-cu`: AgenTerm's own computer-use foundation and its only
   executable name. CLI commands and the desktop `host` are modes of the same
   binary; there is no second `agenterm-cu` product executable. It is the first runtime

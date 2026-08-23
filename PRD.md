@@ -18,12 +18,14 @@ bypassing it. Human interaction and local CLI automation operate on the same
 tabs, PTYs, drafts, settings, and observable state. A process exiting never
 silently destroys its tab.
 
-The repository ships two products, not one program with a light mode.
-`agenterm` is the workbench described above. `agenterm-con` is an independently
-packaged lightweight terminal host with no server, Fleet, mux, MCP or script
-runtime; it reuses shared platform and UI-core mechanisms but owns its own
-requirements, budget, tests and CI. Neither product may claim a capability or a
-green status from the other's evidence.
+The repository ships the workbench described above. The lightweight terminal
+host that used to ship beside it — `agenterm-con`, no server, Fleet, mux, MCP or
+script runtime — left on 2026-08-23 for its own repository as
+[`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)
+(locally `../minicon`). It still reuses this repo's `agenterm-platform` and
+`agenterm-ui-core` through a pinned git revision, so the dependency direction is
+minicon → agenterm and never the reverse. Neither product may claim a capability
+or a green status from the other's evidence.
 
 The visual language favors industrial confidence over decoration: repeated
 integer-grid spacing, solid right-angle connections, strict baseline
@@ -53,9 +55,10 @@ decisions, status, and acceptance detail. A requirement has exactly one owning
 module; other documents link to it instead of copying it.
 
 A module may be a subtree root when one product is large enough to need its own
-second-level tree. Three product subtrees exist today: `agenterm-con` (23, with
-24–27), `agenterm-cu` (28, with 29–32), and `agenterm-mobile` (33, children
-split later). The root owns the product definition, boundary, invariants and
+second-level tree. Two product subtrees exist today: `agenterm-cu` (28, with
+29–32) and `agenterm-mobile` (33, children split later). Slots 23–27 held the
+lightweight terminal host until it moved to the `minicon` repository, where its
+subtree now lives. The root owns the product definition, boundary, invariants and
 gates; the children own third-level requirements. A shared kernel consumed by
 more than one product keeps its requirement in the owning shared module and is
 referenced, not copied, from the subtree.
@@ -121,12 +124,7 @@ AgenTerm — local agent & process fleet work OS
 ├─ 平台抽象
 │  └─ 20 Native platform        Win/macOS/Linux 原生适配（窗口/输入/IME/DPI/剪贴板/字体）
 │
-├─ agenterm-con（第二产品子树）
-│  └─ 23 agenterm-con           产品定义、边界、不变量、安全失败（子树根）
-│     ├─ 24 Terminal & rendering   PTY、VT 行级 damage、present、字形、ISA、渲染性能
-│     ├─ 25 Workspace & input      Tab 树、chrome、composer、滚动条、选择、剪贴板
-│     ├─ 26 Control & public CLI   agenterm-con cli、ATC1 帧、JSON 契约、证据发布
-│     └─ 27 Package & delivery     独立 package、con-* profile、<1 MiB 预算、独立 CI
+├─ 23–27（已迁出）        轻量终端宿主：源码与 PRD 子树 2026-08-23 迁至独立仓 minicon
 │
 ├─ agenterm-cu（computer-use 子树 · partial；正式 dist/Candidate qualification 进行中）
 │  └─ 28 agenterm-cu            自有 computer-use 底座：定义、边界、不变量、晋升门
@@ -184,11 +182,7 @@ AgenTerm — local agent & process fleet work OS
 | 20 | [Native platform abstraction](prd/PRD_02_20_native_platform.md) | Win/macOS/Linux 窗口/输入/IME/DPI/剪贴板/字体契约 |
 | 21 | [Control Center (`agenterm-cc`)](prd/PRD_02_21_control_center.md) | 独立次级工作区：Fleet cockpit/workflow/extension/info 投影 |
 | 22 | [Decentralized network (`agenterm-net`)](prd/PRD_02_22_decentralized_network.md) | libp2p 身份、IPFS 内容寻址、存储、传输、服务集成契约 |
-| 23 | [Lightweight terminal host (`agenterm-con`)](prd/PRD_02_23_agenterm_con.md) | 子树根：产品定义、边界、不变量、跨面证据、安全失败 |
-| 24 | [`agenterm-con` terminal and rendering](prd/PRD_02_24_con_terminal.md) | PTY 会话、VT 行级 damage、present、字形、ISA、渲染性能证据 |
-| 25 | [`agenterm-con` workspace and input](prd/PRD_02_25_con_workspace.md) | Tab 树权威、chrome、composer、滚动条/分隔条、选择与剪贴板 |
-| 26 | [`agenterm-con` control and public CLI](prd/PRD_02_26_con_control_cli.md) | 公共命令集、`ATC1` 传输、JSON 契约、快照/截图证据发布 |
-| 27 | [`agenterm-con` package and delivery](prd/PRD_02_27_con_delivery.md) | 独立 package、`con-*` unwind profile、体积预算、独立 CI、体积历史 |
+| 23–27 | 轻量终端宿主 — **已迁出** | 2026-08-23 起源码与五篇 PRD 在独立仓 [`partnernetsoftware/minicon`](https://github.com/partnernetsoftware/minicon)（本地 `../minicon`）。agenterm 只出 `agenterm-platform` / `agenterm-ui-core`，不再持有其写刀 |
 | 28 | [Computer-use foundation (`agenterm-cu`)](prd/PRD_02_28_agenterm_cu.md) | 子树根：唯一 executable、CLI/host、首个运行时 `libagenterm` 消费者；实现 partial，正式交付仍在 qualification |
 | 29 | [`agenterm-cu` command surface](prd/PRD_02_29_cu_command_surface.md) | 抽象命令集、洋葱分层契约、结构化控件树观察、确定性等待 |
 | 30 | [`agenterm-cu` targets and transports](prd/PRD_02_30_cu_targets_transports.md) | `current`/`ssh`/`rdp`/`vnc` 目标族、transport、**platform a11y backends**（Win UIA / macOS AX / Linux AT-SPI2）、会话模型 |
@@ -225,12 +219,12 @@ artifact generation, CLI smoke, and semantic UX smoke all pass. Rendering
 changes additionally require
 `screenshot` or `screenshot-pane` inspection.
 
-`agenterm-con` has its own ordinary gate: the matching custom-std
-`con-release-fast` Clippy, unit, public GUI black-box, panic-containment and
-artifact build path, plus its six compile cells. Candidate preflight requires a
-successful run of both `.github/workflows/ci-agenterm.yml` and
-`.github/workflows/ci-agenterm-con.yml` at the exact source SHA; one product's
-green status never substitutes for the other's.
+The lightweight terminal host's gate left with it: its custom-std
+`release-fast` Clippy, unit, public GUI black-box, panic-containment and
+artifact build path, plus its six compile cells, are now owned by the `minicon`
+repository. Candidate preflight no longer waits on
+`.github/workflows/ci-agenterm-con.yml`; one product's green status never
+substitutes for the other's, and that now holds across repositories.
 
 An unpublished release candidate uses
 `.\check.cmd --release --include-stress` on a clean commit and must emit one

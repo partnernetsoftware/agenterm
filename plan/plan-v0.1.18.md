@@ -778,11 +778,11 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
 
 ## 12. 轨 C：`agenterm-con` 第二产品
 
-> 产品真理：PRD 子树 [23](../prd/PRD_02_23_agenterm_con.md) 根 +
-> [24](../prd/PRD_02_24_con_terminal.md) 终端渲染 /
-> [25](../prd/PRD_02_25_con_workspace.md) 工作区输入 /
-> [26](../prd/PRD_02_26_con_control_cli.md) 控制与 CLI /
-> [27](../prd/PRD_02_27_con_delivery.md) package 与交付。
+> 产品真理：PRD 子树 [23](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_23_minicon.md) 根 +
+> [24](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_24_con_terminal.md) 终端渲染 /
+> [25](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_25_con_workspace.md) 工作区输入 /
+> [26](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_26_con_control_cli.md) 控制与 CLI /
+> [27](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_27_con_delivery.md) package 与交付。
 > 结构债：[`ARCHITECTURE.md`](ARCHITECTURE.md) §4 C1–C3。
 
 con 已是独立 package、有独立 CI 与独立对齐门，不再是"主程序的一个 bin"。本版
@@ -1195,7 +1195,7 @@ void       agt_pty_close (agt_pty_t);
 后果必须写进头文件与门禁：**默认 `cargo build/test -p agenterm-abi` 继承 abort
 profile，此时 `catch_unwind` 不生效**；panic 围栏只在 `--profile abi-dev|abi-release`
 下成立。交付与门禁一律用后者，不得拿默认 profile 的绿色冒充围栏已验证——con 早期
-正是在这里破坏过合同（见 [27](../prd/PRD_02_27_con_delivery.md)）。
+正是在这里破坏过合同（见 [27](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_27_con_delivery.md)）。
 
 **边界闸补强（同日实测）**：里程碑 1 的导出测试解析 `src/lib.rs` 源码文本，
 不是查产物，达不到 §14.5 第 1 条"实际导出符号集 == 清单"的要求。独立复验用
