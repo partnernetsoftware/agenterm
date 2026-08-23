@@ -202,10 +202,11 @@ async fn run_session(
     alive: Arc<AtomicBool>,
 ) {
     let mut framebuffer = Framebuffer::new(0, 0);
-    // The union of every rect touched since the last frame went out. Sending
-    // only this, rather than the whole surface, is what keeps a 4K session
-    // from spending its entire budget copying unchanged pixels.
-    let mut dirty: Option<Rect> = None;
+    // Regions touched since the last frame went out, kept separate rather than
+    // merged into one bounding box. Two small updates in opposite corners of a
+    // 4K screen share a bounding box of the whole screen: 2 KB of real content
+    // becomes a 31 MB send, which is the case a naive union gets badly wrong.
+    let mut dirty: Vec<Rect> = Vec::new();
     let mut ticker = tokio::time::interval(REFRESH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut shutdown_ack: Option<oneshot::Sender<()>> = None;
@@ -235,10 +236,7 @@ async fn run_session(
                 match event {
                     Ok(Some(event)) => {
                         if let Some(changed) = apply_event(&mut framebuffer, event) {
-                            dirty = Some(match dirty {
-                                Some(existing) => union(existing, changed),
-                                None => changed,
-                            });
+                            accumulate(&mut dirty, changed);
                             // Hand pixels on the moment they are composited.
                             // Waiting for the next refresh tick would add up to
                             // a full interval of latency to every interaction,
@@ -280,31 +278,84 @@ async fn run_session(
 fn emit(
     frames: &mpsc::Sender<Frame>,
     framebuffer: &Framebuffer,
-    dirty: &mut Option<Rect>,
+    dirty: &mut Vec<Rect>,
 ) -> bool {
-    let Some(region) = dirty.filter(|_| framebuffer.width() > 0) else {
+    if framebuffer.width() == 0 {
         return true;
-    };
-    let frame = Frame {
-        width: framebuffer.width(),
-        height: framebuffer.height(),
-        x: region.x,
-        y: region.y,
-        region_width: region.width,
-        region_height: region.height,
-        rgba: framebuffer.region_rgba(region),
-    };
-    // A full channel keeps the region pending rather than dropping it: unlike
-    // a whole-surface frame, a dropped region would leave those pixels stale
-    // forever, because nothing later redraws what the server already sent.
-    match frames.try_send(frame) {
-        Ok(()) => {
-            *dirty = None;
-            true
-        }
-        Err(mpsc::error::TrySendError::Full(_)) => true,
-        Err(mpsc::error::TrySendError::Closed(_)) => false,
     }
+    // Each pending region goes out on its own. A consumer that is busy stops
+    // the drain here and keeps the rest pending, so nothing is ever lost.
+    while let Some(&region) = dirty.first() {
+        let frame = Frame {
+            width: framebuffer.width(),
+            height: framebuffer.height(),
+            x: region.x,
+            y: region.y,
+            region_width: region.width,
+            region_height: region.height,
+            rgba: framebuffer.region_rgba(region),
+        };
+        // A full channel keeps the region pending rather than dropping it:
+        // unlike a whole-surface frame, a dropped region would leave those
+        // pixels stale forever, because nothing later redraws what the server
+        // already sent.
+        match frames.try_send(frame) {
+            Ok(()) => {
+                dirty.remove(0);
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => return true,
+            Err(mpsc::error::TrySendError::Closed(_)) => return false,
+        }
+    }
+    true
+}
+
+/// The most regions tracked before they are merged into one.
+///
+/// A cap is needed because the pending list is drained by a consumer that may
+/// be slower than the server: without one, a burst could grow it without
+/// bound. Merging is the honest fallback -- it costs bandwidth, never
+/// correctness -- and eight is comfortably above the handful of rects a normal
+/// update produces.
+const MAX_PENDING_REGIONS: usize = 8;
+
+/// Record a newly painted region, keeping the pending set small.
+///
+/// Regions that overlap or touch are merged, since sending them separately
+/// would transmit the shared pixels twice. Disjoint ones are kept apart, which
+/// is the whole point: a bounding box around scattered updates can be orders
+/// of magnitude larger than the updates themselves.
+fn accumulate(dirty: &mut Vec<Rect>, changed: Rect) {
+    let mut merged = changed;
+    // Fold in everything the new rect meets, which may chain several together.
+    let mut index = 0;
+    while index < dirty.len() {
+        if overlaps_or_touches(dirty[index], merged) {
+            merged = union(dirty.swap_remove(index), merged);
+            // Restart: the wider rect may now reach regions checked earlier.
+            index = 0;
+        } else {
+            index += 1;
+        }
+    }
+    dirty.push(merged);
+
+    if dirty.len() > MAX_PENDING_REGIONS {
+        let all = dirty.drain(..).reduce(union).expect("the list is not empty");
+        dirty.push(all);
+    }
+}
+
+/// Whether two rectangles intersect or share an edge.
+fn overlaps_or_touches(a: Rect, b: Rect) -> bool {
+    let a_right = a.x as u32 + a.width as u32;
+    let a_bottom = a.y as u32 + a.height as u32;
+    let b_right = b.x as u32 + b.width as u32;
+    let b_bottom = b.y as u32 + b.height as u32;
+    a.x as u32 <= b_right
+        && b.x as u32 <= a_right
+        && a.y as u32 <= b_bottom
+        && b.y as u32 <= a_bottom
 }
 
 /// Fold one protocol event into the surface, returning the region it touched.

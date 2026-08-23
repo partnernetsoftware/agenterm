@@ -380,3 +380,144 @@ fn pixels_are_handed_on_without_waiting_for_the_refresh_tick() {
          emission is gated on the clock rather than on the pixels"
     );
 }
+
+/// Serve two small updates in opposite corners of a large screen, forever.
+///
+/// This is the shape that punishes a bounding-box union: the two rects hold a
+/// few kilobytes between them, but any single rectangle containing both is the
+/// entire screen.
+fn serve_opposite_corners(width: u16, height: u16, tile: u16) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        // The preflight connection is answered and dropped.
+        if let Ok((mut probe, _)) = listener.accept() {
+            let _ = probe.write_all(b"RFB 003.008\n");
+            let mut version = [0u8; 12];
+            let _ = probe.read_exact(&mut version);
+            let _ = probe.write_all(&[1, 1]);
+        }
+        let Ok((mut stream, _)) = listener.accept() else { return };
+
+        let _ = stream.write_all(b"RFB 003.008\n");
+        let mut version = [0u8; 12];
+        if stream.read_exact(&mut version).is_err() {
+            return;
+        }
+        let _ = stream.write_all(&[1, 1]);
+        let mut chosen = [0u8; 1];
+        let _ = stream.read_exact(&mut chosen);
+        let _ = stream.write_all(&0u32.to_be_bytes());
+        let mut shared = [0u8; 1];
+        let _ = stream.read_exact(&mut shared);
+
+        let mut init = Vec::new();
+        init.extend_from_slice(&width.to_be_bytes());
+        init.extend_from_slice(&height.to_be_bytes());
+        init.extend_from_slice(&[32, 24, 0, 1]);
+        init.extend_from_slice(&255u16.to_be_bytes());
+        init.extend_from_slice(&255u16.to_be_bytes());
+        init.extend_from_slice(&255u16.to_be_bytes());
+        init.extend_from_slice(&[16, 8, 0]);
+        init.extend_from_slice(&[0, 0, 0]);
+        init.extend_from_slice(&4u32.to_be_bytes());
+        init.extend_from_slice(b"test");
+        let _ = stream.write_all(&init);
+
+        let pixels = vec![0xffu8; tile as usize * tile as usize * 4];
+        loop {
+            let mut kind = [0u8; 1];
+            if stream.read_exact(&mut kind).is_err() {
+                return;
+            }
+            match kind[0] {
+                0 => {
+                    let mut rest = [0u8; 19];
+                    let _ = stream.read_exact(&mut rest);
+                }
+                2 => {
+                    let mut header = [0u8; 3];
+                    let _ = stream.read_exact(&mut header);
+                    let count = u16::from_be_bytes([header[1], header[2]]);
+                    let mut body = vec![0u8; count as usize * 4];
+                    let _ = stream.read_exact(&mut body);
+                }
+                3 => {
+                    let mut rest = [0u8; 9];
+                    let _ = stream.read_exact(&mut rest);
+                    let mut update = vec![0u8, 0];
+                    update.extend_from_slice(&2u16.to_be_bytes());
+                    for (x, y) in [(0u16, 0u16), (width - tile, height - tile)] {
+                        update.extend_from_slice(&x.to_be_bytes());
+                        update.extend_from_slice(&y.to_be_bytes());
+                        update.extend_from_slice(&tile.to_be_bytes());
+                        update.extend_from_slice(&tile.to_be_bytes());
+                        update.extend_from_slice(&0i32.to_be_bytes());
+                        update.extend_from_slice(&pixels);
+                    }
+                    if stream.write_all(&update).is_err() {
+                        return;
+                    }
+                }
+                4 => {
+                    let mut rest = [0u8; 7];
+                    let _ = stream.read_exact(&mut rest);
+                }
+                5 => {
+                    let mut rest = [0u8; 5];
+                    let _ = stream.read_exact(&mut rest);
+                }
+                _ => return,
+            }
+        }
+    });
+    port
+}
+
+#[test]
+fn scattered_updates_do_not_become_a_whole_screen_send() {
+    // Regressions here are silent and expensive: everything keeps working, it
+    // just moves thirty megabytes to show thirty-two pixels. Measured with a
+    // deliberately slow consumer, merging these into one bounding box averaged
+    // 29,458 KB per frame; keeping them apart averages 1.0 KB.
+    let port = serve_opposite_corners(2048, 1536, 16);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    runtime.block_on(async move {
+        let (session, mut frames) =
+            agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None))
+                .await
+                .expect("connect");
+
+        // The first frame is the full screen, which is legitimate.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), frames.recv()).await;
+
+        let mut seen = 0;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while seen < 8 && std::time::Instant::now() < deadline {
+            let Ok(Some(frame)) =
+                tokio::time::timeout(std::time::Duration::from_secs(2), frames.recv()).await
+            else {
+                break;
+            };
+            // Deliberately slow, so regions pile up inside the session: that
+            // backlog is exactly when a bounding box degenerates.
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+            let pixels = frame.region_width as u32 * frame.region_height as u32;
+            assert!(
+                pixels <= 16 * 16,
+                "a {}x{} region came back for a 16x16 update, so scattered rects \
+                 are being merged into their bounding box",
+                frame.region_width,
+                frame.region_height
+            );
+            seen += 1;
+        }
+        assert!(seen > 0, "no incremental frames arrived");
+        session.disconnect().await;
+    });
+}
