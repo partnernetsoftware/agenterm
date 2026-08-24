@@ -10,7 +10,7 @@ Upstream: [`partnernetsoftware/tinyvm`](https://github.com/partnernetsoftware/ti
 PRD 35 记录其迁出。依赖方向 **agenterm → tinyvm**，单向。本 crate 依赖上游两个 crate：
 `tinyvm`（执行核）与 `tinyvm-qjs`（`.qjs → .wasm` 编译器），同一 rev 钉死。
 
-Supersedes: `crates/agenterm-qjs`（rquickjs 外链引擎）——**待归档**，门见下 §归档门。
+Supersedes: `crates/agenterm-qjs`（rquickjs 外链）与 `crates/agenterm-wasmcore`（wasmtime + WASI p1）——**两者均待归档**（政委 2026-08-25 定），门见下。
 
 ---
 
@@ -301,19 +301,40 @@ import 上**——那是本仓的写刀，不是上游的。
 
 ## 与其他执行面的关系
 
-| 面 | crate | 引擎 | 归属 |
+> **撤销（2026-08-25，政委定）。** 本节 rev1–rev4 写的是「本 crate 不替换任何一面，
+> 也不改 `.wasm` 默认路由」，理由是能力集不同（wasmcore 给完整 POSIX，qjswasm 只给
+> `agenterm.*` 门）。**该立场作废。** 政委 2026-08-25：「agenterm-qjs 和
+> agenterm-wasmcore 要安排归档，原因是 agenterm-qjswasm 就是用来替代它们的」。
+> 那条能力集差异**依然是真的**——它现在是**迁移工作量**，不再是拒绝替换的理由。
+
+| 面 | crate | 引擎 | 去向 |
 |----|-------|------|------|
-| `.qjs` / `.wasm`（本 PRD） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm（**无 JIT**，纯 Rust 编译器） | 自研，长期主线 |
-| `.js` / `.mjs`（现状） | `agenterm-qjs` | rquickjs → QuickJS C | **待归档**，见上 |
-| `.wasm`（现状默认） | `agenterm-wasmcore` | wasmtime + WASI p1（**JIT**） | 不动 |
+| `.qjs` / `.wasm` | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm（**无 JIT**，自研纯 Rust 编译器） | **唯一长期主线** |
+| `.js` / `.mjs` | `agenterm-qjs` | rquickjs → QuickJS C | **归档**，门见下 |
+| `.wasm`（现默认路由） | `agenterm-wasmcore` | wasmtime + WASI p1（**JIT**） | **归档**，门见下 |
+| `.sql` | `agenterm-sql` | — | **待观察**，地位未定；已 optional + default 关，维持不编进主程序 |
 
-**本 crate 不改 `.wasm` 的默认路由。** `from_entry_path` 里 `.wasm` 仍先命中
-`script-wasmcore`；qjswasm 接管 `.wasm` 需要显式 `AGENTERM_SCRIPT_BACKEND=qjswasm`。
-理由是能力集不同：wasmcore 给的是完整 POSIX（`fd_*`、`_start`、`proc_exit`），
-qjswasm 只给 `agenterm.*` 门，静默换引擎会让现有 WASI guest 突然找不到 `fd_write`。
+这一条同时结清了 [roadmap](PRD_02_18_roadmap.md) 末尾那个待派单任务「wasm/qjs 引擎重构为
+依赖 tinyvm」：**两半都由本 crate 承接**，不再是未指派。
 
-> 「用 tinyvm 取代 wasmcore」是 [roadmap](PRD_02_18_roadmap.md) 末条那个**待派单**
-> 任务，不是本 PRD 的范围。
+### 归档 `agenterm-wasmcore` 的门
+
+`agenterm-qjs` 的门在下一节（锚在 `fleet.js`）。wasmcore 的门不同，因为它的用户是
+**wasm 客人而不是脚本**：
+
+1. **能力差异有诚实清单。** wasmcore 提供完整 WASI p1（`fd_*` / `_start` / `proc_exit`）；
+   qjswasm 只提供 `agenterm.*` 四件。逐条列出「wasmcore 能而 qjswasm 不能」的事，
+   每条注明是**要补**还是**有意不补**（把 WASI 做成第二扇 OS 面是纪律禁止的，
+   所以多半是后者）。
+2. **`.wasm` 默认路由切到 qjswasm**，且既有 guest 的行为变化有测试锁住。
+3. 现状实测：`scripts/` 下**零个 `.wasm` 语料**，`script-wasmcore` 是 optional + default
+   关，生产调用点只有 `src/script_engine.rs` 的 `WasmcoreEngineBackend`。所以这不是
+   「砸掉在用的东西」——但**门仍要走完**，因为"没人用"是今天的事实，不是承诺。
+
+> **附带修正**：`crates/agenterm-wasmcore/README.md` 现在写着它「not a member of the
+> root workspace」「not wired into any product path」，**两条都已是假的**——它在
+> workspace members 里，也是 `script_engine.rs` 的一个 backend。归档前先修这两句，
+> 否则下一个人照 README 判断会判错。
 
 ## 隔离与预算
 
@@ -572,7 +593,7 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 - 不链 QuickJS C 库，不用 `rquickjs`，不引入 C 依赖或构建期 C 工具链。
 - 不做 JIT、AOT 到机器码、copy-and-patch，不碰可执行内存。
 - 不用 tinyvm `wasi-p1` feature 当插件面。
-- 不替换 `agenterm-wasmcore`，不改 `.wasm` 默认路由。
+- 归档 `agenterm-qjs` 与 `agenterm-wasmcore` 各自走完上文的门再动手；门未绿前两者原样保留、不腐化。
 - 不做跨槽通信、共享内存、共享 table/global。
 - 不 vendor tinyvm 源码（改 tinyvm 走上游仓，见上「改造 tinyvm：已授权」）。
 - 不在归档门三条全绿前动 `agenterm-qjs`。

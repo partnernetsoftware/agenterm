@@ -193,7 +193,7 @@ AgenTerm — local agent & process fleet work OS
 | 33 | [Mobile reach (`agenterm-mobile`)](prd/PRD_02_33_mobile_reach.md) | 手机接入端：PWA 先行（`https://agenterm.work/app`）、商店 App 占位、扫码绑定桌面；无版本承诺 |
 | 34 | [`agenterm-dyn` internal native door](prd/PRD_02_34_agenterm_dyn.md) | `publish = false` 的极小 S-expr / intern / bounded `dlcall` crate；当前授权范围持续收口，host-ISA folding、wasm export 与 libagenterm merge 仍未授权 |
 | 35 | `tinyvm` standard WebAssembly VM — **已迁出** | 2026-08-22 起源码与 PRD 在独立仓 [`partnernetsoftware/tinyvm`](https://github.com/partnernetsoftware/tinyvm)（本地 `../tinyvm`）。iOS 边界下自有、跨平台、可预算的 WASM VM，核 <100KiB。agenterm 不再持有其写刀 |
-| 36 | [`agenterm-qjswasm` 自研脚本引擎](prd/PRD_02_36_agenterm_qjswasm.md) | `.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wasm` 直接跑，核是 tinyvm（无 JIT、装载期校验、上限在核）。不链 QuickJS C、不用 rquickjs，**取代 `agenterm-qjs`**（归档门见该文档）。「AOT」只指到 wasm 码不到机器码。JS 覆盖面是**排期不是天花板**（运行时自带、一起编进 wasm），**无原理排除**——`eval` 走宿主重编 + 跨实例链接，tinyvm 已支持。执行核不生成机器码是 tinyvm 产品定义。2026-08-24 下单，尚未实现；不改 `.wasm` 默认路由 |
+| 36 | [`agenterm-qjswasm` 自研脚本引擎](prd/PRD_02_36_agenterm_qjswasm.md) | `.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wasm` 直接跑，核是 tinyvm（无 JIT、装载期校验、上限在核）。不链 QuickJS C、不用 rquickjs，**取代 `agenterm-qjs`**（归档门见该文档）。「AOT」只指到 wasm 码不到机器码。JS 覆盖面是**排期不是天花板**（运行时自带、一起编进 wasm），**无原理排除**——`eval` 走宿主重编 + 跨实例链接，tinyvm 已支持。执行核不生成机器码是 tinyvm 产品定义。M0–M2 已落地（编译器在上游 `tinyvm-qjs`，本 crate 是业务层）。**取代 `agenterm-qjs` 与 `agenterm-wasmcore`**，两者均待归档（政委 2026-08-25） |
 
 ## Non-negotiable invariants
 

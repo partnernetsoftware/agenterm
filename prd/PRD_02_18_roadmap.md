@@ -719,8 +719,11 @@ track remains planned, but every declared dependency must still pass.
   Linux probes, paired examples. No cu/platform/JIT unless 政委 orders it.
 - [~] `agenterm-tinyvm` — **已迁出**到独立仓 `partnernetsoftware/tinyvm`（本地 `../tinyvm`）。WASM 1.0 interpret slot A；核 < 100 KiB。agenterm 只作下游 embedder，不再持有其写刀。
 - [ ] (待派单) **wasm/qjs 引擎重构为依赖 tinyvm** — 把 agenterm 内 `agenterm-wasmcore` / `agenterm-qjs` 的处理改为基于独立 tinyvm 运行时（依赖方向 agenterm → tinyvm）。**2026-08-23 记录，等另行下单再动工**；下单前不写代码、不改 Cargo 依赖。关联：tinyvm 独立仓 PRD、`plan/plan-v0.1.16.md` 脚本引擎小节。
-  **本条的 qjs 一半已被取代，wasm 一半仍未派单。** 2026-08-24 立
+  **本条已于 2026-08-25 全部结清，不再等派单。** 2026-08-24 立
   [`agenterm-qjswasm`](PRD_02_36_agenterm_qjswasm.md)（PRD 36）：在 tinyvm 上自研脚本引擎，
   `.qjs` 用纯 Rust 编译成 `.wasm`，**取代 `agenterm-qjs`**（rquickjs 外链，归档门见该文档）。
-  它显式**不**替换 `agenterm-wasmcore`、不改 `.wasm` 默认路由——「用 tinyvm 取代 wasmcore」
-  仍是本条，仍等派单。
+  政委 2026-08-25 定：`agenterm-qjs` 与 `agenterm-wasmcore` **两者都归档**，qjswasm 就是
+  用来替代它们的。所以本条的两半都由 PRD 36 承接，各自的归档门写在该文档里。
+  另：`agenterm-sql` 标记**待观察**（地位未定，维持 optional + default 关）；
+  `agenterm-rh` 将迁出到独立仓 `partnernetsoftware/rh`，但**前置条件是先从 rustc AOT
+  改成动态脚本**，且排在 qjswasm 稳定之后。
