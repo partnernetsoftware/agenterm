@@ -10,11 +10,38 @@ Send + Sync>`, defined in `src/script_engine.rs`). This crate's whole
 value is exposing that exact capability to WASM guests, not inventing a
 new one.
 
-Standalone crate, own `[workspace]` table (see "Why standalone" below) --
-not a member of the root workspace, and **not wired into
-`execute_inner`/the product script path this round**. This is a
-mechanism-proving crate: it proves the ABI and the round trip work for
-real, nothing more.
+> **Status: awaiting archive (PRD 02.36).** `agenterm-qjswasm` supersedes
+> this crate; the archive gate is in `prd/PRD_02_36_agenterm_qjswasm.md`
+> and the capability accounting it demands is in
+> [`plan/design-wasmcore-archive-gate.md`](../../plan/design-wasmcore-archive-gate.md).
+> Until that gate is green this crate stays as it is: no new features, no
+> rot.
+
+**This crate is a root-workspace member and it is wired into the product.**
+Both were false once and are corrected here, because the earlier wording
+("standalone", "not wired into any product path") is exactly what someone
+deciding whether to archive it would read first:
+
+- **Root-workspace member.** It is listed in the root `Cargo.toml`'s
+  `members`, and its own `Cargo.toml` has no `[workspace]` table of its own.
+  `cargo metadata --no-deps` on the root manifest reports 18 workspace
+  members including this one.
+- **Wired into the product script path**, behind the `script-wasmcore`
+  feature (optional, and **not** in `default`, which is empty):
+  `WasmcoreEngineBackend` in `src/script_engine.rs` implements
+  `ScriptEngineBackend` over `WasmCoreHost::validate_binary` (`check`) and
+  `WasmCoreHost::run_module` (`execute`); `src/script_worker.rs`'s
+  `execute_inner` dispatches to it; `src/script_backend.rs` routes both
+  `AGENTERM_SCRIPT_BACKEND=wasmcore|wasm` and any `.wasm` entry path to it;
+  `src/client/mod.rs` special-cases it as the one path-carrying backend; and
+  `tests/wasmcore_framed_worker.rs` is a product-level black-box test of that
+  wiring.
+- Still true, and worth keeping separate from the above: the **AOT** API
+  (`precompile_module` / `run_precompiled_module`) and `run_module_from_bytes`
+  are used by nothing in `src/` or `tests/`. The product path uses exactly
+  three entry points: `WasmCoreHost::new`, `validate_binary`, `run_module`.
+
+What follows describes the mechanism as built.
 
 ## JIT, deliberately
 
@@ -28,6 +55,53 @@ RWX-avoidance machinery -- that would contradict the whole point of using
 a mature, JIT-based runtime. See "Relationship to the other
 `agenterm-*core` crates" below for what this crate is trading that
 discipline away *for*.
+
+## What WASI p1 a guest actually gets here (measured)
+
+`run_loaded_module` registers the **whole** `wasi_snapshot_preview1` import
+set (`p1::add_to_linker_sync`, which `wiggle` generates from wasmtime-wasi's
+own witx -- all 46 functions), so every WASI import links. What each one
+*does* is decided by the `WasiCtx`, and this crate builds a deliberately
+bare one: `WasiCtxBuilder::new().stdout(pipe).inherit_stderr().build_p1()`
+-- no `.args()`, no `.envs()`, no `.preopened_dir()`, no `.inherit_stdin()`.
+
+Measured by running a real `wasm32-wasip1` probe guest through
+`WasmCoreHost::run_module` (not read off the spec):
+
+| call | observed |
+|---|---|
+| `args_sizes_get` / `environ_sizes_get` | `errno=0`, but **argc=0, env count=0** -- the calls work, there is nothing in them |
+| `clock_time_get(realtime)` | `errno=0`, real wall-clock ns |
+| `clock_time_get(monotonic)` | `errno=0`, real monotonic ns |
+| `clock_time_get(process_cputime)` | `errno=8` (BADF) |
+| `clock_res_get(realtime)` | `errno=0`, `res=1000` |
+| `random_get` | `errno=0`, real entropy |
+| `fd_fdstat_get(0/1/2)` | `errno=0`; stdin rights `0x2` (FD_READ), stdout/stderr `0x40` (FD_WRITE) |
+| `fd_fdstat_get(3..5)`, `fd_prestat_get(3..5)` | `errno=8` (BADF) -- **no preopens at all** |
+| `path_open` under fd 3 | `errno=8`; `std::fs::read`/`write`/`read_dir` all fail `NotFound` |
+| `fd_read(stdin)` | `errno=0`, 0 bytes (immediate EOF) |
+| `fd_write(stderr)` | `errno=0` -- goes straight to the **host process's** stderr, uncaptured and uncapped (`inherit_stderr`) |
+| `sched_yield` | `errno=0` |
+| `poll_oneoff` via `thread::sleep(5ms)` | works; the guest really blocks the worker thread |
+| `std::thread::spawn` | `errno=58` (NOTSUP) |
+| `sock_shutdown` | `errno=57` (NOTSOCK); `proc_raise` `errno=58` |
+| guest recursion 1,000,000 frames deep | returns normally -- guest frames live on the 16 MiB native worker stack |
+
+So "full WASI p1" is accurate about the *import surface* and misleading
+about the *granted capability*: a guest here gets stdio, clocks, entropy,
+`sched_yield`/`poll_oneoff`, and nothing else. No filesystem, no argv, no
+environment, no sockets, no threads. The two capabilities a
+`agenterm.*`-only door genuinely does not have are **real host stderr** and
+**an unbounded native call stack**.
+
+Two failure shapes worth knowing before relying on stdout:
+
+- Guest stdout is captured into a fixed 256 KiB `MemoryOutputPipe`. Past
+  that, a Rust guest's `println!` fails, the guest panics and aborts, and
+  the run returns `Err` -- so **exceeding the cap loses the whole capture**,
+  not just the tail. Measured with a guest that prints ~300 KiB.
+- Any trap (including that one) returns `Err` before `stdout_pipe.contents()`
+  is read, so a trapping guest's stdout is discarded.
 
 ## Quickstart
 
@@ -285,8 +359,11 @@ measured on this box, not an estimate.
   not a second, untested code path bolted on beside the real one -- both
   loading strategies funnel into one shared function; only how the
   `wasmtime::Module` gets built differs.
-- Neither is wired into any product path -- same standalone,
-  mechanism-proving posture as the rest of this crate this round.
+- Neither of these two is reached from the product. `src/script_engine.rs`
+  calls `run_module` (always a fresh Cranelift compile) and
+  `validate_binary`, and nothing in `src/` or `tests/` mentions
+  `precompile_module`, `run_precompiled_module`, or `.cwasm`. The rest of
+  the crate *is* wired in -- see the status note at the top.
 
 [`tests/aot_precompile.rs`](tests/aot_precompile.rs) proves this end to
 end: compiles the crate's real `guests/fleet_guest.rs`, runs it once
@@ -383,6 +460,15 @@ The claim under test: a `.cwasm` is native code for whatever target
 settings) it was precompiled for -- it is **not** portable across those
 the way the source `.wasm` is.
 
+> **Portability of the *test*, not just the artifact (measured 2026-08-25).**
+> `aot_cwasm_bytes_literally_embed_the_host_target_triple` hard-asserts
+> `std::env::consts::ARCH == "x86_64"` and `OS == "windows"` before its byte
+> search, so it **fails on any other host**. Real result on macOS aarch64:
+> 22 of the crate's 23 tests pass; that one fails with
+> `left: "aarch64" right: "x86_64"`. "This box" throughout this section means
+> the Windows x86_64 box the numbers were taken on, not wherever you are
+> reading this.
+
 **Tested for real, on this box** (see
 [`tests/aot_precompile.rs`](tests/aot_precompile.rs)):
 
@@ -461,11 +547,11 @@ change this crate's own default":
   for a latency difference no one will observe. The source `.wasm` must
   still be shipped regardless (for any target without a matching
   `.cwasm`), so AOT is additive distribution weight, not a replacement.
-- This crate is still standalone and not wired into any product path
-  this round (see "Non-goals" below) -- this section reports the
-  measured trade honestly; it does not argue for or against wiring AOT
-  into a future product path, which depends on the not-yet-known actual
-  guest-reload frequency of whatever consumes this crate.
+- The AOT path specifically is still unwired: the product calls
+  `run_module`, which recompiles on every invocation. This section reports
+  the measured trade honestly; it does not argue for wiring AOT in, and
+  with the crate now awaiting archive (see the status note at the top)
+  that question is very unlikely to be reopened.
 
 ## Non-goals (explicit, this round)
 
@@ -476,10 +562,12 @@ change this crate's own default":
   anyway (see `wasmtime_wasi::p1`'s own module docs).
 - **No `wasm32-unknown-unknown`.** This crate is specifically about WASI
   guest programs, not a generic sandboxed-compute target.
-- **No product wiring.** Not called from `execute_inner`, `script_engine.rs`,
-  or any other product script-execution path this round. Same phased
-  "prove the mechanism standalone first" discipline every other crate in
-  this session followed.
+- ~~**No product wiring.**~~ **Superseded.** This was true when written and
+  is false now: the crate is reached from `execute_inner` via
+  `script_engine.rs`'s `WasmcoreEngineBackend` whenever the `script-wasmcore`
+  feature is on. What remains unwired is the AOT pair
+  (`precompile_module` / `run_precompiled_module`) and
+  `run_module_from_bytes`. See the status note at the top.
 
 ## Relationship to the archived `agenterm-*core` crates
 
@@ -491,22 +579,32 @@ the workspace (`fef91b2d`, 2026-08-09) and archived (2026-08-10, see
 approach that shipped: a mature, reused JIT runtime (`wasmtime`) executing real
 `wasm32-wasip1` bytecode, genuinely ISA-neutral, with Cranelift JIT.
 
-## Why standalone (not a root-workspace member)
+## Workspace membership and what it costs
 
-`Cargo.toml` carries its own empty `[workspace]` table rather than being
-added to the root `Cargo.toml`'s `members` list. Two reasons:
+**Corrected.** This section used to argue the crate was deliberately kept
+out of the root workspace ("own empty `[workspace]` table", "keeping it out
+of the root `Cargo.lock`"). Neither holds today:
 
-1. **Precedent.** Earlier `agenterm-*core` crates were root-workspace members
-   briefly, then removed (`fef91b2d`, 2026-08-09) and later archived
-   (`plan/archive/crates-archived/`). Following that same direction, this
-   crate joins the root workspace only when it has a product-facing integration
-   point (which it now does, via `script-wasmcore` feature).
-2. **Build isolation.** `wasmtime` is a heavy dependency tree (Cranelift,
-   `wasmtime-wasi`, and their transitive graph). Keeping it out of the
-   root `Cargo.lock` avoids bloating every other crate's build in this
-   workspace with a dependency only this crate needs.
+- `Cargo.toml` here has **no** `[workspace]` table; the root `Cargo.toml`
+  lists `crates/agenterm-wasmcore` in `members`.
+- The root `Cargo.lock` **does** carry `wasmtime 47.0.3` and its Cranelift
+  graph, so the build-isolation argument no longer describes reality.
 
-Build and test it directly from its own directory:
+What the change actually costs, stated plainly so the archive decision can
+price it:
+
+- Nothing on the default build. `default = []`, the dependency is
+  `optional`, and `cargo tree -p agenterm -e normal` finds **0** wasmtime
+  packages by default versus **39** with `--features script-wasmcore`. The
+  shipped `agenterm` binary (`cargo build --bin agenterm`, what
+  `scripts/bootstrap.sh` runs) never compiles Cranelift.
+- It does cost on anything workspace-wide (`cargo test --workspace`,
+  `cargo clippy --workspace`), which builds every member including this one.
+- The stale `crates/agenterm-wasmcore/Cargo.lock` in this directory is a
+  leftover from the standalone era; a workspace member's lockfile is the
+  root one.
+
+Building and testing this crate on its own still works from its directory:
 
 ```sh
 cd crates/agenterm-wasmcore
