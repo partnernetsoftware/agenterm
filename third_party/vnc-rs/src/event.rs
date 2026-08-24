@@ -134,6 +134,8 @@ pub enum X11Event {
     /// Require an incremental frame update
     ///
     Refresh,
+    /// AGENTERM PATCH: an incremental update for one region only.
+    RefreshRegion(Rect),
     /// Require a full (non-incremental) frame update.
     /// Forces the server to send the entire framebuffer, useful after
     /// CursorPseudo is negotiated to clear cursor ghosts from the framebuffer.

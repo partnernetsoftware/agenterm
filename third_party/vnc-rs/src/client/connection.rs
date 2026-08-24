@@ -186,6 +186,11 @@ impl VncInner {
             Err(VncError::ClientNotRunning)
         } else {
             let msg = match event {
+                // AGENTERM PATCH: an incremental request may name a sub-rect,
+                // and on a large screen it must. macOS spends 37 to 453 ms
+                // encoding a 2160x3840 framebuffer, which dominates every
+                // interaction; asking only for the part a viewer can actually
+                // see cuts that in proportion to the area.
                 X11Event::Refresh => ClientMsg::FramebufferUpdateRequest(
                     Rect {
                         x: 0,
@@ -195,6 +200,9 @@ impl VncInner {
                     },
                     1,
                 ),
+                X11Event::RefreshRegion(rect) => {
+                    ClientMsg::FramebufferUpdateRequest(rect, 1)
+                }
                 X11Event::FullRefresh => ClientMsg::FramebufferUpdateRequest(
                     Rect {
                         x: 0,

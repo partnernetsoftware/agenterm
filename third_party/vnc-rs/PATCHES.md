@@ -70,6 +70,14 @@ returns an error the session can report. `PixelFormat::rgb565` was also added,
 because the padding fields are private and an embedder cannot otherwise
 construct a 16-bit format.
 
+## 5. An incremental request may name a sub-rect
+
+`X11Event::RefreshRegion` was added alongside `Refresh`, which always asks for
+the whole framebuffer. Measured against macOS it did not help -- the server's
+cost turned out to be per request rather than per pixel, and asking for less
+was slower -- but the protocol allows it and a smaller viewport on a slow link
+is a legitimate reason to want it.
+
 ## Notes
 
 The cryptography deliberately stays **outside** this vendored copy, in
