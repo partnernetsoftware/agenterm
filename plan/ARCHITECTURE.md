@@ -39,6 +39,14 @@ crates/agenterm-dyn/         内部 `publish = false` 的极小 native door：
                              intern + S-expr eval + bounded integer/pointer `dlcall`
                              不属于 Script engine family，不接 cu/platform/libagenterm
 
+crates/agenterm-qjswasm/     agenterm 自有脚本引擎的**业务层**：`agenterm.*` 宿主门
+                             （print / fleet_call 两趟返回）、槽生命周期、预算策略、
+                             ScriptBackend 接线。产品真理 PRD 36
+                             编译器**不在这里**：`.qjs → .wasm` 归上游 `tinyvm-qjs`
+                             （2026-08-24 迁出，理由是它一行 agenterm 概念都没有）
+                             执行核归上游 `tinyvm`，git+rev 钉死，从不 vendor
+                             feature `script-qjswasm`，default 关
+
 crates/agenterm-chassis/     Chassis-L1/L2/L3 独立合成：冻 loader 字节 + host-abi + app
                              默认不依赖工作台 `agenterm` 包；日常 compose/check，不编六格 PE
                              可选 loader feature/bin 校验 image，随后交给 native host 呈窗
