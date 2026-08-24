@@ -1,5 +1,11 @@
 # AgenTerm product tree
 
+Parent: [`~/repos/index.md`](~/repos/index.md) — the cross-repo memory palace.
+This file is the product-level palace; `prd/PRD_02_*.md` are the capability-level
+ones. Same discipline at three scales: one owner per fact, link rather than copy,
+record a retraction instead of rewriting a judgement, and treat `[x]` as an
+evidence-backed commitment rather than an opinion.
+
 Status: active development
 Platform: Windows shipped; Linux/macOS GUI and POSIX PTY in active delivery
   (see [`plan/plan-multiplatform-gui.md`](plan/plan-multiplatform-gui.md)).

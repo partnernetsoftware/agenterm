@@ -20,6 +20,7 @@
 | [`agent-human-parity-audit.md`](agent-human-parity-audit.md) | Agent↔Human 输入/观察 parity 的现行审计与剩余叶 |
 | [`goal-crate-platform.md`](goal-crate-platform.md) / [`plan-platform-encapsulation-gap.md`](plan-platform-encapsulation-gap.md) | platform crate 边界、机制漏点与固定执行句式 |
 | [`goal-agenterm-osx.md`](goal-agenterm-osx.md) | macOS 原生证据与安装尾账 goal |
+| [`goal-local-six-cell.md`](goal-local-six-cell.md) | **本机六格**：单台 Apple Silicon 宿主完成 `{x86_64,aarch64}×{win,lnx,osx}` 构建 + 四格 VM 运行时验证（CI 降为兜底） |
 | [`plan-multiplatform-gui.md`](plan-multiplatform-gui.md) | Linux/macOS GUI 交付里程碑 |
 | [`plan-mobile.md`](plan-mobile.md) | 移动原生壳执行投影；**产品归 PRD 33**（PWA 先行，商店 App 占位） |
 | [`plan-control-center-ux.md`](plan-control-center-ux.md) / [`design-control-center-ux.md`](design-control-center-ux.md) | Control Center 任务书与实现级设计 |
