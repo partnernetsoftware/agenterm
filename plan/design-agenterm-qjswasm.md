@@ -203,7 +203,11 @@ impl Engine {
     pub fn live_slots(&self) -> usize;
 }
 
-/// 只编不跑：`.qjs` → `.wasm` 字节。CLI `qjswasm build` 与 `check` 都走它。
+/// 只编不跑：`.qjs` → `.wasm` 字节。`ScriptEngineBackend::check` 走它；
+/// 计划中的 CLI `qjswasm build` 也走它——**该 CLI 今天不存在**
+/// （2026-08-25 实测：本仓没有 `qjswasm` 子命令，`src/bin/agenterm.rs` 的
+/// `ENGINE_SUBCOMMANDS` 里没有它。判决与落地顺序见
+/// `plan/design-qjs-archive-gate.md` §9）。
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError>;
 ```
 

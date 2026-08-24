@@ -410,3 +410,56 @@ fn extension_routing_covers_exactly_two_extensions() {
         );
     }
 }
+
+/// Compiling to bytes and loading those bytes back gives the *same* value as
+/// running the source directly.
+///
+/// This is the acceptance criterion the `agenterm-qjs` CLI archive gate names
+/// as its step zero (`plan/design-qjs-archive-gate.md` 4.3 and 9). Every
+/// compile-once-run-later verb -- `pack`, a build cache, an artifact fetched
+/// from anywhere -- is built on it, and before `Guest::CompiledQjs` existed it
+/// was false: `Guest::Wasm(&compile_qjs(src))` loaded the same bytes under the
+/// wasm convention, so `42` came back as the raw V1 pair `[I32(1),
+/// I64(4631107791820423168)]` instead of `Number(42.0)`, and a string came back
+/// as a pointer into a linear memory the caller was about to drop.
+///
+/// A `.wasm` file does not remember where it came from. The convention has to
+/// be carried by whoever loads it, which is what the variant is for -- and the
+/// third leg below is why: the same bytes named as plain wasm still speak the
+/// pair, deliberately, so this is a choice the caller makes rather than a
+/// property the engine guesses at.
+#[test]
+fn a_compiled_artifact_reloaded_gives_the_same_value_as_its_source() {
+    for (source, want) in [
+        ("return 42;", Value::Js(JsValue::Number(42.0))),
+        ("return \"hello\";", Value::Js(JsValue::Str("hello".into()))),
+        ("return true;", Value::Js(JsValue::Bool(true))),
+        ("return null;", Value::Js(JsValue::Null)),
+        ("let unused = 1;", Value::Js(JsValue::Undefined)),
+    ] {
+        let bytes = compile_qjs(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+
+        let direct = engine()
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .unwrap_or_else(|e| panic!("{source:?} direct: {e}"));
+        let reloaded = engine()
+            .run_once(Guest::CompiledQjs(&bytes), None, "main", &[])
+            .unwrap_or_else(|e| panic!("{source:?} reloaded: {e}"));
+
+        assert_eq!(direct.values, vec![want.clone()], "{source:?} direct");
+        assert_eq!(reloaded.values, direct.values, "{source:?} reloaded");
+    }
+
+    // The same bytes under the wasm convention are a different answer, on
+    // purpose: `Convention` is recorded, never inferred. If this ever starts
+    // matching the two above, the engine has begun guessing at signatures.
+    let bytes = compile_qjs("return 42;").expect("compiles");
+    let raw = engine()
+        .run_once(Guest::Wasm(&bytes), None, "main", &[])
+        .expect("compiled bytes are ordinary wasm too");
+    assert_eq!(
+        raw.values,
+        vec![Value::I32(1), Value::I64(42.0f64.to_bits() as i64)],
+        "loading compiled bytes as plain wasm must still hand over the raw V1 pair"
+    );
+}
