@@ -34,6 +34,12 @@ pub enum ScriptBackend {
     Sql,
     #[cfg(feature = "script-wasmcore")]
     Wasmcore,
+    /// AgenTerm's own engine: `.qjs` compiled to `.wasm` in pure Rust, both run
+    /// on tinyvm with no JIT. Distinct from `Qjs` (rquickjs, native QuickJS C)
+    /// and from `Wasmcore` (wasmtime + WASI p1, JIT): different trust model and
+    /// a different capability set, so it never silently takes another's route.
+    #[cfg(feature = "script-qjswasm")]
+    Qjswasm,
 }
 
 impl ScriptBackend {
@@ -54,6 +60,8 @@ impl ScriptBackend {
             Some("sql") => Self::Sql,
             #[cfg(feature = "script-wasmcore")]
             Some("wasmcore") | Some("wasm") => Self::Wasmcore,
+            #[cfg(feature = "script-qjswasm")]
+            Some("qjswasm") => Self::Qjswasm,
             _ => Self::Rh,
         }
     }
@@ -69,10 +77,22 @@ impl ScriptBackend {
             Self::Sql => "sql",
             #[cfg(feature = "script-wasmcore")]
             Self::Wasmcore => "wasmcore",
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm => "qjswasm",
         }
     }
 
     /// Select backend from task entry file extension.
+    ///
+    /// `.qjs` is the QuickJS-family extension for agenterm's own engine, named
+    /// so that it is not confused with Node/Bun `.js`. Note what this function
+    /// deliberately does NOT do: `.js`/`.mjs` keep routing to `Qjs` (rquickjs)
+    /// and `.wasm` keeps routing to `Wasmcore` (wasmtime + WASI p1). Those two
+    /// offer capabilities qjswasm does not — a full modern-JS surface and a
+    /// full POSIX surface respectively — so silently rerouting them would make
+    /// an existing guest lose `fd_write`, or an existing script stop compiling.
+    /// Taking those routes is an explicit `AGENTERM_SCRIPT_BACKEND=qjswasm`
+    /// decision, and retiring `agenterm-qjs` is gated separately (PRD 36).
     pub fn from_entry_path(path: &str) -> Self {
         #[cfg(feature = "script-lua")]
         if path.ends_with(".lua") {
@@ -89,6 +109,10 @@ impl ScriptBackend {
         #[cfg(feature = "script-wasmcore")]
         if path.ends_with(".wasm") {
             return Self::Wasmcore;
+        }
+        #[cfg(feature = "script-qjswasm")]
+        if path.ends_with(".qjs") {
+            return Self::Qjswasm;
         }
         if path.ends_with(".rh") {
             return Self::Rh;

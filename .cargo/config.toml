@@ -12,3 +12,13 @@ linker = "aarch64-linux-gnu-gcc"
 # when a machine can afford more.
 [build]
 jobs = 6
+
+# `agenterm-qjswasm` depends on the private `partnernetsoftware/tinyvm` by git
+# revision. Cargo's built-in libgit2 client cannot present GitHub credentials
+# for it -- measured, not assumed: `cargo fetch` failed with
+# `failed to receive HTTP 200 response: got 401; class=Net (12)`, and the same
+# fetch succeeded once routed through the system `git` binary, which already
+# holds the developer's credentials. Set here rather than as a per-invocation
+# environment variable so a fresh clone builds without tribal knowledge.
+[net]
+git-fetch-with-cli = true

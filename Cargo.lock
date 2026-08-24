@@ -53,6 +53,7 @@ dependencies = [
  "agenterm-lua",
  "agenterm-platform",
  "agenterm-qjs",
+ "agenterm-qjswasm",
  "agenterm-rh",
  "agenterm-sql",
  "agenterm-ui-core",
@@ -158,6 +159,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "agenterm-qjswasm"
+version = "0.1.16"
+dependencies = [
+ "tinyvm",
+ "wat",
 ]
 
 [[package]]
@@ -6038,6 +6047,14 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tinyvm"
+version = "0.1.0"
+source = "git+https://github.com/partnernetsoftware/tinyvm?rev=2f27570#2f2757057d802832803c7be4619200b36593bde3"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "tokio"
