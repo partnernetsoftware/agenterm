@@ -92,32 +92,54 @@ impl Slot {
 /// Sort one tinyvm fault raised at instantiation or call time into the crate's
 /// error classes.
 ///
-/// tinyvm is `no_std` and fmt-free, so `WasmError` carries a `&'static str` and
-/// nothing else -- there is no structured "this was a limit" flag to read.
-/// Matching the message is therefore the only mechanism available, and it is
-/// exact rather than a heuristic over free text: each literal below is emitted
-/// by the limit checks in `wasm.rs` and by nothing else.
+/// This reads [`tinyvm::WasmError::class`] and [`tinyvm::WasmError::ceiling`], never the
+/// message text. That is not a style preference -- it is the fix for a real
+/// near-miss. This function used to carry its own table of message literals
+/// (`"step budget" | "call depth" | "call stack"`). Upstream then split
+/// `"call stack"` into four distinct conditions, and the moment the revision
+/// pin moved, activation-slot exhaustion would have silently reclassified from
+/// `Budget` to `Trap`: no compile error, and the existing tests still green,
+/// because they only asserted the two literals that happened to survive.
+/// Accessors cannot drift that way -- a renamed message changes nothing here,
+/// and a new ceiling arrives as a fault class this match already handles.
 ///
-/// - `"step budget"` -- the per-top-level-call step counter passed `max_steps`.
-/// - `"call depth"` -- a guest call passed `max_call_depth`.
-/// - `"call stack"` -- activation storage passed `max_activation_slots`. This
-///   one is not a clean 1:1: tinyvm reuses it for its fixed `WASM_STACK_LIMIT`
-///   operand-stack ceiling and for internal `checked_add` overflows on slot
-///   accounting. All three are resource exhaustion, so `Budget` is the honest
-///   class, but a caller cannot tell *which* ceiling it hit.
+/// The mapping:
 ///
-/// Deliberately **not** mapped to `Budget`: `Trap("memory size")`, which
-/// instantiation raises both for "declared minimum exceeds `max_memory_pages`"
-/// and for a plain allocation failure or size overflow. Calling that a budget
-/// exhaustion would be a guess, so it stays an ordinary trap. Everything else
-/// is an ordinary guest fault.
+/// - [`tinyvm::WasmFaultClass::ResourceCeiling`] -> [`QjswasmError::Budget`]. A limit the
+///   embedder chose was reached, including the VM's own fixed operand-stack
+///   bound, which [`tinyvm::WasmError::ceiling`] reports as `None` because no `Limits`
+///   field controls it. Either way the guest was too expensive for the room it
+///   was given, which is what the caller needs to know.
+/// - [`tinyvm::WasmFaultClass::Load`] -> [`QjswasmError::Load`]. Rejected before it could
+///   run.
+/// - Everything else -> [`QjswasmError::Trap`]: an ordinary guest fault, an
+///   allocation refusal, or a VM invariant. None of those is the embedder's
+///   budget, and calling them one would be a guess.
 fn classify(error: tinyvm::WasmError) -> QjswasmError {
-    match error {
-        tinyvm::WasmError::Decode(_) => QjswasmError::Load(error),
-        tinyvm::WasmError::Trap(message) => match message {
-            "step budget" | "call depth" | "call stack" => QjswasmError::Budget(message),
-            _ => QjswasmError::Trap(error),
-        },
+    match error.class() {
+        tinyvm::WasmFaultClass::ResourceCeiling => QjswasmError::Budget(ceiling_name(&error)),
+        tinyvm::WasmFaultClass::Load => QjswasmError::Load(error),
+        tinyvm::WasmFaultClass::Allocation
+        | tinyvm::WasmFaultClass::Guest
+        | tinyvm::WasmFaultClass::Internal => QjswasmError::Trap(error),
+    }
+}
+
+/// Which budget ran out, named after the [`tinyvm::Limits`] field the embedder
+/// would raise -- not after the core's trap wording, so the text this crate
+/// reports stays stable across upstream rewordings.
+fn ceiling_name(error: &tinyvm::WasmError) -> &'static str {
+    match error.ceiling() {
+        Some(tinyvm::WasmCeiling::Steps) => "max_steps",
+        Some(tinyvm::WasmCeiling::CallDepth) => "max_call_depth",
+        Some(tinyvm::WasmCeiling::ActivationSlots) => "max_activation_slots",
+        Some(tinyvm::WasmCeiling::MemoryPages) => "max_memory_pages",
+        Some(tinyvm::WasmCeiling::TableElems) => "max_table_elems",
+        // A ceiling with no `Limits` field behind it: the core's own fixed
+        // operand-stack bound. Still exhaustion, but raising a number will not
+        // help, so say which one it is rather than name a field that is not
+        // there.
+        None => "the core's fixed operand-stack bound",
     }
 }
 

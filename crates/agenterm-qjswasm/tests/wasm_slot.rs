@@ -91,8 +91,9 @@ fn each_call_on_one_slot_gets_a_fresh_step_budget() {
         .call(slot, "burn", &[Value::I32(500)])
         .unwrap_err();
     assert!(
-        matches!(err, QjswasmError::Budget("step budget")),
-        "a one-step-short budget must be reported as exhaustion, got {err:?}"
+        matches!(err, QjswasmError::Budget("max_steps")),
+        "a one-step-short budget must be reported as exhaustion of that dial, \
+         got {err:?}"
     );
 
     // Now run the same call twice under a budget that fits exactly one of them.

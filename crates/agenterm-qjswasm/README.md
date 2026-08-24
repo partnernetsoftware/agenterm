@@ -13,13 +13,20 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 
 ```text
 .qjs 源码
-   │  ① 词法 / 语法 / 降级      本 crate，纯 Rust，ECMA-262 为语义权威
+   │  ① 词法 / 语法 / 降级      tinyvm-qjs，纯 Rust，ECMA-262 为语义权威
    ▼
 标准 .wasm 字节
    │  ② decode / validate / Limits      tinyvm
    ▼
 解释执行，不生成机器码
 ```
+
+编译器（①）2026-08-24 从本 crate 迁往上游 `tinyvm-qjs`：它一行 agenterm 概念都没有，
+按「通用引擎能力归 tinyvm、业务归 agenterm」这条分层线，它属于上游。本 crate 留下的是
+真正的业务——`agenterm.*` 门、槽、预算策略、接线。`compile_qjs` / `CompileError` 原样
+再导出，用法不变。撤销记录见
+[PRD 36](../../prd/PRD_02_36_agenterm_qjswasm.md) 与
+[设计稿 §2](../../plan/design-agenterm-qjswasm.md)。
 
 `.wasm` 输入跳过 ①，从 ② 进。**两种输入在核这一层完全同待遇**——这就是「一个引擎跑
 两种东西」的确切含义，不是两条管线共用一个名字。
@@ -106,7 +113,7 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 
 | 面 | crate | 引擎 | 信任模型 |
 |----|-------|------|----------|
-| `.qjs` / `.wasm`（本 crate） | `agenterm-qjswasm` | tinyvm，**无 JIT**，自研编译器 | 不信任字节 |
+| `.qjs` / `.wasm`（本 crate） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm，**无 JIT**，自研编译器 | 不信任字节 |
 | `.js` / `.mjs` | `agenterm-qjs` | rquickjs → QuickJS C | 信任脚本，**待归档** |
 | `.wasm`（默认路由） | `agenterm-wasmcore` | wasmtime + WASI p1，**JIT** | 本机工具链产物 |
 
@@ -121,11 +128,15 @@ cargo test  -p agenterm-qjswasm
 cargo clippy -p agenterm-qjswasm --all-targets -- -D warnings
 ```
 
-依赖 tinyvm 是**私有仓的 git 依赖**。仓根 `.cargo/config.toml` 里的
+依赖 `tinyvm` 与 `tinyvm-qjs` 都是**同一个私有仓的 git 依赖**，钉同一个 rev。仓根 `.cargo/config.toml` 里的
 `[net] git-fetch-with-cli = true` 是**必需**的：cargo 内置的 libgit2 客户端拿不到
 GitHub 私有仓凭据，实测报 `failed to receive HTTP 200 response: got 401`。
 
 `wat` 只是 **dev-dependency**，用来把对抗性客人写成可读的 `.wat` 文本。产品自己的
-wasm 编码器在 `src/lower/`——刻意不引 `wasm-encoder`，因为产物必须过 tinyvm 的严格
-装载门（canonical function expression、strict memarg alignment、strict i64 signed-LEB
-range…），那份正确性要自己负责。
+wasm 编码器在上游 `tinyvm-qjs/src/encode.rs`——刻意不引 `wasm-encoder`，因为产物必须过
+tinyvm 的严格装载门（canonical function expression、strict memarg alignment、strict
+i64 signed-LEB range…），那份正确性要自己负责。
+
+语言子集的验收测（能编什么、拒什么、诊断怎么说）跟编译器一起在上游
+`crates/tinyvm-qjs/tests/`。本 crate 的 `tests/qjs_guest.rs` 只测接缝：`.qjs` 端到端
+过槽、编译失败自成一类、产物过本 crate 的装载门、扩展名路由。

@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! .qjs source
-//!    │  lex / parse / lower        (this crate, pure Rust, ECMA-262 as authority)
+//!    │  lex / parse / lower        (tinyvm-qjs, pure Rust, ECMA-262 as authority)
 //!    ▼
 //! standard .wasm bytes
 //!    │  decode / validate / Limits (tinyvm)
@@ -18,11 +18,24 @@
 //! get identical treatment at the core -- that is the exact meaning of "one
 //! engine runs both", as opposed to two pipelines sharing a name.
 //!
+//! # Where the compiler lives, and why it is not here
+//!
+//! It was here, in `src/lower/**`, until 2026-08-24. It moved up into
+//! [`tinyvm_qjs`] because it contained no agenterm vocabulary at all: lex,
+//! parse, IR and wasm encoding are generic dynamic-engine capability, and the
+//! layering rule puts that in tinyvm. What stayed is what is actually agenterm:
+//! the `agenterm.*` door, slots, budget policy, the typed failure classes.
+//!
+//! [`compile_qjs`] and [`CompileError`] are re-exported unchanged, so this
+//! crate's face did not move with the implementation. The retraction of the
+//! earlier "do not depend on `tinyvm-qjs`" decision is recorded in PRD 36 and
+//! `plan/design-agenterm-qjswasm.md` 2.
+//!
 //! # What this crate is not
 //!
 //! Not `rquickjs`, not a QuickJS C binding, and not a JavaScript engine yet:
-//! M0 lowers integer expressions only. The compiler grows by real script
-//! demand (PRD 36); its first concrete milestone is compiling the equivalent of
+//! the compiler lowers integer expressions only. It grows by real script demand
+//! (PRD 36); its first concrete milestone is compiling the equivalent of
 //! `scripts/qjs/lib/fleet.js`, which is what gates retiring `agenterm-qjs`.
 //!
 //! # Slots
@@ -34,10 +47,11 @@
 use std::sync::Arc;
 
 mod host;
-mod lower;
 mod slot;
 
-pub use lower::{CompileError, compile_qjs};
+/// The `.qjs` compiler's face, re-exported so this crate's callers see one
+/// door. `compile_qjs` is compile-only: it never executes what it produces.
+pub use tinyvm_qjs::{Boundary, CompileError, compile_qjs};
 
 /// Bounds on one guest. Execution limits live in the tinyvm core; the two
 /// host-side caps bound what the door itself will buffer.

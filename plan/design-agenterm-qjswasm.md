@@ -4,10 +4,10 @@
 |------|-----|
 | **文档** | 新 crate `crates/agenterm-qjswasm` 的实现级设计：分期、编译器结构、宿主门 ABI、机制取舍、验收树 |
 | 日期 | 2026-08-24 |
-| 状态 | 设计稿 rev2（未实现） |
+| 状态 | 设计稿 rev3（M0 已落地；编译器已迁往上游 `tinyvm-qjs`） |
 | **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)（PRD 36）。产品句、纪律、clean-room、JS 覆盖面口径、归档门**以该文件为准**；本文件只是执行投影 |
 | 关联 | tinyvm 仓 `prd/PRD.md`、`crates/tinyvm/research-qjs-wasm.md`；本仓 `src/script_engine.rs`、`crates/agenterm-wasmcore/README.md`、[PRD 14 provenance](../prd/PRD_02_14_research_provenance.md) |
-| 派单 | 2026-08-24 政委：在 tinyvm 上自研脚本引擎，跑 `.wasm` 与 `.qjs`；`.qjs` 先编译到 wasm 码（不是机器码）；**不用 rquickjs、不用 QuickJS C 库**，纯 Rust 实现，可参考 QuickJS 源码的设计；编译器写刀在 agenterm 仓 |
+| 派单 | 2026-08-24 政委：在 tinyvm 上自研脚本引擎，跑 `.wasm` 与 `.qjs`；`.qjs` 先编译到 wasm 码（不是机器码）；**不用 rquickjs、不用 QuickJS C 库**，纯 Rust 实现，可参考 QuickJS 源码的设计；编译器写刀原定在 agenterm 仓，2026-08-24 撤销，迁往上游 `tinyvm-qjs`（见 §2） |
 | 范围声明 | 本文档只写设计与分期，不代替实现 |
 
 ---
@@ -21,16 +21,47 @@
 
 ```
 agenterm (embedder)
-  └── crates/agenterm-qjswasm          ← 本刀，编译器写刀在这里
-        └── tinyvm  (git rev)           ← 只读依赖，写刀在 ../tinyvm
+  └── crates/agenterm-qjswasm          ← 本刀：agenterm 的门与策略
+        ├── tinyvm-qjs  (git rev)      ← .qjs → .wasm 编译器，写刀在 ../tinyvm
+        └── tinyvm      (git rev)      ← 执行核，写刀在 ../tinyvm
 ```
 
+三层，一条分界线：**通用动态引擎能力在 tinyvm 侧，业务在 agenterm 侧。**
+
+| 层 | 内容 | 写刀 |
+|----|------|------|
+| `tinyvm` | wasm 核 + embedder 面（`guest_memory`、`PendingResult`、故障分类） | ../tinyvm |
+| `tinyvm-qjs` | `.qjs → .wasm` 编译器（lex / parse / ast / ir / emit / encode / diag） | ../tinyvm |
+| `agenterm-qjswasm` | agenterm 的门（`agenterm.*`、`fleet`）、槽与预算策略、`ScriptBackend` 接线 | 本仓 |
+
 - 依赖方向 **agenterm → tinyvm**，单向。不 vendor tinyvm 源码。
-- **不依赖 `tinyvm-qjs`。** 那是 tinyvm 自己的演示皮（447 行表达式子集），归上游长。
-  本 crate 的编译器独立实现，可以读它取经，但不建立 Cargo 依赖——否则 agenterm 的语言
-  路线图被另一个仓的排期卡住，与「自己的语言」这条派单相悖。
 - 用 **git + rev 钉死**，对齐下游 `minicon` 依赖 agenterm 的既有形状。
-  首刀钉 `rev = "2f27570"`（tinyvm `origin/main`）。
+  两个 crate 钉**同一个 rev**——它们出自同一个仓，钉不同 rev 会让编译器和核对不上。
+
+### 撤销：「不依赖 `tinyvm-qjs`」（2026-08-24）
+
+**本节 rev2 写过：**
+
+> **不依赖 `tinyvm-qjs`。** 那是 tinyvm 自己的演示皮（447 行表达式子集），归上游长。
+> 本 crate 的编译器独立实现，可以读它取经，但不建立 Cargo 依赖——否则 agenterm 的语言
+> 路线图被另一个仓的排期卡住，与「自己的语言」这条派单相悖。
+
+**该决定撤销。** 编译器已迁往 `tinyvm-qjs`，本 crate 建立 Cargo 依赖。两条理由：
+
+1. **编译器里没有业务。** 迁走的 1113 行（`src/lower/**`）中 agenterm 概念数为**零**：
+   它回答「JS 源码怎么变成 wasm 字节」，与谁在 embed 无关。同期留下的 `src/host.rs`
+   869 行里 `fleet` 出现 48 次、模块名写死 `"agenterm"`。按分层原则量，这两半本就该分
+   在两层。原决定按「谁先写的」划线，不是按「是什么」。
+2. **排期绑架的风险被高估。** 「被另一个仓的排期卡住」预设两仓有各自的排期主体；实际
+   同一 owner、同一批工人，且 PRD 36 已授权「撞到 tinyvm 层的真实缺口就去上游改，
+   不绕」。为躲一个不存在的外部依赖而各长一份编译器，代价是两份都长不快。
+
+**没有变的**：`agenterm.*` 门、槽、预算、接线仍是本仓的写刀；
+`agenterm_qjswasm::compile_qjs` / `CompileError` 原样再导出，调用点一行未动。
+
+**上游为容纳它做的一处让步**：一个裸名字在两边含义不同——语言侧还没有绑定，
+`eval_wasm` 皮侧它是 `js.<name>` 零参导入。这不是宽严之别，是两个真实的世界，所以做成
+`Options { names }` 一个字段，而不是让某一边将就。
 - **feature 门默认关**：根 `Cargo.toml` 加 `script-qjswasm = ["agenterm-qjswasm"]`，
   `default = []` 不动。对齐 `script-wasmcore` 的既有形状。
 
@@ -70,29 +101,42 @@ M0 先落地是刻意的：它把「tinyvm 能不能真的当 agenterm 的执行
 ## 4. crate 结构
 
 ```
-crates/agenterm-qjswasm/
+crates/agenterm-qjswasm/            ← 本仓：业务
 ├── Cargo.toml
 ├── README.md
 ├── src/
 │   ├── lib.rs          — 门面：Engine / Budget / Guest / Outcome / Error
-│   ├── slot.rs         — 槽：Module→Instance 生命周期、每槽 pending buffer
-│   ├── host.rs         — 宿主门四件：print / fleet_call / fleet_result_len / fleet_result
-│   ├── lex.rs          — M1 词法（含 ASI）
-│   ├── ast.rs          — M1 AST
-│   ├── parse.rs        — M1 语法
-│   ├── lower/          — M2+ 降级到 wasm
-│   │   ├── mod.rs      —   函数级代码生成
-│   │   ├── encode.rs   —   wasm 二进制编码（段、LEB128、指令）
-│   │   └── rt.rs       —   M3+ guest 侧运行时（分配器 / 串 / 堆）
-│   └── diag.rs         — 诊断：位置 + 「本引擎尚不支持 X」文案
+│   │                     + 再导出 tinyvm_qjs::{compile_qjs, CompileError}
+│   ├── slot.rs         — 槽：Module→Instance 生命周期、每槽 pending buffer、故障分类
+│   └── host.rs         — 宿主门四件：print / fleet_call / fleet_result_len / fleet_result
 └── tests/
     ├── wasm_slot.rs · isolation.rs · budget.rs · host_door.rs
-    └── qjs_*.rs        — 每期一组语言验收测
+    └── qjs_guest.rs    — `.qjs` 端到端过槽、编译失败自成一类、扩展名路由
+
+../tinyvm/crates/tinyvm-qjs/        ← 上游：语言
+└── src/
+    ├── lib.rs          — compile_qjs / compile_qjs_with / Options / eval_qjs
+    ├── lex.rs · ast.rs · parse.rs · ir.rs · emit.rs · encode.rs
+    ├── diag.rs         — CompileError + Boundary：位置 + 「本引擎尚不支持 X」文案
+    └── qjs2wasm.rs     — eval_wasm 皮的编译入口（Names::HostImport + 诊断窄化）
 ```
 
-`lower/encode.rs` 自己写 wasm 编码器，不引 `wasm-encoder` 之类 crate：产物要过 tinyvm
+`encode.rs` 自己写 wasm 编码器，不引 `wasm-encoder` 之类 crate：产物要过 tinyvm
 的严格装载门（canonical function expression、strict memarg alignment、strict i64
-signed-LEB range…），自己编码才能对这些约束负责，也少一个依赖。
+signed-LEB range…），自己编码才能对这些约束负责，也少一个依赖。这条纪律随编译器一起
+迁到上游。
+
+### 诊断与 fmt-free 核的张力（迁移时必须解掉的一处）
+
+`CompileError` 带 `String`（文案 + 字节偏移），`tinyvm::WasmError` 只带
+`&'static str`——核是 `no_std` + fmt-free，那是产品属性不是疏忽。上游的 `eval_qjs` 必须
+回 `WasmError`，于是两者在 `qjs2wasm` 处相撞。
+
+**没有把诊断降级成 `&'static str`。** 一个按需求生长的子集会频繁拒绝好脚本，
+「hexadecimal number literals，第 4 字节」与「语法错误」的差别就是这个产品本身。解法是
+每条诊断在**产生时**声明一个 `Boundary`（`FullJs` / `ThirdBinding` / `Subset`），
+`qjs2wasm` 按这个已声明的类别窄化——不是回头去匹配句子。后者正是
+`WasmError::class()` 存在的理由所要杀掉的习惯。
 
 ## 5. 脸（public face）
 
@@ -300,8 +344,8 @@ M1–M5 语言（每期同形状，此处只列门）
 - 执行核**不生成机器码**——tinyvm 产品定义，不改。
 - 任何 QuickJS C 库、`rquickjs`、C 依赖或构建期 C 工具链。
 - JIT / AOT 到机器码 / copy-and-patch / 可执行内存。
-- `wasm-encoder` 之类第三方 wasm 编码依赖（自己写，对严格装载门负责）。
-- 依赖上游 `tinyvm-qjs`（可取经，不建 Cargo 依赖）。
+- `wasm-encoder` 之类第三方 wasm 编码依赖（自己写，对严格装载门负责）——该纪律随
+  编译器迁到 `tinyvm-qjs`，仍然成立。
 - tinyvm `wasi-p1` 当插件面。
 - 替换 `agenterm-wasmcore` 或改 `.wasm` 默认路由。
 - 跨槽通信 / 共享内存 / 共享 table / global。

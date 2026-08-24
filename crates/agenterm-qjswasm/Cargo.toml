@@ -13,19 +13,26 @@ name = "agenterm_qjswasm"
 path = "src/lib.rs"
 
 [dependencies]
-# tinyvm is the execution core. Pinned by revision, never vendored: the write
-# knife lives in ../tinyvm (PRD 35). A private-repo git dep needs the system
-# git client -- see .cargo/config.toml's `[net] git-fetch-with-cli`, measured
-# against a real 401 from cargo's built-in libgit2 client.
+# tinyvm is the execution core; tinyvm-qjs is the `.qjs` -> `.wasm` compiler.
+# Both pinned by revision, never vendored: the write knife lives in ../tinyvm
+# (PRD 35). A private-repo git dep needs the system git client -- see
+# .cargo/config.toml's `[net] git-fetch-with-cli`, measured against a real 401
+# from cargo's built-in libgit2 client.
 #
-# Deliberately NOT depending on `tinyvm-qjs`: that is tinyvm's own demo skin.
-# This crate grows agenterm's own language, so its compiler must not be hostage
-# to another repository's schedule (PRD 36 discipline).
-tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "2f27570" }
+# `tinyvm-qjs` was deliberately NOT a dependency until 2026-08-24, on the
+# argument that agenterm's language must not be hostage to another repo's
+# schedule. That decision is withdrawn -- see PRD 36 and
+# plan/design-agenterm-qjswasm.md 2. The compiler contains no agenterm
+# vocabulary, so the layering rule governs: generic engine capability upstream,
+# business here. This crate keeps the half that is business -- the `agenterm.*`
+# door, slots, budget policy -- and re-exports the compiler's face.
+tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "f694733" }
+tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "f694733" }
 
 [dev-dependencies]
 # Test-only: hand-authoring adversarial guests (infinite loop, deep recursion,
 # out-of-bounds pointer, memory.grow bomb) is far more legible as `.wat` than as
 # hand-encoded bytes. tinyvm's own suite uses the same crate the same way.
-# Never a runtime dependency: the product's own encoder is in src/lower/.
+# Never a runtime dependency: the encoder that produces this crate's own wasm
+# lives upstream in `tinyvm-qjs`.
 wat = "1"

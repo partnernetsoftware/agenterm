@@ -166,6 +166,7 @@ name = "agenterm-qjswasm"
 version = "0.1.16"
 dependencies = [
  "tinyvm",
+ "tinyvm-qjs",
  "wat",
 ]
 
@@ -6051,9 +6052,17 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "tinyvm"
 version = "0.1.0"
-source = "git+https://github.com/partnernetsoftware/tinyvm?rev=2f27570#2f2757057d802832803c7be4619200b36593bde3"
+source = "git+https://github.com/partnernetsoftware/tinyvm?rev=f694733#f694733fc41bfb8d6657dda7a72f5b4e54e5be5f"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "tinyvm-qjs"
+version = "0.1.0"
+source = "git+https://github.com/partnernetsoftware/tinyvm?rev=f694733#f694733fc41bfb8d6657dda7a72f5b4e54e5be5f"
+dependencies = [
+ "tinyvm",
 ]
 
 [[package]]

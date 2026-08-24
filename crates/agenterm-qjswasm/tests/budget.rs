@@ -109,6 +109,59 @@ fn unbounded_recursion_is_stopped_by_max_call_depth_not_by_the_native_stack() {
     assert_eq!(out.values, vec![Value::I32(fixtures::BENIGN_ANSWER)]);
 }
 
+/// Exhausting `max_activation_slots` is reported as a budget, and reported as
+/// *that* budget.
+///
+/// This test exists because of a near-miss, and the near-miss is the reason it
+/// asserts the ceiling by name instead of settling for the class.
+///
+/// The engine used to classify faults by matching tinyvm's trap message against
+/// a hand-copied table: `"step budget" | "call depth" | "call stack"`. Upstream
+/// then split `"call stack"` into four separate conditions, one of which is
+/// this one. Nothing downstream failed to compile, and no existing test noticed
+/// -- they only asserted the two literals that happened to survive the split --
+/// so activation-slot exhaustion would have silently started reporting as a
+/// generic `Trap` the moment the revision pin moved. "Your guest was too
+/// expensive for the budget you set" would have become "your guest is broken".
+///
+/// `max_call_depth` is left at its default, an order of magnitude more frames
+/// than this guest needs, so depth cannot be what bound; the assertion on the
+/// reported ceiling name is what proves the two are still told apart.
+#[test]
+fn exhausting_max_activation_slots_is_reported_as_that_budget() {
+    const SLOTS: usize = 4_096;
+
+    let mut eng = Engine::with_budget(budget_with(|l| {
+        l.max_activation_slots = SLOTS;
+        l.max_steps = 4_000_000;
+    }));
+    let hog = fixtures::activation_slot_hog();
+
+    let err = eng
+        .run_once(Guest::Wasm(&hog), None, "hog", &[])
+        .expect_err("unbounded recursion over fat frames must not return");
+    assert!(
+        matches!(err, QjswasmError::Budget("max_activation_slots")),
+        "slot exhaustion must name the dial the embedder would raise, got {err:?}"
+    );
+
+    // The frames this guest needed are far below the default depth ceiling, so
+    // depth was never the binding constraint. Stated as arithmetic rather than
+    // trusted, because "which ceiling stopped it" is the whole claim.
+    let frames_needed = SLOTS / fixtures::HOG_LOCALS_PER_FRAME;
+    assert!(
+        frames_needed < tinyvm::Limits::default().max_call_depth,
+        "{frames_needed} frames is not comfortably under the depth ceiling; \
+         this guest could be tripping the wrong limit"
+    );
+
+    let good = fixtures::benign_constant();
+    let out = eng
+        .run_once(Guest::Wasm(&good), None, "answer", &[])
+        .expect("the engine is still usable after a slot kill");
+    assert_eq!(out.values, vec![Value::I32(fixtures::BENIGN_ANSWER)]);
+}
+
 /// `memory.grow` past `max_memory_pages` is refused, growth within it is not.
 ///
 /// The refusal surfaces as the guest receiving `-1`, not as a trap or a host

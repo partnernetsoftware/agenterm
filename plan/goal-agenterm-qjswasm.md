@@ -1,5 +1,11 @@
 # /goal — `agenterm-qjswasm` M0 脊柱
 
+> **已交付（2026-08-24）。本文件是历史工单，按当时的判断写成，不再是活地图。**
+> 此后 lane C 的产物（`src/lower/**` + `tests/qjs_m0.rs`）整体迁往上游
+> `tinyvm-qjs`，「不依赖 `tinyvm-qjs`」这条不变量随之**撤销**——理由与记录见
+> [PRD 36 §编译器归属的撤销](../prd/PRD_02_36_agenterm_qjswasm.md) 与
+> [设计稿 §2](design-agenterm-qjswasm.md)。读本文件时按此折算。
+>
 > 用法：把 `--- GOAL ---` 之后的内容整段发给 agent（或 `/goal` 加载本文件）。
 > 产品口径以 [PRD 36](../prd/PRD_02_36_agenterm_qjswasm.md) 为准，**不要重开辩论**
 > 「要不要自研编译器」「完整 JS 行不行」——已定，见该文档各撤销条。

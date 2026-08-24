@@ -7,7 +7,8 @@ Status: authorized, not implemented — 政委 2026-08-24 下单。
 Owner: 政委定方向；主会话按独占文件域推进。
 
 Upstream: [`partnernetsoftware/tinyvm`](https://github.com/partnernetsoftware/tinyvm)（本地 `../tinyvm`），
-PRD 35 记录其迁出。依赖方向 **agenterm → tinyvm**，单向，本 crate 不持有 tinyvm 写刀。
+PRD 35 记录其迁出。依赖方向 **agenterm → tinyvm**，单向。本 crate 依赖上游两个 crate：
+`tinyvm`（执行核）与 `tinyvm-qjs`（`.qjs → .wasm` 编译器），同一 rev 钉死。
 
 Supersedes: `crates/agenterm-qjs`（rquickjs 外链引擎）——**待归档**，门见下 §归档门。
 
@@ -41,10 +42,40 @@ crate 名 `agenterm-qjswasm` = qjs + wasm，指的就是那条编译路径。
 - **不做 JIT / AOT 到机器码，不碰可执行内存。** 「AOT」在本产品里只指到 wasm 码。
 - **能力全在门。** 门名单是 `agenterm.*`，不得把 WASI `fd_*` 做成第二扇 OS 面。
 - **不搬 tinyvm 源码。** git + rev 钉死，vendor 是违纪。
-- **编译器写刀在本仓。** tinyvm 只提供 `eval_wasm` + 校验 + `Limits` + 门；语言由
-  agenterm 自己长，不受另一个仓的排期约束。上游 `tinyvm-qjs` 是 tinyvm 自己的演示皮，
-  与本 crate 各长各的，不共用写刀。
+- **编译器在上游 `tinyvm-qjs`，本仓只留业务。** 见下 §编译器归属的撤销。
 - **测试优先：先验收测再改脸。工人自报不算过。**
+
+### 编译器归属的撤销（2026-08-24）
+
+**曾经决定：** 编译器写刀在 agenterm 仓。原文：「tinyvm 只提供 `eval_wasm` + 校验 +
+`Limits` + 门；语言由 agenterm 自己长，不受另一个仓的排期约束。上游 `tinyvm-qjs` 是
+tinyvm 自己的演示皮，与本 crate 各长各的，不共用写刀。」
+
+**该决定撤销。** 编译器已迁往上游 `tinyvm-qjs`，本 crate 建立 Cargo 依赖。
+
+撤销理由两条，第二条是对原理由的直接否定：
+
+1. **分层原则先于归属偏好。** 定下的分层是「通用动态引擎能力归 tinyvm，业务归
+   agenterm」。按这条尺子量：迁走的 1113 行（lex / parse / ast / ir / emit / encode /
+   diag）里**零个** agenterm 概念——它解决的是「JS 源码怎么变成 wasm 字节」，与谁在
+   embed 无关。而留下的 `host.rs` 869 行里 `fleet` 出现 48 次、模块名写死
+   `"agenterm"`，那才是业务。原决定把两半绑在一起，是按「谁先写的」而不是按「是什么」
+   划线。
+2. **排期绑架的风险被高估了。** 「不受另一个仓的排期约束」预设两个仓有各自的排期主体。
+   实际上两仓同一个 owner、同一台机器、同一批工人；PRD 36 本身已授权「撞到 tinyvm 层
+   的真实缺口就去 tinyvm 仓改，不绕」。在这个前提下，「上游排期」不是外部约束，是同一
+   个人的排期——为躲一个不存在的依赖风险而各长一份编译器，代价是两份都长不快。
+
+**边界没有变**：`agenterm.*` 门、槽、预算策略、`ScriptBackend` 接线仍在本仓，仍是本
+crate 的写刀。上游给的是「编译 `.qjs`」这一件通用事。
+`agenterm_qjswasm::compile_qjs` / `CompileError` 原样保留为再导出，调用点不动。
+
+**顺带修掉的一处静默漂移**：`src/slot.rs` 的失败分类曾抄一份 tinyvm 的 trap 文案表
+（`"step budget" | "call depth" | "call stack"`）。上游把 `"call stack"` 拆成四种条件
+之后，抬 rev 会让「活动记录槽耗尽」从 `Budget` 悄悄变成 `Trap`——不报编译错，现有测试
+也全绿（它们只断言活下来的那两条文案）。现改用上游的 `WasmError::class()` /
+`ceiling()` 存取器，文案表删除，并补上那条本该存在的测试
+（`exhausting_max_activation_slots_is_reported_as_that_budget`）。
 
 ## Clean-room 与来源
 
@@ -233,7 +264,7 @@ tinyvm 解释执行（无 JIT）
 
 | 面 | crate | 引擎 | 归属 |
 |----|-------|------|------|
-| `.qjs` / `.wasm`（本 PRD） | `agenterm-qjswasm` | tinyvm（**无 JIT**，纯 Rust 编译器） | 自研，长期主线 |
+| `.qjs` / `.wasm`（本 PRD） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm（**无 JIT**，纯 Rust 编译器） | 自研，长期主线 |
 | `.js` / `.mjs`（现状） | `agenterm-qjs` | rquickjs → QuickJS C | **待归档**，见上 |
 | `.wasm`（现状默认） | `agenterm-wasmcore` | wasmtime + WASI p1（**JIT**） | 不动 |
 
@@ -317,7 +348,7 @@ agenterm-qjswasm                                        [ ]
 │   ├── 类型化宿主 import + 线性内存访问                   [x]
 │   └── 确定性执行统计                                     [x]
 │
-├── .qjs 编译器（纯 Rust，写刀在本仓）                    [ ]
+├── .qjs 编译器（纯 Rust，写刀在上游 tinyvm-qjs）        [ ]
 │   ├── 前端                                              [~]
 │   │   ├── 词法（识别超出子集的词素以便诊断）                [x]
 │   │   ├── 表达式文法（优先级爬升 / 结合性）                 [x]
@@ -397,6 +428,22 @@ cargo test -p agenterm-qjswasm
 | `tests/fixtures.rs` | 0 | 8 份对抗性客人素材（无自有测试） |
 | doctests | 0 | — |
 
+### 编译器迁出后的重测（2026-08-24，同机同工具链）
+
+编译器迁往 `tinyvm-qjs` 之后，本 crate **53 passed, 0 failed**。少掉的 20 条不是删的，
+是跟着被测代码走了：`tests/qjs_m0.rs` 的 23 条与 LEB128 编码器的 2 条单元测在上游
+`crates/tinyvm-qjs/tests/qjs_subset.rs` 与 `src/encode.rs` 里原样跑（上游同批新增 5 条
+`tests/compile_options.rs`，锁两种取名模式与诊断的窄化）。
+
+| 目标 | 数 | 变化 |
+|------|----|------|
+| `src/lib.rs` 单元 | 23 | −2（LEB128 随编码器迁出） |
+| `tests/qjs_guest.rs` | 6 | 新写：`.qjs` 端到端过槽、编译失败自成一类、产物过本 crate 装载门、扩展名路由。**替代**迁走的 `qjs_m0.rs`——语言子集归上游测，本 crate 只测自己的接缝 |
+| `tests/host_door.rs` | 9 | — |
+| `tests/budget.rs` | 6 | +1：活动记录槽耗尽必须报 `Budget`（补上那条会抓住静默漂移的测试） |
+| `tests/wasm_slot.rs` | 5 | — |
+| `tests/isolation.rs` | 4 | — |
+
 其余门：
 
 ```sh
@@ -423,8 +470,9 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 | 装载期 `initial_pages > max_memory_pages` 是**另一条**拒绝路径 | `wasm.rs` ~4821，属 `Load` 类而非 `Trap` |
 | 客人活动记录走 `Vec<DefinedActivation>` 蹦床，**不吃原生栈** | `wasm.rs` ~6458-6730；深度测试因此可以设到默认值的 40 倍 |
 | `WasmError` / `Limits` **都不实现 `Debug`** | 核是 `no_std` + fmt-free；下游要手写 `Debug` |
-| `Trap("call stack")` 覆盖 ≥3 种不同条件，`Trap("memory size")` ≥2 种 | 24 / 14 处调用点；下游无法区分——已派单去 tinyvm 仓修 |
-| `Trap("no exported function named \`")` 文案被截断，尾随一个孤立反引号 | `wasm.rs` 5782 / 8442；fmt-free 核填不进名字——同上，已派单 |
+| `Trap("call stack")` 覆盖 ≥3 种不同条件，`Trap("memory size")` ≥2 种 | 24 / 14 处调用点；下游无法区分——**已修**：上游拆成 `activation slot limit` / `operand stack` / `call stack allocation` / `activation slot overflow`，并给出 `WasmError::class()` / `ceiling()`，下游不再匹配文案 |
+| `Trap("no exported function named \`")` 文案被截断，尾随一个孤立反引号 | `wasm.rs` 5782 / 8442；fmt-free 核填不进名字——已派单 |
+| 抄文案表的代价是**静默**的 | 上游拆分 `"call stack"` 时，本 crate 的分类表不报编译错、测试也全绿，只是分类悄悄错了。存取器不会这样漂——已按此改写 `src/slot.rs::classify` |
 
 ## Non-goals until 政委 orders otherwise
 
@@ -435,5 +483,5 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 - 不用 tinyvm `wasi-p1` feature 当插件面。
 - 不替换 `agenterm-wasmcore`，不改 `.wasm` 默认路由。
 - 不做跨槽通信、共享内存、共享 table/global。
-- 不在本仓改 tinyvm，不 vendor 其源码。
+- 不 vendor tinyvm 源码（改 tinyvm 走上游仓，见上「改造 tinyvm：已授权」）。
 - 不在归档门三条全绿前动 `agenterm-qjs`。

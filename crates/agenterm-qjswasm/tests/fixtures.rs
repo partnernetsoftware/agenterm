@@ -225,3 +225,62 @@ pub fn bridge_ringer() -> Vec<u8> {
 pub const RINGER_OP: &str = "ping";
 /// The params JSON [`bridge_ringer`] passes to the bridge.
 pub const RINGER_PARAMS: &str = "{}";
+
+/// Recurses while each frame declares 32 locals, so activation *slots* run out
+/// long before the call *depth* does. Aimed at `Limits::max_activation_slots`.
+///
+/// The two ceilings are different resources and tinyvm reports them
+/// separately, so a fixture that could trip either one would prove nothing
+/// about which. This one makes each frame expensive rather than making the
+/// recursion long: at 32 locals a frame costs well over an order of magnitude
+/// more slots than it costs depth, so a test can set `max_call_depth` far above
+/// the frames needed and still be certain the slot ceiling is what bound.
+///
+/// Unbounded on purpose, for the same reason as [`unbounded_recursion`]: a base
+/// case would let the guest decide when to stop.
+pub fn activation_slot_hog() -> Vec<u8> {
+    wasm(
+        r#"
+        (module
+          (func $descend (param i32) (result i32)
+            (local $l0 i32)
+            (local $l1 i32)
+            (local $l2 i32)
+            (local $l3 i32)
+            (local $l4 i32)
+            (local $l5 i32)
+            (local $l6 i32)
+            (local $l7 i32)
+            (local $l8 i32)
+            (local $l9 i32)
+            (local $l10 i32)
+            (local $l11 i32)
+            (local $l12 i32)
+            (local $l13 i32)
+            (local $l14 i32)
+            (local $l15 i32)
+            (local $l16 i32)
+            (local $l17 i32)
+            (local $l18 i32)
+            (local $l19 i32)
+            (local $l20 i32)
+            (local $l21 i32)
+            (local $l22 i32)
+            (local $l23 i32)
+            (local $l24 i32)
+            (local $l25 i32)
+            (local $l26 i32)
+            (local $l27 i32)
+            (local $l28 i32)
+            (local $l29 i32)
+            (local $l30 i32)
+            (local $l31 i32)
+            (call $descend (i32.add (local.get 0) (i32.const 1))))
+          (func (export "hog") (result i32)
+            (call $descend (i32.const 0))))
+        "#,
+    )
+}
+
+/// How many locals each [`activation_slot_hog`] frame declares.
+pub const HOG_LOCALS_PER_FRAME: usize = 32;
