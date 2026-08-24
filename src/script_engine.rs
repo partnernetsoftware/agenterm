@@ -608,6 +608,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         let bridge: Option<agenterm_qjswasm::FleetBridgeFn> = fleet_bridge;
 
         let mut engine = agenterm_qjswasm::Engine::new();
+        // `"main"` with no arguments is still the entry convention after the
+        // `df8decd` bump, re-checked rather than assumed: the compiler exports
+        // exactly one function, still named `main`, and its parameters are the
+        // script's `$N`. A script that names none — which is every script this
+        // path can run, since there is no route for passing arguments in from
+        // here — compiles to a zero-parameter `main`. What did change is the
+        // *result*: a `.qjs` entry returns one JavaScript value rather than an
+        // `i32`, which is why the value below is no longer discarded.
         let outcome = if source.ends_with(".wasm") {
             let bytes =
                 std::fs::read(source).map_err(|e| format!("reading wasm file {source}: {e}"))?;
@@ -621,9 +629,54 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
 
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,
-            value: None,
+            value: outcome.values.first().and_then(qjswasm_value_as_json),
         })
     }
+}
+
+/// Project one engine value into the JSON shape every backend reports through.
+///
+/// `None` means "this value has no JSON counterpart", which is a real answer
+/// and not a failure: `undefined` is absent by definition, and JSON numbers
+/// exclude `NaN` and the infinities. Inventing `null` for those would make a
+/// script that returned nothing indistinguishable from one that returned
+/// `null`, and it is the `.qjs` subset that just gained the ability to tell
+/// those apart.
+#[cfg(feature = "script-qjswasm")]
+fn qjswasm_value_as_json(value: &agenterm_qjswasm::Value) -> Option<Value> {
+    use agenterm_qjswasm::{JsValue, Value as EngineValue};
+    match value {
+        EngineValue::I32(v) => Some(Value::from(*v)),
+        EngineValue::I64(v) => Some(Value::from(*v)),
+        EngineValue::F32(v) => number_as_json(f64::from(*v)),
+        EngineValue::F64(v) => number_as_json(*v),
+        EngineValue::Js(JsValue::Null) => Some(Value::Null),
+        EngineValue::Js(JsValue::Bool(b)) => Some(Value::Bool(*b)),
+        EngineValue::Js(JsValue::Number(x)) => number_as_json(*x),
+        EngineValue::Js(JsValue::Str(text)) => Some(Value::String(text.clone())),
+        EngineValue::Js(JsValue::Undefined) => None,
+        // `JsValue` is `#[non_exhaustive]` because the language is still
+        // growing. A kind that did not exist when this was written is reported
+        // as "no JSON counterpart" rather than guessed at; the commit that adds
+        // it upstream is the one that decides what it looks like here.
+        _ => None,
+    }
+}
+
+/// One binary64 as JSON, integral where it can be.
+///
+/// A JavaScript Number is always a double, so `42` arrives here as `42.0`.
+/// Emitting it as a JSON float would make every whole number read back as one,
+/// and a consumer asking for an integer would get nothing. ECMA-262's own
+/// `JSON.stringify` writes `42` for that value, so matching it is the faithful
+/// answer rather than a convenience. `NaN` and the infinities have no JSON
+/// spelling at all and are reported absent.
+#[cfg(feature = "script-qjswasm")]
+fn number_as_json(x: f64) -> Option<Value> {
+    if x.is_finite() && x.fract() == 0.0 && x >= i64::MIN as f64 && x <= i64::MAX as f64 {
+        return Some(Value::from(x as i64));
+    }
+    serde_json::Number::from_f64(x).map(Value::Number)
 }
 
 // ---------------------------------------------------------------------
@@ -1002,6 +1055,66 @@ mod tests {
     const QJS_VALID_SOURCE: &str = "function entry() { return 42; }";
     #[cfg(feature = "script-qjs")]
     const QJS_BROKEN_SOURCE: &str = "function entry() { return 1 ";
+
+    /// A `.qjs` script's completion value reaches the caller.
+    ///
+    /// Before the `df8decd` bump this backend could not have reported one: the
+    /// compiled entry returned an `i32` and `.qjs` had no way to reach
+    /// `agenterm.print`, so a script's entire observable output was nothing at
+    /// all. The value is the whole result of running a `.qjs` script through
+    /// this path, which is why it is worth a test rather than a `None`.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_reports_a_qjs_scripts_completion_value() {
+        let _guard = ENV_LOCK.lock().expect("lock");
+        let _env = EnvGuard::set("qjswasm");
+        let engine = QjswasmEngineBackend;
+        let options = ScriptInvocationOptions::default();
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        for (source, want) in [
+            ("return \"ok\";", Some(Value::String("ok".into()))),
+            ("let x = 20; return x * 2 + 2;", Some(Value::from(42))),
+            ("return true;", Some(Value::Bool(true))),
+            ("return null;", Some(Value::Null)),
+            // `undefined` has no JSON counterpart, so absent is the answer --
+            // not `null`, which the subset can now return in its own right.
+            ("return undefined;", None),
+        ] {
+            let path = dir.path().join("script.qjs");
+            std::fs::write(&path, source).expect("write");
+            let path = path.to_str().expect("utf-8 path");
+            engine.check(path, &options).expect("checks clean");
+            let result = engine.execute(path, &options, None).expect("runs");
+            assert_eq!(result.value, want, "{source:?}");
+            assert!(result.stdout.is_empty(), "{source:?}");
+        }
+    }
+
+    /// `check` and `execute` must agree about what the subset is.
+    ///
+    /// They compile through the same entry point, and this is the test that
+    /// says so: a construct outside the subset has to be refused by `check`,
+    /// not accepted there and then refused at run time.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_check_refuses_what_execute_would_refuse() {
+        let _guard = ENV_LOCK.lock().expect("lock");
+        let _env = EnvGuard::set("qjswasm");
+        let engine = QjswasmEngineBackend;
+        let options = ScriptInvocationOptions::default();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("outside.qjs");
+        std::fs::write(&path, "return 1 % 2;").expect("write");
+        let path = path.to_str().expect("utf-8 path");
+
+        let checked = engine.check(path, &options).expect_err("`%` is not lowered");
+        assert!(checked.contains("this engine does not support"), "{checked}");
+        assert!(
+            engine.execute(path, &options, None).is_err(),
+            "execute must refuse what check refused"
+        );
+    }
 
     #[cfg(feature = "script-qjs")]
     #[test]

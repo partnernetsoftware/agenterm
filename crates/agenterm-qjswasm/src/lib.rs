@@ -33,10 +33,22 @@
 //!
 //! # What this crate is not
 //!
-//! Not `rquickjs`, not a QuickJS C binding, and not a JavaScript engine yet:
-//! the compiler lowers integer expressions only. It grows by real script demand
-//! (PRD 36); its first concrete milestone is compiling the equivalent of
+//! Not `rquickjs`, not a QuickJS C binding, and not a JavaScript engine yet.
+//! The subset the compiler lowers is real but small -- binary64 numbers,
+//! strings, `let`/`const`/`var` with scoping and a TDZ, blocks, `if`/`else`,
+//! `while`, three-part `for`, `return`, functions with parameters and
+//! recursion, the operator ladder -- and it grows by real script demand
+//! (PRD 36). Its first concrete milestone is compiling the equivalent of
 //! `scripts/qjs/lib/fleet.js`, which is what gates retiring `agenterm-qjs`.
+//!
+//! # Two calling conventions, one face
+//!
+//! A hand-written `.wasm` guest speaks plain wasm numerics. A `.qjs` guest
+//! speaks the compiler's V1 representation, where one JavaScript value is a
+//! `(tag: i32, payload: i64)` pair. [`Value`] carries both, and the slot knows
+//! which convention it was loaded under, so neither caller has to learn the
+//! other's ABI. See [`JsValue`] for why a `.qjs` result is projected into
+//! owned host data rather than handed over as the raw pair.
 //!
 //! # Slots
 //!
@@ -49,9 +61,32 @@ use std::sync::Arc;
 mod host;
 mod slot;
 
-/// The `.qjs` compiler's face, re-exported so this crate's callers see one
-/// door. `compile_qjs` is compile-only: it never executes what it produces.
-pub use tinyvm_qjs::{Boundary, CompileError, compile_qjs};
+/// The `.qjs` compiler's diagnostic types, re-exported so this crate's callers
+/// see one door.
+pub use tinyvm_qjs::{Boundary, CompileError};
+
+/// Compile `.qjs` source to standard wasm bytes. Compile-only: it never
+/// executes what it produces, which is what makes a `check` free of side
+/// effects.
+///
+/// # Why this is a function and no longer a re-export
+///
+/// Upstream carries two entry points for one milestone: `compile_qjs` is the
+/// original expression compiler (`i32` in, `i32` out) and `compile_qjs_m1` is
+/// the language -- statements, declarations, control flow, functions, strings
+/// -- lowered over the V1 value representation. Upstream's own note says the
+/// M0 name belongs to M1 "when its callers move". This crate is that caller,
+/// and this is the move: the name agenterm publishes is stable, the compiler
+/// behind it is the current one.
+///
+/// It matters that this and [`Engine::spawn`] compile through the *same*
+/// entry point. They did not have to be the same function before, because
+/// there was only one; now a `check` that used M0 while `execute` used M1
+/// would accept a script at run time that it had just refused at check time,
+/// which is the worst shape a gate can have.
+pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1(source)
+}
 
 /// Bounds on one guest. Execution limits live in the tinyvm core; the two
 /// host-side caps bound what the door itself will buffer.
@@ -96,14 +131,76 @@ impl Default for Budget {
     }
 }
 
-/// A neutral projection of the wasm numeric value types the engine face
-/// exchanges with callers. Reference types stay inside the core.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// One JavaScript value, projected into owned host data.
+///
+/// # Why owned, and resolved here
+///
+/// The compiler's V1 representation makes a JS value a `(tag: i32, payload:
+/// i64)` pair, and a String's payload is a pointer into *that slot's* linear
+/// memory. Handing the pointer to a caller would hand out a reference whose
+/// referent dies with the slot -- and [`Engine::run_once`] kills the slot
+/// before it returns, so the common path would hand back a dangling one every
+/// time. The seam therefore resolves a value while the instance is still
+/// alive, and what crosses the face is host data with no guest lifetime in it.
+///
+/// # Why this shape survives objects
+///
+/// The variant list is short today because the language is. What the shape
+/// fixes is not the list but the *resolution point*: there is one place, on
+/// the way out of a call, where guest representation becomes host data. When
+/// arrays and objects land (M4) they arrive as further variants resolved at
+/// that same point, not as a second mechanism callers have to learn. A value
+/// the projection genuinely cannot carry -- a function, a cyclic object --
+/// is [`QjswasmError::UnsupportedValue`], which already means exactly that:
+/// the guest was fine, this face cannot express what it produced.
+///
+/// `#[non_exhaustive]` says the same thing to the compiler: code that matches
+/// on this has to decide what to do about a kind of value that did not exist
+/// when it was written.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum JsValue {
+    Undefined,
+    Null,
+    Bool(bool),
+    /// ECMA-262 binary64, not an `i32`: `1/0` is `Infinity`, `2147483647 + 1`
+    /// does not wrap, and `-0` is distinguishable from `0`.
+    Number(f64),
+    /// The text, already read out of the guest's linear memory.
+    Str(String),
+}
+
+/// What the engine face exchanges with callers, over both calling conventions
+/// it serves.
+///
+/// The two are genuinely different worlds and the enum says so rather than
+/// blurring them:
+///
+/// - `I32` / `I64` / `F32` / `F64` are a neutral projection of the wasm
+///   numeric value types. That is what a hand-written `.wasm` guest speaks,
+///   and it is unchanged. Reference and vector types stay inside the core.
+/// - [`Js`](Value::Js) is one JavaScript value. That is what a `.qjs` guest
+///   speaks, because the compiled entry point takes two wasm parameters per
+///   argument and returns two results -- the V1 pair. Collapsing that back to
+///   `I32` would throw away every type the language just gained.
+///
+/// A slot is loaded under one convention and accepts only that one: handing a
+/// raw wasm numeric to a `.qjs` guest, or a [`JsValue`] to a hand-written
+/// module, is [`QjswasmError::UnsupportedValue`] rather than a silent
+/// reinterpretation of the bits.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     I32(i32),
     I64(i64),
     F32(f32),
     F64(f64),
+    Js(JsValue),
+}
+
+impl From<JsValue> for Value {
+    fn from(value: JsValue) -> Self {
+        Value::Js(value)
+    }
 }
 
 /// What to load into a slot. The result of extension routing, not a file.
@@ -123,6 +220,10 @@ pub struct SlotId(pub(crate) u64);
 /// expensive?" is measurable rather than a guess.
 #[derive(Clone, Debug)]
 pub struct Outcome {
+    /// What the entry point returned. A hand-written `.wasm` guest returns as
+    /// many wasm values as its signature declares; a `.qjs` guest returns
+    /// exactly one [`Value::Js`], because a JavaScript function returns one
+    /// value however many wasm words carry it.
     pub values: Vec<Value>,
     pub stdout: String,
     /// `true` when `stdout` hit [`Budget::max_stdout_bytes`] and was cut.
@@ -153,12 +254,16 @@ pub enum QjswasmError {
     Trap(tinyvm::WasmError),
     /// A core budget was exhausted.
     Budget(&'static str),
-    /// A host-door contract was violated by the guest.
+    /// A contract at the host boundary was violated by the guest: one of the
+    /// `agenterm.*` door's rules, or -- for a `.qjs` guest -- the V1 calling
+    /// convention its entry point is compiled to speak.
     Door(String),
     /// The slot does not exist, or was killed.
     NoSuchSlot(SlotId),
-    /// The guest behaved correctly but returned a wasm value this engine's
-    /// neutral [`Value`] projection cannot carry (a reference or vector type).
+    /// A value the engine's [`Value`] face cannot carry, in either direction:
+    /// a wasm reference or vector type coming out, a [`JsValue`] the seam
+    /// cannot hand in, or a value offered under the wrong calling convention
+    /// for the slot.
     ///
     /// Deliberately its own class rather than a `Trap`: nothing went wrong
     /// inside the guest, so reporting a trap would blame it for a limitation of
@@ -249,14 +354,18 @@ impl Engine {
         bridge: Option<FleetBridgeFn>,
     ) -> Result<SlotId, QjswasmError> {
         let owned;
-        let bytes = match guest {
-            Guest::Wasm(bytes) => bytes,
+        // The convention travels with the bytes: a hand-written module speaks
+        // wasm numerics, and what the compiler emits speaks the V1 pair. The
+        // slot has to remember which, because by the time `call` runs there is
+        // nothing in the bytes that says where they came from.
+        let (bytes, convention) = match guest {
+            Guest::Wasm(bytes) => (bytes, slot::Convention::Wasm),
             Guest::Qjs(source) => {
                 owned = compile_qjs(source)?;
-                &owned
+                (&owned[..], slot::Convention::JsV1)
             }
         };
-        let slot = slot::Slot::load(bytes, &self.budget, bridge)?;
+        let slot = slot::Slot::load(bytes, &self.budget, bridge, convention)?;
         let id = SlotId(self.next_id);
         self.next_id += 1;
         self.slots.push(Some(slot));

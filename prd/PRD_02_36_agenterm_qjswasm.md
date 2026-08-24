@@ -101,7 +101,7 @@ crate 的写刀。上游给的是「编译 `.qjs`」这一件通用事。
 |--------|----------------|----|----------|
 | 作用域与变量解析（`var`/`let`/`const`、提升、TDZ、名字→索引） | wasm locals 本就按索引寻址，这一步必须做 | M1–M2 | **极高**（同一个问题） |
 | 闭包变量装箱（捕获的局部变量提升为堆单元） | wasm 局部变量在帧上，内层函数无法按引用捕获，必须装箱进线性内存 | M5 | **极高** |
-| 值表示（64 位标记联合 vs 32 位 NaN-boxing 的取舍理由） | M3 统一值表示 | M3 | **高** |
+| 值表示（64 位标记联合 vs 32 位 NaN-boxing 的取舍理由） | **已判决**：V1 双字 `(tag:i32, payload:i64)`，由实测实验定，见 `plan/design-value-representation-experiment.md` 与 `research/value-representation/RESULTS.md` | 已落地 | **高** |
 | 字符串表示（8 位 / 16 位双形态 + 驻留表） | M3 串表示与相等性 | M3 | 高 |
 | shape / 隐藏类（属性查找） | M4 对象堆布局 | M4 | 高 |
 | 引用计数 + 循环回收 | M4–M5 回收策略；小引擎选 RC 是强数据点 | M4–M5 | 高 |
@@ -225,8 +225,8 @@ tinyvm 解释执行（无 JIT）
 
 | 语言能力 | guest 侧需要什么 | 量级 |
 |----------|------------------|------|
-| 整数算术 | 无 | 已有（447 行原型） |
-| 字符串 | 线性内存里的串表示 + 分配器 | 中 |
+| binary64 算术 | 类型分派的运算符运行时（`__add` 等） | **已有** |
+| 字符串 | 线性内存里的串表示 + 分配器 | **已有**（字面量池 + bump；三个 ECMA-262 转换未实现，撞上即 trap） |
 | 数组 / 对象 | 堆布局 + 属性查找 | 大 |
 | 闭包 | 环境捕获 + 间接调用表 | 大 |
 | 异常（`try/catch`） | 展开策略（wasm 无异常提案时要自己编码） | 中 |
@@ -256,6 +256,45 @@ tinyvm 解释执行（无 JIT）
 2. 上面两处生产调用点已迁到 qjswasm，且行为等价有测试锁住。
 3. `qjs` CLI 子命令的 `check` / `pack` / `qualify` / `check-many` 在新引擎上有对应面，
    或明确声明哪些不再提供、为什么。
+
+### 第一条门的实测缺口清单（2026-08-24，rev `df8decd`）
+
+把 `scripts/qjs/lib/fleet.js` 的每一种构造拿去**真编一次**，得到下表。这不是读源码估的，
+是 209 行里逐条构造喂给编译器的结果。**没有归档任何东西**——这张表是路线图的下一份输入。
+
+**已经能编（`fleet.js` 用到、今天就过）：**
+
+| 构造 | 出处 | 证据 |
+|------|------|------|
+| 字符串字面量与拼接 | 全文的 `"tabs.list"` 等 operation id | `return "tab" + "s.list";` → `"tabs.list"` |
+| `const` 声明、真作用域 | `const fleet = {}` 的声明部分 | 已测 |
+| 带参函数声明 + `return` | `function call(opId, params) {…}` 的外壳 | `function call(a,b){return a;}` → 可调 |
+| `===` / `!==` 与 `undefined` | `params === undefined` | `p === undefined` → `Bool` |
+| 直接调用一个已知函数名 | 各 wrapper 里的 `call(...)` | 已测（含递归、互递归） |
+| 嵌套函数读**脚本级**绑定 | wrapper 引用顶层的 `call` | 已测（`function g(){ return f()+1; }`） |
+
+**还编不了（按在 `fleet.js` 里出现的重要性排序）：**
+
+| 缺口 | `fleet.js` 里的形态 | 现在的诊断 | 属哪一期 |
+|------|--------------------|-----------|----------|
+| **对象字面量** | `const fleet = {};`、`{ tab_id: tabId, note: note }` | "does not support object literals yet" | M4 |
+| **属性访问 / 属性赋值** | `fleet.tabs.list = …`、`__host.fleet_call`、`JSON.parse` | "does not support property access yet" | M4 |
+| **把函数当值用** | `fleet.tabs.list = function () {…}`——右边是函数值 | "does not support using a function as a value yet" | M4/M5（需要函数值 + 间接调用表） |
+| **条件表达式 `?:`** | `params === undefined ? "{}" : params` | "does not support conditional expressions yet" | 排期，纯前端 + 已有控制流，成本最低的一条 |
+| **`try` / `catch`** | `call()` 里包住 `JSON.parse` | "does not support the `try` keyword yet" | M5 |
+| **`JSON.parse` / `JSON.stringify`** | 每个带参 wrapper | 先撞属性访问 | M5（也可用 `.qjs` 自举） |
+| **带参宿主调用** | `__host.fleet_call(opId, params)` | 自由名字先被拒 | 见下 |
+
+**第七条要单独说，因为它不是「语法还没长到」：** `.qjs` 今天**根本够不着
+`agenterm.*` 门**。编译器默认下自由名字一律拒（"this engine has no global bindings
+yet"）；上游有一个 `Names::HostImport` 模式，但它发射的是模块名 `"js"`、按 JS 值传参的
+导入，与本仓门的 `"agenterm"` + i32 两趟拷贝 ABI 不是同一扇门。所以第一条归档门里的
+「带参宿主调用」需要的不只是编译器长一层语法，还需要**决定 `.qjs` 侧怎么落到这四个
+import 上**——那是本仓的写刀，不是上游的。
+
+**一句话结论**：`fleet.js` 等价物的距离 = 堆对象（对象字面量 + 属性）+ 函数值 +
+`try/catch` + JSON + 一条 `.qjs` 到 `agenterm.*` 门的路。`?:` 是这堆里唯一可以立刻摘的
+低垂果实。第一条门离绿还远，另两条门未动。
 
 在三条全绿之前，`agenterm-qjs` **原样保留、不动、不腐化**；`.js` / `.mjs` 继续路由到
 它。归档动作本身另行派单。
@@ -336,10 +375,12 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 
 Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` 有意排除
 
-**M0（脊柱）已落地并有实测证据，见上节。** 编译器仍只到整数表达式；M1–M5 未开工。
+**M0（脊柱）+ 上游 M1/M2（语言）已落地并有实测证据，见下节。** 下表每个 `[x]` 都由
+本仓 `tests/qjs_guest.rs` 或上游套件**编译并跑过**——不是读源码得出的。上游 rev 从
+`f694733` 抬到 `df8decd`（2026-08-24）。
 
 ```text
-agenterm-qjswasm                                        [ ]
+agenterm-qjswasm                                        [~]
 │
 ├── 上游零件（证据在 tinyvm 仓，本仓只消费）              [x]
 │   ├── 标准 WASM decode / validate / instantiate        [x]
@@ -348,25 +389,35 @@ agenterm-qjswasm                                        [ ]
 │   ├── 类型化宿主 import + 线性内存访问                   [x]
 │   └── 确定性执行统计                                     [x]
 │
-├── .qjs 编译器（纯 Rust，写刀在上游 tinyvm-qjs）        [ ]
+├── .qjs 编译器（纯 Rust，写刀在上游 tinyvm-qjs）        [~]
 │   ├── 前端                                              [~]
 │   │   ├── 词法（识别超出子集的词素以便诊断）                [x]
 │   │   ├── 表达式文法（优先级爬升 / 结合性）                 [x]
-│   │   ├── 自动分号插入                                    [ ]
-│   │   ├── 语句 / 块 / 控制流                              [ ]
-│   │   ├── 函数声明与函数表达式                            [ ]
+│   │   ├── 自动分号插入（ECMA-262 12.10）                   [x]
+│   │   ├── 语句 / 块 / 控制流                              [x]
+│   │   ├── 函数声明                                        [x]
+│   │   ├── 函数表达式                                      [~] 只有立即调用可用；
+│   │   │                                                      赋给绑定后调用 = 拒绝
 │   │   └── 诚实的「尚不支持」诊断（指语法，不指用户）        [x]
+│   ├── 值表示（V1 双字 tag:i32 + payload:i64）              [x] 由实测实验判定
+│   │   ├── 数字 = ECMA-262 binary64（非 i32）              [x] 1/0=Infinity，无回绕
+│   │   ├── 字符串 / 布尔 / null / undefined                [x]
+│   │   └── 三个 ECMA-262 转换                              [ ] 未实现即 trap，不编造值
 │   ├── 降级到 wasm                                        [~]
-│   │   ├── 整数算术                                       [x] 自研，字节级对齐参考汇编器
-│   │   ├── 局部变量 / 赋值                                 [ ]
-│   │   ├── 控制流（if / while / for）                      [ ]
-│   │   ├── 函数调用与返回                                  [ ]
-│   │   ├── 字符串（表示 + 分配器）                          [ ]
+│   │   ├── 算术（binary64）                                [x]
+│   │   ├── 局部变量 / 赋值（let/const/var + TDZ）           [x]
+│   │   ├── 控制流（if / while / 三段式 for）                [x]
+│   │   ├── 函数调用与返回（含递归、互递归）                  [x] 只有直接调用
+│   │   ├── 字符串（字面量池 + 拼接 + 相等 + bump 分配器）     [x]
+│   │   ├── 取余 `%` / `typeof`                              [ ] 解析后明确拒绝
 │   │   ├── 数组 / 对象（堆布局 + 属性查找）                  [ ]
-│   │   ├── 闭包（环境捕获 + 间接调用表）                     [ ]
+│   │   ├── 闭包（环境捕获 + 间接调用表）                     [ ] 捕获外层局部 = 拒绝；
+│   │   │                                                      读脚本级绑定 = 可以
 │   │   ├── try/catch（自编码展开）                          [ ]
 │   │   ├── JSON                                           [ ]
-│   │   └── GC                                             [ ]
+│   │   └── GC                                             [ ] 现为 bump + 整体丢弃
+│   ├── `.qjs` 调 agenterm.* 门                              [ ] 自由名字编译期即拒；
+│   │                                                          门只有手写 .wasm 够得着
 │   ├── 原型链 / getter / Proxy / 正则 / 标准库               [ ] 排期，非天花板
 │   ├── eval / new Function（宿主重编 + 跨实例链接）           [ ] 排期，核已支持
 │   └── 引擎插件逃生口（qjs.wasm）                           [–] 纪律排除 C 库
@@ -382,11 +433,16 @@ agenterm-qjswasm                                        [ ]
 │   ├── 两趟取回（fleet_result_len / fleet_result）           [x]
 │   ├── 越界指针 trap 该槽，不读宿主内存                      [x]
 │   ├── 门声明装载期校验（错名/错签名 → Door）                [x]
-│   └── 缺席 import 不阻止装载                                [x]
+│   ├── 缺席 import 不阻止装载                                [x]
+│   ├── 两套调用约定同存（wasm 数值 / V1 pair），装载时定死    [x]
+│   ├── JS 值投影成宿主数据（字符串在槽死前读出）              [x]
+│   └── 约定不匹配 → UnsupportedValue，不按位重解释            [x]
 │
 ├── 接线                                                  [x]
 │   ├── ScriptBackend::Qjswasm + from_entry_path(.qjs)      [x]
 │   ├── QjswasmEngineBackend : ScriptEngineBackend          [x]
+│   ├── check 与 execute 走同一个编译入口                     [x]
+│   ├── `.qjs` completion value → ScriptInvocationResult     [x]
 │   ├── feature script-qjswasm，default 关                   [x]
 │   └── 接管 .wasm 默认路由                                  [–]
 │
@@ -458,7 +514,42 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 `--profile abi-release` / `abi-dev`（工作区默认 `panic = "abort"` 会静默产出无
 `catch_unwind` 围栏的库）。不是树坏了。
 
-**范围诚实声明**：以上是 M0。`.qjs` 目前只有整数表达式；`.wasm` 侧是完整的。
+### 抬 rev 到 `df8decd` 后的重测（2026-08-24，同机同工具链）
+
+上游从 `f694733` 抬到 `df8decd`（5 个提交），`.qjs` 从整数表达式长成真正的 M1/M2 子集。
+本 crate **58 passed, 0 failed**；根 crate 的 `script_engine` 另加 2 条（feature 开时跑）。
+
+| 目标 | 数 | 变化 |
+|------|----|------|
+| `src/lib.rs` 单元 | 23 | — |
+| `tests/qjs_guest.rs` | 11 | +5：JS 值五种全过脸、字符串在槽死后仍可读、binary64 算术、约定不匹配被拒、本仓能力声明的文档锁 |
+| `tests/host_door.rs` | 9 | — |
+| `tests/budget.rs` | 6 | — |
+| `tests/wasm_slot.rs` | 5 | —（手写 `.wasm` 路径**一行未改**仍全绿，这是「两套约定同存」的证据） |
+| `tests/isolation.rs` | 4 | — |
+| `src/script_engine.rs` 单元 | 2 | 新写：completion value 到得了调用者；`check` 与 `execute` 对子集口径一致 |
+
+三条被抬掉的 M0 断言，逐条说明是**变强**还是**变弱**：
+
+| 原断言 | 现在 | 强弱 |
+|--------|------|------|
+| `$0*2+2` 传 `Value::I32(20)` 得 `I32(42)` | 传 `JsValue::Number(20.0)` 得 `Number(42.0)`，另加约定不匹配被拒的测 | **变强**：多锁了「不按位重解释」这条 |
+| `let x = 1` 必须被**拒绝** | 已支持，改为断言它跑出正确的值；拒绝测换成 `%` / `typeof` / 捕获外层局部的闭包（三条都是编出来确认的） | 中性：锁的对象从「M0 的极限」换成「今天真实的边界」 |
+| `$0/0` 必须 **Trap** | `Infinity`。数字是 ECMA-262 binary64（6.1.6.1），旧断言锁的是 i32 除法的限制 | **变强**（是修正不是放宽）：另加 `0/0=NaN`、`2147483647+1` 不回绕、`-z` 保留零的符号 |
+
+### 抬 rev 期间实测到的两处「源码看着支持、编出来不支持」
+
+按本 PRD 的断言纪律，能力声明一律编译验证，不读源码断言。这一轮抓到两条：
+
+| 声明 | 实测 | 结论 |
+|------|------|------|
+| 上游 README「函数：声明与表达式，具名或匿名」 | `let g = function (a) {...}; return g(21);` 被拒——"does not support using a function as a value"。`return f;`（f 是函数声明）同样被拒 | 函数表达式**只有立即调用**（IIFE）可用。文档口径已按此收窄 |
+| 上游 README「`-0` 与 `0` 不同」 | 整体成立（`-(1-1)`、`1 / -z` 都给 `-Infinity`），但**字面量写法 `-0` 给的是 `+0`**（`1 / -0` = `Infinity`）。一元负号作用在数字字面量上时丢了零的符号 | 上游缺陷，已记录；不在本仓文件域，未改。上游 conformance 套件测了 `-(1-1)` 与 `0 * -1`，没测 `-0` 本身 |
+
+**范围诚实声明**：`.qjs` 是一个真实但很小的子集，能力清单见
+`crates/agenterm-qjswasm/README.md`（每条都有测试）；`.wasm` 侧是完整的。
+`.qjs` **还够不着 `agenterm.*` 门**——自由名字在编译期就被拒，门今天只有手写 `.wasm`
+客人能调。
 
 ### M0 期间在 tinyvm 上的实测发现（写下来免得再踩）
 

@@ -4,7 +4,7 @@
 |------|-----|
 | **文档** | 新 crate `crates/agenterm-qjswasm` 的实现级设计：分期、编译器结构、宿主门 ABI、机制取舍、验收树 |
 | 日期 | 2026-08-24 |
-| 状态 | 设计稿 rev3（M0 已落地；编译器已迁往上游 `tinyvm-qjs`） |
+| 状态 | 设计稿 rev4（M0 脊柱 + 上游 M1/M2 语言已落地；上游 rev 抬到 `df8decd`；编译器写刀在 `tinyvm-qjs`） |
 | **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)（PRD 36）。产品句、纪律、clean-room、JS 覆盖面口径、归档门**以该文件为准**；本文件只是执行投影 |
 | 关联 | tinyvm 仓 `prd/PRD.md`、`crates/tinyvm/research-qjs-wasm.md`；本仓 `src/script_engine.rs`、`crates/agenterm-wasmcore/README.md`、[PRD 14 provenance](../prd/PRD_02_14_research_provenance.md) |
 | 派单 | 2026-08-24 政委：在 tinyvm 上自研脚本引擎，跑 `.wasm` 与 `.qjs`；`.qjs` 先编译到 wasm 码（不是机器码）；**不用 rquickjs、不用 QuickJS C 库**，纯 Rust 实现，可参考 QuickJS 源码的设计；编译器写刀原定在 agenterm 仓，2026-08-24 撤销，迁往上游 `tinyvm-qjs`（见 §2） |
@@ -85,18 +85,29 @@ git-fetch-with-cli = true
 
 ## 3. 分期（每期都是可交付、可证伪的一刀）
 
-| 期 | 交付 | 归档门进度 |
-|----|------|-----------|
-| **M0 脊柱** | crate 骨架 + tinyvm 依赖 + `.wasm` 直跑 + 宿主门四件 + 槽 + 预算 + 对抗性隔离测试。**编译器暂缺**，`.qjs` 走一个最小整数表达式降级证明管线通 | — |
-| **M1 前端** | 词法（含 ASI）+ 语法 + AST，覆盖整数 / 变量 / 语句 / 控制流 / 函数。诊断诚实（指语法能力边界，不指用户） | — |
-| **M2 整数世界** | 降级：locals、赋值、`if`/`while`/`for`、函数声明与调用、返回。**不带堆** | — |
-| **M3 字符串** | guest 侧运行时第一块：线性内存串表示 + bump 分配器。字符串字面量、拼接、比较、长度 | — |
-| **M4 堆对象** | 数组 + 对象字面量 + 属性读写。堆布局 + 属性查找 | — |
-| **M5 parity** | 闭包 + `try`/`catch` + `JSON`。**跑通 `fleet.js` 等价物 → 触发归档门评估** | ✅ |
+| 期 | 交付 | 状态 | 归档门进度 |
+|----|------|------|-----------|
+| **M0 脊柱** | crate 骨架 + tinyvm 依赖 + `.wasm` 直跑 + 宿主门四件 + 槽 + 预算 + 对抗性隔离测试 | **✅ 已落地**（本仓，2026-08-24） | — |
+| **M1 前端** | 词法（含 ASI）+ 语法 + AST，覆盖数字 / 变量 / 语句 / 控制流 / 函数。诊断诚实（指语法能力边界，不指用户） | **✅ 已落地**（上游 `tinyvm-qjs`，rev `df8decd`） | — |
+| **M2 数字世界** | 降级：locals、赋值、`if`/`while`/`for`、函数声明与调用、返回 | **✅ 已落地**，且比原计划宽：数字是 **ECMA-262 binary64** 不是 i32 | — |
+| **M3 字符串** | guest 侧运行时第一块：线性内存串表示 + bump 分配器。字符串字面量、拼接、比较 | **✅ 大部分落地**：字面量池 + 拼接 + 相等 + bump 分配器都在。**未实现**三个 ECMA-262 转换（Number 的 ToString、StringToNumber、字符串关系比较），撞上是 trap 不是编造值 | — |
+| **M4 堆对象** | 数组 + 对象字面量 + 属性读写。堆布局 + 属性查找 | 未开工 | — |
+| **M5 parity** | 闭包 + 函数值 + `try`/`catch` + `JSON`。**跑通 `fleet.js` 等价物 → 触发归档门评估** | 未开工 | ✅ |
 
 M0 先落地是刻意的：它把「tinyvm 能不能真的当 agenterm 的执行核」这个风险最大的问题
 用真实证据答掉，而且此后每一期编译器工作都有一条已验证的执行管线可以立刻验收，不必
-等编译器完整才第一次看到脚本跑起来。
+等编译器完整才第一次看到脚本跑起来。**这条判断已被兑现**：M1–M3 在上游长出来之后，
+本仓只改了接缝（值投影与调用约定），执行管线一行没动，`tests/wasm_slot.rs` 等手写
+`.wasm` 的测试全程未改仍全绿。
+
+### 原梯子与实际长法的两处出入（写下来免得下一个人以为文档没更新）
+
+1. **M2 原写「整数世界，不带堆」。** 实际上游直接上了 binary64 + 字符串，M2 与 M3 合成
+   一刀落地。原因是值表示的判决（见 §7）把「一个 JS 值是什么」一次定死，再回头做一版
+   纯 i32 的降级是白工。
+2. **「函数声明与函数表达式」被拆开了。** 声明全支持；函数表达式**只有立即调用**
+   （IIFE）可用，赋给绑定之后再调用被拒（"using a function as a value"）。函数值需要
+   间接调用表，属 M4/M5。这条是编译验证出来的，不是读源码看出来的。
 
 ## 4. crate 结构
 
@@ -105,13 +116,15 @@ crates/agenterm-qjswasm/            ← 本仓：业务
 ├── Cargo.toml
 ├── README.md
 ├── src/
-│   ├── lib.rs          — 门面：Engine / Budget / Guest / Outcome / Error
-│   │                     + 再导出 tinyvm_qjs::{compile_qjs, CompileError}
-│   ├── slot.rs         — 槽：Module→Instance 生命周期、每槽 pending buffer、故障分类
+│   ├── lib.rs          — 门面：Engine / Budget / Guest / Value / JsValue / Outcome / Error
+│   │                     + compile_qjs（转 tinyvm_qjs::compile_qjs_m1）与 CompileError
+│   ├── slot.rs         — 槽：Module→Instance 生命周期、Convention、V1 值投影与字符串解析、
+│   │                     每槽 pending buffer、故障分类
 │   └── host.rs         — 宿主门四件：print / fleet_call / fleet_result_len / fleet_result
 └── tests/
     ├── wasm_slot.rs · isolation.rs · budget.rs · host_door.rs
-    └── qjs_guest.rs    — `.qjs` 端到端过槽、编译失败自成一类、扩展名路由
+    └── qjs_guest.rs    — 接缝：两套调用约定、JS 值投影、编译失败自成一类、
+                          装载门、扩展名路由，以及本仓能力口径的文档锁
 
 ../tinyvm/crates/tinyvm-qjs/        ← 上游：语言
 └── src/
@@ -150,6 +163,13 @@ pub struct Budget {
 pub type FleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>;
 
 pub enum Guest<'a> { Wasm(&'a [u8]), Qjs(&'a str) }
+
+/// 一个 JavaScript 值，已经解析成宿主数据。
+#[non_exhaustive]
+pub enum JsValue { Undefined, Null, Bool(bool), Number(f64), Str(String) }
+
+/// 两套调用约定共用一张脸。
+pub enum Value { I32(i32), I64(i64), F32(f32), F64(f64), Js(JsValue) }
 
 pub struct SlotId(u64);
 
@@ -195,6 +215,31 @@ fuel。`eval_wasm` 那个一次性糖面做不到，所以走
 `compile_qjs` 单独暴露是刻意的：编译与执行分离，才能有「只编不跑」的 CI 门，也才能把
 编译产物当普通 `.wasm` 交给任何一个 wasm 宿主验证（差分 oracle 的前提）。
 
+它现在是**函数**而不是再导出：上游为一个里程碑同时挂着两个入口（`compile_qjs` 是老的
+i32 表达式编译器，`compile_qjs_m1` 是语言），上游自己写着「等调用方迁移，M1 就接管这个
+名字」。本 crate 就是那个调用方，所以 agenterm 对外的名字不动，名字背后换成 M1。
+关键是 `check` 与 `spawn` 必须走**同一个**入口——一个用 M0、一个用 M1 的 `check` 会在
+装载期接受它刚刚在检查期拒掉的脚本，那是门能有的最坏形状。
+
+### 接缝：两套调用约定，一张脸（rev4 新增）
+
+上游抬到 `df8decd` 之后，`.qjs` 入口说的是 V1 pair，手写 `.wasm` 说的是 wasm 数值。
+两者在本仓相遇，取舍如下：
+
+| 决定 | 理由 |
+|------|------|
+| `Value` 加一个 `Js(JsValue)` 变体，不是新开一个类型 | 参数与返回值都要过同一个 `call`；两个平行的 API 会让「同一个引擎跑两种东西」变成两条管线 |
+| 约定记在**槽**上，装载时定死 | 字节本身看不出来源。`Guest::Wasm` → `Convention::Wasm`，`Guest::Qjs` → `Convention::JsV1` |
+| `JsValue` 是**已解析的宿主数据**，不是转发 pair | 字符串 payload 是指向该槽线性内存的指针，而 `run_once` 在返回前杀槽——转发等于在最常见路径上交出悬垂引用 |
+| `JsValue` 标 `#[non_exhaustive]` | M4 的数组/对象是在**同一个解析点**加变体；下游必须为「写这段代码时还不存在的值」做决定 |
+| 约定不匹配 → `UnsupportedValue`，不是 `Trap` | 客人没做错任何事，是这张脸装不下/接不住。这个类的语义本来就是这个 |
+| 字符串**作为参数**被拒 | 递进去要在客人堆里分配，而这张脸还没有通往那个 bump 分配器的门。编一个指针出来 = 让客人读到任意字节 |
+| V1 pair 解不开 → `Door` | 那是「槽里的模块没有遵守它被编译成的调用约定」，是边界契约，既不是脚本的错也不是脸的极限 |
+
+**为什么这个形状挺得过 M4**：固定下来的不是变体清单，而是**解析点**——客人表示变成
+宿主数据只有一处。对象到来时是在那一处多几个变体；真投影不出来的（函数值、循环对象）
+走 `UnsupportedValue`。若当初把原始 pair 或指针交出去，M4 会把每个调用方都打断。
+
 ## 6. 宿主门 ABI（模块名 `"agenterm"`）
 
 ```text
@@ -230,8 +275,15 @@ F: Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmError> + 'static
 `(status, bytes)` 存在 `Rc<RefCell<Pending>>` 里，由该槽的四个闭包共享。**每槽一份**，
 不跨槽。`fleet_call` 覆写它，`fleet_result` 读它。guest 不取回就丢弃，不是错误。
 
-M3 之后 `.qjs` 侧的 `fleet.call(op, params)` 降级到这四个 import 上——在字符串能力
-到位之前，`.qjs` 调不了带参宿主调用，这是 M0–M2 的已知边界，不是缺陷。
+`.qjs` 侧的 `fleet.call(op, params)` 最终降级到这四个 import 上。**今天还没有那条线**，
+而且原因已经换了：字符串能力（原以为是前置条件）已经落地，挡住的是别的东西——编译器
+默认下自由名字一律在编译期被拒（"this engine has no global bindings yet"）。上游有一个
+`Names::HostImport` 模式，但它发射的是模块名 `"js"`、按 JS 值传参的导入，跟本仓这四个
+`"agenterm"` + i32 两趟拷贝的门不是同一扇。
+
+所以「`.qjs` 调门」需要的是**本仓做一个决定**：`.qjs` 里的什么写法落到这四个 import
+上、宿主侧怎么把 JS 字符串搬进客人堆再把结果搬回来。那是本仓的写刀，不是等上游。
+在那之前，门只有手写 `.wasm` 客人够得着——门本身是通的、有 9 条测试。
 
 ## 7. 编译器取舍
 
@@ -248,18 +300,26 @@ M3 之后 `.qjs` 侧的 `fleet.call(op, params)` 降级到这四个 import 上�
   文档措辞**。写出来的必须是自己的 Rust。
 - 测试向量独立构造，或取自规范条文示例并注明出处。
 
-### 值表示
+### 值表示：已判决，不再重开
 
-M2 之前只有 i32/i64，直接用 wasm 原生数值。M3 起需要统一值表示，**决定点在 M3 开工前，
-不在本文档拍死**——先做一份对照实验，输入包括：
+**结论：V1 双字 `(tag: i32, payload: i64)`**，由一份实测实验判定——规格
+[`plan/design-value-representation-experiment.md`](design-value-representation-experiment.md)，
+结果 `research/value-representation/RESULTS.md`。候选是它与单 f64 NaN-boxing。
 
-- QuickJS 的两套选择及其理由（64 位标记联合 vs 32 位 NaN-boxing），它为什么按位宽分岔；
-- 本目标是 wasm32：指针天然是 i32，没有 64 位指针压力，也没有 GC 提案可用（tinyvm 核
-  不吃），所以驱动 QuickJS 选 NaN-boxing 的那个约束在这里不成立；
-- 候选：`(tag: i32, payload: i32/f64)` 双字 vs 单 f64 NaN-boxing。前者好调试、不与 f64
-  语义纠缠；后者省内存、省拷贝。
+rev1 在这里直接倾向了双字，**属于未做功课的手挥**；rev3 撤销该倾向、改为待实验；
+现在实验做完了，结论恰好与 rev1 的手挥相同——但**判据换了**，这一点比结论重要：
+今天支持它的是测出来的数字，不是当初的直觉。**不再重开这个争论。**
 
-rev1 在这里直接倾向了双字，**属于未做功课的手挥**，撤销该倾向，改为待实验。
+落地形态（上游 `tinyvm-qjs/src/repr.rs`）：
+
+- 一个 JS 值在**每一处 ABI 边界**都是两个 wasm 值——导出入口每个参数占两个参数、返回
+  两个结果，每个变量占两个 local，操作数栈占两格。
+- payload 是 `i64` 而不是 `i32`：ECMA-262 6.1.6.1 说 Number 是 IEEE-754 double，
+  double 必须能直接装下，不能再拐一次间接。wasm32 的堆指针是 i32，零扩展进同一个字段。
+- tag 编号是契约的一部分：`0 undefined · 1 number · 2 bool · 3 string · 4 null`。
+  `undefined` 取 0，好让一个清零的 pair（新 local、清零的内存）自然读成 `undefined`。
+
+**这条判决直接决定了本仓的接缝形状**——见 §5。
 
 ### guest 侧运行时
 
@@ -287,43 +347,56 @@ M3 起每份产物都带一段编译器生成的运行时（分配器、串操�
 「测试优先：先验收测再改脸。工人自报不算过。」
 
 ```text
-M0 脊柱
-├── 槽机制                                            [ ]
-│   ├── spawn 一份 .wasm，call 导出，拿到返回值           [ ]
-│   ├── 同一槽 call 两次，第二次拿到新鲜 fuel              [ ]
-│   ├── kill 后 call 该槽 → 明确错误，不 panic            [ ]
-│   └── run_once 不留活槽                               [ ]
-├── 隔离（对抗性）                                     [ ]
-│   ├── 两槽线性内存互不可见                             [ ]
-│   ├── A 槽 trap 后 B 槽仍能正常 call                   [ ]
-│   ├── A 槽超 max_steps 后 B 槽预算未被消耗              [ ]
-│   └── 槽 A 的 bridge 不被槽 B 调到                      [ ]
-├── 预算（对抗性）                                     [ ]
-│   ├── 死循环 guest → max_steps 触发，宿主活着            [ ]
-│   ├── memory.grow 超 max_memory_pages → 拒绝            [ ]
-│   ├── 深递归 guest → max_call_depth 触发                [ ]
-│   ├── print 超 max_stdout_bytes → 截断且标记             [ ]
-│   └── bridge 回程超上限 → Err，不是截断                  [ ]
-├── 宿主门                                            [ ]
-│   ├── fleet_call → status 0 → 两趟取回结果               [ ]
-│   ├── bridge 返回 Err → status 1 + 错误文本              [ ]
-│   ├── bridge = None → status 2 + 固定诊断                [ ]
-│   ├── fleet_result 目标太小 → 负数，不越界写              [ ]
-│   ├── 未调 fleet_call 就 fleet_result → 长度 0           [ ]
-│   └── op/params 指针越界 → trap 该槽，不读宿主内存         [ ]
-├── 装载门                                            [ ]
-│   ├── 非 `\0asm` 字节 → 拒绝                            [ ]
-│   ├── 坏 wasm → 装载期拒绝，不进执行                      [ ]
-│   └── check 不执行 start（副作用不发生）                  [ ]
-└── 接线                                              [ ]
-    ├── feature 关时根 crate 仍 build                     [ ]
-    └── 扩展名路由 .wasm / .qjs / 其余                     [ ]
+M0 脊柱                                                [x] 全绿
+├── 槽机制                                            [x]
+│   ├── spawn 一份 .wasm，call 导出，拿到返回值           [x]
+│   ├── 同一槽 call 两次，第二次拿到新鲜 fuel              [x]
+│   ├── kill 后 call 该槽 → 明确错误，不 panic            [x]
+│   └── run_once 不留活槽                               [x]
+├── 隔离（对抗性）                                     [x]
+│   ├── 两槽线性内存互不可见                             [x]
+│   ├── A 槽 trap 后 B 槽仍能正常 call                   [x]
+│   ├── A 槽超 max_steps 后 B 槽预算未被消耗              [x]
+│   └── 槽 A 的 bridge 不被槽 B 调到                      [x]
+├── 预算（对抗性）                                     [x]
+│   ├── 死循环 guest → max_steps 触发，宿主活着            [x]
+│   ├── memory.grow 超 max_memory_pages → 拒绝            [x]
+│   ├── 深递归 guest → max_call_depth 触发                [x]
+│   ├── 活动记录槽耗尽 → Budget（非 Trap）                 [x]
+│   ├── print 超 max_stdout_bytes → 截断且标记             [x]
+│   └── bridge 回程超上限 → Err，不是截断                  [x]
+├── 宿主门                                            [x]
+│   ├── fleet_call → status 0 → 两趟取回结果               [x]
+│   ├── bridge 返回 Err → status 1 + 错误文本              [x]
+│   ├── bridge = None → status 2 + 固定诊断                [x]
+│   ├── fleet_result 目标太小 → 负数，不越界写              [x]
+│   ├── 未调 fleet_call 就 fleet_result → 长度 0           [x]
+│   └── op/params 指针越界 → trap 该槽，不读宿主内存         [x]
+├── 装载门                                            [x]
+│   ├── 非 `\0asm` 字节 → 拒绝                            [x]
+│   ├── 坏 wasm → 装载期拒绝，不进执行                      [x]
+│   └── check 不执行 start（副作用不发生）                  [x]
+└── 接线                                              [x]
+    ├── feature 关时根 crate 仍 build                     [x]
+    └── 扩展名路由 .wasm / .qjs / 其余                     [x]
 
-M1–M5 语言（每期同形状，此处只列门）
-├── 每个新语法：一条「编译产物跑出预期结果」的测           [ ]
-├── 每个未支持语法：一条「被拒绝且诊断说清能力边界」的测   [ ]
-├── 编译产物过 tinyvm 严格装载门（不是只过自家 parser）    [ ]
-└── M5：fleet.js 等价物端到端跑通                        [ ]
+接缝（rev4 新增：两套调用约定相遇的地方）        [x]
+├── `.qjs` 端到端过槽，JS 值进 JS 值出                    [x]
+├── 五种 JS 值（number/string/bool/null/undefined）全过脸  [x]
+├── 字符串在槽被回收之后仍可读（不是悬垂指针）             [x]
+├── 约定不匹配 → UnsupportedValue，两个方向都测            [x]
+├── binary64 语义（1/0=Infinity、0/0=NaN、不回绕、-0）     [x]
+├── 编译失败自成一类，诊断与字节偏移都活着                  [x]
+├── 编译产物过本 crate 的装载门（含收紧的 Budget）          [x]
+├── 手写 `.wasm` 路径一行未改仍全绿                        [x]
+└── check 与 execute 走同一个编译入口                      [x]
+
+M1–M5 语言（每期同形状，语言侧的证据在上游，此处只列门）
+├── 每个新语法：一条「编译产物跑出预期结果」的测           [x] 上游 conformance_m2.rs
+├── 每个未支持语法：一条「被拒绝且诊断说清能力边界」的测   [x] 上游 qjs_subset.rs
+├── 编译产物过 tinyvm 严格装载门（不是只过自家 parser）    [x]
+├── 本仓自己的能力口径由本仓一条测试兜住（防文案漂移）      [x] qjs_guest.rs
+└── M5：fleet.js 等价物端到端跑通                        [ ] 缺口清单见 PRD 36 §归档门
 ```
 
 ## 10. 工具链

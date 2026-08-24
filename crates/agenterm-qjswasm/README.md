@@ -31,33 +31,82 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 `.wasm` 输入跳过 ①，从 ② 进。**两种输入在核这一层完全同待遇**——这就是「一个引擎跑
 两种东西」的确切含义，不是两条管线共用一个名字。
 
-## M0 能跑什么（诚实边界）
+## `.qjs` 能跑什么（诚实边界，每条都是编出来跑过的）
 
-当前是 **M0**，`.qjs` 只支持：
+下表每一行都由 `tests/qjs_guest.rs` 编译并执行过，不是读上游源码得出的。
 
-- 十进制整数字面量
-- `+` `-` `*` `/` `%`、一元负号、括号（正确的优先级与结合性）
-- `$0` `$1` … 取本次调用的参数
+**能跑：**
 
-`g()*2+$0` 这类能跑。`function f(){}`、字符串、`let`、对象——**编译期明确拒绝**，
-诊断文案会说清是引擎能力边界，不会含糊地说"语法错误"让你以为脚本写错了。
+- **数字是 ECMA-262 binary64**，不是 i32：`1/0` 是 `Infinity`、`0/0` 是 `NaN`、
+  `2147483647 + 1` 不回绕。字面量仍只写十进制整数——`0.5` / `1e3` / `0x10` / `1_000`
+  各自撞自己的边界。
+- **其他值**：字符串（转义与 `\u{…}` 已解码）、`true` / `false`、`null`、`undefined`。
+- **语句**：`let` / `const` / `var`（真作用域 + 文本可判定的 TDZ）、块、`if`/`else`、
+  `while`、三段式 `for`、`return`，以及脚本的 ECMA-262 completion value。
+- **函数**：声明式带参数、递归与互递归。**调用必须是直接调用**——被调方得是一个绑定到
+  已知函数的名字。
+- **运算符**：赋值与复合赋值、`||`、`&&`、`==`/`!=`/`===`/`!==`、`<` `<=` `>` `>=`、
+  `+` `-`、`*` `/`、前后缀 `++`/`--`、一元 `+ - !`、括号。`+` 在任一侧是字符串时拼接。
+- **ASI**：ECMA-262 12.10。
+
+**明确拒绝**（编译期，诊断说清是引擎边界）：`%`、`typeof`、对象/数组字面量、属性访问、
+`?:`、`try`/`throw`、`class`、`switch`、`break`/`continue`、`for…of`、模板字面量、
+位运算与移位、`**`、`??`、逗号运算符、BigInt；**捕获外层局部变量的闭包**；
+**把函数当值用**（`let f = function(){}` 之后 `f()`、`return f`——都拒绝；
+立即调用的函数表达式 `(function(a){...})(1)` 可以）。
+
+**两处运行期行为要知道：**
+
+- 三个 ECMA-262 转换尚未实现（Number 的 ToString、StringToNumber、字符串关系比较），
+  撞上是 **trap 而不是编造一个值**：`"a" + 1`、`"2" * 2`、`"a" < "b"`、`1 == "1"` 都
+  trap。这是上游记录在案的 divergence，不是本层的分类错误。
+- **`.qjs` 还够不着 `agenterm.*` 门。** 自由名字一律在编译期被拒
+  （"this engine has no global bindings yet"），所以 `print` / `fleet_call` 目前只有
+  手写 `.wasm` 客人能调。门本身是通的、有测试；缺的是语言侧的那条线。
 
 `.wasm` 侧是完整的：任何过 tinyvm 装载门的标准模块都能装载、按名调用、有预算地执行。
 
-增长路线（M1 前端 → M2 整数世界 → M3 字符串 → M4 堆对象 → M5 闭包/try/JSON）见设计稿。
 第一个具体锚点是编译 `scripts/qjs/lib/fleet.js` 的等价物——那也是归档
-`agenterm-qjs` 的门。
+`agenterm-qjs` 的门。缺口清单见 [PRD 36 §归档门](../../prd/PRD_02_36_agenterm_qjswasm.md)。
 
-## 脸
+## 脸：两套调用约定，一张脸
+
+手写 `.wasm` 客人说的是 wasm 数值；`.qjs` 客人说的是编译器的 **V1 表示**——一个
+JavaScript 值是一对 `(tag: i32, payload: i64)`，所以入口每个参数占两个 wasm 参数、
+返回两个结果。`Value` 同时承载两者，槽在装载时记下自己是哪一套，两边的调用者都不必
+学对方的 ABI。
 
 ```rust
-use agenterm_qjswasm::{Engine, Guest, Value};
+use agenterm_qjswasm::{Engine, Guest, JsValue, Value};
 
 let mut engine = Engine::new();
-let out = engine.run_once(Guest::Qjs("$0 * 2"), None, "main", &[Value::I32(21)])?;
+
+// `.qjs`：一个 JavaScript 值进，一个 JavaScript 值出。
+let out = engine.run_once(
+    Guest::Qjs("$0 * 2"),
+    None,
+    "main",
+    &[Value::Js(JsValue::Number(21.0))],
+)?;
+assert_eq!(out.values, vec![Value::Js(JsValue::Number(42.0))]);
+
+// 手写 `.wasm`：wasm 数值，这一路一行没变。
+let out = engine.run_once(Guest::Wasm(&bytes), None, "add", &[Value::I32(40), Value::I32(2)])?;
 assert_eq!(out.values, vec![Value::I32(42)]);
-# Ok::<(), agenterm_qjswasm::QjswasmError>(())
 ```
+
+`JsValue` 是**已解析成宿主数据**的投影，不是转发的原始 pair。理由是机制性的：字符串的
+payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前就把槽杀了——转发指针等于
+在最常见的路径上交出一个悬垂引用。所以接缝在实例还活着的时候把它读出来。
+
+这个形状挺得过 M4：固定下来的不是变体清单，而是**解析点**——「客人表示变成宿主数据」
+只有一处。数组与对象到来时是在同一处多几个变体，不是让调用者再学一套机制。真的投影不
+出来的（函数值、循环对象）走 `QjswasmError::UnsupportedValue`，那个类的含义本来就是
+「客人没错，是这张脸装不下」。
+
+约定不匹配也走同一类：把裸 wasm 数值递给 `.qjs` 槽、或把 `JsValue` 递给手写模块，
+是 `UnsupportedValue` 而不是默默按位重解释。字符串**作为参数**同样被拒——那需要在客人
+堆里分配，而这张脸还没有通往那个分配器的门。
 
 `spawn` / `call` 分开，因为 tinyvm 的 `Instance` 是**持久**的：装一次、调多次，
 每次顶层调用拿一份新鲜的 `max_steps` 预算。一次性客人用 `run_once`。
@@ -138,5 +187,10 @@ tinyvm 的严格装载门（canonical function expression、strict memarg alignm
 i64 signed-LEB range…），那份正确性要自己负责。
 
 语言子集的验收测（能编什么、拒什么、诊断怎么说）跟编译器一起在上游
-`crates/tinyvm-qjs/tests/`。本 crate 的 `tests/qjs_guest.rs` 只测接缝：`.qjs` 端到端
-过槽、编译失败自成一类、产物过本 crate 的装载门、扩展名路由。
+`crates/tinyvm-qjs/tests/`。本 crate 的 `tests/qjs_guest.rs` 测接缝：`.qjs` 端到端
+过槽、两套调用约定、JS 值投影与字符串解析、编译失败自成一类、产物过本 crate 的装载门、
+扩展名路由。
+
+其中 `the_capability_claims_in_this_crates_own_copy` 是**上面那张能力表的锁**：本
+README 与 PRD 36 用 agenterm 自己的口径做能力声明，所以那些声明必须由一条会跑的测试
+兜住，而不是靠读上游源码。"M0，只有整数表达式"就是这样漂成假话的。
