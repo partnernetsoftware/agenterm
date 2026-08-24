@@ -24,18 +24,31 @@
 //! - `src/operations.rs::OPERATION_CATALOG` is the authoritative,
 //!   *dispatchable* operation-id list (`operation_by_id` looks entries up
 //!   there; see `crates/agenterm-rh/src/fleet.rs`/`src/script_fleet.rs`
-//!   callers). It has 44 entries. Every lua/qjs operation_id is present in
-//!   it (clean subset). BUT 32 of rh's 76 declared `fleet.*` surfaces are
-//!   **not** in `OPERATION_CATALOG` at all (e.g. `ui.settings.*`,
-//!   `ui.modal.*`, `ui.font.*`, `ui.window.maximize/minimize/restore/close`,
-//!   `ui.instance-picker.{cancel,confirm,next,prev}`, `ui.tab.new`,
-//!   `ui.tab.editor.{save,cancel}`, `terminal.copy-selection`,
-//!   `ui.locale.toggle`, `ui.new-terminal.open`,
-//!   `ui.window-close.keep-server-running`). rh's shipped-surface catalog
-//!   claims support for operations the host's authoritative catalog does
-//!   not (yet) implement/dispatch. That asymmetry is real and is pinned by
-//!   `rh_surfaces_missing_from_host_catalog()` below rather than swept under
-//!   an intersection.
+//!   callers). It has 77 entries, 76 of them `fleet.*`. Every lua/qjs
+//!   operation_id is in it, and so is **every one of rh's 76 declared
+//!   surfaces**: the two catalogs agree exactly.
+//!
+//! # Correction, 2026-08-25: the "33 undispatchable rh surfaces" were not real
+//!
+//! This file used to report that 32 (the allowlist held 33) of rh's declared
+//! `fleet.*` surfaces had no entry in `OPERATION_CATALOG`, and named the
+//! families: `ui.settings.*`, `ui.modal.*`, `ui.font.*`,
+//! `ui.instance-picker.*`, `ui.window.*`, `ui.tab.new`, and so on. The figure
+//! reached PRD 02.10 as an open product finding.
+//!
+//! It was an artefact of how this file read the catalog. The extractor scanned
+//! `src/operations.rs` for lines starting `id:`, and those 33 entries are
+//! built by the `nullary_ui_action()` const constructor on one line with no
+//! `id:` on it. The extractor saw 44 of 77; the `>= 40` sanity floor passed;
+//! nothing went red. A test that reads a source file with a regex can be wrong
+//! in exactly this direction — quietly, and in the *reporting*, not the
+//! assertion.
+//!
+//! `host_operation_catalog_ids()` now links `OPERATION_CATALOG` instead of
+//! parsing it, the allowlist is empty, and the assertion that used to pin the
+//! false gap now pins its absence. `tests/fleet_catalog_conformance.rs`
+//! (2026-08-25) links the catalog the same way and covers the direction this
+//! file does not: whether each binding's *parameters* match the spec.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -99,82 +112,38 @@ fn qjs_facade() -> Vec<(String, String)> {
     extract_script_facade(&read("scripts/qjs/lib/fleet.js"))
 }
 
-/// Parses the `pub const NAME: &str = "value";` declarations near the top
-/// of `src/operations.rs` into a name -> literal-value lookup, so catalog
-/// entries written as `id: SOME_CONST` can be resolved to their string.
-fn extract_str_consts(source: &str) -> std::collections::BTreeMap<String, String> {
-    let mut consts = std::collections::BTreeMap::new();
-    for line in source.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix("pub const ") else {
-            continue;
-        };
-        let Some(colon) = rest.find(':') else {
-            continue;
-        };
-        let name = rest[..colon].trim();
-        if !rest[colon..].contains("&str") {
-            continue;
-        }
-        let Some(eq) = rest.find('=') else { continue };
-        let value_part = rest[eq + 1..].trim();
-        let Some(open) = value_part.find('"') else {
-            continue;
-        };
-        let after_open = &value_part[open + 1..];
-        let Some(close) = after_open.find('"') else {
-            continue;
-        };
-        consts.insert(name.to_owned(), after_open[..close].to_owned());
-    }
-    consts
-}
-
-/// Extracts the authoritative, host-dispatchable operation-id set from
-/// `src/operations.rs`'s `pub const OPERATION_CATALOG: &[OperationSpec] = &[ ... ];`.
-/// Each entry's `id:` field is either a string literal or a reference to one
-/// of the `pub const X: &str = "...";` declarations earlier in the file.
+/// The authoritative, host-dispatchable operation-id set, read from the
+/// linked `OPERATION_CATALOG` itself.
+///
+/// # This used to parse the Rust source, and that made the file lie
+///
+/// The previous version scanned `src/operations.rs` for lines beginning
+/// `id:`. That shape reaches only entries written out longhand. Thirty-three
+/// of the catalog's entries are built by the `nullary_ui_action()` const
+/// constructor instead -- `nullary_ui_action(UI_TAB_NEW, "fleet.ui.tab.new",
+/// "new-tab")`, one line, no `id:` on it -- so the extractor could not see
+/// them, and the `ids.len() >= 40` floor below passed on the 44 it did see.
+///
+/// Nothing failed. What happened instead is worse: this file *reported* those
+/// thirty-three operations as absent from the host catalog, in
+/// `rh_surfaces_missing_from_host_catalog()`, described as surfaces "rh claims
+/// support for [that] the host's authoritative catalog does not (yet)
+/// implement/dispatch". They are all present and all dispatchable. The figure
+/// was copied from here into PRD prose, which is how a text-parsing test turns
+/// into a documented fact about the product.
+///
+/// Linking the catalog cannot drift that way: a new construction shape is
+/// counted the moment it compiles, and a renamed constant is a compile error
+/// rather than a silently smaller set.
 fn host_operation_catalog_ids() -> BTreeSet<String> {
-    let source = read("src/operations.rs");
-    let consts = extract_str_consts(&source);
-
-    // NB: must include the trailing `:` — `pub const OPERATION_CATALOG` alone
-    // also matches `pub const OPERATION_CATALOG_SCHEMA_VERSION`, which sits
-    // earlier in the file and would make `find` latch onto the wrong array.
-    let start_marker = "pub const OPERATION_CATALOG:";
-    let start = source
-        .find(start_marker)
-        .expect("OPERATION_CATALOG declaration not found in src/operations.rs");
-    let body = &source[start..];
-    let array_open = body
-        .find("= &[")
-        .expect("OPERATION_CATALOG array opener `= &[` not found");
-    let after_open = &body[array_open + "= &[".len()..];
-    let array_close = after_open
-        .find("\n];")
-        .expect("OPERATION_CATALOG array closer `\\n];` not found");
-    let catalog_block = &after_open[..array_close];
-
-    let mut ids = BTreeSet::new();
-    for line in catalog_block.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix("id:") else {
-            continue;
-        };
-        let rest = rest.trim().trim_end_matches(',');
-        if let Some(stripped) = rest.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-            ids.insert(stripped.to_owned());
-        } else if let Some(value) = consts.get(rest) {
-            ids.insert(value.clone());
-        } else {
-            panic!("OPERATION_CATALOG id `{rest}` did not resolve to a literal or known const");
-        }
-    }
-    assert!(
-        ids.len() >= 40,
-        "sanity check: expected >=40 entries in OPERATION_CATALOG, found {} \
-         (extraction likely broke — did operations.rs's array formatting change?)",
-        ids.len()
+    let ids: BTreeSet<String> = agenterm::operations::OPERATION_CATALOG
+        .iter()
+        .map(|spec| spec.id.to_owned())
+        .collect();
+    assert_eq!(
+        ids.len(),
+        agenterm::operations::OPERATION_CATALOG.len(),
+        "two catalog entries share an operation id"
     );
     ids
 }
@@ -435,49 +404,23 @@ fn rh_shipped_surface_operation_ids_not_in_host_catalog_match_documented_gap() {
     );
 }
 
-/// Documented, explicit allowlist of operation ids that rh's
-/// `shipped_surfaces.rs` declares as supported but that
-/// `src/operations.rs::OPERATION_CATALOG` does not implement/dispatch.
-/// Extracted from the investigation run on 2026-08-09; 33 entries.
-/// (The comment said 32 while the array held 33, which is how that figure
-/// got copied into the PRD.)
+/// Operation ids that rh's `shipped_surfaces.rs` declares as supported but
+/// that `OPERATION_CATALOG` does not dispatch.
+///
+/// **Empty, and that is the corrected answer.** It used to hold 33 entries --
+/// `ui.settings.*`, `ui.modal.*`, `ui.font.*`, `ui.instance-picker.*`,
+/// `ui.window.*`, `ui.tab.new`, and the rest -- described as surfaces rh
+/// claims and the host cannot dispatch. Every one of them is in
+/// `OPERATION_CATALOG` and always was. They were invisible to this file's
+/// former text extractor because they are built by the `nullary_ui_action()`
+/// constructor rather than written out with an `id:` line; see
+/// [`host_operation_catalog_ids`].
+///
+/// The list is kept as a function rather than inlined as `BTreeSet::new()`
+/// because the assertion it feeds is still worth having: if rh's shipped
+/// surfaces ever gain an entry the host does not dispatch, that is real drift,
+/// and this is where the evidence for accepting it would go.
 fn rh_surfaces_missing_from_host_catalog() -> BTreeSet<String> {
-    [
-        "terminal.copy-selection",
-        "ui.font.decrease",
-        "ui.font.increase",
-        "ui.instance-picker.cancel",
-        "ui.instance-picker.confirm",
-        "ui.instance-picker.next",
-        "ui.instance-picker.prev",
-        "ui.locale.toggle",
-        "ui.modal.cancel",
-        "ui.modal.confirm",
-        "ui.new-terminal.open",
-        "ui.settings.apply",
-        "ui.settings.inherit.font",
-        "ui.settings.inherit.size",
-        "ui.settings.inherit.theme",
-        "ui.settings.open",
-        "ui.settings.preset.classic-day",
-        "ui.settings.preset.classic-night",
-        "ui.settings.preset.fancy-day",
-        "ui.settings.preset.fancy-night",
-        "ui.settings.reset-overrides",
-        "ui.settings.scope.current",
-        "ui.settings.scope.defaults",
-        "ui.settings.theme.dark",
-        "ui.settings.theme.light",
-        "ui.tab.editor.cancel",
-        "ui.tab.editor.save",
-        "ui.tab.new",
-        "ui.window-close.keep-server-running",
-        "ui.window.close",
-        "ui.window.maximize",
-        "ui.window.minimize",
-        "ui.window.restore",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
+    let empty: [&str; 0] = [];
+    empty.into_iter().map(String::from).collect()
 }

@@ -131,26 +131,52 @@ doc-comment-asserted:
   (`scripts/lua/lib/fleet.lua`) and qjs (`scripts/qjs/lib/fleet.js`) are
   locked as identical, 29/29 entries. rh
   (`crates/agenterm-rh/src/shipped_surfaces.rs`) is a pinned superset, +47
-  entries over the lua/qjs 29.
+  entries over the lua/qjs 29. Its catalog extractor was replaced with a
+  direct link to `OPERATION_CATALOG` on 2026-08-25; see the withdrawn finding
+  below for why regex extraction was the wrong instrument.
 
-**Open finding — rh declares 33 `fleet.*` surfaces the host cannot
-dispatch (found and pinned 2026-08-08, `tests/script_fleet_facade_parity.rs`,
-`50ab1f7e`).** rh's `shipped_surfaces.rs` declares 76 `fleet.*` paths and
-`src/operations.rs` carries 43 `script_surface: "fleet…"` rows, so 33 of
-them have no matching entry in `src/operations.rs`'s `OPERATION_CATALOG` —
-the authoritative, dispatchable operation-id list that `operation_by_id`
-actually looks up. Affected families: `ui.settings.*`, `ui.modal.*`,
-`ui.font.*`, `ui.instance-picker.*` (cancel/confirm/next/prev), `ui.window.*`
-(maximize/minimize/restore/close), plus scattered singles (`ui.tab.new`,
-`ui.tab.editor.save`/`.cancel`, `terminal.copy-selection`,
-`ui.locale.toggle`, `ui.new-terminal.open`,
-`ui.window-close.keep-server-running`). This is declared-but-unimplemented,
-not a silently dropped bug — lua/qjs's 29 operation IDs are a clean subset
-of `OPERATION_CATALOG` with no equivalent gap. It is pinned by an explicit
-33-entry allowlist in the parity test so the asymmetry can't regress
-silently, but the disposition (drop the 33 declarations vs implement the
-missing host entries) is undecided and belongs to the rh track owner, not
-this parity test.
+**~~Open finding — rh declares 33 `fleet.*` surfaces the host cannot
+dispatch~~ — WITHDRAWN 2026-08-25. The finding was false; there is no gap.**
+
+The claim (recorded 2026-08-08, `50ab1f7e`) was that rh's
+`shipped_surfaces.rs` declares 76 `fleet.*` paths while `src/operations.rs`
+implements only 43 of them, leaving 33 declared-but-undispatchable —
+`ui.settings.*`, `ui.modal.*`, `ui.font.*`, `ui.instance-picker.*`,
+`ui.window.*`, `ui.tab.new`, and the rest.
+
+**Every one of those 33 is in `OPERATION_CATALOG`, and always was.**
+`OPERATION_CATALOG` holds 77 entries, 76 of them `fleet.*`, and rh's 76
+declared surfaces match them exactly: the gap set is empty.
+
+The 33 came from how the test read the catalog, not from the catalog.
+`tests/script_fleet_facade_parity.rs` extracted operation ids by scanning
+`src/operations.rs` for lines beginning `id:`. Those 33 entries are built by
+the `nullary_ui_action()` const constructor (`src/operations.rs`) — one line
+each, no `id:` on it — so the extractor never saw them. It found 44, its
+sanity floor was `>= 40`, and nothing went red. The test then *reported* the
+33 it could not see as missing from the product, and that report was copied
+here as a product fact.
+
+Two lessons worth keeping, since this is the second false claim this PRD
+family has had to withdraw:
+
+- A test that reads source with a regex can be wrong in the **reporting**
+  rather than in the assertion, and that failure is silent by construction.
+  The fix is to link what you are measuring: `host_operation_catalog_ids()`
+  now uses `agenterm::operations::OPERATION_CATALOG` directly, so a new
+  construction shape counts the moment it compiles.
+- A sanity floor (`>= 40`) that is below the real number (77) is not a
+  sanity check.
+
+The allowlist in the parity test is now empty and the assertion pins that
+emptiness, so a genuinely undispatchable rh surface would still go red.
+
+**The real drift is elsewhere, and it is about parameters, not names.**
+`tests/fleet_catalog_conformance.rs` (2026-08-25) links the catalog and
+checks what this file never did: 47 of the 76 `fleet.*` surfaces have no
+lua or qjs binding at all, and 9 of the 29 that do send a params object
+`validate_fleet_parameters` will reject. See PRD 02.36 and
+`plan/design-fleet-catalog-binding.md`.
 
 **Real bugs the abstraction work surfaced and fixed, not just refactored:**
 
