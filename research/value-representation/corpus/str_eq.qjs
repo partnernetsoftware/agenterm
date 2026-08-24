@@ -1,0 +1,9 @@
+// Equality between a literal and a computed string.
+function main() {
+  let a = "wasm";
+  let b = "wa" + "sm";
+  if (a == b) {
+    return 1;
+  }
+  return 0;
+}

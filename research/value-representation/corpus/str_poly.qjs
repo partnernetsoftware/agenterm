@@ -1,0 +1,13 @@
+// The reason a universal value representation exists at all: one function,
+// two types, no second ABI.
+function twice(x) {
+  return x + x;
+}
+function main() {
+  let n = twice(21);
+  let s = twice("ab");
+  if (s == "abab") {
+    return n;
+  }
+  return 0;
+}

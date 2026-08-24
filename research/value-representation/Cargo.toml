@@ -1,0 +1,33 @@
+[package]
+name = "value-representation"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.97"
+description = "Decisive experiment: two-word (tag, payload) vs single-f64 NaN-boxing as the universal value representation for the .qjs -> .wasm compiler"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone, like research/agenterm-net: a disposable research spike must not
+# join the product workspace or its lockfile.
+[workspace]
+
+[lib]
+name = "valrepr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "measure"
+path = "src/bin/measure.rs"
+
+[dependencies]
+# The execution core. A path dependency on the sibling checkout: this crate is
+# not shipped, and it must measure against the tinyvm working tree that the
+# compiler was just moved into, not against a pinned revision.
+tinyvm = { path = "../../../tinyvm/crates/tinyvm" }
+
+[dev-dependencies]
+# Test-only second opinion. Constraint 5 forbids a third-party *encoder*; this
+# is a third-party *validator*, used the way tinyvm's own suite uses `wat`, so
+# that "cleared the load gate" is not just a claim about one implementation.
+# Never a runtime dependency.
+wasmparser = "0.239"
