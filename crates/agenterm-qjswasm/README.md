@@ -108,6 +108,17 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 是 `UnsupportedValue` 而不是默默按位重解释。字符串**作为参数**同样被拒——那需要在客人
 堆里分配，而这张脸还没有通往那个分配器的门。
 
+**约定是在装载时记下的，从来不靠签名去猜**，所以「已经编好的 `.qjs` 产物」要有自己的
+入口：`Guest::CompiledQjs(&[u8])`。一份 `.wasm` 文件不记得自己是从 `.qjs` 来的，用
+`Guest::Wasm` 装回去，V1 pair 就原样过脸——字符串变成一个 tag 加一个指向马上要被丢掉的
+线性内存的指针。任何「先编译到盘、以后再跑」的形状（`pack` 产物、缓存、网上取来的客人）
+都需要这个变体。它不多给任何权力：同一道装载校验、同一套 `Limits`、同一扇门，只是槽记
+下的约定不同。
+
+顺带，它也是**接缝那五条防线第一次可测**的原因：`read_guest_string` 的五种拒绝（指针
+不是地址、头越界、体越界、非 UTF-8、根本没有线性内存）在此之前只可能被信任的编译器产物
+触发，即没有任何可达的调用者。`tests/seam_attack.rs` 的 `a_hostile_*` 五条现在真的打得到。
+
 `spawn` / `call` 分开，因为 tinyvm 的 `Instance` 是**持久**的：装一次、调多次，
 每次顶层调用拿一份新鲜的 `max_steps` 预算。一次性客人用 `run_once`。
 
@@ -126,6 +137,23 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 | `max_call_depth` / `max_activation_slots` | tinyvm | trap，不吃原生栈 |
 | `max_stdout_bytes` | 本 crate | 截断并置 `truncated_stdout`，不静默丢 |
 | `max_bridge_result_bytes` | 本 crate | 报错，**不截断**——半个 JSON 比拒绝更糟 |
+| `max_result_string_bytes` | 本 crate | 报错，**不截断**——理由同上 |
+
+`max_result_string_bytes` 2026-08-25 补上，因为宿主侧原本只有两个盖子，而接缝把
+`.qjs` 返回的字符串**拷进宿主 String** 是第三块宿主分配、由客人定大小、两个盖子都不管。
+在它之前唯一的上限是偶然的：默认预算下 `max_steps` 先耗尽（拼接是 O(n) 步），一旦客人
+能便宜地造出大字符串、或谁调高 `max_steps`，真实上限就变成
+`max_memory_pages × 64 KiB`，每次调用一份，持久槽上反复。
+顺序也是分类：**先做越界检查，再看盖子**——声明长度装不进客人自己的内存是坏客人
+（`Door`），把它说成预算等于让人去调一个调了也没用的数。
+
+`max_memory_pages` 有一条**运行期**缺口，写在这里免得被当成已解决：装载期超页是
+`Load`，但运行期 `memory.grow` 被拒之后，上游 `tinyvm-qjs` 的 `__alloc` 把它降成一条
+裸 `unreachable`，到宿主这里与任何别的 `unreachable` 无法区分，所以报的是
+`Trap` 而不是 `Budget("max_memory_pages")`。这不是本仓能修的——信息在上游就被丢掉了，
+宿主侧靠"内存正好顶到上限"去猜会把真坏的脚本误判成预算问题。要补在上游：分配失败必须
+可分辨（带 `WasmCeiling::MemoryPages` 的独立 fault，或走一扇门报告）。
+复现见 `tests/seam_attack.rs::finding_4_running_out_of_pages_is_not_reported_as_a_budget`。
 
 ## 宿主门 ABI
 
@@ -141,8 +169,33 @@ fleet_result(dst_ptr: i32, dst_len: i32)                               -> i32   
 `status`：`0` = Ok · `1` = Err（应用级错误，是正常结果不是崩溃）· `2` = NoBridge。
 状态码语义与 `agenterm-wasmcore` 一致，guest 作者只学一套。
 
+**`agenterm.*` 之外的 import 装载期即拒，并把名字说出来。** 四件门函数客人可以只导入
+一部分、或一个都不导入；但导入**别的模块名**（最典型的是
+`wasi_snapshot_preview1.fd_write`）是另一回事——没人能绑它。2026-08-25 之前这种模块
+`validate_wasm` 返回 `Ok(())`、`spawn` 成功、第一次调用才死在
+`Trap("call to unbound imported function")`：check 放行了 execute 跑不了的东西，而且
+那条 trap 一个 import 名都不报（tinyvm 是 `no_std`，文案是静态前缀）。现在两条路
+给同一个答案，都在 `Door` 类里，都带名字。锁在
+`tests/host_door.rs::check_and_execute_agree_that_an_unbindable_import_is_refused_at_load`。
+
 背后就是全仓共用的 `ScriptFleetBridgeFn`。本 crate 把**这一条既有能力**暴露给 wasm
 客人，不发明第二条。
+
+### 调用不合导出的签名，是调用者的错，不是客人的错
+
+`call` 在进客人**之前**先问一次导出的声明类型
+（`WasmInstance::exported_function_handle`），三种误报因此各归各位：
+
+| 情形 | 2026-08-25 之前 | 现在 |
+|------|----------------|------|
+| 导出名不存在 | `Trap("no exported function named")`，不带名字 | `NoSuchExport`，带名字 |
+| 参数**个数**不对 | `Trap("function")` | `Signature`，两个数都报；`.qjs` 槽按 JavaScript 参数个数报，不按 wasm 字数 |
+| 参数**类型**不对 | **不报**——`(param i32)` 收 `I64` 返回 `Ok([I64(..)])`，与导出自己的 `(result i32)` 矛盾；只有客人真去用那个值才变成 trap | `Signature`，报参数序号和两个类型 |
+| 结果类型这张脸装不下 | 客人跑完之后才 `UnsupportedValue`，它一路上打印的输出被一起丢掉 | 进客人之前就拒，什么都没产生，也就没得丢 |
+
+最后一行顺带修掉了一个丢输出的洞。**残留的代价现在是明说的**：客人已经跑起来之后才失败
+的调用（trap、预算、V1 pair 畸形），它打印的东西仍然会丢——这条写在 `Slot::call` 上，
+是有意的，因为把它留到**下一次**调用的 `Outcome` 里比丢掉更糟（张冠李戴）。
 
 ### 为什么是两趟拷贝
 

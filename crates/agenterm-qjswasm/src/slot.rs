@@ -70,17 +70,18 @@ impl Slot {
         &mut self,
         entry: &str,
         args: &[Value],
-        _budget: &Budget,
+        budget: &Budget,
     ) -> Result<Outcome, QjswasmError> {
-        // The budget is not re-applied per call: `from_bytes_with` baked the
-        // `Limits` into the module, the instance carries them, and the core
+        // The *core* budget is not re-applied per call: `from_bytes_with` baked
+        // the `Limits` into the module, the instance carries them, and the core
         // hands every top-level call a fresh `max_steps` on its own. The
-        // parameter stays on the signature because it is the frozen face and
-        // because the host-side caps are the door's business, not the core's.
+        // host-side caps in `budget` are this layer's business, and one of them
+        // -- `max_result_string_bytes` -- is spent below, on the way out.
         let vals = match self.convention {
             Convention::Wasm => args.iter().map(into_val).collect::<Result<Vec<_>, _>>()?,
             Convention::JsV1 => into_v1_args(args)?,
         };
+        self.check_entry(entry, &vals, args.len())?;
         let result = self.instance.invoke_by_name(entry, &vals);
 
         // Read the cost counters before doing anything else with the result:
@@ -91,9 +92,19 @@ impl Slot {
         let peak_activation_slots = self.instance.last_peak_activation_slots();
 
         // Drain stdout unconditionally, including on the error paths below.
-        // Output a trapping call already emitted has nowhere to go on the
-        // `Result` face, but leaving it buffered would leak it into the *next*
-        // call's `Outcome`, which is worse than losing it.
+        //
+        // This is a stated cost, not an emergent one: a call that fails *after*
+        // the guest has run -- a trap, a budget, a malformed V1 pair -- loses
+        // what it printed, because there is nowhere to put it on the `Result`
+        // face and leaving it buffered would attribute it to the *next* call's
+        // `Outcome`, which is worse than losing it.
+        //
+        // The avoidable half of that cost is gone. Refusals the face can decide
+        // in advance -- no such export, a signature mismatch, a result type
+        // this face cannot carry -- are raised by `check_entry` above, before
+        // the guest is entered, so there is no output to lose. What remains is
+        // only failures that could not be known until the guest had already
+        // run.
         let (stdout, truncated_stdout) = self.door.take_stdout();
 
         let returned = result.map_err(classify)?;
@@ -106,7 +117,7 @@ impl Slot {
             // carry it, and the String case has to be read out of linear
             // memory *now*: `Engine::run_once` drops this instance before its
             // caller sees the result, so a pointer would already be dangling.
-            Convention::JsV1 => vec![Value::Js(self.read_js_value(&returned)?)],
+            Convention::JsV1 => vec![Value::Js(self.read_js_value(&returned, budget)?)],
         };
 
         Ok(Outcome {
@@ -119,8 +130,106 @@ impl Slot {
         })
     }
 
+    /// Refuse a call that does not fit the export it names, *before* the guest
+    /// is entered.
+    ///
+    /// Three separate misreports collapse into this one check, and all three
+    /// used to be blamed on the guest:
+    ///
+    /// - **No such export.** The core answers `Trap("no exported function
+    ///   named")`, without the name, because it is `no_std` and its messages
+    ///   are static prefixes. The guest never ran; the caller mistyped.
+    /// - **The wrong number of arguments.** `Trap("function")`, again for a
+    ///   guest that did nothing wrong. This crate already guards the *other*
+    ///   half of the same mistake -- a raw numeric handed to a `.qjs` entry is
+    ///   `UnsupportedValue`, precisely so an arity mismatch is not reported as
+    ///   a trap -- and the count half was simply missed.
+    /// - **An argument of the wrong type.** This one did not fail at all. The
+    ///   core notices only where the value is *used*, so `(param i32)` handed
+    ///   an `I64` returned `Ok([I64(..)])` -- a result contradicting the
+    ///   export's own `(result i32)` -- and became a trap only if the guest
+    ///   happened to touch it. Whether a host type error is reported must not
+    ///   depend on what the guest does with the value.
+    ///
+    /// The declared type is available and exact: `exported_function_handle`
+    /// carries the function type, parameters and results both. Consulting it
+    /// costs one lookup per call and is the only place that can tell these
+    /// three apart from a real fault.
+    ///
+    /// Results are checked here too, so a declared `funcref`/`externref`/`v128`
+    /// result is refused before the guest runs rather than after. That is not
+    /// tidiness: the guest may have printed on its way to returning, and a
+    /// refusal issued afterwards drains that output to nowhere. Refusing first
+    /// means there is nothing to lose. [`from_val`] keeps its own arm as the
+    /// backstop for a core whose declared and actual result types disagree.
+    fn check_entry(
+        &self,
+        entry: &str,
+        vals: &[tinyvm::Val],
+        js_arg_count: usize,
+    ) -> Result<(), QjswasmError> {
+        let handle = self
+            .instance
+            .exported_function_handle(entry)
+            .map_err(classify)?
+            .ok_or_else(|| {
+                QjswasmError::NoSuchExport(format!("this slot exports no function named `{entry}`"))
+            })?;
+
+        if handle.parameter_count() != vals.len() {
+            return Err(QjswasmError::Signature(match self.convention {
+                // Say it in the units the caller counted in. A `.qjs` caller
+                // passed JavaScript values and never chose two wasm words per
+                // value; reporting "expected 4 parameters, got 2" would be
+                // arithmetic they have to undo.
+                Convention::JsV1 => format!(
+                    "`{entry}` takes {} JavaScript argument(s), {js_arg_count} given",
+                    handle.parameter_count() / V1_WORDS_PER_VALUE
+                ),
+                Convention::Wasm => format!(
+                    "`{entry}` takes {} wasm parameter(s), {} given",
+                    handle.parameter_count(),
+                    vals.len()
+                ),
+            }));
+        }
+
+        for (index, val) in vals.iter().enumerate() {
+            let declared = handle.parameter_type(index);
+            let given = value_type_of(val);
+            if declared.is_none() || declared != given {
+                return Err(QjswasmError::Signature(format!(
+                    "`{entry}` parameter {index}: the signature declares {}, the caller gave {}",
+                    declared.map_or("an unsupported type", type_name),
+                    given.map_or("an unsupported value", type_name)
+                )));
+            }
+        }
+
+        for index in 0..handle.result_count() {
+            match handle.result_type(index) {
+                Some(
+                    tinyvm::ValueType::I32
+                    | tinyvm::ValueType::I64
+                    | tinyvm::ValueType::F32
+                    | tinyvm::ValueType::F64,
+                ) => {}
+                _ => {
+                    return Err(QjswasmError::UnsupportedValue(
+                        "the export declares a reference or vector result type",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Decode one V1 pair and resolve a String out of the guest's memory.
-    fn read_js_value(&self, vals: &[tinyvm::Val]) -> Result<JsValue, QjswasmError> {
+    fn read_js_value(
+        &self,
+        vals: &[tinyvm::Val],
+        budget: &Budget,
+    ) -> Result<JsValue, QjswasmError> {
         // A malformed pair is not the script's fault and not this face's
         // limitation: it means the module in the slot did not honour the
         // calling convention it was compiled to speak. That is a boundary
@@ -132,7 +241,9 @@ impl Slot {
             tinyvm_qjs::Value::Null => JsValue::Null,
             tinyvm_qjs::Value::Bool(b) => JsValue::Bool(b),
             tinyvm_qjs::Value::Number(x) => JsValue::Number(x),
-            tinyvm_qjs::Value::String(pointer) => JsValue::Str(self.read_guest_string(pointer)?),
+            tinyvm_qjs::Value::String(pointer) => {
+                JsValue::Str(self.read_guest_string(pointer, budget)?)
+            }
         })
     }
 
@@ -142,13 +253,25 @@ impl Slot {
     /// describe a string, so all of them are `Door`: the host reads only what
     /// the guest pointed at, in bounds, and refuses rather than inventing
     /// text.
-    fn read_guest_string(&self, pointer: i32) -> Result<String, QjswasmError> {
-        let view = self.instance.memory().map_err(|e| {
-            QjswasmError::Door(format!(
-                "a `.qjs` guest returned a string but has no linear memory: {}",
-                e.message()
-            ))
-        })?;
+    fn read_guest_string(&self, pointer: i32, budget: &Budget) -> Result<String, QjswasmError> {
+        // `memory_at(0)` rather than `memory()`: the latter substitutes an
+        // empty view for an absent memory, which would report "a guest with no
+        // memory at all" as an ordinary out-of-bounds header. The two are
+        // different mistakes and the caller should be able to tell them apart.
+        let view = self
+            .instance
+            .memory_at(0)
+            .map_err(|e| {
+                QjswasmError::Door(format!(
+                    "reading a `.qjs` guest's linear memory: {}",
+                    e.message()
+                ))
+            })?
+            .ok_or_else(|| {
+                QjswasmError::Door(
+                    "a `.qjs` guest returned a string but declares no linear memory".to_string(),
+                )
+            })?;
         let bytes: &[u8] = &view;
         let at = usize::try_from(pointer).map_err(|_| {
             QjswasmError::Door(format!("string pointer {pointer} is not a guest address"))
@@ -160,6 +283,19 @@ impl Slot {
         let body = bytes.get(at + 4..at + 4 + len).ok_or_else(|| {
             QjswasmError::Door(format!("string body at {at} (len {len}) is out of bounds"))
         })?;
+        // The host-side cap, after the bounds check and before the copy.
+        //
+        // After, because order is a classification: a length that does not fit
+        // the guest's own memory is a broken guest (`Door`), and calling that a
+        // budget would tell the embedder to raise a number that would not have
+        // helped. Before the copy, because this allocation is the host's, sized
+        // by the guest, and no core `Limits` field bounds it -- slicing costs
+        // nothing, `to_vec` is the megabyte. Refused rather than truncated, for
+        // the reason `max_bridge_result_bytes` is: half a string is worse than
+        // a refusal, because the caller cannot tell it was cut.
+        if body.len() > budget.max_result_string_bytes {
+            return Err(QjswasmError::Budget("max_result_string_bytes"));
+        }
         String::from_utf8(body.to_vec())
             .map_err(|_| QjswasmError::Door("a returned string is not valid UTF-8".to_string()))
     }
@@ -246,6 +382,47 @@ fn ceiling_name(error: &tinyvm::WasmError) -> &'static str {
         // help, so say which one it is rather than name a field that is not
         // there.
         None => "the core's fixed operand-stack bound",
+    }
+}
+
+/// Wasm words per JavaScript value in the V1 calling convention: the `(tag:
+/// i32, payload: i64)` pair.
+const V1_WORDS_PER_VALUE: usize = 2;
+
+/// The declared type of one runtime value, or `None` for a value this crate's
+/// [`Value`] face cannot build.
+///
+/// Hand-written rather than an upstream accessor because the core has none:
+/// `Val` and `ValueType` are separate types there and neither implements
+/// `Debug` outside tinyvm's own test build, which is also why [`type_name`]
+/// exists. `None` is unreachable from the public face today -- every `Val` here
+/// came from [`into_val`] or [`into_v1_args`], which emit only the four numeric
+/// types -- and it is `None` rather than a stand-in reference type so that a
+/// diagnostic never names a type nobody passed.
+fn value_type_of(value: &tinyvm::Val) -> Option<tinyvm::ValueType> {
+    Some(match value {
+        tinyvm::Val::I32(_) => tinyvm::ValueType::I32,
+        tinyvm::Val::I64(_) => tinyvm::ValueType::I64,
+        tinyvm::Val::F32(_) => tinyvm::ValueType::F32,
+        tinyvm::Val::F64(_) => tinyvm::ValueType::F64,
+        _ => return None,
+    })
+}
+
+/// The wasm spelling of a value type, for a diagnostic a caller can act on.
+///
+/// Exhaustive on purpose and with no wildcard: a value type this crate has
+/// never seen -- `v128` under tinyvm's `simd` feature, or whatever the core
+/// gains next -- should arrive as a compile error asking what to call it, not
+/// as a diagnostic quietly naming the wrong thing.
+fn type_name(value_type: tinyvm::ValueType) -> &'static str {
+    match value_type {
+        tinyvm::ValueType::I32 => "i32",
+        tinyvm::ValueType::I64 => "i64",
+        tinyvm::ValueType::F32 => "f32",
+        tinyvm::ValueType::F64 => "f64",
+        tinyvm::ValueType::FuncRef => "funcref",
+        tinyvm::ValueType::ExternRef => "externref",
     }
 }
 

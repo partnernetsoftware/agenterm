@@ -167,10 +167,19 @@ fn run_once_leaves_no_live_slot() {
     let err = engine
         .run_once(Guest::Wasm(&bytes), None, "not_exported", &[])
         .unwrap_err();
-    assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
+    assert!(matches!(err, QjswasmError::NoSuchExport(_)), "got {err:?}");
     assert_eq!(engine.live_slots(), 0);
 }
 
+/// Naming an export the slot does not have is the caller's mistake, and is
+/// reported as one.
+///
+/// This test used to accept `QjswasmError::Trap`, which is what the core
+/// produces (`Trap("no exported function named")`, without the name, because
+/// tinyvm is `no_std`). Accepting it made the assertion weaker than the
+/// comment below it already claimed: the guest never ran, so nothing in it
+/// trapped. `NoSuchExport` is the class, and it carries the name -- the same
+/// shape of answer `NoSuchSlot` already gave for the neighbouring mistake.
 #[test]
 fn calling_an_absent_export_is_a_typed_error() {
     let bytes = wasm(ARITHMETIC_WAT);
@@ -179,8 +188,12 @@ fn calling_an_absent_export_is_a_typed_error() {
 
     let err = engine.call(slot, "no_such_export", &[]).unwrap_err();
     assert!(
-        matches!(err, QjswasmError::Trap(_)),
+        matches!(err, QjswasmError::NoSuchExport(_)),
         "an absent export must be a typed error, got {err:?}"
+    );
+    assert!(
+        err.to_string().contains("no_such_export"),
+        "the error must name the entry point the caller asked for: {err}"
     );
 
     // The slot survives: naming the wrong export is a caller mistake, not a

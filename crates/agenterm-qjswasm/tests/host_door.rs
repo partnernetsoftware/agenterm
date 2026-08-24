@@ -260,3 +260,47 @@ fn an_unknown_door_name_is_refused_at_load() {
         "expected a Door diagnostic, got {error:?}"
     );
 }
+
+/// `validate_wasm` and `spawn` give the *same* answer about an import nobody
+/// can bind, and both name it.
+///
+/// The pair is the point. `validate_wasm` is the `.wasm` half of a `check`, and
+/// it used to decode only: a `wasi_snapshot_preview1` guest validated clean and
+/// then died at run time on `Trap("call to unbound imported function")`, which
+/// names no import and blames a guest that was built correctly against a
+/// different host. A gate that passes what the runner cannot run is the worst
+/// shape a gate can have, and PRD 36 requires "rejected before it could run"
+/// and "trapped while running" to be tellable apart. Asserting only one of the
+/// two halves would leave them free to drift apart again.
+#[test]
+fn check_and_execute_agree_that_an_unbindable_import_is_refused_at_load() {
+    let wasm = wat::parse_str(
+        r#"(module
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory 1)
+            (func (export "main") (result i32)
+              (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 0))))"#,
+    )
+    .expect("valid wat");
+
+    let checked = agenterm_qjswasm::validate_wasm(&wasm)
+        .expect_err("a check must not pass a guest that cannot run");
+    let mut engine = Engine::new();
+    let spawned = engine
+        .spawn(Guest::Wasm(&wasm), None)
+        .expect_err("and the runner must refuse it too");
+
+    for error in [&checked, &spawned] {
+        assert!(
+            matches!(error, QjswasmError::Door(_)),
+            "expected a load-time Door refusal, got {error:?}"
+        );
+        let text = error.to_string();
+        assert!(
+            text.contains("wasi_snapshot_preview1") && text.contains("fd_write"),
+            "the refusal must name the import nobody can bind: {text}"
+        );
+    }
+    assert_eq!(engine.live_slots(), 0);
+}

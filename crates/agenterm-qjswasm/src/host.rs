@@ -219,10 +219,23 @@ pub(crate) fn install(
 /// `agenterm.*` name as an unbound-import trap. Catching them here keeps the
 /// crate's promise that load-time refusal and run-time trap are distinguishable
 /// failure classes.
-fn check_declarations(module: &tinyvm::WasmModule) -> Result<(), QjswasmError> {
+pub(crate) fn check_declarations(module: &tinyvm::WasmModule) -> Result<(), QjswasmError> {
     for desc in module.imports() {
+        // An import from any other module namespace can never be bound: this
+        // door is the whole world a guest gets, and PRD 36 forbids growing a
+        // second OS-shaped surface (`wasi_snapshot_preview1`) beside it. It is
+        // refused here, at load time, naming the import -- because the
+        // alternative is what happened before: such a module validated clean
+        // and then died on the core's `Trap("call to unbound imported
+        // function")` at the first call, which names nothing and reads as the
+        // guest's fault. "Rejected before it could run" and "trapped while
+        // running" must be tellable apart.
         if desc.module != DOOR {
-            continue;
+            return Err(QjswasmError::Door(format!(
+                "guest imports `{}.{}`; `{DOOR}.*` is the only host module this engine \
+                 offers, so nothing can bind it",
+                desc.module, desc.field
+            )));
         }
         let Some(&(_, params, results)) =
             SIGNATURES.iter().find(|(field, _, _)| *field == desc.field)
@@ -832,9 +845,41 @@ mod tests {
         );
     }
 
-    /// Imports from another module name are none of the door's business.
+    /// An import from another module namespace is refused at load time, naming
+    /// it.
+    ///
+    /// # This reverses an earlier decision, deliberately
+    ///
+    /// This test used to assert the opposite -- "imports from another module
+    /// name are none of the door's business" -- and let such a module load.
+    /// Measured, that is what it bought (a `wasi_snapshot_preview1.fd_write`
+    /// guest, aarch64-apple-darwin, upstream rev `df8decd`):
+    ///
+    /// ```text
+    /// validate_wasm = Ok(())
+    /// spawn         = Ok
+    /// call          = Err(Trap("call to unbound imported function"))
+    /// ```
+    ///
+    /// Three things are wrong with that row, in order of seriousness. The
+    /// `check` path passed a guest the `execute` path cannot run, which is the
+    /// worst shape a gate can have. The failure arrived as a `Trap`, blaming a
+    /// guest that was built correctly against a different host. And the trap
+    /// names no import, because tinyvm is `no_std` and its messages are static
+    /// prefixes, so nothing in the output says *which* import went unbound.
+    ///
+    /// Nothing was gained in exchange. `agenterm.*` is the entire world a guest
+    /// gets -- PRD 36 makes that a discipline, not a default -- so an import
+    /// from any other namespace can never be bound by anyone, by this host or a
+    /// later one. Refusing it at load time, by name, is the same answer given
+    /// earlier and legibly.
+    ///
+    /// The door's other leniency is untouched, and is a different thing: a
+    /// guest may import *some or none* of the four door functions, which
+    /// [`bind`] handles by consulting `Module::imports()` first. An absent
+    /// import is not an unbindable one.
     #[test]
-    fn a_foreign_import_is_left_alone_at_install() {
+    fn a_foreign_import_is_refused_at_install() {
         let wasm = wat::parse_str(
             r#"(module
                 (import "somewhere" "else" (func $else (param i32)))
@@ -842,11 +887,11 @@ mod tests {
                 (func (export "main") (result i32) (i32.const 3)))"#,
         )
         .expect("valid wat");
-        let budget = Budget::default();
-        let mut module = load(&wasm, &budget);
+        let error = install_error(&wasm);
         assert!(
-            install(&mut module, &budget, None).is_ok(),
-            "the door only owns the `agenterm` namespace"
+            matches!(&error, QjswasmError::Door(message)
+                if message.contains("somewhere") && message.contains("else")),
+            "expected a Door diagnostic naming the import, got {error:?}"
         );
     }
 

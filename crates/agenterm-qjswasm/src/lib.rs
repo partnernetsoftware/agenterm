@@ -88,8 +88,10 @@ pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
     tinyvm_qjs::compile_qjs_m1(source)
 }
 
-/// Bounds on one guest. Execution limits live in the tinyvm core; the two
-/// host-side caps bound what the door itself will buffer.
+/// Bounds on one guest. Execution limits live in the tinyvm core; the three
+/// host-side caps bound every buffer the host itself allocates on a guest's
+/// behalf -- the print buffer, the pending bridge answer, and the string the
+/// seam copies out when it projects a returned value.
 ///
 /// `Debug` is hand-written: `tinyvm::Limits` derives none, because the core is
 /// `no_std` and fmt-free by design.
@@ -105,6 +107,23 @@ pub struct Budget {
     /// an error, deliberately *not* a truncation: half a JSON document is worse
     /// than a refusal, because the guest cannot tell it was cut.
     pub max_bridge_result_bytes: usize,
+    /// Largest string the seam will copy out of a guest when projecting a
+    /// returned [`JsValue::Str`].
+    ///
+    /// This is the third host-side buffer and it needs its own number, because
+    /// the other two do not bound it: the string is allocated by the *host*,
+    /// sized by the *guest*, and neither `max_stdout_bytes` nor
+    /// `max_bridge_result_bytes` is consulted on that path. Before this field
+    /// existed the only ceiling was incidental -- `max_steps` runs out first
+    /// under the default budget, because concatenation is O(n) in steps -- and
+    /// an incidental ceiling moves the moment a guest can produce a large
+    /// string cheaply or an embedder raises `max_steps`. The real bound was
+    /// then `max_memory_pages * 64 KiB`, per call, on a persistent slot.
+    ///
+    /// Exceeding it is [`QjswasmError::Budget`] rather than a truncation, for
+    /// the same reason as `max_bridge_result_bytes`: half a string is worse
+    /// than a refusal, because the caller cannot tell it was cut.
+    pub max_result_string_bytes: usize,
 }
 
 impl std::fmt::Debug for Budget {
@@ -117,6 +136,7 @@ impl std::fmt::Debug for Budget {
             .field("max_activation_slots", &self.limits.max_activation_slots)
             .field("max_stdout_bytes", &self.max_stdout_bytes)
             .field("max_bridge_result_bytes", &self.max_bridge_result_bytes)
+            .field("max_result_string_bytes", &self.max_result_string_bytes)
             .finish()
     }
 }
@@ -127,6 +147,7 @@ impl Default for Budget {
             limits: tinyvm::Limits::default(),
             max_stdout_bytes: 1 << 20,
             max_bridge_result_bytes: 1 << 20,
+            max_result_string_bytes: 1 << 20,
         }
     }
 }
@@ -204,17 +225,63 @@ impl From<JsValue> for Value {
 }
 
 /// What to load into a slot. The result of extension routing, not a file.
+///
+/// The variant is also how the slot learns its calling convention, which is
+/// why [`Wasm`](Guest::Wasm) and [`CompiledQjs`](Guest::CompiledQjs) are two
+/// variants over the same `&[u8]` rather than one: nothing in wasm bytes says
+/// which convention their exports speak, and guessing from a signature would
+/// be a guess -- `(i32, i64) -> (i32, i64)` is a perfectly ordinary
+/// hand-written type. The caller states it, once, at load time.
 #[derive(Clone, Copy, Debug)]
 pub enum Guest<'a> {
-    /// Standard WebAssembly bytes (`\0asm`).
+    /// Standard WebAssembly bytes (`\0asm`), speaking plain wasm numerics.
     Wasm(&'a [u8]),
     /// `.qjs` source, compiled to wasm before it reaches the core.
     Qjs(&'a str),
+    /// Wasm bytes that were compiled from `.qjs` earlier and speak the V1
+    /// calling convention.
+    ///
+    /// # Why an artifact needs its own variant
+    ///
+    /// A `.wasm` file does not remember that it came from `.qjs`. Compile to
+    /// disk and load the artifact back through [`Wasm`](Guest::Wasm) and the
+    /// convention is lost: the V1 pair crosses the face unresolved, so a
+    /// `String` arrives as its tag and a raw pointer into a linear memory the
+    /// caller is about to drop. Every compile-once-run-later shape -- a `pack`
+    /// artifact, a cached build, a guest fetched over the wire -- needs this
+    /// variant to exist, and it is what makes the seam's hostile-pointer
+    /// refusals reachable from outside the crate at all.
+    ///
+    /// It grants nothing extra. The bytes take the same load-time validation,
+    /// the same `Limits`, and the same door as any other guest; the only
+    /// difference is which convention the slot records.
+    CompiledQjs(&'a [u8]),
 }
 
-/// Handle to one live slot. Invalid after [`Engine::kill`].
+/// Handle to one live slot. Invalid after [`Engine::kill`], and meaningless in
+/// any [`Engine`] other than the one that minted it.
+///
+/// # Why it carries an engine tag
+///
+/// The id used to be the slot's index alone. Two engines therefore both minted
+/// `SlotId(0)`, and handing one engine the other's id was not an error: the
+/// call ran the *local* slot at that index and returned its value, and
+/// [`Engine::kill`] destroyed the local slot. Both failures were silent in both
+/// directions -- the wrong guest ran, or the wrong guest was destroyed, and
+/// nothing was reported. A type that is `Copy`, `Eq` and `Hash` is built to be
+/// stored and passed around, so "do not mix them up" is not a workable
+/// contract.
+///
+/// The engine tag comes from a process-wide counter, so every `Engine` in the
+/// process has a distinct one and a foreign id is [`QjswasmError::NoSuchSlot`]
+/// rather than a misdirected call. Within one engine, indices are still never
+/// recycled: `next_index` only increments and the slot table is never
+/// compacted, so a stale id can never come to mean a different slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SlotId(pub(crate) u64);
+pub struct SlotId {
+    engine: u64,
+    index: u64,
+}
 
 /// One call's result plus its deterministic cost, so "is this script
 /// expensive?" is measurable rather than a guess.
@@ -260,6 +327,30 @@ pub enum QjswasmError {
     Door(String),
     /// The slot does not exist, or was killed.
     NoSuchSlot(SlotId),
+    /// The slot exists but exports no function under the name the caller
+    /// asked for. Carries the name.
+    ///
+    /// Its own class for the same reason [`NoSuchSlot`](Self::NoSuchSlot) is:
+    /// "this slot has no such export" is the same shape of mistake as "this
+    /// engine has no such slot", and both are the caller's. Folding it into
+    /// [`Trap`](Self::Trap) -- which is what the core's own
+    /// `"no exported function named"` fault would do -- tells a caller who
+    /// mistyped a name that their script faulted, when the guest never ran.
+    NoSuchExport(String),
+    /// The export exists, but the call does not fit its declared signature:
+    /// the wrong number of arguments, or an argument of a type the signature
+    /// does not take.
+    ///
+    /// Checked before the guest is entered, and its own class for the reason
+    /// [`UnsupportedValue`](Self::UnsupportedValue) gives: nothing went wrong
+    /// inside the guest. Without this check a wasm arity or type mismatch
+    /// surfaces as the core's `Trap("function")` -- blaming a guest that did
+    /// nothing wrong -- and a *type* mismatch may not surface at all, because
+    /// the core only notices when the guest touches the value.
+    ///
+    /// A `String` rather than a `&'static str` because the useful part is the
+    /// numbers: which parameter, what it declares, what was handed in.
+    Signature(String),
     /// A value the engine's [`Value`] face cannot carry, in either direction:
     /// a wasm reference or vector type coming out, a [`JsValue`] the seam
     /// cannot hand in, or a value offered under the wrong calling convention
@@ -281,6 +372,8 @@ impl std::fmt::Debug for QjswasmError {
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
+            Self::NoSuchExport(what) => f.debug_tuple("NoSuchExport").field(what).finish(),
+            Self::Signature(what) => f.debug_tuple("Signature").field(what).finish(),
             Self::UnsupportedValue(what) => f.debug_tuple("UnsupportedValue").field(what).finish(),
         }
     }
@@ -294,7 +387,11 @@ impl std::fmt::Display for QjswasmError {
             Self::Trap(e) => write!(f, "guest trapped: {}", e.message()),
             Self::Budget(what) => write!(f, "budget exhausted: {what}"),
             Self::Door(what) => write!(f, "host door: {what}"),
-            Self::NoSuchSlot(SlotId(id)) => write!(f, "no such slot: {id}"),
+            Self::NoSuchSlot(SlotId { engine, index }) => {
+                write!(f, "no such slot: {index} in engine {engine}")
+            }
+            Self::NoSuchExport(what) => write!(f, "no such entry point: {what}"),
+            Self::Signature(what) => write!(f, "entry point signature: {what}"),
             Self::UnsupportedValue(what) => {
                 write!(f, "value not representable at the engine face: {what}")
             }
@@ -320,8 +417,18 @@ impl From<CompileError> for QjswasmError {
 pub struct Engine {
     budget: Budget,
     slots: Vec<Option<slot::Slot>>,
-    next_id: u64,
+    /// This engine's tag, stamped into every [`SlotId`] it mints so another
+    /// engine's id cannot address a slot here. Process-wide and monotonic --
+    /// see [`SlotId`] for the silent misrouting this closes.
+    id: u64,
+    next_index: u64,
 }
+
+/// Source of [`Engine::id`]. Monotonic for the life of the process, so no two
+/// live engines ever share a tag. Wrapping would need 2^64 engines in one
+/// process; `Relaxed` is enough because the only requirement is uniqueness,
+/// not ordering against anything else.
+static NEXT_ENGINE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl Default for Engine {
     fn default() -> Self {
@@ -338,7 +445,8 @@ impl Engine {
         Self {
             budget,
             slots: Vec::new(),
-            next_id: 0,
+            id: NEXT_ENGINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            next_index: 0,
         }
     }
 
@@ -360,14 +468,18 @@ impl Engine {
         // nothing in the bytes that says where they came from.
         let (bytes, convention) = match guest {
             Guest::Wasm(bytes) => (bytes, slot::Convention::Wasm),
+            Guest::CompiledQjs(bytes) => (bytes, slot::Convention::JsV1),
             Guest::Qjs(source) => {
                 owned = compile_qjs(source)?;
                 (&owned[..], slot::Convention::JsV1)
             }
         };
         let slot = slot::Slot::load(bytes, &self.budget, bridge, convention)?;
-        let id = SlotId(self.next_id);
-        self.next_id += 1;
+        let id = SlotId {
+            engine: self.id,
+            index: self.next_index,
+        };
+        self.next_index += 1;
         self.slots.push(Some(slot));
         Ok(id)
     }
@@ -399,9 +511,14 @@ impl Engine {
         entry: &str,
         args: &[Value],
     ) -> Result<Outcome, QjswasmError> {
+        if slot.engine != self.id {
+            // An id minted by another engine. It used to address the slot at
+            // the same index here; see `SlotId`.
+            return Err(QjswasmError::NoSuchSlot(slot));
+        }
         let s = self
             .slots
-            .get_mut(slot.0 as usize)
+            .get_mut(slot.index as usize)
             .and_then(Option::as_mut)
             .ok_or(QjswasmError::NoSuchSlot(slot))?;
         s.call(entry, args, &self.budget)
@@ -423,8 +540,18 @@ impl Engine {
 
     /// Reclaim a slot. A later [`call`](Self::call) on it reports
     /// [`QjswasmError::NoSuchSlot`] rather than panicking.
+    ///
+    /// An id minted by a different [`Engine`] reclaims nothing here, silently,
+    /// because it names nothing here -- see [`SlotId`]. Silence is right for
+    /// `kill` specifically: it is idempotent by design (killing an already-dead
+    /// slot is not an error either), so there is no failure to report.
     pub fn kill(&mut self, slot: SlotId) {
-        if let Some(entry) = self.slots.get_mut(slot.0 as usize) {
+        if slot.engine != self.id {
+            // A foreign id names nothing here. It used to destroy this
+            // engine's slot at the same index, silently; see `SlotId`.
+            return;
+        }
+        if let Some(entry) = self.slots.get_mut(slot.index as usize) {
             *entry = None;
         }
     }
@@ -446,10 +573,22 @@ pub fn validate_wasm(bytes: &[u8]) -> Result<(), QjswasmError> {
 
 /// Like [`validate_wasm`], but against a caller-supplied budget, so a check
 /// rejects a module that the same budget would refuse to load at run time.
+///
+/// # Imports are checked here, not left to the first call
+///
+/// Decoding alone used to be the whole check, and it let through a guest whose
+/// imports nobody can bind -- anything outside `agenterm.*`, most obviously a
+/// `wasi_snapshot_preview1` guest. Such a module validated clean and then died
+/// at run time on `Trap("call to unbound imported function")`, naming no
+/// import. That is exactly the confusion PRD 36 requires the engine to avoid:
+/// a load-time rejection and an execution-time trap have to be tellable apart,
+/// and a `check` that passes what `execute` cannot run is the worst shape a
+/// gate can have. [`host::check_declarations`] answers it from the import
+/// section, statically, without instantiating anything.
 pub fn validate_wasm_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
-    tinyvm::WasmModule::from_bytes_with(bytes, budget.limits)
-        .map(|_| ())
-        .map_err(QjswasmError::Load)
+    let module =
+        tinyvm::WasmModule::from_bytes_with(bytes, budget.limits).map_err(QjswasmError::Load)?;
+    host::check_declarations(&module)
 }
 
 /// Route a path to a guest kind by extension. `.wasm` and `.qjs` only.
