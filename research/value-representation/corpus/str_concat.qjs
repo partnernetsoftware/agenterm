@@ -1,0 +1,14 @@
+// Concatenation in a loop: allocation, copying, and a string returned across
+// the ABI to the host.
+function join(a, b) {
+  return a + b;
+}
+function main() {
+  let s = "";
+  let i = 0;
+  while (i < 4) {
+    s = join(s, "ab");
+    i = i + 1;
+  }
+  return s;
+}

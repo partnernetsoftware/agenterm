@@ -1,0 +1,10 @@
+// Comparison, conditionals, and a value crossing a call boundary in both
+// directions.
+function classify(x) {
+  if (x < 0) { return -1; }
+  if (x == 0) { return 0; }
+  return 1;
+}
+function main() {
+  return classify(-5) + classify(0) + classify(9);
+}

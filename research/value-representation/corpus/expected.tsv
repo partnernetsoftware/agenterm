@@ -1,0 +1,12 @@
+# Shared expected-value table. One table, both variants, compared row by row.
+# name	group	kind	value
+# kind: num = decimal double, bits = f64 bit pattern in hex, bool, str
+arith	A	num	20
+compare	A	num	0
+loop	A	num	190
+call	A	num	144
+mixed	A	num	22
+str_len	B	num	5
+str_concat	B	str	abababab
+str_eq	B	num	1
+str_poly	B	num	42

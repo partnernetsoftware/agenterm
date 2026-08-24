@@ -1,0 +1,10 @@
+// Criterion 2 probe. Unary minus is IEEE-754 negate, which flips exactly one
+// bit, so `-(-x)` is the identity on every double -- for any representation
+// that can actually hold the double it was handed. Two negations force two
+// unbox/box round trips through the representation.
+function neg(x) {
+  return -x;
+}
+function main(x) {
+  return neg(neg(x));
+}

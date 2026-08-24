@@ -1,0 +1,4 @@
+// A string literal and its length: the cheapest possible heap value.
+function main() {
+  return len("hello");
+}

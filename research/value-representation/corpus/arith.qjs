@@ -1,0 +1,7 @@
+// Arithmetic through the value representation: every operand is boxed, every
+// operator is a runtime call, every intermediate crosses the ABI.
+function main() {
+  let a = 7;
+  let b = 3;
+  return (a + b) * (a - b) / 2;
+}

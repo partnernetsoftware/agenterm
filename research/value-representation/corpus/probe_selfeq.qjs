@@ -1,0 +1,9 @@
+// Criterion 2 probe, safety half: a hostile bit pattern must still be treated
+// as a Number. If a representation mistook it for a string, this would compare
+// bytes at a garbage address instead of answering `false`.
+function main(x) {
+  if (x == x) {
+    return 1;
+  }
+  return 0;
+}

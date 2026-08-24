@@ -1,0 +1,23 @@
+// Everything at once: nested calls inside a loop inside a conditional.
+function power(base, n) {
+  let acc = 1;
+  let i = 0;
+  while (i < n) {
+    acc = acc * base;
+    i = i + 1;
+  }
+  return acc;
+}
+function main() {
+  let total = 0;
+  let k = 0;
+  while (k < 5) {
+    if (k != 3) {
+      total = total + power(2, k);
+    } else {
+      total = total - 1;
+    }
+    k = k + 1;
+  }
+  return total;
+}

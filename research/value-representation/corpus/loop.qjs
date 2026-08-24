@@ -1,0 +1,11 @@
+// A loop: the same locals read and written many times, which is where the
+// width of a value shows up as activation slots.
+function main() {
+  let sum = 0;
+  let i = 0;
+  while (i < 20) {
+    sum = sum + i;
+    i = i + 1;
+  }
+  return sum;
+}
