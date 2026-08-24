@@ -47,6 +47,17 @@ let connected = false;
 
 /* Rendering ------------------------------------------------------------ */
 
+/**
+ * Where frames are fetched from.
+ *
+ * Tauri maps a registered scheme to `http://<scheme>.localhost` on Windows and
+ * Android, and to `<scheme>://localhost` elsewhere.
+ */
+const FRAME_URL =
+  navigator.userAgent.includes("Windows") || navigator.userAgent.includes("Android")
+    ? "http://vncframe.localhost/"
+    : "vncframe://localhost/";
+
 /** Screen width and height as u16, then the tile count as u32. */
 const FRAME_HEADER_BYTES = 8;
 /** Four u16 fields per tile record. */
@@ -57,7 +68,12 @@ async function pullFrame() {
   // The pixels come back as a real ArrayBuffer. Routing them through the event
   // payload instead would serialise them as a JSON array of numbers, measured
   // at 4.6x the raw size, and cost a parse of that text on this side.
-  const buffer = await invoke("take_frame");
+  // Fetched over a custom scheme rather than an invoke: a command's reply is
+  // JSON on this IPC path, and a byte array in JSON cost 560 ms a frame where
+  // drawing it costs 13 ms.
+  const response = await fetch(FRAME_URL);
+  const buffer = await response.arrayBuffer();
+
   // Tauri hands a command's raw body back as an ArrayBuffer only when the IPC
   // runs over the custom protocol; on the postMessage path it arrives as a
   // plain Array of numbers. Both shapes have to work, and testing the wrong
@@ -388,19 +404,39 @@ try {
 }
 
 // The event is only a nudge; the pixels are fetched, not pushed.
+//
+// Fetching is paced to the display rather than to the notifications. A remote
+// desktop is judged on how current the picture is, not on how many of the
+// server's updates were shown, so when the pipeline falls behind the right
+// thing is to skip ahead: the backend keeps merging what has not been
+// collected, and one fetch then brings the screen fully up to date. Chasing
+// every notification instead only builds a queue of stale pixels.
 let pulling = false;
-await listen("frame-ready", async () => {
-  // One fetch in flight at a time: a burst of notifications should collapse
-  // into a single pull of the newest frame rather than queueing round trips.
+let pendingFrame = false;
+
+async function drainFrames() {
   if (pulling) return;
   pulling = true;
   try {
-    await pullFrame();
+    // Keep going while the backend says there is more, so a burst is drawn
+    // in as few round trips as it takes rather than one per notification.
+    while (pendingFrame) {
+      pendingFrame = false;
+      await pullFrame();
+      // Yield to the compositor so the frame just drawn actually appears
+      // before the next fetch competes for the main thread.
+      await new Promise(requestAnimationFrame);
+    }
   } catch {
     // A failed fetch means the session is going away; `session-closed`
     // reports that, so there is nothing useful to do here.
   } finally {
     pulling = false;
   }
+}
+
+await listen("frame-ready", () => {
+  pendingFrame = true;
+  void drainFrames();
 });
 await listen("session-closed", (event) => teardown(String(event.payload)));

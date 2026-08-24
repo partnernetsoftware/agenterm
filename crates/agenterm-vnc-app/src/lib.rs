@@ -9,7 +9,6 @@ use std::sync::Mutex;
 
 use agenterm_vnc::{ConnectOptions, MouseButtons, SessionHandle};
 use serde::Serialize;
-use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Event name telling the canvas that a frame is waiting to be fetched.
@@ -28,12 +27,11 @@ const CLOSED_EVENT: &str = "session-closed";
 #[derive(Default)]
 struct AppState {
     session: Mutex<Option<SessionHandle>>,
-    /// The most recent frame, waiting for the frontend to collect it.
+    /// Everything painted since the frontend last collected, in draw order.
     ///
-    /// One slot rather than a queue: if the UI has not drawn the previous
-    /// frame yet there is no value in keeping it, because the newer one
-    /// supersedes it. The session behind this already merges regions it could
-    /// not hand over, so nothing is lost by overwriting here.
+    /// One slot rather than a queue, but an accumulating one: frames that
+    /// arrive before the previous is collected are appended, so a frontend
+    /// that skips ahead skips round trips without skipping pixels.
     pending: Mutex<Option<agenterm_vnc::Frame>>,
 }
 
@@ -44,18 +42,18 @@ struct Connected {
     height: u16,
 }
 
-/// Fetch the frame waiting to be drawn, if any.
+/// Serialise the frame waiting to be drawn, if any.
 ///
-/// The reply is a small header followed by the raw pixels in one buffer:
-/// twelve bytes of little-endian `u16` geometry, then `region_width *
-/// region_height * 4` bytes of RGBA. Splitting geometry into a separate JSON
-/// value would mean two IPC round trips per frame, and putting the pixels in
-/// JSON is the cost this whole path exists to avoid.
-#[tauri::command]
-fn take_frame(state: State<'_, AppState>) -> Response {
+/// This is served over a custom URI scheme rather than returned from a
+/// command. A command's reply crosses as JSON unless the IPC happens to be
+/// using the custom protocol, and a `Vec<u8>` in JSON is an array of decimal
+/// numbers: measured on this app, fetching one frame took 560 ms against
+/// 13 ms to draw it, or about 16 MB/s through an IPC on the same machine.
+/// A protocol response is an HTTP body, so the bytes cross as bytes.
+fn take_frame_body(state: &AppState) -> Vec<u8> {
     let frame = state.pending.lock().expect("pending lock").take();
     let Some(frame) = frame else {
-        return Response::new(Vec::new());
+        return Vec::new();
     };
 
     // Layout: screen width and height, the tile count, then that many tile
@@ -73,7 +71,24 @@ fn take_frame(state: State<'_, AppState>) -> Response {
         }
     }
     body.extend_from_slice(&frame.rgba);
-    Response::new(body)
+    body
+}
+
+/// Concatenate two frames, keeping the newer one's tiles last.
+///
+/// Drawing is in order, so a tile from `newer` overwrites an older tile
+/// covering the same pixels. Both frames describe the same framebuffer, so the
+/// screen size is taken from the newer one.
+fn join(older: agenterm_vnc::Frame, newer: agenterm_vnc::Frame) -> agenterm_vnc::Frame {
+    let offset = older.rgba.len();
+    let mut tiles = older.tiles;
+    tiles.extend(newer.tiles.into_iter().map(|tile| agenterm_vnc::Tile {
+        offset: tile.offset + offset,
+        ..tile
+    }));
+    let mut rgba = older.rgba;
+    rgba.extend_from_slice(&newer.rgba);
+    agenterm_vnc::Frame { width: newer.width, height: newer.height, tiles, rgba }
 }
 
 /// Screen width, screen height, then the tile count.
@@ -134,9 +149,14 @@ async fn connect(
             {
                 let state = pump.state::<AppState>();
                 let mut pending = state.pending.lock().expect("pending lock");
-                // Overwriting an uncollected frame is deliberate; see the note
-                // on the field.
-                *pending = Some(current);
+                match pending.take() {
+                    // Skipping ahead must not skip pixels. An uncollected
+                    // frame's tiles describe changes nothing will redraw, so
+                    // they are appended rather than dropped; the newer tiles
+                    // come after and win wherever the two overlap.
+                    Some(previous) => *pending = Some(join(previous, current)),
+                    None => *pending = Some(current),
+                }
             }
             if pump.emit(FRAME_EVENT, ()).is_err() {
                 break;
@@ -206,9 +226,22 @@ pub fn run() {
             app.manage(AppState::default());
             Ok(())
         })
+        .register_uri_scheme_protocol("vncframe", |ctx, _request| {
+            let body = take_frame_body(&ctx.app_handle().state::<AppState>());
+            tauri::http::Response::builder()
+                .header("Content-Type", "application/octet-stream")
+                // The page is served from a different origin than this scheme,
+                // so `fetch` treats the request as cross-origin and drops the
+                // response without this. The window is the only client.
+                .header("Access-Control-Allow-Origin", "*")
+                // The frame is consumed by this read, so a cached response
+                // would hand back pixels that have already been drawn.
+                .header("Cache-Control", "no-store")
+                .body(body)
+                .expect("a response with a byte body is always well formed")
+        })
         .invoke_handler(tauri::generate_handler![
             connect,
-            take_frame,
             log_from_ui,
             disconnect,
             send_mouse,
