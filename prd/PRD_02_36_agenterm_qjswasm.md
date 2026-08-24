@@ -1,8 +1,21 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
-Status: authorized, not implemented — 政委 2026-08-24 下单。
-本文件是产品真理；执行投影在
+Status: 引擎脊柱已落地并有实测证据（M0 + 上游 M1/M2 语言子集，`cargo test -p
+agenterm-qjswasm` 86 passed / 1 ignored，2026-08-25）；两条归档门**均未全绿**，
+两个被取代的 crate 原样保留。「authorized, not implemented」是 2026-08-24 下单时的
+状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
+
+门的当前判定，一句话各一条（详见下文各节）：
+
+| 门 | 判定 | 挡在哪 |
+|----|------|--------|
+| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | 远未绿 | 堆对象 + 函数值 + `try/catch` + JSON + 一条 `.qjs` 到门的路 |
+| 门 2（两处生产调用点迁移） | 未动 | 依赖门 1 |
+| 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
+| 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
+| 门 2（`.wasm` 路由切换） | 不能绿 | `_start` 入口约定；缺同客人性能对比 |
+| 门 3（现状实测） | 已复核 | — |
 
 Owner: 政委定方向；主会话按独占文件域推进。
 
@@ -254,8 +267,53 @@ tinyvm 解释执行（无 JIT）
 1. `agenterm-qjswasm` 能编译并跑通 `fleet.js` 的等价物——即支持对象字面量、函数表达
    式、字符串、`JSON.parse` / `JSON.stringify`、`try/catch`、带参宿主调用。
 2. 上面两处生产调用点已迁到 qjswasm，且行为等价有测试锁住。
-3. `qjs` CLI 子命令的 `check` / `pack` / `qualify` / `check-many` 在新引擎上有对应面，
-   或明确声明哪些不再提供、为什么。
+3. `qjs` CLI 子命令在新引擎上有对应面，或明确声明哪些不再提供、为什么。
+
+**门 3 的措辞已改（2026-08-25）。** 原文点名 `check` / `pack` / `qualify` /
+`check-many` 四个动词。实测 CLI 有**十三个**（`crates/agenterm-qjs/src/cli.rs`），
+只答那四个等于对一个没人问的问题关门。逐动词判决见下。
+
+### 门 3：逐动词判决（2026-08-25，全部跑过，不是读出来的）
+
+判据表在 [`plan/design-qjs-archive-gate.md`](../plan/design-qjs-archive-gate.md)，
+每格都有可复现的命令。三类判决：**必须提供**（新引擎上要有等价动词）、
+**形状必然不同**（能力在，但产物或收据不同，须写清差异）、**可以不提供**（附理由）。
+
+| # | 动词 | 判决 | 一句话 |
+|---|------|------|--------|
+| 1 | `check` | 必须提供 | backend 已实现（`src/script_engine.rs`），只差 CLI 壳 |
+| 2 | `check-many` | 必须提供 | 共享 driver，约 60 行适配器，`kind` = `agenterm-qjswasm-check-manifest` |
+| 3 | `pack build` | 形状必然不同 | 产物是一份自足 `.wasm`，不是 `.qjsc` + 源码目录 |
+| 4 | `pack load` | 形状必然不同 | 前置已补，见下 |
+| 5 | `pack build` 模块模式（`pack_module`） | 可以不提供 | 它绕的是 rquickjs 的约束，那约束在这里不存在；零生产调用者 |
+| 6 | `qualify` | 形状必然不同 | 收据是超集：多 `steps` / `peak_call_depth`，qjs 造不出来 |
+| 7 | `corpus-scan` | 必须提供 | 约 20 行，与 #2 同一套脚手架 |
+| 8 | `eval` | 必须提供 | — |
+| 9 | `run -- <args>` | 可以不提供（今天） | 门只有四件，没有 `args_len` / `arg`（`host.rs` 的 `SIGNATURES`） |
+| 10 | `hash` | 形状必然不同 | 应当是产物哈希而不是源码哈希，见下 |
+| 11 | `run-smoke` | 跟随 #4 | — |
+| 12 | `task` | 必须提供 | stub 即可；退出码与文案被测试锁住 |
+| 13 | `version` | 必须提供 | — |
+
+**一处前置条件，已解除。** 一份 `.wasm` 文件不记得自己是从 `.qjs` 编来的：
+`Convention` 是装载时记下的，`Guest::Wasm(&compile_qjs(src))` 会把 JsV1 丢掉，
+返回值形状与直接跑源码不一致（实测 `[I32(1), I64(4631107791820423168)]` vs
+`[Js(Number(42.0))]`）。所以**任何"编译落盘再加载"的动词在此之前都建在沙上**。
+`Guest::CompiledQjs(&[u8])` 已于 2026-08-25 落地，验收测试是门自己点名的那条：
+`tests/qjs_guest.rs::a_compiled_artifact_reloaded_gives_the_same_value_as_its_source`。
+同一个变体另有一条独立理由要它（接缝的五条拒绝分支此前不可达），两条互不相干的路指向
+同一个形状。
+
+**附带记录一条假话，与 wasmcore README 那两句同等对待。**
+`crates/agenterm-qjs/src/pack.rs` 的模块文档说 `bytecode_hash` 是
+「a genuine reproducibility fingerprint」。**不是。** 同一份源码编到两个不同的
+`--dir`，`source_hash` 相同而 `bytecode_hash` 不同（`1ab1e0b1…` / `1ab1e0b1…` 对
+`bd9a9694…` / `7074b217…`），因为编译标签用的是绝对输出路径，`Module::write` 把它嵌进
+了产物——`xxd pack.qjsc` 能直接看见。`compile.rs` 的三条单元测试全把 label 钉成
+`"a.js"`，所以它们永远抓不到这条。**门绿前不改 `agenterm-qjs` 的代码**（纪律如此），
+但这句话记在这里，免得下一个人照它判断；也说明门 3 的 `pack` 不是"移植"，移过去等于
+移一份已经坏掉的契约。对照：`agenterm-lua` 的 `compile_lua(source)` 没有 label 参数，
+干净。
 
 ### 第一条门的实测缺口清单（2026-08-24，rev `df8decd`）
 
@@ -296,6 +354,52 @@ import 上**——那是本仓的写刀，不是上游的。
 `try/catch` + JSON + 一条 `.qjs` 到 `agenterm.*` 门的路。`?:` 是这堆里唯一可以立刻摘的
 低垂果实。第一条门离绿还远，另两条门未动。
 
+### 门 1 锚定的那个文件本身是破的（2026-08-25 实测）
+
+门 1 说「跑通 `fleet.js` 的等价物」。查这个锚点的时候顺带把 `src/operations.rs` 声明的
+面与两份 binding 库真的对了一遍——**link `OPERATION_CATALOG`，不扫文本**——发现的东西
+改变了这条门的含义：**把 `fleet.js` 一比一搬过来，会把它的 bug 一起搬过来。**
+
+先更正一个数：派单书与早前文档写的「46 个 `OperationSpec`」是旧数。实测
+`OPERATION_CATALOG.len()` = **77**（44 条长写 + 33 条由 `nullary_ui_action()` 常量
+构造器造，`src/operations.rs`），其中 **76 条** `script_surface` 以 `fleet.` 开头。
+
+两条真实分歧：
+
+1. **覆盖率 38%。** 76 条 `fleet.*` 里只有 **29** 条有 binding，**47 条两份 binding
+   里都没有**——而且缺的是**同一批 47 条**。两份文件是互相抄出来的，不是从同一份源
+   生成的。
+2. **29 条里有 9 条（31%）发出的 params 宿主会拒。** 这是把
+   `scripts/lua/lib/fleet.lua` 放进 `agenterm_lua::LuaEngine` 里、用一个会记录的
+   `__host.fleet_call` **真跑出来**的载荷，不是正则匹配出来的：
+
+   | surface | binding 发出 | spec 声明 |
+   |---------|-------------|-----------|
+   | `tabs.set-note` | `{"note":…,"tab_id":…}` | `tab`（必需，`stable_tab_id`），没有 `tab_id` |
+   | `ui.tab.select` | `{"id":…}` | `tab` |
+   | `ui.input.wheel` | `{"delta":…}` | `x` / `y` / `delta_y`，三个都必需 |
+   | `terminal.paste` | `{"text":…}` | **NO_PARAMETERS** |
+   | `ui.composer.send` | `{"text":…}` | 只有 `tab` |
+   | `ui.hello` / `ui.deltas` / `events.read` | `{}` | 各有必需参数 |
+   | `events.wait` | 只有 `timeout_ms` | 还要 `epoch` / `after` / `kind` |
+
+   `validate_fleet_parameters`（`src/client/mod.rs`）拒未知键、也拒缺必需键，所以这九个
+   binding 函数**今天不可能成功**。诚实标注：「所以宿主回
+   `broker_invalid_arguments`」是读派发路径读出来的，不是端到端跑出来的——那需要一台活
+   服务端，结算实验写在
+   [`plan/design-fleet-catalog-binding.md`](../plan/design-fleet-catalog-binding.md)。
+
+**本轮不修，理由写下来。** 47 条缺失的 binding 是**做功能**不是修 bug；那 9 条里有几条
+（`terminal.paste` 收 `text` 而 spec 是无参、`events.wait` 少三个必需参数）不是打错字，
+是要改脚本作者看得见的参数表，属产品决定。而且 `scripts/qjs/lib/fleet.js` 属于一个
+**正在等归档**的引擎，现在改它要么白改，要么给门再添一条要交代的事实。
+今天的状态被 `tests/fleet_catalog_conformance.rs` 用带注释的允许清单钉死——**新的漂移
+会红**——所以拖着不修不会烂掉。**这是一张独立的单，不是本轮的收尾。**
+
+**它对门 1 的含义**：门 1 的验收不能是「`fleet.js` 逐字编得过」，得是
+「`fleet.*` 面的等价物在 qjswasm 上跑得通，且它发的 params 过
+`validate_fleet_parameters`」。照抄一份编得过的破 binding 不算绿。
+
 在三条全绿之前，`agenterm-qjs` **原样保留、不动、不腐化**；`.js` / `.mjs` 继续路由到
 它。归档动作本身另行派单。
 
@@ -320,21 +424,100 @@ import 上**——那是本仓的写刀，不是上游的。
 ### 归档 `agenterm-wasmcore` 的门
 
 `agenterm-qjs` 的门在下一节（锚在 `fleet.js`）。wasmcore 的门不同，因为它的用户是
-**wasm 客人而不是脚本**：
+**wasm 客人而不是脚本**。三条门与它们**今天的状态**：
 
-1. **能力差异有诚实清单。** wasmcore 提供完整 WASI p1（`fd_*` / `_start` / `proc_exit`）；
-   qjswasm 只提供 `agenterm.*` 四件。逐条列出「wasmcore 能而 qjswasm 不能」的事，
-   每条注明是**要补**还是**有意不补**（把 WASI 做成第二扇 OS 面是纪律禁止的，
-   所以多半是后者）。
-2. **`.wasm` 默认路由切到 qjswasm**，且既有 guest 的行为变化有测试锁住。
-3. 现状实测：`scripts/` 下**零个 `.wasm` 语料**，`script-wasmcore` 是 optional + default
-   关，生产调用点只有 `src/script_engine.rs` 的 `WasmcoreEngineBackend`。所以这不是
-   「砸掉在用的东西」——但**门仍要走完**，因为"没人用"是今天的事实，不是承诺。
+| # | 门 | 状态（2026-08-25） |
+|---|----|------|
+| 1 | 能力差异有诚实清单，每条注明要补 / 有意不补 | **可判绿**——清单在下，交付物是 [`plan/design-wasmcore-archive-gate.md`](../plan/design-wasmcore-archive-gate.md) |
+| 2 | `.wasm` 默认路由切到 qjswasm，拒绝形状有测试锁住 | **不能绿**，还差两件，见下 |
+| 3 | 现状实测（零 `.wasm` 语料、optional + default 关） | **已复核**，数字与原文一致，但生产调用点是四处不是一处 |
 
-> **附带修正**：`crates/agenterm-wasmcore/README.md` 现在写着它「not a member of the
-> root workspace」「not wired into any product path」，**两条都已是假的**——它在
-> workspace members 里，也是 `script_engine.rs` 的一个 backend。归档前先修这两句，
-> 否则下一个人照 README 判断会判错。
+#### 门 1：能力差异（实测，不是读规范）
+
+**门自己的前提被证伪了。** 本节 rev4 写「wasmcore 提供完整 WASI p1」。
+准确的说法是：**import 面完整，授出的能力几乎为零**。
+`p1::add_to_linker_sync` 注册全部 46 个 witx 函数，所以每个 WASI import 都能绑；
+但 `WasiCtx` 是 `WasiCtxBuilder::new().stdout(pipe).inherit_stderr().build_p1()`
+——没有 `.args()`、没有 `.envs()`、没有 `.preopened_dir()`、没有 `.inherit_stdin()`。
+
+拿一份真 `wasm32-wasip1` 探针客人跑 `WasmCoreHost::run_module` 实测：
+
+```text
+args_sizes_get errno=0 argc=0     | environ_sizes_get errno=0 count=0
+clock_time_get(realtime/monotonic) errno=0，真值 | random_get errno=0，真熵
+fd_fdstat_get(0/1/2) errno=0      | fd_fdstat_get(3..5) errno=8  ← 零 preopen
+path_open(fd3) errno=8            | std::fs 读/写/列目录 → NotFound
+fd_read(stdin) errno=0 n=0（立刻 EOF）
+thread::spawn errno=58 | sock_shutdown errno=57 | proc_raise errno=58
+```
+
+所以「完整 POSIX vs 四件门」这个差距**不存在**。十六条逐条判决，**三条要补、
+十三条有意不补**；而十三条里有**五条根本不是差异**——两边实测一样（stdin 都是立刻
+EOF、文件系统都是全 BADF、argv/env 都是空、socket/信号/线程两边都 NOTSUP、
+stdout 等价且 qjswasm 的超限形状更好：截断加标志 vs 整次丢弃）。
+
+**真正只有 wasmcore 有的能力只剩两条，且两条都是要主动放弃的**：直通宿主 stderr
+（与「坏槽只能弄死自己」冲突）、16 MiB 原生栈上的深递归（那正是要消灭的形状）。
+
+三条要补，没有一条是「把 WASI 搬进门」：
+
+| # | 要补什么 | 状态 | 说明 |
+|---|---------|------|------|
+| 3.5 | 时钟与熵 | **未下单**，不挡门 | 真实脚本会用；补成 `agenterm.*` 里的具名 import。**前置是先设计确定性开关**——它们会是本引擎唯一的不确定性来源，会破坏 `steps` / `peak_*` 的可重放性。今天可用一次 `fleet_call` 绕过，所以不是门的阻塞项 |
+| 3.7a | `_start` 入口约定 | **未做，挡门 2** | `wasm32-wasip1` 客人导出 `_start`；qjswasm 产品路径固定调 `"main"`（`src/script_engine.rs`） |
+| 3.7b | 装载期检查导入可绑定 | **已补 2026-08-25** | 见下 |
+
+**3.7b 是这一轮抓到并修掉的真缺陷。** 一个 WASI 客人在 qjswasm 上曾经是：
+`validate_wasm` 返回 `Ok(())`、`spawn` 成功、第一次调用才死在
+`Trap("call to unbound imported function")`——**check 放行了 execute 跑不了的东西**，
+违反本 PRD 自己的「装载期拒绝 vs 执行期 trap 要能分辨」，而且那条 trap 一个 import 名
+都不带（tinyvm 是 `no_std`，文案是静态前缀），所以「运行期看出是哪个导入」这条路本来
+就走不通。现在 `agenterm.*` 之外的任何 import 在装载期直接拒、点名，
+`validate_wasm` 与 `spawn` 给同一个答案。分类落 `Door` 而不是 `Load`：模块本身是合法
+wasm，缺的是**门**。锁在
+`crates/agenterm-qjswasm/tests/host_door.rs::check_and_execute_agree_that_an_unbindable_import_is_refused_at_load`。
+代价说明白：这**反转**了 qjswasm 侧一条既有决定（「别的模块名的 import 不关门的事」），
+理由是那种 import 谁也绑不上，放它装载只是把答案推迟到一条不点名的 trap 上。门的另一半
+宽容没动——四件门函数客人仍可只导入一部分或一个都不导入。
+
+#### 门 2：还差什么，写成可判
+
+三条判据，缺一不可，每条都能由一条会跑的命令回答：
+
+1. 一个真 `wasm32-wasip1` 客人（导出 `_start`，只用 stdio/时钟/熵）在 qjswasm 上
+   `check` 与 `execute` 都成功且输出与 wasmcore 一致——**或者**它在装载期被点名拒绝，
+   且拒绝理由写进迁移说明。二选一，**不允许「运行期 trap」这第三种**。挡在 3.7a 上。
+2. 一份同客人的 wasmcore-vs-qjswasm 计时。本仓今天**没有任何**这样的数，切路由之前
+   「慢了多少」无人能答。
+3. 既有六参数 `fleet_call` 客人在 qjswasm 上是**装载期签名拒绝**这一点有测试锁住，
+   并附一份迁移到两趟拷贝 ABI 的等价 guest。
+
+第 3 条同时是对门原文的措辞修正：原文写「既有 guest 的**行为变化**有测试锁住」，
+字面上做不到——既有 wasmcore guest 的 `fleet_call` 是六参数，在 qjswasm 上是装载期
+签名拒绝，那是**不加载**，不是行为变化。
+
+#### 门 3：现状复核
+
+`scripts/` 下零个 `.wasm` 语料、`script-wasmcore` optional + default 关：都属实。
+一处要更正：**生产调用点是四处，不是一处**——`src/script_engine.rs` 的
+`WasmcoreEngineBackend`、`src/script_worker.rs` 的 `execute_inner` 派发、
+`src/script_backend.rs` 的环境变量与 `.wasm` 路由、`src/client/mod.rs` 的路径特判，
+外加 `tests/wasmcore_framed_worker.rs` 这份产品级黑盒测试。只改 `script_engine.rs`
+一处会把后三处留在原地。
+
+> **附带修正（已完成 2026-08-25）**：`crates/agenterm-wasmcore/README.md` 曾写它
+> 「not a member of the root workspace」「not wired into any product path」，**两条都是
+> 假的**——根 `Cargo.toml` 的 `members` 列了它，它自己的 `Cargo.toml` 根本没有
+> `[workspace]` 表；它也是 `script_engine.rs` 的一个 backend。同章另有两句假话一并
+> 更正（「自带空 `[workspace]` 表」的前提、「把 wasmtime 挡在根 `Cargo.lock` 外面」
+> ——根 `Cargo.lock` 里有 `wasmtime 47.0.3`）。活下来的一条被收窄保留：AOT 那对
+> （`precompile_module` / `run_precompiled_module`）与 `run_module_from_bytes` 确实
+> 在 `src/` 与 `tests/` 里零引用。
+>
+> 另记一条归档时要说实话的事实：该 crate 在**当前开发机**（macOS aarch64）上是
+> **22/23 绿**，失败的那条是 `aot_cwasm_bytes_literally_embed_the_host_target_triple`
+> ——它硬断言 `ARCH == "x86_64" && OS == "windows"`，从写下来就只在那台 Windows 机上
+> 成立。归档说明里不要写「归档时全绿」。
 
 ## 隔离与预算
 
@@ -350,9 +533,32 @@ import 上**——那是本仓的写刀，不是上游的。
 | `max_activation_slots` | tinyvm `Limits` | trap |
 | `max_stdout_bytes` | 宿主侧 | 截断并在结果上标记，不静默丢弃 |
 | `max_bridge_result_bytes` | 宿主侧 | `Err`，不截断——截断会让 guest 读到半个 JSON |
+| `max_result_string_bytes` | 宿主侧 | `Err`，不截断——理由同上（2026-08-25 补） |
+
+`max_result_string_bytes` 是接缝把 `.qjs` 返回的字符串拷进宿主 `String` 的上限。
+补它的理由是它原本**没有上限**：那块内存由宿主分配、由客人定大小，上面两个盖子都不管。
+默认预算下唯一的天花板是偶然的（拼接是 O(n) 步，`max_steps` 先耗尽），一旦客人能便宜地
+造出大字符串、或谁调高 `max_steps`，真实上限就变成 `max_memory_pages × 64 KiB`，
+每次调用一份，持久槽上反复。检查顺序也是分类：**先越界、后盖子**——声明长度装不进客人
+自己的内存是坏客人（`Door`），说成预算等于让人去调一个调了也没用的数。
+
+**`max_memory_pages` 有一条运行期缺口，是已知的、上游的、今天补不了的。** 装载期超页是
+`Load("memory page limit")`（有测试）；但运行期 `memory.grow` 被拒之后，上游
+`tinyvm-qjs` 的 `__alloc` 把它降成一条裸 `unreachable`，到宿主这里与任何别的
+`unreachable` 无法区分，所以报的是 `Trap` 而不是 `Budget("max_memory_pages")`
+——调用者分不清「该调高预算」和「这脚本坏了」。
+`src/slot.rs::ceiling_name` 的 `MemoryPages` 分支因此在运行期是死的。
+**不在本仓补，也不用启发式猜**（靠「内存正好顶到上限」去猜会把真坏的脚本误判成预算
+问题，正是 `classify` 的存取器写法要防的那种静默错分类）。按本 PRD「改造 tinyvm：已授权」
+去上游补：分配失败必须可分辨——带 `WasmCeiling::MemoryPages` 的独立 fault，或走一扇门
+报告。复现留在
+`crates/agenterm-qjswasm/tests/seam_attack.rs::finding_4_running_out_of_pages_is_not_reported_as_a_budget`
+（`#[ignore]`，`cargo test -p agenterm-qjswasm --test seam_attack -- --ignored` 可跑）。
 
 失败必须**类型化**：编译期拒绝（不在子集内）、装载期拒绝、执行期 trap、预算耗尽、
-门参数越界——五类要能分辨。编译期拒绝的文案必须说清「这个语法本引擎还不支持」，
+门参数越界——五类要能分辨。**2026-08-25 增两类**，因为原来的五类把「调用者说错话」
+算在了客人头上：`NoSuchExport`（这个槽没有那个导出，带名字）与 `Signature`
+（参数个数或类型不合导出的声明，进客人之前就拒）。编译期拒绝的文案必须说清「这个语法本引擎还不支持」，
 而不是含糊的"语法错误"，也不得暗示脚本本身写错了。
 
 每次调用回报确定性执行统计（`steps` / `peak_call_depth` / `peak_activation_slots`），
@@ -445,6 +651,11 @@ agenterm-qjswasm                                        [~]
 │
 ├── 槽与宿主门                                            [x]
 │   ├── spawn / call / run_once / kill                     [x]
+│   ├── SlotId 绑定到发它的 Engine（跨 Engine = NoSuchSlot） [x] 2026-08-25
+│   ├── 调用前先核导出的声明签名                             [x] 2026-08-25
+│   │   （缺导出 / 参数个数 / 参数类型 / 结果类型装不下）
+│   ├── Guest::CompiledQjs（产物自报约定）                   [x] 2026-08-25
+│   ├── agenterm.* 之外的 import 装载期即拒并点名             [x] 2026-08-25
 │   ├── 持久 Instance，逐调用新鲜 fuel                       [x]
 │   ├── trap 不回收槽（明确承诺，非意外）                     [x]
 │   ├── 预算耗尽自成一类（非 Trap）                           [x]
@@ -467,10 +678,19 @@ agenterm-qjswasm                                        [~]
 │   ├── feature script-qjswasm，default 关                   [x]
 │   └── 接管 .wasm 默认路由                                  [–]
 │
-└── 归档 agenterm-qjs                                     [ ]
-    ├── fleet.js 等价物跑通                                 [ ]
-    ├── 两处生产调用点迁移 + 行为等价测试                     [ ]
-    └── CLI 面对应或明确声明缺口                              [ ]
+├── 归档 agenterm-qjs                                     [~]
+│   ├── fleet.js 等价物跑通                                 [ ] 缺口清单见上
+│   ├── 两处生产调用点迁移 + 行为等价测试                     [ ]
+│   └── CLI 面对应或明确声明缺口                              [~] 十三动词判决已交付；
+│       └── Guest::CompiledQjs（pack 类动词的前置）           [x] 2026-08-25
+│
+└── 归档 agenterm-wasmcore                                [~]
+    ├── 能力差异诚实清单（3 要补 / 13 有意不补）              [x] 2026-08-25
+    │   ├── 3.7b 装载期导入可绑定检查                        [x] 2026-08-25
+    │   ├── 3.7a `_start` 入口约定                          [ ] 挡门 2
+    │   └── 3.5 时钟 / 熵（须先设计确定性开关）               [ ] 不挡门
+    ├── .wasm 默认路由切换 + 拒绝形状锁住                     [ ]
+    └── 现状实测复核                                        [x] 2026-08-25
 ```
 
 ## 证据门
@@ -571,6 +791,57 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 `crates/agenterm-qjswasm/README.md`（每条都有测试）；`.wasm` 侧是完整的。
 `.qjs` **还够不着 `agenterm.*` 门**——自由名字在编译期就被拒，门今天只有手写 `.wasm`
 客人能调。
+
+### 接缝对抗审查后的重测（2026-08-25，同机同工具链）
+
+一轮专门针对接缝（`Value::Js` 那张脸、每槽的 `Convention`、「字符串在槽死前被读成宿主
+数据」这条承载性声明）的对抗性攻击，找到八条缺陷。**那条承载性声明扛住了每一次攻击**：
+13 个 f64 边界值按位往返（NaN 载荷 `0xfff8deadbeefcafe`、信号 NaN、`-0` 的符号全保住）、
+空串、内嵌 NUL、代理对拼出的星平面字符、从**长大过的**线性内存里取出的 1 MiB 字符串
+（证明接缝读的是活视图而不是实例化时的快照）、第一次调用的串不被第二次调用和 `kill` 打扰。
+没有任何一次 panic。
+
+八条缺陷里**七条已修**（详见 §隔离与预算 与 §Capability tree 的对应条目），一条修不了：
+
+| # | 缺陷 | 处置 |
+|---|------|------|
+| 1 | 参数**个数**不对 → `Trap("function")`，怪客人 | 修：`Signature`，报两个数 |
+| 2 | 参数**类型**不对 → **不报**，还能返回签名禁止的类型 | 修：`Signature`，进客人之前 |
+| 3 | 导出不存在 → `Trap`，且不带名字 | 修：`NoSuchExport`，带名字 |
+| 4 | 运行期超页 → `Trap("unreachable")` 而非 `Budget` | **修不了，上游**，见 §隔离与预算 |
+| 5 | `SlotId` 不绑 Engine：跨 Engine 静默跑错槽、静默杀错槽 | 修：进程级 engine tag |
+| 6 | 脸拒收返回值时，客人已打印的输出被丢掉 | 修：改成进客人**之前**拒，没得丢；残留代价写进 `Slot::call` |
+| 7 | 接缝拷出的字符串没有任何宿主侧盖子 | 修：`max_result_string_bytes` |
+| 8 | 五条恶意指针防线从公开面**不可达**，无对抗覆盖 | 修：`Guest::CompiledQjs` 让它们可达，补五条攻击 |
+
+第 6 条值得单说，因为**没按提出者建议的方式修**。建议是「让输出活过这次拒绝」，
+实现上等于把它留到**下一次**调用的 `Outcome` 里——而 `slot.rs` 早就写明那比丢掉更糟
+（张冠李戴）。改成查导出的**声明结果类型**，在客人还没跑的时候就拒，于是根本没有输出
+被产生。这比原诉求更强：不是「输出活下来」，是「输出压根不用产生」。
+
+第 8 条值得单说，因为它与 `agenterm-qjs` 门 3 的前置**是同一个变体**。接缝审查要它是
+为了让 `read_guest_string` 的五条拒绝可测；CLI 判决要它是为了让「编译落盘再加载」不丢
+约定。两条互不相干的路指向同一个 `Guest::CompiledQjs`——这是它形状对的强证据。
+提出者同时建议在 `spawn` 加签名嗅探（「看着像 V1 就当 V1」），**这条明确不采纳**：
+`(i32, i64, …) -> (i32, i64)` 是完全普通的手写 wasm 类型，嗅探就是猜，而
+`Convention` 的纪律原文就是「记下来，绝不靠猜签名」。
+
+```sh
+cargo test -p agenterm-qjswasm    # 86 passed, 0 failed, 1 ignored
+```
+
+| 目标 | 数 | 变化 |
+|------|----|------|
+| `src/lib.rs` 单元 | 23 | —（其中 `a_foreign_import_is_left_alone_at_install` 改写成 `..._is_refused_at_install`，记下反转理由与实测前后） |
+| `tests/qjs_guest.rs` | 12 | +1：产物重载与源码直跑值相等（门 3 第 0 步的验收测） |
+| `tests/host_door.rs` | 10 | +1：`check` 与 `execute` 对绑不上的 import 给同一个答案 |
+| `tests/budget.rs` | 6 | — |
+| `tests/wasm_slot.rs` | 5 | —（两条改写：缺导出从 `Trap` 改成 `NoSuchExport` 并要求带名字） |
+| `tests/isolation.rs` | 4 | — |
+| `tests/seam_attack.rs` | 26 + 1 ignored | 新文件：13 条「攻不破」的正面锁 + 7 条已修缺陷的回归锁 + 5 条恶意指针攻击 + 1 条上游缺陷的复现（`#[ignore]`） |
+
+`#[ignore]` 只用在第 4 条上，并且**没有被反转成断言错误行为**——那会把一份缺陷报告变成
+一把锁住缺陷的锁。
 
 ### M0 期间在 tinyvm 上的实测发现（写下来免得再踩）
 
