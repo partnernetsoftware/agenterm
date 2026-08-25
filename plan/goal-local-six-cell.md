@@ -819,7 +819,7 @@ unix GUI 栈 vs Win32/GDI。
 **这条值得单独记**：判据本身写错，比某一格没跑通更危险——
 一个引用了不存在或不适用之物的判据，永远不会红，只会一直悬着。
 
-### `unix-frontend-macos-smoke` 未通过（实测，未定因）
+### `unix-frontend-macos-smoke` 未通过（实测；根因见 §5.17）
 
 ```
 AGENTERM_NO_ACTIVATE=1 AGENTERM_BOOTSTRAP_TASK=unix-frontend-macos-smoke \
@@ -835,6 +835,57 @@ AGENTERM_NO_ACTIVATE=1 AGENTERM_BOOTSTRAP_TASK=unix-frontend-macos-smoke \
 **不在本 goal 内深挖**：§3 划的边界是只增构建/测试装置、不碰产品语义，
 调一个既有产品 smoke 属于产品侧。记在这里是因为 §3 另一条同样有效——
 **不得静默跳过**。这一格的 CLI smoke 通过，平台 smoke 未通过，两者都要写在脸上。
+
+---
+
+## 5.17 `unix-frontend-smoke.rh` 不能 AOT 转译（2026-08-25）
+
+§5.16 把判据改成「跑该平台对应的既有 smoke」之后，去 VM2 里跑 `unix-frontend-linux-smoke`——
+**它压根编不出来**：
+
+```
+rh transpile error: unsupported expression in native pack:
+  test_harness::require( !=(out, "") , "unix_frontend_macos_frontmost_empty")
+  @ scripts/rh/unix-frontend-smoke.rh:288
+```
+
+宿主上用 §5.9 认定的工具复核，确认不是 VM 环境问题，而且**报错点不止一处**：
+
+```
+$ agenterm rh check   scripts/rh/unix-frontend-smoke.rh   → ok
+$ agenterm rh compile scripts/rh/unix-frontend-smoke.rh   → transpile error
+    test_harness::append_command_record(..., ==(output.success, 0), ...) @ 87:19
+```
+
+这正是 §5.7 记过的那条限制——**native pack 不接受「调用作为另一调用的实参」**，
+这里是把 `!=` / `==` 运算符调用直接写进 `require(...)` / `append_command_record(...)` 的实参位。
+也再一次印证 §5.9：**`rh check` 会过，只有 `rh compile` 才报**。
+
+`unix-frontend-linux-smoke` 与 `unix-frontend-macos-smoke` **共用同一个 entry 脚本**，
+所以两个任务当前都跑不起来。
+
+### 为 VM 内跑 rh 任务铺的路（可复用）
+
+VM 里没有 cargo，也不需要：worker 就是已经交叉构建好的 linux 产物。
+
+```
+tar czf - --exclude='./target' --exclude='./.git' . | ssh <guest> 'tar xzf - -C ~/agenterm-repo'
+AGENTERM_BOOTSTRAP_WORKER=$PWD/agenterm-worker \
+  ./agenterm-worker rh task run <task> --manifest $PWD/agenterm.tasks.json -- . <gui> <cli> --platform linux
+```
+
+绕开 `bootstrap.sh`（它会先重建 worker，VM 里没有工具链）。仓库树 30 MB，
+guest 里没有 `rsync`（最小 cloud image），用 tar over ssh。
+
+### 一处**没查清**的事，如实记
+
+macOS 那格走同一个脚本，却报 `host_hard_timeout` 而不是转译错误——
+两格预算都是 300 s，都没有 dependencies，宿主的 AOT 共享 target 已预热（64 MB），
+而 `rh compile` 在宿主上是**秒级**报错的。**所以「转译失败」解释不了 macOS 的超时**，
+两者症状不同，我没有查出 macOS 那条路径在超时前把五分钟花在哪里。
+
+不继续挖的理由同 §5.16：修一个既有产品 smoke 属产品侧，§3 划在本 goal 之外。
+但**把没查清的事写成查清了，比不查更糟**——所以它以「未解释」的形态留在这里。
 
 ---
 
