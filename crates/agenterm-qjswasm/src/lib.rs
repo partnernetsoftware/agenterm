@@ -127,6 +127,44 @@ pub fn compile_qjs_without_door(source: &str) -> Result<Vec<u8>, CompileError> {
     tinyvm_qjs::compile_qjs_m1(source)
 }
 
+/// The whole of a `.qjs` check: compile the source, then put the bytes it
+/// produced through the load gate they will have to pass at run time.
+///
+/// # Why compiling is not a check on its own
+///
+/// [`compile_qjs`] answers "is this the language?" and nothing else. It says
+/// nothing about whether the *module* it just emitted fits the budget it will
+/// be run under, and the compiler can quite legitimately emit a module that
+/// does not: a script whose string literals need more pages than
+/// [`Budget::limits`]`.max_memory_pages` allows compiles clean and then fails
+/// [`Engine::spawn`] with [`QjswasmError::Load`]. The `.wasm` half of a check
+/// has always applied that gate -- [`validate_wasm`] is decode plus the gate --
+/// so the compiler's own output was the one artifact in the pipeline that
+/// never met it.
+///
+/// A check that passes what execute cannot run is the worst shape a gate can
+/// have: it is the same argument that put the door on [`compile_qjs`] itself
+/// rather than behind a flag, and the same one `src/host.rs` makes about import
+/// names. This closes it for the memory declaration.
+///
+/// Nothing is executed: the gate stops before instantiation, which is what
+/// would run a start function, so a check still cannot have side effects.
+pub fn check_qjs(source: &str) -> Result<(), QjswasmError> {
+    check_qjs_with(source, &Budget::default())
+}
+
+/// [`check_qjs`] against a caller-supplied budget, so a check refuses exactly
+/// what an [`Engine`] built on the same [`Budget`] would refuse to load.
+///
+/// Pass the budget the script will actually run under. The default one is not
+/// a safe over-approximation in either direction -- a bigger budget accepts
+/// modules a smaller engine will reject, and a smaller one rejects modules a
+/// bigger engine would have run.
+pub fn check_qjs_with(source: &str, budget: &Budget) -> Result<(), QjswasmError> {
+    let bytes = compile_qjs(source)?;
+    validate_wasm_with(&bytes, budget)
+}
+
 /// The `agenterm.*` door as declarations the `.qjs` compiler can unwrap onto:
 /// what a script may call, which raw import each call becomes.
 ///

@@ -13,12 +13,13 @@
 //!
 //! Most of this file locks behaviour that was already right, so it stays
 //! right. Five tests started life differently: they carried a `FINDING` block
-//! asserting what the engine *did* while saying what it *should* do. Two of
+//! asserting what the engine *did* while saying what it *should* do. Three of
 //! those defects are now fixed in `src/**` -- an exhausted guest heap is a
-//! named budget, and a panicking bridge is a contained `Door` failure -- and
-//! their tests assert the fixed behaviour, keeping the reproducer that found
-//! it. The three that remain carry their `FINDING` block unchanged, and each
-//! says what to change it to when the defect is closed.
+//! named budget, a panicking bridge is a contained `Door` failure, and `check`
+//! puts the compiler's own output through the load gate -- and their tests now
+//! assert the fixed behaviour, keeping the reproducer that found it. The two
+//! that remain (`finding_3`, `finding_5`) are upstream in `tinyvm-qjs`; their
+//! blocks say what to change them to when upstream closes them.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1064,55 +1065,69 @@ fn a_slot_survives_a_bridge_panic_and_answers_the_next_call() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
-/// FINDING 4 (medium) -- `check` accepts a `.qjs` script `execute` cannot load.
+/// `check` refuses a `.qjs` script `execute` could not load: the compiler's
+/// own output goes through the same load gate its bytes will later have to
+/// pass.
 ///
 /// ```text
 /// reproducer  a script whose string literals need more pages than the budget
 ///             allows; here max_memory_pages = 1 and a 100 000-byte literal
-/// observed    compile_qjs -> Ok;  Engine::run_once -> Err(Load("memory page limit"))
-/// expected    both refuse, with the same diagnostic
+/// was         compile_qjs -> Ok;  run_once -> Err(Load("memory page limit"))  (FINDING 4)
+/// now         check_qjs_with -> Err(Load("memory page limit")), the same
+///             diagnostic execute gives
 /// ```
 ///
-/// `src/script_engine.rs` splits on the extension: the `.wasm` branch (line
-/// 586) runs `validate_wasm`, which is decode plus the load gate, while the
-/// `.qjs` branch (line 590) runs `compile_qjs` and stops. So the compiler's
-/// own output is the one artifact in the pipeline that is never put through
-/// the gate it will later have to pass.
-///
-/// The crate says twice why this shape is the wrong one -- `src/lib.rs` on
-/// `compile_qjs` and `src/host.rs` on `check_declarations` both call "a `check`
-/// that passes what `execute` cannot run ... the worst shape a gate can have".
-/// The door lane closed that hole for import names; the memory declaration is
-/// the same hole one field over.
-///
-/// It is measurable at the default budget too, without an exotic `Limits`: a
-/// 17 MiB string literal compiles to 17 827 685 bytes of clean wasm and then
-/// fails `Engine::new().run_once` with `Load("memory page limit")`, because
-/// 273 pages is past the default 256. The cheap reproducer below is the same
-/// defect with a budget small enough to run in a test suite.
-///
-/// The fix is `compile_qjs` followed by `validate_wasm_with` on the result,
-/// which both already exist. `src/**`, so not this lane's to make.
+/// `compile_qjs` itself is unchanged and still compile-only -- it is the
+/// compiler's face, and a caller who wants bytes wants them whatever budget
+/// they will run under. What was missing was a *check* that spends the budget
+/// the run will spend, and that is [`agenterm_qjswasm::check_qjs_with`].
 #[test]
-fn finding_4_check_accepts_a_script_execute_cannot_load() {
+fn check_refuses_a_script_execute_could_not_load() {
     let source = format!("print(\"{}\"); return 0;", "y".repeat(100_000));
-    let bytes = compile_qjs(&source).expect("check accepts it: this is the whole of `check`");
-
     let budget = Budget {
         limits: pages(1),
         ..Budget::default()
     };
-    let refusal =
-        run_with(budget.clone(), &source, None).expect_err("execute refuses what check accepted");
+
+    let refusal = agenterm_qjswasm::check_qjs_with(&source, &budget)
+        .expect_err("check must refuse what execute cannot load");
     match refusal {
         QjswasmError::Load(e) => assert_eq!(e.message(), "memory page limit"),
-        other => panic!("FIXED or changed class: {other:?}"),
+        other => panic!("check refused for the wrong reason: {other:?}"),
     }
 
-    // The gate that would have caught it exists and is already exported; it
-    // simply is not on the `.qjs` path.
-    assert!(
-        agenterm_qjswasm::validate_wasm_with(&bytes, &budget).is_err(),
-        "validate_wasm_with would have refused these bytes at check time",
-    );
+    let executed = run_with(budget, &source, None).expect_err("execute refuses it too");
+    match executed {
+        QjswasmError::Load(e) => assert_eq!(e.message(), "memory page limit"),
+        other => panic!("execute refused for the wrong reason: {other:?}"),
+    }
+
+    // The bytes themselves are fine -- this is a budget, not a broken module,
+    // and the same script checks clean against a budget that can hold it.
+    let bytes = compile_qjs(&source).expect("the compiler is not what refuses");
+    assert!(!bytes.is_empty());
+    agenterm_qjswasm::check_qjs(&source).expect("the default budget has room for one page");
+}
+
+/// The gate `check` applies is the load gate and nothing more: it never runs
+/// the guest, so a script whose *execution* fails still checks clean. A check
+/// that ran the script would have side effects, which is the whole reason
+/// `check` exists as a separate verb.
+#[test]
+fn check_does_not_run_the_script() {
+    let seen = Arc::new(Mutex::new(0usize));
+    let counter = Arc::clone(&seen);
+    let bridge: FleetBridgeFn = Arc::new(move |_op: &str, _params: &str| {
+        *counter.lock().unwrap() += 1;
+        Ok(String::new())
+    });
+    let source = "print(\"side effect\"); let s = fleet_call(\"o\", \"p\"); return 1 / 0;";
+    agenterm_qjswasm::check_qjs(source).expect("this compiles and loads");
+    assert_eq!(*seen.lock().unwrap(), 0, "check must not call the bridge");
+
+    // And the same source executes, so the check was not passing something
+    // unrunnable.
+    let out = run(source, Some(bridge)).expect("it runs");
+    assert_eq!(out.stdout, "side effect");
+    assert_eq!(*seen.lock().unwrap(), 1);
 }

@@ -587,7 +587,15 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         } else {
             let text = std::fs::read_to_string(source)
                 .map_err(|e| format!("reading qjs file {source}: {e}"))?;
-            agenterm_qjswasm::compile_qjs(&text).map_err(|e| e.to_string())?;
+            // `check_qjs`, not `compile_qjs`: compiling answers "is this the
+            // language?" and stops, while `execute` below also has to *load*
+            // the bytes it produces under `Engine::new`'s budget. A script
+            // whose string literals need more than the default 256 pages
+            // compiled clean here and then failed execution with
+            // `Load("memory page limit")` -- a check passing what execute
+            // cannot run. `check_qjs` applies the same default budget this
+            // backend executes under, and still runs nothing.
+            agenterm_qjswasm::check_qjs(&text).map_err(|e| e.to_string())?;
         }
         Ok(())
     }
