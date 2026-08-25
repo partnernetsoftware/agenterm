@@ -351,15 +351,20 @@ fn a_killed_slot_is_a_typed_refusal_and_its_id_is_never_recycled() {
 /// reclaim is unconditional by construction -- but "by construction" is exactly
 /// the kind of claim that survives a refactor as a comment and not as a fact.
 /// Three different failure classes are run through it here.
+///
+/// The trapping source is a call to a non-callable value. It used to be
+/// `"2" * 2`, a String-to-Number coercion, which the `f21f0f2` bump implemented
+/// (ba143c5) -- it now returns `Number(4.0)`, so it stopped producing the trap
+/// this test needs. What is under test is the accounting, not the fault.
 #[test]
 fn live_slots_accounting_holds_across_traps_and_every_run_once_failure() {
     let mut eng = Engine::new();
     let slot = eng
-        .spawn(Guest::Qjs("return \"2\" * 2;"), None)
+        .spawn(Guest::Qjs("let f = 1; return f();"), None)
         .expect("spawn");
     let err = eng
         .call(slot, "main", &[])
-        .expect_err("the conversion traps");
+        .expect_err("calling a non-callable value traps");
     assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
     assert_eq!(eng.live_slots(), 1, "a trap must not retire the slot");
     assert!(
@@ -370,7 +375,7 @@ fn live_slots_accounting_holds_across_traps_and_every_run_once_failure() {
     eng.kill(slot);
 
     for (what, guest, entry, args) in [
-        ("a trap", "return \"2\" * 2;", "main", vec![]),
+        ("a trap", "let f = 1; return f();", "main", vec![]),
         ("a wrong argument count", "$0+$1", "main", vec![]),
         ("a missing export", "1", "not_an_export", vec![]),
         (

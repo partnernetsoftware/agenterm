@@ -153,20 +153,30 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// grows past one of these, the copy has to be rewritten in the same commit
 /// that makes it stale.
 ///
-/// It has now caught that once, which is what it is for. The rev bump to
-/// `6920c60` -- taken for `Names::Declared`, the mechanism that lets a `.qjs`
-/// script reach the door -- also brought upstream's `%` (dd35c44) and `typeof`
-/// (c707558), and the two of them were this list's first two entries. Both
-/// measured: `return 1 % 2;` is `Number(1.0)` and `return typeof 1;` is
-/// `Str("number")`. They are replaced below with constructs measured to be
-/// outside the subset at that same rev, and the README's refusal list was
-/// corrected in the same commit.
+/// It has now caught that twice, which is what it is for.
+///
+/// (1) The bump to `6920c60` -- taken for `Names::Declared`, the mechanism that
+/// lets a `.qjs` script reach the door -- also brought `%` (dd35c44) and
+/// `typeof` (c707558), this list's first two entries at the time. Measured:
+/// `return 1 % 2;` is `Number(1.0)` and `return typeof 1;` is `Str("number")`.
+///
+/// (2) The bump to `f21f0f2` brought the conditional expression (5bdb557) and
+/// object literals (f203858), the next two entries. Measured: `return 1 ? 2 :
+/// 3;` is `Number(2.0)`, and `return {};` now compiles and runs -- it fails one
+/// step later, at this crate's own face, because `Value` has no variant for a
+/// guest heap reference. That is a different boundary with its own test, and
+/// deliberately not this one: a source that compiles does not belong in a list
+/// of sources the compiler refuses, whatever happens to it afterwards.
+///
+/// Both times the README's refusal list was corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
     for source in [
-        "return 1 ? 2 : 3;",
-        "return {};",
         "return `x`;",
+        "let f = (x) => x + 1; return f(1);",
+        "return [1, 2, 3];",
+        "return 1.5;",
+        "class A {} return 1;",
         "function outer() { let a = 1; function inner() { return a; } return inner(); }",
     ] {
         let mut eng = engine();
@@ -297,19 +307,23 @@ fn arithmetic_is_binary64_so_division_by_zero_is_infinity() {
 /// The other side of the same boundary: reporting a run-time fault as a compile
 /// failure would tell the author to fix their syntax.
 ///
-/// The source is a String/Number coercion, which upstream lowers to a trap
-/// rather than fabricating a value -- ToString of a Number, StringToNumber and
-/// String relational comparison are the three ECMA-262 conversions the runtime
-/// does not have yet, and it refuses rather than guessing. That is a recorded
-/// divergence with a milestone on it, so when those land this test needs a
-/// different trapping source; what it is protecting is the classification, not
-/// the divergence.
+/// The source calls a value that is not callable. ECMA-262 makes that a
+/// TypeError; this engine has no exception objects for host-raised errors yet,
+/// so it traps -- a recorded divergence, not an accident, and the trap is the
+/// honest answer until `throw new TypeError(...)` exists to replace it.
+///
+/// It used to be `"2" * 2`, a String-to-Number coercion. The `f21f0f2` bump
+/// implemented all three ECMA-262 string conversions (ba143c5), so that source
+/// now evaluates to `Number(4.0)` and stopped testing anything. The doc comment
+/// it carried predicted exactly this and said to swap the source: what this
+/// test protects is the *classification* of a run-time fault, not any
+/// particular gap in the language.
 #[test]
 fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
     let mut eng = engine();
     let err = eng
-        .run_once(Guest::Qjs("return \"2\" * 2;"), None, "main", &[])
-        .expect_err("an unimplemented conversion traps rather than guessing");
+        .run_once(Guest::Qjs("let f = 1; return f();"), None, "main", &[])
+        .expect_err("calling a non-callable value traps rather than proceeding");
     assert!(
         matches!(err, QjswasmError::Trap(_)),
         "expected a trap from a compiled guest, got {err:?}"

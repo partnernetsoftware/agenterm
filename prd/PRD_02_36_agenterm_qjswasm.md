@@ -1,17 +1,27 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
-Status: 引擎脊柱已落地并有实测证据（M0 + 上游 M1/M2 语言子集，`cargo test -p
-agenterm-qjswasm` **133 passed / 0 ignored**，2026-08-25，上游 rev `f8adef8`）；
-**`.qjs` 已经够得着 `agenterm.*` 门**——带参宿主调用是本仓这一半的写刀，已交付；
+Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
+**133 passed / 0 ignored**，2026-08-25，上游 rev **`f21f0f2`**）；**`.qjs` 已经够得着
+`agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
+`AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
+打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
 两条归档门**仍均未全绿**，两个被取代的 crate 原样保留。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
+
+**rev `f8adef8 → f21f0f2`（2026-08-25）带来的判定变化**：语言层挡着归档门 1 的六件
+（对象、属性、函数值、`try/catch`、JSON、`?:`）与 Number→String **全部到齐**，
+`script check scripts/qjs/lib/fleet.qjs` 答 `OK`。抬 rev 让本仓三条测试转红，全是
+「钉住某项能力不存在」的测试——它们各自在文档注释里预写了替换规则，照做即可，这正是
+它们存在的理由。**同时暴露本层两条新缺口**：对象不能当 completion value 出来
+（`Value` 没有 Object 变体），未捕获的 `throw` 报成裸 trap（上游写了 `FAULT_WORD`
+专门为了分开，本层没读）。前者就是 `fleet.qjs` 的 `script run` 现在唯一的拦路石。
 
 门的当前判定，一句话各一条（详见下文各节）：
 
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
-| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | 未绿，但**本仓欠的那一件已还清** | 剩下的全在上游语言层：堆对象 + 属性 + 函数值 + `try/catch` + JSON + `?:` + Number→String |
+| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | 未绿，但**只剩一件**，且这一件在本层 | 语言层七件已全到（rev `f21f0f2`）；`script check` 答 OK，`script run` 倒在 `fleet;`——`Value` 没有 Object 变体 |
 | 门 2（两处生产调用点迁移） | 未动 | 依赖门 1 |
 | 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
@@ -751,8 +761,8 @@ agenterm-qjswasm                                        [~]
 │   ├── 值表示（V1 双字 tag:i32 + payload:i64）              [x] 由实测实验判定
 │   │   ├── 数字 = ECMA-262 binary64（非 i32）              [x] 1/0=Infinity，无回绕
 │   │   ├── 字符串 / 布尔 / null / undefined                [x]
-│   │   └── 三个 ECMA-262 转换                              [ ] 未实现即 trap，不编造值
-│   │       └── Number→String（`"x:" + n`）                 [ ] 挡住十条带必需数值参数的 fleet 面
+│   │   └── 三个 ECMA-262 转换                              [x] rev f21f0f2
+│   │       └── Number→String（`"x:" + n`）                 [x] 十条数值参数的 fleet 面已通
 │   ├── 降级到 wasm                                        [~]
 │   │   ├── 算术（binary64）                                [x]
 │   │   ├── 局部变量 / 赋值（let/const/var + TDZ）           [x]
@@ -760,11 +770,14 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 函数调用与返回（含递归、互递归）                  [x] 只有直接调用
 │   │   ├── 字符串（字面量池 + 拼接 + 相等 + bump 分配器）     [x]
 │   │   ├── 取余 `%` / `typeof`                              [x] 2026-08-25 复测：7%3=1，typeof "x"="string"
-│   │   ├── 数组 / 对象（堆布局 + 属性查找）                  [ ]
+│   │   ├── 对象（堆布局 + 属性读写 + 任意嵌套）              [x] rev f21f0f2
+│   │   ├── 数组                                            [ ] 连带挡住含数组的 JSON.parse
 │   │   ├── 闭包（环境捕获 + 间接调用表）                     [ ] 捕获外层局部 = 拒绝；
 │   │   │                                                      读脚本级绑定 = 可以
-│   │   ├── try/catch（自编码展开）                          [ ]
-│   │   ├── JSON                                           [ ]
+│   │   ├── `?:`                                            [x] rev f21f0f2
+│   │   ├── try/catch/finally + throw（自编码展开）           [x] rev f21f0f2
+│   │   ├── 函数是值（存 / 传 / 返回 / 间接调用）              [x] rev f21f0f2
+│   │   ├── JSON.parse / JSON.stringify                     [x] rev f21f0f2
 │   │   └── GC                                             [ ] 现为 bump + 整体丢弃
 │   ├── `.qjs` 调 agenterm.* 门                              [x] 2026-08-25
 │   │   ├── print / fleet_call / fleet_result 按名字可调      [x] 三条声明发四个 import
@@ -772,6 +785,9 @@ agenterm-qjswasm                                        [~]
 │   │   ├── JS 字符串↔(ptr,len) 由编译器拆包，门不学 JS 值     [x] 手写 .wasm 九条测原样绿
 │   │   ├── 两趟字节结果包回 JS 字符串（长度不符即 trap）       [x]
 │   │   └── 未声明的名字 = 能力诊断（含 fleet_result_len）      [x]
+│   ├── 数字字面量的小数 / 指数 / 十六进制                     [ ] `3/2` 算得出 1.5，`1.5` 写不出来
+│   ├── 全局对象（Math / String / Number / Object）           [ ] JSON 是唯一已有的名字
+│   ├── 内建属性（`"ab".length`）                            [ ] 运行期 trap
 │   ├── 原型链 / getter / Proxy / 正则 / 标准库               [ ] 排期，非天花板
 │   ├── eval / new Function（宿主重编 + 跨实例链接）           [ ] 排期，核已支持
 │   └── 引擎插件逃生口（qjs.wasm）                           [–] 纪律排除 C 库
@@ -798,6 +814,9 @@ agenterm-qjswasm                                        [~]
 │   ├── 缺席 import 不阻止装载                                [x]
 │   ├── 两套调用约定同存（wasm 数值 / V1 pair），装载时定死    [x]
 │   ├── JS 值投影成宿主数据（字符串在槽死前读出）              [x]
+│   ├── 对象当 completion value 出来                          [ ] `Value` 没有 Object 变体；
+│   │                                                            挡住 fleet.qjs 的 `fleet;` 收尾
+│   ├── 未捕获 throw 与裸 trap 分开报                          [ ] 上游写了 FAULT_WORD，本层没读
 │   └── 约定不匹配 → UnsupportedValue，不按位重解释            [x]
 │
 ├── 接线                                                  [x]
@@ -810,12 +829,14 @@ agenterm-qjswasm                                        [~]
 │   └── 接管 .wasm 默认路由                                  [–]
 │
 ├── 归档 agenterm-qjs                                     [~]
-│   ├── fleet.js 等价物跑通                                 [~] 六件里两件有（字符串、
-│   │   │                                                       带参宿主调用），四件缺
+│   ├── fleet.js 等价物跑通                                 [~] 语言层六件全到；
+│   │   │                                                       剩一件在本层
 │   │   ├── 带参宿主调用（本仓这一半）                          [x] 2026-08-25
-│   │   ├── 对象 / 属性 / 函数值 / try / JSON / `?:`           [ ] 全在上游语言层
-│   │   └── 发出的 params 过 validate_fleet_parameters        [~] 字符串参数可以；
-│   │                                                           十条必需数值参数不行
+│   │   ├── 对象 / 属性 / 函数值 / try / JSON / `?:`           [x] rev f21f0f2
+│   │   ├── `script check scripts/qjs/lib/fleet.qjs` 答 OK    [x] 走产品自己的 CLI
+│   │   ├── `script run` 同一文件                             [ ] 倒在 `fleet;`：对象出不来
+│   │   └── 发出的 params 过 validate_fleet_parameters        [x] Number→String 到了，
+│   │                                                           数值参数不再是缺口
 │   ├── 两处生产调用点迁移 + 行为等价测试                     [ ]
 │   └── CLI 面对应或明确声明缺口                              [~] 十三动词判决已交付；
 │       └── Guest::CompiledQjs（pack 类动词的前置）           [x] 2026-08-25
