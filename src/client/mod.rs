@@ -2683,6 +2683,14 @@ fn validate_fleet_parameters(
             }),
             "uint32" | "uint64" => value.as_u64().is_some(),
             "integer" => value.as_i64().is_some(),
+            // Pointer and wheel coordinates are declared `number` because they
+            // are genuinely fractional on a high-resolution trackpad. Without
+            // this arm they fell to `_ => false`, so every script-driven
+            // pointer and wheel call was refused whatever it sent -- and the
+            // catalog conformance gate still called them conformant, because
+            // it compares parameter *names* and never asks whether the
+            // validator accepts the declared *type*.
+            "number" => value.as_f64().is_some(),
             _ => false,
         };
         if !valid_type {
@@ -4176,7 +4184,65 @@ mod tests {
     use super::{
         HostedSubcommand, hosted_subcommand, normalize_script_source, parse_loopback_ipc_address,
         parse_terminal_grid, run_wait_ui, script_eval_entry_source, script_worker_executable,
+        validate_fleet_parameters,
     };
+
+    /// Every `value_type` the catalog declares must have a real arm in the
+    /// validator. This is the class-level version of a bug that shipped: the
+    /// `"number"` arm was missing, so it fell to `_ => false` and every
+    /// script-driven `ui.input.pointer` / `ui.input.wheel` call was refused no
+    /// matter what it sent. Asserting the specific arm would only have fixed
+    /// that instance; this catches the next `value_type` someone adds without
+    /// teaching the validator about it.
+    #[test]
+    fn every_declared_value_type_is_known_to_the_validator() {
+        let budgets = crate::script_protocol::ScriptBudgets::default();
+        for operation in crate::operations::OPERATION_CATALOG {
+            for spec in operation.parameters {
+                // A value the arm should accept, chosen per declared type.
+                let accepted = match spec.value_type {
+                    "string" | "session_name" => serde_json::json!("text"),
+                    "stable_tab_id" => serde_json::json!("@1"),
+                    "uint32" | "uint64" => serde_json::json!(1u64),
+                    "integer" => serde_json::json!(1i64),
+                    "number" => serde_json::json!(1.5f64),
+                    other => panic!(
+                        "{}: parameter {} declares value_type {other:?}, which this test does \
+                         not know how to satisfy -- teach both this test and the validator",
+                        operation.id, spec.name
+                    ),
+                };
+                let mut object = serde_json::Map::new();
+                object.insert(spec.name.to_string(), accepted);
+                // Supply every other required parameter so the only thing under
+                // test is whether this one's type is recognised.
+                for other in operation.parameters {
+                    if other.name == spec.name || !other.required {
+                        continue;
+                    }
+                    let filler = match other.value_type {
+                        "string" | "session_name" => serde_json::json!("text"),
+                        "stable_tab_id" => serde_json::json!("@1"),
+                        "number" => serde_json::json!(1.5f64),
+                        _ => serde_json::json!(1i64),
+                    };
+                    object.insert(other.name.to_string(), filler);
+                }
+                let parameters = serde_json::Value::Object(object);
+                if let Err(response) = validate_fleet_parameters(operation, &parameters, &budgets) {
+                    let rendered = serde_json::to_string(&response).unwrap_or_default();
+                    assert!(
+                        !rendered.contains(&format!("must be {}", spec.value_type)),
+                        "{}: parameter {} declares value_type {:?} but the validator has no arm \
+                         for it, so the operation can never be called from a script: {rendered}",
+                        operation.id,
+                        spec.name,
+                        spec.value_type
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn mux_and_mcp_are_hosted_as_bare_subcommands() {
