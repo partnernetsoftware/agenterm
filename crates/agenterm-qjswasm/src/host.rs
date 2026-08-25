@@ -47,6 +47,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use tinyvm::{Val, WasmError};
+use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
 use crate::{Budget, FleetBridgeFn, QjswasmError};
 
@@ -74,6 +75,76 @@ const SIGNATURES: [(&str, usize, usize); 4] = [
     ("fleet_result_len", 0, 1),
     ("fleet_result", 2, 1),
 ];
+
+/// The same door, said in the vocabulary the `.qjs` compiler needs: which host
+/// functions a script may call, and how a JavaScript value is unwrapped onto
+/// each raw parameter above.
+///
+/// # The direction of the unwrapping is the whole design
+///
+/// The door does **not** learn about JavaScript values. It keeps the raw i32
+/// signatures a hand-written `.wasm` guest already stands behind -- nine tests
+/// in this crate lock them -- and the compiler unwraps a JS String into the
+/// `(ptr, len)` pair the door takes, then rewraps the two-pass byte answer into
+/// a JS String. Teaching the door the engine's `(tag: i32, payload: i64)` pair
+/// would break every hand-written guest and would leak one language's value
+/// representation into a boundary meant to serve any guest. Recorded in
+/// `plan/design-agenterm-qjswasm.md` 6.5 as the cross-repo contract; upstream
+/// carries the mechanism (`Names::Declared`) and no `agenterm` vocabulary.
+///
+/// # Why three declarations for four imports
+///
+/// `fleet_result` is a [`HostResult::Bytes`] door: a wasm function cannot
+/// return a slice, so the compiler asks `fleet_result_len` how many bytes are
+/// waiting, bump-allocates a string of exactly that size on the guest's own
+/// heap, then has `fleet_result` fill it -- and traps unless the copy wrote
+/// exactly what the length promised. That is the two-pass retrieval this door
+/// was built around, expressed as one declaration. `fleet_result_len` is
+/// therefore *not* a name a script may write: the second pass is the
+/// compiler's business, and a script that writes it gets the capability
+/// diagnostic any undeclared name gets.
+///
+/// # Names
+///
+/// The script-visible name is the field name, unchanged. `HostFn` allows a
+/// rename, and taking it would mean a script author reading `plan/`'s door
+/// table could not tell what to write. Renaming is for later, when object
+/// support lets a `.qjs`-authored `fleet.*` wrapper sit on top of these; the
+/// raw names stay the raw names underneath it.
+///
+/// # Order
+///
+/// Declaration order is import order upstream, and this order matches
+/// [`SIGNATURES`] -- `print`, `fleet_call`, then the two `fleet_result`
+/// passes -- so the two tables read the same way down the page. Only the
+/// declarations a script actually mentions become imports.
+pub(crate) fn declarations() -> Vec<HostFn> {
+    vec![
+        HostFn {
+            name: "print".to_string(),
+            module: DOOR.to_string(),
+            field: "print".to_string(),
+            params: vec![HostParam::StrPtrLen],
+            result: HostResult::Void,
+        },
+        HostFn {
+            name: "fleet_call".to_string(),
+            module: DOOR.to_string(),
+            field: "fleet_call".to_string(),
+            params: vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
+            result: HostResult::I32,
+        },
+        HostFn {
+            name: "fleet_result".to_string(),
+            module: DOOR.to_string(),
+            field: "fleet_result".to_string(),
+            params: Vec::new(),
+            result: HostResult::Bytes {
+                length: "fleet_result_len".to_string(),
+            },
+        },
+    ]
+}
 
 /// One slot's door state, shared by the four closures.
 struct Pending {
@@ -893,6 +964,92 @@ mod tests {
                 if message.contains("somewhere") && message.contains("else")),
             "expected a Door diagnostic naming the import, got {error:?}"
         );
+    }
+
+    /// The two tables that describe one door -- the raw [`SIGNATURES`] a guest
+    /// is checked against, and the [`declarations`] a `.qjs` script is compiled
+    /// against -- describe the *same* door.
+    ///
+    /// They are separate because they answer different questions, and separate
+    /// tables drift. This derives the raw signatures the declarations imply,
+    /// by the rules upstream documents on `HostParam` and `HostResult`, and
+    /// requires them to be exactly `SIGNATURES` -- so adding a door function to
+    /// one table and not the other fails here rather than at some script's
+    /// first call.
+    ///
+    /// `tests/qjs_door.rs::the_emitted_imports_are_exactly_the_existing_door`
+    /// is the other half: this checks the declarations against the door, that
+    /// one checks the *emitted wasm* against it, which is the only evidence
+    /// that upstream's unwrapping does what its documentation says.
+    #[test]
+    fn the_declarations_and_the_raw_signatures_are_one_door() {
+        let width = |p: &HostParam| match p {
+            HostParam::StrPtrLen => 2,
+            HostParam::I32 | HostParam::F64 => 1,
+        };
+        let mut derived: Vec<(String, usize, usize)> = Vec::new();
+        for decl in declarations() {
+            assert_eq!(decl.module, DOOR, "`{}` is not on this door", decl.name);
+            let raw: usize = decl.params.iter().map(width).sum();
+            match &decl.result {
+                HostResult::Void => derived.push((decl.field.clone(), raw, 0)),
+                HostResult::I32 | HostResult::F64 => derived.push((decl.field.clone(), raw, 1)),
+                // A byte result is two imports: the length pass takes the
+                // declared parameters, the copy pass takes them plus `(dst, cap)`.
+                HostResult::Bytes { length } => {
+                    derived.push((length.clone(), raw, 1));
+                    derived.push((decl.field.clone(), raw + 2, 1));
+                }
+            }
+        }
+        let mut expected: Vec<(String, usize, usize)> = SIGNATURES
+            .iter()
+            .map(|(field, p, r)| ((*field).to_string(), *p, *r))
+            .collect();
+        derived.sort();
+        expected.sort();
+        assert_eq!(derived, expected);
+    }
+
+    /// Every declared name is one a guest may actually import, and the
+    /// declarations carry no name the door does not answer to. Checked through
+    /// `check_declarations` itself rather than against the table again, so the
+    /// load gate is what agrees, not a second copy of its rules.
+    #[test]
+    fn every_declared_name_passes_the_load_gate() {
+        for decl in declarations() {
+            let arity = |n: usize| "i32 ".repeat(n);
+            let wasm = wat::parse_str(format!(
+                "(module (import \"{}\" \"{}\" (func (param {}) {})))",
+                decl.module,
+                decl.field,
+                arity(
+                    decl.params
+                        .iter()
+                        .map(|p| match p {
+                            HostParam::StrPtrLen => 2,
+                            HostParam::I32 | HostParam::F64 => 1,
+                        })
+                        .sum::<usize>()
+                        + if matches!(decl.result, HostResult::Bytes { .. }) {
+                            2
+                        } else {
+                            0
+                        }
+                ),
+                if matches!(decl.result, HostResult::Void) {
+                    ""
+                } else {
+                    "(result i32)"
+                },
+            ))
+            .expect("valid wat");
+            let module = tinyvm::WasmModule::from_bytes_with(&wasm, tinyvm::Limits::default())
+                .unwrap_or_else(|e| panic!("load gate: {}", e.message()));
+            check_declarations(&module).unwrap_or_else(|e| {
+                panic!("the door refuses its own declaration `{}`: {e}", decl.field)
+            });
+        }
     }
 
     /// `take_stdout` drains, so the next call on the same slot starts clean.

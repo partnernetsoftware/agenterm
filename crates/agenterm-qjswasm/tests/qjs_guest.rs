@@ -147,18 +147,26 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// bytes, so a compile error that arrived as `Load` would look plausible and be
 /// wrong about who to talk to.
 ///
-/// The three sources are chosen to still be outside the subset after this bump,
-/// and each is measured rather than read off upstream's source: `%` and
-/// `typeof` parse and are then named as boundaries, and a closure that captures
-/// an outer *local* is refused rather than miscompiled. This test is the lock
-/// on the "honest boundary" copy in this crate's README and in PRD 36 -- if the
-/// subset grows past one of these, the copy has to be rewritten in the same
-/// commit that makes it stale.
+/// The sources are chosen to still be outside the subset, and each is measured
+/// rather than read off upstream's source. This test is the lock on the
+/// "honest boundary" copy in this crate's README and in PRD 36 -- if the subset
+/// grows past one of these, the copy has to be rewritten in the same commit
+/// that makes it stale.
+///
+/// It has now caught that once, which is what it is for. The rev bump to
+/// `6920c60` -- taken for `Names::Declared`, the mechanism that lets a `.qjs`
+/// script reach the door -- also brought upstream's `%` (dd35c44) and `typeof`
+/// (c707558), and the two of them were this list's first two entries. Both
+/// measured: `return 1 % 2;` is `Number(1.0)` and `return typeof 1;` is
+/// `Str("number")`. They are replaced below with constructs measured to be
+/// outside the subset at that same rev, and the README's refusal list was
+/// corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
     for source in [
-        "return 1 % 2;",
-        "return typeof 1;",
+        "return 1 ? 2 : 3;",
+        "return {};",
+        "return `x`;",
         "function outer() { let a = 1; function inner() { return a; } return inner(); }",
     ] {
         let mut eng = engine();

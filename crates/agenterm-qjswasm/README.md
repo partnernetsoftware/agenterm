@@ -49,20 +49,47 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
   `+` `-`、`*` `/`、前后缀 `++`/`--`、一元 `+ - !`、括号。`+` 在任一侧是字符串时拼接。
 - **ASI**：ECMA-262 12.10。
 
-**明确拒绝**（编译期，诊断说清是引擎边界）：`%`、`typeof`、对象/数组字面量、属性访问、
+**明确拒绝**（编译期，诊断说清是引擎边界）：对象/数组字面量、属性访问、
 `?:`、`try`/`throw`、`class`、`switch`、`break`/`continue`、`for…of`、模板字面量、
 位运算与移位、`**`、`??`、逗号运算符、BigInt；**捕获外层局部变量的闭包**；
 **把函数当值用**（`let f = function(){}` 之后 `f()`、`return f`——都拒绝；
 立即调用的函数表达式 `(function(a){...})(1)` 可以）。
+
+（`%` 与 `typeof` 曾在这张拒绝表里，rev 抬到 `6920c60` 之后**已支持**——实测
+`1 % 2` = `1`、`typeof 1` = `"number"`。这一条是
+`tests/qjs_guest.rs::a_source_outside_the_subset_is_a_compile_error_not_a_load_error`
+抓到的，那条测试的存在理由就是这个。）
 
 **两处运行期行为要知道：**
 
 - 三个 ECMA-262 转换尚未实现（Number 的 ToString、StringToNumber、字符串关系比较），
   撞上是 **trap 而不是编造一个值**：`"a" + 1`、`"2" * 2`、`"a" < "b"`、`1 == "1"` 都
   trap。这是上游记录在案的 divergence，不是本层的分类错误。
-- **`.qjs` 还够不着 `agenterm.*` 门。** 自由名字一律在编译期被拒
-  （"this engine has no global bindings yet"），所以 `print` / `fleet_call` 目前只有
-  手写 `.wasm` 客人能调。门本身是通的、有测试；缺的是语言侧的那条线。
+- **`.qjs` 已经够得着 `agenterm.*` 门**（2026-08-25，rev `6920c60`）。曾经这里写的是
+  「自由名字一律在编译期被拒，所以 `print` / `fleet_call` 只有手写 `.wasm` 客人能调」
+  ——那一条已作废。脚本可以直接写三个名字：
+
+  ```js
+  print("hello");
+  let status = fleet_call("tabs.list", "{}");   // 0=Ok 1=Err 2=NoBridge
+  if (status === 0) { return fleet_result(); }
+  ```
+
+  门**一个字没改**：客人仍然导入那四个原始 i32 函数，与手写 `.wasm` 客人同一张
+  import 表。拆包是**编译器**的活——JS 字符串拆成 `(ptr, len)`，两趟取回的字节
+  （`fleet_result_len` → bump 分配 → `fleet_result`）组装回 JS 字符串。门不认识
+  JS 值，这个方向是设计本身：让门说 V1 双字会弄坏每一个手写客人，也会把一门语言的
+  值表示泄进一个本该服务任意客人的边界（`plan/design-agenterm-qjswasm.md` 6.5）。
+
+  声明表在 `src/host.rs::declarations()`，公开面是 `door_declarations()`。
+  **脚本可见名 = field 名**，不改名。`fleet_result_len` 不是脚本能写的名字——它是字节
+  结果的长度那一趟，归编译器。只有脚本真的提到的声明才会变成 import：不碰门的脚本
+  emit **零个** import。证据在 `tests/qjs_door.rs`（13 条，含状态 0/1/2 三条路、
+  `print` 进 `Outcome::stdout`、两个上限、以及把 emit 出来的 import 表解码出来逐字对
+  `src/host.rs::SIGNATURES`）。
+
+  想要一份**够不着门**的产物（import 表按构造为空）用 `compile_qjs_without_door`；
+  `check` 与 `execute` 都走 `compile_qjs`，两边看见的是同一门语言。
 
 `.wasm` 侧是完整的：任何过 tinyvm 装载门的标准模块都能装载、按名调用、有预算地执行。
 

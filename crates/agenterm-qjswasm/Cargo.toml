@@ -26,8 +26,8 @@ path = "src/lib.rs"
 # vocabulary, so the layering rule governs: generic engine capability upstream,
 # business here. This crate keeps the half that is business -- the `agenterm.*`
 # door, slots, budget policy -- and re-exports the compiler's face.
-tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "df8decd" }
-tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "df8decd" }
+tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "6920c60" }
+tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "6920c60" }
 
 [dev-dependencies]
 # Test-only: hand-authoring adversarial guests (infinite loop, deep recursion,

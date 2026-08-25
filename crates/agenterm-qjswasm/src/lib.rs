@@ -65,6 +65,12 @@ mod slot;
 /// see one door.
 pub use tinyvm_qjs::{Boundary, CompileError};
 
+/// The compiler's declaration vocabulary, re-exported so a caller can read
+/// [`door_declarations`] without depending on `tinyvm-qjs` directly. The
+/// declarations are agenterm's; the mechanism is upstream's and names nothing
+/// of agenterm's.
+pub use tinyvm_qjs::{HostFn, HostParam, HostResult};
+
 /// Compile `.qjs` source to standard wasm bytes. Compile-only: it never
 /// executes what it produces, which is what makes a `check` free of side
 /// effects.
@@ -84,8 +90,55 @@ pub use tinyvm_qjs::{Boundary, CompileError};
 /// there was only one; now a `check` that used M0 while `execute` used M1
 /// would accept a script at run time that it had just refused at check time,
 /// which is the worst shape a gate can have.
+///
+/// # The door is part of this entry point, not an option on it
+///
+/// A script compiled here may call the `agenterm.*` door by name --
+/// `print`, `fleet_call`, `fleet_result`; see [`door_declarations`]. That is
+/// deliberately not a flag: `check` (which calls this) and `execute` (which
+/// reaches it through [`Engine::spawn`]) have to agree about what a script may
+/// say, and a door that appeared only on the execute path would make `check`
+/// refuse working scripts. A script that mentions no door name compiles
+/// exactly as it did before and emits **no** imports, so the declaration costs
+/// nothing to a guest that does not reach for it.
+///
+/// Callers who want a guest with no host surface at all -- one whose bytes
+/// provably cannot name the door -- use [`compile_qjs_without_door`].
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(host::declarations()),
+        },
+    )
+}
+
+/// [`compile_qjs`] with no host surface: every free name is a capability
+/// diagnostic, and the emitted module imports nothing at all.
+///
+/// This is the shape the crate compiled everything as until the door landed.
+/// It is kept because "this guest cannot reach the host, and that is checkable
+/// from its bytes" is a real thing to want -- a corpus scan, a pure-computation
+/// benchmark, a guest whose import table must be empty by construction rather
+/// than by inspection. It is **not** what `check` or `execute` use: a script
+/// checked with this and run with the door would be checked against a smaller
+/// language than it runs in.
+pub fn compile_qjs_without_door(source: &str) -> Result<Vec<u8>, CompileError> {
     tinyvm_qjs::compile_qjs_m1(source)
+}
+
+/// The `agenterm.*` door as declarations the `.qjs` compiler can unwrap onto:
+/// what a script may call, which raw import each call becomes.
+///
+/// Exposed so an embedder can print the surface a script is compiled against
+/// without reading this crate's source, and so the door's two tables -- the
+/// raw signatures in `src/host.rs` and these declarations -- can be checked
+/// against each other from outside.
+///
+/// Three declarations, four imports: `fleet_result` is a two-pass byte
+/// result, so it brings `fleet_result_len` with it. See `src/host.rs`.
+pub fn door_declarations() -> Vec<HostFn> {
+    host::declarations()
 }
 
 /// Bounds on one guest. Execution limits live in the tinyvm core; the three

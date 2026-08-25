@@ -1105,12 +1105,18 @@ mod tests {
         let options = ScriptInvocationOptions::default();
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("outside.qjs");
-        std::fs::write(&path, "return 1 % 2;").expect("write");
+        // `%` stood here until the 2026-08-25 bump to upstream `6920c60`, which
+        // implemented it (dd35c44) along with `typeof` (c707558) -- so the
+        // source this test called "outside the subset" started compiling and
+        // this assertion started failing. A conditional expression is measured
+        // to be outside it at that rev
+        // (`crates/agenterm-qjswasm/tests/qjs_guest.rs` carries the same list).
+        std::fs::write(&path, "return 1 ? 2 : 3;").expect("write");
         let path = path.to_str().expect("utf-8 path");
 
         let checked = engine
             .check(path, &options)
-            .expect_err("`%` is not lowered");
+            .expect_err("a conditional expression is not lowered");
         assert!(
             checked.contains("this engine does not support"),
             "{checked}"
