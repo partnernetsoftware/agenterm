@@ -1,0 +1,1009 @@
+//! Attacking the `.qjs` -> `agenterm.*` door: hostile scripts, hostile
+//! bridges, and the budget edges where the two-pass string fetch lives.
+//!
+//! `tests/qjs_door.rs` proves the door works. This file tries to break it. The
+//! division matters because the two answer different questions: that one asks
+//! "does a script reach the bridge", this one asks "what does the engine say
+//! when the script, the bridge, or the budget misbehaves" -- and the required
+//! answer is always the same shape. A typed refusal is correct. A panic, a
+//! wrong value, a fabricated string, or a diagnostic that blames the wrong
+//! party is not.
+//!
+//! # What is asserted, and what is merely recorded
+//!
+//! Most of this file locks behaviour that is already right, so it stays right.
+//! Four tests are different: they carry a `FINDING` block, and they assert what
+//! the engine *does* today while saying what it *should* do. They are written
+//! that way on purpose. Deleting them loses the measurement; making them assert
+//! the desired behaviour would leave a red suite for a defect nobody has
+//! decided to fix yet. When one is fixed, its test fails, and the block above
+//! it says exactly what to change it to.
+//!
+//! Nothing here is fixed in `src/**`: this lane reports.
+
+use std::sync::{Arc, Mutex};
+
+use agenterm_qjswasm::{
+    Budget, Engine, FleetBridgeFn, Guest, JsValue, Outcome, QjswasmError, Value, compile_qjs,
+};
+
+// =========================================================================
+// Harness
+// =========================================================================
+
+/// A bridge plus the `(op, params)` pairs it saw, so a test can prove the
+/// script's own bytes arrived -- not merely that something was called.
+struct Bridge {
+    call: FleetBridgeFn,
+    seen: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl Bridge {
+    fn new(answer: impl Fn(&str, &str) -> Result<String, String> + Send + Sync + 'static) -> Self {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        Self {
+            call: Arc::new(move |op: &str, params: &str| {
+                log.lock()
+                    .unwrap()
+                    .push((op.to_string(), params.to_string()));
+                answer(op, params)
+            }),
+            seen,
+        }
+    }
+
+    /// Every call, in order.
+    fn seen(&self) -> Vec<(String, String)> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+/// A bridge that answers every call with the same text.
+fn answering(text: &str) -> Bridge {
+    let text = text.to_string();
+    Bridge::new(move |_op, _params| Ok(text.clone()))
+}
+
+fn run(source: &str, bridge: Option<FleetBridgeFn>) -> Result<Outcome, QjswasmError> {
+    run_with(Budget::default(), source, bridge)
+}
+
+fn run_with(
+    budget: Budget,
+    source: &str,
+    bridge: Option<FleetBridgeFn>,
+) -> Result<Outcome, QjswasmError> {
+    Engine::with_budget(budget).run_once(Guest::Qjs(source), bridge, "main", &[])
+}
+
+/// The one JavaScript string a script returned.
+#[track_caller]
+fn string_from(source: &str, bridge: Option<FleetBridgeFn>) -> String {
+    let out = run(source, bridge).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+    match out.values.as_slice() {
+        [Value::Js(JsValue::Str(s))] => s.clone(),
+        other => panic!("{source:?} returned {other:?}, wanted one JS string"),
+    }
+}
+
+/// The compile diagnostic a script is refused with.
+#[track_caller]
+fn refused(source: &str) -> String {
+    match run(source, None) {
+        Err(QjswasmError::Compile(e)) => e.message,
+        other => panic!("{source:?} was not refused at compile time: {other:?}"),
+    }
+}
+
+/// A budget whose only unusual field is `max_memory_pages`.
+fn pages(n: usize) -> tinyvm::Limits {
+    tinyvm::Limits {
+        max_memory_pages: n,
+        ..tinyvm::Limits::default()
+    }
+}
+
+/// `fleet_call` then `fleet_result`, the shape almost every attack below uses.
+const CALL_THEN_FETCH: &str = "let status = fleet_call(\"o\", \"p\"); return fleet_result();";
+
+// =========================================================================
+// Calling a door function wrongly
+// =========================================================================
+
+/// Every arity mistake is settled before the script runs, and the diagnostic
+/// carries both numbers -- what the door takes and what the call passed --
+/// because a reader who only learns that something is wrong has to go looking
+/// for the table.
+#[test]
+fn a_wrong_argument_count_is_refused_at_compile_time_with_both_numbers() {
+    for (source, wants, gives) in [
+        ("print(); return 0;", 1, 0),
+        ("print(\"a\", \"b\"); return 0;", 1, 2),
+        ("return fleet_call(\"o\");", 2, 1),
+        ("return fleet_call(\"o\", \"p\", \"q\");", 2, 3),
+        ("return fleet_result(1);", 0, 1),
+    ] {
+        let message = refused(source);
+        assert!(
+            message.contains(&format!("with {wants} argument(s)"))
+                && message.contains(&format!("passes {gives}")),
+            "{source:?}: {message}"
+        );
+        assert!(
+            message.starts_with("this engine "),
+            "the diagnostic must name the engine's boundary, not the script: {message}"
+        );
+    }
+}
+
+/// A value whose type the compiler can settle without running anything is
+/// refused there, naming the argument position and the declared type. This is
+/// the half of the type policy a script author can act on.
+#[test]
+fn a_statically_settled_wrong_type_is_refused_at_compile_time() {
+    for (source, got) in [
+        ("print(1); return 0;", "a Number"),
+        ("print(true); return 0;", "a Boolean"),
+        ("print(null); return 0;", "Null"),
+        ("print(undefined); return 0;", "Undefined"),
+        ("print(-1); return 0;", "a Number"),
+        ("return fleet_call(\"o\", 2);", "a Number"),
+    ] {
+        let message = refused(source);
+        assert!(
+            message.contains(&format!("cannot pass {got}")) && message.contains("a String"),
+            "{source:?}: {message}"
+        );
+        assert!(message.starts_with("this engine "), "{message}");
+    }
+}
+
+/// FINDING 5 (low, legibility) -- a runtime type mismatch at the door is a
+/// bare `unreachable`.
+///
+/// ```text
+/// reproducer  let x = 1; print(x); return 0;
+/// observed    Trap("unreachable executed")
+/// expected    a fault that names `print`, the argument, and the declared type
+/// ```
+///
+/// Nothing *wrong* happens: the host is not handed a fabricated pointer, and
+/// the failure is a typed `QjswasmError::Trap`, which is the correct class --
+/// the guest did run. What is missing is any way to tell this trap from a
+/// division by zero. Compare the message the same mistake gets one line
+/// earlier, in [`a_statically_settled_wrong_type_is_refused_at_compile_time`].
+///
+/// The cause is upstream and deliberate: `tinyvm-qjs` `src/repr.rs:270`
+/// (`unbox_string` -> `require_tag`) emits an `unreachable`, and
+/// `src/emit.rs:1450` documents it as "the runtime half of the policy whose
+/// compile-time half is `static_type`". Closing it needs a trap code the core
+/// can carry, which is upstream's to give.
+///
+/// When it is fixed: assert on the new fault instead.
+#[test]
+fn finding_5_a_runtime_type_mismatch_traps_without_naming_the_door() {
+    for source in [
+        "let x = 1; print(x); return 0;",
+        "let x = null; print(x); return 0;",
+        "let x = 1; return fleet_call(x, \"p\");",
+    ] {
+        match run(source, Some(answering("never").call)) {
+            Err(QjswasmError::Trap(e)) => {
+                assert_eq!(e.message(), "unreachable executed", "{source:?}");
+                assert!(
+                    !e.message().contains("print") && !e.message().contains("fleet"),
+                    "FIXED: the trap now names the door -- update this test",
+                );
+            }
+            other => panic!("{source:?}: expected a trap, got {other:?}"),
+        }
+    }
+}
+
+/// A door name the script does not define is refused, and the door is listed.
+/// A door name the script *does* define shadows it -- checked next.
+#[test]
+fn a_near_miss_name_is_refused_and_the_whole_door_is_listed() {
+    let message = refused("return fleet_calll(\"o\", \"p\");");
+    assert!(message.contains("fleet_calll"), "{message}");
+    for offered in ["print", "fleet_call", "fleet_result"] {
+        assert!(message.contains(offered), "{message}");
+    }
+}
+
+/// A script may define its own `print`. The door does not win over a binding
+/// the script wrote, in any of the three shapes a binding comes in.
+///
+/// This is the difference between a declaration table and a set of reserved
+/// words, and it is worth a test because getting it backwards would be silent:
+/// a script that defined `print` to collect output would instead be shipping
+/// its callers' text to the host.
+#[test]
+fn a_script_binding_shadows_the_door_rather_than_the_other_way_round() {
+    assert_eq!(
+        string_from(
+            "function print(x) { return x; } return print(\"mine\");",
+            None
+        ),
+        "mine"
+    );
+    assert_eq!(
+        string_from("let print = \"mine\"; return print;", None),
+        "mine"
+    );
+    assert_eq!(
+        string_from(
+            "function f(fleet_result) { return fleet_result; } return f(\"mine\");",
+            None
+        ),
+        "mine"
+    );
+    // And the shadowing script imports nothing: the door is not merely
+    // out-voted at the call site, it is absent from the module.
+    assert!(
+        compile_qjs("function print(x) { return x; } return print(\"mine\");")
+            .expect("compiles")
+            .windows(8)
+            .all(|w| w != b"agenterm"),
+        "a script that shadows `print` still imports the door"
+    );
+}
+
+/// FINDING 3 (medium) -- mentioning a zero-argument door function calls it.
+///
+/// ```text
+/// reproducer  return typeof fleet_result;
+/// observed    "string"        (the door was called; its answer was typeof'd)
+/// expected    "function"      (ECMA-262 13.5.3 on a callable binding)
+///
+/// reproducer  let f = fleet_result; return f;
+/// observed    ""              (the door was called at the mention)
+/// expected    a diagnostic, or a function value
+/// ```
+///
+/// The rule behind it is upstream's, in `tinyvm-qjs` `src/emit.rs:857`: "A bare
+/// host name is a zero-argument call, as it is at M0." Under `Names::Declared`
+/// that rule stops being harmless, because the declarations now have arities.
+/// It shows up twice in agenterm's table:
+///
+/// - `fleet_result` takes no arguments, so a bare mention *is* a well-formed
+///   call and silently performs one.
+/// - `print` takes one, so the same mention is a compile error -- and the
+///   error describes a call the script never wrote ("with 1 argument(s), and
+///   this call passes 0"), which reads as a bug in the script.
+///
+/// Both are the same defect seen from two arities, and the second is the one
+/// that will waste an author's afternoon.
+///
+/// When it is fixed: `typeof fleet_result` becomes `"function"` or a
+/// diagnostic, and the `print` case gets a diagnostic about referencing a host
+/// function rather than an argument count.
+#[test]
+fn finding_3_a_bare_door_name_is_a_call() {
+    assert_eq!(
+        string_from("return typeof fleet_result;", None),
+        "string",
+        "FIXED if this is now `function` -- update this test",
+    );
+    let bridge = answering("called!");
+    let out = run("let f = fleet_result; return f;", Some(bridge.call)).expect("runs");
+    assert_eq!(out.values, vec![Value::Js(JsValue::Str(String::new()))]);
+
+    // The same shape at arity 1 is a compile error whose text describes a call
+    // the script never wrote.
+    let message = refused("return typeof print;");
+    assert!(
+        message.contains("this call passes 0"),
+        "FIXED if the diagnostic no longer invents a call: {message}"
+    );
+}
+
+// =========================================================================
+// What crosses the door as a string
+// =========================================================================
+
+/// An empty string is a string. All four positions take one, and none of them
+/// mistakes it for absence.
+#[test]
+fn empty_strings_cross_the_door_in_both_directions() {
+    let bridge = Bridge::new(|op, params| Ok(format!("[{op}|{params}]")));
+    let out = run(
+        "print(\"\"); let status = fleet_call(\"\", \"\"); return fleet_result();",
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    assert_eq!(out.stdout, "");
+    assert_eq!(out.values, vec![Value::Js(JsValue::Str("[|]".into()))]);
+    assert_eq!(bridge.seen(), vec![(String::new(), String::new())]);
+
+    // A bridge that answers with nothing is not "no answer".
+    assert_eq!(string_from(CALL_THEN_FETCH, Some(answering("").call)), "");
+}
+
+/// `print("")` under a zero-byte cap writes nothing and is *not* flagged
+/// truncated: the flag means "you lost bytes", and no bytes were lost.
+#[test]
+fn an_empty_print_is_not_a_truncation() {
+    let budget = Budget {
+        max_stdout_bytes: 0,
+        ..Budget::default()
+    };
+    let out = run_with(budget.clone(), "print(\"\"); return 0;", None).expect("runs");
+    assert_eq!((out.stdout.as_str(), out.truncated_stdout), ("", false));
+
+    let out = run_with(budget, "print(\"abc\"); return 0;", None).expect("runs");
+    assert_eq!((out.stdout.as_str(), out.truncated_stdout), ("", true));
+}
+
+/// A NUL is an ordinary byte of a JavaScript string, and the door carries
+/// `(ptr, len)` rather than a C string, so it must survive with the length
+/// intact rather than cutting the value short.
+#[test]
+fn a_nul_byte_crosses_the_door_without_truncating_anything() {
+    let bridge = Bridge::new(|op, _params| Ok(op.to_string()));
+    let out = run(
+        "print(\"a\\u0000b\"); let s = fleet_call(\"n\\u0000ul\", \"\"); return fleet_result();",
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    assert_eq!(out.stdout, "a\0b");
+    assert_eq!(bridge.seen(), vec![("n\0ul".to_string(), String::new())]);
+    assert_eq!(out.values, vec![Value::Js(JsValue::Str("n\0ul".into()))]);
+}
+
+/// A `.qjs` guest cannot present invalid UTF-8 at the door, so `host.rs`'s
+/// `NOT_UTF8` status-1 path is unreachable from this language and remains a
+/// hand-written-guest concern only.
+///
+/// The engine closes the two routes that would produce it: an unpaired
+/// surrogate is refused in the lexer, and `\xNN` is a code point, not a byte.
+#[test]
+fn a_qjs_script_cannot_hand_the_door_invalid_utf8() {
+    for source in [
+        "print(\"a\\ud800b\"); return 0;",
+        "return fleet_call(\"\\udfff\", \"p\");",
+    ] {
+        let message = refused(source);
+        assert!(
+            message.contains("unpaired surrogates"),
+            "{source:?}: {message}"
+        );
+    }
+    // `\xff` is U+00FF, which is two well-formed UTF-8 bytes, and a surrogate
+    // *pair* is one astral code point.
+    let bridge = Bridge::new(|op, _params| Ok(op.to_string()));
+    let out = run(
+        "print(\"a\\xffb\"); return fleet_call(\"\\ud83d\\ude00\", \"p\");",
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    assert_eq!(out.stdout, "a\u{ff}b");
+    assert_eq!(
+        bridge.seen(),
+        vec![("\u{1f600}".to_string(), "p".to_string())]
+    );
+}
+
+/// A string built at run time lives on the bump heap, a literal lives in the
+/// data segment, and the door has to read both the same way -- the record's
+/// four-byte header is the engine's business and must never reach the bridge.
+#[test]
+fn heap_built_and_literal_strings_arrive_identically() {
+    let bridge = Bridge::new(|_op, _params| Ok("x".to_string()));
+    run(
+        "let s = fleet_call(\"a\" + \"b\", \"c\" + \"d\");
+         let t = fleet_call(\"ab\", \"cd\");
+         return 0;",
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    let seen = bridge.seen();
+    assert_eq!(
+        seen[0], seen[1],
+        "a heap string and a literal must look alike"
+    );
+    assert_eq!(seen[0], ("ab".to_string(), "cd".to_string()));
+}
+
+/// A hundred kilobytes through `print` and through `fleet_call`, byte-exact.
+/// Big enough that a length taken from the wrong place, or a copy bounded by
+/// the wrong number, would not survive.
+#[test]
+fn a_hundred_kilobyte_argument_arrives_whole() {
+    let big = "y".repeat(100_000);
+    let bridge = Bridge::new(|op, _params| Ok(op.len().to_string()));
+    let out = run(
+        &format!("print(\"{big}\"); let s = fleet_call(\"{big}\", \"p\"); return fleet_result();"),
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    assert_eq!(out.stdout.len(), 100_000);
+    assert!(out.stdout.bytes().all(|b| b == b'y'));
+    assert_eq!(bridge.seen()[0].0.len(), 100_000);
+    assert_eq!(out.values, vec![Value::Js(JsValue::Str("100000".into()))]);
+}
+
+/// Arguments are evaluated left to right, once each, before any of them is
+/// unwrapped onto a raw parameter. The `Bytes` fetch pushes its raw parameters
+/// twice, so "evaluate first, unwrap later" is the only order that does not
+/// repeat a side effect.
+#[test]
+fn door_arguments_are_evaluated_left_to_right_exactly_once() {
+    let bridge = Bridge::new(|op, params| Ok(format!("{op}/{params}")));
+    let out = run(
+        "function tag(t) { print(t); return t; }
+         let s = fleet_call(tag(\"first\"), tag(\"second\"));
+         return fleet_result();",
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    assert_eq!(out.stdout, "firstsecond");
+    assert_eq!(
+        bridge.seen(),
+        vec![("first".to_string(), "second".to_string())]
+    );
+    assert_eq!(
+        out.values,
+        vec![Value::Js(JsValue::Str("first/second".into()))]
+    );
+}
+
+// =========================================================================
+// The pending buffer
+// =========================================================================
+
+/// Fetching before any call is the empty string, not a fault and not stale
+/// bytes -- and it costs a real host round trip, so the length pass has to
+/// answer 0 rather than leaving the guest to allocate a garbage length.
+#[test]
+fn fetching_before_any_call_is_the_empty_string() {
+    assert_eq!(string_from("return fleet_result();", None), "");
+    assert_eq!(
+        string_from("return fleet_result();", Some(answering("unused").call)),
+        "",
+        "the bridge is not consulted by a fetch"
+    );
+}
+
+/// Fetching twice yields the same bytes twice. The pending buffer survives
+/// collection by design, and the second fetch is a second allocation on the
+/// guest's heap -- so this also proves the two-pass shape is re-entrant
+/// against itself.
+#[test]
+fn fetching_twice_yields_the_same_answer_twice() {
+    let bridge = answering("ab");
+    assert_eq!(
+        string_from(
+            "let s = fleet_call(\"o\", \"p\"); return fleet_result() + fleet_result();",
+            Some(bridge.call)
+        ),
+        "abab"
+    );
+}
+
+/// Two fetches inside one argument list, feeding the door its own answer.
+/// Both must see the same pending bytes, and the first argument's pointer must
+/// still be good after the second fetch has allocated (and possibly grown
+/// memory) behind it.
+#[test]
+fn the_door_can_be_fed_its_own_answer() {
+    let bridge = Bridge::new(|op, params| Ok(format!("[{op}|{params}]")));
+    let out = run(
+        "let seed = fleet_call(\"seed\", \"P\");
+         let s = fleet_call(fleet_result(), fleet_result());
+         return fleet_result();",
+        Some(Arc::clone(&bridge.call)),
+    )
+    .expect("runs");
+    assert_eq!(
+        bridge.seen(),
+        vec![
+            ("seed".to_string(), "P".to_string()),
+            ("[seed|P]".to_string(), "[seed|P]".to_string()),
+        ]
+    );
+    assert_eq!(
+        out.values,
+        vec![Value::Js(JsValue::Str("[[seed|P]|[seed|P]]".into()))]
+    );
+}
+
+/// One slot's pending answer is invisible to another slot in the same engine,
+/// including a slot with no bridge at all.
+#[test]
+fn the_pending_buffer_is_per_slot() {
+    let mut engine = Engine::new();
+    let a = engine
+        .spawn(
+            Guest::Qjs("let s = fleet_call(\"A\", \"p\"); return fleet_result();"),
+            Some(Bridge::new(|op, _p| Ok(format!("from-{op}"))).call),
+        )
+        .expect("spawns");
+    let b = engine
+        .spawn(Guest::Qjs("return fleet_result();"), None)
+        .expect("spawns");
+
+    let first = engine.call(a, "main", &[]).expect("A runs");
+    assert_eq!(first.values, vec![Value::Js(JsValue::Str("from-A".into()))]);
+    let other = engine.call(b, "main", &[]).expect("B runs");
+    assert_eq!(
+        other.values,
+        vec![Value::Js(JsValue::Str(String::new()))],
+        "B never called the bridge and must not see A's answer"
+    );
+    let again = engine.call(a, "main", &[]).expect("A runs again");
+    assert_eq!(again.values, vec![Value::Js(JsValue::Str("from-A".into()))]);
+}
+
+// =========================================================================
+// Caps, budgets, and the edges between them
+// =========================================================================
+
+/// Both result caps refuse exactly one byte past themselves and accept exactly
+/// themselves, and they refuse in their own separate ways: the bridge cap is
+/// an application-level status the script can branch on, the seam cap is an
+/// engine-level budget the script never sees.
+#[test]
+fn both_result_caps_refuse_at_the_byte_after_the_cap() {
+    // `max_bridge_result_bytes`: the door replaces the answer with its own
+    // bounded message, so the script sees status 1.
+    for (n, expected) in [
+        (4usize, "abcd".to_string()),
+        (
+            5,
+            "agenterm: fleet result exceeds the slot's max_bridge_result_bytes".to_string(),
+        ),
+    ] {
+        let budget = Budget {
+            max_bridge_result_bytes: 4,
+            ..Budget::default()
+        };
+        let got = run_with(budget, CALL_THEN_FETCH, Some(answering(&"abcde"[..n]).call))
+            .expect("an over-cap answer is a normal result");
+        assert_eq!(got.values, vec![Value::Js(JsValue::Str(expected))]);
+    }
+
+    // `max_result_string_bytes`: a refusal at the seam, never a prefix.
+    for (n, ok) in [(16usize, true), (17, false)] {
+        let budget = Budget {
+            max_result_string_bytes: 16,
+            ..Budget::default()
+        };
+        let got = run_with(
+            budget,
+            CALL_THEN_FETCH,
+            Some(answering(&"x".repeat(n)).call),
+        );
+        match (got, ok) {
+            (Ok(out), true) => {
+                assert_eq!(out.values, vec![Value::Js(JsValue::Str("x".repeat(16)))])
+            }
+            (Err(QjswasmError::Budget(what)), false) => {
+                assert_eq!(what, "max_result_string_bytes")
+            }
+            (other, _) => panic!("n={n}: {other:?}"),
+        }
+    }
+}
+
+/// The step budget can land anywhere in the two-pass fetch. Whatever it cuts,
+/// the call either produces the exact answer or reports
+/// `Budget("max_steps")` -- never a short string, never a fabricated tail,
+/// never a panic.
+///
+/// This is the assertion the two-pass design most needs: the fetch is
+/// length-then-copy across two host calls with a guest allocation between
+/// them, and a budget expiring in the middle is the one way a partially built
+/// string could become visible.
+#[test]
+fn a_step_budget_landing_inside_the_two_pass_fetch_never_yields_half_an_answer() {
+    for steps in 1u64..=400 {
+        let budget = Budget {
+            limits: tinyvm::Limits {
+                max_steps: steps,
+                ..tinyvm::Limits::default()
+            },
+            ..Budget::default()
+        };
+        let got = run_with(
+            budget,
+            "print(\"p\"); let s = fleet_call(\"o\", \"p\"); return fleet_result();",
+            Some(answering("abcd").call),
+        );
+        match got {
+            Ok(out) => assert_eq!(
+                out.values,
+                vec![Value::Js(JsValue::Str("abcd".into()))],
+                "max_steps={steps} produced a value that is not the whole answer"
+            ),
+            Err(QjswasmError::Budget(what)) => assert_eq!(what, "max_steps"),
+            Err(other) => panic!("max_steps={steps}: {other:?}"),
+        }
+    }
+}
+
+/// The same, for a loop that crosses the door repeatedly and accumulates the
+/// answers -- so the cut can also land between iterations, and between a
+/// bridge call and the fetch that collects it.
+#[test]
+fn a_step_budget_landing_inside_a_door_loop_never_yields_a_partial_accumulation() {
+    for steps in (1u64..=4000).step_by(13) {
+        let budget = Budget {
+            limits: tinyvm::Limits {
+                max_steps: steps,
+                ..tinyvm::Limits::default()
+            },
+            ..Budget::default()
+        };
+        let got = run_with(
+            budget,
+            "let acc = \"\";
+             for (let i = 0; i < 5; i = i + 1) {
+                 let s = fleet_call(\"o\", \"p\");
+                 acc = acc + fleet_result();
+             }
+             return acc;",
+            Some(answering("abcd").call),
+        );
+        match got {
+            Ok(out) => assert_eq!(
+                out.values,
+                vec![Value::Js(JsValue::Str("abcd".repeat(5)))],
+                "max_steps={steps}"
+            ),
+            Err(QjswasmError::Budget(what)) => assert_eq!(what, "max_steps"),
+            Err(other) => panic!("max_steps={steps}: {other:?}"),
+        }
+    }
+}
+
+/// Recursion whose every frame crosses the door exhausts the call-depth
+/// budget and says so. A host call is an ordinary wasm frame; it neither
+/// escapes the depth accounting nor re-enters the guest.
+#[test]
+fn recursion_through_a_host_call_is_a_call_depth_budget() {
+    let out = run(
+        "function f(n) { print(\"x\"); if (n === 0) { return 0; } return f(n - 1); }
+         return f(1000);",
+        None,
+    );
+    match out {
+        Err(QjswasmError::Budget(what)) => assert_eq!(what, "max_call_depth"),
+        other => panic!("expected a depth budget, got {other:?}"),
+    }
+    // Below the ceiling the same shape completes, so the test above is
+    // measuring the ceiling and not a broken script.
+    let out = run(
+        "function f(n) { print(\"x\"); if (n === 0) { return 0; } return f(n - 1); }
+         return f(20);",
+        None,
+    )
+    .expect("21 frames fit");
+    assert_eq!(out.stdout.len(), 21);
+}
+
+/// A call that trapped loses its own output -- a stated cost in `src/slot.rs`
+/// -- but must not donate it to the *next* call on the same slot.
+#[test]
+fn output_from_a_trapped_call_is_not_carried_into_the_next_one() {
+    // Call 1: the bridge errors, so `status === 1`, so the script prints a
+    // Number at the door and traps. Call 2: the bridge succeeds, no trap.
+    let calls = Arc::new(Mutex::new(0usize));
+    let counter = Arc::clone(&calls);
+    let bridge: FleetBridgeFn = Arc::new(move |_op: &str, _params: &str| {
+        let mut n = counter.lock().unwrap();
+        *n += 1;
+        if *n == 1 {
+            Err("nope".to_string())
+        } else {
+            Ok("fine".to_string())
+        }
+    });
+    let mut engine = Engine::new();
+    let slot = engine
+        .spawn(
+            Guest::Qjs(
+                "print(\"once\");
+                 let status = fleet_call(\"o\", \"p\");
+                 if (status === 1) { print(status); }
+                 return fleet_result();",
+            ),
+            Some(bridge),
+        )
+        .expect("spawns");
+
+    assert!(matches!(
+        engine.call(slot, "main", &[]),
+        Err(QjswasmError::Trap(_))
+    ));
+    let second = engine
+        .call(slot, "main", &[])
+        .expect("the slot is still live");
+    assert_eq!(
+        second.stdout, "once",
+        "the second call's stdout is its own, not both calls'"
+    );
+    assert_eq!(second.values, vec![Value::Js(JsValue::Str("fine".into()))]);
+}
+
+// =========================================================================
+// Findings: the guest heap
+// =========================================================================
+
+/// FINDING 1 (the serious one) -- a bridge answer the guest's linear memory
+/// cannot hold is `Trap("unreachable executed")`, not
+/// `Budget("max_memory_pages")`, and it destroys the slot for good.
+///
+/// ```text
+/// reproducer  max_memory_pages = 2 (128 KiB); bridge answers 200 000 bytes;
+///             let s = fleet_call("o","p"); return fleet_result();
+/// observed    Err(Trap("unreachable executed"))
+/// expected    Err(Budget("max_memory_pages"))
+/// ```
+///
+/// `src/slot.rs::ceiling_name` already has the `MemoryPages` arm and
+/// `Budget::limits.max_memory_pages` is the number an embedder would raise --
+/// but nothing reaches them, because the failure is not a core ceiling. It is
+/// the *guest's own allocator* giving up: `tinyvm-qjs` `src/runtime.rs:786`
+/// (`fn alloc`) bumps the heap pointer, loops on `memory.grow`, and emits
+/// `Unreachable` when the grow is refused (`runtime.rs:809-815`). To the core
+/// that is an ordinary guest trap, so `classify` is right to call it one --
+/// there is nothing else it could see.
+///
+/// The consequence is that "your slot needs more memory than you gave it" and
+/// "your script is broken" are the same answer, on a path an embedder does not
+/// control: the *bridge* sizes the allocation, so a host capability returning
+/// a large-but-in-budget answer can produce it.
+///
+/// Upstream is already moving: the commit after the pinned `6920c60` is
+/// tinyvm `0466288`, "feat(qjs): let a guest say its own heap ran out". This
+/// crate is pinned behind it, so the behaviour is live here.
+///
+/// When it is fixed: expect `Budget("max_memory_pages")`, or whatever class
+/// the new upstream fault maps to, and delete the `Trap` arm.
+#[test]
+fn finding_1_a_bridge_answer_too_large_for_the_guest_heap_is_an_unclassified_trap() {
+    let budget = Budget {
+        limits: pages(2),
+        // Deliberately generous, so neither host-side cap is what refuses:
+        // 200 000 bytes is inside both, and only the guest's 128 KiB is not.
+        max_bridge_result_bytes: 4 << 20,
+        max_result_string_bytes: 4 << 20,
+        ..Budget::default()
+    };
+    match run_with(
+        budget.clone(),
+        CALL_THEN_FETCH,
+        Some(answering(&"z".repeat(200_000)).call),
+    ) {
+        Err(QjswasmError::Trap(e)) => assert_eq!(
+            e.message(),
+            "unreachable executed",
+            "FIXED, or a different trap -- read FINDING 1"
+        ),
+        Err(QjswasmError::Budget(what)) => {
+            panic!("FIXED: this now reports Budget({what:?}) -- update this test")
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // The same slot size handles an answer that fits, so the trap above is
+    // the heap running out and not the door failing at 128 KiB.
+    let got = run_with(budget, CALL_THEN_FETCH, Some(answering("small").call))
+        .expect("an answer that fits is fine in the same slot");
+    assert_eq!(got.values, vec![Value::Js(JsValue::Str("small".into()))]);
+}
+
+/// FINDING 1b -- the same defect on a persistent slot, where it is worse: the
+/// bump pointer is advanced *before* the grow is attempted, so once it
+/// overshoots, every later allocation in that slot traps, however small.
+///
+/// ```text
+/// reproducer  default budget (256 pages = 16 MiB); one slot, called 25 times;
+///             bridge answers 1 MiB for the first 20 calls, then 4 bytes
+/// observed    calls 1-15 Ok; calls 16-25 Trap("unreachable executed"),
+///             including calls 21-25, whose answers are four bytes
+/// expected    a budget refusal, and a slot that still works once the
+///             pressure is gone -- or a documented statement that it will not
+/// ```
+///
+/// This contradicts what `Engine::call` promises in `src/lib.rs`: "a trap ...
+/// leaves the instance's memory and globals intact, so discarding the slot
+/// would throw away recoverable state the embedder may still want to inspect."
+/// Here the globals are intact and that is precisely the problem -- the heap
+/// pointer is intact at a value past the end of memory, and the slot is dead
+/// while reporting itself alive.
+///
+/// Note also what stayed inside its stated limits the whole way: every single
+/// answer is under `max_bridge_result_bytes`, every call is under `max_steps`,
+/// and the module never declares more memory than `max_memory_pages`. There is
+/// no cap on the *cumulative* bytes the door writes into a guest's heap, and
+/// sixteen well-behaved answers are enough.
+#[test]
+fn finding_1b_heap_exhaustion_poisons_a_persistent_slot_permanently() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let counter = Arc::clone(&calls);
+    let bridge: FleetBridgeFn = Arc::new(move |_op: &str, _params: &str| {
+        let mut n = counter.lock().unwrap();
+        *n += 1;
+        Ok(if *n <= 20 {
+            "z".repeat(1 << 20)
+        } else {
+            "tiny".to_string()
+        })
+    });
+    let mut engine = Engine::with_budget(Budget {
+        max_result_string_bytes: 4 << 20,
+        ..Budget::default()
+    });
+    let slot = engine
+        .spawn(
+            Guest::Qjs("let s = fleet_call(\"o\", \"p\"); let t = fleet_result(); return 1;"),
+            Some(bridge),
+        )
+        .expect("spawns");
+
+    let mut first_failure = None;
+    for i in 1..=25 {
+        match engine.call(slot, "main", &[]) {
+            Ok(_) => assert!(
+                first_failure.is_none(),
+                "call {i} recovered after a failure"
+            ),
+            Err(QjswasmError::Trap(_)) => {
+                first_failure.get_or_insert(i);
+            }
+            Err(other) => panic!("call {i}: FIXED or changed class -- {other:?}"),
+        };
+    }
+    let at = first_failure.expect("16 MiB of 1 MiB answers must exhaust a 16 MiB guest");
+    assert!(
+        (10..=20).contains(&at),
+        "expected the heap to run out around 16 one-megabyte answers, not at {at}"
+    );
+    // Calls 21..=25 asked for four bytes and still trapped: the slot never
+    // recovers, and `Engine::live_slots` still counts it.
+    assert_eq!(engine.live_slots(), 1);
+}
+
+// =========================================================================
+// Findings: the host side
+// =========================================================================
+
+/// FINDING 2 (medium) -- a panicking bridge unwinds out through the
+/// interpreter, and `run_once` then leaks the slot it promised to reclaim.
+///
+/// ```text
+/// reproducer  run_once with a bridge whose closure panics
+/// observed    the panic propagates out of run_once; live_slots() == 1
+/// expected    live_slots() == 0 -- run_once is documented as
+///             "Spawn, call, and reclaim"
+/// ```
+///
+/// The unwind itself leaves nothing corrupt, which is worth knowing and is
+/// asserted below: another slot in the same engine runs correctly afterwards,
+/// and the door's `RefCell` is not left borrowed (`src/host.rs:231` calls the
+/// bridge *before* it borrows). What is wrong is narrower and real:
+///
+/// - `Engine::run_once` (`src/lib.rs`) is `spawn` / `call` / `kill` in
+///   sequence with no guard, so an unwind through `call` skips `kill` and the
+///   slot -- with its linear memory, up to `max_memory_pages` -- stays live
+///   for the life of the engine, unreachable because the caller never received
+///   the `SlotId`.
+/// - Nothing in the crate stands between an embedder's bridge and the guest.
+///   The guest chooses the `op` string, so a script can steer a bridge into
+///   whichever of its paths panics; under a `panic = "abort"` release profile
+///   that is a guest-triggered process abort.
+///
+/// A `catch_unwind` around the bridge call, mapping a panic to
+/// `QjswasmError::Door`, would answer both. That is a `src/**` change and this
+/// lane does not make it.
+#[test]
+fn finding_2_a_panicking_bridge_unwinds_and_run_once_leaks_the_slot() {
+    let mut engine = Engine::new();
+    let bridge: FleetBridgeFn = Arc::new(|op: &str, _params: &str| {
+        if op == "boom" {
+            panic!("the bridge exploded");
+        }
+        Ok(format!("<{op}>"))
+    });
+
+    // Silence the panic hook: the unwind is the measurement, not a failure.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        engine.run_once(
+            Guest::Qjs(
+                "print(\"before\"); let s = fleet_call(\"boom\", \"p\"); return fleet_result();",
+            ),
+            Some(Arc::clone(&bridge)),
+            "main",
+            &[],
+        )
+    }))
+    .is_err();
+    std::panic::set_hook(previous);
+
+    assert!(
+        unwound,
+        "FIXED: the panic no longer escapes -- update this test"
+    );
+    assert_eq!(
+        engine.live_slots(),
+        1,
+        "FIXED: run_once now reclaims the slot -- update this test to expect 0",
+    );
+
+    // Nothing else is damaged: the same engine, the same bridge, a new slot.
+    let out = engine
+        .run_once(
+            Guest::Qjs(
+                "print(\"after\"); let s = fleet_call(\"ok\", \"p\"); return fleet_result();",
+            ),
+            Some(bridge),
+            "main",
+            &[],
+        )
+        .expect("the engine still works after an unwind through a host callback");
+    assert_eq!(out.values, vec![Value::Js(JsValue::Str("<ok>".into()))]);
+    assert_eq!(out.stdout, "after");
+    assert_eq!(
+        engine.live_slots(),
+        1,
+        "and the leaked slot is still the only one"
+    );
+}
+
+/// FINDING 4 (medium) -- `check` accepts a `.qjs` script `execute` cannot load.
+///
+/// ```text
+/// reproducer  a script whose string literals need more pages than the budget
+///             allows; here max_memory_pages = 1 and a 100 000-byte literal
+/// observed    compile_qjs -> Ok;  Engine::run_once -> Err(Load("memory page limit"))
+/// expected    both refuse, with the same diagnostic
+/// ```
+///
+/// `src/script_engine.rs` splits on the extension: the `.wasm` branch (line
+/// 586) runs `validate_wasm`, which is decode plus the load gate, while the
+/// `.qjs` branch (line 590) runs `compile_qjs` and stops. So the compiler's
+/// own output is the one artifact in the pipeline that is never put through
+/// the gate it will later have to pass.
+///
+/// The crate says twice why this shape is the wrong one -- `src/lib.rs` on
+/// `compile_qjs` and `src/host.rs` on `check_declarations` both call "a `check`
+/// that passes what `execute` cannot run ... the worst shape a gate can have".
+/// The door lane closed that hole for import names; the memory declaration is
+/// the same hole one field over.
+///
+/// It is measurable at the default budget too, without an exotic `Limits`: a
+/// 17 MiB string literal compiles to 17 827 685 bytes of clean wasm and then
+/// fails `Engine::new().run_once` with `Load("memory page limit")`, because
+/// 273 pages is past the default 256. The cheap reproducer below is the same
+/// defect with a budget small enough to run in a test suite.
+///
+/// The fix is `compile_qjs` followed by `validate_wasm_with` on the result,
+/// which both already exist. `src/**`, so not this lane's to make.
+#[test]
+fn finding_4_check_accepts_a_script_execute_cannot_load() {
+    let source = format!("print(\"{}\"); return 0;", "y".repeat(100_000));
+    let bytes = compile_qjs(&source).expect("check accepts it: this is the whole of `check`");
+
+    let budget = Budget {
+        limits: pages(1),
+        ..Budget::default()
+    };
+    let refusal =
+        run_with(budget.clone(), &source, None).expect_err("execute refuses what check accepted");
+    match refusal {
+        QjswasmError::Load(e) => assert_eq!(e.message(), "memory page limit"),
+        other => panic!("FIXED or changed class: {other:?}"),
+    }
+
+    // The gate that would have caught it exists and is already exported; it
+    // simply is not on the `.qjs` path.
+    assert!(
+        agenterm_qjswasm::validate_wasm_with(&bytes, &budget).is_err(),
+        "validate_wasm_with would have refused these bytes at check time",
+    );
+}
