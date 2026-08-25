@@ -23,78 +23,125 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 
 编译器（①）2026-08-24 从本 crate 迁往上游 `tinyvm-qjs`：它一行 agenterm 概念都没有，
 按「通用引擎能力归 tinyvm、业务归 agenterm」这条分层线，它属于上游。本 crate 留下的是
-真正的业务——`agenterm.*` 门、槽、预算策略、接线。`compile_qjs` / `CompileError` 原样
-再导出，用法不变。撤销记录见
+真正的业务——`agenterm.*` 门、槽、预算策略、接线。`CompileError` 原样再导出；
+`compile_qjs` 是本 crate 的函数，签名不变，但它现在**带着门的声明表**进上游编译器
+（`compile_qjs_m1_with`），因为「有哪些宿主能力」正是业务那一半。撤销记录见
 [PRD 36](../../prd/PRD_02_36_agenterm_qjswasm.md) 与
 [设计稿 §2](../../plan/design-agenterm-qjswasm.md)。
 
 `.wasm` 输入跳过 ①，从 ② 进。**两种输入在核这一层完全同待遇**——这就是「一个引擎跑
 两种东西」的确切含义，不是两条管线共用一个名字。
 
-## `.qjs` 能跑什么（诚实边界，每条都是编出来跑过的）
+## `.qjs` 能跑什么（诚实边界，2026-08-25 在 rev `6920c60` 上逐条实测）
 
-下表每一行都由 `tests/qjs_guest.rs` 编译并执行过，不是读上游源码得出的。
+**这张表是跑出来的。** 能跑的每一条都编译并执行过，拿到的就是这里写的值；拒绝的每一条
+都编译过，拿到的就是这里引的诊断。读上游源码、或转述别人的报告，都不算证据——这两种口径
+在本仓各骗过一次人：`%` 与 `typeof` 早已支持却还挂在拒绝表上，以及本文件曾说这个 crate
+在工作区外而它在里面。
 
 **能跑：**
 
 - **数字是 ECMA-262 binary64**，不是 i32：`1/0` 是 `Infinity`、`0/0` 是 `NaN`、
-  `2147483647 + 1` 不回绕。字面量仍只写十进制整数——`0.5` / `1e3` / `0x10` / `1_000`
-  各自撞自己的边界。
-- **其他值**：字符串（转义与 `\u{…}` 已解码）、`true` / `false`、`null`、`undefined`。
+  `2147483647 + 1` 是 `2147483648` 不回绕。字面量仍只写十进制整数——`0.5`
+  （fractional numbers）、`1e3`（exponent）、`0x10`（hexadecimal）、`1_000`
+  （numeric separators）各自撞自己的那条诊断。
+- **其他值**：字符串（转义与 `\u{…}` 已解码：`"a\tb\u{1F600}"` 解出来是 `a`、一个制表符、
+  `b`、`😀`）、`true` / `false`、`null`、`undefined`。
 - **语句**：`let` / `const` / `var`（真作用域 + 文本可判定的 TDZ）、块、`if`/`else`、
-  `while`、三段式 `for`、`return`，以及脚本的 ECMA-262 completion value。
-- **函数**：声明式带参数、递归与互递归。**调用必须是直接调用**——被调方得是一个绑定到
-  已知函数的名字。
+  `while`、三段式 `for`、`return`，以及脚本的 ECMA-262 completion value（`1 + 2;` → `3`）。
+- **函数**：声明式带参数、递归（斐波那契 `f(10)` = `55`）与互递归、嵌套的函数声明、
+  函数体里读模块顶层的绑定（`var` 与 `let` 都可以——那不算「捕获」）。
+  **调用必须是直接调用**——被调方得是一个绑定到已知函数的名字。
 - **运算符**：赋值与复合赋值、`||`、`&&`、`==`/`!=`/`===`/`!==`、`<` `<=` `>` `>=`、
-  `+` `-`、`*` `/`、前后缀 `++`/`--`、一元 `+ - !`、括号。`+` 在任一侧是字符串时拼接。
+  `+` `-`、`*` `/`、`%`、`typeof`、前后缀 `++`/`--`、一元 `+ - !`、括号。`+` 在任一侧是
+  字符串时拼接；`typeof` 照规范来（`typeof null` 是 `"object"`）。
 - **ASI**：ECMA-262 12.10。
+- **`agenterm.*` 门**：`print` / `fleet_call` / `fleet_result`——见下一节。
 
-**明确拒绝**（编译期，诊断说清是引擎边界）：对象/数组字面量、属性访问、
-`?:`、`try`/`throw`、`class`、`switch`、`break`/`continue`、`for…of`、模板字面量、
-位运算与移位、`**`、`??`、逗号运算符、BigInt；**捕获外层局部变量的闭包**；
-**把函数当值用**（`let f = function(){}` 之后 `f()`、`return f`——都拒绝；
-立即调用的函数表达式 `(function(a){...})(1)` 可以）。
+**明确拒绝**（全在编译期）。分三类，因为拒绝的**理由**不是一个：
 
-（`%` 与 `typeof` 曾在这张拒绝表里，rev 抬到 `6920c60` 之后**已支持**——实测
-`1 % 2` = `1`、`typeof 1` = `"number"`。这一条是
-`tests/qjs_guest.rs::a_source_outside_the_subset_is_a_compile_error_not_a_load_error`
-抓到的，那条测试的存在理由就是这个。）
+1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
+   对象/数组字面量、属性访问与索引、`?:`、`try`/`throw`、`class`、`switch`、
+   `break`/`continue`、`for…of` / `for…in`（报的是 `of` / `in` 关键字）、`do`/`while`、
+   模板字面量、位运算与移位、`**`、`??`、逗号运算符、BigInt、箭头函数、`new` / `delete` /
+   `void` / `in` / `instanceof`、展开与 rest、解构、默认参数、可选链、`async`/`await`、
+   `import`、带标签的语句（这一条的诊断说错了，见下）；
+   **捕获外层局部变量的闭包**；**把函数当值用**（`let f = function(){}` 之后 `f()`、
+   `return f`——都拒绝；立即调用的函数表达式 `(function(a){...})(1)` 可以）。
+2. **根本没有全局对象。** `JSON`、`Math`、`String`、`Number` 今天不是名字，写它们撞的是
+   门的诊断：``this engine has no host function named `JSON`; this embedder declares
+   `print`, `fleet_call` and `fleet_result` ``。所以 `JSON.stringify(x)` 不是「JSON 还没
+   实现」，是两层都不在：没有那个名字，也没有属性访问。
+3. **解析就没过**——正则字面量 `/a/`（「needs an operand here, and found a `/`」）、
+   生成器 `function*`（「needs a name for the function declared here」）。
 
-**两处运行期行为要知道：**
+**诊断的诚实度有两处实测缺口**，在上游，本仓改不了，写在这里免得被当成不存在：
+**带标签的语句**（`outer: while (true) {}`、`lbl: for (;;) {}`）报的是「does not support
+conditional expressions yet」——把 `:` 当成三目的冒号了；**`for (const x of y)`** 报的是
+「needs a value for the `const` binding `x`」而不是 `of`（同一句写成 `let` 或 `var` 就正确
+报 `of` / `in` 关键字）。两条都确实拒绝了，只是说错了撞的是哪条能力边界。
 
-- 三个 ECMA-262 转换尚未实现（Number 的 ToString、StringToNumber、字符串关系比较），
-  撞上是 **trap 而不是编造一个值**：`"a" + 1`、`"2" * 2`、`"a" < "b"`、`1 == "1"` 都
-  trap。这是上游记录在案的 divergence，不是本层的分类错误。
-- **`.qjs` 已经够得着 `agenterm.*` 门**（2026-08-25，rev `6920c60`）。曾经这里写的是
-  「自由名字一律在编译期被拒，所以 `print` / `fleet_call` 只有手写 `.wasm` 客人能调」
-  ——那一条已作废。脚本可以直接写三个名字：
+**运行期要知道的一条：** 三个 ECMA-262 转换尚未实现（Number 的 ToString、
+StringToNumber、字符串关系比较），撞上是 **trap 而不是编造一个值**——`"" + 1`、`"a" + 1`、
+`"2" * 2`、`"a" < "b"`、`1 == "1"` 都 trap。字符串之间的拼接与 `==` / `!=` / `===` 是好的。
+这是上游记录在案的 divergence，不是本层的分类错误。
 
-  ```js
-  print("hello");
-  let status = fleet_call("tabs.list", "{}");   // 0=Ok 1=Err 2=NoBridge
-  if (status === 0) { return fleet_result(); }
-  ```
+### `.qjs` 已经够得着门（2026-08-25，rev `6920c60`）
 
-  门**一个字没改**：客人仍然导入那四个原始 i32 函数，与手写 `.wasm` 客人同一张
-  import 表。拆包是**编译器**的活——JS 字符串拆成 `(ptr, len)`，两趟取回的字节
-  （`fleet_result_len` → bump 分配 → `fleet_result`）组装回 JS 字符串。门不认识
-  JS 值，这个方向是设计本身：让门说 V1 双字会弄坏每一个手写客人，也会把一门语言的
-  值表示泄进一个本该服务任意客人的边界（`plan/design-agenterm-qjswasm.md` 6.5）。
+曾经这里写的是「自由名字一律在编译期被拒，所以 `print` / `fleet_call` 只有手写 `.wasm`
+客人能调」——**那一条已作废**。脚本直接写三个名字：
 
-  声明表在 `src/host.rs::declarations()`，公开面是 `door_declarations()`。
-  **脚本可见名 = field 名**，不改名。`fleet_result_len` 不是脚本能写的名字——它是字节
-  结果的长度那一趟，归编译器。只有脚本真的提到的声明才会变成 import：不碰门的脚本
-  emit **零个** import。证据在 `tests/qjs_door.rs`（13 条，含状态 0/1/2 三条路、
-  `print` 进 `Outcome::stdout`、两个上限、以及把 emit 出来的 import 表解码出来逐字对
-  `src/host.rs::SIGNATURES`）。
+```js
+print("hello");
+let status = fleet_call("tabs.list", "{}");   // 0=Ok 1=Err 2=NoBridge
+if (status === 0) { return fleet_result(); }
+return status;
+```
 
-  想要一份**够不着门**的产物（import 表按构造为空）用 `compile_qjs_without_door`；
-  `check` 与 `execute` 都走 `compile_qjs`，两边看见的是同一门语言。
+这段是**原样跑过的**：`stdout` 是 `"hello"`，桥收到 `("tabs.list", "{}")`，返回值是桥的
+答案；同一段不给桥再跑一遍，返回 `2`，而 `"hello"` 照样进 `stdout`。
+
+门**一个字没改**：客人仍然导入那四个原始 i32 函数（下面「宿主门 ABI」那张表），与手写
+`.wasm` 客人同一张 import 表。拆包是**编译器**的活——JS 字符串拆成 `(ptr, len)`，两趟取回
+的字节（`fleet_result_len` → bump 分配 → `fleet_result`）组装回 JS 字符串。门不认识 JS
+值，这个方向就是设计本身：让门说 V1 双字会弄坏每一个手写客人，也会把一门语言的值表示
+泄进一个本该服务任意客人的边界（`plan/design-agenterm-qjswasm.md` §6.5）。
+
+声明表在 `src/host.rs::declarations()`，公开面是 `door_declarations()`。
+**脚本可见名 = field 名**，不改名：读上面那张门表写下来的，就是能用的名字。
+
+动手之前值得知道的，每条都是实测：
+
+| 事实 | 实测 |
+|------|------|
+| 三条声明发射四个 import——`fleet_result` 是两趟 | `print("x"); fleet_call("o","p"); return fleet_result();` → `agenterm.print` · `fleet_call` · `fleet_result_len` · `fleet_result` |
+| `fleet_result_len` **不是脚本能写的名字**，长度那趟归编译器 | 写它 → ``this engine has no host function named `fleet_result_len` `` |
+| 只有脚本**语法上提到**的声明才变成 import | `return 1 + 1;` → 零个 import。按「提到」不按「可达」：`if (false) { print("x"); }` 仍然 emit `agenterm.print` |
+| 参数**类型**是编译期查的，门只收字符串 | `print(42)` → ``cannot pass a Number to argument 1 of the host function `print`, which is declared to take a String`` |
+| 参数**个数**也是编译期查的 | `print("a","b")` → ``given the host function `print` with 1 argument(s), and this call passes 2`` |
+| 传进去的字符串不必是字面量 | `let op = "tabs" + ".list"; fleet_call(op, "{}")` → 桥收到 `"tabs.list"` |
+| `print(...)` 求值为 `undefined` | `typeof print("x")` → `"undefined"` |
+| 没调 `fleet_call` 就 `fleet_result()` → 空串，不是错 | `"[" + fleet_result() + "]"` → `"[]"` |
+| 没有桥 → status `2`，脚本继续跑，不 trap | `return fleet_call("a","b")` → `2` |
+| 门名字**不是保留字**，脚本自己的绑定盖得住 | `function print(m) { return 1; } return print("x");` → `1`，宿主门没被调到；声明只是自由名字的兜底 |
+
+**一个会咬人的坑：status 是数字，而 Number 的 ToString 还没实现，所以 `"status:" + s`
+会 trap。** 状态码用 `===` 分支，别拼进字符串。这不是门的毛病（是上面那三个未实现转换
+之一），但它正好落在门最常见的写法上。
+
+证据在 `tests/qjs_door.rs`（13 条：状态 0/1/2 三条路、`print` 进 `Outcome::stdout`、
+`print` 求值为 `undefined`、两个宿主侧上限、门外的名字被拒且诊断把声明了哪些列出来、
+以及把 emit 出来的 import 表解码出来逐字对 `src/host.rs::SIGNATURES`）。
+
+想要一份**够不着门**的产物（import 表按构造为空）用 `compile_qjs_without_door`——实测它
+对 `print("x")` 报 ``this engine finds no declaration of `print` ``，对 `return 1 + 1;`
+发射零个 import。`check` 与 `execute` 都走 `compile_qjs`，两边看见的是同一门语言。
 
 `.wasm` 侧是完整的：任何过 tinyvm 装载门的标准模块都能装载、按名调用、有预算地执行。
 
-第一个具体锚点是编译 `scripts/qjs/lib/fleet.js` 的等价物——那也是归档
-`agenterm-qjs` 的门。缺口清单见 [PRD 36 §归档门](../../prd/PRD_02_36_agenterm_qjswasm.md)。
+第一个具体锚点仍是编译 `scripts/qjs/lib/fleet.js` 的等价物——那也是归档 `agenterm-qjs`
+的门。**门本身已经不在缺口清单里了**，挡着它的是语言：对象/数组、属性访问、`try`/`catch`、
+`JSON`。清单见 [PRD 36 §归档门](../../prd/PRD_02_36_agenterm_qjswasm.md)。
 
 ## 脸：两套调用约定，一张脸
 
@@ -184,7 +231,9 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 
 ## 宿主门 ABI
 
-模块名 `"agenterm"`。这是客人能看见的**全部**世界。
+模块名 `"agenterm"`。这是客人能看见的**全部**世界。**两种客人共用这一张表**：手写
+`.wasm` 直接导入它，`.qjs` 通过三个自由函数名落到它上面（见上面「`.qjs` 已经够得着门」，
+以及 `plan/design-agenterm-qjswasm.md` §6.5）。
 
 ```text
 print(ptr: i32, len: i32)                                              -> ()
@@ -269,8 +318,17 @@ i64 signed-LEB range…），那份正确性要自己负责。
 语言子集的验收测（能编什么、拒什么、诊断怎么说）跟编译器一起在上游
 `crates/tinyvm-qjs/tests/`。本 crate 的 `tests/qjs_guest.rs` 测接缝：`.qjs` 端到端
 过槽、两套调用约定、JS 值投影与字符串解析、编译失败自成一类、产物过本 crate 的装载门、
-扩展名路由。
+扩展名路由；`tests/qjs_door.rs` 测 `.qjs` 那一侧的门。
 
 其中 `the_capability_claims_in_this_crates_own_copy` 是**上面那张能力表的锁**：本
 README 与 PRD 36 用 agenterm 自己的口径做能力声明，所以那些声明必须由一条会跑的测试
 兜住，而不是靠读上游源码。"M0，只有整数表达式"就是这样漂成假话的。
+
+**这把锁今天还没盖满整张表**，说清楚免得读的人高估它。有锁的：「能跑」那一栏的绝大部分，
+以及门那张表里的骨干（四个 import 的字节、三条状态路、`print` 求值为 `undefined`、门外
+名字被拒）——都在 `qjs_guest.rs` / `qjs_door.rs` 里。**没锁的**：「明确拒绝」那一栏只有
+四条源码进了 `a_source_outside_the_subset_is_a_compile_error_not_a_load_error`
+（`?:`、对象字面量、模板字面量、捕获闭包），其余二十来条、两条诊断缺口、以及门那张表里
+的编译期参数检查 / 遮蔽 / 死分支仍发射 import 这几行，都是 2026-08-25 逐条编译执行记录
+下来的：跑过，但上游一旦放宽，只有那四条会自己喊出来。要么把它们补进那条测试，要么下次
+抬 rev 时把这张表整个复测一遍。

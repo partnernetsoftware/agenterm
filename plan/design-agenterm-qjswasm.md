@@ -4,7 +4,7 @@
 |------|-----|
 | **文档** | 新 crate `crates/agenterm-qjswasm` 的实现级设计：分期、编译器结构、宿主门 ABI、机制取舍、验收树 |
 | 日期 | 2026-08-24 |
-| 状态 | 设计稿 rev4（M0 脊柱 + 上游 M1/M2 语言已落地；上游 rev 抬到 `df8decd`；编译器写刀在 `tinyvm-qjs`） |
+| 状态 | 设计稿 rev5（M0 脊柱 + 上游 M1–M3 语言已落地；**`.qjs` 已够到 `agenterm.*` 门**，见 §6.5；上游 rev 抬到 `6920c60`；编译器写刀在 `tinyvm-qjs`） |
 | **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)（PRD 36）。产品句、纪律、clean-room、JS 覆盖面口径、归档门**以该文件为准**；本文件只是执行投影 |
 | 关联 | tinyvm 仓 `prd/PRD.md`、`crates/tinyvm/research-qjs-wasm.md`；本仓 `src/script_engine.rs`、`crates/agenterm-wasmcore/README.md`、[PRD 14 provenance](../prd/PRD_02_14_research_provenance.md) |
 | 派单 | 2026-08-24 政委：在 tinyvm 上自研脚本引擎，跑 `.wasm` 与 `.qjs`；`.qjs` 先编译到 wasm 码（不是机器码）；**不用 rquickjs、不用 QuickJS C 库**，纯 Rust 实现，可参考 QuickJS 源码的设计；编译器写刀原定在 agenterm 仓，2026-08-24 撤销，迁往上游 `tinyvm-qjs`（见 §2） |
@@ -100,14 +100,19 @@ M0 先落地是刻意的：它把「tinyvm 能不能真的当 agenterm 的执行
 本仓只改了接缝（值投影与调用约定），执行管线一行没动，`tests/wasm_slot.rs` 等手写
 `.wasm` 的测试全程未改仍全绿。
 
-### 原梯子与实际长法的两处出入（写下来免得下一个人以为文档没更新）
+### 原梯子与实际长法的三处出入（写下来免得下一个人以为文档没更新）
 
 1. **M2 原写「整数世界，不带堆」。** 实际上游直接上了 binary64 + 字符串，M2 与 M3 合成
    一刀落地。原因是值表示的判决（见 §7）把「一个 JS 值是什么」一次定死，再回头做一版
    纯 i32 的降级是白工。
 2. **「函数声明与函数表达式」被拆开了。** 声明全支持；函数表达式**只有立即调用**
-   （IIFE）可用，赋给绑定之后再调用被拒（"using a function as a value"）。函数值需要
-   间接调用表，属 M4/M5。这条是编译验证出来的，不是读源码看出来的。
+   （IIFE）可用，赋给绑定之后再调用被拒（实测诊断：`does not support calling a value
+   that is not a known function yet`；`return f` 是 `using a function as a value`）。
+   函数值需要间接调用表，属 M4/M5。这条是编译验证出来的，不是读源码看出来的。
+3. **门在 M3 与 M4 之间插队打通了**（2026-08-25，§6.5）。梯子把「`.qjs` 有副作用」隐含
+   排在对象系统之后——因为老的 `.js` 表面是 `__host.fleet_call(...)`，要属性访问。把宿主
+   能力绑成**自由函数名**之后这个前置条件就没了，于是它先于 M4 落地。梯子的期号没有改：
+   门不是一期语言能力，它是本仓的业务面。
 
 ## 4. crate 结构
 
@@ -117,19 +122,23 @@ crates/agenterm-qjswasm/            ← 本仓：业务
 ├── README.md
 ├── src/
 │   ├── lib.rs          — 门面：Engine / Budget / Guest / Value / JsValue / Outcome / Error
-│   │                     + compile_qjs（转 tinyvm_qjs::compile_qjs_m1）与 CompileError
+│   │                     + compile_qjs（转 tinyvm_qjs::compile_qjs_m1_with，带门声明）
+│   │                     + compile_qjs_without_door + door_declarations
 │   ├── slot.rs         — 槽：Module→Instance 生命周期、Convention、V1 值投影与字符串解析、
 │   │                     每槽 pending buffer、故障分类
 │   └── host.rs         — 宿主门四件：print / fleet_call / fleet_result_len / fleet_result
+│                         + SIGNATURES（装载门查的原始签名）与 declarations()（`.qjs` 的声明表）
 └── tests/
-    ├── wasm_slot.rs · isolation.rs · budget.rs · host_door.rs
-    └── qjs_guest.rs    — 接缝：两套调用约定、JS 值投影、编译失败自成一类、
-                          装载门、扩展名路由，以及本仓能力口径的文档锁
+    ├── wasm_slot.rs · isolation.rs · budget.rs · host_door.rs · seam_attack.rs
+    ├── qjs_guest.rs    — 接缝：两套调用约定、JS 值投影、编译失败自成一类、
+    │                     装载门、扩展名路由，以及本仓能力口径的文档锁
+    └── qjs_door.rs     — `.qjs` 端到端够到门：三条状态路、stdout、发射出来的 import 表
 
 ../tinyvm/crates/tinyvm-qjs/        ← 上游：语言
 └── src/
-    ├── lib.rs          — compile_qjs / compile_qjs_with / Options / eval_qjs
-    ├── lex.rs · ast.rs · parse.rs · ir.rs · emit.rs · encode.rs
+    ├── lib.rs          — compile_qjs / compile_qjs_with / compile_qjs_m1_with / eval_qjs
+    ├── opts.rs         — Options / Names / HostFn / HostParam / HostResult（§6.5 的通用机制）
+    ├── lex.rs · ast.rs · parse.rs · ir.rs · emit.rs · encode.rs · repr.rs · runtime.rs
     ├── diag.rs         — CompileError + Boundary：位置 + 「本引擎尚不支持 X」文案
     └── qjs2wasm.rs     — eval_wasm 皮的编译入口（Names::HostImport + 诊断窄化）
 ```
@@ -158,11 +167,14 @@ pub struct Budget {
     pub limits: tinyvm::Limits,         // steps / pages / table elems / call depth / activation slots
     pub max_stdout_bytes: usize,
     pub max_bridge_result_bytes: usize,
+    pub max_result_string_bytes: usize, // 第三块宿主分配，另两个盖子管不到它
 }
 
 pub type FleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>;
 
-pub enum Guest<'a> { Wasm(&'a [u8]), Qjs(&'a str) }
+/// `CompiledQjs` 是「已经编好的 `.qjs` 产物」：字节本身不记得自己从哪来，
+/// 而约定是装载时记在槽上的，所以它必须自己有一个入口。
+pub enum Guest<'a> { Wasm(&'a [u8]), CompiledQjs(&'a [u8]), Qjs(&'a str) }
 
 /// 一个 JavaScript 值，已经解析成宿主数据。
 #[non_exhaustive]
@@ -196,8 +208,8 @@ impl Engine {
     pub fn call(&mut self, slot: SlotId, entry: &str, args: &[Value])
         -> Result<Outcome, QjswasmError>;
 
-    pub fn run_once(&mut self, guest: Guest<'_>, bridge: Option<FleetBridgeFn>, args: &[Value])
-        -> Result<Outcome, QjswasmError>;
+    pub fn run_once(&mut self, guest: Guest<'_>, bridge: Option<FleetBridgeFn>,
+                    entry: &str, args: &[Value]) -> Result<Outcome, QjswasmError>;
 
     pub fn kill(&mut self, slot: SlotId);
     pub fn live_slots(&self) -> usize;
@@ -209,7 +221,17 @@ impl Engine {
 /// `ENGINE_SUBCOMMANDS` 里没有它。判决与落地顺序见
 /// `plan/design-qjs-archive-gate.md` §9）。
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError>;
+
+/// 同一个编译器，但**不声明门**：每个自由名字都是能力拒绝，产物的 import 表按构造为空。
+pub fn compile_qjs_without_door(source: &str) -> Result<Vec<u8>, CompileError>;
+
+/// 本 embedder 声明给 `.qjs` 的宿主函数表（§6.5）。`HostFn` / `HostParam` /
+/// `HostResult` 一并从 `tinyvm-qjs` 再导出，调用方不必直接依赖上游。
+pub fn door_declarations() -> Vec<HostFn>;
 ```
+
+`compile_qjs` **带门**，门不是它的一个开关：`check` 与 `execute` 都从这里进编译器，
+只给其中一边开门，等于让 `check` 拒掉 `execute` 跑得动的脚本（`src/script_engine.rs`）。
 
 `spawn` / `call` 分开，是因为 tinyvm 的 `Instance` 是**持久**的
 （`invoke_by_name(&mut self)`，`last_steps()` 逐调用重置）：装一次、调多次、每次一份新
@@ -279,21 +301,19 @@ F: Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmError> + 'static
 `(status, bytes)` 存在 `Rc<RefCell<Pending>>` 里，由该槽的四个闭包共享。**每槽一份**，
 不跨槽。`fleet_call` 覆写它，`fleet_result` 读它。guest 不取回就丢弃，不是错误。
 
-`.qjs` 侧的 `fleet.call(op, params)` 最终降级到这四个 import 上。**今天还没有那条线**，
-而且原因已经换了：字符串能力（原以为是前置条件）已经落地，挡住的是别的东西——编译器
-默认下自由名字一律在编译期被拒（"this engine has no global bindings yet"）。上游有一个
-`Names::HostImport` 模式，但它发射的是模块名 `"js"`、按 JS 值传参的导入，跟本仓这四个
-`"agenterm"` + i32 两趟拷贝的门不是同一扇。
+`.qjs` 侧怎么落到这四个 import 上，见 §6.5——2026-08-25 已经打通。**门在那一天一个字
+没改**：一份 `.qjs` 编出来的模块递给装载门的 import 表，与手写 `.wasm` 客人的那张逐字
+相同（实测，§6.5）。门自己这一节因此仍然只描述门，不描述任何一门语言。
 
-所以「`.qjs` 调门」需要的是**本仓做一个决定**：`.qjs` 里的什么写法落到这四个 import
-上、宿主侧怎么把 JS 字符串搬进客人堆再把结果搬回来。那是本仓的写刀，不是等上游。
-在那之前，门只有手写 `.wasm` 客人够得着——门本身是通的、有 9 条测试。
+## 6.5 `.qjs` 怎么够到门（2026-08-25 定契约，同日落地）
 
-## 6.5 `.qjs` 怎么够到门（2026-08-25 定的跨仓契约）
+M0–M3 之后有过一条硬缺口：**`.qjs` 完全够不到 `agenterm.*` 门**。自由名字在编译期被拒，
+所以脚本能算但**做不了任何有副作用的事**——那卡住 `fleet.js` parity，进而卡住归档
+`agenterm-qjs`。
 
-M0–M2 之后仍有一条硬缺口：**`.qjs` 完全够不到 `agenterm.*` 门**。自由名字在编译期被拒，
-所以 `.qjs` 脚本能算但**做不了任何有副作用的事**。这卡住 `fleet.js` parity，进而卡住
-归档 `agenterm-qjs`。
+**这条缺口已经关上。** 上游 rev `6920c60` 出了通用机制（`Names::Declared`），本仓出了
+声明表（`src/host.rs::declarations()`），`compile_qjs` 走 `compile_qjs_m1_with`。下面每
+一条都是编出来跑过的，不是读源码写的。
 
 ### 契约：门不变，语言层拆包
 
@@ -304,7 +324,8 @@ M0–M2 之后仍有一条硬缺口：**`.qjs` 完全够不到 `agenterm.*` 门*
 
 **为什么不让门改说 V1 双字**（这是被认真考虑过并否决的方案）：
 
-1. 门的 ABI 是**产品契约**，手写 `.wasm` 客人也在用，9 个测试锁着。改它就弄坏它们。
+1. 门的 ABI 是**产品契约**，手写 `.wasm` 客人也在用（`tests/host_door.rs` 10 条锁着）。
+   改它就弄坏它们。
 2. 更根本的是分层：让门认识 V1 双字，等于把**某一门语言的值表示**泄进一个本该服务
    任意客人的宿主边界。那样门就只服务一种语言了，与「通用能力归 tinyvm、业务归
    agenterm」这条线直接冲突。
@@ -316,7 +337,61 @@ M0–M2 之后仍有一条硬缺口：**`.qjs` 完全够不到 `agenterm.*` 门*
 | 语言层（`tinyvm-qjs`） | **通用机制**：声明式宿主 import（模块名/字段名/原始签名/JS 值到原始参数的映射）+ 拆包与回包的降级 |
 | 业务层（本 crate） | **声明**有哪些 import（`agenterm.fleet_call` / `print` / …），以及 `.qjs` 可见的表面 |
 
-**上游不得硬编码任何 `agenterm` / `fleet` 名字** —— 那是业务，不上浮。
+**上游不得硬编码任何 `agenterm` / `fleet` 名字** —— 那是业务，不上浮。这条兑现了：上游
+拿到的是一张 `Vec<HostFn>`，`agenterm` 这个模块名是本仓的字符串。
+
+### 声明表：三条声明，四个 import
+
+`src/host.rs::declarations()`（公开面 `door_declarations()`）：
+
+| 脚本写的名字 | module.field | JS 参数 | 结果 |
+|--------------|--------------|---------|------|
+| `print` | `agenterm.print` | `StrPtrLen` | `Void` |
+| `fleet_call` | `agenterm.fleet_call` | `StrPtrLen`, `StrPtrLen` | `I32` |
+| `fleet_result` | `agenterm.fleet_result` | 无 | `Bytes { length: "fleet_result_len" }` |
+
+**脚本可见名 = field 名，不改名。** 一个脚本作者读上面 §6 那张门表，写下来的就是能用的
+名字。`fleet_result_len` **不在脚本可见名里**：它是 `Bytes` 结果的长度那一趟，由编译器
+发射；脚本写它，得到的是与任何未声明名字一样的能力诊断（实测：`` this engine has no host
+function named `fleet_result_len` ``）。
+
+三条声明发射四个 import，因为 `Bytes` 是两趟。**实测**（编译 `.qjs`、把产物的 import
+段解出来）：
+
+```text
+源码 print("x"); fleet_call("o","p"); return fleet_result();
+  agenterm.print            (i32,i32)         -> ()
+  agenterm.fleet_call       (i32,i32,i32,i32) -> (i32)
+  agenterm.fleet_result_len ()                -> (i32)
+  agenterm.fleet_result     (i32,i32)         -> (i32)
+
+源码 return fleet_call("o","p");   →  [agenterm.fleet_call]
+源码 print("x"); return 1;         →  [agenterm.print]
+源码 return fleet_result();        →  [agenterm.fleet_result_len, agenterm.fleet_result]
+源码 return 1 + 1;                 →  []
+```
+
+第一张表与 §6 的门表逐字相同——这正是「门没改」的可检查形式，
+`tests/qjs_door.rs::the_emitted_imports_are_exactly_the_existing_door` 解产物的字节来断
+言它，不是拿声明表自证。声明多了不要钱：**只有脚本真的提到的声明才变成 import**，不碰门
+的脚本 emit 零个。
+
+### 实测出来的边界（写下来，因为它们都能咬到第一个 fleet.js 移植者）
+
+| 事实 | 实测 |
+|------|------|
+| 参数类型是**编译期**检查的，只收 String | `print(42)` → `` cannot pass a Number to argument 1 of the host function `print`, which is declared to take a String `` |
+| 参数**个数**也是编译期检查的 | `print("a","b")` → `` given the host function `print` with 1 argument(s), and this call passes 2 `` |
+| `print` 求值为 `undefined` | `typeof print("x")` → `"undefined"` |
+| 没有桥 → status `2`，脚本继续跑，不 trap | `return fleet_call("tabs.list","{}")` → `Number(2)`，`print` 的输出照样进 `Outcome::stdout` |
+| 没调 `fleet_call` 就 `fleet_result()` → 空串 | `return "[" + fleet_result() + "]"` → `"[]"` |
+| 门名字不是保留字，脚本自己的绑定盖得住它 | `function print(m){ return 1; } return print("x")` → `1`（**不**进宿主门）；声明只是自由名字的兜底 |
+| import 按**语法上提到**发射，不按可达性 | `if (false) { print("x"); } return 1;` 仍然 emit `agenterm.print` |
+| 传给门的字符串不必是字面量 | `let op = "tabs" + ".list"; fleet_call(op, "{}")` → 桥收到 `("tabs.list","{}")` |
+
+**最锋利的一条：status 是数字，而 Number 的 ToString 还没实现，所以 `"status:" + s` 会
+trap。** 状态码要用 `===` 分支，不要拼进字符串。这不是门的问题（是 §3 M3 行记的那三个
+未实现 ECMA-262 转换之一），但它正好落在门最常见的用法上，所以记在这里。
 
 ### 先做自由函数，不做 `__host.method`
 
@@ -324,7 +399,14 @@ M0–M2 之后仍有一条硬缺口：**`.qjs` 完全够不到 `agenterm.*` 门*
 缺口清单里）。所以第一版把宿主能力绑成**自由函数名**，等对象与属性访问落地后，再用
 `.qjs` 自己写一层 `fleet.js` 风格的包装。
 
-这个次序意味着**门可以先于属性访问打通** —— 不必等对象系统。
+这个次序意味着**门可以先于属性访问打通** —— 不必等对象系统。**已兑现**：门通了，属性
+访问仍然是编译期拒绝（`console.log("x")` → `does not support property access yet`）。
+
+### 还差什么才到 fleet.js parity
+
+门已经不在缺口清单里了。挡着 M5 的是语言：对象/数组字面量、属性访问、`try`/`catch`、
+`JSON`（`JSON` 今天不是一个名字，是一条「没有这个宿主函数」的诊断）。清单以
+[PRD 36 §归档门](../prd/PRD_02_36_agenterm_qjswasm.md) 为准。
 
 ## 7. 编译器取舍
 
@@ -421,6 +503,17 @@ M0 脊柱                                                [x] 全绿
     ├── feature 关时根 crate 仍 build                     [x]
     └── 扩展名路由 .wasm / .qjs / 其余                     [x]
 
+`.qjs` 够到门（rev5 新增：§6.5 的跨仓契约）        [x] tests/qjs_door.rs 13 条
+├── 脚本调 fleet_call → 桥真的收到脚本自己的两个参数      [x]
+├── status 0 / 1 / 2 三条路都从脚本里分支得出            [x]
+├── 两趟取回：fleet_result() 求值为一个 JS 字符串         [x]
+├── print 进 Outcome::stdout，且求值为 undefined         [x]
+├── 产物的 import 段解出来 = §6 那张门表，逐字            [x]
+├── 只有脚本提到的声明变成 import；不碰门的脚本 emit 零个  [x]
+├── 门外的名字被拒，且诊断把声明了哪些列出来              [x]
+├── 两个宿主侧上限在 .qjs 路上照样生效                    [x]
+└── check 与 execute 看见同一扇门                        [x]
+
 接缝（rev4 新增：两套调用约定相遇的地方）        [x]
 ├── `.qjs` 端到端过槽，JS 值进 JS 值出                    [x]
 ├── 五种 JS 值（number/string/bool/null/undefined）全过脸  [x]
@@ -434,9 +527,13 @@ M0 脊柱                                                [x] 全绿
 
 M1–M5 语言（每期同形状，语言侧的证据在上游，此处只列门）
 ├── 每个新语法：一条「编译产物跑出预期结果」的测           [x] 上游 conformance_m2.rs
-├── 每个未支持语法：一条「被拒绝且诊断说清能力边界」的测   [x] 上游 qjs_subset.rs
+├── 每个未支持语法：一条「被拒绝且诊断说清能力边界」的测   [~] 上游 qjs_subset.rs
+│   └── 实测两条例外：带标签的语句与 `for (const x of y)` 确实被拒，
+│       但诊断指错了能力边界（缺口在上游，见 README「诊断的诚实度」）
 ├── 编译产物过 tinyvm 严格装载门（不是只过自家 parser）    [x]
-├── 本仓自己的能力口径由本仓一条测试兜住（防文案漂移）      [x] qjs_guest.rs
+├── 本仓自己的能力口径由本仓一条测试兜住（防文案漂移）      [~] qjs_guest.rs
+│   └── 「能跑」那栏基本盖住了，「明确拒绝」那栏只锁了四条源码；
+│       其余是抬 rev 时逐条复测的（README 末节说明了这个缺口）
 └── M5：fleet.js 等价物端到端跑通                        [ ] 缺口清单见 PRD 36 §归档门
 ```
 
