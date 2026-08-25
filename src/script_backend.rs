@@ -43,27 +43,82 @@ pub enum ScriptBackend {
 }
 
 impl ScriptBackend {
-    pub fn from_env() -> Self {
-        match std::env::var("AGENTERM_SCRIPT_BACKEND")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref()
-        {
-            Some("rhai") => Self::Rh,
+    /// Every backend name the product has ever accepted, independent of which
+    /// ones this build compiled in. `from_env`'s arms are `#[cfg]`-gated, so
+    /// without this list a name belonging to an absent backend is
+    /// indistinguishable from a typo -- and both were silently answered with
+    /// rh, meaning a request for one language was served by another's
+    /// transpiler. Add a name here in the same change that adds its arm.
+    pub const ALL_BACKEND_NAMES: &'static [&'static str] = &[
+        "rh", "rhai", "lua", "qjs", "qjswasm", "sql", "wasmcore", "wasm",
+    ];
+
+    /// What the environment asked for that this build cannot serve.
+    ///
+    /// `None` means the request is honourable: either the variable is unset
+    /// (rh is the documented default) or it names a backend compiled in.
+    /// `Some` carries the requested name and whether the product knows it at
+    /// all, so the caller can tell "you need a build with this feature" from
+    /// "no such backend" instead of running something else and reporting that
+    /// thing's error.
+    /// Resolve a backend name without touching the environment.
+    ///
+    /// `None` covers both "no such backend" and "this build did not compile it
+    /// in" -- the arms are `#[cfg]`-gated, so the two are the same thing here.
+    /// [`unavailable_for`](Self::unavailable_for) tells them apart.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "rh" | "rhai" => Some(Self::Rh),
             #[cfg(feature = "script-lua")]
-            Some("lua") => Self::Lua,
+            "lua" => Some(Self::Lua),
             #[cfg(feature = "script-qjs")]
-            Some("qjs") => Self::Qjs,
+            "qjs" => Some(Self::Qjs),
             #[cfg(feature = "script-sql")]
-            Some("sql") => Self::Sql,
+            "sql" => Some(Self::Sql),
             #[cfg(feature = "script-wasmcore")]
-            Some("wasmcore") | Some("wasm") => Self::Wasmcore,
+            "wasmcore" | "wasm" => Some(Self::Wasmcore),
             #[cfg(feature = "script-qjswasm")]
-            Some("qjswasm") => Self::Qjswasm,
-            _ => Self::Rh,
+            "qjswasm" => Some(Self::Qjswasm),
+            _ => None,
         }
+    }
+
+    /// What a request cannot be served, given the raw requested value.
+    ///
+    /// Pure so it can be tested without the process-global environment, which
+    /// parallel tests race on. `None` means the request is honourable: absent,
+    /// blank, or a backend this build serves. `Some((name, known))` reports the
+    /// normalized name and whether the product knows it at all, so the caller
+    /// can say "rebuild with that feature" rather than "no such backend" --
+    /// and above all so it does not answer by running a different language.
+    pub fn unavailable_for(requested: Option<&str>) -> Option<(String, bool)> {
+        let normalized = requested?.trim().to_ascii_lowercase();
+        if normalized.is_empty() || Self::from_name(&normalized).is_some() {
+            return None;
+        }
+        Some((
+            normalized.clone(),
+            Self::ALL_BACKEND_NAMES.contains(&normalized.as_str()),
+        ))
+    }
+
+    /// [`unavailable_for`](Self::unavailable_for) against the live environment.
+    pub fn unavailable_request() -> Option<(String, bool)> {
+        Self::unavailable_for(std::env::var("AGENTERM_SCRIPT_BACKEND").ok().as_deref())
+    }
+
+    pub fn from_env() -> Self {
+        // Unchanged behaviour: an unset, blank, unknown or not-compiled value
+        // still resolves to rh, because rh is the documented default and many
+        // callers depend on an infallible answer. What changed is that the
+        // dispatch path now asks `unavailable_request` FIRST, so a request this
+        // build cannot serve is refused by name instead of quietly arriving
+        // here and being answered by rh.
+        std::env::var("AGENTERM_SCRIPT_BACKEND")
+            .ok()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .and_then(|value| Self::from_name(&value))
+            .unwrap_or(Self::Rh)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -312,6 +367,38 @@ pub fn rh_load_pack(
 
 #[cfg(test)]
 mod tests {
+
+    /// Every name this build can actually serve must also be in
+    /// `ALL_BACKEND_NAMES`, or a request for an absent backend becomes
+    /// indistinguishable from a typo -- and both were silently answered by rh,
+    /// which is how a request for one language came to be served by another's
+    /// transpiler. The lists are separate because `from_name`'s arms are
+    /// `#[cfg]`-gated and this one must not be; that is exactly why they drift.
+    #[test]
+    fn every_servable_name_is_listed() {
+        for name in ScriptBackend::ALL_BACKEND_NAMES {
+            if ScriptBackend::from_name(name).is_some() {
+                assert!(
+                    ScriptBackend::unavailable_for(Some(name)).is_none(),
+                    "{name} is servable but reported unavailable"
+                );
+            } else {
+                let (reported, known) = ScriptBackend::unavailable_for(Some(name))
+                    .unwrap_or_else(|| panic!("{name} is not servable and must be reported"));
+                assert_eq!(&reported, name);
+                assert!(known, "{name} is in the product's own list, so it is known");
+            }
+        }
+    }
+
+    #[test]
+    fn asking_for_nothing_is_not_a_failed_request() {
+        // rh is the documented default; absent and blank are both "no request".
+        assert!(ScriptBackend::unavailable_for(None).is_none());
+        assert!(ScriptBackend::unavailable_for(Some("")).is_none());
+        assert!(ScriptBackend::unavailable_for(Some("   ")).is_none());
+    }
+
     use super::{
         RhInvocationOptions, ScriptBackend, rh_backend_enabled, take_rh_eval_value,
         try_execute_rh_invocation,

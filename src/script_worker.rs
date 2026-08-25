@@ -632,6 +632,28 @@ fn execute_inner(
             bridge
         });
 
+    // A backend this build did not compile in used to fall through to rh,
+    // so `AGENTERM_SCRIPT_BACKEND=wasmcore` on a build without that feature
+    // ran the guest's bytes through rh's transpiler and reported rh's error.
+    // The same swallowed a typo. Neither is a backend choice the product can
+    // honour, and answering with a different language's diagnostic sends the
+    // reader to the wrong place entirely.
+    if let Some((requested, known)) = crate::script_backend::ScriptBackend::unavailable_request() {
+        return Err(configuration_error(
+            "script_backend_unavailable",
+            &if known {
+                format!(
+                    "script backend {requested} is not compiled into this build; rebuild with its feature enabled"
+                )
+            } else {
+                format!(
+                    "unknown script backend {requested}; expected one of {}",
+                    crate::script_backend::ScriptBackend::ALL_BACKEND_NAMES.join(", ")
+                )
+            },
+        ));
+    }
+
     // rh backend: no `#[cfg(not(test))]` gate — rh's `execute_inner` unit
     // tests (below) rely on this branch actually running.
     if crate::script_engine::RhEngineBackend.enabled() {
