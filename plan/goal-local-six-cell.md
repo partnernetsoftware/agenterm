@@ -525,8 +525,9 @@ FAIL aarch64-pc-windows-msvc
 
 绕法：**把字符串匹配推进进程**（`file -b "$1" \| tee "$3" \| grep -qF "$2"`，
 一次同时拿到描述文本和退出码），rh 只看 `success`。
-另外 `agenterm rh compile <file>` 是定位这类问题的正确工具——
-`rh check` 会过，AOT codegen 才报错。
+另外 `agenterm rh compile <file>` 能定位这类问题——`rh check` 会过，AOT codegen 才报错。
+**但这个工具有使用边界，见 §5.18：它不解析 `import`，对引用了模块的脚本会给假失败。**
+上面这几条是在**无 import 的自写脚本**上得到的，不受影响。
 
 ---
 
@@ -849,20 +850,29 @@ rh transpile error: unsupported expression in native pack:
   @ scripts/rh/unix-frontend-smoke.rh:288
 ```
 
-宿主上用 §5.9 认定的工具复核，确认不是 VM 环境问题，而且**报错点不止一处**：
+> ⚠ **本节原先还引了一段「宿主上用 `rh compile` 复核」作为佐证。那段佐证是无效的，已删。**
+> 原因见 §5.18——那个工具不解析 `import`，会把能正常工作的脚本也报成失败。
+> **下面保留的是仍然成立的证据。**
 
-```
-$ agenterm rh check   scripts/rh/unix-frontend-smoke.rh   → ok
-$ agenterm rh compile scripts/rh/unix-frontend-smoke.rh   → transpile error
-    test_harness::append_command_record(..., ==(output.success, 0), ...) @ 87:19
+仍然成立的两条：
+
+1. **失败发生在真实的 task 路径上**（`rh task run unix-frontend-linux-smoke`），
+   不是某个旁路工具的输出。
+2. **报错点的源码确实是那个构造**——`scripts/rh/unix-frontend-smoke.rh:288`：
+
+```rhai
+test_harness::require(out != "", "unix_frontend_macos_frontmost_empty");
 ```
 
-这正是 §5.7 记过的那条限制——**native pack 不接受「调用作为另一调用的实参」**，
-这里是把 `!=` / `==` 运算符调用直接写进 `require(...)` / `append_command_record(...)` 的实参位。
-也再一次印证 §5.9：**`rh check` 会过，只有 `rh compile` 才报**。
+`!=` 是一个运算符调用，被直接写进 `require(...)` 的实参位，正是 §5.7 记过的
+**「native pack 不接受调用作为另一调用的实参」**。
 
 `unix-frontend-linux-smoke` 与 `unix-frontend-macos-smoke` **共用同一个 entry 脚本**，
-所以两个任务当前都跑不起来。
+所以这一条对两个任务同时成立。
+
+**但范围仅限这一个脚本。** 我一度用 `rh compile` 批量筛过四个 smoke 脚本并得出
+「四个全挂」，那个结论**建立在未校准的工具上，已作废**；其余三个脚本能否运行，
+现在的状态是**未知**，不是已知失败。
 
 ### 为 VM 内跑 rh 任务铺的路（可复用）
 
@@ -886,6 +896,58 @@ macOS 那格走同一个脚本，却报 `host_hard_timeout` 而不是转译错�
 
 不继续挖的理由同 §5.16：修一个既有产品 smoke 属产品侧，§3 划在本 goal 之外。
 但**把没查清的事写成查清了，比不查更糟**——所以它以「未解释」的形态留在这里。
+
+---
+
+## 5.18 我用了一个没校准过的工具（2026-08-25）
+
+### 事情
+
+§5.9 我写下「`agenterm rh compile <file>` 是定位这类问题的正确工具」，
+之后就一直拿它当权威——包括用它批量筛四个 smoke 脚本，得出「四个全挂」。
+
+拿一个**已知能工作**的输入去校准它，这一步我从没做过。做了之后：
+
+```
+$ agenterm rh compile scripts/rh/build.rh
+rh transpile error: unsupported expression in native pack:
+  bootstrap_timing::facts() @ 22:23
+```
+
+**`build.rh` 是本 goal 每天在跑的脚本**——`client-build-all` 六格构建全走它。
+而走真实 task 路径时它编得好好的（能进到脚本自己的参数解析并报
+`build_unknown_argument`）。
+
+### 根因
+
+`rh compile <file>` **不解析 `import`**。脚本里任何对被导入模块的调用
+（`bootstrap_timing::facts`、`test_harness::require`…），在它眼里都是
+未知命名空间，一律报成 `unsupported expression in native pack`。
+task 路径会先把模块解析好，所以不受影响。
+
+两种错误的**形状**其实是能分开的：
+
+| 形状 | 含义 |
+|------|------|
+| `name: "facts", args: []` — 命名空间调用，实参里没有嵌套调用 | 多半是 import 未解析的**假失败** |
+| `require(!=(out, ""), ...)` — 实参位里真有一个调用 | 是 §5.7 那条**真限制** |
+
+我当时看到两者都写着 `unsupported expression in native pack`，就没往下分。
+
+### 影响面
+
+- §5.9 那句已加边界：该工具**只对无 import 的脚本可信**。
+  我自己写的 `six-cell-qualify.rh` 没有 import，所以它当时确实帮我抓到了三个真 bug——
+  **工具没坏，是我把它的适用范围放大了。**
+- §5.17 的「宿主复核」段已删；该节结论收窄为**只对 `unix-frontend-smoke.rh` 成立**，
+  依据是真实 task 路径的失败 + 源码里那一行确实是嵌套调用。
+- 「四个 smoke 脚本全挂」**作废**。其余三个是**未知**，不是已知失败。
+
+### 教训
+
+这跟 §5.9 的静态闸、§5.12 的容差、§5.14 的空断言是同一件事，只是换了层：
+**闸要在该红时红过才算闸；工具要在已知能过的输入上绿过才算工具。**
+我给别人的闸做了反向测试，却对自己手里的工具跳过了正向测试。
 
 ---
 
@@ -922,8 +984,10 @@ macOS 那格走同一个脚本，却报 `host_hard_timeout` 而不是转译错�
    运行中的 binary 安全。**跑过 GUI smoke 的 VM 必然处于这个状态**，不是偶发（§5.7）。
 8. **改 `.rh` 前先读 §5.7 / §5.9 的六条语言实测**：unit 字面量、嵌套调用、
    对 JSON 派生值取 `.len`、函数多出口、helper 参数被推成 `i64`、
-   `string.contains(变量)` 全都过不了 AOT codegen。定位工具是
-   `agenterm rh compile <file>`——`rh check` 会过，AOT 才报错。
+   `string.contains(变量)` 全都过不了 AOT codegen。
+   定位工具是 `agenterm rh compile <file>`（`rh check` 会过，AOT 才报错），
+   **但它不解析 `import`**——对引用模块的脚本会给假失败，判断前先看错误形状：
+   实参位里真有嵌套调用才是真问题，零参数的命名空间调用多半只是 import 没解析（§5.18）。
 9. **script-* feature 是另一条边界** —— **已验，结论为负（§5.11）**。
    原文预判「zig cc 侧应无碍，xwin 侧走 clang-cl 通常可行」**两半都错**：
    `script-lua` 两侧都挂（linux 缺 `_Unwind_*` 符号；windows 上 `luajit-src` 硬编码找 `cl.exe`），
