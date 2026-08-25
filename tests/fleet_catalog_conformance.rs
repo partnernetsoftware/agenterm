@@ -772,10 +772,10 @@ fn remaining_parameter_drift_is_documented_as_product_decisions() {
 /// satisfy**: every value of every shape is rejected, and the operation is
 /// unreachable no matter what a binding sends.
 ///
-/// This is not hypothetical, and it is the reason `fleet.ui.input.wheel`
-/// appears in `expected_parameter_drift` as a product decision rather than as
-/// a second pure bug: changing its signature to `(x, y, delta_y)` would still
-/// not make it work. Observed against the real broker:
+/// This was not hypothetical. The catalog declared `number` for pointer and
+/// wheel coordinates and the validator's match had no `number` arm, so those
+/// two surfaces were unreachable whatever any binding sent. Observed against
+/// the real broker before the fix:
 ///
 /// ```text
 /// ui.input.pointer {"x":1,"y":2}          -> parameter x must be number
@@ -784,11 +784,24 @@ fn remaining_parameter_drift_is_documented_as_product_decisions() {
 /// ui.input.wheel   {"x":1,"y":2,"delta_y":3} -> parameter x must be number
 /// ```
 ///
-/// `fleet.ui.input.pointer` is the sharp edge here: it sends `{x, y, action}`,
-/// all three declared, so it has **zero** parameter drift and this file's
-/// drift test calls it conformant — while the host refuses every call it
-/// makes. "Conforms to the declared parameter names" and "works" are
-/// different properties, and only the first one is cheap to check.
+/// `fleet.ui.input.pointer` was the sharp edge: it sends `{x, y, action}`, all
+/// three declared, so it has **zero** parameter drift and this file's drift
+/// test called it conformant — while the host refused every call it made.
+/// "Conforms to the declared parameter names" and "works" are different
+/// properties, and only the first one is cheap to check. That is why this test
+/// asserts the *class* and not the instance.
+///
+/// `src/client/mod.rs` gained the `"number"` arm (commit `f801cf20`), so the
+/// unsatisfiable set is now empty and stays that way: a new `value_type` the
+/// validator does not name fails here, at the point someone adds it, rather
+/// than silently at the point someone calls it.
+///
+/// `fleet.ui.input.wheel` stays in `expected_parameter_drift` all the same,
+/// and for its own reason: its binding sends `{delta}` where the catalog
+/// declares `{x, y, delta_y}`. That is a published signature, so repairing it
+/// changes every caller — a product decision, exactly as the other six are.
+/// What changed is that repairing it would now *work*; before, it would not
+/// have.
 #[test]
 fn every_catalog_value_type_is_one_the_broker_validator_can_accept() {
     let source = read("src/client/mod.rs");
@@ -798,8 +811,10 @@ fn every_catalog_value_type_is_one_the_broker_validator_can_accept() {
         .expect("validate_fleet_parameters' value_type match was not found in src/client/mod.rs");
     let body = &source[start + opener.len()..];
     let close = body
-        .find("
-        };")
+        .find(
+            "
+        };",
+        )
         .expect("value_type match closer not found");
     let block = &body[..close];
 
@@ -835,18 +850,13 @@ fn every_catalog_value_type_is_one_the_broker_validator_can_accept() {
         }
     }
 
-    let expected: BTreeMap<&str, BTreeSet<&str>> = [(
-        "number",
-        ["fleet.ui.input.pointer", "fleet.ui.input.wheel"]
-            .into_iter()
-            .collect(),
-    )]
-    .into_iter()
-    .collect();
+    // Empty, and it must stay empty: every type the catalog declares has an
+    // arm. The message below says what to do in either direction.
+    let expected: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
 
     assert_eq!(
         unsatisfiable, expected,
-        "the set of catalog `value_type`s that `validate_fleet_parameters`          cannot accept changed. Grown: a new OperationSpec declares a type the          validator's match does not name, so that operation is dead on arrival          for every binding. Shrunk: someone taught the validator a type —          delete the entry here, and check whether a surface it was blocking          (`fleet.ui.input.wheel`) has now become fixable rather than a product          decision. Validator accepts: {accepted:?}."
+        "a catalog `value_type` has no arm in `validate_fleet_parameters`, so          every operation listed here is dead on arrival for every binding: no          value of any shape can satisfy it. Add the arm in src/client/mod.rs          rather than adding an entry here — an entry here would only record          that a surface cannot be called. Validator accepts: {accepted:?}."
     );
 }
 
