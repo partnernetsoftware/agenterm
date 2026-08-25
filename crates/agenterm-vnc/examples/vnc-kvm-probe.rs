@@ -432,7 +432,7 @@ async fn finish(
             )
             .into());
         }
-        let drift = changed_pixels(&reference, &after);
+        let drift = changed_pixels(&reference, after);
         let drift_percent = drift as f64 * 100.0 / total as f64;
         println!(
             "probe: baseline drift {drift}/{total} ({drift_percent:.2}%), tolerance {tolerance:.2}%"
