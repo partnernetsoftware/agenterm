@@ -34,7 +34,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
 | 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿** | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
-| 门 2（两处生产调用点迁移） | 未动，**现在没有前置了** | `src/script_engine.rs::QjsEngineBackend`、`src/bin/agenterm.rs` 的 `qjs` 子命令；需要行为等价测试 |
+| 门 2（两处生产调用点迁移） | 未动，但**行为等价证据已先落地** | `tests/script_engine_equivalence.rs` 五条：同一段脚本经两条真绑定跑两个引擎，操作与值逐条对照；剩一条已具名的分歧（数组） |
 | 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
 | 门 2（`.wasm` 路由切换） | 不能绿 | `_start` 入口约定；缺同客人性能对比 |
@@ -355,6 +355,45 @@ tinyvm 解释执行（无 JIT）
 十条今天全部发得出去。`tests/qjs_produces_a_fleet_operation.rs::the_reachable_share_of_
 the_catalog_is_known` 按它自己文档里预写的规则，从「量比例并断言差额存在」改成了
 「全目录无一条因参数类型而写不出来」的等式。
+
+### 门 2 的证据先行（2026-08-25）
+
+门 2 要的是「两处生产调用点已迁到 qjswasm，且行为等价**有测试锁住**」。按本仓
+「先验收测再改脸」的纪律，测先写：`tests/script_engine_equivalence.rs`。
+
+它检的东西比 `script_fleet_facade_parity` 低一层。后者比的是**绑定文件**——函数路径与
+operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什么。两份在 `tabs.set-note`
+上完全一致的文件，仍然可能发出不同 params、对「拒绝算不算异常」有分歧、或给调用者
+不同形状的答案。这个文件比的是那些。
+
+「同一段脚本」在这里不能是同一串字节：`agenterm-qjs` 调顶层 `entry()`、经
+`__host.fleet_call` 出门；`agenterm-qjswasm` 跑整个文件取完成值、门是自由函数。所以每条
+用例是一段 **body**，各自套上本引擎的写法、接在**各自的真绑定文件**后面（两份都从磁盘读，
+测的是随包的绑定不是副本）。
+
+| 用例 | 判定 |
+|------|------|
+| 字符串 payload（`tabs.set_note`） | 两边同 op 同 params，返回值同为 `reply.ok` |
+| 数字 payload（`ui.tabs.set_width(320)`） | 两边同为 `{"width":320}`，是 JSON 数字 |
+| 无参操作（`ui.snapshot`） | 两边同送 `{}`，同取回 `snap.width` |
+| 拒绝可 catch（`ui.hello`） | 两边都抛、都被 `catch` 接住 |
+| **数组答案（`tabs.list`）** | **具名分歧**：rquickjs 解析成数组，tinyvm 无 Array 类型，绑定的 `catch` 交回原文 |
+
+**第一次跑就抓到一条，而且是测试自己错。** `1920` vs `1920.0`——`agenterm-qjs` 经
+`JSON.stringify` 出来的整值 double 不带小数，测试的投影带了。两个**产品脸**其实是一致的
+（`src/script_engine.rs::number_as_json` 对 tinyvm 侧施的正是 ECMA-262 那条规则），所以
+断言 `serde_json::Number` 的**拼写**是在断言两个引擎都没承诺、两个调用者也都看不见的东西。
+已改成按值比，并把这段写进文件注释：这个文件管的是线上的字节与值，JSON 数字怎么拼是
+上面一层的事。
+
+数组那条是**故意留红字的具名分歧**，不是通过的用例：上游 `tinyvm-qjs` README 在
+`JSON.parse("[1]")` 那条边界上自己写了这个下游后果。数组到了这条会失败，正确的修法是把它
+挪进上面四条的行列，**不是**把断言放宽。
+
+**运行条件（诚实记一笔）**：本文件要 `script-qjs` 与 `script-qjswasm` **同时**打开，
+两个 feature 都不是 default，`.github/workflows/ci-agenterm.yml` 现在是 `.disabled`。
+所以它不会被 `cargo test --workspace` 带到。命令是
+`cargo test --features "script-qjs,script-qjswasm" --test script_engine_equivalence`。
 
 #### 门 1 之外，本轮顺带关掉的一条
 
