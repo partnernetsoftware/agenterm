@@ -991,6 +991,53 @@ task 路径会先把模块解析好，所以不受影响。
 
 ---
 
+## 5.20 把仓库自己的测试套件跨架构跑起来（2026-08-25）
+
+此前所有运行时证据都止于「产物能跑」。更强的一层是**仓库自己的测试套件在目标格上通过**。
+minicon 的三个套件在 macOS 上交叉构建、在 VM2（lnx×aarch64，原生虚拟化）里执行：
+
+```
+cargo-zigbuild test --release --target aarch64-unknown-linux-gnu.2.28 --no-run \
+    --test minicon_accessibility_linux --test minicon_control --test minicon_alignment
+```
+
+| 套件 | 结果 |
+|------|------|
+| `minicon_control` | **PASS** — `gui_control_surface_isolated_multitab_black_box` |
+| `minicon_alignment` | **PASS**（复现烧死路径之后，见下） |
+| `minicon_accessibility_linux` | FAIL — **环境所致**，见下 |
+
+`minicon_control` 那条尤其值钱：**一个构建宿主根本无法执行的 GUI 黑盒套件**，
+在这里交叉构建、在目标格上通过。
+
+### 坑：交叉构建的测试二进制会带着**构建机的绝对路径**
+
+`env!("CARGO_BIN_EXE_minicon")` 与 `env!("CARGO_MANIFEST_DIR")` 是**编译期**宏，
+二进制里存的是 `/Users/wjc/repos/minicon/...` 这样的字面量。
+**在运行时设同名环境变量毫无作用**——这是我第一反应试的，失败点纹丝不动。
+真正的解法是在 guest 里把那些路径原样造出来，之后 `minicon_alignment` 立刻通过。
+
+要把测试二进制送去另一台机器跑，就得复现这些路径，否则套件会因为
+**与代码无关的理由**失败。
+
+### 这一轮真正的目的：检验一个当时无法检验的改动
+
+本会话早些时候把 SEND 控件拆成了 SEND / NEWLINE。
+`real_atspi_tree_edits_command_and_activates_send` 测的正是那个控件，
+而它是 **Linux 专属**测试——在构建宿主上跑不了，所以那个改动**是在未经它检验的情况下发出去的**。
+
+它现在报 `timed out waiting for composer focus`。**我没有猜原因**：
+把改动前的提交按同一目标构建、跑同一套件——**以完全相同的方式失败**
+（同一测试、同样 20.11 s 超时）。所以失败是环境的（guest 没有完整 AT-SPI 会话），
+拆分不是原因。
+
+**这没有证明的是**：a11y 的断言仍然没有真正跑过，
+所以拆分对它们**仍然缺少正面验证**。已确立的只是「它没有引入这个失败」。
+
+证据：`~/.local/share/agenterm/evidence/six-cell-*/minicon-cross-tests/`
+
+---
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。
