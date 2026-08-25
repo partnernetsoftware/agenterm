@@ -263,7 +263,17 @@ pub(crate) fn install(
     let state = Rc::clone(&pending);
     bind(module, "print", move |args, memory| {
         let bytes = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        state.borrow_mut().write_stdout(bytes);
+        let mut state = state.borrow_mut();
+        state.write_stdout(bytes);
+        // A line per call, matching the engine this one replaces: the previous
+        // `agenterm-qjs` host appends '\n' after every `print`, and so does
+        // lua's. Without it a script that prints twice gets its two lines run
+        // together, which is a silent formatting change for anyone porting a
+        // script across engines -- exactly the kind of difference the
+        // line-for-line binding discipline exists to prevent. The newline goes
+        // through `write_stdout` so it is subject to `max_stdout_bytes` like
+        // any other byte, rather than sneaking past the budget.
+        state.write_stdout(b"\n");
         Ok(Vec::new())
     })?;
 
@@ -626,7 +636,7 @@ mod tests {
             [("fleet.ping".to_owned(), "{\"n\":1}".to_owned())],
             "the bridge sees exactly the two guest regions"
         );
-        assert_eq!(state.take_stdout(), ("pong".to_owned(), false));
+        assert_eq!(state.take_stdout(), ("pong\n".to_owned(), false));
     }
 
     /// A second call replaces the pending buffer rather than appending to it.
@@ -649,7 +659,7 @@ mod tests {
         let recorder = recorder(Ok("pong".to_owned()));
         let (outcome, state) = run(&wasm, &Budget::default(), Some(recorder.bridge));
         assert_eq!(returned(&outcome), 4);
-        assert_eq!(state.take_stdout(), ("pong".to_owned(), false));
+        assert_eq!(state.take_stdout(), ("pong\n".to_owned(), false));
     }
 
     #[test]
@@ -660,7 +670,7 @@ mod tests {
         assert_eq!(returned(&outcome), STATUS_ERR);
         assert_eq!(
             state.take_stdout(),
-            ("no such op: fleet.ping".to_owned(), false)
+            ("no such op: fleet.ping\n".to_owned(), false)
         );
     }
 
@@ -669,7 +679,7 @@ mod tests {
         let wasm = guest(RETRIEVE_INTO_STDOUT);
         let (outcome, state) = run(&wasm, &Budget::default(), None);
         assert_eq!(returned(&outcome), STATUS_NO_BRIDGE);
-        assert_eq!(state.take_stdout(), (NO_BRIDGE.to_owned(), false));
+        assert_eq!(state.take_stdout(), (format!("{NO_BRIDGE}\n"), false));
     }
 
     /// A destination smaller than the pending bytes reports negative and leaves
@@ -699,7 +709,7 @@ mod tests {
         );
         assert_eq!(
             state.take_stdout(),
-            ("................".to_owned(), false),
+            ("................\n".to_owned(), false),
             "the guest's buffer is untouched"
         );
     }
@@ -721,7 +731,10 @@ mod tests {
         );
         let (outcome, state) = run(&wasm, &Budget::default(), None);
         assert_eq!(returned(&outcome), 0, "length 0, and 0 bytes written");
-        assert_eq!(state.take_stdout(), ("................".to_owned(), false));
+        assert_eq!(
+            state.take_stdout(),
+            ("................\n".to_owned(), false)
+        );
     }
 
     #[test]
@@ -847,7 +860,11 @@ mod tests {
         };
         let (outcome, state) = run(&wasm, &budget, None);
         assert_eq!(returned(&outcome), 0, "the guest is not trapped for it");
-        assert_eq!(state.take_stdout(), ("0123456789".to_owned(), true));
+        assert_eq!(
+            state.take_stdout(),
+            ("0123456789".to_owned(), true),
+            "print's newline is budgeted like any other byte, so a full buffer cuts it"
+        );
     }
 
     /// Over-budget bridge answers are refused, not cut: the guest must never
@@ -863,9 +880,9 @@ mod tests {
         let (outcome, state) = run(&wasm, &budget, Some(recorder.bridge));
         assert_eq!(returned(&outcome), STATUS_ERR, "over budget is status 1");
         let (stdout, _) = state.take_stdout();
-        assert_eq!(stdout, RESULT_TOO_LARGE);
+        assert_eq!(stdout, format!("{RESULT_TOO_LARGE}\n"));
         assert!(
-            !"0123456789abcdef".starts_with(&stdout),
+            !"0123456789abcdef".starts_with(stdout.trim_end()),
             "a refusal, not a prefix of the payload"
         );
     }
@@ -893,7 +910,7 @@ mod tests {
         let (outcome, state) = run(&wasm, &Budget::default(), Some(recorder.bridge));
         assert_eq!(returned(&outcome), STATUS_ERR);
         assert_eq!(recorder.calls.load(Ordering::SeqCst), 0);
-        assert_eq!(state.take_stdout(), (NOT_UTF8.to_owned(), false));
+        assert_eq!(state.take_stdout(), (format!("{NOT_UTF8}\n"), false));
     }
 
     /// Invalid UTF-8 on `print` is kept verbatim and replaced at read-back, so
@@ -911,7 +928,7 @@ mod tests {
         );
         let (outcome, state) = run(&wasm, &Budget::default(), None);
         assert_eq!(returned(&outcome), 0);
-        assert_eq!(state.take_stdout(), ("a\u{fffd}b".to_owned(), false));
+        assert_eq!(state.take_stdout(), ("a\u{fffd}b\n".to_owned(), false));
     }
 
     /// A cut that lands mid-code-point is still readable text, not a panic.
@@ -953,7 +970,7 @@ mod tests {
         .expect("valid wat");
         let (outcome, state) = run(&wasm, &Budget::default(), None);
         assert_eq!(returned(&outcome), 7);
-        assert_eq!(state.take_stdout(), ("hi".to_owned(), false));
+        assert_eq!(state.take_stdout(), ("hi\n".to_owned(), false));
     }
 
     /// A guest importing nothing at all -- and declaring no memory -- is
@@ -1150,7 +1167,7 @@ mod tests {
             "#,
         );
         let (_outcome, state) = run(&wasm, &Budget::default(), None);
-        assert_eq!(state.take_stdout(), ("abc".to_owned(), false));
+        assert_eq!(state.take_stdout(), ("abc\n".to_owned(), false));
         assert_eq!(state.take_stdout(), (String::new(), false));
     }
 }

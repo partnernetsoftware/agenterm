@@ -314,7 +314,7 @@ fn empty_strings_cross_the_door_in_both_directions() {
         Some(Arc::clone(&bridge.call)),
     )
     .expect("runs");
-    assert_eq!(out.stdout, "");
+    assert_eq!(out.stdout, "\n", "an empty print still ends a line");
     assert_eq!(out.values, vec![Value::Js(JsValue::Str("[|]".into()))]);
     assert_eq!(bridge.seen(), vec![(String::new(), String::new())]);
 
@@ -326,14 +326,26 @@ fn empty_strings_cross_the_door_in_both_directions() {
 /// truncated: the flag means "you lost bytes", and no bytes were lost.
 #[test]
 fn an_empty_print_is_not_a_truncation() {
+    // One byte of room, which is exactly what an empty print needs: `print`
+    // ends a line, so the newline is the only byte it writes. A zero budget
+    // would make even that a truncation, which is a true but different fact --
+    // asserted separately below so neither claim hides the other.
     let budget = Budget {
-        max_stdout_bytes: 0,
+        max_stdout_bytes: 1,
         ..Budget::default()
     };
     let out = run_with(budget.clone(), "print(\"\"); return 0;", None).expect("runs");
-    assert_eq!((out.stdout.as_str(), out.truncated_stdout), ("", false));
+    assert_eq!((out.stdout.as_str(), out.truncated_stdout), ("\n", false));
 
     let out = run_with(budget, "print(\"abc\"); return 0;", None).expect("runs");
+    assert_eq!((out.stdout.as_str(), out.truncated_stdout), ("a", true));
+
+    // At zero the newline itself is the lost byte, and the flag says so.
+    let none_at_all = Budget {
+        max_stdout_bytes: 0,
+        ..Budget::default()
+    };
+    let out = run_with(none_at_all, "print(\"\"); return 0;", None).expect("runs");
     assert_eq!((out.stdout.as_str(), out.truncated_stdout), ("", true));
 }
 
@@ -348,7 +360,7 @@ fn a_nul_byte_crosses_the_door_without_truncating_anything() {
         Some(Arc::clone(&bridge.call)),
     )
     .expect("runs");
-    assert_eq!(out.stdout, "a\0b");
+    assert_eq!(out.stdout, "a\0b\n");
     assert_eq!(bridge.seen(), vec![("n\0ul".to_string(), String::new())]);
     assert_eq!(out.values, vec![Value::Js(JsValue::Str("n\0ul".into()))]);
 }
@@ -379,7 +391,7 @@ fn a_qjs_script_cannot_hand_the_door_invalid_utf8() {
         Some(Arc::clone(&bridge.call)),
     )
     .expect("runs");
-    assert_eq!(out.stdout, "a\u{ff}b");
+    assert_eq!(out.stdout, "a\u{ff}b\n");
     assert_eq!(
         bridge.seen(),
         vec![("\u{1f600}".to_string(), "p".to_string())]
@@ -419,8 +431,12 @@ fn a_hundred_kilobyte_argument_arrives_whole() {
         Some(Arc::clone(&bridge.call)),
     )
     .expect("runs");
-    assert_eq!(out.stdout.len(), 100_000);
-    assert!(out.stdout.bytes().all(|b| b == b'y'));
+    assert_eq!(
+        out.stdout.len(),
+        100_001,
+        "100 KiB of payload plus print's newline"
+    );
+    assert!(out.stdout.trim_end_matches('\n').bytes().all(|b| b == b'y'));
     assert_eq!(bridge.seen()[0].0.len(), 100_000);
     assert_eq!(out.values, vec![Value::Js(JsValue::Str("100000".into()))]);
 }
@@ -439,7 +455,10 @@ fn door_arguments_are_evaluated_left_to_right_exactly_once() {
         Some(Arc::clone(&bridge.call)),
     )
     .expect("runs");
-    assert_eq!(out.stdout, "firstsecond");
+    assert_eq!(
+        out.stdout, "first\nsecond\n",
+        "each print ends its own line, as it does on the engine this replaces"
+    );
     assert_eq!(
         bridge.seen(),
         vec![("first".to_string(), "second".to_string())]
@@ -681,7 +700,8 @@ fn recursion_through_a_host_call_is_a_call_depth_budget() {
         None,
     )
     .expect("21 frames fit");
-    assert_eq!(out.stdout.len(), 21);
+    // Twenty-one frames, each printing one byte and ending its line.
+    assert_eq!(out.stdout.len(), 42);
 }
 
 /// A call that trapped loses its own output -- a stated cost in `src/slot.rs`
@@ -722,7 +742,7 @@ fn output_from_a_trapped_call_is_not_carried_into_the_next_one() {
         .call(slot, "main", &[])
         .expect("the slot is still live");
     assert_eq!(
-        second.stdout, "once",
+        second.stdout, "once\n",
         "the second call's stdout is its own, not both calls'"
     );
     assert_eq!(second.values, vec![Value::Js(JsValue::Str("fine".into()))]);
@@ -992,7 +1012,7 @@ fn a_panicking_bridge_is_a_door_error_and_run_once_still_reclaims() {
         )
         .expect("the engine still works after a bridge panicked");
     assert_eq!(out.values, vec![Value::Js(JsValue::Str("<ok>".into()))]);
-    assert_eq!(out.stdout, "after");
+    assert_eq!(out.stdout, "after\n");
     assert_eq!(engine.live_slots(), 0);
 }
 
@@ -1128,6 +1148,6 @@ fn check_does_not_run_the_script() {
     // And the same source executes, so the check was not passing something
     // unrunnable.
     let out = run(source, Some(bridge)).expect("it runs");
-    assert_eq!(out.stdout, "side effect");
+    assert_eq!(out.stdout, "side effect\n");
     assert_eq!(*seen.lock().unwrap(), 1);
 }

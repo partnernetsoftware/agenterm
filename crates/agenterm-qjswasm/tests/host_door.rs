@@ -67,7 +67,7 @@ fn status_ok_and_the_answer_both_cross_back() {
         )
         .expect("the guest runs");
     assert_eq!(status_of(&outcome.values), 0);
-    assert_eq!(outcome.stdout, "pong");
+    assert_eq!(outcome.stdout, "pong\n");
     assert!(!outcome.truncated_stdout);
 }
 
@@ -83,7 +83,7 @@ fn a_bridge_error_is_status_1_and_its_message_is_readable() {
         )
         .expect("an application error is a normal result, not a trap");
     assert_eq!(status_of(&outcome.values), 1);
-    assert_eq!(outcome.stdout, "no such op");
+    assert_eq!(outcome.stdout, "no such op\n");
 }
 
 #[test]
@@ -119,7 +119,10 @@ fn stdout_over_budget_arrives_truncated_and_flagged() {
     let outcome = engine
         .run_once(Guest::Wasm(&wasm), None, "main", &[])
         .expect("an over-budget print does not kill the guest");
-    assert_eq!(outcome.stdout, "0123456789");
+    assert_eq!(
+        outcome.stdout, "0123456789",
+        "the newline is budgeted too, so a full buffer cuts it"
+    );
     assert!(outcome.truncated_stdout);
 }
 
@@ -203,7 +206,7 @@ fn the_pending_buffer_and_the_bridge_are_per_slot() {
         .expect("slot b loads");
 
     let out_b = engine.call(b, "main", &[]).expect("slot b runs");
-    assert_eq!(out_b.stdout, "b");
+    assert_eq!(out_b.stdout, "b\n");
     assert_eq!(
         a_calls.load(Ordering::SeqCst),
         0,
@@ -212,7 +215,7 @@ fn the_pending_buffer_and_the_bridge_are_per_slot() {
 
     let out_a = engine.call(a, "main", &[]).expect("slot a runs");
     assert_eq!(
-        out_a.stdout, "from-a",
+        out_a.stdout, "from-a\n",
         "slot a keeps its own pending buffer"
     );
     assert_eq!(a_calls.load(Ordering::SeqCst), 1);
@@ -237,7 +240,7 @@ fn a_guest_importing_only_print_still_loads() {
         .run_once(Guest::Wasm(&wasm), None, "main", &[])
         .expect("a partial importer loads and runs");
     assert_eq!(status_of(&outcome.values), 7);
-    assert_eq!(outcome.stdout, "hi");
+    assert_eq!(outcome.stdout, "hi\n");
 }
 
 /// A guest declaring a door name the ABI does not have is refused at load, in

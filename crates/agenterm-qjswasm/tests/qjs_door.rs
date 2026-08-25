@@ -141,7 +141,10 @@ fn no_bridge_is_status_two_and_the_door_says_which() {
 fn print_from_a_qjs_script_reaches_the_outcome() {
     let out = run("print(\"hello \"); print(\"door\"); return 1;", None)
         .expect("printing is not a failure");
-    assert_eq!(out.stdout, "hello door");
+    assert_eq!(
+        out.stdout, "hello \ndoor\n",
+        "each print ends its own line, matching the engine this one replaces"
+    );
     assert!(!out.truncated_stdout);
     assert_eq!(out.values, vec![Value::Js(JsValue::Number(1.0))]);
 }
@@ -152,7 +155,7 @@ fn print_from_a_qjs_script_reaches_the_outcome() {
 fn print_evaluates_to_undefined() {
     let out = run("return print(\"x\");", None).expect("runs");
     assert_eq!(out.values, vec![Value::Js(JsValue::Undefined)]);
-    assert_eq!(out.stdout, "x");
+    assert_eq!(out.stdout, "x\n");
 }
 
 /// A bridge answer the guest can hold but the *seam* may not copy out is
@@ -231,7 +234,7 @@ fn a_door_call_is_an_ordinary_expression() {
     )
     .expect("runs");
     assert_eq!(out.values, vec![Value::Js(JsValue::Number(0.0))]);
-    assert_eq!(out.stdout, "done");
+    assert_eq!(out.stdout, "done\n");
     assert_eq!(calls.0.lock().unwrap().len(), 3);
 }
 

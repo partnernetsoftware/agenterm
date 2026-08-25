@@ -580,23 +580,11 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         if !self.enabled() {
             return Err(not_enabled_error(self.backend_id()));
         }
-        if source.ends_with(".wasm") {
-            let bytes =
-                std::fs::read(source).map_err(|e| format!("reading wasm file {source}: {e}"))?;
-            agenterm_qjswasm::validate_wasm(&bytes).map_err(|e| e.to_string())?;
-        } else {
-            let text = std::fs::read_to_string(source)
-                .map_err(|e| format!("reading qjs file {source}: {e}"))?;
-            // `check_qjs`, not `compile_qjs`: compiling answers "is this the
-            // language?" and stops, while `execute` below also has to *load*
-            // the bytes it produces under `Engine::new`'s budget. A script
-            // whose string literals need more than the default 256 pages
-            // compiled clean here and then failed execution with
-            // `Load("memory page limit")` -- a check passing what execute
-            // cannot run. `check_qjs` applies the same default budget this
-            // backend executes under, and still runs nothing.
-            agenterm_qjswasm::check_qjs(&text).map_err(|e| e.to_string())?;
-        }
+        // Same contract as `execute`: `source` is text. `check_qjs` compiles
+        // and load-validates under the budget the run will spend, and executes
+        // nothing -- the two must share an entry point, or a check would accept
+        // what the run then refuses.
+        agenterm_qjswasm::check_qjs(source).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -624,16 +612,20 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // here — compiles to a zero-parameter `main`. What did change is the
         // *result*: a `.qjs` entry returns one JavaScript value rather than an
         // `i32`, which is why the value below is no longer discarded.
-        let outcome = if source.ends_with(".wasm") {
-            let bytes =
-                std::fs::read(source).map_err(|e| format!("reading wasm file {source}: {e}"))?;
-            engine.run_once(agenterm_qjswasm::Guest::Wasm(&bytes), bridge, "main", &[])
-        } else {
-            let text = std::fs::read_to_string(source)
-                .map_err(|e| format!("reading qjs file {source}: {e}"))?;
-            engine.run_once(agenterm_qjswasm::Guest::Qjs(&text), bridge, "main", &[])
-        }
-        .map_err(|e| e.to_string())?;
+        // `source` is the script's TEXT, not a path -- `ScriptInvocation`
+        // carries the filename separately as `source_label`, purely for
+        // diagnostics. An earlier version of this backend read it as a path and
+        // so could never run anything: the failure was
+        // `File name too long (os error 63)` with the whole program in the
+        // message. Nothing caught it, because the crate's own tests drive
+        // `Engine` directly and never come through this trait.
+        //
+        // A `.wasm` guest therefore cannot arrive here at all -- bytes do not
+        // survive a `&str` -- and it is refused rather than guessed at. That
+        // delivery path is the library API (`Guest::Wasm`), not this one.
+        let outcome = engine
+            .run_once(agenterm_qjswasm::Guest::Qjs(source), bridge, "main", &[])
+            .map_err(|e| e.to_string())?;
 
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,

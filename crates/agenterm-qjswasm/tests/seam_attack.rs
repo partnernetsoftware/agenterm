@@ -772,7 +772,7 @@ fn finding_6_output_is_discarded_when_the_face_refuses_the_return_value() {
 
     // The control: the same print, a return type the face can carry.
     let ok = eng.call(slot, "ok", &[]).expect("ok call");
-    assert_eq!(ok.stdout, "twenty-three bytes here");
+    assert_eq!(ok.stdout, "twenty-three bytes here\n");
 
     let err = eng
         .call(slot, "bad", &[])
@@ -792,7 +792,7 @@ fn finding_6_output_is_discarded_when_the_face_refuses_the_return_value() {
     // The slot is untouched by the refusal.
     assert_eq!(
         eng.call(slot, "ok", &[]).expect("ok again").stdout,
-        "twenty-three bytes here"
+        "twenty-three bytes here\n"
     );
 }
 

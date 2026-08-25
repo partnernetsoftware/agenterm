@@ -702,9 +702,27 @@ fn execute_inner(
         }
     }
 
+    // qjswasm backend: enabled via AGENTERM_SCRIPT_BACKEND=qjswasm or a `.qjs`
+    // entry. This arm is the second dispatch site for the backend list --
+    // `script_engine.rs`'s `ScriptEngine` enum is the first -- and it was
+    // missed when the backend landed, so `.qjs` scripts registered, compiled,
+    // and tested green while the product could not run one at all. The two
+    // lists have to be extended together; `all_backends_reach_a_dispatch_arm`
+    // below now fails if they drift apart again.
+    #[cfg(all(not(test), feature = "script-qjswasm"))]
+    if crate::script_engine::QjswasmEngineBackend.enabled() {
+        return dispatch_via_engine(
+            &crate::script_engine::QjswasmEngineBackend,
+            invocation.operation,
+            &invocation.source,
+            &options,
+            fleet_bridge,
+        );
+    }
+
     Err(configuration_error(
         "script_backend_unavailable",
-        "no script backend handled this invocation; set AGENTERM_SCRIPT_BACKEND to rh, lua, qjs, sql, or wasmcore with matching source",
+        "no script backend handled this invocation; set AGENTERM_SCRIPT_BACKEND to rh, lua, qjs, qjswasm, sql, or wasmcore with matching source",
     ))
 }
 
