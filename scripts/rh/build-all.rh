@@ -1,0 +1,200 @@
+// Build all six architecture cells from one host in one invocation.
+//
+// Args: REPO [release-fast|release|dev]
+//
+// Cells and drivers (see plan/goal-local-six-cell.md §2 D3/D4/D5):
+//   macos   -> cargo            (native; the Xcode SDK carries both slices)
+//   linux   -> cargo-zigbuild   (zig supplies linker + libc for both arches)
+//   windows -> cargo-xwin       (host-agnostic MSVC CRT/SDK)
+//
+// **Sequential, not concurrent.** Cargo takes an exclusive lock on the build
+// directory for the whole build, so six concurrent `client-build` runs against
+// one `target/` would serialize on that lock anyway -- with the added cost of
+// five processes idling in "Blocking waiting for file lock". Real concurrency
+// needs one `CARGO_TARGET_DIR` per cell; that trade (wall clock against disk)
+// is not taken here because a shared directory is what every other task in this
+// repository already assumes.
+//
+// Every cell runs even after an earlier one fails, so one invocation reports the
+// whole matrix instead of stopping at the first red. A failure is never silent:
+// the summary marks it FAIL and the task throws at the end.
+
+// The glibc floor is measured, not chosen for roundness. 2.17 -- the usual
+// "oldest thing anyone still runs" number -- does not link: this tree calls
+// `getrandom(2)` from `crates/agenterm-platform/src/adapters/linux/entropy.rs`,
+// and glibc only grew that wrapper in 2.25. 2.28 is the next distribution-
+// meaningful step above it (RHEL 8, Debian 10), and a binary built against it
+// verifiably tops out at GLIBC_2.28. Raising this number silently narrows who
+// can run the release; lowering it below 2.25 does not link at all.
+fn cells() {
+    [
+        #{ target: "aarch64-apple-darwin",      driver: "cargo",          glibc: "" },
+        #{ target: "x86_64-apple-darwin",       driver: "cargo",          glibc: "" },
+        #{ target: "aarch64-unknown-linux-gnu", driver: "cargo-zigbuild", glibc: "2.28" },
+        #{ target: "x86_64-unknown-linux-gnu",  driver: "cargo-zigbuild", glibc: "2.28" },
+        #{ target: "aarch64-pc-windows-msvc",   driver: "cargo-xwin",     glibc: "" },
+        #{ target: "x86_64-pc-windows-msvc",    driver: "cargo-xwin",     glibc: "" }
+    ]
+}
+
+fn tail_of(text, limit) {
+    let value = "" + text;
+    value.replace("\r\n", "\n");
+    value.replace("\r", "\n");
+    if value.len > limit {
+        return value.sub_string(value.len - limit, limit);
+    }
+    value
+}
+
+// The `client-build` stdout ends with a "Built client artifacts" block whose
+// entries are two-space-indented absolute paths. Reading them back is what lets
+// this task hash exactly the files the build claims it produced, rather than
+// guessing names from the target triple.
+fn artifact_paths(stdout_text) {
+    let paths = [];
+    let text = "" + stdout_text;
+    text.replace("\r\n", "\n");
+    text.replace("\r", "\n");
+    for line in text.split("\n") {
+        let candidate = "" + line;
+        if candidate.starts_with("  /") || candidate.starts_with("  \\") {
+            paths.push(candidate.sub_string(2, candidate.len - 2));
+        }
+    }
+    paths
+}
+
+fn entry() {
+    require(args.len >= 1, "expected: REPO [PROFILE]");
+    let repo = std::path::absolute(args[0]).display;
+
+    let profile = "release-fast";
+    if args.len >= 2 {
+        let requested = "" + args[1];
+        require(
+            requested == "release" || requested == "release-fast"
+                || requested == "dev",
+            "build_all_profile:" + requested
+        );
+        profile = requested;
+    }
+
+    require(
+        std::env::has("AGENTERM_BOOTSTRAP_WORKER"),
+        "build_all_bootstrap_worker_missing"
+    );
+    let worker =
+        std::path::absolute(std::env::get("AGENTERM_BOOTSTRAP_WORKER")).display;
+    let task_manifest = std::path::join(repo, "agenterm.tasks.json").display;
+
+    let output_root =
+        std::path::join(repo, "target/qualification/six-cell").display;
+    std::fs::create_dir_all(output_root);
+
+    let results = [];
+    let failed = 0;
+
+    for cell in cells() {
+        let target = "" + cell.target;
+        let driver = "" + cell.driver;
+        let glibc = "" + cell.glibc;
+        let label = target + " via " + driver;
+        if glibc != "" {
+            label = label + " (glibc " + glibc + ")";
+        }
+        print("six-cell: building " + label);
+
+        let stdout_path =
+            std::path::join(output_root, target + ".stdout").display;
+        let stderr_path =
+            std::path::join(output_root, target + ".stderr").display;
+
+        let cell_args = [
+            "rh", "task", "run", "client-build",
+            "--manifest", task_manifest,
+            "--", profile, "--target", target, "--driver", driver
+        ];
+        if glibc != "" {
+            cell_args.push("--glibc");
+            cell_args.push(glibc);
+        }
+        let command = std::process::command(worker);
+        command.args(cell_args);
+        command.current_dir(repo);
+        // The task schema caps a contract budget at 3_600_000 ms, so all six
+        // cells share a one-hour ceiling. Half an hour per cell keeps a single
+        // stuck cell from eating the whole budget and starving the rest.
+        command.timeout(std::time::Duration::from_secs(1800));
+        command.stdout_file(stdout_path);
+        command.stderr_file(stderr_path);
+        let output = command.output();
+
+        let stdout_text = "";
+        if std::fs::exists(stdout_path) {
+            stdout_text = std::fs::read_to_string(stdout_path);
+        }
+
+        if output.success == 0 {
+            failed = failed + 1;
+            let diagnostic = "";
+            if std::fs::exists(stderr_path) {
+                diagnostic = std::fs::read_to_string(stderr_path);
+            }
+            diagnostic = diagnostic + stdout_text;
+            print("six-cell: FAIL " + target);
+            print(tail_of(diagnostic, 4096));
+            results.push(#{
+                target: target,
+                driver: driver,
+                state: "FAIL",
+                artifacts: []
+            });
+        } else {
+            let hashed = [];
+            for path in artifact_paths(stdout_text) {
+                let artifact_path = "" + path;
+                if std::fs::exists(artifact_path) {
+                    hashed.push(#{
+                        path: artifact_path,
+                        sha256: rh::crypto::sha256_file(artifact_path)
+                    });
+                }
+            }
+            require(
+                hashed.len > 0,
+                "build_all_no_artifacts:" + target
+            );
+            print("six-cell: PASS " + target + " (" + hashed.len + " artifacts)");
+            results.push(#{
+                target: target,
+                driver: driver,
+                state: "PASS",
+                artifacts: hashed
+            });
+        }
+    }
+
+    let summary = #{
+        kind: "agenterm-six-cell-build",
+        schema_version: 1,
+        profile: profile,
+        cells: results
+    };
+    let summary_path = std::path::join(output_root, "summary.json").display;
+    rh::runtime::atomic_write(
+        summary_path,
+        rh::json::stringify_pretty(summary)
+    );
+
+    print("");
+    print("Six-cell build summary [" + profile + "]:");
+    for result in results {
+        print("  " + result.state + "  " + result.target
+            + "  (" + result.driver + ")");
+    }
+    print("  summary: " + summary_path);
+
+    require(failed == 0, "build_all_failed_cells:" + failed);
+    0
+}

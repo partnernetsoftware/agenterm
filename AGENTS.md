@@ -526,12 +526,27 @@ build commands per cell. `src/bin/` currently holds **four** product binaries
 
 | Cell | Host | Build |
 |------|------|-------|
-| **win × x86_64** | Linux + `cargo-xwin` | `cargo xwin build --target x86_64-pc-windows-msvc` (all four bins) |
-| **win × aarch64** | Linux + `cargo-xwin` | `cargo xwin build --target aarch64-pc-windows-msvc` (all four bins) |
-| **lnx × x86_64** | Linux native | `cargo build --target x86_64-unknown-linux-gnu` (all bins; no `--bin` filter) |
-| **lnx × aarch64** | Linux + `gcc-aarch64-linux-gnu` | `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --target aarch64-unknown-linux-gnu` |
+| **win × x86_64** | Linux **or macOS** + `cargo-xwin` | `cargo xwin build --target x86_64-pc-windows-msvc` (all four bins) |
+| **win × aarch64** | Linux **or macOS** + `cargo-xwin` | `cargo xwin build --target aarch64-pc-windows-msvc` (all four bins) |
+| **lnx × x86_64** | Linux native, **or any host + `cargo-zigbuild`** | `cargo build --target x86_64-unknown-linux-gnu` (all bins; no `--bin` filter) |
+| **lnx × aarch64** | Linux + `gcc-aarch64-linux-gnu`, **or any host + `cargo-zigbuild`** | `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --target aarch64-unknown-linux-gnu` |
 | **osx × aarch64** | macOS | `cargo build --target aarch64-apple-darwin` |
 | **osx × x86_64** | macOS | `cargo build --target x86_64-apple-darwin` |
+
+**All six cells from one macOS host.** `cargo-xwin` is not Linux-only and
+`cargo-zigbuild` supplies linker and libc for both `linux-gnu` targets, so an
+Apple Silicon machine builds the whole matrix without CI. Measured 2026-08-25;
+`winresource` needed no resource compiler on the `PATH`. One command:
+
+```
+AGENTERM_BOOTSTRAP_TASK=client-build-all ./scripts/bootstrap.sh dev
+AGENTERM_BOOTSTRAP_TASK=six-cell-qualify ./scripts/bootstrap.sh dev   # + runtime smokes
+```
+
+`scripts/six-cell-runners.json` says where each cell's runtime smoke executes;
+a cell with no runner is reported BLOCKED with a reason, never skipped. Plan and
+receipts: `plan/goal-local-six-cell.md`. CI still covers all six as the backstop
+and remains authoritative for real x86_64 silicon and for Windows runtime.
 
 Clippy: append `-- -D warnings` to the matching `cargo clippy` or
 `cargo xwin clippy` invocation with the same `--target`. Use

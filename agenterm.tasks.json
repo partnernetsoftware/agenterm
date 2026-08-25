@@ -1340,6 +1340,48 @@
         "task.client-build"
       ]
     },
+    "client-build-all": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "target-client-binaries"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.client-build-all"
+      ]
+    },
+    "six-cell-qualify": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "target-client-binaries"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.six-cell-qualify"
+      ]
+    },
     "client-clippy": {
       "inputs": [
         "source-tree",
@@ -2701,6 +2743,46 @@
         "build-identity",
         "validate-artifact-manifest"
       ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "client-build-all",
+      "description": "Build all six architecture cells from one host in one invocation",
+      "entry": "scripts/rh/build-all.rh",
+      "profile": "local",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "six-cell-qualify",
+      "description": "Build all six architecture cells and run each cell's runtime smoke where it can execute",
+      "entry": "scripts/rh/six-cell-qualify.rh",
+      "profile": "local",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
       "platforms": [
         "windows",
         "linux",

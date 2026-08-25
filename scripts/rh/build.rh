@@ -2,7 +2,8 @@
 //
 // Args:
 //   REPO [release-fast|release|dev]
-//        [--target TRIPLE] [--driver cargo|cargo-xwin]
+//        [--target TRIPLE] [--driver cargo|cargo-xwin|cargo-zigbuild]
+//        [--glibc VERSION]
 //        [--os windows|linux|macos] [--arch x86_64|aarch64]
 //        [--clients-only] [--action build|clippy]
 //
@@ -232,6 +233,11 @@ fn entry() {
     let profile_set = 0;
     let target = "";
     let driver = "cargo";
+    // Empty means "whatever the build host happens to have". `cargo-zigbuild`
+    // takes a `<triple>.<glibc>` target and links against that version's stubs,
+    // which is how one host produces a binary that runs on distributions older
+    // than itself. Output paths keep the plain triple.
+    let glibc = "";
     let os_name = "";
     let arch = "";
     let clients_only = 0;
@@ -246,6 +252,10 @@ fn entry() {
         } else if value == "--target" {
             require(index + 1 < args.len, "build_option_value_missing:" + value);
             target = args[index + 1];
+            index += 1;
+        } else if value == "--glibc" {
+            require(index + 1 < args.len, "build_option_value_missing:" + value);
+            glibc = args[index + 1];
             index += 1;
         } else if value == "--driver" {
             require(index + 1 < args.len, "build_option_value_missing:" + value);
@@ -271,7 +281,7 @@ fn entry() {
         index += 1;
     }
     require(
-        driver == "cargo" || driver == "cargo-xwin",
+        driver == "cargo" || driver == "cargo-xwin" || driver == "cargo-zigbuild",
         "build_driver:" + driver
     );
     require(
@@ -281,6 +291,10 @@ fn entry() {
     require(
         target != "" || driver == "cargo",
         "build_xwin_requires_target"
+    );
+    require(
+        glibc == "" || driver == "cargo-zigbuild",
+        "build_glibc_requires_zigbuild:" + driver
     );
     if target != "" {
         let facts = target_facts(target);
@@ -527,11 +541,31 @@ fn entry() {
         }
     }
 
+    // `cargo xwin <action>` wraps both actions through the normal `cargo` driver.
+    // `cargo-zigbuild` is invoked as its own program instead, because its build
+    // action is named `zigbuild` and `cargo zigbuild clippy` is not a thing --
+    // only `cargo-zigbuild clippy` is.
+    //
+    // Clippy has to go through the wrapper too, even though it emits metadata
+    // rather than linking: `ring` compiles C in its build script, so a cross
+    // target still needs zig's `cc` in the environment. Plain `cargo clippy
+    // --target <linux>` from macOS fails at "failed to run custom build command
+    // for ring" -- measured, not assumed.
+    let cargo_program = "cargo";
     let cargo_args = [];
     if driver == "cargo-xwin" {
         cargo_args.push("xwin");
+        cargo_args.push(action);
+    } else if driver == "cargo-zigbuild" {
+        cargo_program = "cargo-zigbuild";
+        if action == "build" {
+            cargo_args.push("zigbuild");
+        } else {
+            cargo_args.push(action);
+        }
+    } else {
+        cargo_args.push(action);
     }
-    cargo_args.push(action);
     cargo_args.push("--locked");
     if profile == "release" {
         cargo_args.push("--release");
@@ -541,7 +575,11 @@ fn entry() {
     }
     if target != "" {
         cargo_args.push("--target");
-        cargo_args.push(target);
+        if glibc == "" {
+            cargo_args.push(target);
+        } else {
+            cargo_args.push(target + "." + glibc);
+        }
     }
     let executable_entries = [];
     let library_entries = [];
@@ -573,7 +611,7 @@ fn entry() {
 
     let stdout_path = repo + ".build.stdout.tmp";
     let stderr_path = repo + ".build.stderr.tmp";
-    let cargo_command = std::process::command("cargo");
+    let cargo_command = std::process::command(cargo_program);
     cargo_command.args(cargo_args);
     cargo_command.current_dir(repo);
     cargo_command.timeout(std::time::Duration::from_millis(3600000));
@@ -653,19 +691,29 @@ fn entry() {
         if profile == "dev" {
             abi_profile_name = "abi-dev";
         }
+        let abi_program = "cargo";
         let abi_args = [];
         if driver == "cargo-xwin" {
             abi_args.push("xwin");
+            abi_args.push("build");
+        } else if driver == "cargo-zigbuild" {
+            abi_program = "cargo-zigbuild";
+            abi_args.push("zigbuild");
+        } else {
+            abi_args.push("build");
         }
-        abi_args.push("build");
         abi_args.push("--locked");
         abi_args.push("--profile");
         abi_args.push(abi_profile_name);
         abi_args.push("--target");
-        abi_args.push(explicit_target);
+        if glibc == "" {
+            abi_args.push(explicit_target);
+        } else {
+            abi_args.push(explicit_target + "." + glibc);
+        }
         abi_args.push("--package");
         abi_args.push("agenterm-abi");
-        let abi_command = std::process::command("cargo");
+        let abi_command = std::process::command(abi_program);
         abi_command.args(abi_args);
         abi_command.current_dir(repo);
         abi_command.timeout(std::time::Duration::from_millis(3600000));

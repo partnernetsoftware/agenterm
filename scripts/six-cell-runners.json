@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "comment": [
+    "Where each architecture cell's runtime smoke actually executes.",
+    "",
+    "Building six cells is host-only; running them is not, so this file is the",
+    "seam between the two. A cell with no reachable runner is recorded BLOCKED",
+    "with its reason rather than skipped -- goal §3 forbids a silent skip, and a",
+    "missing runner is exactly the case where a skip would read as a pass.",
+    "",
+    "kind=host  : execute the artifact directly on this machine.",
+    "kind=ssh   : scp the artifact to host:port and execute it there. `identity_from_home`\n             is the ssh key path relative to $HOME, so no absolute host path lands here.",
+    "kind=blocked: no runner; `reason` is required and is reproduced verbatim in",
+    "             the receipt so a reader learns what to go fix.",
+    "",
+    "`level` is the evidence grade from goal §5.1 and is never inferred: a runner",
+    "that emulates must say so, because a receipt that cannot tell native from",
+    "emulated is not evidence.",
+    "`expect_file` is a substring the host `file(1)` output must contain. It runs for EVERY cell, blocked ones included: a cell whose runner does not exist yet still has an artifact that can be wrong, and 'we could not run it' is a poor reason to check nothing at all."
+  ],
+  "cells": [
+    {
+      "target": "aarch64-apple-darwin",
+      "kind": "host",
+      "level": "native",
+      "expect_file": "Mach-O 64-bit executable arm64"
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "kind": "blocked",
+      "level": "emulated=rosetta2",
+      "reason": "Rosetta 2 not installed; `softwareupdate --install-rosetta` needs a sudo password this host has not been given. Artifact is sound -- it is a Mach-O x86_64 -- but exec returns 127 (Bad CPU type in executable).",
+      "expect_file": "Mach-O 64-bit executable x86_64"
+    },
+    {
+      "target": "aarch64-unknown-linux-gnu",
+      "kind": "ssh",
+      "level": "native",
+      "host": "127.0.0.1",
+      "port": 2222,
+      "user": "agent",
+      "identity_from_home": "vm/id_agenterm_vm",
+      "remote_dir": "agenterm",
+      "expect_file": "ELF 64-bit LSB pie executable, ARM aarch64"
+    },
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "kind": "ssh",
+      "level": "emulated=tcg",
+      "host": "127.0.0.1",
+      "port": 2223,
+      "user": "agent",
+      "identity_from_home": "vm/id_agenterm_vm",
+      "remote_dir": "agenterm",
+      "expect_file": "ELF 64-bit LSB pie executable, x86-64"
+    },
+    {
+      "target": "aarch64-pc-windows-msvc",
+      "kind": "blocked",
+      "level": "native",
+      "reason": "No Windows guest yet. The Windows 11 Enterprise 25H2 Arm64 evaluation ISO is behind a registration form at the Microsoft Evaluation Center, which a person has to complete.",
+      "expect_file": "PE32+ executable (GUI) Aarch64"
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "kind": "blocked",
+      "level": "emulated=prism",
+      "reason": "Shares VM1 with aarch64-pc-windows-msvc; blocked on the same ISO.",
+      "expect_file": "PE32+ executable (GUI) x86-64"
+    }
+  ]
+}

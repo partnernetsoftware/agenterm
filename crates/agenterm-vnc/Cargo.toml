@@ -29,3 +29,9 @@ md-5 = "0.11"
 aes = "0.9"
 cipher = "0.5"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
+
+[dev-dependencies]
+# `vnc-kvm-probe` writes the composited framebuffer out as PNG so a captured
+# frame is comparable across runs. Only the example needs an encoder; the
+# session mechanism itself stays free of image formats.
+png = "0.17"

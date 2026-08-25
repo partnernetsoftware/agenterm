@@ -223,6 +223,7 @@ dependencies = [
  "jpeg-decoder",
  "md-5",
  "num-bigint",
+ "png 0.17.16",
  "rand 0.9.5",
  "serde",
  "tokio",

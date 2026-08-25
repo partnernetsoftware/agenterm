@@ -1,0 +1,330 @@
+// One entry point for the whole six-cell matrix: build all six, then run each
+// cell's runtime smoke wherever that cell can actually execute.
+//
+// Args: REPO [release-fast|release|dev] [--runners PATH] [--build|--no-build]
+//
+// Building is host-only; running is not. `scripts/six-cell-runners.json` is the
+// seam: it says, per cell, whether the artifact runs here, over ssh in a VM, or
+// nowhere yet. A cell with no runner is reported BLOCKED with its reason
+// reproduced verbatim -- never skipped. A skipped cell reads as a passing cell
+// to anyone scanning a receipt, which is the specific failure this task exists
+// to prevent (goal §3).
+//
+// The task succeeds when nothing FAILED. BLOCKED is not failure: it is the
+// honest state of a cell whose runner a person still has to provide, and the
+// receipt carries the count so it can never be mistaken for coverage.
+
+fn artifact_dir(repo, target, profile) {
+    let leaf = "debug";
+    if profile == "release" || profile == "release-fast" {
+        leaf = "release";
+    }
+    std::path::join(
+        std::path::join(std::path::join(repo, "target").display, target).display,
+        leaf
+    ).display
+}
+
+fn binary_name(target) {
+    if target.contains("windows") {
+        return "agenterm.exe";
+    }
+    "agenterm"
+}
+
+// The identity is named relative to the home directory rather than with a `~/`
+// prefix that would need stripping. Slicing a JSON-derived string is what the
+// native pack rejects, and a home-relative field is the shape that avoids it
+// while still keeping an absolute host path out of the repository.
+fn identity_path(cell) {
+    require(std::env::has("HOME"), "qualify_home_missing");
+    std::path::join(std::env::get("HOME"), "" + cell.identity_from_home).display
+}
+
+fn run(program, arguments, timeout_ms, stdout_path, stderr_path) {
+    let command = std::process::command(program);
+    command.args(arguments);
+    command.timeout(std::time::Duration::from_millis(timeout_ms));
+    command.stdout_file(stdout_path);
+    command.stderr_file(stderr_path);
+    command.output()
+}
+
+fn ssh_base(cell) {
+    [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ConnectTimeout=15",
+        "-i", identity_path(cell)
+    ]
+}
+
+fn entry() {
+    require(args.len >= 1, "expected: REPO [PROFILE] [--runners PATH] [--build|--no-build]");
+    let repo = std::path::absolute(args[0]).display;
+
+    let profile = "dev";
+    let runners_path = std::path::join(repo, "scripts/six-cell-runners.json").display;
+    let do_build = 1;
+    let index = 1;
+    while index < args.len {
+        let value = "" + args[index];
+        if value == "release" || value == "release-fast" || value == "dev" {
+            profile = value;
+        } else if value == "--runners" {
+            require(index + 1 < args.len, "qualify_option_value_missing:" + value);
+            runners_path = std::path::absolute(args[index + 1]).display;
+            index += 1;
+        } else if value == "--build" {
+            do_build = 1;
+        } else if value == "--no-build" {
+            do_build = 0;
+        } else {
+            throw "qualify_unknown_argument:" + value;
+        }
+        index += 1;
+    }
+
+    require(
+        std::env::has("AGENTERM_BOOTSTRAP_WORKER"),
+        "qualify_bootstrap_worker_missing"
+    );
+    let worker =
+        std::path::absolute(std::env::get("AGENTERM_BOOTSTRAP_WORKER")).display;
+    let task_manifest = std::path::join(repo, "agenterm.tasks.json").display;
+
+    let work_root = std::path::join(repo, "target/qualification/six-cell").display;
+    std::fs::create_dir_all(work_root);
+
+    // Build first. Its own receipt already carries the per-artifact hashes, so
+    // this task reads that file rather than re-hashing anything.
+    let build_state = "SKIPPED";
+    if do_build != 0 {
+        print("qualify: building six cells [" + profile + "]");
+        let build_out = std::path::join(work_root, "qualify-build.stdout").display;
+        let build_err = std::path::join(work_root, "qualify-build.stderr").display;
+        let built = run(
+            worker,
+            [
+                "rh", "task", "run", "client-build-all",
+                "--manifest", task_manifest,
+                "--", profile
+            ],
+            3540000,
+            build_out,
+            build_err
+        );
+        if built.success == 0 {
+            build_state = "FAIL";
+            print("qualify: BUILD FAILED -- see " + build_err);
+        } else {
+            build_state = "PASS";
+        }
+        require(build_state != "FAIL", "qualify_build_failed");
+    }
+
+    let runners = rh::json::parse_file(runners_path);
+    let results = [];
+    let counted = 0;
+    let failed = 0;
+    let blocked = 0;
+
+    for cell in runners.cells {
+        counted = counted + 1;
+        let target = "" + cell.target;
+        let kind = "" + cell.kind;
+        let level = "" + cell.level;
+        let binary = binary_name(target);
+        let local_dir = artifact_dir(repo, target, profile);
+        let local_binary = std::path::join(local_dir, binary).display;
+
+        if std::fs::exists(local_binary) == false {
+            failed = failed + 1;
+            print("qualify: FAIL " + target + " -- artifact missing: " + local_binary);
+            results.push(#{
+                target: target,
+                level: level,
+                static_check: "MISSING",
+                state: "FAIL",
+                detail: "artifact missing: " + local_binary
+            });
+            continue;
+        }
+
+        // Static verification: what the artifact *is*, independent of whether
+        // anything can execute it. It runs for every cell, blocked ones
+        // included -- a cell with no runner still has an artifact that can be
+        // built wrong, and "we could not run it" is a poor reason to check
+        // nothing at all. A cross build silently emitting the host's
+        // architecture is exactly the failure this catches.
+        //
+        // Both the description and the verdict come out of one `sh`: `tee`
+        // keeps the text for the receipt while `grep -qF` sets the exit status.
+        // The match deliberately happens in the process rather than in rh --
+        // every `.contains` in this tree is array-contains-variable or
+        // string-contains-literal, and string-contains-*variable* does not
+        // survive AOT codegen.
+        let described_path = std::path::join(work_root, target + ".file.txt").display;
+        let expected = "" + cell.expect_file;
+        let matcher = std::process::command("sh");
+        matcher.args([
+            "-c",
+            "file -b \"$1\" | tee \"$3\" | grep -qF \"$2\"",
+            "_",
+            local_binary,
+            expected,
+            described_path
+        ]);
+        matcher.timeout(std::time::Duration::from_millis(60000));
+        let matched = matcher.output();
+        let described = "";
+        if std::fs::exists(described_path) {
+            described = std::fs::read_to_string(described_path);
+            described.replace("\n", " ");
+        }
+        let static_check = "FAIL";
+        if matched.success != 0 {
+            static_check = "PASS";
+        }
+        if static_check == "FAIL" {
+            failed = failed + 1;
+            print("qualify: FAIL " + target + " -- static: expected \"" + expected
+                + "\", got \"" + described + "\"");
+            results.push(#{
+                target: target,
+                level: level,
+                static_check: static_check,
+                state: "FAIL",
+                detail: "file(1) says \"" + described + "\", expected \"" + expected + "\""
+            });
+            continue;
+        }
+
+        if kind == "blocked" {
+            blocked = blocked + 1;
+            print("qualify: BLOCKED " + target + " (static PASS) -- " + cell.reason);
+            results.push(#{
+                target: target,
+                level: level,
+                static_check: static_check,
+                state: "BLOCKED",
+                detail: "" + cell.reason
+            });
+            continue;
+        }
+
+        let stdout_path = std::path::join(work_root, target + ".smoke.stdout").display;
+        let stderr_path = std::path::join(work_root, target + ".smoke.stderr").display;
+        // `rh` has no unit literal, so the branches report through an int
+        // rather than by assigning a placeholder output value.
+        let smoke_ok = 0;
+
+        if kind == "host" {
+            let hosted = run(local_binary, ["cli", "--help"], 120000, stdout_path, stderr_path);
+            smoke_ok = hosted.success;
+        } else if kind == "ssh" {
+            let destination = "" + cell.user + "@" + cell.host;
+            let remote_dir = "" + cell.remote_dir;
+            let port = "" + cell.port;
+
+            let push_args = ssh_base(cell);
+            push_args.push("-P");
+            push_args.push(port);
+            // Land on a side name, then rename into place below. Overwriting a
+            // binary that is currently executing fails with ETXTBSY on Linux --
+            // which is exactly the state a VM is in after a GUI smoke -- while
+            // rename(2) over it succeeds and leaves the running process on the
+            // old inode.
+            push_args.push(local_binary);
+            push_args.push(destination + ":" + remote_dir + "/" + binary + ".new");
+            let pushed = run(
+                "scp", push_args, 900000,
+                std::path::join(work_root, target + ".scp.stdout").display,
+                std::path::join(work_root, target + ".scp.stderr").display
+            );
+            if pushed.success == 0 {
+                failed = failed + 1;
+                print("qualify: FAIL " + target + " -- artifact transfer failed");
+                results.push(#{
+                    target: target,
+                    level: level,
+                    static_check: static_check,
+                    state: "FAIL",
+                    detail: "scp to " + destination + ":" + port + " failed"
+                });
+                continue;
+            }
+
+            let smoke_args = ssh_base(cell);
+            smoke_args.push("-p");
+            smoke_args.push(port);
+            smoke_args.push(destination);
+            smoke_args.push(
+                "cd " + remote_dir
+                    + " && mv -f " + binary + ".new " + binary
+                    + " && chmod +x " + binary
+                    + " && ./" + binary + " cli --help"
+            );
+            let remote = run("ssh", smoke_args, 600000, stdout_path, stderr_path);
+            smoke_ok = remote.success;
+        } else {
+            throw "qualify_runner_kind:" + kind;
+        }
+
+        if smoke_ok == 0 {
+            failed = failed + 1;
+            print("qualify: FAIL " + target);
+            results.push(#{
+                target: target,
+                level: level,
+                static_check: static_check,
+                state: "FAIL",
+                detail: "cli --help did not succeed; see " + stderr_path
+            });
+        } else {
+            print("qualify: PASS " + target + "  [" + level + "]");
+            results.push(#{
+                target: target,
+                level: level,
+                static_check: static_check,
+                state: "PASS",
+                detail: "cli --help exit 0"
+            });
+        }
+    }
+
+    // No timestamp field: `std::time::system_time_now` is declared in the task
+    // manifest's capability list but is not implemented in the AOT native pack,
+    // and no other script in this repository exercises it. The receipt file's
+    // own mtime is what dates a run, same as `build-all.rh`.
+    let receipt = #{
+        kind: "agenterm-six-cell-qualify",
+        schema_version: 1,
+        profile: profile,
+        build: build_state,
+        runners: runners_path,
+        cells: results,
+        totals: #{
+            cells: counted,
+            failed: failed,
+            blocked: blocked
+        }
+    };
+    let receipt_path = std::path::join(work_root, "qualify.json").display;
+    rh::runtime::atomic_write(
+        receipt_path,
+        rh::json::stringify_pretty(receipt)
+    );
+
+    print("");
+    print("Six-cell qualification [" + profile + "] build=" + build_state);
+    for result in results {
+        print("  " + result.state + "  " + result.target + "  [" + result.level
+            + "]  static=" + result.static_check);
+    }
+    print("  " + counted + " cells, " + failed + " failed, " + blocked + " blocked");
+    print("  receipt: " + receipt_path);
+
+    require(failed == 0, "qualify_failed_cells:" + failed);
+    0
+}
