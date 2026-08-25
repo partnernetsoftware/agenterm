@@ -35,6 +35,29 @@ fn capturing_bridge(seen: Arc<Mutex<Captured>>, reply: &'static str) -> FleetBri
     })
 }
 
+/// The real `scripts/qjs/lib/fleet.qjs`, read from the repo -- never a copy.
+///
+/// A copy of a binding tests the copy. `agenterm-qjs`'s `eval_fleet_module`
+/// reads `fleet.js` off disk for exactly this reason, and the two engines'
+/// facades have to be tested the same way or "equivalent to `fleet.js`" is a
+/// claim about two files nobody compared.
+fn fleet_binding() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("qjs")
+        .join("lib")
+        .join("fleet.qjs");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+/// The binding plus a driver, which is how a `.qjs` script uses it today: one
+/// compilation unit, library first. There is no module system in the subset
+/// yet, so this is concatenation -- the same shape `agenterm-qjs`'s test uses
+/// for `fleet.js`, and for the same reason.
+fn with_binding(driver: &str) -> String {
+    format!("{}\n{driver}", fleet_binding())
+}
+
 fn operation(id: &str) -> &'static OperationSpec {
     OPERATION_CATALOG
         .iter()
@@ -89,39 +112,40 @@ fn assert_payload_conforms(spec: &OperationSpec, params_json: &str) {
     }
 }
 
-/// The product sentence, end to end.
+/// The product sentence, end to end, through the **real** binding.
 ///
-/// The script is shaped the way a real binding is: a general `call` helper that
-/// every operation wrapper goes through, and one wrapper built on it. That is
-/// the structure of `scripts/qjs/lib/fleet.js`, so this is a reduced form of
-/// the file that gates retiring the previous engine — not a synthetic probe.
+/// The script is `scripts/qjs/lib/fleet.qjs` itself -- the file that gates
+/// retiring `agenterm-qjs` -- with a driver appended. Not a reduced form of it,
+/// which is what this test used to be, and not a synthetic probe.
+///
+/// It could only be a reduced form before: object literals, property access,
+/// `?:` and `JSON.stringify` were all refused, so the earlier version assembled
+/// its payload by string concatenation and said in a comment that when those
+/// landed the script should be rewritten to look like `fleet.js` proper, with
+/// the assertions below unchanged. They landed at tinyvm `f21f0f2`. This is
+/// that rewrite, and the assertions are unchanged.
+///
+/// What the driver returns is load-bearing. `call` parses the broker's answer,
+/// so `reply.ok` is only reachable if `JSON.parse` ran on a real host-supplied
+/// string and property access worked on the object it produced -- three things
+/// the concatenation-era script could not do and could not have noticed
+/// breaking.
 #[test]
 fn a_qjs_script_drives_a_real_fleet_operation() {
     let seen = Arc::new(Mutex::new(Captured::default()));
     let bridge = capturing_bridge(Arc::clone(&seen), r#"{"ok":true}"#);
 
-    // Note what this deliberately does NOT use: object literals, property
-    // access, `?:` and `JSON.stringify` are all still refused by the compiler,
-    // so the payload is assembled by string concatenation. When those land this
-    // script should be rewritten to look like `fleet.js` proper, and the
-    // assertions below should not need to change.
-    let script = r#"
-        function call(op, params) {
-            if (fleet_call(op, params) === 0) {
-                return fleet_result();
-            }
-            return "";
-        }
-        function set_note(tab, note) {
-            return call("tabs.set-note", "{\"tab\":\"" + tab + "\",\"note\":\"" + note + "\"}");
-        }
-        set_note("@1", "written from .qjs")
-    "#;
+    let script = with_binding(
+        r#"
+        const reply = fleet.tabs.set_note("@1", "written from .qjs");
+        reply.ok
+    "#,
+    );
 
     let mut engine = Engine::new();
     let outcome = engine
-        .run_once(Guest::Qjs(script), Some(bridge), "main", &[])
-        .expect("a .qjs script must reach the host door");
+        .run_once(Guest::Qjs(&script), Some(bridge), "main", &[])
+        .expect("a .qjs script must reach the host door through the real binding");
 
     let captured = seen.lock().expect("bridge capture");
     assert_eq!(
@@ -141,13 +165,91 @@ fn a_qjs_script_drives_a_real_fleet_operation() {
     assert_eq!(params["tab"], "@1");
     assert_eq!(params["note"], "written from .qjs");
 
-    // The bridge's answer has to come back through the two-pass door as a real
-    // host-owned JS string -- the slot is dead by the time `run_once` returns,
-    // so anything still pointing into its linear memory would be dangling.
+    // The bridge's answer came back through the two-pass door, was parsed, and
+    // a property was read off the result -- so the reply is not merely a string
+    // the script forwarded, and nothing still points into the dead slot's
+    // linear memory.
     assert_eq!(
         outcome.values.first(),
-        Some(&Value::Js(JsValue::Str(r#"{"ok":true}"#.to_string()))),
-        "the bridge's reply must survive the slot it was read into"
+        Some(&Value::Js(JsValue::Bool(true))),
+        "the binding must parse the bridge's reply, not hand back its text"
+    );
+}
+
+/// A numeric payload, through the same real binding.
+///
+/// Separate from the string case because it was separately impossible: until
+/// the three ECMA-262 string conversions landed there was no way for a `.qjs`
+/// script to put a number on the wire at all, which is what
+/// [`the_reachable_share_of_the_catalog_is_known`] used to measure. A binding
+/// that can only send strings covers part of a catalog whose specs declare
+/// `uint32`, so this asserts the other half of the wire, not a second flavour
+/// of the same one.
+#[test]
+fn a_numeric_fleet_payload_survives_the_trip() {
+    let seen = Arc::new(Mutex::new(Captured::default()));
+    let bridge = capturing_bridge(Arc::clone(&seen), r#"{"ok":true}"#);
+
+    let script = with_binding(
+        r#"
+        fleet.ui.tabs.set_width(320);
+        1
+    "#,
+    );
+
+    let mut engine = Engine::new();
+    engine
+        .run_once(Guest::Qjs(&script), Some(bridge), "main", &[])
+        .expect("a numeric operation runs");
+
+    let captured = seen.lock().expect("bridge capture");
+    let (operation_id, params_json) = &captured.calls[0];
+    assert_payload_conforms(operation(operation_id), params_json);
+
+    let params: serde_json::Value = serde_json::from_str(params_json).expect("valid JSON");
+    assert_eq!(
+        params["width"], 320,
+        "the width must arrive as a JSON number, not as the string \"320\""
+    );
+}
+
+/// A refused operation throws, and the script can catch it.
+///
+/// This is behavioural parity with `fleet.js`, where the refusal comes out of
+/// the host function as an exception. The `.qjs` binding used to return
+/// `"ERR " + text` instead, because `throw` was not in the subset -- which
+/// meant a script ported from `.js` kept its `try`/`catch`, caught nothing,
+/// and let the error travel on as ordinary data. Two engines that disagree
+/// about whether a refusal is an exception do not have equivalent bindings,
+/// whatever their operation lists look like, so this is part of the archive
+/// gate and not a nicety.
+#[test]
+fn a_refused_operation_throws_and_is_catchable() {
+    let refusing: FleetBridgeFn =
+        Arc::new(|_op: &str, _params: &str| Err("broker_operation_unknown: nope".to_string()));
+
+    let script = with_binding(
+        r#"
+        try {
+            fleet.ui.hello();
+            "not reached"
+        } catch (e) {
+            e
+        }
+    "#,
+    );
+
+    let mut engine = Engine::new();
+    let outcome = engine
+        .run_once(Guest::Qjs(&script), Some(refusing), "main", &[])
+        .expect("a caught refusal is not a failure");
+
+    let Some(Value::Js(JsValue::Str(caught))) = outcome.values.first() else {
+        panic!("expected the caught value, got {:?}", outcome.values);
+    };
+    assert!(
+        caught.contains("ui.hello") && caught.contains("broker_operation_unknown"),
+        "the thrown value must name the operation and carry the broker's text, got {caught:?}"
     );
 }
 
@@ -175,49 +277,52 @@ fn a_script_that_asks_for_nothing_reaches_nothing() {
     );
 }
 
-/// Every operation the catalog declares with only string parameters is
-/// expressible by a `.qjs` script today, because strings are all the language
-/// can build. This pins the reach of the current subset: when Number-to-String
-/// lands, the numeric operations join them and this count should be revisited
-/// rather than silently drifting.
+/// Every operation in the catalog is expressible by a `.qjs` script.
+///
+/// This used to be a *share*: strings were all the language could build, so
+/// operations with a required numeric parameter were out of reach, and the
+/// test measured how much of the catalog that left and asserted the shortfall
+/// was real. Its own doc said what to do when Number-to-String landed --
+/// "the numeric operations join them and this count should be revisited rather
+/// than silently drifting". They landed at tinyvm `f21f0f2`, and
+/// [`a_numeric_fleet_payload_survives_the_trip`] measures one going out as a
+/// JSON number. So the shortfall is gone and the test becomes the equality it
+/// was told to become.
+///
+/// It keeps its place rather than being deleted. The value_types below are the
+/// ones a `.qjs` payload can construct today; an operation declaring a
+/// parameter of some *new* type -- an array, a nested object -- would be
+/// unreachable again, and this is what would say so instead of the discovery
+/// happening in a script someone was trying to write.
 #[test]
 fn the_reachable_share_of_the_catalog_is_known() {
-    let mut no_parameters = 0usize;
-    let mut string_only = 0usize;
-    let mut needs_a_number = 0usize;
+    let expressible = |value_type: &str| {
+        matches!(
+            value_type,
+            "string"
+                | "session_name"
+                | "stable_tab_id"
+                | "uint32"
+                | "uint64"
+                | "integer"
+                | "number"
+                | "bool"
+                | "boolean"
+        )
+    };
 
-    for spec in OPERATION_CATALOG {
-        if spec.parameters.is_empty() {
-            no_parameters += 1;
-            continue;
-        }
-        let numeric = spec.parameters.iter().any(|parameter| {
-            matches!(
-                parameter.value_type,
-                "uint32" | "uint64" | "integer" | "number"
-            ) && parameter.required
-        });
-        if numeric {
-            needs_a_number += 1;
-        } else {
-            string_only += 1;
-        }
-    }
+    let unreachable: Vec<_> = OPERATION_CATALOG
+        .iter()
+        .filter(|spec| {
+            spec.parameters
+                .iter()
+                .any(|parameter| !expressible(parameter.value_type))
+        })
+        .map(|spec| spec.id)
+        .collect();
 
-    let reachable = no_parameters + string_only;
-    assert_eq!(
-        reachable + needs_a_number,
-        OPERATION_CATALOG.len(),
-        "every operation must fall into exactly one bucket"
-    );
     assert!(
-        needs_a_number > 0,
-        "if this reaches zero the language gained numeric payloads and this test should \
-         become an equality against the whole catalog"
-    );
-    assert!(
-        reachable >= 60,
-        "the string-expressible share of the catalog shrank to {reachable}; an operation \
-         gained a required numeric parameter and is now unreachable from .qjs"
+        unreachable.is_empty(),
+        "these operations declare a parameter type a .qjs payload cannot build: {unreachable:?}"
     );
 }

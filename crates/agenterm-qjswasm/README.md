@@ -87,16 +87,28 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
 **`for (const x of y)`** 报的是「needs a value for the `const` binding `x`」而不是 `of`
 （同一句写成 `let` 或 `var` 就正确报 `of`）。
 
-**运行期两条本层的缺口**（不是上游的，是这个 crate 的脸）：
+**运行期缺口，2026-08-25 复核后的准确说法**（上一版这里写「本层两条」，**两条都记错了，
+下面是订正**）：
 
-- **对象不能当 completion value 出来。** `return {a:1};` 编译并执行都成功，倒在最后一步：
-  ``host door: the `.qjs` entry point returned V1: an Object is a guest heap reference;
-  `Value` has no variant for one yet``。`scripts/qjs/lib/fleet.qjs` 以 `fleet;` 结尾，
-  正好撞这条——`script check` 过，`script run` 不过。
-- **未捕获的 `throw` 报成裸 trap。** 上游把它写进 `FAULT_WORD`，专门为了让宿主把它和
-  「缺失转换执行了 `unreachable`」分开（`tinyvm-qjs` 的 `an_uncaught_throw_is_a_fault_
-  the_host_can_name`）。本层还没读那个字，所以两者都报「guest trapped: unreachable
-  executed」。**能分而没分，跟堆耗尽当初那条是同一类错**——那条是问客人而不是猜，这条同理。
+- **未捕获的 `throw` 曾经报成裸 trap——已修。** 现在报
+  `the script threw a value and nothing caught it`，`QjswasmError::UncaughtThrow`
+  自成一类，不再是 `Trap`。做法就是上游一直准备好的那条：`explain()` 读
+  `tinyvm_qjs::guest_fault()`，把堆耗尽与未捕获抛出**一起**从裸 trap 里分出来。
+  锁在 `tests/qjs_guest.rs` 两条：一条钉分类，一条钉「上一次调用写下的 fault word
+  不许污染下一次」。**还差的是抛出的值本身**——编译后的模块不导出持有它的 global，
+  上游 `GuestFault::UncaughtThrow` 明说这是宿主边界的决定而不是抛出的问题；要文本就
+  自己 `catch`。
+- **「对象不能当 completion value 出来」这条记错了两处，已作废。**
+  一，**归属错**：`Value` 没有 Object 变体的是**上游** `tinyvm-qjs`（`repr::host_decode`
+  的 `TAG_OBJECT` 臂直接 `Err`），不是本 crate 的脸；本层只是把上游的话原样转述。
+  二，**因果错**：它根本不挡归档门。`fleet.qjs` 曾以 `fleet;` 结尾，那是**本仓自己加的**
+  一行——`fleet.js` 没有这一行，因为它是**库**不是程序。拿 `script run` 去跑一个库文件
+  是范畴错误，跟对象能不能出来无关（去掉 `fleet;` 之后倒在最后一句赋值求值出来的
+  **函数**上，同样出不来，也同样不重要）。库的正确检查是 `script check`，答 `OK`；
+  库的正确用法是被脚本 `use`，这条现在有测试（见下）。
+
+  这条错得值得记下来：它把一个上游的表示层限制，误报成了本层的产品级拦路石，
+  而真正挡着门的是**绑定只港了 29 个操作里的 8 个**——一件谁都能数出来、却没人去数的事。
 
 ### `.qjs` 已经够得着门（2026-08-25，rev `6920c60` 落地，`f8adef8` 上复测）
 
@@ -137,9 +149,9 @@ return status;
 | 没有桥 → status `2`，脚本继续跑，不 trap | `return fleet_call("a","b")` → `2` |
 | 门名字**不是保留字**，脚本自己的绑定盖得住 | `function print(m) { return 1; } return print("x");` → `1`，宿主门没被调到；声明只是自由名字的兜底 |
 
-**一个会咬人的坑：status 是数字，而 Number 的 ToString 还没实现，所以 `"status:" + s`
-会 trap。** 状态码用 `===` 分支，别拼进字符串。这不是门的毛病（是上面那三个未实现转换
-之一），但它正好落在门最常见的写法上。
+**上一版这里写「status 是数字，而 Number 的 ToString 还没实现，所以 `"status:" + s`
+会 trap」——已作废。** `f21f0f2` 之后 `"status=" + fleet_call(...)` 实测打印
+`status=1`。同一份 README 上面已经写了三个转换都到了，这段是漏改的旧话。
 
 证据在 `tests/qjs_door.rs`（13 条：状态 0/1/2 三条路、`print` 进 `Outcome::stdout`、
 `print` 求值为 `undefined`、两个宿主侧上限、门外的名字被拒且诊断把声明了哪些列出来、
@@ -152,11 +164,23 @@ return status;
 `.wasm` 侧是完整的：任何过 tinyvm 装载门的标准模块都能装载、按名调用、有预算地执行。
 
 第一个具体锚点是 `scripts/qjs/lib/fleet.js` 的等价物，也就是本仓的
-`scripts/qjs/lib/fleet.qjs`——那也是归档 `agenterm-qjs` 的门。语言层挡着它的四件
-（对象、属性访问、`try`/`catch`、`JSON`）在 `f21f0f2` 全到了，`agenterm cli script
-check scripts/qjs/lib/fleet.qjs` 现在答 `OK`。**还差的是本层一条**：该文件以 `fleet;`
-结尾，而对象还不能当 completion value 出来，所以 `script run` 仍然不过。
-清单见 [PRD 36 §归档门](../../prd/PRD_02_36_agenterm_qjswasm.md)。
+`scripts/qjs/lib/fleet.qjs`——那也是归档 `agenterm-qjs` 的门。**2026-08-25 这条到了。**
+
+`fleet.qjs` 现在是 `fleet.js` 的**完整**移植：同样 29 个操作、同样的顺序与名字、同样的
+params 形状，三份绑定（lua / js / qjs）互锁在 `tests/script_fleet_facade_parity.rs`。
+它此前只港了 8 个，理由当时成立、现在不成立——引擎那时既造不出对象字面量也不会
+`JSON.stringify`，19 个操作的 params 没法表达。行为也对齐了：**被拒绝的操作现在
+`throw`**，跟 `fleet.js` 一样；旧版返回 `"ERR " + text`，意味着一个从 `.js` 港过来的
+脚本保留着 `try`/`catch` 却什么都catch不到，错误当普通数据往下流——这正是这套栈在别处
+一律拒绝的静默损坏形状。
+
+证据是 `tests/qjs_produces_a_fleet_operation.rs`，读**真文件**（不是副本）加一段 driver，
+形状照抄 `agenterm-qjs` 的 `eval_fleet_module`：字符串 payload 一条、数字 payload 一条
+（`JSON.stringify` 出去的是 `{"width":320}` 而不是 `"320"`）、被拒绝时可 catch 一条。
+每条都拿 `OPERATION_CATALOG` 逐字段校验 payload。同一个文件里还有一条把「目录里有多少
+比例够得着」变成了等式：**现在没有一条**操作因为参数类型而写不出来（旧版量的是
+「只含字符串参数的那部分」，并断言差额真实存在——数字上得去之后，它按自己文档里
+预写的规则改成了全等）。清单见 [PRD 36 §归档门](../../prd/PRD_02_36_agenterm_qjswasm.md)。
 
 ## 脸：两套调用约定，一张脸
 

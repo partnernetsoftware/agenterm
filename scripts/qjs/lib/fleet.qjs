@@ -9,44 +9,66 @@
 // `tab`, and a binding that sent `tab_id` was refused by the broker for as
 // long as it existed.
 //
-// Two differences from `fleet.js`, both forced by the engine rather than
-// chosen:
+// This file is now a **full** port of `fleet.js`: the same 29 operations, in
+// the same order, under the same names, with the same params shapes. It was a
+// partial port of 8 while the engine could not build an object or stringify
+// one; both landed at tinyvm `f21f0f2`, so the reason for the gap is gone and
+// the gap went with it. "Equivalent to `fleet.js`" is the gate for retiring
+// `agenterm-qjs`, and a binding that covered a quarter of the surface was not
+// that, whatever the language could do.
 //
-//   1. The host door is free functions, not `__host.fleet_call`. The door's
-//      four imports are a product contract shared with hand-written `.wasm`
-//      guests, and the compiler's declaration mechanism binds names, not
-//      methods on an object. `fleet_call` returns a status; the answer is
-//      retrieved separately through `fleet_result`, because a tinyvm host
-//      callback holds the guest's memory and so cannot re-enter it to reach an
-//      allocator.
-//
-//   2. `call` returns the raw JSON string. `fleet.js` parses it, which is the
-//      friendlier shape and the one to adopt once `JSON.parse` is available
-//      here; until then, parsing in the binding would mean pretending. A
-//      caller that wants structure should say so rather than be handed a
-//      string dressed as an object.
+// One difference from `fleet.js` remains, and it is forced by the engine
+// rather than chosen: **the host door is free functions, not
+// `__host.fleet_call`.** The door's four imports are a product contract shared
+// with hand-written `.wasm` guests, and the compiler's declaration mechanism
+// binds names, not methods on an object. `fleet_call` returns a status; the
+// answer is retrieved separately through `fleet_result`, because a tinyvm host
+// callback holds the guest's memory and so cannot re-enter it to reach an
+// allocator.
 
 const STATUS_OK = 0;
 const STATUS_ERR = 1;
 
 const fleet = {};
 
-/// Send one operation and return its answer as a JSON string.
+/// Send one operation and return its answer, parsed when it parses.
 ///
-/// An application-level refusal (status 1) is a normal outcome, not a crash:
-/// the broker rejects unknown operations and bad arguments this way, and the
-/// text explains which. It is returned prefixed rather than thrown, because
-/// `throw` is not in this engine's subset yet and swallowing the distinction
-/// would make a rejected call indistinguishable from a successful empty one.
+/// Three behaviours are deliberately `fleet.js`'s and not this file's own:
+///
+///   1. **Parse, falling back to the raw text.** `JSON.parse` in a `try`, the
+///      string in the `catch`. The fallback is not defensive noise: an
+///      operation that answers with a JSON *array* still fails to parse here,
+///      because arrays are not in the subset yet, and a caller then gets the
+///      text rather than a lie. `fleet.js` has the same two lines for its own
+///      reasons and a ported script cannot tell the difference.
+///   2. **A refusal throws.** Under `fleet.js` the host function itself throws,
+///      so a script that wants to survive a rejected call writes `try`/`catch`.
+///      This file used to return `"ERR " + text` instead, which meant a script
+///      ported from `.js` kept its `try`/`catch` and quietly stopped catching
+///      anything, with the error travelling on as ordinary data. That is the
+///      silent-corruption shape this stack refuses everywhere else, so it is
+///      refused here too, now that `throw` exists.
+///   3. **Absent params become `{}`.** Same test, same default.
+///
+/// A recorded divergence, not a defect to fix here: an *uncaught* throw loses
+/// its value on the way out. The engine reports "the script threw a value and
+/// nothing caught it" and cannot say what was thrown, because a compiled module
+/// exports no global holding it (upstream `GuestFault::UncaughtThrow`). Catch
+/// it if the text matters.
 function call(opId, params) {
   const status = fleet_call(opId, params === undefined ? "{}" : params);
-  if (status === STATUS_OK) {
-    return fleet_result();
+  if (status !== STATUS_OK) {
+    if (status === STATUS_ERR) {
+      throw "fleet " + opId + ": " + fleet_result();
+    }
+    throw "fleet " + opId + ": no fleet bridge is attached to this slot";
   }
-  if (status === STATUS_ERR) {
-    return "ERR " + fleet_result();
+  const resultJson = fleet_result();
+  try {
+    return JSON.parse(resultJson);
+  } catch (_err) {
+    return resultJson;
   }
-  return "ERR no fleet bridge is attached to this slot";
 }
 
 fleet.call = call;
@@ -65,60 +87,194 @@ fleet.tabs.active = function () {
   return call("tabs.active");
 };
 
-/** Set a note on a tab. The catalog's key is `tab`, not `tab_id`. */
+/**
+ * Set a note on a tab.
+ *
+ * The params key is `tab`, not `tab_id`: `tabs.set-note`'s OperationSpec
+ * (`src/operations.rs`, `TAB_NOTE_PARAMETERS`) declares `tab` + `note`, and
+ * `validate_fleet_parameters` (`src/client/mod.rs`) refuses any key the spec
+ * does not list. The JS argument name stays `tabId` — only the wire key
+ * matters. Matches `fleet.js` and the rh binding.
+ */
 fleet.tabs.set_note = function (tabId, note) {
-  return call("tabs.set-note", '{"tab":"' + tabId + '","note":"' + note + '"}');
+  return call("tabs.set-note", JSON.stringify({ tab: tabId, note: note }));
 };
 
-// -- fleet.protocol --------------------------------------------------------
+// -- fleet.terminal --------------------------------------------------------
 
-fleet.protocol = {};
+fleet.terminal = {};
 
-/** Protocol and version information. */
-fleet.protocol.info = function () {
-  return call("protocol.info");
-};
-
-// -- fleet.workspace -------------------------------------------------------
-
-fleet.workspace = {};
-
-/** Workspace metadata and the current event position. */
-fleet.workspace.info = function () {
-  return call("workspace.info");
+/** Paste text into terminal. */
+fleet.terminal.paste = function (text) {
+  return call("terminal.paste", JSON.stringify({ text: text }));
 };
 
 // -- fleet.ui --------------------------------------------------------------
 
 fleet.ui = {};
 
-/** A snapshot of the whole UI. */
+/** Bootstrap the UI. */
+fleet.ui.bootstrap = function () {
+  return call("ui.bootstrap");
+};
+
+/** Get UI snapshot. */
 fleet.ui.snapshot = function () {
   return call("ui.snapshot");
 };
 
-fleet.ui.tabs = {};
-
-/** Show the tab strip. */
-fleet.ui.tabs.show = function () {
-  return call("ui.tabs.show");
+/** Get UI deltas since last snapshot. */
+fleet.ui.deltas = function () {
+  return call("ui.deltas");
 };
 
-/** Hide the tab strip. */
+fleet.ui.composer = {};
+
+/** Send a composer message. */
+fleet.ui.composer.send = function (text) {
+  return call("ui.composer.send", JSON.stringify({ text: text }));
+};
+
+/** Hello / ping. */
+fleet.ui.hello = function () {
+  return call("ui.hello");
+};
+
+fleet.ui.input = {};
+
+/** Send pointer event. */
+fleet.ui.input.pointer = function (x, y, action) {
+  return call("ui.input.pointer", JSON.stringify({ x: x, y: y, action: action }));
+};
+
+/** Send wheel event. */
+fleet.ui.input.wheel = function (delta) {
+  return call("ui.input.wheel", JSON.stringify({ delta: delta }));
+};
+
+fleet.ui.tab = {};
+
+/** Open a new child tab. */
+fleet.ui.tab.new_child = function () {
+  return call("ui.tab.new-child");
+};
+
+/**
+ * Select a tab by id.
+ *
+ * The params key is `tab`, not `id`: `ui.tab.select` declares the shared
+ * `TAB_TARGET_PARAMETERS` (`src/operations.rs`), whose single optional
+ * parameter is `tab`. Note the host still has no Fleet mutation adapter for
+ * `ui.tab.select` (`fleet_mutation_command`, `src/client/mod.rs`), so a
+ * conformant call gets as far as `broker_operation_unknown` — see
+ * plan/design-fleet-binding-gaps.md §5. Same on every engine.
+ */
+fleet.ui.tab.select = function (id) {
+  return call("ui.tab.select", JSON.stringify({ tab: id }));
+};
+
+fleet.ui.tabs = {};
+
+/** Hide tabs panel. */
 fleet.ui.tabs.hide = function () {
   return call("ui.tabs.hide");
 };
 
-/** Toggle the tab strip. */
+/** Show tabs panel. */
+fleet.ui.tabs.show = function () {
+  return call("ui.tabs.show");
+};
+
+/** Toggle tabs panel visibility. */
 fleet.ui.tabs.toggle = function () {
   return call("ui.tabs.toggle");
 };
 
+/** Set tabs panel width. */
+fleet.ui.tabs.set_width = function (width) {
+  return call("ui.tabs.set-width", JSON.stringify({ width: width }));
+};
+
+fleet.ui.tree = {};
+
+/** Toggle tree panel. */
+fleet.ui.tree.toggle = function () {
+  return call("ui.tree.toggle");
+};
+
 fleet.ui.window = {};
 
-/** Bring the window forward. */
+/** Activate the window. */
 fleet.ui.window.activate = function () {
   return call("ui.window.activate");
 };
 
-fleet;
+// -- fleet.workspace -------------------------------------------------------
+
+fleet.workspace = {};
+
+/** Get workspace info. */
+fleet.workspace.info = function () {
+  return call("workspace.info");
+};
+
+/** Shutdown the workspace. */
+fleet.workspace.shutdown = function () {
+  return call("workspace.shutdown");
+};
+
+// -- fleet.control_center --------------------------------------------------
+
+fleet.control_center = {};
+
+/** Open the control center. */
+fleet.control_center.open = function () {
+  return call("control-center.open");
+};
+
+/** Close the control center. */
+fleet.control_center.close = function () {
+  return call("control-center.close");
+};
+
+/** Get control center snapshot. */
+fleet.control_center.snapshot = function () {
+  return call("control-center.snapshot");
+};
+
+/** Get control center status. */
+fleet.control_center.status = function () {
+  return call("control-center.status");
+};
+
+// -- fleet.events ----------------------------------------------------------
+
+fleet.events = {};
+
+/** Read events buffer. */
+fleet.events.read = function () {
+  return call("events.read");
+};
+
+/** Wait for events (blocking). */
+fleet.events.wait = function (timeoutMs) {
+  return call("events.wait", JSON.stringify({ timeout_ms: timeoutMs }));
+};
+
+// -- fleet.protocol --------------------------------------------------------
+
+fleet.protocol = {};
+
+/** Get protocol info. */
+fleet.protocol.info = function () {
+  return call("protocol.info");
+};
+
+// -- fleet.server ----------------------------------------------------------
+
+fleet.server = {};
+
+/** Kill the server. */
+fleet.server.kill = function () {
+  return call("server.kill");
+};

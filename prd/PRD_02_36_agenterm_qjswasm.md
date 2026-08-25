@@ -5,24 +5,36 @@ Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswas
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
-两条归档门**仍均未全绿**，两个被取代的 crate 原样保留。「authorized, not
+两条归档门**仍未全绿**（`agenterm-qjs` 三条中门 1 已绿、门 2/3 未动），两个被取代的
+crate 原样保留。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
 
-**rev `f8adef8 → f21f0f2`（2026-08-25）带来的判定变化**：语言层挡着归档门 1 的六件
-（对象、属性、函数值、`try/catch`、JSON、`?:`）与 Number→String **全部到齐**，
-`script check scripts/qjs/lib/fleet.qjs` 答 `OK`。抬 rev 让本仓三条测试转红，全是
-「钉住某项能力不存在」的测试——它们各自在文档注释里预写了替换规则，照做即可，这正是
-它们存在的理由。**同时暴露本层两条新缺口**：对象不能当 completion value 出来
-（`Value` 没有 Object 变体），未捕获的 `throw` 报成裸 trap（上游写了 `FAULT_WORD`
-专门为了分开，本层没读）。前者就是 `fleet.qjs` 的 `script run` 现在唯一的拦路石。
+**归档门 1 已全绿（2026-08-25 下午）。** `scripts/qjs/lib/fleet.qjs` 从 8/29 补成
+`fleet.js` 的**完整**移植（同样 29 个操作、同名同序同 params 形状，拒绝时同样 `throw`），
+验收测试改读**真文件**而不是缩略版，三份绑定（lua / js / qjs）互锁在
+`tests/script_fleet_facade_parity.rs`。整个 `OPERATION_CATALOG` 现在没有一条操作
+因为参数类型而写不出来。**同轮修掉一条**：未捕获的 `throw` 不再报成裸 trap，
+`QjswasmError::UncaughtThrow` 自成一类（`slot.rs::explain()` 读
+`tinyvm_qjs::guest_fault()`）。
+
+**上一版对门 1 的判定有两处错，已在下文 §门 1 逐条作废并留档**：
+「`Value` 没有 Object 变体是本层的、也是唯一剩下的拦路石」——归属错（那是上游
+`repr::host_decode` 的事）且因果错（`script run` 跑一个库文件本身是范畴错误，
+`fleet.qjs` 结尾那行 `fleet;` 是本仓自己加的，`fleet.js` 没有）；真正挡着门的是
+**绑定只港了三分之一**，一件谁都能数出来却没人去数的事。
+
+**rev `f8adef8 → f21f0f2`（2026-08-25 上午）带来的判定变化**：语言层挡着归档门 1 的六件
+（对象、属性、函数值、`try/catch`、JSON、`?:`）与 Number→String **全部到齐**。抬 rev 让
+本仓三条测试转红，全是「钉住某项能力不存在」的测试——它们各自在文档注释里预写了替换
+规则，照做即可，这正是它们存在的理由。
 
 门的当前判定，一句话各一条（详见下文各节）：
 
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
-| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | 未绿，但**只剩一件**，且这一件在本层 | 语言层七件已全到（rev `f21f0f2`）；`script check` 答 OK，`script run` 倒在 `fleet;`——`Value` 没有 Object 变体 |
-| 门 2（两处生产调用点迁移） | 未动 | 依赖门 1 |
+| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿** | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
+| 门 2（两处生产调用点迁移） | 未动，**现在没有前置了** | `src/script_engine.rs::QjsEngineBackend`、`src/bin/agenterm.rs` 的 `qjs` 子命令；需要行为等价测试 |
 | 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
 | 门 2（`.wasm` 路由切换） | 不能绿 | `_start` 入口约定；缺同客人性能对比 |
@@ -282,72 +294,76 @@ tinyvm 解释执行（无 JIT）
 2. 上面两处生产调用点已迁到 qjswasm，且行为等价有测试锁住。
 3. `qjs` CLI 子命令在新引擎上有对应面，或明确声明哪些不再提供、为什么。
 
-### 门 1 逐条判定（2026-08-25 实测，上游 rev `f8adef8`）
+### 门 1：**已全绿**（2026-08-25 复测，上游 rev `f21f0f2`）
 
-门 1 点名六件事（属性访问是「对象 + JSON」隐含的前置，单列一行），外加 2026-08-25 加的
-那句限定。每一格都是把那段 `.qjs` 真编真跑出来的，不是读源码估的：
+门 1 点名六件语言能力、外加 2026-08-25 加的那句「params 过得了
+`validate_fleet_parameters`」限定。**七格今天全部为「有」，且证据不是「能编得过」而是
+「真文件真跑通」。**
 
 | 门 1 要的 | 今天 | 证据 |
 |-----------|------|------|
-| 字符串（字面量、拼接、相等） | **有** | `crates/agenterm-qjswasm/tests/qjs_guest.rs`；100 KB 串过门字节不变（`door_attack.rs`） |
-| **带参宿主调用** | **有，本轮交付** | `print(s)` / `fleet_call(op, params)` / `fleet_result()`，13 条 `tests/qjs_door.rs` + 31 条 `tests/door_attack.rs` |
-| 对象字面量 | 无 | `const fleet = {};` → `this engine does not support object literals yet` |
-| 属性访问 / 属性赋值 | 无 | `a.length` → `this engine does not support property access yet` |
-| 函数表达式当值用 | 无 | `let g = function (a) {...}` → `does not support calling a value that is not a known function yet` |
-| `JSON.parse` / `JSON.stringify` | 无 | 先撞属性访问（`JSON` 本身也不是名字，撞门的能力诊断） |
-| `try` / `catch` | 无 | ``this engine does not support the `try` keyword yet`` |
-| 限定句：params 过校验 | **部分成立，且边界可量化** | 见下 |
+| 字符串（字面量、拼接、相等） | **有** | `tests/qjs_guest.rs`；100 KB 串过门字节不变（`door_attack.rs`） |
+| 带参宿主调用 | **有** | 13 条 `tests/qjs_door.rs` + 31 条 `tests/door_attack.rs` |
+| 对象字面量 | **有** | `f203858`；`JSON.stringify({tab:t,note:n})` 实测出 `{"tab":"@1","note":"hi"}` |
+| 属性访问 / 属性赋值 | **有** | `fleet.ui.tabs.show = function () {...}` 三层嵌套赋值 + `fleet.ui.tabs.show()` 调用，实测通 |
+| 函数表达式当值用 | **有** | `ba143c5`；整份绑定就是「函数存进属性再取出来调」 |
+| `JSON.parse` / `JSON.stringify` | **有** | `90b8aca`/`4fd101d`；数组仍 throw，见下 |
+| `try` / `catch` | **有** | `5bdb557`；绑定的 `call()` 用它兜 `JSON.parse` |
+| 限定句：params 过校验 | **有，且是全目录** | `tests/qjs_produces_a_fleet_operation.rs` 拿 `OPERATION_CATALOG` 逐字段校验 |
 
-**「本仓欠的那一件」是哪一件，为什么算还清。** 上一版这张表的第七行写的是
-「`.qjs` 今天根本够不着 `agenterm.*` 门……需要决定 `.qjs` 侧怎么落到这四个 import
-上——那是本仓的写刀，不是上游的」。那个决定已经做了并且落地了：上游给的是通用机制
-（`Names::Declared`，不含任何 agenterm 词汇），本仓给的是三条声明
-（`crates/agenterm-qjswasm/src/host.rs::declarations()`），编译器把 JS 字符串拆成门要的
-`(ptr, len)`，把两趟字节结果包回 JS 字符串——**门自己一个字节没改**，九条手写 `.wasm`
-客人的测试原样全绿。门 1 剩下的六件全部是上游语言层的事，本仓这一半没有欠账。
+**验收物是真文件，不是缩略版。** `tests/qjs_produces_a_fleet_operation.rs` 现在读
+`scripts/qjs/lib/fleet.qjs` 本身再接一段 driver，形状照抄 `agenterm-qjs` 的
+`eval_fleet_module`（它同样读真 `fleet.js`）。三条：
 
-**限定句今天到哪：一个 `.qjs` 写的 wrapper 真的能发出目录接受的 params——只要参数都是
-字符串。** 实测（`OPERATION_CATALOG` link 进来比对，不是正则）：
+- 字符串 payload：`fleet.tabs.set_note("@1", ...)` → 门收到目录接受的 params，
+  返回值是 `reply.ok` 而不是一段文本——也就是说 `JSON.parse` 真在宿主给的字符串上跑过，
+  属性访问真在它产出的对象上跑过。
+- 数字 payload：`fleet.ui.tabs.set_width(320)` → `{"width":320}`，是 JSON 数字不是
+  `"320"`。
+- 拒绝可 catch：桥返回 `Err` → 绑定 `throw`，脚本 `catch` 得到带 operation id 与
+  broker 原文的字符串。
 
-```text
-function call(op, params) {
-    let status = fleet_call(op, params);
-    if (status === 0) { return fleet_result(); }
-    if (status === 2) { return "no bridge"; }
-    return "error: " + fleet_result();
-}
-function set_note(tab, note) {
-    return call("tabs.set-note", "{\"tab\":\"" + tab + "\",\"note\":\"" + note + "\"}");
-}
-print(call("tabs.list", "{}"));
-return set_note("@1", "from .qjs");
+**`fleet.qjs` 本轮从 8/29 补成 29/29 完整移植**，并加进三方互锁
+（`tests/script_fleet_facade_parity.rs::qjs_and_qjswasm_fleet_facades_are_the_same_binding`），
+所以「等价于 `fleet.js`」从此是一条测试而不是一次目视 diff。行为也对齐：拒绝**抛**，
+不再返回 `"ERR " + text`——旧形状会让一个从 `.js` 港过来的脚本保留 `try`/`catch`
+却什么都catch不到，错误当数据往下流。
 
-门收到 op="tabs.list"     params="{}"
-门收到 op="tabs.set-note" params="{\"tab\":\"@1\",\"note\":\"from .qjs\"}"
-        对 fleet.tabs.set_note 的声明逐格判：tab:stable_tab_id ok, note:string ok
-返回 Str("{\"ok\":true}")，steps=2350
-```
+#### 作废：上一版对门 1 的两处误判
 
-注意这段用的是 `fleet.js` **没有**的写法：没有对象、没有 `JSON.stringify`，params 是
-拼出来的字符串。所以「跑通 `fleet.js` 的等价物」和「能通过门做 fleet 调用」是两件事，
-后者今天成立，前者不成立。
+**（一）「`Value` 没有 Object 变体，这是本层的、也是门 1 唯一剩下的拦路石」——错两处。**
 
-**数字上的边界（77 条目录逐条统计）：**
+- **归属错。** 没有 Object 变体的是**上游** `tinyvm-qjs`：`repr::host_decode` 的
+  `TAG_OBJECT` 臂直接 `Err`，本 crate 只是转述那句话。按本文件自己的分层判据
+  （「随 agenterm 业务变 → 业务层；随 JS 语言 / wasm 规范 / tinyvm 变 → 上游」），
+  客人堆里的对象怎么表示只随 V1 表示变，是上游的事。
+- **因果错。** 它根本不挡门。`fleet.qjs` 以 `fleet;` 结尾是**本仓自己加的一行**，
+  `fleet.js` 没有——因为它是**库**不是程序。用 `script run` 跑一个库文件是范畴错误：
+  去掉那行之后，完成值变成最后一句赋值求出来的**函数**，同样出不来，也同样不重要。
+  库的正确检查是 `script check`（答 `OK`），正确用法是被脚本引用，而那正是上面三条
+  测试做的事。
 
-| 目录形态 | 条数 | `.qjs` 今天能不能发 |
-|----------|------|--------------------|
-| 完全无参数 | 50 | 能（`"{}"`） |
-| 参数全是字符串类 | 16 | 能（拼接） |
-| 至少一个数值参数 | 11 | 只有当那些数值参数**都不是必需**时才能 |
-| 其中**必需**数值参数 | 10 | **不能** |
+  这条错误值得留档：它把一个上游的表示层限制，误报成本层的产品级拦路石；而真正挡着门的
+  是**绑定只港了 29 个操作里的 8 个**——一件谁都能数出来、却没人去数的事。「读源码之前
+  别断言」这条纪律，这次是栽在**没读自己那半边**上。
 
-`fleet.ui.hello` / `fleet.ui.deltas` / `FleetTerminal.capture` / `fleet.events.read` /
-`fleet.events.wait` / `fleet.ui.tabs.set_width` / `fleet.ui.input.pointer` /
-`fleet.ui.input.wheel` / `fleet.terminal.mouse` / `fleet.ui.window.resize` 是那十条。
-挡住它们的不是门，是**语言**：`"{\"x\":" + x + "}"` 在 `x` 是数字时
-`guest trapped: unreachable executed`——ECMA-262 的 Number→String 转换尚未实现，
-`.qjs` 因此拼不出一个带数字的 JSON。这一条同时也是「状态码不能拼进字符串」的原因
-（`"status:" + s` 同样 trap），是今天 `.qjs` 写 fleet 调用最先撞上的墙。
+**（二）「数字上的边界：10 条操作因必需数值参数而发不出去」——已作废。**
+
+那张表（无参 50 / 全字符串 16 / 含数值 11 / 其中必需数值 10）成立于 Number→String
+尚未实现的时候。`ba143c5` 之后三个 ECMA-262 转换全到，`JSON.stringify` 也直接吃数字，
+`fleet.ui.tabs.set_width` / `ui.input.pointer` / `ui.input.wheel` / `events.wait` 等
+十条今天全部发得出去。`tests/qjs_produces_a_fleet_operation.rs::the_reachable_share_of_
+the_catalog_is_known` 按它自己文档里预写的规则，从「量比例并断言差额存在」改成了
+「全目录无一条因参数类型而写不出来」的等式。
+
+#### 门 1 之外，本轮顺带关掉的一条
+
+**未捕获的 `throw` 不再报成裸 trap。** `QjswasmError::UncaughtThrow` 自成一类，
+`slot.rs::explain()` 读 `tinyvm_qjs::guest_fault()`，把堆耗尽与未捕获抛出一起从
+`Trap` 里分出来；`GuestFault` 是 `#[non_exhaustive]`，认不出的第四种原因照旧落回
+`classify`，不猜。两条测试锁住：一条钉分类，一条钉「上一次调用留下的 fault word
+不许污染下一次」。**抛出的值本身仍拿不到**——编译后的模块不导出持有它的 global，
+上游明说这是宿主边界的决定而不是抛出的问题。
 
 **门 3 的措辞已改（2026-08-25）。** 原文点名 `check` / `pack` / `qualify` /
 `check-many` 四个动词。实测 CLI 有**十三个**（`crates/agenterm-qjs/src/cli.rs`），
@@ -814,9 +830,9 @@ agenterm-qjswasm                                        [~]
 │   ├── 缺席 import 不阻止装载                                [x]
 │   ├── 两套调用约定同存（wasm 数值 / V1 pair），装载时定死    [x]
 │   ├── JS 值投影成宿主数据（字符串在槽死前读出）              [x]
-│   ├── 对象当 completion value 出来                          [ ] `Value` 没有 Object 变体；
-│   │                                                            挡住 fleet.qjs 的 `fleet;` 收尾
-│   ├── 未捕获 throw 与裸 trap 分开报                          [ ] 上游写了 FAULT_WORD，本层没读
+│   ├── 对象当 completion value 出来                          [–] 上游 repr::host_decode 的事，
+│   │                                                            且不挡任何门（见 §门 1 作废）
+│   ├── 未捕获 throw 与裸 trap 分开报                          [x] 2026-08-25 读 guest_fault()
 │   └── 约定不匹配 → UnsupportedValue，不按位重解释            [x]
 │
 ├── 接线                                                  [x]
@@ -829,15 +845,15 @@ agenterm-qjswasm                                        [~]
 │   └── 接管 .wasm 默认路由                                  [–]
 │
 ├── 归档 agenterm-qjs                                     [~]
-│   ├── fleet.js 等价物跑通                                 [~] 语言层六件全到；
-│   │   │                                                       剩一件在本层
+│   ├── fleet.js 等价物跑通                                 [x] 2026-08-25 门 1 全绿
 │   │   ├── 带参宿主调用（本仓这一半）                          [x] 2026-08-25
 │   │   ├── 对象 / 属性 / 函数值 / try / JSON / `?:`           [x] rev f21f0f2
 │   │   ├── `script check scripts/qjs/lib/fleet.qjs` 答 OK    [x] 走产品自己的 CLI
-│   │   ├── `script run` 同一文件                             [ ] 倒在 `fleet;`：对象出不来
-│   │   └── 发出的 params 过 validate_fleet_parameters        [x] Number→String 到了，
-│   │                                                           数值参数不再是缺口
-│   ├── 两处生产调用点迁移 + 行为等价测试                     [ ]
+│   │   ├── fleet.qjs 是 29/29 完整移植，拒绝时 throw          [x] 曾是 8/29
+│   │   ├── 验收测试读真文件 + driver（非缩略版）              [x] 照 eval_fleet_module
+│   │   ├── lua / js / qjs 三方绑定互锁                       [x] facade_parity
+│   │   └── 发出的 params 过 validate_fleet_parameters        [x] 全目录无一条发不出
+│   ├── 两处生产调用点迁移 + 行为等价测试                     [ ] 已无前置
 │   └── CLI 面对应或明确声明缺口                              [~] 十三动词判决已交付；
 │       └── Guest::CompiledQjs（pack 类动词的前置）           [x] 2026-08-25
 │

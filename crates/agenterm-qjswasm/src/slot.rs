@@ -241,43 +241,67 @@ impl Slot {
     ///    `tinyvm::WasmError` carries only a `&'static str` and cannot hold
     ///    it. That is a [`QjswasmError::Door`]: the boundary failed, not the
     ///    script.
-    /// 2. **The guest.** A compiled `.qjs` guest whose bump heap could not grow
-    ///    writes `FAULT_HEAP_EXHAUSTED` into the first word of its own linear
-    ///    memory before it gives up (tinyvm `f8adef8`), because a refused
-    ///    `memory.grow` returns `-1` rather than trapping and the allocator has
-    ///    nowhere else to put the reason. [`tinyvm_qjs::guest_fault`] reads it
-    ///    back, and the answer is a budget the embedder can raise.
+    /// 2. **The guest.** A compiled `.qjs` guest writes down *why* it is about
+    ///    to fail, in the first word of its own linear memory, before it
+    ///    executes the `unreachable` the core will report. Two reasons are
+    ///    recorded there today and neither is "this script is broken":
+    ///
+    ///    - the bump heap could not grow -- a refused `memory.grow` returns
+    ///      `-1` rather than trapping, so the allocator has nowhere else to
+    ///      put the reason -- which is a budget the embedder can raise;
+    ///    - the script threw a value and nothing caught it, which is the
+    ///      script running exactly as ECMA-262 says it should and is neither
+    ///      a budget nor a defect.
+    ///
+    ///    [`tinyvm_qjs::guest_fault`] reads the word back. Asking it is not
+    ///    optional politeness: the word exists *only* so a host can tell these
+    ///    apart, and a host that has the answer and reports a bare trap anyway
+    ///    is guessing when the guest already told it.
     ///
     /// Only a `JsV1` slot is asked the second question. The fault word is a
     /// convention of the compiler's runtime; a hand-written guest's byte zero
-    /// means whatever that guest decided it means, and reading a budget out of
-    /// it would be exactly the host-side guess this crate refuses to make.
+    /// means whatever that guest decided it means, and reading either answer
+    /// out of it would be exactly the host-side guess this crate refuses to
+    /// make.
     ///
-    /// Everything else goes to [`classify`], unchanged.
+    /// Everything else goes to [`classify`], unchanged -- including a `JsV1`
+    /// guest that recorded nothing, which upstream documents as the honest
+    /// answer for three situations at once (an ordinary fault, a module with
+    /// no memory, a call that never started) and none of them is a throw.
     fn explain(&self, fault: tinyvm::WasmError) -> QjswasmError {
         if let Some(door) = self.door.take_fault() {
             return QjswasmError::Door(door);
         }
-        if self.convention == Convention::JsV1 && self.heap_exhausted() {
-            return QjswasmError::Budget("max_memory_pages");
+        if self.convention == Convention::JsV1 {
+            match self.guest_fault() {
+                Some(tinyvm_qjs::GuestFault::HeapExhausted) => {
+                    return QjswasmError::Budget("max_memory_pages");
+                }
+                Some(tinyvm_qjs::GuestFault::UncaughtThrow) => {
+                    return QjswasmError::UncaughtThrow;
+                }
+                // `GuestFault` is `#[non_exhaustive]`: a later upstream may
+                // record a fourth reason at the same word. Falling through to
+                // `classify` is the right default -- a reason this build does
+                // not understand is reported as the trap the core saw, which
+                // is true if unhelpful, rather than mapped onto whichever
+                // known arm happens to be nearest.
+                _ => {}
+            }
         }
         classify(fault)
     }
 
-    /// Whether the guest recorded that its heap ran out during the call that
-    /// just failed.
+    /// What the guest recorded about its own failure, if anything.
     ///
-    /// `false` when the memory cannot be read at all: a guest with no linear
-    /// memory never allocated, so it never ran out, and inventing a budget for
+    /// `None` when the memory cannot be read at all: a guest with no linear
+    /// memory never allocated and never threw, and inventing either answer for
     /// a module that has no heap would misreport a genuine fault.
-    fn heap_exhausted(&self) -> bool {
+    fn guest_fault(&self) -> Option<tinyvm_qjs::GuestFault> {
         let Ok(Some(view)) = self.instance.memory_at(0) else {
-            return false;
+            return None;
         };
-        matches!(
-            tinyvm_qjs::guest_fault(&view),
-            Some(tinyvm_qjs::GuestFault::HeapExhausted)
-        )
+        tinyvm_qjs::guest_fault(&view)
     }
 
     /// Decode one V1 pair and resolve a String out of the guest's memory.

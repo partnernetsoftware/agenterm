@@ -395,9 +395,15 @@ pub struct Outcome {
 /// that existing capability to wasm guests; it does not invent a second one.
 pub type FleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>;
 
-/// Five distinguishable failure classes. A caller must be able to tell "this
-/// syntax is not supported yet" from "the guest ran out of budget" without
-/// matching on strings.
+/// Ten distinguishable failure classes. A caller must be able to tell "this
+/// syntax is not supported yet" from "the guest ran out of budget" from "the
+/// script threw" without matching on strings.
+///
+/// The count has been wrong here before -- it said five while nine were
+/// listed -- so it is worth saying why it is worth keeping right: this is the
+/// enum a caller matches on, and a doc that undercounts it reads as a promise
+/// that the remaining arms are variations on the listed ones rather than
+/// separate answers.
 ///
 /// `Debug` is hand-written rather than derived: tinyvm is deliberately
 /// fmt-free (it is a `no_std`, sub-100 KiB core), so `WasmError` implements no
@@ -410,6 +416,26 @@ pub enum QjswasmError {
     Load(tinyvm::WasmError),
     /// The guest trapped during execution.
     Trap(tinyvm::WasmError),
+    /// The script threw a value and nothing caught it.
+    ///
+    /// Its own class rather than a [`Trap`](Self::Trap), even though the core
+    /// sees the same `unreachable` either way: ECMA-262 says a program whose
+    /// exception reaches the top terminates with it, so a script that throws
+    /// ran exactly as written. Nothing is broken and no budget was hit, and
+    /// telling the author their script faulted is a third wrong answer next to
+    /// those two. The compiler writes the distinction into the guest's own
+    /// memory precisely so a host can make it (see
+    /// [`tinyvm_qjs::guest_fault`]); a host holding that evidence and
+    /// reporting a bare trap anyway is guessing when it did not have to --
+    /// which is the same mistake the heap-exhaustion arm above was added to
+    /// stop making.
+    ///
+    /// The thrown value does not come with it. A compiled module exports no
+    /// global holding it, so it is not readable from outside -- upstream says
+    /// so at `GuestFault::UncaughtThrow` and calls handing it out a decision
+    /// about the host boundary rather than about throwing. A script that wants
+    /// the host to see *what* went wrong must catch it and return or print it.
+    UncaughtThrow,
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -466,6 +492,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::Compile(e) => f.debug_tuple("Compile").field(e).finish(),
             Self::Load(e) => f.debug_tuple("Load").field(&e.message()).finish(),
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
+            Self::UncaughtThrow => f.write_str("UncaughtThrow"),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -482,6 +509,9 @@ impl std::fmt::Display for QjswasmError {
             Self::Compile(e) => write!(f, "compiling .qjs: {e}"),
             Self::Load(e) => write!(f, "loading wasm: {}", e.message()),
             Self::Trap(e) => write!(f, "guest trapped: {}", e.message()),
+            Self::UncaughtThrow => {
+                write!(f, "the script threw a value and nothing caught it")
+            }
             Self::Budget(what) => write!(f, "budget exhausted: {what}"),
             Self::Door(what) => write!(f, "host door: {what}"),
             Self::NoSuchSlot(SlotId { engine, index }) => {

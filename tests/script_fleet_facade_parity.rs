@@ -112,6 +112,12 @@ fn qjs_facade() -> Vec<(String, String)> {
     extract_script_facade(&read("scripts/qjs/lib/fleet.js"))
 }
 
+/// The `.qjs` binding: the same catalog, bound for the `agenterm-qjswasm`
+/// engine. Same file shape as `fleet.js`, so the same extractor reads it.
+fn qjswasm_facade() -> Vec<(String, String)> {
+    extract_script_facade(&read("scripts/qjs/lib/fleet.qjs"))
+}
+
 /// The authoritative, host-dispatchable operation-id set, read from the
 /// linked `OPERATION_CATALOG` itself.
 ///
@@ -240,6 +246,36 @@ fn lua_and_qjs_fleet_facades_expose_identical_operation_catalogs() {
         "expected the known-good count of 29 fleet operations in lua/qjs; \
          if this changed intentionally, update this anchor alongside the \
          module doc comment counts"
+    );
+}
+
+// ── Test 1b: qjs vs qjswasm — the archive gate, as a test ──────────────
+//
+// `scripts/qjs/lib/fleet.qjs` binds the same catalog for agenterm's own
+// engine, and "equivalent to `fleet.js`" is the stated gate for retiring
+// `agenterm-qjs` (PRD 02.36). A gate checked by reading two files once is
+// not a gate; this is the same equality Test 1 makes between lua and qjs,
+// so all three bindings are now held to each other rather than two of them
+// being held and the third being described.
+//
+// It was a 8-of-29 partial port until 2026-08-25, for a reason that was true
+// at the time and is not any more: the engine could not build an object
+// literal or stringify one, so nineteen operations had no way to express
+// their params. Both landed upstream at tinyvm `f21f0f2`.
+
+#[test]
+fn qjs_and_qjswasm_fleet_facades_are_the_same_binding() {
+    let qjs: std::collections::BTreeMap<_, _> = qjs_facade().into_iter().collect();
+    let qjswasm: std::collections::BTreeMap<_, _> = qjswasm_facade().into_iter().collect();
+
+    assert!(
+        !qjswasm.is_empty(),
+        "qjswasm facade extraction found zero entries — parser likely broken"
+    );
+    assert_eq!(
+        qjs, qjswasm,
+        "scripts/qjs/lib/fleet.js and scripts/qjs/lib/fleet.qjs have drifted: the two \
+         engines would produce different Fleet operations for the same script."
     );
 }
 

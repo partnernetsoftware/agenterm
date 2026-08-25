@@ -330,6 +330,68 @@ fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
     );
 }
 
+/// An uncaught `throw` is its own answer, and specifically **not** the trap the
+/// core reported.
+///
+/// Both failures leave the guest through the same `unreachable`, so tinyvm
+/// hands this face the identical `WasmError` in both cases and folding them
+/// together is the path of least resistance. It is also wrong three ways: a
+/// script that throws is not broken, is not over budget, and did not do
+/// anything the author needs to fix -- ECMA-262 says a program whose exception
+/// reaches the top terminates with it, which is the script running as written.
+///
+/// The compiler goes to real trouble to make the distinction available --
+/// it writes a code into the first word of the guest's linear memory *before*
+/// executing the `unreachable`, precisely because the trap itself cannot carry
+/// a reason. This test is the reason that trouble was worth taking: it pins
+/// that this crate spends the evidence instead of leaving it on the floor,
+/// which is what it did until now.
+#[test]
+fn an_uncaught_throw_is_reported_as_a_throw_and_not_as_a_trap() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(Guest::Qjs("throw \"boom\";"), None, "main", &[])
+        .expect_err("a script whose exception reaches the top does not complete");
+    assert!(
+        matches!(err, QjswasmError::UncaughtThrow),
+        "expected the throw to be named, got {err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "the script threw a value and nothing caught it"
+    );
+}
+
+/// A caught `throw` is not a failure at all, and leaves nothing behind that
+/// makes the *next* call look like one.
+///
+/// The fault word is one location in a persistent instance, so a stale code
+/// from an earlier call is the obvious way this classification goes wrong:
+/// every subsequent success would be readable as a throw. Upstream clears the
+/// word on entry, and this is the assertion that keeps that guarantee honest
+/// from the product's side -- one slot, called twice, throwing only the first
+/// time.
+#[test]
+fn a_fault_word_from_an_earlier_call_does_not_taint_the_next_one() {
+    let mut eng = engine();
+    let slot = eng
+        .spawn(Guest::Qjs("if ($0) { throw \"first\"; } return 7;"), None)
+        .expect("spawn");
+
+    let err = eng
+        .call(slot, "main", &[Value::Js(JsValue::Bool(true))])
+        .expect_err("the first call throws");
+    assert!(
+        matches!(err, QjswasmError::UncaughtThrow),
+        "expected the throw to be named, got {err:?}"
+    );
+
+    let outcome = eng
+        .call(slot, "main", &[Value::Js(JsValue::Bool(false))])
+        .expect("the second call does not throw, and must not inherit the first one's word");
+    assert_eq!(outcome.values, vec![Value::Js(JsValue::Number(7.0))]);
+}
+
 /// A slot accepts values in the convention it was loaded under, and refuses the
 /// other one rather than reinterpreting the bits.
 ///
