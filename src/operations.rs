@@ -96,6 +96,26 @@ pub struct OperationParameterSpec {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct OperationSpec {
     pub id: &'static str,
+    /// Where a script reaches this operation. Two spellings live here and
+    /// both are load-bearing:
+    ///
+    /// - **Dotted path under `fleet.*`** (76 of the 77 entries) — the
+    ///   operation hangs off the invocation-bound `fleet` broker at a
+    ///   *constant* path, so a binding can be written (or generated) from
+    ///   the name alone: `fleet.tabs.set_note` -> `fleet.tabs.set_note(..)`.
+    /// - **`Type.method`** (exactly one entry: `pane.capture` ->
+    ///   `FleetTerminal.capture`) — the operation is a method on a receiver
+    ///   the script must first *construct with an argument*, so there is no
+    ///   constant dotted path to write down. See the comment on the
+    ///   `pane.capture` entry below for why this one is not a typo.
+    ///
+    /// The `Type.method` spelling is the same convention
+    /// `crates/agenterm-rh/src/shipped_surfaces.rs` uses for every
+    /// receiver-bound surface (`Bytes.len`, `Command.output`, `Task.wait`,
+    /// …). It is a documented exception, not a free slot: a **new** entry
+    /// must use `fleet.*`, and
+    /// `tests/fleet_catalog_conformance.rs::only_one_script_surface_sits_outside_the_fleet_namespace`
+    /// pins that there is exactly one exception.
     pub script_surface: &'static str,
     pub class: OperationClass,
     pub command: &'static str,
@@ -719,6 +739,36 @@ pub const OPERATION_CATALOG: &[OperationSpec] = &[
         available: true,
         since: "0.1.6",
     },
+    // `script_surface` here is `FleetTerminal.capture`, the only entry in this
+    // catalog outside the `fleet.*` namespace. Reviewed 2026-08-25 and kept
+    // deliberately; it is an exception to document, not a typo to fix.
+    //
+    // *Why it cannot be a dotted `fleet.*` path.* A capture is bound to one
+    // tab, and a script names that tab by **constructing the receiver**, not
+    // by passing a parameter: `fleet.terminal(tab).capture(max_bytes)`. The
+    // `capture` method is registered on the `FleetTerminal` type in
+    // `src/script_fleet.rs`; the signature is spelled out in
+    // `src/script_catalog.rs::fleet_operation_entry`, and it is what
+    // `docs/agenterm-rh-runtime.md` teaches users to write. There is no
+    // constant path to record, because the middle segment is a runtime value.
+    //
+    // *Why not rename it to `fleet.terminal.capture` anyway.* That path is
+    // already taken by a **different** receiver. `fleet.terminal` is a
+    // property getter returning `FleetTerminalService`, which is tab-less and
+    // carries `terminal.paste` / `terminal.mouse` /
+    // `terminal.copy_selection`; `fleet.terminal(tab)` is a *function* call
+    // returning the tab-bound `FleetTerminal`. `capture` exists only on the
+    // latter. Renaming would make this catalog assert a path that does not
+    // resolve, and would desynchronise
+    // `crates/agenterm-rh/src/shipped_surfaces.rs`, which declares this
+    // surface with exactly this spelling.
+    //
+    // *What the exception costs, stated honestly.* A binding generator that
+    // works from dotted paths (`plan/design-fleet-catalog-binding.md`) cannot
+    // emit a function for this entry, so `pane.capture` has no lua or qjs
+    // binding today, and those facades expose no generic escape hatch — their
+    // `call()` helper is module-local. Reaching it from lua/qjs needs one
+    // hand-written wrapper in the by-hand layer, not a catalog rename.
     OperationSpec {
         id: "pane.capture",
         script_surface: "FleetTerminal.capture",

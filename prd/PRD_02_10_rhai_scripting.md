@@ -1,4 +1,4 @@
-# Rust host + script engines (Rhai / rh / lua / qjs)
+# Rust host + script engines (Rhai / rh / lua / qjs / qjswasm / sql)
 
 Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
@@ -21,7 +21,31 @@ This PRD's scope grew from one embedded language to a **family of script
 engines** sharing one Rust host, one L2 Facade/catalog (`fleet.*`, `std.*`),
 and one product-boundary philosophy (unrestricted local runtime; the future
 Agent harness owns authorization, not the engine — see "v0.1.9 product
-position" below). Four engines, in lineage order:
+position" below).
+
+### Where each engine is going (2026-08-25)
+
+The family has stopped growing and started consolidating. This table is the
+current **disposition** of every engine; the lineage narrative that follows it
+records how each one got here and is deliberately left as history.
+
+| Engine | Crate / surface | Disposition | Owning document |
+|--------|-----------------|-------------|-----------------|
+| **qjswasm** | `crates/agenterm-qjswasm` — `.qjs` compiled to `.wasm`, tinyvm as the core | **The long-term line.** Self-developed, pure Rust, no JIT, no external language runtime linked in. It is the engine the other two below are being replaced *by*. | [PRD 02.36](PRD_02_36_agenterm_qjswasm.md) |
+| **rh** | `crates/agenterm-rh` | Bound for **its own repository** (`partnernetsoftware/rh`) — but not yet, and the gate is not a date. rh leaves only once it has **stopped being transpiled to Rust and compiled by `rustc`**: while `pack` / `qualify` / `task` still run through transpile→`rustc` AOT, the engine carries a toolchain dependency and a generated-pack host ABI that belong to this repo, and extracting it would export both. | [`plan/design-rh-standalone-product.md`](../plan/design-rh-standalone-product.md) |
+| **lua** | `crates/agenterm-lua` | Shipped sibling, capability-aligned with rh. No disposition change. | this file |
+| **qjs** | `crates/agenterm-qjs` — rquickjs → QuickJS C | **To be archived**, behind three falsifiable gates. None of the three is green today, so the crate stays exactly as it is and is not allowed to rot in the meantime. | gates in [PRD 02.36](PRD_02_36_agenterm_qjswasm.md) (§ 归档门：`agenterm-qjs` 什么时候能下线) |
+| **wasmcore** | `crates/agenterm-wasmcore` — wasmtime + WASI p1 (**JIT**) | **To be archived**, behind its own three gates. Different shape from qjs's, because wasmcore's users are `.wasm` guests rather than scripts. | gates in [PRD 02.36](PRD_02_36_agenterm_qjswasm.md) (§ 归档 `agenterm-wasmcore` 的门) |
+| **sql** | `crates/agenterm-sql` | **Under observation; future undecided.** It stays `optional` with `default` off — i.e. deliberately **out of the default build** and not compiled into the shipped PE. No archive gate exists for it because no decision to archive it has been taken; equally, nothing commits to keeping it. | [`plan/design-sql-execution-target.md`](../plan/design-sql-execution-target.md) |
+
+**The archive gates are not restated here, on purpose.** PRD 02.36 owns them,
+together with their current per-gate verdicts and the measured evidence behind
+each verdict. A second copy in this file would be a second source of truth,
+and it would drift the first time a gate moves. The division of labour: *this*
+file says what each engine's disposition is; *PRD 02.36* says what has to be
+true before `agenterm-qjs` or `agenterm-wasmcore` is touched at all.
+
+Six engines, in lineage order:
 
 - **Rhai — cancelled as the forward engine direction (2026-08-07).** Was the
   original and, through v0.1.15, default embedded language (tree-walking
@@ -56,6 +80,28 @@ position" below). Four engines, in lineage order:
   work. Remaining App-host work is owned by `plan/plan-v0.1.18.md`: QJS-M6
   literal operation validation, six-target Base adoption, long-lived
   Runtime/Context, interrupt/dirty reload and deterministic `.agp` lifecycle.
+  **2026-08-25: superseded.** `agenterm-qjs` is now slated for archive in
+  favour of `agenterm-qjswasm`; the remaining App-host work above is
+  historical scope, not a live commitment. Gates: [PRD 02.36](PRD_02_36_agenterm_qjswasm.md).
+- **qjswasm — `agenterm-qjswasm`, the forward engine
+  (`crates/agenterm-qjswasm`).** AgenTerm's own script engine: `.qjs` is
+  compiled to standard `.wasm` by a **pure-Rust** compiler (upstream
+  `tinyvm-qjs`) and executed by **tinyvm** — decode/validate/`Limits` at load
+  time, interpreted, **no JIT and no machine code generated**. It links
+  neither QuickJS C nor wasmtime, which is the whole point: it is what lets
+  both `agenterm-qjs` and `agenterm-wasmcore` be retired rather than
+  maintained. It is not a complete JavaScript engine today and PRD 02.36 says
+  so in those words; the JS coverage surface there is a schedule, not a
+  capability ceiling. Product truth and both archive gates:
+  [PRD 02.36](PRD_02_36_agenterm_qjswasm.md); execution projection:
+  [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md).
+- **sql — `agenterm-sql`, under observation.** A further execution target
+  that was built far enough to exist and then deliberately not promoted: it is
+  `optional` with `default` off, so it is not in the default build and not in
+  the shipped PE. Its status is *undecided*, which is a different state from
+  both "shipped" and "to be archived" — nothing here commits to keeping it and
+  nothing schedules its removal.
+  See [`plan/design-sql-execution-target.md`](../plan/design-sql-execution-target.md).
 
 "Capability alignment" between rh/lua/qjs means: same L2 facade/catalog
 surface, same CLI verb contract (check/eval/pack/check-many/task — see rh's
@@ -132,44 +178,11 @@ doc-comment-asserted:
   locked as identical, 29/29 entries. rh
   (`crates/agenterm-rh/src/shipped_surfaces.rs`) is a pinned superset, +47
   entries over the lua/qjs 29. Its catalog extractor was replaced with a
-  direct link to `OPERATION_CATALOG` on 2026-08-25; see the withdrawn finding
-  below for why regex extraction was the wrong instrument.
-
-**~~Open finding — rh declares 33 `fleet.*` surfaces the host cannot
-dispatch~~ — WITHDRAWN 2026-08-25. The finding was false; there is no gap.**
-
-The claim (recorded 2026-08-08, `50ab1f7e`) was that rh's
-`shipped_surfaces.rs` declares 76 `fleet.*` paths while `src/operations.rs`
-implements only 43 of them, leaving 33 declared-but-undispatchable —
-`ui.settings.*`, `ui.modal.*`, `ui.font.*`, `ui.instance-picker.*`,
-`ui.window.*`, `ui.tab.new`, and the rest.
-
-**Every one of those 33 is in `OPERATION_CATALOG`, and always was.**
-`OPERATION_CATALOG` holds 77 entries, 76 of them `fleet.*`, and rh's 76
-declared surfaces match them exactly: the gap set is empty.
-
-The 33 came from how the test read the catalog, not from the catalog.
-`tests/script_fleet_facade_parity.rs` extracted operation ids by scanning
-`src/operations.rs` for lines beginning `id:`. Those 33 entries are built by
-the `nullary_ui_action()` const constructor (`src/operations.rs`) — one line
-each, no `id:` on it — so the extractor never saw them. It found 44, its
-sanity floor was `>= 40`, and nothing went red. The test then *reported* the
-33 it could not see as missing from the product, and that report was copied
-here as a product fact.
-
-Two lessons worth keeping, since this is the second false claim this PRD
-family has had to withdraw:
-
-- A test that reads source with a regex can be wrong in the **reporting**
-  rather than in the assertion, and that failure is silent by construction.
-  The fix is to link what you are measuring: `host_operation_catalog_ids()`
-  now uses `agenterm::operations::OPERATION_CATALOG` directly, so a new
-  construction shape counts the moment it compiles.
-- A sanity floor (`>= 40`) that is below the real number (77) is not a
-  sanity check.
-
-The allowlist in the parity test is now empty and the assertion pins that
-emptiness, so a genuinely undispatchable rh surface would still go red.
+  direct link to `agenterm::operations::OPERATION_CATALOG` on 2026-08-25,
+  after a regex extractor that scanned for `id:` lines was found to be blind
+  to every entry built by the `nullary_ui_action()` const constructor. Its
+  undispatchable-surface allowlist is now **empty**, and the assertion pins
+  that emptiness, so a genuinely undispatchable rh surface still goes red.
 
 **The real drift is elsewhere, and it is about parameters, not names.**
 `tests/fleet_catalog_conformance.rs` (2026-08-25) links the catalog and
@@ -714,6 +727,54 @@ and it is not positioned as a restricted security plugin.
   [Agent control plane](PRD_02_07_agent_control_plane.md); scripting reuses
   those typed contracts, while additional low-level runtime adapters may ship
   independently without turning this catalog into an Agent permission layer.
+
+### One `script_surface` is spelled `Type.method`, deliberately (2026-08-25)
+
+`OPERATION_CATALOG` gives every operation a `script_surface`. 76 of the 77
+entries spell it as a **constant dotted path** under `fleet.*`. Exactly one
+does not: `pane.capture` declares `FleetTerminal.capture`.
+
+Investigated 2026-08-25 and **kept**. It is an exception to document, not a
+typo to fix:
+
+- The operation is bound to one tab, and a script names that tab by
+  **constructing the receiver** rather than by passing a parameter:
+  `fleet.terminal(tab).capture(max_bytes)`. `src/script_fleet.rs` registers
+  `capture` on the `FleetTerminal` type;
+  `src/script_catalog.rs::fleet_operation_entry` carries that exact
+  signature; [`docs/agenterm-rh-runtime.md`](../docs/agenterm-rh-runtime.md)
+  teaches users to write it. The middle segment is a runtime value, so there
+  is no constant dotted path to record.
+- `fleet.terminal.capture` is not available as a substitute. `fleet.terminal`
+  is a **property getter** returning the tab-less `FleetTerminalService`
+  (which carries `terminal.paste`, `terminal.mouse`,
+  `terminal.copy_selection`); `fleet.terminal(tab)` is a **function call**
+  returning the tab-bound `FleetTerminal`. `capture` exists only on the
+  latter, so renaming would make the catalog declare a path that does not
+  resolve.
+- `Type.method` is not an invented spelling. It is the convention
+  `crates/agenterm-rh/src/shipped_surfaces.rs` already uses for every
+  receiver-bound surface (`Bytes.len`, `Command.output`, `Task.wait`, …), and
+  that file declares this surface verbatim. A rename is script-visible **and**
+  would desynchronise the two crates.
+- The honest cost, stated rather than hidden: a binding generator that works
+  from dotted paths (`plan/design-fleet-catalog-binding.md`) cannot emit a
+  function for this entry, so `pane.capture` has **no lua and no qjs
+  binding**, and neither facade offers a generic escape hatch — their
+  `call()` helper is module-local. Reaching it from lua/qjs needs one
+  hand-written wrapper in the by-hand layer, not a catalog rename.
+
+The rationale is recorded next to the data, in `src/operations.rs`: on the
+`OperationSpec::script_surface` field and on the `pane.capture` entry itself.
+`tests/fleet_catalog_conformance.rs::only_one_script_surface_sits_outside_the_fleet_namespace`
+already pins that there is exactly **one** such exception, so a *new*
+non-`fleet.*` entry still goes red. What that gate should additionally assert,
+so the exception is pinned by its *shape* and not only by its spelling, is
+listed in `plan/design-fleet-catalog-binding.md`'s gate table (owned
+elsewhere): that the outlier matches a `Type.method` form rather than being
+arbitrary text, that `SHIPPED_SURFACE_PATHS` declares the same string, and
+that `script_catalog`'s entry for `pane.capture` still pairs that surface with
+the `fleet.terminal(tab).capture(max_bytes)` signature.
 
 ## Discovery and tool schema
 
