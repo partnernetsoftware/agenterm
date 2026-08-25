@@ -338,7 +338,7 @@ VM2 从零立起，全程无人工点击：
 
 | 格 | 阻塞 |
 |----|------|
-| osx × aarch64 | CLI smoke **PASS**（宿主自身，`cli --help` exit 0）；GUI 交互闭环未跑 |
+| osx × aarch64 | **全部 PASS**：CLI smoke、GUI 启动、结构化互动往返（§5.14）。带外截图仍缺 TCC 授权 |
 | osx × x86_64 | **等 Rosetta**：`softwareupdate --install-rosetta` 需 sudo 密码，本机无免密。已实测确认阻塞——`cli --help` 退出 127（`Bad CPU type in executable`），产物本身是好的 |
 | lnx × x86_64 | ~~等 Rosetta~~ **已解除**：改走 QEMU TCG 全模拟，CLI smoke **PASS**（见 §5.7） |
 | win × aarch64 | **等 ISO**：Evaluation Center 下载需先填注册表单，须由人完成 |
@@ -707,6 +707,39 @@ vnc-kvm-probe <host> <port> <out> [TEXT] [BASELINE.png] [MAX_CHANGED_PERCENT]
 不会把 app 状态悄悄累积给下一轮。一个会改变自身前提的测试，第二次跑就已经不是同一个测试了。
 
 证据：`~/.local/share/agenterm/evidence/six-cell-*/p2-ui-interaction/`
+
+---
+
+## 5.14 执行回执 · osx × aarch64 的互动反馈（2026-08-25）
+
+宿主这一格的**带外**通道被 TCC 挡着（`screencapture` 报
+`could not create image from display`），所以它用了带内通道里最强的信号：
+`cli ui-snapshot` 返回的是**结构化 UI 状态**，不是像素。
+
+**为什么这里结构比像素强**：用 app 自己的截图验它自己的渲染是循环论证；
+而结构化快照陈述的是「app 认为自己处于什么状态」——**这是另一类断言**，
+所以即便通道是带内的，跨动作比较它仍然成立。
+
+```
+cli new-window -n probe-tab
+  after-new   tabs=2  names=['zsh', 'probe-tab']  active=@2
+cli kill-window -t 1
+  after-kill  tabs=1  names=['zsh']               active=@1
+```
+
+还原后 app 与开测前一致，测试可重复。
+
+### 一条值得记的自我纠错
+
+这个断言的第一版读的是 `layout.tabs`，**动作前后都读到 0**。
+一个在动作前后返回同样空值的断言什么都没证明，却长得像通过——
+tabs 实际在快照**顶层**（`tabs[]`），不在 `layout` 下。
+定位办法是拿已知的 tab 名去遍历快照，而不是相信猜出来的路径。
+
+**这与 §5.12 的容差、§5.9 的静态闸是同一条纪律**：
+闸必须在该红的时候真的红过，否则它和没有闸的区别只是多一行绿色输出。
+
+证据：`~/.local/share/agenterm/evidence/six-cell-*/p2-osx-interaction/`
 
 ---
 
