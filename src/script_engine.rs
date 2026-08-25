@@ -1070,7 +1070,6 @@ mod tests {
         let _env = EnvGuard::set("qjswasm");
         let engine = QjswasmEngineBackend;
         let options = ScriptInvocationOptions::default();
-        let dir = tempfile::tempdir().expect("tempdir");
 
         for (source, want) in [
             ("return \"ok\";", Some(Value::String("ok".into()))),
@@ -1081,11 +1080,12 @@ mod tests {
             // not `null`, which the subset can now return in its own right.
             ("return undefined;", None),
         ] {
-            let path = dir.path().join("script.qjs");
-            std::fs::write(&path, source).expect("write");
-            let path = path.to_str().expect("utf-8 path");
-            engine.check(path, &options).expect("checks clean");
-            let result = engine.execute(path, &options, None).expect("runs");
+            // `source` is the script's TEXT. This test used to write a file
+            // and pass its path, which stopped working when the backend was
+            // corrected to match `ScriptInvocation`'s contract -- the path
+            // string was compiled as a program and failed on its leading `/`.
+            engine.check(source, &options).expect("checks clean");
+            let result = engine.execute(source, &options, None).expect("runs");
             assert_eq!(result.value, want, "{source:?}");
             assert!(result.stdout.is_empty(), "{source:?}");
         }
@@ -1103,26 +1103,23 @@ mod tests {
         let _env = EnvGuard::set("qjswasm");
         let engine = QjswasmEngineBackend;
         let options = ScriptInvocationOptions::default();
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("outside.qjs");
         // `%` stood here until the 2026-08-25 bump to upstream `6920c60`, which
         // implemented it (dd35c44) along with `typeof` (c707558) -- so the
         // source this test called "outside the subset" started compiling and
         // this assertion started failing. A conditional expression is measured
         // to be outside it at that rev
         // (`crates/agenterm-qjswasm/tests/qjs_guest.rs` carries the same list).
-        std::fs::write(&path, "return 1 ? 2 : 3;").expect("write");
-        let path = path.to_str().expect("utf-8 path");
+        let source = "return 1 ? 2 : 3;";
 
         let checked = engine
-            .check(path, &options)
+            .check(source, &options)
             .expect_err("a conditional expression is not lowered");
         assert!(
             checked.contains("this engine does not support"),
             "{checked}"
         );
         assert!(
-            engine.execute(path, &options, None).is_err(),
+            engine.execute(source, &options, None).is_err(),
             "execute must refuse what check refused"
         );
     }
