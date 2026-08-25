@@ -32,9 +32,35 @@
 //! checked for integrity before any comparison runs (see
 //! `binding_parsers_see_every_definition_and_every_call`).
 //!
-//! Findings recorded here are *pinned, not fixed*: the bindings are outside
-//! this gate's remit. Each pinned set is an allowlist with a comment saying
-//! what would make it shrink.
+//! Findings are recorded in two shapes. A *conformance* assertion states
+//! what must be true (the fixed parameter objects below); a *pinned* set is
+//! an allowlist of a known-wrong status quo, each with a comment saying what
+//! would make it shrink.
+//!
+//! # How the runtime consequences here were established
+//!
+//! An earlier revision of this file said its `broker_invalid_arguments`
+//! conclusion was "read off the dispatcher rather than executed end to end
+//! (the broker path needs a live server)". That parenthetical was wrong, and
+//! worth correcting because it is why the conclusion went unverified for so
+//! long: `validate_fleet_parameters` runs in the CLI *parent* process, before
+//! `fleet_mutation_command` and before any IPC, so every rejection in this
+//! file is observable with no server running at all. Each claim below was
+//! produced by running the real binding file through the real broker:
+//!
+//! ```text
+//! cargo build --bin agenterm --features script-qjs
+//! agenterm cli script run <scripts/qjs/lib/fleet.js + a try/catch probe>
+//! ```
+//!
+//! with `AGENTERM_SCRIPT_BACKEND=qjs`. qjs, not lua: on the lua path a
+//! failing `__host.fleet_call` raises `mlua::Error` through LuaJIT's
+//! `lua_error`, which longjmps across a `extern "C-unwind"`-less Rust frame
+//! and aborts the whole worker ("panic in a function that cannot unwind"), so
+//! a Lua script cannot even observe the rejection it caused. qjs turns the
+//! same error into an ordinary catchable JS exception carrying the broker's
+//! message verbatim. That lua abort is a host defect independent of anything
+//! this gate asserts; it is recorded in plan/design-fleet-binding-gaps.md §6.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -598,37 +624,43 @@ fn binding_params_objects_conform_to_the_catalog_parameter_spec() {
     }
 }
 
-/// Every parameter disagreement between the two hand-written bindings and
-/// `OPERATION_CATALOG`, measured 2026-08-25: 9 of the 29 bound surfaces
-/// (31%). Both bindings drift **identically** on every one — the
-/// copy-and-compare kept them consistent with each other and inconsistent
-/// with the declaring catalog, which is precisely the failure mode a
-/// binding-to-binding diff cannot see.
+/// The parameter disagreements that remain between the two hand-written
+/// bindings and `OPERATION_CATALOG`. Both bindings drift **identically** on
+/// every one — the copy-and-compare kept them consistent with each other and
+/// inconsistent with the declaring catalog, which is precisely the failure
+/// mode a binding-to-binding diff cannot see.
 ///
-/// The payloads below were produced by executing `scripts/lua/lib/fleet.lua`
-/// under `agenterm_lua::LuaEngine` with a capturing `__host.fleet_call`, so
-/// they are literal emitted JSON, not inferred from the regex:
+/// Nine surfaces were measured on 2026-08-25. Two were **pure bugs** — a
+/// wrong wire key behind an otherwise correct signature — and are fixed;
+/// they are asserted positively by
+/// `fixed_bindings_send_exactly_the_declared_parameter_names` and are gone
+/// from this map. The seven below are **product decisions**: repairing each
+/// one changes the binding's own argument list, so every existing caller
+/// would have to change. Deciding that is not this gate's call, and silently
+/// "fixing" one by changing a published signature is exactly what this map
+/// exists to make visible.
 ///
-///   tabs.set-note      {"note":"hello","tab_id":"@1"}   spec requires `tab`
-///   ui.tab.select      {"id":"@2"}                      spec declares `tab`
-///   ui.input.wheel     {"delta":3}                      spec requires x, y, delta_y
-///   terminal.paste     {"text":"abc"}                   spec declares NO parameters
-///   ui.composer.send   {"text":"hi"}                    spec declares only `tab`
-///   ui.hello           {}                               spec requires minimum, maximum
-///   ui.deltas          {}                               spec requires epoch, after
-///   events.read        {}                               spec requires epoch, after
-///   events.wait        {"timeout_ms":...}                spec requires epoch, after, kind
+/// Payloads are the literal JSON `scripts/lua/lib/fleet.lua` emits, captured
+/// by overriding `__host.fleet_call` inside a hosted lua invocation; the
+/// broker messages are the literal strings the real `agenterm cli script run`
+/// answered with (see the module doc for the method). Nothing here is
+/// inferred from the regex above or read off the dispatcher.
 ///
-/// `validate_fleet_parameters` (`src/client/mod.rs:2649`) rejects unknown
-/// keys and missing required keys before dispatch, and `__host.fleet_call`
-/// reaches it via `src/script_worker.rs:616` -> broker `"fleet.call"` ->
-/// `src/client/mod.rs:2593`. So each entry below is a binding call the host
-/// answers with `broker_invalid_arguments`. That runtime consequence is read
-/// off the dispatcher rather than executed end to end (the broker path needs
-/// a live server); the payloads themselves are executed fact.
+/// ```text
+/// surface                  emits                 broker answers
+/// fleet.terminal.paste     {"text":"abc"}        does not accept parameter text
+/// fleet.ui.composer.send   {"text":"hi"}         does not accept parameter text
+/// fleet.ui.input.wheel     {"delta":3}           does not accept parameter delta
+/// fleet.ui.hello           {}                    requires parameter minimum
+/// fleet.ui.deltas          {}                    requires parameter epoch
+/// fleet.events.read        {}                    requires parameter epoch
+/// fleet.events.wait        {"timeout_ms":100}    requires parameter epoch
+/// ```
 ///
-/// Repairing the bindings is out of this gate's remit — the gate exists to
-/// stop the list growing.
+/// all prefixed `broker_invalid_arguments:`. What the seven decisions are,
+/// one by one, is written down in plan/design-fleet-binding-gaps.md §4 —
+/// `remaining_parameter_drift_is_documented_as_product_decisions` keeps that
+/// document and this map from parting company.
 fn expected_parameter_drift() -> BTreeMap<String, ParamDrift> {
     fn drift(surface: &str, unknown: &[&str], missing_required: &[&str]) -> (String, ParamDrift) {
         (
@@ -643,16 +675,179 @@ fn expected_parameter_drift() -> BTreeMap<String, ParamDrift> {
     [
         drift("fleet.events.read", &[], &["after", "epoch"]),
         drift("fleet.events.wait", &[], &["after", "epoch", "kind"]),
-        drift("fleet.tabs.set_note", &["tab_id"], &["tab"]),
         drift("fleet.terminal.paste", &["text"], &[]),
         drift("fleet.ui.composer.send", &["text"], &[]),
         drift("fleet.ui.deltas", &[], &["after", "epoch"]),
         drift("fleet.ui.hello", &[], &["maximum", "minimum"]),
         drift("fleet.ui.input.wheel", &["delta"], &["delta_y", "x", "y"]),
-        drift("fleet.ui.tab.select", &["id"], &[]),
     ]
     .into_iter()
     .collect()
+}
+
+/// The two surfaces whose binding was a **pure bug**: the published
+/// signature was right, only the JSON key it put on the wire was wrong, so
+/// repairing them cost no caller anything.
+///
+/// | surface | was | is | observed before the fix |
+/// |---|---|---|---|
+/// | `fleet.tabs.set_note(tab_id, note)` | `{tab_id, note}` | `{tab, note}` | `broker_invalid_arguments: tabs.set-note does not accept parameter tab_id` |
+/// | `fleet.ui.tab.select(id)` | `{id}` | `{tab}` | `broker_invalid_arguments: ui.tab.select does not accept parameter id` |
+///
+/// After the fix, `tabs.set-note` clears validation and reaches its adapter
+/// (`broker_transport`, i.e. "no server", which is as far as an offline probe
+/// can get). `ui.tab.select` clears validation and then hits
+/// `broker_operation_unknown: no Fleet adapter exists for ui.tab.select` — a
+/// second, host-side defect that this binding cannot fix and that
+/// plan/design-fleet-binding-gaps.md §5 records.
+///
+/// This is asserted as an exact set, not merely as an absence from
+/// `expected_parameter_drift`: that map ignores omitted *optional*
+/// parameters, so it would stay silent if someone re-broke `set_note` by
+/// dropping `note`, or "helpfully" widened `select` to send `tab` plus
+/// something else the spec happens to list.
+fn conformant_binding_parameters() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
+    [
+        ("fleet.tabs.set_note", ["note", "tab"].as_slice()),
+        ("fleet.ui.tab.select", ["tab"].as_slice()),
+    ]
+    .into_iter()
+    .map(|(surface, names)| (surface, names.iter().copied().collect()))
+    .collect()
+}
+
+#[test]
+fn fixed_bindings_send_exactly_the_declared_parameter_names() {
+    let catalog = catalog_fleet_surfaces();
+
+    for (surface, expected) in conformant_binding_parameters() {
+        let (_, declared) = catalog
+            .get(surface)
+            .unwrap_or_else(|| panic!("{surface} is no longer a declared script_surface"));
+        assert!(
+            expected.is_subset(declared),
+            "{surface}: the conformance expectation {expected:?} is not a subset of              the catalog's declared parameters {declared:?} — the catalog moved and              this expectation was not revisited"
+        );
+
+        for binding in BINDINGS {
+            let functions = parse_binding(binding).functions;
+            let exposed = functions.get(surface).unwrap_or_else(|| {
+                panic!(
+                    "{}: {surface} is gone from {} — it is a fixed, conformant                      surface and must stay bound",
+                    binding.name, binding.path
+                )
+            });
+            let sent: BTreeSet<&str> = exposed.param_names.iter().map(String::as_str).collect();
+            assert_eq!(
+                sent, expected,
+                "{}: {surface} puts {sent:?} on the wire but must put exactly                  {expected:?}. These keys are the host contract, not a naming                  preference: `validate_fleet_parameters` (src/client/mod.rs)                  answers any other set with broker_invalid_arguments, which is                  what this surface used to do on every single call.",
+                binding.name
+            );
+        }
+    }
+}
+
+#[test]
+fn remaining_parameter_drift_is_documented_as_product_decisions() {
+    let design = read("plan/design-fleet-binding-gaps.md");
+    for surface in expected_parameter_drift().keys() {
+        assert!(
+            design.contains(surface.as_str()),
+            "plan/design-fleet-binding-gaps.md does not mention {surface}, but              expected_parameter_drift() still pins it. Every remaining entry is              a product decision — a binding whose published signature would have              to change — and the decision has to be written down somewhere a              reader can find it, or the pin degrades into an unexplained              allowlist."
+        );
+    }
+    for surface in conformant_binding_parameters().keys() {
+        assert!(
+            design.contains(surface),
+            "plan/design-fleet-binding-gaps.md no longer records the fix to              {surface}"
+        );
+    }
+}
+
+// ── 3b. a parameter spec the validator cannot satisfy at all ────────────
+
+/// `validate_fleet_parameters` decides `valid_type` with a `match` over
+/// `spec.value_type` whose fallback arm is `_ => false`. Any `value_type` the
+/// catalog declares but that match does not name is therefore **impossible to
+/// satisfy**: every value of every shape is rejected, and the operation is
+/// unreachable no matter what a binding sends.
+///
+/// This is not hypothetical, and it is the reason `fleet.ui.input.wheel`
+/// appears in `expected_parameter_drift` as a product decision rather than as
+/// a second pure bug: changing its signature to `(x, y, delta_y)` would still
+/// not make it work. Observed against the real broker:
+///
+/// ```text
+/// ui.input.pointer {"x":1,"y":2}          -> parameter x must be number
+/// ui.input.pointer {"x":1.5,"y":2.5}      -> parameter x must be number
+/// ui.input.pointer {"x":"1","y":"2"}      -> parameter x must be number
+/// ui.input.wheel   {"x":1,"y":2,"delta_y":3} -> parameter x must be number
+/// ```
+///
+/// `fleet.ui.input.pointer` is the sharp edge here: it sends `{x, y, action}`,
+/// all three declared, so it has **zero** parameter drift and this file's
+/// drift test calls it conformant — while the host refuses every call it
+/// makes. "Conforms to the declared parameter names" and "works" are
+/// different properties, and only the first one is cheap to check.
+#[test]
+fn every_catalog_value_type_is_one_the_broker_validator_can_accept() {
+    let source = read("src/client/mod.rs");
+    let opener = "let valid_type = match spec.value_type {";
+    let start = source
+        .find(opener)
+        .expect("validate_fleet_parameters' value_type match was not found in src/client/mod.rs");
+    let body = &source[start + opener.len()..];
+    let close = body
+        .find("
+        };")
+        .expect("value_type match closer not found");
+    let block = &body[..close];
+
+    let mut accepted: BTreeSet<&str> = BTreeSet::new();
+    let mut arms = 0usize;
+    for line in block.lines() {
+        let line = line.trim();
+        if !line.starts_with('"') {
+            continue;
+        }
+        let Some(head) = line.split("=>").next() else {
+            continue;
+        };
+        arms += 1;
+        for literal in head.split('"').skip(1).step_by(2) {
+            accepted.insert(literal);
+        }
+    }
+    assert!(
+        arms >= 3 && accepted.len() >= 5,
+        "the value_type match parse degenerated ({arms} arms, {accepted:?}) —          it did not find a permissive validator, it failed to read the match"
+    );
+
+    let mut unsatisfiable: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for spec in OPERATION_CATALOG {
+        for parameter in spec.parameters {
+            if !accepted.contains(parameter.value_type) {
+                unsatisfiable
+                    .entry(parameter.value_type)
+                    .or_default()
+                    .insert(spec.script_surface);
+            }
+        }
+    }
+
+    let expected: BTreeMap<&str, BTreeSet<&str>> = [(
+        "number",
+        ["fleet.ui.input.pointer", "fleet.ui.input.wheel"]
+            .into_iter()
+            .collect(),
+    )]
+    .into_iter()
+    .collect();
+
+    assert_eq!(
+        unsatisfiable, expected,
+        "the set of catalog `value_type`s that `validate_fleet_parameters`          cannot accept changed. Grown: a new OperationSpec declares a type the          validator's match does not name, so that operation is dead on arrival          for every binding. Shrunk: someone taught the validator a type —          delete the entry here, and check whether a surface it was blocking          (`fleet.ui.input.wheel`) has now become fixable rather than a product          decision. Validator accepts: {accepted:?}."
+    );
 }
 
 // ── 4. bindings must agree with each other ──────────────────────────────

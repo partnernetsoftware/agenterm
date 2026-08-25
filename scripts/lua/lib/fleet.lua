@@ -34,10 +34,20 @@ function fleet.tabs.active()
 end
 
 --- Set a note on a tab.
+---
+--- The params key is `tab`, not `tab_id`: `tabs.set-note`'s OperationSpec
+--- (`src/operations.rs`, `TAB_NOTE_PARAMETERS`) declares `tab` + `note`, and
+--- `validate_fleet_parameters` (`src/client/mod.rs`) refuses any key the spec
+--- does not list. Sending `tab_id` answered every invocation with
+--- `broker_invalid_arguments: tabs.set-note does not accept parameter tab_id`,
+--- so this function had never once worked. The Lua argument name stays
+--- `tab_id` — only the wire key changed, so no caller has to be touched.
+--- Matches the rh binding, which has always sent `"tab"`
+--- (`src/script_fleet.rs`).
 --- @param tab_id string
 --- @param note string
 function fleet.tabs.set_note(tab_id, note)
-    return call("tabs.set-note", std.json.stringify({ tab_id = tab_id, note = note }))
+    return call("tabs.set-note", std.json.stringify({ tab = tab_id, note = note }))
 end
 
 -- ── fleet.terminal ─────────────────────────────────────────────────────
@@ -109,9 +119,18 @@ function fleet.ui.tab.new_child()
 end
 
 --- Select a tab by id.
+---
+--- The params key is `tab`, not `id`: `ui.tab.select` declares the shared
+--- `TAB_TARGET_PARAMETERS` (`src/operations.rs`), whose single optional
+--- parameter is `tab`. Sending `id` was answered with
+--- `broker_invalid_arguments: ui.tab.select does not accept parameter id`.
+--- Signature unchanged. Note the host still has no Fleet mutation adapter for
+--- `ui.tab.select` (`fleet_mutation_command`, `src/client/mod.rs`), so a
+--- conformant call now gets as far as `broker_operation_unknown` instead —
+--- see plan/design-fleet-binding-gaps.md §5.
 --- @param id string
 function fleet.ui.tab.select(id)
-    return call("ui.tab.select", std.json.stringify({ id = id }))
+    return call("ui.tab.select", std.json.stringify({ tab = id }))
 end
 
 fleet.ui.tabs = {}
