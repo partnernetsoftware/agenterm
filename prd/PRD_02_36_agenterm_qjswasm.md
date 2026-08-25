@@ -1,16 +1,17 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（M0 + 上游 M1/M2 语言子集，`cargo test -p
-agenterm-qjswasm` 86 passed / 1 ignored，2026-08-25）；两条归档门**均未全绿**，
-两个被取代的 crate 原样保留。「authorized, not implemented」是 2026-08-24 下单时的
-状态，已过期。本文件是产品真理；执行投影在
+agenterm-qjswasm` **133 passed / 0 ignored**，2026-08-25，上游 rev `f8adef8`）；
+**`.qjs` 已经够得着 `agenterm.*` 门**——带参宿主调用是本仓这一半的写刀，已交付；
+两条归档门**仍均未全绿**，两个被取代的 crate 原样保留。「authorized, not
+implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
 
 门的当前判定，一句话各一条（详见下文各节）：
 
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
-| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | 远未绿 | 堆对象 + 函数值 + `try/catch` + JSON + 一条 `.qjs` 到门的路 |
+| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | 未绿，但**本仓欠的那一件已还清** | 剩下的全在上游语言层：堆对象 + 属性 + 函数值 + `try/catch` + JSON + `?:` + Number→String |
 | 门 2（两处生产调用点迁移） | 未动 | 依赖门 1 |
 | 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
@@ -265,9 +266,78 @@ tinyvm 解释执行（无 JIT）
 **归档门（可证伪，三条全绿才动手）：**
 
 1. `agenterm-qjswasm` 能编译并跑通 `fleet.js` 的等价物——即支持对象字面量、函数表达
-   式、字符串、`JSON.parse` / `JSON.stringify`、`try/catch`、带参宿主调用。
+   式、字符串、`JSON.parse` / `JSON.stringify`、`try/catch`、带参宿主调用；
+   **并且它发出的 params 过得了 `validate_fleet_parameters`**（这一句是
+   2026-08-25 加的，理由见「门 1 锚定的那个文件本身是破的」）。
 2. 上面两处生产调用点已迁到 qjswasm，且行为等价有测试锁住。
 3. `qjs` CLI 子命令在新引擎上有对应面，或明确声明哪些不再提供、为什么。
+
+### 门 1 逐条判定（2026-08-25 实测，上游 rev `f8adef8`）
+
+门 1 点名六件事（属性访问是「对象 + JSON」隐含的前置，单列一行），外加 2026-08-25 加的
+那句限定。每一格都是把那段 `.qjs` 真编真跑出来的，不是读源码估的：
+
+| 门 1 要的 | 今天 | 证据 |
+|-----------|------|------|
+| 字符串（字面量、拼接、相等） | **有** | `crates/agenterm-qjswasm/tests/qjs_guest.rs`；100 KB 串过门字节不变（`door_attack.rs`） |
+| **带参宿主调用** | **有，本轮交付** | `print(s)` / `fleet_call(op, params)` / `fleet_result()`，13 条 `tests/qjs_door.rs` + 31 条 `tests/door_attack.rs` |
+| 对象字面量 | 无 | `const fleet = {};` → `this engine does not support object literals yet` |
+| 属性访问 / 属性赋值 | 无 | `a.length` → `this engine does not support property access yet` |
+| 函数表达式当值用 | 无 | `let g = function (a) {...}` → `does not support calling a value that is not a known function yet` |
+| `JSON.parse` / `JSON.stringify` | 无 | 先撞属性访问（`JSON` 本身也不是名字，撞门的能力诊断） |
+| `try` / `catch` | 无 | ``this engine does not support the `try` keyword yet`` |
+| 限定句：params 过校验 | **部分成立，且边界可量化** | 见下 |
+
+**「本仓欠的那一件」是哪一件，为什么算还清。** 上一版这张表的第七行写的是
+「`.qjs` 今天根本够不着 `agenterm.*` 门……需要决定 `.qjs` 侧怎么落到这四个 import
+上——那是本仓的写刀，不是上游的」。那个决定已经做了并且落地了：上游给的是通用机制
+（`Names::Declared`，不含任何 agenterm 词汇），本仓给的是三条声明
+（`crates/agenterm-qjswasm/src/host.rs::declarations()`），编译器把 JS 字符串拆成门要的
+`(ptr, len)`，把两趟字节结果包回 JS 字符串——**门自己一个字节没改**，九条手写 `.wasm`
+客人的测试原样全绿。门 1 剩下的六件全部是上游语言层的事，本仓这一半没有欠账。
+
+**限定句今天到哪：一个 `.qjs` 写的 wrapper 真的能发出目录接受的 params——只要参数都是
+字符串。** 实测（`OPERATION_CATALOG` link 进来比对，不是正则）：
+
+```text
+function call(op, params) {
+    let status = fleet_call(op, params);
+    if (status === 0) { return fleet_result(); }
+    if (status === 2) { return "no bridge"; }
+    return "error: " + fleet_result();
+}
+function set_note(tab, note) {
+    return call("tabs.set-note", "{\"tab\":\"" + tab + "\",\"note\":\"" + note + "\"}");
+}
+print(call("tabs.list", "{}"));
+return set_note("@1", "from .qjs");
+
+门收到 op="tabs.list"     params="{}"
+门收到 op="tabs.set-note" params="{\"tab\":\"@1\",\"note\":\"from .qjs\"}"
+        对 fleet.tabs.set_note 的声明逐格判：tab:stable_tab_id ok, note:string ok
+返回 Str("{\"ok\":true}")，steps=2350
+```
+
+注意这段用的是 `fleet.js` **没有**的写法：没有对象、没有 `JSON.stringify`，params 是
+拼出来的字符串。所以「跑通 `fleet.js` 的等价物」和「能通过门做 fleet 调用」是两件事，
+后者今天成立，前者不成立。
+
+**数字上的边界（77 条目录逐条统计）：**
+
+| 目录形态 | 条数 | `.qjs` 今天能不能发 |
+|----------|------|--------------------|
+| 完全无参数 | 50 | 能（`"{}"`） |
+| 参数全是字符串类 | 16 | 能（拼接） |
+| 至少一个数值参数 | 11 | 只有当那些数值参数**都不是必需**时才能 |
+| 其中**必需**数值参数 | 10 | **不能** |
+
+`fleet.ui.hello` / `fleet.ui.deltas` / `FleetTerminal.capture` / `fleet.events.read` /
+`fleet.events.wait` / `fleet.ui.tabs.set_width` / `fleet.ui.input.pointer` /
+`fleet.ui.input.wheel` / `fleet.terminal.mouse` / `fleet.ui.window.resize` 是那十条。
+挡住它们的不是门，是**语言**：`"{\"x\":" + x + "}"` 在 `x` 是数字时
+`guest trapped: unreachable executed`——ECMA-262 的 Number→String 转换尚未实现，
+`.qjs` 因此拼不出一个带数字的 JSON。这一条同时也是「状态码不能拼进字符串」的原因
+（`"status:" + s` 同样 trap），是今天 `.qjs` 写 fleet 调用最先撞上的墙。
 
 **门 3 的措辞已改（2026-08-25）。** 原文点名 `check` / `pack` / `qualify` /
 `check-many` 四个动词。实测 CLI 有**十三个**（`crates/agenterm-qjs/src/cli.rs`），
@@ -315,7 +385,7 @@ tinyvm 解释执行（无 JIT）
 移一份已经坏掉的契约。对照：`agenterm-lua` 的 `compile_lua(source)` 没有 label 参数，
 干净。
 
-### 第一条门的实测缺口清单（2026-08-24，rev `df8decd`）
+### 第一条门的实测缺口清单（2026-08-24，rev `df8decd`；2026-08-25 在 rev `f8adef8` 上复测）
 
 把 `scripts/qjs/lib/fleet.js` 的每一种构造拿去**真编一次**，得到下表。这不是读源码估的，
 是 209 行里逐条构造喂给编译器的结果。**没有归档任何东西**——这张表是路线图的下一份输入。
@@ -341,18 +411,37 @@ tinyvm 解释执行（无 JIT）
 | **条件表达式 `?:`** | `params === undefined ? "{}" : params` | "does not support conditional expressions yet" | 排期，纯前端 + 已有控制流，成本最低的一条 |
 | **`try` / `catch`** | `call()` 里包住 `JSON.parse` | "does not support the `try` keyword yet" | M5 |
 | **`JSON.parse` / `JSON.stringify`** | 每个带参 wrapper | 先撞属性访问 | M5（也可用 `.qjs` 自举） |
-| **带参宿主调用** | `__host.fleet_call(opId, params)` | 自由名字先被拒 | 见下 |
+| ~~**带参宿主调用**~~ | `__host.fleet_call(opId, params)` | ~~自由名字先被拒~~ | **已交付 2026-08-25** |
 
-**第七条要单独说，因为它不是「语法还没长到」：** `.qjs` 今天**根本够不着
-`agenterm.*` 门**。编译器默认下自由名字一律拒（"this engine has no global bindings
-yet"）；上游有一个 `Names::HostImport` 模式，但它发射的是模块名 `"js"`、按 JS 值传参的
-导入，与本仓门的 `"agenterm"` + i32 两趟拷贝 ABI 不是同一扇门。所以第一条归档门里的
-「带参宿主调用」需要的不只是编译器长一层语法，还需要**决定 `.qjs` 侧怎么落到这四个
-import 上**——那是本仓的写刀，不是上游的。
+**2026-08-25 复测的三处变化**（上游 rev 抬到 `f8adef8`，逐条编译验证）：
 
-**一句话结论**：`fleet.js` 等价物的距离 = 堆对象（对象字面量 + 属性）+ 函数值 +
-`try/catch` + JSON + 一条 `.qjs` 到 `agenterm.*` 门的路。`?:` 是这堆里唯一可以立刻摘的
-低垂果实。第一条门离绿还远，另两条门未动。
+| 缺口 | 2026-08-24 | 2026-08-25 |
+|------|-----------|-----------|
+| 带参宿主调用 | 够不着门 | **能**：`fleet_call("tabs.list", "{}")` 真的到达 bridge，`fleet_result()` 真的取回答案 |
+| `%` / `typeof` | 「解析后明确拒绝」 | **能**：`7 % 3` → `1`，`typeof "x"` → `"string"`（上游 `dd35c44` / `c707558`） |
+| `-0` 字面量丢符号 | 上游缺陷，`1 / -0` 给 `Infinity` | **已修**（上游 `1cba206`）：`let z = -0; 1 / z` → `-Infinity` |
+
+其余各行原样成立：对象字面量、属性访问、函数当值、`?:`、`try/catch`、JSON 逐条复测仍被拒，
+诊断文案与上表一致。
+
+**第七条当时要单独说，因为它不是「语法还没长到」。** 原文：`.qjs` 根本够不着
+`agenterm.*` 门——编译器默认下自由名字一律拒；上游的 `Names::HostImport` 发射的是模块名
+`"js"`、按 JS 值传参的导入，与本仓门的 `"agenterm"` + i32 两趟拷贝 ABI 不是同一扇门；
+所以它需要的不只是编译器长一层语法，还需要**决定 `.qjs` 侧怎么落到这四个 import 上**
+——那是本仓的写刀。
+
+**那把刀已经落下（2026-08-25）。** 上游改出 `Names::Declared(Vec<HostFn>)`：embedder
+交一张「脚本能写的名字 → 模块/字段/每个 JS 参数怎么拆成 raw i32 / 结果怎么包回来」的
+声明表，机制里没有一个 agenterm 词。本仓交三条声明（`src/host.rs::declarations()`），
+`fleet_result` 是 `HostResult::Bytes` 双趟，所以三条声明发四个 import。方向是整个设计：
+**门不学 JavaScript 的值表示，编译器往下拆**——否则每个手写 `.wasm` 客人都得跟着改，
+而那扇门是给任何客人用的，不是给一种语言用的。脚本只有真写了那个名字，import 才会出现；
+`return 1 + 1;` 编出来的模块 import 表是空的。
+
+**一句话结论（2026-08-25 版）**：`fleet.js` 等价物的距离 = 堆对象（对象字面量 + 属性）+
+函数值 + `try/catch` + JSON + `?:` + **Number→String**。这些**全在上游语言层**；
+「一条 `.qjs` 到 `agenterm.*` 门的路」已经不在这张单子上了。第一条门仍未绿，
+另两条门未动。
 
 ### 门 1 锚定的那个文件本身是破的（2026-08-25 实测）
 
@@ -527,7 +616,7 @@ wasm，缺的是**门**。锁在
 | 预算 | 归属 | 触发后 |
 |------|------|--------|
 | `max_steps`（每次顶层调用） | tinyvm `Limits` | 该次调用 trap；槽仍可回收；宿主活着 |
-| `max_memory_pages` | tinyvm `Limits` | 装载期拒绝或 `memory.grow` 失败 |
+| `max_memory_pages` | tinyvm `Limits` | 装载期拒绝；运行期 `memory.grow` 失败 → `Budget("max_memory_pages")`（2026-08-25 起，`.qjs` 槽自报） |
 | `max_table_elems` | tinyvm `Limits` | 装载期拒绝 |
 | `max_call_depth` | tinyvm `Limits` | trap，不吃原生栈 |
 | `max_activation_slots` | tinyvm `Limits` | trap |
@@ -542,27 +631,50 @@ wasm，缺的是**门**。锁在
 每次调用一份，持久槽上反复。检查顺序也是分类：**先越界、后盖子**——声明长度装不进客人
 自己的内存是坏客人（`Door`），说成预算等于让人去调一个调了也没用的数。
 
-**`max_memory_pages` 有一条运行期缺口，是已知的、上游的、今天补不了的。** 装载期超页是
-`Load("memory page limit")`（有测试）；但运行期 `memory.grow` 被拒之后，上游
-`tinyvm-qjs` 的 `__alloc` 把它降成一条裸 `unreachable`，到宿主这里与任何别的
-`unreachable` 无法区分，所以报的是 `Trap` 而不是 `Budget("max_memory_pages")`
-——调用者分不清「该调高预算」和「这脚本坏了」。
-`src/slot.rs::ceiling_name` 的 `MemoryPages` 分支因此在运行期是死的。
-**不在本仓补，也不用启发式猜**（靠「内存正好顶到上限」去猜会把真坏的脚本误判成预算
-问题，正是 `classify` 的存取器写法要防的那种静默错分类）。按本 PRD「改造 tinyvm：已授权」
-去上游补：分配失败必须可分辨——带 `WasmCeiling::MemoryPages` 的独立 fault，或走一扇门
-报告。复现留在
-`crates/agenterm-qjswasm/tests/seam_attack.rs::finding_4_running_out_of_pages_is_not_reported_as_a_budget`
-（`#[ignore]`，`cargo test -p agenterm-qjswasm --test seam_attack -- --ignored` 可跑）。
+**`max_memory_pages` 那条运行期缺口已经补上（2026-08-25），走的正是本 PRD 写的那条路。**
+装载期超页一直是 `Load("memory page limit")`；运行期 `memory.grow` 被拒之后，上游
+`tinyvm-qjs` 的 `__alloc` 曾把它降成一条裸 `unreachable`，到宿主这里与任何别的
+`unreachable` 无法区分，报 `Trap` 而不是 `Budget("max_memory_pages")`——调用者分不清
+「该调高预算」和「这脚本坏了」。当时的判决是**不在本仓补，也不用启发式猜**（靠「内存
+正好顶到上限」去猜会把真坏的脚本误判成预算问题），去上游补。上游补了：`f8adef8` 让
+分配器在放弃之前把 `FAULT_HEAP_EXHAUSTED` 写进客人自己线性内存的第一个字
+（`DATA_ORIGIN` 本就保留、bump 指针永远不会发出去的地址），`tinyvm_qjs::guest_fault`
+读回来。本仓 `src/slot.rs::Slot::explain` 在失败路径上先问客人再问核，
+`MemoryPages` 分支在运行期不再是死的。**只问 `JsV1` 槽**——那个字是编译器运行时的约定，
+拿手写客人的第 0 字节去读预算就正是当初拒绝的那种猜。回归锁：
+`tests/seam_attack.rs::finding_4_running_out_of_pages_is_now_reported_as_a_budget`
+（不再 `#[ignore]`）、`tests/door_attack.rs` 三条（桥的答案撑爆堆、脚本自己撑爆堆、
+真坏的脚本不被改判成预算）。
+
+**一条随之写明的产品事实：`.qjs` 槽的堆一旦撑爆就是废的，不会自愈。** bump 指针在尝试
+`memory.grow` **之前**就已前移，所以一旦越过内存尽头，之后**任何**分配都失败，哪怕只要
+四个字节；宿主无法把客人的 global 拨回去。工程上的保证只有一条：**每一次都诚实地说同一句
+话**——那次调用与其后每一次调用都报 `Budget("max_memory_pages")`，而不是含糊的 trap。
+槽不自动回收（不分配的活儿在同一个槽里照跑，回收是调用者的决定，与 trap 同规矩）。
+还有一条没有盖子的量：门往客人堆里写的**累计**字节数不受任何预算约束——每个答案都在
+`max_bridge_result_bytes` 之内、每次调用都在 `max_steps` 之内，十六个规规矩矩的 1 MiB
+答案就能把 16 MiB 的默认槽用光（`tests/door_attack.rs` 实测第 16 次调用）。
+调用它的是**桥**不是脚本，所以这必须是一句调用者能照着抬预算的话。
 
 失败必须**类型化**：编译期拒绝（不在子集内）、装载期拒绝、执行期 trap、预算耗尽、
 门参数越界——五类要能分辨。**2026-08-25 增两类**，因为原来的五类把「调用者说错话」
 算在了客人头上：`NoSuchExport`（这个槽没有那个导出，带名字）与 `Signature`
-（参数个数或类型不合导出的声明，进客人之前就拒）。编译期拒绝的文案必须说清「这个语法本引擎还不支持」，
+（参数个数或类型不合导出的声明，进客人之前就拒）。**同日再明确一条方向**：`Door` 这一类
+原本写的是「客人违反了边界契约」，现在也包括**宿主自己违反**——embedder 的 fleet bridge
+panic 是宿主那半边坏了，报 `Door` 而不是 trap（客人没做错任何事），也不报 status 1
+（「能力坏了」与「能力说不」不是同一个答案，分不清的脚本会把诊断当数据解析）。编译期拒绝的文案必须说清「这个语法本引擎还不支持」，
 而不是含糊的"语法错误"，也不得暗示脚本本身写错了。
 
 每次调用回报确定性执行统计（`steps` / `peak_call_depth` / `peak_activation_slots`），
 使「这个脚本贵不贵」可度量。
+
+**`check` 必须拒掉 `execute` 装不进去的东西（2026-08-25 补）。** `.qjs` 的 `check` 原本
+只编译就收工，于是**编译器自己的产物是整条流水线上唯一没过装载闸门的东西**：字面量池
+超过 `max_memory_pages` 的脚本编得干干净净，跑起来才 `Load("memory page limit")`，
+默认预算下 17 MiB 字面量（273 页 vs 256 页）就够。`.wasm` 那半边一直是过闸门的
+（`validate_wasm` = decode + 闸门）。现在 `check_qjs` / `check_qjs_with` 是「编译 + 用
+那次运行要花的预算过闸门」，`compile_qjs` 保持只编译不判预算——它是编译器的脸。
+两边都不执行：闸门停在实例化之前，那才是会跑 start 函数的一步。
 
 ## 宿主门 ABI（版本化产品契约）
 
@@ -577,10 +689,19 @@ fleet_result(dst_ptr: i32, dst_len: i32)                               -> i32   
 
 `status`：`0` = Ok · `1` = Err（应用级错误，正常结果，不是崩溃）· `2` = NoBridge。
 
+**桥 panic 不是这三个之一，也不许被打扮成其中之一。** embedder 的 bridge 闭包是宿主代码，
+而 `op` 字符串由客人挑——脚本因此能把桥导向它会 panic 的那条路，`panic = "abort"` 下
+就是「客人拉着进程一起死」。门把它接住：调用失败，报 `QjswasmError::Door`，带上 panic
+自己的话和当时在服务哪个 op。槽本身不受影响、下一次调用照常应答，`run_once` 照常回收
+（它另加了一层「先回收再把 panic 原样抛回去」的 finally，给谁也没想到的那种 panic）。
+
 背后是全仓共用的
 `ScriptFleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>`。
-本 crate 把**这一条既有能力**暴露给 wasm 客人，不发明第二条。`.qjs` 侧的
-`fleet.call(op, params)` 最终降到这四个 import 上。
+本 crate 把**这一条既有能力**暴露给 wasm 客人，不发明第二条。`.qjs` 侧写的
+`fleet_call(op, params)` / `fleet_result()` 就落在这四个 import 上——脚本看见的名字与
+门的字段名逐字相同，不做改名（2026-08-25）；`fleet_result_len` 是第二趟，属编译器的事，
+脚本写它会拿到与任何未声明名字一样的能力诊断。将来有对象了，`fleet.call(...)` 那层
+wrapper 长在这几个原始名字**之上**，底下的名字不变。
 
 ### 为什么是两趟拷贝
 
@@ -603,8 +724,9 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` 有意排除
 
 **M0（脊柱）+ 上游 M1/M2（语言）已落地并有实测证据，见下节。** 下表每个 `[x]` 都由
-本仓 `tests/qjs_guest.rs` 或上游套件**编译并跑过**——不是读源码得出的。上游 rev 从
-`f694733` 抬到 `df8decd`（2026-08-24）。
+本仓 `tests/qjs_guest.rs` / `tests/qjs_door.rs` 或上游套件**编译并跑过**——不是读源码
+得出的。上游 rev：`f694733` → `df8decd`（2026-08-24）→ `6920c60`（门的机制）→
+`f8adef8`（客人自报堆耗尽，2026-08-25）。
 
 ```text
 agenterm-qjswasm                                        [~]
@@ -630,21 +752,26 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 数字 = ECMA-262 binary64（非 i32）              [x] 1/0=Infinity，无回绕
 │   │   ├── 字符串 / 布尔 / null / undefined                [x]
 │   │   └── 三个 ECMA-262 转换                              [ ] 未实现即 trap，不编造值
+│   │       └── Number→String（`"x:" + n`）                 [ ] 挡住十条带必需数值参数的 fleet 面
 │   ├── 降级到 wasm                                        [~]
 │   │   ├── 算术（binary64）                                [x]
 │   │   ├── 局部变量 / 赋值（let/const/var + TDZ）           [x]
 │   │   ├── 控制流（if / while / 三段式 for）                [x]
 │   │   ├── 函数调用与返回（含递归、互递归）                  [x] 只有直接调用
 │   │   ├── 字符串（字面量池 + 拼接 + 相等 + bump 分配器）     [x]
-│   │   ├── 取余 `%` / `typeof`                              [ ] 解析后明确拒绝
+│   │   ├── 取余 `%` / `typeof`                              [x] 2026-08-25 复测：7%3=1，typeof "x"="string"
 │   │   ├── 数组 / 对象（堆布局 + 属性查找）                  [ ]
 │   │   ├── 闭包（环境捕获 + 间接调用表）                     [ ] 捕获外层局部 = 拒绝；
 │   │   │                                                      读脚本级绑定 = 可以
 │   │   ├── try/catch（自编码展开）                          [ ]
 │   │   ├── JSON                                           [ ]
 │   │   └── GC                                             [ ] 现为 bump + 整体丢弃
-│   ├── `.qjs` 调 agenterm.* 门                              [ ] 自由名字编译期即拒；
-│   │                                                          门只有手写 .wasm 够得着
+│   ├── `.qjs` 调 agenterm.* 门                              [x] 2026-08-25
+│   │   ├── print / fleet_call / fleet_result 按名字可调      [x] 三条声明发四个 import
+│   │   ├── 只有真被写到的名字才成为 import                    [x] `return 1+1;` import 表为空
+│   │   ├── JS 字符串↔(ptr,len) 由编译器拆包，门不学 JS 值     [x] 手写 .wasm 九条测原样绿
+│   │   ├── 两趟字节结果包回 JS 字符串（长度不符即 trap）       [x]
+│   │   └── 未声明的名字 = 能力诊断（含 fleet_result_len）      [x]
 │   ├── 原型链 / getter / Proxy / 正则 / 标准库               [ ] 排期，非天花板
 │   ├── eval / new Function（宿主重编 + 跨实例链接）           [ ] 排期，核已支持
 │   └── 引擎插件逃生口（qjs.wasm）                           [–] 纪律排除 C 库
@@ -659,6 +786,9 @@ agenterm-qjswasm                                        [~]
 │   ├── 持久 Instance，逐调用新鲜 fuel                       [x]
 │   ├── trap 不回收槽（明确承诺，非意外）                     [x]
 │   ├── 预算耗尽自成一类（非 Trap）                           [x]
+│   ├── 运行期堆耗尽 = Budget("max_memory_pages")            [x] 2026-08-25（问客人，不猜）
+│   │   └── 撑爆后的槽不自愈，但每次都报同一句话                [x] 已写进 Engine::call 文档
+│   ├── 桥 panic 被门接住 → Door，不外泄、不伪装成 status      [x] 2026-08-25
 │   ├── 槽间隔离（内存、trap、预算、bridge）                 [x]
 │   ├── agenterm.print（有界捕获 + 截断可见）                 [x]
 │   ├── agenterm.fleet_call（status 0/1/2）                 [x]
@@ -674,12 +804,18 @@ agenterm-qjswasm                                        [~]
 │   ├── ScriptBackend::Qjswasm + from_entry_path(.qjs)      [x]
 │   ├── QjswasmEngineBackend : ScriptEngineBackend          [x]
 │   ├── check 与 execute 走同一个编译入口                     [x]
+│   ├── check 也过 execute 的装载闸门（check_qjs）             [x] 2026-08-25
 │   ├── `.qjs` completion value → ScriptInvocationResult     [x]
 │   ├── feature script-qjswasm，default 关                   [x]
 │   └── 接管 .wasm 默认路由                                  [–]
 │
 ├── 归档 agenterm-qjs                                     [~]
-│   ├── fleet.js 等价物跑通                                 [ ] 缺口清单见上
+│   ├── fleet.js 等价物跑通                                 [~] 六件里两件有（字符串、
+│   │   │                                                       带参宿主调用），四件缺
+│   │   ├── 带参宿主调用（本仓这一半）                          [x] 2026-08-25
+│   │   ├── 对象 / 属性 / 函数值 / try / JSON / `?:`           [ ] 全在上游语言层
+│   │   └── 发出的 params 过 validate_fleet_parameters        [~] 字符串参数可以；
+│   │                                                           十条必需数值参数不行
 │   ├── 两处生产调用点迁移 + 行为等价测试                     [ ]
 │   └── CLI 面对应或明确声明缺口                              [~] 十三动词判决已交付；
 │       └── Guest::CompiledQjs（pack 类动词的前置）           [x] 2026-08-25
@@ -787,10 +923,11 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 | 上游 README「函数：声明与表达式，具名或匿名」 | `let g = function (a) {...}; return g(21);` 被拒——"does not support using a function as a value"。`return f;`（f 是函数声明）同样被拒 | 函数表达式**只有立即调用**（IIFE）可用。文档口径已按此收窄 |
 | 上游 README「`-0` 与 `0` 不同」 | 整体成立（`-(1-1)`、`1 / -z` 都给 `-Infinity`），但**字面量写法 `-0` 给的是 `+0`**（`1 / -0` = `Infinity`）。一元负号作用在数字字面量上时丢了零的符号 | 上游缺陷，已记录；不在本仓文件域，未改。上游 conformance 套件测了 `-(1-1)` 与 `0 * -1`，没测 `-0` 本身 |
 
-**范围诚实声明**：`.qjs` 是一个真实但很小的子集，能力清单见
+**范围诚实声明（2026-08-24 当时）**：`.qjs` 是一个真实但很小的子集，能力清单见
 `crates/agenterm-qjswasm/README.md`（每条都有测试）；`.wasm` 侧是完整的。
 `.qjs` **还够不着 `agenterm.*` 门**——自由名字在编译期就被拒，门今天只有手写 `.wasm`
-客人能调。
+客人能调。**最后这句已于 2026-08-25 作废**，见下文「门落地 + 门被攻击后的重测」；
+同表的 `-0` 字面量缺陷也已由上游 `1cba206` 修好（`let z = -0; 1 / z` → `-Infinity`）。
 
 ### 接缝对抗审查后的重测（2026-08-25，同机同工具链）
 
@@ -841,7 +978,52 @@ cargo test -p agenterm-qjswasm    # 86 passed, 0 failed, 1 ignored
 | `tests/seam_attack.rs` | 26 + 1 ignored | 新文件：13 条「攻不破」的正面锁 + 7 条已修缺陷的回归锁 + 5 条恶意指针攻击 + 1 条上游缺陷的复现（`#[ignore]`） |
 
 `#[ignore]` 只用在第 4 条上，并且**没有被反转成断言错误行为**——那会把一份缺陷报告变成
-一把锁住缺陷的锁。
+一把锁住缺陷的锁。（那条 `#[ignore]` 已于 2026-08-25 撤销：上游把信息补出来了，测试
+现在断言 `Budget("max_memory_pages")`。全仓 `#[ignore]` 归零。）
+
+### 门落地 + 门被攻击后的重测（2026-08-25，同机同工具链，上游 rev `f8adef8`）
+
+三件事按顺序发生：`.qjs` 接上门（rev `6920c60` 的 `Names::Declared`）、门被专门攻了一轮
+（26 条攻击测，五条缺陷）、缺陷里能在本仓修的三条修掉（rev 抬到 `f8adef8`）。
+
+```sh
+cargo test -p agenterm-qjswasm            # 133 passed, 0 failed, 0 ignored
+cargo test --test fleet_catalog_conformance   # 12 passed, 0 failed
+cargo clippy -p agenterm-qjswasm --all-targets -- -D warnings   # clean
+cargo fmt -p agenterm-qjswasm --check                            # clean
+```
+
+| 目标 | 数 | 变化 |
+|------|----|------|
+| `src/lib.rs` 单元 | 25 | +2 |
+| `tests/qjs_door.rs` | 13 | 新文件：`.qjs` 真的到达 bridge、真的取回答案、import 表逐字节解码出来与门的 `SIGNATURES` 一致 |
+| `tests/door_attack.rs` | 31 | 新文件：对门的敌意脚本 / 敌意桥 / 预算边界；含五条缺陷的复现，其中三条现已是修复后的回归锁 |
+| `tests/seam_attack.rs` | 27 | +1 且 **`#[ignore]` 归零**：FINDING 4（运行期超页）从「上游挡着」变成断言 `Budget("max_memory_pages")` |
+| `tests/qjs_guest.rs` | 12 | — |
+| `tests/host_door.rs` | 10 | — |
+| `tests/budget.rs` | 6 | — |
+| `tests/wasm_slot.rs` | 5 | —（手写 `.wasm` 路径一行未改仍全绿：门加了声明层，ABI 一个字节没动） |
+| `tests/isolation.rs` | 4 | — |
+
+**攻击找到的五条，逐条处置：**
+
+| # | 缺陷 | 处置 |
+|---|------|------|
+| 1 | 桥的答案撑爆客人堆 → `Trap("unreachable executed")`，且槽从此报废 | **已修**：抬 rev 到 `f8adef8`，客人自报堆耗尽 → `Budget("max_memory_pages")`；不自愈这件事写进 `Engine::call` 文档并有测 |
+| 2 | 桥 panic 直接穿出 `Engine::call`，`run_once` 漏掉它承诺回收的槽 | **已修**：门接住 → `Door`（带 panic 原话与当时的 op）；`run_once` 另加回收-再抛的 finally |
+| 3 | 光提一个零参数门函数就等于调用它（`typeof fleet_result` 给 `"string"`） | **上游**：`tinyvm-qjs` `emit.rs` 的「裸宿主名 = 零参调用」规则，`Names::Declared` 之后不再无害；测试留着，头注说明修好后改成什么 |
+| 4 | `check` 收下 `execute` 装不进去的脚本 | **已修**：`check_qjs` = 编译 + 过装载闸门 |
+| 5 | 运行期类型不符在门上是一条裸 `unreachable`，说不清是哪个参数 | **上游**：`repr.rs` 的 `unbox_string` 需要一个核能携带的 trap 码 |
+
+**攻不破的部分同样记下来**（每条都是正面锁，不是没测）：空串 / 内嵌 NUL / 100 KB 参数
+字节不变；堆上拼出来的串与字面量池里的串在门上一模一样；参数从左到右求值恰好一次
+（`Bytes` 取回会把 raw 参数压两遍，「先求值后拆包」是唯一不重复副作用的顺序）；
+`max_steps` 卡在两趟取回的任意一刀上，要么给出完整答案要么报 `Budget("max_steps")`，
+从不给半截字符串；pending buffer 每槽一份；脚本自己定义的 `print` 遮住门而不是反过来。
+
+`.qjs` **能力口径本轮的变化**：够得着门了（见 §归档门），`%` / `typeof` 可用，
+`-0` 字面量符号已由上游修好。仍然撞墙的最显眼一条是 **Number→String**：
+`"status:" + s` 与 `"{\"x\":" + x + "}"` 都 trap，这是今天写 fleet 调用最先遇到的墙。
 
 ### M0 期间在 tinyvm 上的实测发现（写下来免得再踩）
 

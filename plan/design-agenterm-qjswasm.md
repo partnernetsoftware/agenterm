@@ -4,7 +4,7 @@
 |------|-----|
 | **文档** | 新 crate `crates/agenterm-qjswasm` 的实现级设计：分期、编译器结构、宿主门 ABI、机制取舍、验收树 |
 | 日期 | 2026-08-24 |
-| 状态 | 设计稿 rev5（M0 脊柱 + 上游 M1–M3 语言已落地；**`.qjs` 已够到 `agenterm.*` 门**，见 §6.5；上游 rev 抬到 `6920c60`；编译器写刀在 `tinyvm-qjs`） |
+| 状态 | 设计稿 rev6（M0 脊柱 + 上游 M1–M3 语言已落地；**`.qjs` 已够到 `agenterm.*` 门**，见 §6.5；上游 rev 抬到 `f8adef8`；编译器写刀在 `tinyvm-qjs`）。rev6 = 门被攻了一轮之后修掉的三条：运行期堆耗尽报 `Budget` 而不是裸 trap（上游 `f8adef8` 让客人自报）、桥 panic 被门接住报 `Door`、`check` 也过 `execute` 的装载闸门 |
 | **产品真理** | [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)（PRD 36）。产品句、纪律、clean-room、JS 覆盖面口径、归档门**以该文件为准**；本文件只是执行投影 |
 | 关联 | tinyvm 仓 `prd/PRD.md`、`crates/tinyvm/research-qjs-wasm.md`；本仓 `src/script_engine.rs`、`crates/agenterm-wasmcore/README.md`、[PRD 14 provenance](../prd/PRD_02_14_research_provenance.md) |
 | 派单 | 2026-08-24 政委：在 tinyvm 上自研脚本引擎，跑 `.wasm` 与 `.qjs`；`.qjs` 先编译到 wasm 码（不是机器码）；**不用 rquickjs、不用 QuickJS C 库**，纯 Rust 实现，可参考 QuickJS 源码的设计；编译器写刀原定在 agenterm 仓，2026-08-24 撤销，迁往上游 `tinyvm-qjs`（见 §2） |
@@ -315,6 +315,10 @@ M0–M3 之后有过一条硬缺口：**`.qjs` 完全够不到 `agenterm.*` 门*
 声明表（`src/host.rs::declarations()`），`compile_qjs` 走 `compile_qjs_m1_with`。下面每
 一条都是编出来跑过的，不是读源码写的。
 
+（rev 其后又抬到 `f8adef8`，那一步与本节的契约无关：它给的是「客人自报堆耗尽」，
+让 `Slot::explain` 能把运行期超页说成 `Budget`。契约本身——门不变、语言层拆包——一个字
+没改。）
+
 ### 契约：门不变，语言层拆包
 
 客人仍然调那四个**原始 i32 参数**的 import，签名一个字不改。编译器负责：
@@ -484,6 +488,9 @@ M0 脊柱                                                [x] 全绿
 ├── 预算（对抗性）                                     [x]
 │   ├── 死循环 guest → max_steps 触发，宿主活着            [x]
 │   ├── memory.grow 超 max_memory_pages → 拒绝            [x]
+│   ├── 运行期堆耗尽 → Budget("max_memory_pages")         [x] rev6：问客人的
+│   │                                                        FAULT 字，不猜
+│   └── 撑爆之后的 .qjs 槽不自愈，但每次都报同一句话        [x] rev6
 │   ├── 深递归 guest → max_call_depth 触发                [x]
 │   ├── 活动记录槽耗尽 → Budget（非 Trap）                 [x]
 │   ├── print 超 max_stdout_bytes → 截断且标记             [x]
@@ -494,11 +501,15 @@ M0 脊柱                                                [x] 全绿
 │   ├── bridge = None → status 2 + 固定诊断                [x]
 │   ├── fleet_result 目标太小 → 负数，不越界写              [x]
 │   ├── 未调 fleet_call 就 fleet_result → 长度 0           [x]
-│   └── op/params 指针越界 → trap 该槽，不读宿主内存         [x]
+│   ├── op/params 指针越界 → trap 该槽，不读宿主内存         [x]
+│   └── bridge panic → Door，不外泄、不伪装成 status        [x] rev6；
+│                                                            run_once 仍回收槽
 ├── 装载门                                            [x]
 │   ├── 非 `\0asm` 字节 → 拒绝                            [x]
 │   ├── 坏 wasm → 装载期拒绝，不进执行                      [x]
-│   └── check 不执行 start（副作用不发生）                  [x]
+│   ├── check 不执行 start（副作用不发生）                  [x]
+│   └── check 也过 execute 的装载闸门（check_qjs）          [x] rev6：编译器
+│                                                            自己的产物不再例外
 └── 接线                                              [x]
     ├── feature 关时根 crate 仍 build                     [x]
     └── 扩展名路由 .wasm / .qjs / 其余                     [x]

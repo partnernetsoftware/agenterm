@@ -39,6 +39,11 @@ AgenTerm 自己的脚本引擎。`.qjs` 用**纯 Rust** 编译成 `.wasm`，`.wa
 在本仓各骗过一次人：`%` 与 `typeof` 早已支持却还挂在拒绝表上，以及本文件曾说这个 crate
 在工作区外而它在里面。
 
+（rev 其后抬到 `f8adef8`。**没有逐行重跑全表**：复测的是门那一节的全部、以及 `%` /
+`typeof` / `-0` / 对象字面量 / 属性访问 / 函数当值 / `?:` / `try` / JSON / 数组 /
+`for…of` / `for…in` / `do` / 箭头函数 / 捕获闭包 / 带标签语句 / Number→String 这些行，
+结论都没变。抬 rev 的人请照本节末尾那段的要求整表复测。）
+
 **能跑：**
 
 - **数字是 ECMA-262 binary64**，不是 i32：`1/0` 是 `Infinity`、`0/0` 是 `NaN`、
@@ -86,7 +91,7 @@ StringToNumber、字符串关系比较），撞上是 **trap 而不是编造一�
 `"2" * 2`、`"a" < "b"`、`1 == "1"` 都 trap。字符串之间的拼接与 `==` / `!=` / `===` 是好的。
 这是上游记录在案的 divergence，不是本层的分类错误。
 
-### `.qjs` 已经够得着门（2026-08-25，rev `6920c60`）
+### `.qjs` 已经够得着门（2026-08-25，rev `6920c60` 落地，`f8adef8` 上复测）
 
 曾经这里写的是「自由名字一律在编译期被拒，所以 `print` / `fleet_call` 只有手写 `.wasm`
 客人能调」——**那一条已作废**。脚本直接写三个名字：
@@ -207,7 +212,7 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 | 预算 | 归属 | 触发后 |
 |------|------|--------|
 | `max_steps`（每次顶层调用） | tinyvm | 该次调用 trap，槽可回收，宿主活着 |
-| `max_memory_pages` / `max_table_elems` | tinyvm | 装载期拒绝或 `grow` 失败 |
+| `max_memory_pages` / `max_table_elems` | tinyvm | 装载期拒绝；运行期 `grow` 失败 → `Budget("max_memory_pages")` |
 | `max_call_depth` / `max_activation_slots` | tinyvm | trap，不吃原生栈 |
 | `max_stdout_bytes` | 本 crate | 截断并置 `truncated_stdout`，不静默丢 |
 | `max_bridge_result_bytes` | 本 crate | 报错，**不截断**——半个 JSON 比拒绝更糟 |
@@ -221,13 +226,32 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 顺序也是分类：**先做越界检查，再看盖子**——声明长度装不进客人自己的内存是坏客人
 （`Door`），把它说成预算等于让人去调一个调了也没用的数。
 
-`max_memory_pages` 有一条**运行期**缺口，写在这里免得被当成已解决：装载期超页是
-`Load`，但运行期 `memory.grow` 被拒之后，上游 `tinyvm-qjs` 的 `__alloc` 把它降成一条
-裸 `unreachable`，到宿主这里与任何别的 `unreachable` 无法区分，所以报的是
-`Trap` 而不是 `Budget("max_memory_pages")`。这不是本仓能修的——信息在上游就被丢掉了，
-宿主侧靠"内存正好顶到上限"去猜会把真坏的脚本误判成预算问题。要补在上游：分配失败必须
-可分辨（带 `WasmCeiling::MemoryPages` 的独立 fault，或走一扇门报告）。
-复现见 `tests/seam_attack.rs::finding_4_running_out_of_pages_is_not_reported_as_a_budget`。
+`max_memory_pages` 曾有一条**运行期**缺口，2026-08-25 补上，补的方式值得记一笔：
+装载期超页一直是 `Load`，但运行期 `memory.grow` 被拒之后，上游 `tinyvm-qjs` 的
+`__alloc` 把它降成一条裸 `unreachable`，到宿主这里与任何别的 `unreachable` 无法区分，
+所以报的是 `Trap`。宿主侧靠「内存正好顶到上限」去猜会把真坏的脚本误判成预算问题，
+所以本仓不猜，去上游补：`f8adef8` 让分配器放弃之前把 `FAULT_HEAP_EXHAUSTED` 写进客人
+自己线性内存的第一个字，`tinyvm_qjs::guest_fault` 读回来。`Slot::explain` 在失败路径上
+**先问客人再问核**，且只问 `JsV1` 槽——那个字是编译器运行时的约定，拿手写客人的第 0
+字节去读预算就是同一种猜。
+
+一条随之而来的事实，写在这里免得被当成 bug：**`.qjs` 槽的堆一旦撑爆就不会自愈。**
+bump 指针在尝试 `grow` 之前就已前移，越过尽头之后任何分配都失败，四个字节也不行，
+宿主没法把客人的 global 拨回去。保证只有一条：每次都报同一句
+`Budget("max_memory_pages")`，不含糊。槽不自动回收——不分配的活儿照跑，回收是调用者的
+决定，与 trap 同规矩。另外，门往客人堆里写的**累计**字节数没有任何盖子：十六个都在
+`max_bridge_result_bytes` 之内的 1 MiB 答案就能用光 16 MiB 的默认槽。
+测试见 `tests/seam_attack.rs::finding_4_running_out_of_pages_is_now_reported_as_a_budget`
+与 `tests/door_attack.rs` 的三条。
+
+**桥 panic 被门接住。** embedder 的 bridge 是宿主代码，而 `op` 由客人挑，所以脚本能把桥
+导向它会 panic 的那条路；`panic = "abort"` 下那就是客人拉着进程一起死。门 catch 住，
+报 `QjswasmError::Door`（带 panic 原话和当时的 op），不外泄、也不伪装成 status 1——
+「能力坏了」与「能力说不」不是同一个答案。槽本身完好，下一次调用照常应答。
+
+**`check` 与装载闸门。** `check_qjs` / `check_qjs_with` = 编译 + 用那次运行要花的预算过
+`validate_wasm_with`。只 `compile_qjs` 是不够的：字面量池超过 `max_memory_pages` 的脚本
+编得干干净净，跑起来才 `Load("memory page limit")`。`compile_qjs` 本身保持只编译。
 
 ## 宿主门 ABI
 
