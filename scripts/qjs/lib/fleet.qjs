@@ -1,0 +1,124 @@
+// fleet.qjs — Fleet broker wrapper for the qjswasm engine.
+//
+// The `.qjs` counterpart of `fleet.js`, which binds the same catalog for the
+// rquickjs engine, and of `scripts/lua/lib/fleet.lua`, which binds it for lua.
+// All three implement one thing: the `script_surface` names declared by
+// `src/operations.rs`. A script that calls `fleet.tabs.set_note(...)` must
+// produce the identical Fleet operation whichever engine ran it, so the wire
+// keys here are the catalog's, not the argument names — `tabs.set-note` takes
+// `tab`, and a binding that sent `tab_id` was refused by the broker for as
+// long as it existed.
+//
+// Two differences from `fleet.js`, both forced by the engine rather than
+// chosen:
+//
+//   1. The host door is free functions, not `__host.fleet_call`. The door's
+//      four imports are a product contract shared with hand-written `.wasm`
+//      guests, and the compiler's declaration mechanism binds names, not
+//      methods on an object. `fleet_call` returns a status; the answer is
+//      retrieved separately through `fleet_result`, because a tinyvm host
+//      callback holds the guest's memory and so cannot re-enter it to reach an
+//      allocator.
+//
+//   2. `call` returns the raw JSON string. `fleet.js` parses it, which is the
+//      friendlier shape and the one to adopt once `JSON.parse` is available
+//      here; until then, parsing in the binding would mean pretending. A
+//      caller that wants structure should say so rather than be handed a
+//      string dressed as an object.
+
+const STATUS_OK = 0;
+const STATUS_ERR = 1;
+
+const fleet = {};
+
+/// Send one operation and return its answer as a JSON string.
+///
+/// An application-level refusal (status 1) is a normal outcome, not a crash:
+/// the broker rejects unknown operations and bad arguments this way, and the
+/// text explains which. It is returned prefixed rather than thrown, because
+/// `throw` is not in this engine's subset yet and swallowing the distinction
+/// would make a rejected call indistinguishable from a successful empty one.
+function call(opId, params) {
+  const status = fleet_call(opId, params === undefined ? "{}" : params);
+  if (status === STATUS_OK) {
+    return fleet_result();
+  }
+  if (status === STATUS_ERR) {
+    return "ERR " + fleet_result();
+  }
+  return "ERR no fleet bridge is attached to this slot";
+}
+
+fleet.call = call;
+
+// -- fleet.tabs ------------------------------------------------------------
+
+fleet.tabs = {};
+
+/** List all tabs. */
+fleet.tabs.list = function () {
+  return call("tabs.list");
+};
+
+/** Get the active tab. */
+fleet.tabs.active = function () {
+  return call("tabs.active");
+};
+
+/** Set a note on a tab. The catalog's key is `tab`, not `tab_id`. */
+fleet.tabs.set_note = function (tabId, note) {
+  return call("tabs.set-note", '{"tab":"' + tabId + '","note":"' + note + '"}');
+};
+
+// -- fleet.protocol --------------------------------------------------------
+
+fleet.protocol = {};
+
+/** Protocol and version information. */
+fleet.protocol.info = function () {
+  return call("protocol.info");
+};
+
+// -- fleet.workspace -------------------------------------------------------
+
+fleet.workspace = {};
+
+/** Workspace metadata and the current event position. */
+fleet.workspace.info = function () {
+  return call("workspace.info");
+};
+
+// -- fleet.ui --------------------------------------------------------------
+
+fleet.ui = {};
+
+/** A snapshot of the whole UI. */
+fleet.ui.snapshot = function () {
+  return call("ui.snapshot");
+};
+
+fleet.ui.tabs = {};
+
+/** Show the tab strip. */
+fleet.ui.tabs.show = function () {
+  return call("ui.tabs.show");
+};
+
+/** Hide the tab strip. */
+fleet.ui.tabs.hide = function () {
+  return call("ui.tabs.hide");
+};
+
+/** Toggle the tab strip. */
+fleet.ui.tabs.toggle = function () {
+  return call("ui.tabs.toggle");
+};
+
+fleet.ui.window = {};
+
+/** Bring the window forward. */
+fleet.ui.window.activate = function () {
+  return call("ui.window.activate");
+};
+
+fleet;
