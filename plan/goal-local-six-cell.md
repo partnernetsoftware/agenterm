@@ -1,6 +1,6 @@
 # goal-local-six-cell
 
-状态：active（2026-08-25 立项；**P0 / P1 / P3 已达成且各自零缺口；P2 运行时三格已过、三格阻塞待人工，六格静态验证全过**）
+状态：active（2026-08-25 立项；**P0 / P1 / P3 零缺口；P2 运行时三格已过、三格阻塞待人工；装置已在 minicon 上二次证明**）
 角色：本机（Apple Silicon mac mini）作为六格构建与四格运行时验证的单一宿主
 编排拍板：2026-08-25
 关联：`AGENTS.md`（Cross-platform build and test contract）、`plan/plan-v0.1.18.md`（轨 D `agenterm-cu`）、`prd/PRD_02_30_cu_targets_transports.md`（`vnc` 目标族）、`crates/agenterm-vnc`
@@ -740,6 +740,60 @@ tabs 实际在快照**顶层**（`tabs[]`），不在 `layout` 下。
 闸必须在该红的时候真的红过，否则它和没有闸的区别只是多一行绿色输出。
 
 证据：`~/.local/share/agenterm/evidence/six-cell-*/p2-osx-interaction/`
+
+---
+
+## 5.15 执行回执 · 在 minicon 上做实践（2026-08-25）
+
+这套装置一直只在 agenterm 这棵树上证明过。**一个只在它诞生的那棵树上work 的做法不是方法。**
+`~/repos/minicon` 是独立仓库，而且它按 git rev 消费
+`agenterm-platform` / `agenterm-ui-core`——是那个 crate 的**真实外部消费者**。
+它构建还快，这一点本身就切题：**用一个慢回路是没法测试回路的**。
+
+### 六格构建：一次全过，零适配
+
+| 格 | driver | 结果 | 体积 |
+|----|--------|------|------|
+| aarch64-apple-darwin | cargo | PASS | 1.4M |
+| x86_64-apple-darwin | cargo | PASS | 1.4M |
+| aarch64-unknown-linux-gnu | cargo-zigbuild | PASS | 4.6M |
+| x86_64-unknown-linux-gnu | cargo-zigbuild | PASS | 5.5M |
+| aarch64-pc-windows-msvc | cargo-xwin | PASS | 664K |
+| x86_64-pc-windows-msvc | cargo-xwin | PASS | 716K |
+
+同样三个 driver，一行没改。顺带证明 **`agenterm-platform` 作为库能交叉构建给外部消费者**。
+
+### 互动：两条互不相干的通道互相印证
+
+在 VM2（lnx×aarch64，原生虚拟化）上，用 minicon 自己的控制端点驱动：
+
+```
+send-text "echo SIXCELL_CROSSCHECK_7F3A"  -> {"sent_bytes": 28}  rc=0
+send-keys Enter                           -> {"sent_keys": 1}    rc=0
+wait-text --timeout-ms 15000 <MARK>       -> {"matched": true}   rc=0
+capture-pane                              -> 面板文本含该标记
+```
+
+然后**用带外帧缓冲拍同一块屏**，像素里是同样那几行。
+
+**这个一致性才是重点。** app 自己的截图验不了自己的渲染，
+而帧缓冲单独也说不出 app 认为发生了什么。
+**两条不共享实现的通道报出同一内容，是任何一条单独都做不出的判断。**
+
+`wait-text` 让它可重复而非 flaky：脚本阻塞在条件上，不是睡一个猜出来的间隔。
+
+### 一个产品观察（只报不改，同 §5.8 的规矩）
+
+minicon README 把「Executable ~760 KB，测试套件强制 1 MiB 上限」
+与「Supported Windows…; Linux; macOS」并列。但强制它的
+`tests/minicon_load_portability.rs` 是 `#![cfg(windows)]`，
+其 `shipped_binary()` 还硬编码 `minicon.exe`——**这个上限是 Windows 专属承诺**，
+表格却读起来像可执行文件的固有属性。实测：Windows 664K/716K（在限内），
+macOS 1.4M，Linux 4.6M/5.5M；而 `strip = true` 本来就开着，
+所以 Linux 那个数是**代码不是符号**。与 agenterm §5.8 同形同因：
+unix GUI 栈 vs Win32/GDI。
+
+证据：`~/.local/share/agenterm/evidence/six-cell-*/minicon-practice/`
 
 ---
 
