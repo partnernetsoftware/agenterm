@@ -107,7 +107,10 @@ impl Slot {
         // run.
         let (stdout, truncated_stdout) = self.door.take_stdout();
 
-        let returned = result.map_err(classify)?;
+        let returned = match result {
+            Ok(values) => values,
+            Err(fault) => return Err(self.explain(fault)),
+        };
         let values = match self.convention {
             Convention::Wasm => returned
                 .into_iter()
@@ -222,6 +225,59 @@ impl Slot {
             }
         }
         Ok(())
+    }
+
+    /// Say what a failed invocation actually was, consulting the two parties
+    /// that know more than the core does before falling back to it.
+    ///
+    /// The core sees one thing: the guest executed `unreachable`, or a ceiling
+    /// was hit. Two failures are indistinguishable from an ordinary guest fault
+    /// at that level and are not the guest's fault at all, so each is asked
+    /// about first, in the order of who is nearest:
+    ///
+    /// 1. **The door.** A host callback that failed for a reason the door
+    ///    recorded -- today, an embedder's bridge that panicked -- left the
+    ///    explanation in the slot's own state on its way out, because a
+    ///    `tinyvm::WasmError` carries only a `&'static str` and cannot hold
+    ///    it. That is a [`QjswasmError::Door`]: the boundary failed, not the
+    ///    script.
+    /// 2. **The guest.** A compiled `.qjs` guest whose bump heap could not grow
+    ///    writes `FAULT_HEAP_EXHAUSTED` into the first word of its own linear
+    ///    memory before it gives up (tinyvm `f8adef8`), because a refused
+    ///    `memory.grow` returns `-1` rather than trapping and the allocator has
+    ///    nowhere else to put the reason. [`tinyvm_qjs::guest_fault`] reads it
+    ///    back, and the answer is a budget the embedder can raise.
+    ///
+    /// Only a `JsV1` slot is asked the second question. The fault word is a
+    /// convention of the compiler's runtime; a hand-written guest's byte zero
+    /// means whatever that guest decided it means, and reading a budget out of
+    /// it would be exactly the host-side guess this crate refuses to make.
+    ///
+    /// Everything else goes to [`classify`], unchanged.
+    fn explain(&self, fault: tinyvm::WasmError) -> QjswasmError {
+        if let Some(door) = self.door.take_fault() {
+            return QjswasmError::Door(door);
+        }
+        if self.convention == Convention::JsV1 && self.heap_exhausted() {
+            return QjswasmError::Budget("max_memory_pages");
+        }
+        classify(fault)
+    }
+
+    /// Whether the guest recorded that its heap ran out during the call that
+    /// just failed.
+    ///
+    /// `false` when the memory cannot be read at all: a guest with no linear
+    /// memory never allocated, so it never ran out, and inventing a budget for
+    /// a module that has no heap would misreport a genuine fault.
+    fn heap_exhausted(&self) -> bool {
+        let Ok(Some(view)) = self.instance.memory_at(0) else {
+            return false;
+        };
+        matches!(
+            tinyvm_qjs::guest_fault(&view),
+            Some(tinyvm_qjs::GuestFault::HeapExhausted)
+        )
     }
 
     /// Decode one V1 pair and resolve a String out of the guest's memory.

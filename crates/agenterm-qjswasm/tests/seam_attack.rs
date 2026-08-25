@@ -12,15 +12,14 @@
 //!   change that breaks it is caught here rather than in a caller.
 //! * **`FINDING` tests are the hunt's catch.** Each was written to assert the
 //!   behaviour the crate's own documented doctrine says it should have, and
-//!   each failed when it was written. Seven of the eight now pass, because the
-//!   defect they named was fixed; the header on each records what it used to
-//!   do, so the fix cannot be quietly undone without a test going red. The one
-//!   that is still `#[ignore]`d --
-//!   [`finding_4_running_out_of_pages_is_not_reported_as_a_budget`] -- cannot
-//!   be fixed in this repository at all, and its header names the upstream
-//!   change that would close it. It is ignored rather than inverted: asserting
-//!   the wrong behaviour so it passes would turn a bug report into a lock on
-//!   the bug.
+//!   each failed when it was written. All eight now pass, because the defect
+//!   they named was fixed; the header on each records what it used to do, so
+//!   the fix cannot be quietly undone without a test going red. The last to be
+//!   closed -- [`finding_4_running_out_of_pages_is_now_reported_as_a_budget`]
+//!   -- could not be fixed in this repository at all: it was `#[ignore]`d
+//!   rather than inverted, because asserting the wrong behaviour so it passes
+//!   would turn a bug report into a lock on the bug. Its header names the
+//!   upstream change that closed it, tinyvm `f8adef8`.
 //!
 //! Every `FINDING` header states: reproducer, what was observed, what was
 //! expected, and why the expectation is the crate's own and not this file's
@@ -425,7 +424,8 @@ fn stdout_from_a_trapping_call_does_not_reappear_in_the_next_one() {
 
 // ---------------------------------------------------------------------------
 // Findings. Each asserts what the crate's own doctrine says should happen, and
-// each fails today. Run with `cargo test -- --ignored`.
+// each failed when it was written. All of them pass now; the headers keep the
+// reproducer and what it used to do.
 // ---------------------------------------------------------------------------
 
 /// FINDING 1 -- a wrong argument *count* is reported as a guest trap.
@@ -614,57 +614,43 @@ fn finding_3_a_missing_export_is_blamed_on_the_guest() {
     );
 }
 
-/// FINDING 4 -- exhausting `max_memory_pages` at run time is a `Trap`, never a
-/// `Budget`.
+/// FINDING 4 -- exhausting `max_memory_pages` at run time used to be a
+/// `Trap`, never a `Budget`.
 ///
 /// **Reproducer:** a budget with `max_memory_pages: 2`, and a `.qjs` guest that
 /// concatenates its way past two pages.
 ///
-/// **Observed:** `Err(Trap("unreachable executed"))`.
+/// **Was:** `Err(Trap("unreachable executed"))`.
 ///
-/// **Expected:** `Err(Budget("max_memory_pages"))`.
+/// **Now, and what the doctrine always required:** `Err(Budget("max_memory_pages"))`.
 ///
-/// **Why:** `Budget::limits` is documented as "Core-enforced limits:
-/// instruction steps per top-level call, **linear memory pages**, ...", and
-/// `slot.rs`'s `ceiling_name` carries a `WasmCeiling::MemoryPages ->
+/// **Why it was wrong:** `Budget::limits` is documented as "Core-enforced
+/// limits: instruction steps per top-level call, **linear memory pages**,
+/// ...", and `slot.rs`'s `ceiling_name` carries a `WasmCeiling::MemoryPages ->
 /// "max_memory_pages"` arm for precisely this. `Engine::call`'s own
 /// documentation says budget exhaustion "must be answerable without matching on
-/// a message string". It is not answerable here: the compiler's `__alloc`
-/// (`tinyvm-qjs` `runtime.rs`) turns a refused `memory.grow` into `unreachable`,
-/// so the ceiling arrives at the seam as an ordinary guest trap and the
-/// `MemoryPages` arm is dead at run time. The caller cannot tell "raise the page
-/// budget" from "this script is broken".
+/// a message string". It was not answerable: the compiler's `__alloc`
+/// (`tinyvm-qjs` `runtime.rs`) turned a refused `memory.grow` into
+/// `unreachable`, so the ceiling arrived at the seam as an ordinary guest trap.
 ///
-/// The load-time half *is* classified: a literal pool larger than the budget is
-/// `Load("memory page limit")`, which
-/// [`the_page_ceiling_is_classified_at_load_time`] locks.
+/// **Why it was `#[ignore]`d for a while, and what closed it.** The
+/// information was destroyed upstream, before the seam could see it, and a
+/// host-side heuristic -- "the trap was `unreachable` and memory happens to sit
+/// at `max_memory_pages`, so call it a budget" -- would have mislabelled a
+/// genuinely broken script, which is the silent misclassification `classify`'s
+/// doctrine exists to prevent. The header used to say the fix had to be
+/// upstream, and it was: tinyvm `f8adef8` has the allocator record
+/// `FAULT_HEAP_EXHAUSTED` in the first word of the guest's own memory before it
+/// gives up, and `tinyvm_qjs::guest_fault` reads it back. `slot.rs` consults it
+/// on the error path of a `JsV1` slot, so the guest states the reason and the
+/// seam repeats it -- no guess anywhere.
 ///
-/// # Why this one is still `#[ignore]`d while the other seven are fixed
-///
-/// It cannot be fixed in this repository. The information is destroyed
-/// upstream, before the seam ever sees it: the compiler's `__alloc` lowers a
-/// refused `memory.grow` to a bare `unreachable`, which reaches the host as an
-/// ordinary `WasmFaultClass::Guest` fault indistinguishable from any other
-/// `unreachable` a script can execute. `slot.rs::classify` reads
-/// `WasmError::class()` and `ceiling()`, and neither can report a ceiling the
-/// guest already swallowed.
-///
-/// Guessing is worse than the defect. A host-side heuristic -- "the trap was
-/// `unreachable` and the memory happens to sit at `max_memory_pages`, so call
-/// it a budget" -- would mislabel a genuinely broken script that merely
-/// allocated a lot, which is the silent misclassification `classify`'s own
-/// doctrine exists to prevent.
-///
-/// **The upstream change that closes it:** `tinyvm-qjs`'s allocator must make
-/// an allocation failure distinguishable -- either by trapping through a
-/// distinct core fault that carries `WasmCeiling::MemoryPages`, or by calling a
-/// host door that reports it. PRD 36 already authorises going upstream for
-/// exactly this ("撞到 tinyvm 层的真实缺口就去 tinyvm 仓改，不绕"), and this is
-/// a real gap read out of the code, not an impression. Until then, `ceiling_name`'s
-/// `WasmCeiling::MemoryPages` arm is live at load time and dead at run time.
+/// The load-time half was classified all along: a literal pool larger than the
+/// budget is `Load("memory page limit")`, which
+/// [`the_page_ceiling_is_classified_at_load_time`] locks. Both halves now name
+/// the same field.
 #[test]
-#[ignore = "FINDING 4: blocked upstream -- tinyvm-qjs's __alloc lowers a refused memory.grow to a bare `unreachable`"]
-fn finding_4_running_out_of_pages_is_not_reported_as_a_budget() {
+fn finding_4_running_out_of_pages_is_now_reported_as_a_budget() {
     let budget = Budget {
         limits: tinyvm::Limits {
             max_memory_pages: 2,
@@ -1091,10 +1077,9 @@ fn a_hostile_v1_tag_is_refused_without_inventing_a_value() {
 #[test]
 fn the_exact_signature_the_seam_declines_to_consult_is_available() {
     let bytes = wasm("(module (func (export \"id\") (param i32) (result i32) local.get 0))");
-    let module = tinyvm::WasmModule::from_bytes_with(&bytes, tinyvm::Limits::default())
-        .ok()
-        .expect("decodes");
-    let instance = module.instantiate().ok().expect("instantiates");
+    let module =
+        tinyvm::WasmModule::from_bytes_with(&bytes, tinyvm::Limits::default()).expect("decodes");
+    let instance = module.instantiate().expect("instantiates");
     let handle = instance
         .exported_function_handle("id")
         .ok()
@@ -1108,10 +1093,9 @@ fn the_exact_signature_the_seam_declines_to_consult_is_available() {
     assert_eq!(handle.result_count(), 1);
 
     let compiled = compile_qjs("$0+$1").expect("compiles");
-    let module = tinyvm::WasmModule::from_bytes_with(&compiled, tinyvm::Limits::default())
-        .ok()
-        .expect("decodes");
-    let instance = module.instantiate().ok().expect("instantiates");
+    let module =
+        tinyvm::WasmModule::from_bytes_with(&compiled, tinyvm::Limits::default()).expect("decodes");
+    let instance = module.instantiate().expect("instantiates");
     let main = instance
         .exported_function_handle("main")
         .ok()

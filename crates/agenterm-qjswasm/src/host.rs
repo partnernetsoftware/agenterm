@@ -34,9 +34,29 @@
 //! | pointer/length outside linear memory | trap the slot | memory safety: continuing means inventing an answer |
 //! | `op`/`params` are not UTF-8 | status 1 + diagnostic | the guest asked for something a `&str` cannot carry; recoverable |
 //! | bridge said `Err` | status 1 + its message | an application error is a normal result, not a crash |
+//! | bridge panicked | fail the call, `QjswasmError::Door` | not one of the two answers a bridge may give; see below |
 //! | no bridge installed | status 2 + fixed diagnostic | tells the guest the capability is absent, not broken |
 //! | bridge answer over `max_bridge_result_bytes` | status 1 + diagnostic | refusal, never a prefix (see below) |
 //! | `print` bytes over `max_stdout_bytes` | keep the prefix, set the flag | a cut the caller is told about beats a silent drop |
+//!
+//! # A panicking bridge is contained, and is nobody's status code
+//!
+//! An embedder's bridge closure is host code this crate calls on a guest's
+//! behalf, and the guest picks the `op` string that selects which of its paths
+//! runs. Left alone, a panic there unwinds through the interpreter and out of
+//! `Engine::call` -- so a script could steer a bridge into its panicking path
+//! and, under a `panic = "abort"` profile, take the process with it. The door
+//! therefore catches it.
+//!
+//! What it must *not* do is dress it up as `Err`: status 1 means "the
+//! capability answered, and the answer is no", and a script that cannot tell
+//! that from "the capability is broken" will carry on parsing a diagnostic as
+//! data. So the call fails: the panic's own message is recorded beside the
+//! slot and surfaces as [`QjswasmError::Door`], which is exactly the class for
+//! "a contract at the host boundary was violated" -- here by the host's own
+//! side of it. The slot itself is untouched and remains callable; nothing in
+//! the guest's memory was mid-write, because the bridge is called before the
+//! pending buffer is borrowed.
 //!
 //! Truncating a bridge answer and truncating stdout are deliberately opposite.
 //! Stdout is a stream a reader can see is cut; a bridge answer is one value the
@@ -65,6 +85,13 @@ const STATUS_NO_BRIDGE: i32 = 2;
 const NO_BRIDGE: &str = "agenterm: no fleet bridge is installed in this slot";
 const NOT_UTF8: &str = "agenterm: fleet_call op and params must be UTF-8 text";
 const RESULT_TOO_LARGE: &str = "agenterm: fleet result exceeds the slot's max_bridge_result_bytes";
+
+/// The `&'static str` the core carries when a bridge panicked. The useful text
+/// -- which op, and what the panic said -- does not fit in a
+/// `tinyvm::WasmError`, so it travels beside it in [`Pending::fault`] and
+/// `slot.rs` reports that instead. This literal is the fallback nobody should
+/// see.
+const BRIDGE_PANICKED: &str = "agenterm door: the fleet bridge panicked";
 
 /// The exact shape of each door import: `(field, params, results)`. Every
 /// parameter and result is `i32`, which `ImportDesc::i32_only` reports in one
@@ -158,6 +185,12 @@ struct Pending {
     /// collection so a guest may copy it twice; the next `fleet_call` replaces
     /// it.
     result: Vec<u8>,
+    /// Why the door itself failed, when the reason is longer than the
+    /// `&'static str` a `tinyvm::WasmError` can carry -- today, an embedder's
+    /// bridge that panicked. Written on the way out of the callback and read
+    /// by `slot.rs` on the invocation's error path, which is the only way an
+    /// owned diagnostic can cross a boundary whose error type is fmt-free.
+    fault: Option<String>,
 }
 
 impl Pending {
@@ -191,6 +224,13 @@ impl HostState {
     /// output is diagnostic text, and refusing to show it because one byte is
     /// malformed loses exactly the message that mattered; the cap can also cut
     /// a code point in half, so read-back has to be lossy regardless.
+    /// Why the door failed during the call that just ended, if it recorded a
+    /// reason. Draining, like [`take_stdout`](Self::take_stdout) and for the
+    /// same reason: one call's failure must not be attributed to the next.
+    pub(crate) fn take_fault(&self) -> Option<String> {
+        self.pending.borrow_mut().fault.take()
+    }
+
     pub(crate) fn take_stdout(&self) -> (String, bool) {
         let mut pending = self.pending.borrow_mut();
         let bytes = std::mem::take(&mut pending.stdout);
@@ -217,6 +257,7 @@ pub(crate) fn install(
         stdout_truncated: false,
         max_stdout: budget.max_stdout_bytes,
         result: Vec::new(),
+        fault: None,
     }));
 
     let state = Rc::clone(&pending);
@@ -238,9 +279,16 @@ pub(crate) fn install(
             (Err(_), _) | (_, Err(_)) => (STATUS_ERR, NOT_UTF8.as_bytes().to_vec()),
             (Ok(op), Ok(params)) => match &bridge {
                 None => (STATUS_NO_BRIDGE, NO_BRIDGE.as_bytes().to_vec()),
-                Some(bridge) => match bridge(op, params) {
-                    Ok(answer) => (STATUS_OK, answer.into_bytes()),
-                    Err(message) => (STATUS_ERR, message.into_bytes()),
+                Some(bridge) => match call_bridge(bridge, op, params) {
+                    Ok(Ok(answer)) => (STATUS_OK, answer.into_bytes()),
+                    Ok(Err(message)) => (STATUS_ERR, message.into_bytes()),
+                    // A panic is neither of the two answers the bridge is
+                    // allowed to give, so it is not turned into one. Record it
+                    // for `slot.rs` and fail the call.
+                    Err(panic) => {
+                        state.borrow_mut().fault = Some(panic);
+                        return Err(WasmError::Trap(BRIDGE_PANICKED));
+                    }
                 },
             },
         };
@@ -345,6 +393,43 @@ where
     module.bind_import_typed(DOOR, field, f).map_err(|error| {
         QjswasmError::Door(format!("binding `{DOOR}.{field}`: {}", error.message()))
     })
+}
+
+/// Call an embedder's bridge without letting a panic escape into the
+/// interpreter.
+///
+/// `Ok` is whatever the bridge answered, `Err` is the panic's message. The
+/// payload of a Rust panic is `Box<dyn Any>`; the two shapes `panic!` itself
+/// produces are `&'static str` and `String`, and anything else -- a
+/// `panic_any` with a custom type -- is still caught, it just cannot be
+/// quoted.
+///
+/// [`std::panic::AssertUnwindSafe`] is required and is honest here: the only
+/// state reachable across the boundary is the bridge's own captures, which are
+/// the embedder's to reason about, and this slot's [`Pending`], which is not
+/// borrowed at the call.
+fn call_bridge(
+    bridge: &FleetBridgeFn,
+    op: &str,
+    params: &str,
+) -> Result<Result<String, String>, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge(op, params))).map_err(
+        |payload| {
+            let said = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned());
+            match said {
+                Some(said) => {
+                    format!("the fleet bridge panicked while serving `{op}`: {said}")
+                }
+                None => format!(
+                    "the fleet bridge panicked while serving `{op}` \
+                     (its payload is not a string, so there is nothing to quote)"
+                ),
+            }
+        },
+    )
 }
 
 /// The pending answer's length as an `i32`.

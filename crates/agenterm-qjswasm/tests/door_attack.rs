@@ -9,18 +9,18 @@
 //! wrong value, a fabricated string, or a diagnostic that blames the wrong
 //! party is not.
 //!
-//! # What is asserted, and what is merely recorded
+//! # What is asserted, and what was found
 //!
-//! Most of this file locks behaviour that is already right, so it stays right.
-//! Four tests are different: they carry a `FINDING` block, and they assert what
-//! the engine *does* today while saying what it *should* do. They are written
-//! that way on purpose. Deleting them loses the measurement; making them assert
-//! the desired behaviour would leave a red suite for a defect nobody has
-//! decided to fix yet. When one is fixed, its test fails, and the block above
-//! it says exactly what to change it to.
-//!
-//! Nothing here is fixed in `src/**`: this lane reports.
+//! Most of this file locks behaviour that was already right, so it stays
+//! right. Five tests started life differently: they carried a `FINDING` block
+//! asserting what the engine *did* while saying what it *should* do. Two of
+//! those defects are now fixed in `src/**` -- an exhausted guest heap is a
+//! named budget, and a panicking bridge is a contained `Door` failure -- and
+//! their tests assert the fixed behaviour, keeping the reproducer that found
+//! it. The three that remain carry their `FINDING` block unchanged, and each
+//! says what to change it to when the defect is closed.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use agenterm_qjswasm::{
@@ -731,39 +731,31 @@ fn output_from_a_trapped_call_is_not_carried_into_the_next_one() {
 // Findings: the guest heap
 // =========================================================================
 
-/// FINDING 1 (the serious one) -- a bridge answer the guest's linear memory
-/// cannot hold is `Trap("unreachable executed")`, not
-/// `Budget("max_memory_pages")`, and it destroys the slot for good.
+/// A bridge answer the guest's linear memory cannot hold is
+/// `Budget("max_memory_pages")` -- the field an embedder would raise -- and
+/// not the bare `Trap("unreachable executed")` it used to be.
 ///
 /// ```text
 /// reproducer  max_memory_pages = 2 (128 KiB); bridge answers 200 000 bytes;
 ///             let s = fleet_call("o","p"); return fleet_result();
-/// observed    Err(Trap("unreachable executed"))
-/// expected    Err(Budget("max_memory_pages"))
+/// was         Err(Trap("unreachable executed"))     (FINDING 1)
+/// now         Err(Budget("max_memory_pages"))
 /// ```
 ///
-/// `src/slot.rs::ceiling_name` already has the `MemoryPages` arm and
-/// `Budget::limits.max_memory_pages` is the number an embedder would raise --
-/// but nothing reaches them, because the failure is not a core ceiling. It is
-/// the *guest's own allocator* giving up: `tinyvm-qjs` `src/runtime.rs:786`
-/// (`fn alloc`) bumps the heap pointer, loops on `memory.grow`, and emits
-/// `Unreachable` when the grow is refused (`runtime.rs:809-815`). To the core
-/// that is an ordinary guest trap, so `classify` is right to call it one --
-/// there is nothing else it could see.
+/// The information used to be destroyed inside the guest: `tinyvm-qjs`'s
+/// `__alloc` lowered a refused `memory.grow` to a bare `unreachable`, which
+/// reaches the core as an ordinary `WasmFaultClass::Guest` fault
+/// indistinguishable from a broken script. The guest now writes
+/// `FAULT_HEAP_EXHAUSTED` into the first word of its own memory before it
+/// gives up, and `src/slot.rs` reads it back through
+/// `tinyvm_qjs::guest_fault` on the error path. No host-side heuristic is
+/// involved -- the guest states the reason, the seam repeats it.
 ///
-/// The consequence is that "your slot needs more memory than you gave it" and
-/// "your script is broken" are the same answer, on a path an embedder does not
-/// control: the *bridge* sizes the allocation, so a host capability returning
-/// a large-but-in-budget answer can produce it.
-///
-/// Upstream is already moving: the commit after the pinned `6920c60` is
-/// tinyvm `0466288`, "feat(qjs): let a guest say its own heap ran out". This
-/// crate is pinned behind it, so the behaviour is live here.
-///
-/// When it is fixed: expect `Budget("max_memory_pages")`, or whatever class
-/// the new upstream fault maps to, and delete the `Trap` arm.
+/// The bridge is the party that sizes this allocation, which is why the case
+/// matters: a host capability returning a large-but-in-budget answer must not
+/// be reported as the script's own fault.
 #[test]
-fn finding_1_a_bridge_answer_too_large_for_the_guest_heap_is_an_unclassified_trap() {
+fn a_bridge_answer_too_large_for_the_guest_heap_is_a_page_budget() {
     let budget = Budget {
         limits: pages(2),
         // Deliberately generous, so neither host-side cap is what refuses:
@@ -777,51 +769,96 @@ fn finding_1_a_bridge_answer_too_large_for_the_guest_heap_is_an_unclassified_tra
         CALL_THEN_FETCH,
         Some(answering(&"z".repeat(200_000)).call),
     ) {
-        Err(QjswasmError::Trap(e)) => assert_eq!(
-            e.message(),
-            "unreachable executed",
-            "FIXED, or a different trap -- read FINDING 1"
-        ),
-        Err(QjswasmError::Budget(what)) => {
-            panic!("FIXED: this now reports Budget({what:?}) -- update this test")
-        }
-        other => panic!("{other:?}"),
+        Err(QjswasmError::Budget("max_memory_pages")) => {}
+        other => panic!("expected the page budget to be named, got {other:?}"),
     }
 
-    // The same slot size handles an answer that fits, so the trap above is
+    // The same slot size handles an answer that fits, so the refusal above is
     // the heap running out and not the door failing at 128 KiB.
     let got = run_with(budget, CALL_THEN_FETCH, Some(answering("small").call))
         .expect("an answer that fits is fine in the same slot");
     assert_eq!(got.values, vec![Value::Js(JsValue::Str("small".into()))]);
 }
 
-/// FINDING 1b -- the same defect on a persistent slot, where it is worse: the
-/// bump pointer is advanced *before* the grow is attempted, so once it
-/// overshoots, every later allocation in that slot traps, however small.
+/// A script that exhausts the heap on its own -- no bridge, no door -- is the
+/// same budget, so the classification is about the guest's allocator and not
+/// about who handed it the bytes.
+#[test]
+fn a_script_that_exhausts_the_heap_by_itself_is_the_same_budget() {
+    let budget = Budget {
+        limits: tinyvm::Limits {
+            max_memory_pages: 2,
+            max_steps: 100_000_000,
+            ..tinyvm::Limits::default()
+        },
+        ..Budget::default()
+    };
+    let source = "let s = \"0123456789abcdef\"; let i = 0; \
+                  while (i < 20) { s = s + s; i = i + 1; } return s;";
+    match run_with(budget, source, None) {
+        Err(QjswasmError::Budget("max_memory_pages")) => {}
+        other => panic!("expected the page budget to be named, got {other:?}"),
+    }
+}
+
+/// A script that is simply broken keeps its own diagnosis: `unreachable` from
+/// a runtime type error is still a `Trap`, not a budget. The fault word is
+/// what separates them, and it is cleared on the way into every call, so one
+/// call's exhaustion cannot mislabel the next call's genuine fault.
+#[test]
+fn a_broken_script_is_not_relabelled_as_a_budget() {
+    let mut engine = Engine::with_budget(Budget {
+        limits: pages(2),
+        ..Budget::default()
+    });
+    let slot = engine
+        .spawn(
+            Guest::Qjs(
+                "let x = 1; let s = \"a\"; while (x < 200000) { s = s + s; x = x + x; } return s;",
+            ),
+            None,
+        )
+        .expect("spawns");
+    // First: exhaust the heap, which is a budget.
+    match engine.call(slot, "main", &[]) {
+        Err(QjswasmError::Budget("max_memory_pages")) => {}
+        other => panic!("expected a page budget first, got {other:?}"),
+    }
+    // Then a fresh slot whose fault is its own: a number where the door wants
+    // a string traps, and must not inherit the label.
+    let broken = engine
+        .spawn(Guest::Qjs("let x = 1; print(x); return 0;"), None)
+        .expect("spawns");
+    match engine.call(broken, "main", &[]) {
+        Err(QjswasmError::Trap(e)) => assert_eq!(e.message(), "unreachable executed"),
+        other => panic!("expected a plain guest trap, got {other:?}"),
+    }
+}
+
+/// The same exhaustion on a persistent slot: the bump pointer is advanced
+/// *before* the grow is attempted, so once it overshoots, every later
+/// allocation in that slot fails however small. That does not recover, and
+/// this test is the statement that it does not -- every later call says
+/// `Budget("max_memory_pages")` rather than trapping opaquely, and
+/// `Engine::call`'s documentation now says a heap-exhausted `.qjs` slot is
+/// spent.
 ///
 /// ```text
 /// reproducer  default budget (256 pages = 16 MiB); one slot, called 25 times;
 ///             bridge answers 1 MiB for the first 20 calls, then 4 bytes
-/// observed    calls 1-15 Ok; calls 16-25 Trap("unreachable executed"),
-///             including calls 21-25, whose answers are four bytes
-/// expected    a budget refusal, and a slot that still works once the
-///             pressure is gone -- or a documented statement that it will not
+/// was         calls 16..25 Trap("unreachable executed")          (FINDING 1b)
+/// now         calls 16..25 Budget("max_memory_pages"), including the ones
+///             whose answers are four bytes
 /// ```
 ///
-/// This contradicts what `Engine::call` promises in `src/lib.rs`: "a trap ...
-/// leaves the instance's memory and globals intact, so discarding the slot
-/// would throw away recoverable state the embedder may still want to inspect."
-/// Here the globals are intact and that is precisely the problem -- the heap
-/// pointer is intact at a value past the end of memory, and the slot is dead
-/// while reporting itself alive.
-///
-/// Note also what stayed inside its stated limits the whole way: every single
-/// answer is under `max_bridge_result_bytes`, every call is under `max_steps`,
-/// and the module never declares more memory than `max_memory_pages`. There is
-/// no cap on the *cumulative* bytes the door writes into a guest's heap, and
-/// sixteen well-behaved answers are enough.
+/// Note what stayed inside its stated limits the whole way: every answer is
+/// under `max_bridge_result_bytes`, every call under `max_steps`, and the
+/// module never declares more memory than `max_memory_pages`. There is still
+/// no cap on the *cumulative* bytes the door writes into a guest's heap --
+/// sixteen well-behaved answers are enough to spend a slot -- which is why
+/// the refusal has to name the budget an embedder can act on.
 #[test]
-fn finding_1b_heap_exhaustion_poisons_a_persistent_slot_permanently() {
+fn heap_exhaustion_is_a_budget_on_every_later_call_and_the_slot_does_not_recover() {
     let calls = Arc::new(Mutex::new(0usize));
     let counter = Arc::clone(&calls);
     let bridge: FleetBridgeFn = Arc::new(move |_op: &str, _params: &str| {
@@ -851,10 +888,10 @@ fn finding_1b_heap_exhaustion_poisons_a_persistent_slot_permanently() {
                 first_failure.is_none(),
                 "call {i} recovered after a failure"
             ),
-            Err(QjswasmError::Trap(_)) => {
+            Err(QjswasmError::Budget("max_memory_pages")) => {
                 first_failure.get_or_insert(i);
             }
-            Err(other) => panic!("call {i}: FIXED or changed class -- {other:?}"),
+            Err(other) => panic!("call {i}: {other:?}"),
         };
     }
     let at = first_failure.expect("16 MiB of 1 MiB answers must exhaust a 16 MiB guest");
@@ -862,8 +899,9 @@ fn finding_1b_heap_exhaustion_poisons_a_persistent_slot_permanently() {
         (10..=20).contains(&at),
         "expected the heap to run out around 16 one-megabyte answers, not at {at}"
     );
-    // Calls 21..=25 asked for four bytes and still trapped: the slot never
-    // recovers, and `Engine::live_slots` still counts it.
+    // Calls 21..=25 asked for four bytes and were still refused: the slot
+    // never recovers, and `Engine::live_slots` still counts it. Reclaiming it
+    // is the caller's move, as it is for any other failure.
     assert_eq!(engine.live_slots(), 1);
 }
 
@@ -871,36 +909,31 @@ fn finding_1b_heap_exhaustion_poisons_a_persistent_slot_permanently() {
 // Findings: the host side
 // =========================================================================
 
-/// FINDING 2 (medium) -- a panicking bridge unwinds out through the
-/// interpreter, and `run_once` then leaks the slot it promised to reclaim.
+/// A panicking bridge is contained at the door: the call fails with
+/// `QjswasmError::Door` naming the panic, the unwind does not escape into the
+/// embedder, and `run_once` reclaims the slot it promised to reclaim.
 ///
 /// ```text
 /// reproducer  run_once with a bridge whose closure panics
-/// observed    the panic propagates out of run_once; live_slots() == 1
-/// expected    live_slots() == 0 -- run_once is documented as
-///             "Spawn, call, and reclaim"
+/// was         the panic propagated out of run_once; live_slots() == 1  (FINDING 2)
+/// now         Err(Door("the fleet bridge panicked ...")); live_slots() == 0
 /// ```
 ///
-/// The unwind itself leaves nothing corrupt, which is worth knowing and is
-/// asserted below: another slot in the same engine runs correctly afterwards,
-/// and the door's `RefCell` is not left borrowed (`src/host.rs:231` calls the
-/// bridge *before* it borrows). What is wrong is narrower and real:
+/// Why a `Door` error and not a status the script can branch on: a panicking
+/// bridge is a defect in the *host* capability, not an application-level
+/// "no" like `Err(message)`. Handing the guest a status would let a script
+/// carry on as though it had been answered, and would hide the bug from the
+/// embedder entirely. Why not let it unwind: the guest chooses the `op`
+/// string, so a script can steer a bridge into whichever of its paths panics,
+/// and under a `panic = "abort"` profile that is a guest-triggered process
+/// abort.
 ///
-/// - `Engine::run_once` (`src/lib.rs`) is `spawn` / `call` / `kill` in
-///   sequence with no guard, so an unwind through `call` skips `kill` and the
-///   slot -- with its linear memory, up to `max_memory_pages` -- stays live
-///   for the life of the engine, unreachable because the caller never received
-///   the `SlotId`.
-/// - Nothing in the crate stands between an embedder's bridge and the guest.
-///   The guest chooses the `op` string, so a script can steer a bridge into
-///   whichever of its paths panics; under a `panic = "abort"` release profile
-///   that is a guest-triggered process abort.
-///
-/// A `catch_unwind` around the bridge call, mapping a panic to
-/// `QjswasmError::Door`, would answer both. That is a `src/**` change and this
-/// lane does not make it.
+/// The engine is undamaged either way, which this also asserts: a later slot
+/// in the same engine, with the same bridge, runs correctly -- the door's
+/// `RefCell` is never left borrowed, because `src/host.rs` calls the bridge
+/// before it borrows.
 #[test]
-fn finding_2_a_panicking_bridge_unwinds_and_run_once_leaks_the_slot() {
+fn a_panicking_bridge_is_a_door_error_and_run_once_still_reclaims() {
     let mut engine = Engine::new();
     let bridge: FleetBridgeFn = Arc::new(|op: &str, _params: &str| {
         if op == "boom" {
@@ -909,30 +942,41 @@ fn finding_2_a_panicking_bridge_unwinds_and_run_once_leaks_the_slot() {
         Ok(format!("<{op}>"))
     });
 
-    // Silence the panic hook: the unwind is the measurement, not a failure.
+    // Silence the panic hook: the panic is expected, and its default report on
+    // stderr is noise in a test log.
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        engine.run_once(
-            Guest::Qjs(
-                "print(\"before\"); let s = fleet_call(\"boom\", \"p\"); return fleet_result();",
-            ),
-            Some(Arc::clone(&bridge)),
-            "main",
-            &[],
-        )
-    }))
-    .is_err();
+    let refusal = engine.run_once(
+        Guest::Qjs(
+            "print(\"before\"); let s = fleet_call(\"boom\", \"p\"); return fleet_result();",
+        ),
+        Some(Arc::clone(&bridge)),
+        "main",
+        &[],
+    );
     std::panic::set_hook(previous);
 
-    assert!(
-        unwound,
-        "FIXED: the panic no longer escapes -- update this test"
-    );
+    match refusal {
+        Err(QjswasmError::Door(message)) => {
+            assert!(
+                message.contains("panicked"),
+                "the diagnostic does not say a panic happened: {message}"
+            );
+            assert!(
+                message.contains("the bridge exploded"),
+                "the panic's own message is lost: {message}"
+            );
+            assert!(
+                message.contains("boom"),
+                "the diagnostic does not say which op was being served: {message}"
+            );
+        }
+        other => panic!("expected a contained door failure, got {other:?}"),
+    }
     assert_eq!(
         engine.live_slots(),
-        1,
-        "FIXED: run_once now reclaims the slot -- update this test to expect 0",
+        0,
+        "run_once is documented as spawn, call and reclaim"
     );
 
     // Nothing else is damaged: the same engine, the same bridge, a new slot.
@@ -945,14 +989,79 @@ fn finding_2_a_panicking_bridge_unwinds_and_run_once_leaks_the_slot() {
             "main",
             &[],
         )
-        .expect("the engine still works after an unwind through a host callback");
+        .expect("the engine still works after a bridge panicked");
     assert_eq!(out.values, vec![Value::Js(JsValue::Str("<ok>".into()))]);
     assert_eq!(out.stdout, "after");
-    assert_eq!(
-        engine.live_slots(),
-        1,
-        "and the leaked slot is still the only one"
+    assert_eq!(engine.live_slots(), 0);
+}
+
+/// A panic with a payload that is neither `&str` nor `String` is still
+/// contained and still says a panic happened -- the message just cannot quote
+/// it. A door that only handled the two common payloads would let an exotic
+/// one through as an unwind.
+#[test]
+fn a_bridge_panicking_with_an_exotic_payload_is_still_contained() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let refusal = Engine::new().run_once(
+        Guest::Qjs(CALL_THEN_FETCH),
+        Some(Arc::new(|_op: &str, _params: &str| {
+            std::panic::panic_any(7u8);
+        })),
+        "main",
+        &[],
     );
+    std::panic::set_hook(previous);
+
+    match refusal {
+        Err(QjswasmError::Door(message)) => assert!(
+            message.contains("panicked"),
+            "the diagnostic does not say a panic happened: {message}"
+        ),
+        other => panic!("expected a contained door failure, got {other:?}"),
+    }
+}
+
+/// A slot whose bridge panicked stays live and callable, and the *next* call
+/// is answered normally. The containment is per call, not a poisoning of the
+/// slot: the panic happened on the host side of the door and touched nothing
+/// in the guest's heap.
+#[test]
+fn a_slot_survives_a_bridge_panic_and_answers_the_next_call() {
+    // An `AtomicUsize` rather than a `Mutex`: the bridge panics, and a panic
+    // while holding a lock poisons it -- which would make the *test* the thing
+    // that fails on the second call.
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&calls);
+    let bridge: FleetBridgeFn = Arc::new(move |_op: &str, _params: &str| {
+        let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == 1 {
+            panic!("the bridge exploded");
+        }
+        Ok(format!("answer {n}"))
+    });
+    let mut engine = Engine::new();
+    let slot = engine
+        .spawn(Guest::Qjs(CALL_THEN_FETCH), Some(bridge))
+        .expect("spawns");
+
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let first = engine.call(slot, "main", &[]);
+    std::panic::set_hook(previous);
+    assert!(
+        matches!(first, Err(QjswasmError::Door(_))),
+        "expected a contained door failure, got {first:?}"
+    );
+
+    let second = engine
+        .call(slot, "main", &[])
+        .expect("the slot is still live");
+    assert_eq!(
+        second.values,
+        vec![Value::Js(JsValue::Str("answer 2".into()))]
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 /// FINDING 4 (medium) -- `check` accepts a `.qjs` script `execute` cannot load.

@@ -374,9 +374,15 @@ pub enum QjswasmError {
     Trap(tinyvm::WasmError),
     /// A core budget was exhausted.
     Budget(&'static str),
-    /// A contract at the host boundary was violated by the guest: one of the
-    /// `agenterm.*` door's rules, or -- for a `.qjs` guest -- the V1 calling
-    /// convention its entry point is compiled to speak.
+    /// A contract at the host boundary was violated: one of the `agenterm.*`
+    /// door's rules, or -- for a `.qjs` guest -- the V1 calling convention its
+    /// entry point is compiled to speak.
+    ///
+    /// Usually the guest broke it. Not always: an embedder's fleet bridge that
+    /// panics is the *host* side failing, and it is reported here rather than
+    /// as a trap, because the guest did nothing wrong and rather than as an
+    /// `Err` status, because "the capability is broken" is not the same answer
+    /// as "the capability said no" (see `src/host.rs`).
     Door(String),
     /// The slot does not exist, or was killed.
     NoSuchSlot(SlotId),
@@ -551,6 +557,23 @@ impl Engine {
     /// still want to inspect. Reclaiming is the caller's decision, via
     /// [`kill`](Self::kill).
     ///
+    /// # A `.qjs` slot whose heap ran out is spent, and says so every time
+    ///
+    /// The one exception to the paragraph above, stated rather than left to be
+    /// discovered. The compiled guest's allocator is a bump pointer that is
+    /// advanced *before* it tries to grow linear memory, so a refused growth
+    /// leaves the pointer past the end of memory. Every later allocation in
+    /// that slot fails too, however small -- and there is no host-side way to
+    /// wind the pointer back, because it is the guest's own global.
+    ///
+    /// What the engine guarantees is that it keeps saying so honestly:
+    /// [`QjswasmError::Budget`]`("max_memory_pages")` on that call and on every
+    /// call after it, never an opaque trap. A caller who sees it should
+    /// [`kill`](Self::kill) the slot and spawn another, or raise
+    /// [`Budget::limits`]`.max_memory_pages` for the new one. Non-allocating
+    /// work in the same slot still runs, which is why the slot is not retired
+    /// automatically: that remains the caller's decision, as it is for a trap.
+    ///
     /// # Budget exhaustion is its own class
     ///
     /// Hitting `max_steps` or `max_call_depth` reports
@@ -578,6 +601,24 @@ impl Engine {
     }
 
     /// Spawn, call, and reclaim. The common path for a one-shot guest.
+    ///
+    /// # The slot is reclaimed even if the call unwinds
+    ///
+    /// "Reclaim" has to hold unconditionally, because the caller never receives
+    /// the [`SlotId`]: a slot leaked here is unreachable for the life of the
+    /// engine while still holding its linear memory, up to
+    /// `max_memory_pages`. A plain `spawn` / `call` / `kill` sequence does not
+    /// hold it -- a panic anywhere inside `call` jumps straight past the
+    /// `kill`.
+    ///
+    /// The panic is re-raised afterwards, unchanged: this is a `finally`, not a
+    /// `catch`. A panic is a bug and swallowing it here would hide it from the
+    /// embedder whose code raised it.
+    ///
+    /// The one panic this crate knows how to provoke -- an embedder's fleet
+    /// bridge -- no longer reaches here, because the door contains it and
+    /// reports [`QjswasmError::Door`] (see `src/host.rs`). This guard is for
+    /// the ones nobody has thought of.
     pub fn run_once(
         &mut self,
         guest: Guest<'_>,
@@ -586,9 +627,13 @@ impl Engine {
         args: &[Value],
     ) -> Result<Outcome, QjswasmError> {
         let id = self.spawn(guest, bridge)?;
-        let out = self.call(id, entry, args);
+        let out =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(id, entry, args)));
         self.kill(id);
-        out
+        match out {
+            Ok(out) => out,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
 
     /// Reclaim a slot. A later [`call`](Self::call) on it reports
