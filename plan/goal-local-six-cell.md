@@ -189,7 +189,7 @@ P1 早于 P2 是刻意的：**两个不确定性不叠加 debug**。VM 装好当
 | 层 | 判据 |
 |----|------|
 | 构建 | 一条命令产出六格全部产品 bin，含 SHA-256 清单；任一格失败必须显式红，不得静默跳过 |
-| 运行时 · CLI | **六格**各自 `agenterm cli --help` 与既有 `cli-smoke` 通过 |
+| 运行时 · CLI | **六格**各自 `agenterm cli --help` 通过，并跑该平台**对应的**既有 smoke（见 §5.16——原文只写 `cli-smoke` 是错的，那是 Windows 专属任务） |
 | 运行时 · 交互 | 除 lnx×x86_64 外的**五格**完成按键→截图闭环；两个 VM 内的格走**带外 VNC** |
 | 诚实性 | 每条证据标注 §5.1 的等级；无标注的模拟结果视为无效证据 |
 
@@ -794,6 +794,47 @@ macOS 1.4M，Linux 4.6M/5.5M；而 `strip = true` 本来就开着，
 unix GUI 栈 vs Win32/GDI。
 
 证据：`~/.local/share/agenterm/evidence/six-cell-*/minicon-practice/`
+
+---
+
+## 5.16 判据自身的一处错误，与一次未通过的 smoke（2026-08-25）
+
+### §5.2 原文引错了任务
+
+原文写「六格各自 `agenterm cli --help` 与既有 **`cli-smoke`** 通过」。
+查了才发现 `cli-smoke` 在 `agenterm.tasks.json` 里是
+`"platforms": ["windows"]`，参数是 `dist/agenterm.exe` / `dist/agenterm.com`——
+**它对 Linux 和 macOS 两族格根本不适用**，这句判据从写下起就无法在四个格上成立。
+
+仓里本来就有分平台的对应任务：
+
+| 平台 | 任务 |
+|------|------|
+| windows | `cli-smoke` |
+| linux | `unix-frontend-linux-smoke`、`control-center-linux-smoke`、`platform-ux-parity-smoke-linux` |
+| macos | `unix-frontend-macos-smoke`、`control-center-macos-smoke`、`platform-ux-parity-smoke-macos` |
+
+判据已改为「跑该平台对应的既有 smoke」。
+
+**这条值得单独记**：判据本身写错，比某一格没跑通更危险——
+一个引用了不存在或不适用之物的判据，永远不会红，只会一直悬着。
+
+### `unix-frontend-macos-smoke` 未通过（实测，未定因）
+
+```
+AGENTERM_NO_ACTIVATE=1 AGENTERM_BOOTSTRAP_TASK=unix-frontend-macos-smoke \
+  ./scripts/bootstrap.sh <gui> <cli> --platform macos
+→ EXIT=3  {"code":"host_hard_timeout","exit_class":"limit",
+           "message":"script worker ... exceeded the host deadline"}
+```
+
+无产物、无残留进程。**未定因**——一个未经验证的假设是：该 smoke 要驱动真实 GUI
+并观察原生焦点，而本会话是后台驱动，拿不到交互式会话（与宿主 `screencapture`
+被 TCC 拒是同一族问题，见 §5.14）。
+
+**不在本 goal 内深挖**：§3 划的边界是只增构建/测试装置、不碰产品语义，
+调一个既有产品 smoke 属于产品侧。记在这里是因为 §3 另一条同样有效——
+**不得静默跳过**。这一格的 CLI smoke 通过，平台 smoke 未通过，两者都要写在脸上。
 
 ---
 
