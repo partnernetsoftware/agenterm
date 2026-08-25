@@ -1034,6 +1034,27 @@ cargo-zigbuild test --release --target aarch64-unknown-linux-gnu.2.28 --no-run \
 **这没有证明的是**：a11y 的断言仍然没有真正跑过，
 所以拆分对它们**仍然缺少正面验证**。已确立的只是「它没有引入这个失败」。
 
+### 补记：那个环境缺口已补上，拆分现在有正面验证了
+
+套件需要一条 **D-Bus 会话总线**。guest 里有 system bus，也有 X 会话自己的 bus，
+但**经 ssh 启动的进程两条都继承不到**。把套件放进 `dbus-run-session` 跑，
+at-spi-bus-launcher 被 dbus 激活、SpiRegistry 认领 `org.a11y.atspi.Registry`：
+
+```
+DISPLAY=:0 dbus-run-session -- ./mc-tests/minicon_accessibility_linux
+→ SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+→ test result: ok. 1 passed   (0.13 s，复跑两次一致)
+```
+
+**`real_atspi_tree_edits_command_and_activates_send` 带着 SEND/NEWLINE 拆分通过了。**
+上面那句「仍缺正面验证」到此关闭——而且是在**唯一测这个控件、且构建宿主根本跑不了**的那个测试上。
+
+**先出错的是我的检查，不是被检查的东西。** 烧死路径处那份二进制与宿主构建的 sha 不一致，
+看起来像是「这个 PASS 报错了对象」。我第一次去证实时用 `strings` 搜 `^NEWLINE$`——什么也没搜到。
+但 Rust 字面量在 `.rodata` 里是**连成一片**的，锚定匹配本来就命不中。
+去掉锚点，标记就在那里：`enzhPASTE FAILEDNEWLINESEND TO @`。
+被测的确实是带改动的二进制；sha 差异来自宿主后来重建过，不是源码不同。
+
 证据：`~/.local/share/agenterm/evidence/six-cell-*/minicon-cross-tests/`
 
 ---
