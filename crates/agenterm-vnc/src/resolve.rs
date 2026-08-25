@@ -43,8 +43,7 @@ pub(crate) fn resolve(host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>>
 /// A bare `m4pro` is included: macOS presents Bonjour hosts under a short name
 /// too, and appending `.local` is what the system resolver would have done.
 fn is_mdns_name(host: &str) -> bool {
-    host.parse::<std::net::IpAddr>().is_err()
-        && (host.ends_with(".local") || !host.contains('.'))
+    host.parse::<std::net::IpAddr>().is_err() && (host.ends_with(".local") || !host.contains('.'))
 }
 
 /// Ask macOS's own resolver, which answers from the Bonjour cache.

@@ -200,9 +200,7 @@ impl VncInner {
                     },
                     1,
                 ),
-                X11Event::RefreshRegion(rect) => {
-                    ClientMsg::FramebufferUpdateRequest(rect, 1)
-                }
+                X11Event::RefreshRegion(rect) => ClientMsg::FramebufferUpdateRequest(rect, 1),
                 X11Event::FullRefresh => ClientMsg::FramebufferUpdateRequest(
                     Rect {
                         x: 0,

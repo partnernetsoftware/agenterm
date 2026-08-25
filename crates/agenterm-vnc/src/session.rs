@@ -49,8 +49,15 @@ const MAX_INFLIGHT_REQUESTS: u32 = 4;
 
 /// Commands the handle sends to the session task.
 enum Command {
-    Pointer { x: u16, y: u16, buttons: u8 },
-    Key { keysym: u32, down: bool },
+    Pointer {
+        x: u16,
+        y: u16,
+        buttons: u8,
+    },
+    Key {
+        keysym: u32,
+        down: bool,
+    },
     /// Force a non-incremental update, e.g. when the UI reattaches.
     FullRefresh,
     Disconnect(oneshot::Sender<()>),
@@ -124,7 +131,11 @@ impl SessionHandle {
 
     /// Send a pointer position and button mask to the server.
     pub fn send_mouse(&self, x: u16, y: u16, buttons: MouseButtons) -> Result<(), VncError> {
-        self.dispatch(Command::Pointer { x, y, buttons: buttons.bits() })
+        self.dispatch(Command::Pointer {
+            x,
+            y,
+            buttons: buttons.bits(),
+        })
     }
 
     /// Send an X11 keysym press or release.
@@ -150,7 +161,9 @@ impl SessionHandle {
     }
 
     fn dispatch(&self, command: Command) -> Result<(), VncError> {
-        self.commands.try_send(command).map_err(|_| VncError::Disconnected)
+        self.commands
+            .try_send(command)
+            .map_err(|_| VncError::Disconnected)
     }
 }
 
@@ -173,21 +186,29 @@ pub async fn connect(
     preflight::probe(&address, credentials)
         .await
         .map_err(|error| match error {
-        PreflightError::NotRfb => VncError::NotRfbServer { address: address.clone() },
-        PreflightError::Rejected(reason) => VncError::Rejected(reason),
-        PreflightError::UnsupportedSecurity(types) => VncError::UnsupportedSecurity(types),
-        PreflightError::PasswordNotAccepted => VncError::PasswordNotAccepted,
-        PreflightError::PasswordRequired => VncError::PasswordRequired,
-        PreflightError::UsernameNotAccepted => VncError::UsernameNotAccepted,
-        PreflightError::UsernameRequired => VncError::UsernameRequired,
-        PreflightError::Io(reason) => VncError::Handshake(reason),
+            PreflightError::NotRfb => VncError::NotRfbServer {
+                address: address.clone(),
+            },
+            PreflightError::Rejected(reason) => VncError::Rejected(reason),
+            PreflightError::UnsupportedSecurity(types) => VncError::UnsupportedSecurity(types),
+            PreflightError::PasswordNotAccepted => VncError::PasswordNotAccepted,
+            PreflightError::PasswordRequired => VncError::PasswordRequired,
+            PreflightError::UsernameNotAccepted => VncError::UsernameNotAccepted,
+            PreflightError::UsernameRequired => VncError::UsernameRequired,
+            PreflightError::Io(reason) => VncError::Handshake(reason),
         })?;
 
-    let targets = resolve::resolve(&options.host, options.port)
-        .map_err(|source| VncError::Connect { address: address.clone(), source })?;
+    let targets =
+        resolve::resolve(&options.host, options.port).map_err(|source| VncError::Connect {
+            address: address.clone(),
+            source,
+        })?;
     let stream = tokio::net::TcpStream::connect(&targets[..])
         .await
-        .map_err(|source| VncError::Connect { address: address.clone(), source })?;
+        .map_err(|source| VncError::Connect {
+            address: address.clone(),
+            source,
+        })?;
     // Nagle batches small writes, which is exactly wrong for input events:
     // a click would wait behind the delayed-ack timer.
     let _ = stream.set_nodelay(true);
@@ -209,8 +230,8 @@ pub async fn connect(
         ],
     };
 
-    let mut connector = VncConnector::new(stream)
-        .set_auth_method(async move { Ok(password.unwrap_or_default()) });
+    let mut connector =
+        VncConnector::new(stream).set_auth_method(async move { Ok(password.unwrap_or_default()) });
     for encoding in encodings {
         connector = connector.add_encoding(*encoding);
     }
@@ -274,7 +295,13 @@ pub async fn connect(
         Arc::clone(&alive),
     ));
 
-    Ok((SessionHandle { commands: command_tx, alive }, frame_rx))
+    Ok((
+        SessionHandle {
+            commands: command_tx,
+            alive,
+        },
+        frame_rx,
+    ))
 }
 
 async fn run_session(
@@ -425,11 +452,7 @@ async fn run_session(
 /// Hand the pending region to the consumer, if there is one and it will take it.
 ///
 /// Returns false only when the consumer is gone, which ends the session.
-fn emit(
-    frames: &mpsc::Sender<Frame>,
-    framebuffer: &Framebuffer,
-    dirty: &mut Vec<Rect>,
-) -> bool {
+fn emit(frames: &mpsc::Sender<Frame>, framebuffer: &Framebuffer, dirty: &mut Vec<Rect>) -> bool {
     if framebuffer.width() == 0 {
         return true;
     }
@@ -453,7 +476,12 @@ fn emit(
         rgba.extend_from_slice(&framebuffer.region_rgba(*region));
     }
 
-    let frame = Frame { width: framebuffer.width(), height: framebuffer.height(), tiles, rgba };
+    let frame = Frame {
+        width: framebuffer.width(),
+        height: framebuffer.height(),
+        tiles,
+        rgba,
+    };
     // A full channel keeps the rects pending rather than dropping them: unlike
     // a whole-surface frame, dropped rects would leave those pixels stale
     // forever, because nothing later redraws what the server already sent.
@@ -511,11 +539,13 @@ fn accumulate(dirty: &mut Vec<Rect>, changed: Rect) {
         // The consumer is not keeping up. Folding everything into one box is a
         // deliberate last resort: it costs bandwidth, never correctness, and
         // only happens when the alternative is unbounded growth.
-        let all = dirty.drain(..).reduce(union).expect("the list is not empty");
+        let all = dirty
+            .drain(..)
+            .reduce(union)
+            .expect("the list is not empty");
         dirty.push(all);
     }
 }
-
 
 /// Fold one protocol event into the surface, returning the region it touched.
 fn apply_event(
@@ -586,9 +616,12 @@ fn decode_jpeg(data: &[u8]) -> Option<Vec<u8>> {
     let pixels = decoder.decode().ok()?;
     match decoder.info()?.pixel_format {
         jpeg_decoder::PixelFormat::RGB24 => Some(pixels),
-        jpeg_decoder::PixelFormat::L8 => {
-            Some(pixels.iter().flat_map(|&value| [value, value, value]).collect())
-        }
+        jpeg_decoder::PixelFormat::L8 => Some(
+            pixels
+                .iter()
+                .flat_map(|&value| [value, value, value])
+                .collect(),
+        ),
         // CMYK and 16-bit grayscale do not occur in RFB Tight streams; a
         // future server that sends one gets a skipped rect, not garbage.
         _ => None,
@@ -601,9 +634,19 @@ fn union(a: Rect, b: Rect) -> Rect {
     let y = a.y.min(b.y);
     let right = (a.x + a.width).max(b.x + b.width);
     let bottom = (a.y + a.height).max(b.y + b.height);
-    Rect { x, y, width: right - x, height: bottom - y }
+    Rect {
+        x,
+        y,
+        width: right - x,
+        height: bottom - y,
+    }
 }
 
 fn convert_rect(rect: vnc::Rect) -> Rect {
-    Rect { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
 }

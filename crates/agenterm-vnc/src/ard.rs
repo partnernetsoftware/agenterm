@@ -43,8 +43,14 @@ pub struct ArdResponse {
 impl std::fmt::Debug for ArdResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArdResponse")
-            .field("ciphertext", &format_args!("<{} bytes redacted>", self.ciphertext.len()))
-            .field("public_key", &format_args!("<{} bytes>", self.public_key.len()))
+            .field(
+                "ciphertext",
+                &format_args!("<{} bytes redacted>", self.ciphertext.len()),
+            )
+            .field(
+                "public_key",
+                &format_args!("<{} bytes>", self.public_key.len()),
+            )
             .finish()
     }
 }
@@ -73,7 +79,9 @@ pub fn respond(
 ) -> Result<ArdResponse, ArdError> {
     let key_length = prime.len();
     if key_length == 0 {
-        return Err(ArdError::BadParameters("the server sent an empty prime modulus"));
+        return Err(ArdError::BadParameters(
+            "the server sent an empty prime modulus",
+        ));
     }
     if server_public_key.len() != key_length {
         return Err(ArdError::BadParameters(
@@ -111,7 +119,10 @@ pub fn respond(
         chunk.copy_from_slice(&block.0);
     }
 
-    Ok(ArdResponse { ciphertext: ciphertext.to_vec(), public_key: public })
+    Ok(ArdResponse {
+        ciphertext: ciphertext.to_vec(),
+        public_key: public,
+    })
 }
 
 /// Lay the credentials into the fixed 128-byte block.

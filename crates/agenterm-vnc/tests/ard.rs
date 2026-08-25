@@ -39,8 +39,16 @@ fn matches_an_independent_implementation() {
     )
     .expect("a well-formed exchange");
 
-    assert_eq!(response.ciphertext, unhex(EXPECTED_CIPHERTEXT), "ciphertext");
-    assert_eq!(response.public_key, unhex(EXPECTED_PUBLIC), "client public key");
+    assert_eq!(
+        response.ciphertext,
+        unhex(EXPECTED_CIPHERTEXT),
+        "ciphertext"
+    );
+    assert_eq!(
+        response.public_key,
+        unhex(EXPECTED_PUBLIC),
+        "client public key"
+    );
 }
 
 #[test]
@@ -88,5 +96,8 @@ fn a_mismatched_server_key_length_is_refused() {
         "hunter2",
         fixed_padding(),
     );
-    assert!(matches!(result, Err(ArdError::BadParameters(_))), "got {result:?}");
+    assert!(
+        matches!(result, Err(ArdError::BadParameters(_))),
+        "got {result:?}"
+    );
 }

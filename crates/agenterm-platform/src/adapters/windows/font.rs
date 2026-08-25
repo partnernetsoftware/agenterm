@@ -880,7 +880,10 @@ mod tests {
             let report = primary_face_report(size).expect("report");
             let metrics = primary_metrics(size).expect("metrics");
             assert_eq!(report.cell_width, metrics.cell_width as u32, "at {size}px");
-            assert_eq!(report.cell_height, metrics.cell_height as u32, "at {size}px");
+            assert_eq!(
+                report.cell_height, metrics.cell_height as u32,
+                "at {size}px"
+            );
             assert_eq!(
                 report.face,
                 rasterizer_name().unwrap_or_default(),

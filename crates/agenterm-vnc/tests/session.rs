@@ -35,13 +35,17 @@ fn serve_one(width: u16, height: u16) -> (u16, std::thread::JoinHandle<Vec<u8>>)
         // ProtocolVersion handshake.
         stream.write_all(b"RFB 003.008\n").expect("version");
         let mut client_version = [0u8; 12];
-        stream.read_exact(&mut client_version).expect("client version");
+        stream
+            .read_exact(&mut client_version)
+            .expect("client version");
 
         // Security: offer only `None`, then accept whatever the client picks.
         stream.write_all(&[1, 1]).expect("security list");
         let mut chosen = [0u8; 1];
         stream.read_exact(&mut chosen).expect("chosen security");
-        stream.write_all(&0u32.to_be_bytes()).expect("security result");
+        stream
+            .write_all(&0u32.to_be_bytes())
+            .expect("security result");
 
         // ClientInit (shared flag), then ServerInit.
         let mut shared = [0u8; 1];
@@ -120,10 +124,14 @@ fn read_until_update_request(stream: &mut TcpStream) {
             // SetEncodings: 1 padding, u16 count, then count i32s.
             2 => {
                 let mut header = [0u8; 3];
-                stream.read_exact(&mut header).expect("set encodings header");
+                stream
+                    .read_exact(&mut header)
+                    .expect("set encodings header");
                 let count = u16::from_be_bytes([header[1], header[2]]);
                 let mut encodings = vec![0u8; count as usize * 4];
-                stream.read_exact(&mut encodings).expect("set encodings body");
+                stream
+                    .read_exact(&mut encodings)
+                    .expect("set encodings body");
             }
             // FramebufferUpdateRequest: incremental + 4 u16s.
             3 => {
@@ -159,7 +167,10 @@ fn a_session_delivers_composited_frames_and_forwards_input() {
         // The first frame must already carry pixels: a resize alone must not
         // publish a blank surface, which the UI would show as a black flash.
         assert!(
-            frame.rgba.chunks_exact(4).any(|pixel| pixel[..3] != [0, 0, 0]),
+            frame
+                .rgba
+                .chunks_exact(4)
+                .any(|pixel| pixel[..3] != [0, 0, 0]),
             "the first frame should contain painted pixels, not just a resize"
         );
         assert_eq!((frame.width, frame.height), (4, 2), "full screen size");
@@ -173,7 +184,9 @@ fn a_session_delivers_composited_frames_and_forwards_input() {
         // The server sent BGRA red; the frame must expose it as RGBA red.
         assert_eq!(&frame.rgba[0..4], &[0xff, 0x00, 0x00, 0xff]);
 
-        session.send_mouse(2, 1, MouseButtons::LEFT).expect("send mouse");
+        session
+            .send_mouse(2, 1, MouseButtons::LEFT)
+            .expect("send mouse");
         // Give the session task a moment to flush the pointer event.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         session.disconnect().await;
@@ -241,9 +254,13 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[test]
 fn a_non_rfb_server_is_rejected_rather_than_dialled() {
     let port = serve_non_rfb(b"SSH-2.0-OpenSSH_9.0\r\n");
-    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
-        .err()
-        .expect("a non-RFB greeting must fail");
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new(
+        "127.0.0.1",
+        port,
+        None,
+    )))
+    .err()
+    .expect("a non-RFB greeting must fail");
     assert!(
         matches!(error, agenterm_vnc::VncError::NotRfbServer { .. }),
         "expected NotRfbServer, got {error:?}"
@@ -256,10 +273,17 @@ fn an_apple_remote_management_server_asks_for_a_username() {
     // a username, so connecting without one must say exactly that rather than
     // failing as a generic bad password.
     let port = serve_security_types(&[30]);
-    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
-        .err()
-        .expect("an ARD-only server needs a username");
-    assert!(matches!(error, agenterm_vnc::VncError::UsernameRequired), "got {error:?}");
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new(
+        "127.0.0.1",
+        port,
+        None,
+    )))
+    .err()
+    .expect("an ARD-only server needs a username");
+    assert!(
+        matches!(error, agenterm_vnc::VncError::UsernameRequired),
+        "got {error:?}"
+    );
     assert!(error.to_string().contains("username"), "got: {error}");
 }
 
@@ -269,8 +293,13 @@ fn a_username_is_refused_when_the_server_has_no_use_for_one() {
     let port = serve_security_types(&[2]);
     let mut options = ConnectOptions::new("127.0.0.1", port, Some("secret".into()));
     options.username = Some("admin".into());
-    let error = block_on(agenterm_vnc::connect(options)).err().expect("must fail");
-    assert!(matches!(error, agenterm_vnc::VncError::UsernameNotAccepted), "got {error:?}");
+    let error = block_on(agenterm_vnc::connect(options))
+        .err()
+        .expect("must fail");
+    assert!(
+        matches!(error, agenterm_vnc::VncError::UsernameNotAccepted),
+        "got {error:?}"
+    );
 }
 
 #[test]
@@ -283,16 +312,26 @@ fn a_password_is_refused_when_the_server_wants_none() {
     )))
     .err()
     .expect("offering a password to a None-only server must fail");
-    assert!(matches!(error, agenterm_vnc::VncError::PasswordNotAccepted), "got {error:?}");
+    assert!(
+        matches!(error, agenterm_vnc::VncError::PasswordNotAccepted),
+        "got {error:?}"
+    );
 }
 
 #[test]
 fn a_missing_password_is_reported_before_the_handshake_stalls() {
     let port = serve_security_types(&[2]);
-    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
-        .err()
-        .expect("a VncAuth-only server needs a password");
-    assert!(matches!(error, agenterm_vnc::VncError::PasswordRequired), "got {error:?}");
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new(
+        "127.0.0.1",
+        port,
+        None,
+    )))
+    .err()
+    .expect("a VncAuth-only server needs a password");
+    assert!(
+        matches!(error, agenterm_vnc::VncError::PasswordRequired),
+        "got {error:?}"
+    );
 }
 
 /// Serve a greeting with an arbitrary version banner and security list.
@@ -319,11 +358,18 @@ fn apples_nonstandard_version_is_read_as_three_eight() {
     // dictates the security type, so it never picks one and the handshake
     // stalls -- the "handshake failed" a real Mac produced.
     let port = serve_banner(b"RFB 003.889\n", &[30]);
-    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
-        .err()
-        .expect("no username was supplied");
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new(
+        "127.0.0.1",
+        port,
+        None,
+    )))
+    .err()
+    .expect("no username was supplied");
     // Reaching the credential check at all proves the 3.8 path was taken.
-    assert!(matches!(error, agenterm_vnc::VncError::UsernameRequired), "got {error:?}");
+    assert!(
+        matches!(error, agenterm_vnc::VncError::UsernameRequired),
+        "got {error:?}"
+    );
 }
 
 #[test]
@@ -332,11 +378,18 @@ fn unknown_security_types_do_not_hide_a_usable_one() {
     // byte as fatal while reading the list meant type 2, late in it, was
     // never reached.
     let port = serve_banner(b"RFB 003.889\n", &[33, 36, 31, 32, 2]);
-    let error = block_on(agenterm_vnc::connect(ConnectOptions::new("127.0.0.1", port, None)))
-        .err()
-        .expect("a password is required");
+    let error = block_on(agenterm_vnc::connect(ConnectOptions::new(
+        "127.0.0.1",
+        port,
+        None,
+    )))
+    .err()
+    .expect("a password is required");
     // VNC Auth was found despite four unknown types ahead of it.
-    assert!(matches!(error, agenterm_vnc::VncError::PasswordRequired), "got {error:?}");
+    assert!(
+        matches!(error, agenterm_vnc::VncError::PasswordRequired),
+        "got {error:?}"
+    );
 }
 
 #[test]
@@ -399,7 +452,9 @@ fn serve_opposite_corners(width: u16, height: u16, tile: u16) -> u16 {
             let _ = probe.read_exact(&mut version);
             let _ = probe.write_all(&[1, 1]);
         }
-        let Ok((mut stream, _)) = listener.accept() else { return };
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
 
         let _ = stream.write_all(b"RFB 003.008\n");
         let mut version = [0u8; 12];
@@ -541,7 +596,9 @@ fn serve_tight_jpeg(width: u16, height: u16) -> u16 {
             let _ = probe.read_exact(&mut version);
             let _ = probe.write_all(&[1, 1]);
         }
-        let Ok((mut stream, _)) = listener.accept() else { return };
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
         let _ = stream.write_all(b"RFB 003.008\n");
         let mut version = [0u8; 12];
         if stream.read_exact(&mut version).is_err() {

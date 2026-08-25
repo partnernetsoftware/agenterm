@@ -47,7 +47,11 @@ impl Framebuffer {
         for chunk in pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
             chunk[3] = 0xff;
         }
-        Self { width, height, pixels }
+        Self {
+            width,
+            height,
+            pixels,
+        }
     }
 
     #[must_use]
@@ -75,7 +79,9 @@ impl Framebuffer {
         let right = (rect.x as usize + rect.width as usize).min(self.width as usize);
         let bottom = (rect.y as usize + rect.height as usize).min(self.height as usize);
         let visible_width = right.saturating_sub(rect.x as usize);
-        let mut out = Vec::with_capacity(visible_width * bottom.saturating_sub(rect.y as usize) * BYTES_PER_PIXEL);
+        let mut out = Vec::with_capacity(
+            visible_width * bottom.saturating_sub(rect.y as usize) * BYTES_PER_PIXEL,
+        );
         for y in rect.y as usize..bottom {
             let start = (y * self.width as usize + rect.x as usize) * BYTES_PER_PIXEL;
             out.extend_from_slice(&self.pixels[start..start + visible_width * BYTES_PER_PIXEL]);

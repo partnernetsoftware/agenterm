@@ -59,9 +59,8 @@ fn take_frame_body(state: &AppState) -> Vec<u8> {
     // Layout: screen width and height, the tile count, then that many tile
     // records of x, y, width, height, and finally every tile's pixels
     // concatenated in the same order.
-    let mut body = Vec::with_capacity(
-        HEADER_LEN + frame.tiles.len() * TILE_RECORD_LEN + frame.rgba.len(),
-    );
+    let mut body =
+        Vec::with_capacity(HEADER_LEN + frame.tiles.len() * TILE_RECORD_LEN + frame.rgba.len());
     body.extend_from_slice(&frame.width.to_le_bytes());
     body.extend_from_slice(&frame.height.to_le_bytes());
     body.extend_from_slice(&(frame.tiles.len() as u32).to_le_bytes());
@@ -88,7 +87,12 @@ fn join(older: agenterm_vnc::Frame, newer: agenterm_vnc::Frame) -> agenterm_vnc:
     }));
     let mut rgba = older.rgba;
     rgba.extend_from_slice(&newer.rgba);
-    agenterm_vnc::Frame { width: newer.width, height: newer.height, tiles, rgba }
+    agenterm_vnc::Frame {
+        width: newer.width,
+        height: newer.height,
+        tiles,
+        rgba,
+    }
 }
 
 /// Screen width, screen height, then the tile count.
@@ -138,7 +142,10 @@ async fn connect(
         .recv()
         .await
         .ok_or_else(|| "the server closed the session before sending a frame".to_string())?;
-    let connected = Connected { width: first.width, height: first.height };
+    let connected = Connected {
+        width: first.width,
+        height: first.height,
+    };
 
     state.session.lock().expect("session lock").replace(session);
 

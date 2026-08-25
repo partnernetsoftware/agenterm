@@ -12,11 +12,7 @@ static CHASSIS: LazyLock<String> = LazyLock::new(|| {
 
 #[test]
 fn split_feedback_ci_has_no_cross_product_cache_or_artifact_authority() {
-    for source in [
-        AGENTERM.as_str(),
-        LIB.as_str(),
-        CHASSIS.as_str(),
-    ] {
+    for source in [AGENTERM.as_str(), LIB.as_str(), CHASSIS.as_str()] {
         assert!(!source.contains("actions/upload-artifact"));
         assert!(!source.contains("actions/download-artifact"));
         assert!(!source.contains("actions/cache"));

@@ -1108,8 +1108,13 @@ mod tests {
         std::fs::write(&path, "return 1 % 2;").expect("write");
         let path = path.to_str().expect("utf-8 path");
 
-        let checked = engine.check(path, &options).expect_err("`%` is not lowered");
-        assert!(checked.contains("this engine does not support"), "{checked}");
+        let checked = engine
+            .check(path, &options)
+            .expect_err("`%` is not lowered");
+        assert!(
+            checked.contains("this engine does not support"),
+            "{checked}"
+        );
         assert!(
             engine.execute(path, &options, None).is_err(),
             "execute must refuse what check refused"

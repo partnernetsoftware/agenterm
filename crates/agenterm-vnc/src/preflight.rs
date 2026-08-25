@@ -15,7 +15,6 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-
 /// What the caller is willing to authenticate with.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Credentials<'a> {
@@ -93,7 +92,11 @@ pub(crate) async fn probe(
     // 3.8 matches what `vnc-rs` negotiates, so the list seen here is the list
     // the real connection will get.
     let minor = parse_minor(&banner);
-    let version: &[u8] = if minor >= 8 { b"RFB 003.008\n" } else { b"RFB 003.003\n" };
+    let version: &[u8] = if minor >= 8 {
+        b"RFB 003.008\n"
+    } else {
+        b"RFB 003.003\n"
+    };
     stream
         .write_all(version)
         .await
@@ -101,7 +104,9 @@ pub(crate) async fn probe(
 
     let types = read_security_types(&mut stream, minor).await?;
     if types.is_empty() {
-        return Err(PreflightError::Rejected("the server offered no security types".into()));
+        return Err(PreflightError::Rejected(
+            "the server offered no security types".into(),
+        ));
     }
 
     let handshake = Handshake {
@@ -155,10 +160,7 @@ fn parse_minor(banner: &[u8; 12]) -> u8 {
 }
 
 /// Read the security-type list, honouring the 3.3 and 3.7+ encodings.
-async fn read_security_types(
-    stream: &mut TcpStream,
-    minor: u8,
-) -> Result<Vec<u8>, PreflightError> {
+async fn read_security_types(stream: &mut TcpStream, minor: u8) -> Result<Vec<u8>, PreflightError> {
     if minor < 7 {
         // RFB 3.3: the server dictates one type as a u32.
         let value = stream
@@ -169,7 +171,9 @@ async fn read_security_types(
             return Err(PreflightError::Rejected(read_reason(stream).await));
         }
         // A u32 that does not fit a security type byte is not RFB.
-        return u8::try_from(value).map(|byte| vec![byte]).map_err(|_| PreflightError::NotRfb);
+        return u8::try_from(value)
+            .map(|byte| vec![byte])
+            .map_err(|_| PreflightError::NotRfb);
     }
 
     let count = stream

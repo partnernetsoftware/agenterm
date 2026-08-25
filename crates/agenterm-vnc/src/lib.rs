@@ -112,7 +112,10 @@ impl MouseButtons {
 #[derive(Debug)]
 pub enum VncError {
     /// The TCP connection itself failed; `address` is host:port as dialed.
-    Connect { address: String, source: std::io::Error },
+    Connect {
+        address: String,
+        source: std::io::Error,
+    },
     /// The RFB handshake, authentication, or stream failed.
     Protocol(vnc::VncError),
     /// Something answered on that port, but it does not speak RFB.
