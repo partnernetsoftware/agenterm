@@ -1422,16 +1422,45 @@ mod tests {
         expected.push(ScriptBackend::Sql);
         #[cfg(feature = "script-wasmcore")]
         expected.push(ScriptBackend::Wasmcore);
+        // Must match `ScriptEngine::all`'s own push order. This arm was missing
+        // until 2026-08-25, so the test failed under `--features
+        // script-qjswasm` -- an enumeration test that does not enumerate the
+        // newest member is worse than none, because it reads as coverage.
+        #[cfg(feature = "script-qjswasm")]
+        expected.push(ScriptBackend::Qjswasm);
         assert_eq!(ids, expected);
     }
 
+    /// Every extension a backend claims must route to that backend -- with one
+    /// documented exception, checked here rather than silently skipped.
+    ///
+    /// `QjswasmEngineBackend` lists `wasm` because it genuinely runs it, while
+    /// `ScriptBackend::from_entry_path` deliberately keeps `.wasm` on
+    /// wasmcore (its doc comment says why: rerouting would take `fd_write`
+    /// away from an existing guest, and PRD 36 marks taking that route as
+    /// excluded). Reaching qjswasm for `.wasm` is an explicit
+    /// `AGENTERM_SCRIPT_BACKEND=qjswasm` decision. The test used to assert the
+    /// unqualified invariant and therefore failed whenever
+    /// `--features script-qjswasm` was on; asserting the exception *by name*
+    /// keeps the invariant sharp for every other pair and makes a second
+    /// exception impossible to add quietly.
     #[test]
     fn script_engine_entry_extensions_match_from_entry_path_for_all() {
         for engine in ScriptEngine::all() {
             for ext in engine.entry_extensions() {
                 let path = format!("script.{ext}");
+                let routed = ScriptBackend::from_entry_path(&path);
+                #[cfg(feature = "script-qjswasm")]
+                if engine.backend_id() == ScriptBackend::Qjswasm && *ext == "wasm" {
+                    assert_ne!(
+                        routed,
+                        ScriptBackend::Qjswasm,
+                        "`.wasm` is documented as NOT routing to qjswasm by default"
+                    );
+                    continue;
+                }
                 assert_eq!(
-                    ScriptBackend::from_entry_path(&path),
+                    routed,
                     engine.backend_id(),
                     "extension {ext} should route to {:?}",
                     engine.backend_id()
