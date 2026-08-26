@@ -278,6 +278,155 @@ fn the_capability_claims_in_this_crates_own_copy() {
     );
 }
 
+/// The array half of the same lock, added when the README grew an array
+/// section it did not have a test for.
+///
+/// Split into its own function only because the one above was already long;
+/// it is the same gate and the same reason. Every claim here is one this
+/// crate's README makes **in agenterm's voice**, and the evidence rule is that
+/// such a claim is locked by a test in this crate rather than by a reading of
+/// upstream's suite -- upstream can be right and this README still be stale,
+/// which is exactly the drift the rule exists to catch.
+///
+/// Each returns a scalar, because `Value` has no Array variant: an array is a
+/// guest heap reference this face cannot carry, which is itself one of the
+/// README's claims and is asserted at the end.
+#[test]
+fn the_array_claims_in_this_crates_own_copy() {
+    // "字面量、`a[i]` 读写、`a.length`、任意嵌套、与对象互相嵌套"
+    assert_eq!(returns("return [1, 2, 3].length;"), JsValue::Number(3.0));
+    assert_eq!(returns("return [10, 20, 30][1];"), JsValue::Number(20.0));
+    assert_eq!(
+        returns("let a = [1, 2]; a[0] = 9; return a[0];"),
+        JsValue::Number(9.0)
+    );
+    assert_eq!(
+        returns("return [[1, 2], [3, 4]][1][0];"),
+        JsValue::Number(3.0)
+    );
+    assert_eq!(returns("return [{ a: 7 }][0].a;"), JsValue::Number(7.0));
+    assert_eq!(returns("return { a: [1, 2] }.a[1];"), JsValue::Number(2.0));
+
+    // "越界读是 `undefined` 不是 fault"
+    assert_eq!(returns("return [1, 2][5];"), JsValue::Undefined);
+    assert_eq!(returns("return [][0];"), JsValue::Undefined);
+
+    // "越界写把中间补成 `undefined` 而不是 hole"
+    assert_eq!(
+        returns("let a = [1]; a[3] = 9; return a.length;"),
+        JsValue::Number(4.0)
+    );
+    assert_eq!(
+        returns("let a = [1]; a[3] = 9; return a[2];"),
+        JsValue::Undefined
+    );
+
+    // "`typeof []` 是 `\"object\"`，`[]` 是真值，`===` 是引用相等"
+    assert_eq!(returns("return typeof [];"), JsValue::Str("object".into()));
+    assert_eq!(
+        returns("if ([]) { return true; } return false;"),
+        JsValue::Bool(true)
+    );
+    assert_eq!(returns("let a = [1]; return a === a;"), JsValue::Bool(true));
+    assert_eq!(
+        returns("let a = [1]; let b = [1]; return a === b;"),
+        JsValue::Bool(false)
+    );
+
+    // "字符串 key 不是索引" -- the named divergence from ECMA-262 10.4.2.1.
+    assert_eq!(returns("return [10, 20][\"0\"];"), JsValue::Undefined);
+
+    // "没有任何数组方法" -- absent at run time, not a compile diagnostic.
+    assert_eq!(returns("return [1, 2].map;"), JsValue::Undefined);
+    assert_eq!(returns("return [1, 2].push;"), JsValue::Undefined);
+
+    // "含数组的 JSON 现在也行"
+    assert_eq!(
+        returns("return JSON.parse(\"[1,2,3]\")[1];"),
+        JsValue::Number(2.0)
+    );
+    assert_eq!(
+        returns("return JSON.stringify([1, [2, { c: 3 }]]);"),
+        JsValue::Str("[1,[2,{\"c\":3}]]".into())
+    );
+    // The shape `tabs.list` actually answers with.
+    assert_eq!(
+        returns("return JSON.parse(\"[{\\\"id\\\":\\\"tab1\\\"}]\")[0].id;"),
+        JsValue::Str("tab1".into())
+    );
+    // "`[undefined,1]` 是 `[null,1]` 而 `{a:undefined,b:1}` 是 `{\"b\":1}`"
+    assert_eq!(
+        returns("return JSON.stringify([undefined, 1]);"),
+        JsValue::Str("[null,1]".into())
+    );
+    assert_eq!(
+        returns("return JSON.stringify({ a: undefined, b: 1 });"),
+        JsValue::Str("{\"b\":1}".into())
+    );
+    // "自引用数组和自引用对象一样是可 catch 的 TypeError"
+    assert_eq!(
+        returns(
+            "let a = [1]; a[1] = a; let n = 0; \
+             try { JSON.stringify(a); } catch (e) { n = 1; } return n;"
+        ),
+        JsValue::Number(1.0)
+    );
+}
+
+/// The two array claims the README states as **traps**, which the corpus above
+/// cannot hold because a trap is not a returned value.
+///
+/// Both are deliberate answers and not accidents, so both are pinned: a
+/// dropped write and a fabricated method result are each a wrong answer that
+/// looks like a right one, which is the failure this engine refuses.
+#[test]
+fn the_array_claims_that_are_traps() {
+    for source in [
+        // "非索引属性写会 trap"
+        "let a = [1]; a.foo = 2; return 0;",
+        "let a = [1]; a.length = 0; return 0;",
+        // "调用它 trap" -- an absent method read as `undefined`, then called.
+        "return [1, 2].map(1);",
+    ] {
+        let mut eng = engine();
+        let err = eng
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .expect_err("this is one of the README's trap claims");
+        assert!(
+            matches!(err, QjswasmError::Trap(_)),
+            "{source:?}: expected a trap, got {err:?}"
+        );
+    }
+}
+
+/// An Array cannot leave through this crate's face, and the refusal names what
+/// it cannot carry.
+///
+/// The same answer an Object gets, for the same reason -- the payload is a
+/// guest heap reference the host has no layout for and no way to keep alive --
+/// and it is upstream's `Value` that has no variant, not this crate's. Pinned
+/// here because the README says so in agenterm's voice.
+#[test]
+fn an_array_does_not_cross_this_crates_face() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(Guest::Qjs("return [1];"), None, "main", &[])
+        .expect_err("an Array has no host-side variant");
+    match &err {
+        // The exact sentence, not a `contains`. Writing this test is what
+        // found that upstream had added the tag without adding the arm that
+        // names it, so a host was told "V1: unknown tag 7" -- which reads as
+        // an engine defect and says nothing about what to do instead. Fixed
+        // upstream at `577af37`; an equality here is what keeps it fixed.
+        QjswasmError::Door(text) => assert_eq!(
+            text,
+            "the `.qjs` entry point returned V1: an Array is a guest heap \
+             reference; `Value` has no variant for one yet"
+        ),
+        other => panic!("expected a door error, got {other:?}"),
+    }
+}
+
 /// Numbers are ECMA-262 binary64, and the seam reports them as such.
 ///
 /// This assertion is the *opposite* of the one M0 shipped here, which asserted

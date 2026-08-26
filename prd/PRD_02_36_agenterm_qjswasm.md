@@ -883,8 +883,10 @@ agenterm-qjswasm                                        [~]
 │   ├── 缺席 import 不阻止装载                                [x]
 │   ├── 两套调用约定同存（wasm 数值 / V1 pair），装载时定死    [x]
 │   ├── JS 值投影成宿主数据（字符串在槽死前读出）              [x]
-│   ├── 对象当 completion value 出来                          [–] 上游 repr::host_decode 的事，
-│   │                                                            且不挡任何门（见 §门 1 作废）
+│   ├── 对象/数组当 completion value 出来                     [–] 上游 repr::host_decode 的事，
+│   │                                                            且不挡任何门（见 §门 1 作废）；
+│   │                                                            两者现在都**具名**拒绝，不是
+│   │                                                            "unknown tag"（577af37）
 │   ├── 未捕获 throw 与裸 trap 分开报                          [x] 2026-08-25 读 guest_fault()
 │   └── 约定不匹配 → UnsupportedValue，不按位重解释            [x]
 │
@@ -901,6 +903,7 @@ agenterm-qjswasm                                        [~]
 │   ├── fleet.js 等价物跑通                                 [x] 2026-08-25 门 1 全绿
 │   │   ├── 带参宿主调用（本仓这一半）                          [x] 2026-08-25
 │   │   ├── 对象 / 属性 / 函数值 / try / JSON / `?:`           [x] rev f21f0f2
+│   │   ├── 数组：字面量 / `a[i]` / `.length` / JSON 收发       [x] rev 048bcf2
 │   │   ├── `script check scripts/qjs/lib/fleet.qjs` 答 OK    [x] 走产品自己的 CLI
 │   │   ├── fleet.qjs 是 29/29 完整移植，拒绝时 throw          [x] 曾是 8/29
 │   │   ├── 验收测试读真文件 + driver（非缩略版）              [x] 照 eval_fleet_module

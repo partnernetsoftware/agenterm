@@ -6053,7 +6053,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "tinyvm"
 version = "0.1.0"
-source = "git+https://github.com/partnernetsoftware/tinyvm?rev=048bcf2#048bcf21de60bc040c5ad76fabddabd039d058bd"
+source = "git+https://github.com/partnernetsoftware/tinyvm?rev=577af37#577af377799c4be16bfbc0dfd61c9964577e2024"
 dependencies = [
  "libm",
 ]
@@ -6061,7 +6061,7 @@ dependencies = [
 [[package]]
 name = "tinyvm-qjs"
 version = "0.1.0"
-source = "git+https://github.com/partnernetsoftware/tinyvm?rev=048bcf2#048bcf21de60bc040c5ad76fabddabd039d058bd"
+source = "git+https://github.com/partnernetsoftware/tinyvm?rev=577af37#577af377799c4be16bfbc0dfd61c9964577e2024"
 dependencies = [
  "tinyvm",
 ]
