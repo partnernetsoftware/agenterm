@@ -1773,19 +1773,48 @@ fn run_script_command_with_context(
                     );
                     return 3;
                 }
-                // Path-carrying backends (currently only wasmcore's compiled
-                // `.wasm` guests) get the canonical path itself as `source`,
-                // not decoded file content: `WasmcoreEngineBackend::check`/
-                // `execute` (src/script_engine.rs) already treat `source` as
-                // a filesystem path (`std::fs::read(source)`), and a real
-                // compiled wasm binary is never valid UTF-8 text, so the
-                // ordinary content-decoding branch below can never succeed
-                // for it regardless of the source-byte budget. Every text
-                // engine (rh/lua/qjs/sql) is unaffected: `from_entry_path`
-                // only returns the wasmcore variant for a `.wasm` entry.
-                if crate::script_backend::ScriptBackend::from_entry_path(path).as_str()
-                    == "wasmcore"
-                {
+                // Path-carrying backends get the canonical path itself as
+                // `source` rather than decoded file content, because
+                // `WasmcoreEngineBackend::check`/`execute`
+                // (`src/script_engine.rs`) treat `source` as a filesystem path
+                // (`std::fs::read(source)`), and a compiled wasm binary is
+                // never valid UTF-8 so the content branch below could not
+                // serve it anyway.
+                //
+                // # The predicate is the selected backend, and it used to be
+                // the extension
+                //
+                // It read `from_entry_path(path) == "wasmcore"` and carried
+                // the claim "Every text engine (rh/lua/qjs/sql) is unaffected:
+                // `from_entry_path` only returns the wasmcore variant for a
+                // `.wasm` entry". The first half is true about which *branch*
+                // is taken. It does not follow, because the branch does not
+                // choose the engine -- routing is `AGENTERM_SCRIPT_BACKEND`
+                // and nothing else -- so a `.wasm` entry handed the path to
+                // whichever engine was selected. Measured 2026-08-26 on a real
+                // 9 785-byte module:
+                //
+                //   rh        rh parse error: Unexpected '/' (line 1, position 1)
+                //   lua       lua_parse: syntax error …
+                //   qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
+                //
+                // Every one of them was parsing the *path* as a program. That
+                // is the same `source`-as-path defect
+                // `QjswasmEngineBackend::execute` documents having fixed in
+                // itself, reintroduced one layer up.
+                //
+                // Keyed on the backend that will actually run it, a `.wasm`
+                // under any other engine now falls to the content branch and
+                // gets `not UTF-8` plus `non_text_script_hint`, which says
+                // this door carries text. That is the true answer.
+                let source_is_a_path = {
+                    use crate::script_engine::ScriptEngineBackend as _;
+                    crate::script_engine::engine_for(
+                        crate::script_backend::ScriptBackend::from_env(),
+                    )
+                    .source_is_a_path()
+                };
+                if source_is_a_path {
                     (
                         canonical.display().to_string(),
                         canonical.display().to_string(),
@@ -1801,7 +1830,10 @@ fn run_script_command_with_context(
                     match read_script_source(file, budgets.source_bytes) {
                         Ok(source) => (canonical.display().to_string(), source),
                         Err((code, error)) => {
-                            cli_eprintln!("failed to read script {path}: {error}");
+                            cli_eprintln!(
+                                "failed to read script {path}: {error}{}",
+                                non_text_script_hint(&error)
+                            );
                             return code;
                         }
                     }
@@ -3496,6 +3528,37 @@ fn report_audit_error(message: String) -> i32 {
     1
 }
 
+/// The sentence that turns "not UTF-8" into an answer.
+///
+/// This whole surface reads a script with `read_script_source`, which returns
+/// a `String`; every engine's `check` and `execute` take `&str`. So a `.wasm`
+/// module cannot reach an engine through here at all, and what a caller who
+/// tries actually sees is `script source is not UTF-8` -- true, and it reads
+/// as "your file is corrupt" when the answer is "this door carries text".
+///
+/// Measured 2026-08-26: `AGENTERM_SCRIPT_BACKEND=wasmcore agenterm cli script
+/// check FILE.wasm` on a real 9 785-byte module fails here, before the
+/// backend is called. That is why `agenterm-wasmcore`'s `check` reading
+/// `source` as a *path* -- which it does -- has never been observable from
+/// this surface: nothing gets that far.
+///
+/// The hint is appended rather than replacing the error, because the encoding
+/// fact is still the proximate cause and a caller with a genuinely mangled
+/// text file needs to see it.
+fn non_text_script_hint(error: &str) -> String {
+    if !error.contains("not UTF-8") {
+        return String::new();
+    }
+    let backend = crate::script_backend::ScriptBackend::from_env();
+    format!(
+        "\n  `agenterm cli script` carries script *text*: it reads the file as UTF-8 and \
+         hands engines a `&str`. A compiled `.wasm` module has no route through this verb \
+         on any engine, {} included. Build it from source with `script run FILE.qjs`, or \
+         use the engine's own library API for a module.",
+        backend.as_str()
+    )
+}
+
 fn read_script_source(
     reader: impl Read,
     limit: usize,
@@ -4331,8 +4394,9 @@ fn print_mux_compatibility(json: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        HostedSubcommand, hosted_subcommand, normalize_script_source, parse_loopback_ipc_address,
-        parse_terminal_grid, run_wait_ui, script_worker_executable, validate_fleet_parameters,
+        HostedSubcommand, hosted_subcommand, non_text_script_hint, normalize_script_source,
+        parse_loopback_ipc_address, parse_terminal_grid, run_wait_ui, script_worker_executable,
+        validate_fleet_parameters,
     };
 
     /// Every `value_type` the catalog declares must have a real arm in the
@@ -4462,6 +4526,71 @@ mod tests {
         assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
         assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
         assert!(source.ends_with("; 0 }"));
+    }
+
+    /// Exactly one engine reads `source` as a path, and the CLI's branch asks
+    /// the engine rather than the file extension.
+    ///
+    /// This is the invariant a live defect violated. The branch keyed on
+    /// `from_entry_path(path) == "wasmcore"` and carried the claim that every
+    /// text engine was unaffected because only `.wasm` routes to wasmcore.
+    /// True about which branch is taken, and beside the point: routing is
+    /// `AGENTERM_SCRIPT_BACKEND` and nothing else, so a `.wasm` entry handed
+    /// the path to whichever engine was selected. Measured on a real module,
+    /// rh answered `rh parse error: Unexpected '/' (line 1, position 1)` --
+    /// parsing the path as a program. lua and qjswasm did the same in their
+    /// own dialects.
+    ///
+    /// So the property belongs to the engine and is asserted here as one:
+    /// exactly one `true`, and it is the engine whose `check` really does
+    /// `std::fs::read(source)`.
+    #[test]
+    fn exactly_one_engine_reads_its_source_as_a_path() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        #[allow(unused_mut)]
+        let mut all: Vec<ScriptBackend> = vec![ScriptBackend::Rh];
+        #[cfg(feature = "script-lua")]
+        all.push(ScriptBackend::Lua);
+        #[cfg(feature = "script-qjs")]
+        all.push(ScriptBackend::Qjs);
+        #[cfg(feature = "script-sql")]
+        all.push(ScriptBackend::Sql);
+        #[cfg(feature = "script-qjswasm")]
+        all.push(ScriptBackend::Qjswasm);
+        #[cfg(feature = "script-wasmcore")]
+        all.push(ScriptBackend::Wasmcore);
+
+        let path_carrying: Vec<ScriptBackend> = all
+            .into_iter()
+            .filter(|b| crate::script_engine::engine_for(*b).source_is_a_path())
+            .collect();
+
+        #[cfg(feature = "script-wasmcore")]
+        assert_eq!(
+            path_carrying,
+            vec![ScriptBackend::Wasmcore],
+            "a second engine started taking a path where the trait says text; the CLI \
+             branch that feeds it is keyed on this answer, so this is load-bearing"
+        );
+        #[cfg(not(feature = "script-wasmcore"))]
+        assert!(
+            path_carrying.is_empty(),
+            "no engine in this build should read its source as a path, got {path_carrying:?}"
+        );
+    }
+
+    /// The hint that turns "not UTF-8" into an answer fires only for that
+    /// error, and names this door's actual contract.
+    #[test]
+    fn a_binary_script_is_told_this_door_carries_text() {
+        let hint = non_text_script_hint("script source is not UTF-8: invalid utf-8 sequence");
+        assert!(hint.contains("carries script *text*"), "{hint}");
+        assert!(hint.contains("`.wasm`"), "{hint}");
+        // A genuine read failure must not collect the sentence about modules.
+        assert!(non_text_script_hint("No such file or directory").is_empty());
+        assert!(non_text_script_hint("script source exceeds the 100 byte limit").is_empty());
     }
 
     /// The compiler-backed engine hashes what it would **build**, and that is

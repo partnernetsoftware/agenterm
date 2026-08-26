@@ -109,6 +109,21 @@ pub trait ScriptEngineBackend {
         options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError>;
 
+    /// Whether this engine reads `source` as a **filesystem path** instead of
+    /// as the program's text.
+    ///
+    /// Exactly one does, and it is a wart rather than a design: `check`/
+    /// `execute` take `&str` and every other engine puts a program in it.
+    /// The CLI has to know, because it decides what to put there -- and the
+    /// decision must follow *which engine will run*, not the file's
+    /// extension. Keyed on the extension it silently handed a path to
+    /// whichever engine was selected, and rh, lua and qjswasm each parsed the
+    /// path as a program (measured; see the CLI's own comment at the branch).
+    ///
+    /// No default implementation, so an engine cannot acquire this behaviour
+    /// by omission -- which is how it would come back.
+    fn source_is_a_path(&self) -> bool;
+
     /// What `hash FILE` should print for this engine: the digest, and **the
     /// name of the thing that was digested**.
     ///
@@ -267,6 +282,10 @@ impl ScriptEngineBackend for RhEngineBackend {
         format!("agenterm-rh {}", env!("CARGO_PKG_VERSION"))
     }
 
+    fn source_is_a_path(&self) -> bool {
+        false
+    }
+
     /// The source, because rh's artifact is a native pack whose bytes depend
     /// on the host toolchain -- hashing it would answer "which machine built
     /// this" rather than "which program is this".
@@ -373,6 +392,10 @@ impl ScriptEngineBackend for LuaEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-lua {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn source_is_a_path(&self) -> bool {
+        false
     }
 
     fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
@@ -484,6 +507,10 @@ impl ScriptEngineBackend for QjsEngineBackend {
         format!("agenterm-qjs {}", env!("CARGO_PKG_VERSION"))
     }
 
+    fn source_is_a_path(&self) -> bool {
+        false
+    }
+
     /// The source, which is what `agenterm-qjs hash` has always printed. Its
     /// *bytecode* hash is the one PRD 02.36 records as not reproducible; this
     /// verb does not offer it, and labelling this one `source` is what stops a
@@ -592,6 +619,10 @@ impl ScriptEngineBackend for SqlEngineBackend {
         format!("agenterm-sql {}", env!("CARGO_PKG_VERSION"))
     }
 
+    fn source_is_a_path(&self) -> bool {
+        false
+    }
+
     fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
         Some(Ok((
             agenterm_script_common::hex::sha256_hex(source.as_bytes()),
@@ -696,6 +727,19 @@ impl ScriptEngineBackend for WasmcoreEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-wasmcore {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// **True, and this is the wart.** `WasmcoreEngineBackend::check` does
+    /// `std::fs::read(source)`: it takes a path where the trait says program
+    /// text. It is answered honestly rather than hidden because the CLI has
+    /// to know, and a hidden one is what let the extension-keyed branch hand
+    /// paths to four other engines.
+    ///
+    /// Fixing it means a byte-carrying face -- the `&str` cannot hold a
+    /// module -- which is the same missing face `pack`/`qualify` need. Until
+    /// that exists, `true` is the truth.
+    fn source_is_a_path(&self) -> bool {
+        true
     }
 
     /// `None`. This engine's input *is* the artifact -- hashing it would hand
@@ -810,6 +854,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     /// owns the string and a test in that crate holds it to `Cargo.toml`.
     fn identity(&self) -> String {
         agenterm_qjswasm::identity()
+    }
+
+    /// False, and it was not always: this backend's `execute` documents having
+    /// read `source` as a path once, which meant it could never run anything
+    /// (`File name too long (os error 63)`, with the whole program in the
+    /// message).
+    fn source_is_a_path(&self) -> bool {
+        false
     }
 
     /// **The compiled `.wasm`**, not the source -- the one engine here that
@@ -1119,6 +1171,22 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Wasmcore(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.artifact_hash(source),
+        }
+    }
+
+    fn source_is_a_path(&self) -> bool {
+        match self {
+            Self::Rh(backend) => backend.source_is_a_path(),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.source_is_a_path(),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.source_is_a_path(),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.source_is_a_path(),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.source_is_a_path(),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.source_is_a_path(),
         }
     }
 

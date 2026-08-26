@@ -451,6 +451,31 @@ cargo test --features "script-qjs,script-qjswasm" \
 `check-many` 四个动词。实测 CLI 有**十三个**（`crates/agenterm-qjs/src/cli.rs`），
 只答那四个等于对一个没人问的问题关门。逐动词判决见下。
 
+### 门 3 沿途挖出的两条活缺陷（2026-08-26 实测）
+
+**一、任何 `.wasm` 文件的路径会被当源码交给选中的引擎。** `cli script` 里有一条分支把
+「路径」而不是「文件内容」当 source 传，因为 wasmcore 的 `check` 真的是
+`std::fs::read(source)`。那条分支**按扩展名判**，注释还写着「rh/lua/qjs/sql 不受影响：
+`from_entry_path` 只对 `.wasm` 返回 wasmcore」。前半句真，结论不成立——**分支不决定谁来跑，
+路由只看 `AGENTERM_SCRIPT_BACKEND`**。拿一份真的 9 785 字节模块实测：
+
+```
+rh        rh parse error: Unexpected '/' (line 1, position 1)
+lua       lua_parse: syntax error …
+qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
+```
+
+三个引擎都在拿**路径**当程序解析。这正是 `QjswasmEngineBackend::execute` 注释里记着
+「本层已修掉」的那个 `source`-当路径缺陷，被上面一层重新引入了。
+
+已改成问引擎而不是问扩展名，并把这个属性做成 `ScriptEngineBackend::source_is_a_path()`
+——**没有默认实现**，一个引擎不能靠沉默获得这个行为（那正是它会回来的方式）。一条测试断言
+**有且只有一个** `true`。
+
+**二、二进制文件的拒绝理由是「不是 UTF-8」，读起来像「你的文件坏了」。** 真正的答案是
+「这扇门载的是文本」。已在那条错误后面追加一句说清楚，且只对这一种错误追加——真的读不到
+文件的人还是要看见原因。
+
 ### 门 3：逐动词判决（2026-08-25，全部跑过，不是读出来的）
 
 判据表在 [`plan/design-qjs-archive-gate.md`](../plan/design-qjs-archive-gate.md)，
@@ -461,8 +486,8 @@ cargo test --features "script-qjs,script-qjswasm" \
 |---|------|------|--------|
 | 1 | `check` | **已有面**（2026-08-26 实测） | 不需要新 CLI 壳：`agenterm cli script check FILE` 本来就按 `AGENTERM_SCRIPT_BACKEND` 路由。`.qjs` 过则答 `OK`，不过则给引擎自己的能力诊断 |
 | 2 | `check-many` | **判决改了**：不提供，按名字拒绝（2026-08-26） | 原估「约 60 行适配器」低估了：这个动词是**把本可执行文件按 `__agenterm-internal-engine rh` 重新拉起**跑的，manifest schema、`kind`、收据全是 rh 的。产品早就写了 `check_many_requires_rh_error()`——**定义了，从没被调用过**，所以选别的后端时它静默跑 rh，报的是「rh parse error: unknown field …」，把「引擎选错了」说成「manifest 写错了」。已接线并具名 |
-| 3 | `pack build` | 形状必然不同 | 产物是一份自足 `.wasm`，不是 `.qjsc` + 源码目录 |
-| 4 | `pack load` | 形状必然不同 | 前置已补，见下 |
+| 3 | `pack build` | 形状必然不同，**且卡在一个更深的事实上**（2026-08-26 实测） | 产物是一份自足 `.wasm`，不是 `.qjsc` + 源码目录。但 `agenterm cli script` 这条面**在结构上只载文本**：读文件用 `read_to_string`，`ScriptEngineBackend::check`/`execute` 收 `&str`。产物类动词在这张脸上**没有地方放**，需要另一张吃字节的脸——那也是 wasmcore 至今在这条面上跑不通的同一个原因 |
+| 4 | `pack load` | 同上 | 同一张缺失的脸 |
 | 5 | `pack build` 模块模式（`pack_module`） | 可以不提供 | 它绕的是 rquickjs 的约束，那约束在这里不存在；零生产调用者 |
 | 6 | `qualify` | 形状必然不同 | 收据是超集：多 `steps` / `peak_call_depth`，qjs 造不出来 |
 | 7 | `corpus-scan` | **已交付**（2026-08-26） | 估得准：引擎侧四行（`crates/agenterm-qjswasm/src/corpus_scan.rs`），渲染/退出码/`--dir` 全走 `agenterm_script_common::cli` 的共享 driver——和 `agenterm qjs corpus-scan` 同一条，不会漂成两份报告。测试直接用共享的 `CorpusScanContract`。CLI 面是 `agenterm cli script corpus-scan [--dir DIR]`，按后端路由；rh 与 wasmcore **各自**给出自己的不提供理由（rh 的在它自己的 dev CLI；wasmcore 的语料是字节不是源码） |
