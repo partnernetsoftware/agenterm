@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**135 passed / 0 ignored**，2026-08-26，上游 rev **`048bcf2`**）；**`.qjs` 已经够得着
+**138 passed / 0 ignored**，2026-08-26，上游 rev **`577af37`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -1085,6 +1085,27 @@ cargo test --test fleet_catalog_conformance   # 12 passed, 0 failed
 cargo clippy -p agenterm-qjswasm --all-targets -- -D warnings   # clean
 cargo fmt -p agenterm-qjswasm --check                            # clean
 ```
+
+### 数组落地后的重测（2026-08-26，上游 rev `577af37`）
+
+```sh
+cargo test -p agenterm-qjswasm                                    # 138 passed, 0 failed
+cargo test --features "script-qjs,script-qjswasm" \
+  --test script_engine_equivalence                                # 6 passed（零具名分歧）
+cargo test --features script-qjswasm --test qjs_produces_a_fleet_operation  # 5 passed
+cargo test --test script_fleet_facade_parity                      # 5 passed
+cargo test --workspace --exclude agenterm-abi                     # 781 passed / 4 failed（全为既有）
+```
+
+那 4 条既有失败：2 条 `platform::boundary_tests`（产品名泄漏，`472ff12d` 引入）+
+2 条 `script_process` 收孙进程（timing flake，单跑同模块失败成员会换）。与本轮改动无关，
+按「diff 失败集合不是失败计数」核对过。
+
+新增的 3 条（135 → 138）是**本仓 README 数组文案的锁**：
+`the_array_claims_in_this_crates_own_copy`（22 条断言）、`the_array_claims_that_are_traps`、
+`an_array_does_not_cross_this_crates_face`。写第三条时发现上游加了 `TAG_ARRAY` 却没加
+`host_decode` 里给它具名的那一臂——本层收到的是 `V1: unknown tag 7`，读起来像引擎有毛病。
+上游 `577af37` 修掉，本层断言改成整句相等而不是 `contains`（后者在错答案上会通过）。
 
 | 目标 | 数 | 变化 |
 |------|----|------|
