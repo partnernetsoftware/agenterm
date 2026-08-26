@@ -648,6 +648,8 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
              check FILE|- [--project-root DIR] | eval EXPRESSION | \
              check-many --manifest FILE [--project-root DIR] | \
              corpus-scan [--dir DIR] | hash FILE | version | \
+             pack build FILE --dir OUT | pack load ARTIFACT | run-smoke ARTIFACT | \
+             qualify FILE --dir OUT | \
              repl [--fail-fast] [--json] | run FILE|- \
              [--cwd DIR] [--project-root DIR] [-- ARGS...] | \
             task list|show|run [TASK] [--manifest FILE] [--json]",

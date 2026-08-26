@@ -1428,7 +1428,220 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "hash") {
         return run_script_hash(arguments);
     }
+    if arguments
+        .get(1)
+        .is_some_and(|value| matches!(value.as_str(), "pack" | "qualify" | "run-smoke"))
+    {
+        return run_script_artifact_command(arguments);
+    }
     run_script_command_with_context(arguments, None)
+}
+
+/// `script pack build|load`, `script run-smoke` and `script qualify`: the four
+/// verbs that need an artifact rather than a program's text.
+///
+/// They are one function because they are one face. `agenterm cli script`
+/// reads files with `read_to_string` and every ordinary engine method takes
+/// `&str`, so none of these could exist until `pack_artifact` and
+/// `execute_artifact` did. Splitting them into four would hide that they
+/// stand or fall together on whether the selected engine has that face.
+///
+/// Shapes, which PRD 02.36 calls out as necessarily different from
+/// `agenterm-qjs`'s:
+///
+/// * `pack build FILE --dir OUT` writes **one self-contained file**, not a
+///   bytecode file beside a source directory and a manifest.
+/// * `qualify FILE --dir OUT` writes a receipt that is a **superset**: it
+///   carries `steps` and `peak_call_depth`, which the rquickjs engine cannot
+///   produce because nothing counts them there.
+/// * The artifact digest in that receipt is of the bytes on disk. It is not
+///   `agenterm-qjs`'s `bytecode_hash`, which PRD 02.36 records as documented
+///   "a genuine reproducibility fingerprint" and measured not to be one -- the
+///   compile label is the absolute output path and ends up inside the product.
+fn run_script_artifact_command(arguments: &[String]) -> i32 {
+    use crate::script_engine::ScriptEngineBackend as _;
+
+    let verb = arguments[1].as_str();
+    let backend = crate::script_backend::ScriptBackend::from_env();
+    let engine = crate::script_engine::engine_for(backend);
+
+    // `pack` takes a second word; the other two do not.
+    let (action, rest_at) = if verb == "pack" {
+        match arguments.get(2).map(String::as_str) {
+            Some(action @ ("build" | "load")) => (action, 3),
+            other => {
+                cli_eprintln!(
+                    "script pack requires build or load{}",
+                    other.map(|o| format!(", got {o}")).unwrap_or_default()
+                );
+                return 2;
+            }
+        }
+    } else if verb == "run-smoke" {
+        // Deliberately the same code path as `pack load` and not a copy of it:
+        // a smoke test that ran something *else* than the load verb would be
+        // testing a route nobody deploys. `agenterm-qjs`'s `run-smoke`
+        // delegates to `pack load` for the same reason.
+        ("load", 2)
+    } else {
+        ("qualify", 2)
+    };
+
+    let Some(path) = arguments.get(rest_at).map(String::as_str) else {
+        cli_eprintln!("script {verb} requires a file path");
+        return 2;
+    };
+
+    if action == "load" {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                cli_eprintln!("failed to read artifact {path}: {error}");
+                return 1;
+            }
+        };
+        let options = crate::script_engine::ScriptInvocationOptions::default();
+        return match engine.execute_artifact(&bytes, &options, None) {
+            Some(Ok(result)) => {
+                if !result.stdout.is_empty() {
+                    print!("{}", result.stdout);
+                }
+                if let Some(value) = result.value {
+                    cli_println!("{}", render_script_value(&value));
+                }
+                0
+            }
+            Some(Err(message)) => {
+                cli_eprintln!("{message}");
+                1
+            }
+            None => {
+                cli_eprintln!("{}", no_artifact_face(backend.as_str(), "load an artifact"));
+                2
+            }
+        };
+    }
+
+    // `pack build` and `qualify` both start from source.
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) => {
+            cli_eprintln!("failed to read {path}: {error}");
+            return 1;
+        }
+    };
+    let Some(built) = engine.pack_artifact(&source) else {
+        cli_eprintln!(
+            "{}",
+            no_artifact_face(backend.as_str(), "build an artifact")
+        );
+        return 2;
+    };
+    let (bytes, extension) = match built {
+        Ok(built) => built,
+        Err(message) => {
+            cli_eprintln!("{message}");
+            return 2;
+        }
+    };
+
+    let Some(dir) = option_value(arguments, "--dir") else {
+        cli_eprintln!("script {verb} requires --dir <out>");
+        return 2;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        cli_eprintln!("failed to create {}: {error}", dir.display());
+        return 1;
+    }
+    let stem = std::path::Path::new(path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "artifact".to_owned());
+    let artifact_path = dir.join(format!("{stem}.{extension}"));
+    if let Err(error) = std::fs::write(&artifact_path, &bytes) {
+        cli_eprintln!("failed to write {}: {error}", artifact_path.display());
+        return 1;
+    }
+
+    if action == "build" {
+        cli_println!("{}  {} bytes", artifact_path.display(), bytes.len());
+        return 0;
+    }
+
+    // qualify: load what was just written and report what running it cost.
+    let options = crate::script_engine::ScriptInvocationOptions::default();
+    let outcome = match engine.execute_artifact(&bytes, &options, None) {
+        Some(Ok(result)) => result,
+        Some(Err(message)) => {
+            cli_eprintln!("{message}");
+            return 1;
+        }
+        None => {
+            cli_eprintln!("{}", no_artifact_face(backend.as_str(), "load an artifact"));
+            return 2;
+        }
+    };
+    let receipt = serde_json::json!({
+        "schema": "agenterm-script-qualification",
+        "version": "1",
+        "engine": engine.identity(),
+        "source_path": path,
+        "artifact_path": artifact_path.display().to_string(),
+        "artifact_bytes": bytes.len(),
+        // The digest of the bytes on disk, which is what the artifact *is* --
+        // see this function's own note on the fingerprint that is not one.
+        "artifact_sha256": agenterm_script_common::hex::sha256_hex(&bytes),
+        "entry_value": outcome.value,
+        "stdout": outcome.stdout,
+        // The superset. `None` here is "this engine does not count", not
+        // "it was free" -- five of the six do not, and serialising zeroes
+        // would be a measurement nobody took.
+        "cost": outcome.cost,
+    });
+    let receipt_path = dir.join("receipt.json");
+    match serde_json::to_string_pretty(&receipt) {
+        Ok(encoded) => {
+            if let Err(error) = std::fs::write(&receipt_path, format!("{encoded}\n")) {
+                cli_eprintln!("failed to write {}: {error}", receipt_path.display());
+                return 1;
+            }
+        }
+        Err(error) => {
+            cli_eprintln!("failed to encode the receipt: {error}");
+            return 1;
+        }
+    }
+    cli_println!("qualify ok: {path} -> {}", artifact_path.display());
+    cli_println!("  receipt: {}", receipt_path.display());
+    0
+}
+
+/// One JSON value, spelled the way `script run` spells it.
+///
+/// Its own function because the first version of `pack load` used
+/// `"{value}"`, and a String therefore came back quoted where `script run`
+/// prints it bare: `run` said `tabs.list` and `pack load` said `"tabs.list"`
+/// for the same program. Two spellings of one value is worse than either
+/// spelling, because a caller diffing "did the artifact keep the answer"
+/// sees a difference that is not there -- which is exactly the comparison
+/// `run-smoke` exists to make.
+fn render_script_value(value: &serde_json::Value) -> String {
+    match value.as_str() {
+        Some(text) => text.to_owned(),
+        None => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+    }
+}
+
+/// Why an engine has no artifact face, said once so the four verbs agree.
+fn no_artifact_face(backend: &str, what: &str) -> String {
+    format!(
+        "the {backend} engine cannot {what} through this verb. Its deployable shape is its \
+         own CLI's -- a directory with a manifest rather than one file of bytes -- and half \
+         of it offered here would be a second, thinner answer to a question that already \
+         has one. wasmcore is the other case: its input already *is* the artifact, so there \
+         is nothing to build."
+    )
 }
 
 /// `script hash FILE` — the digest, **what was digested**, and the path.
@@ -1612,7 +1825,10 @@ fn run_script_command_with_context(
     context: Option<ScriptExecutionContext>,
 ) -> i32 {
     let Some(operation_name) = arguments.get(1).map(String::as_str) else {
-        cli_eprintln!("script requires api, check, eval, run, task, version, corpus-scan, or hash");
+        cli_eprintln!(
+            "script requires api, check, eval, run, task, version, corpus-scan, hash, pack, \
+             qualify, or run-smoke"
+        );
         return 2;
     };
     let operation = match operation_name {
@@ -4395,7 +4611,8 @@ fn print_mux_compatibility(json: bool) {
 mod tests {
     use super::{
         HostedSubcommand, hosted_subcommand, non_text_script_hint, normalize_script_source,
-        parse_loopback_ipc_address, parse_terminal_grid, run_wait_ui, script_worker_executable,
+        parse_loopback_ipc_address, parse_terminal_grid, render_script_value, run_wait_ui,
+        script_worker_executable,
         validate_fleet_parameters,
     };
 
@@ -4526,6 +4743,95 @@ mod tests {
         assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
         assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
         assert!(source.ends_with("; 0 }"));
+    }
+
+    /// The artifact face: two engines have one, four do not, and the four
+    /// verbs that need it stand or fall together on that.
+    #[test]
+    fn only_the_byte_carrying_engines_offer_an_artifact_face() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        let options = crate::script_engine::ScriptInvocationOptions::default();
+
+        // Builds one: only the engine with a compiler and a single-file shape.
+        #[cfg(feature = "script-qjswasm")]
+        {
+            let (bytes, ext) = crate::script_engine::engine_for(ScriptBackend::Qjswasm)
+                .pack_artifact("return 42;")
+                .expect("qjswasm builds an artifact")
+                .expect("this source compiles");
+            assert_eq!(ext, "wasm");
+            assert!(bytes.starts_with(b"\0asm"), "the artifact is a wasm module");
+
+            // And loading it back gives the same answer as running the source,
+            // which is the whole claim `run-smoke` is a smoke test *of*.
+            let loaded = crate::script_engine::engine_for(ScriptBackend::Qjswasm)
+                .execute_artifact(&bytes, &options, None)
+                .expect("qjswasm loads an artifact")
+                .expect("the artifact runs");
+            assert_eq!(loaded.value, Some(serde_json::json!(42)));
+            // The counters are what make a qualification receipt a superset.
+            let cost = loaded.cost.expect("this engine counts");
+            assert!(cost.steps > 0, "a run that did something costs steps");
+        }
+
+        // wasmcore loads bytes but has nothing to build: its input already is
+        // the artifact.
+        #[cfg(feature = "script-wasmcore")]
+        {
+            let engine = crate::script_engine::engine_for(ScriptBackend::Wasmcore);
+            assert!(
+                engine.pack_artifact("anything").is_none(),
+                "a `pack build` that copied the file would be `cp` wearing a verb"
+            );
+            assert!(
+                engine
+                    .execute_artifact(b"\0asm\x01\0\0\0", &options, None)
+                    .is_some(),
+                "wasmcore's `run_module_from_bytes` is exactly this face"
+            );
+        }
+
+        // The text engines have neither half.
+        #[allow(unused_mut)]
+        let mut text_only: Vec<ScriptBackend> = vec![ScriptBackend::Rh];
+        #[cfg(feature = "script-lua")]
+        text_only.push(ScriptBackend::Lua);
+        #[cfg(feature = "script-qjs")]
+        text_only.push(ScriptBackend::Qjs);
+        #[cfg(feature = "script-sql")]
+        text_only.push(ScriptBackend::Sql);
+        for backend in text_only {
+            let engine = crate::script_engine::engine_for(backend);
+            assert!(
+                engine.pack_artifact("x").is_none(),
+                "{backend:?} has no single-file artifact shape"
+            );
+            assert!(
+                engine.execute_artifact(b"x", &options, None).is_none(),
+                "{backend:?} cannot load bytes"
+            );
+        }
+    }
+
+    /// `pack load` spells a value the way `script run` spells it.
+    ///
+    /// The first version did not: a String came back quoted from one verb and
+    /// bare from the other, for the same program. A caller diffing "did the
+    /// artifact keep the answer" would have seen a difference that was not
+    /// there -- which is the one comparison `run-smoke` exists to make.
+    #[test]
+    fn an_artifacts_value_is_spelled_the_way_run_spells_it() {
+        assert_eq!(
+            render_script_value(&serde_json::json!("tabs.list")),
+            "tabs.list"
+        );
+        assert_eq!(render_script_value(&serde_json::json!(42)), "42");
+        assert_eq!(
+            render_script_value(&serde_json::json!({"a": 1})),
+            "{\n  \"a\": 1\n}"
+        );
     }
 
     /// Exactly one engine reads `source` as a path, and the CLI's branch asks

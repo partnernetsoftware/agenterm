@@ -48,7 +48,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 2（两处生产调用点迁移） | 未动，但**行为等价证据已全绿** | `tests/script_engine_equivalence.rs` **六条一致、零分歧**：同一段脚本经两条真绑定跑两个引擎，操作与值逐条对照。原先那条具名分歧（数组）已随上游 `048bcf2` 消失 |
 | 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
-| 门 2（`.wasm` 路由切换） | 不能绿 | `_start` 入口约定；缺同客人性能对比 |
+| 门 2（`.wasm` 路由切换） | 不能绿，**但阻塞点现在可直接观测** | `_start` 入口约定：拿 qjswasm 编出的 `.wasm` 喂 `AGENTERM_SCRIPT_BACKEND=wasmcore script pack load`，实测答 `guest module does not export a WASI \`_start\` command entry point`。以前这条要靠读代码推断，现在是一条命令。仍缺同客人性能对比 |
 | 门 3（现状实测） | 已复核 | — |
 
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -486,15 +486,15 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 |---|------|------|--------|
 | 1 | `check` | **已有面**（2026-08-26 实测） | 不需要新 CLI 壳：`agenterm cli script check FILE` 本来就按 `AGENTERM_SCRIPT_BACKEND` 路由。`.qjs` 过则答 `OK`，不过则给引擎自己的能力诊断 |
 | 2 | `check-many` | **判决改了**：不提供，按名字拒绝（2026-08-26） | 原估「约 60 行适配器」低估了：这个动词是**把本可执行文件按 `__agenterm-internal-engine rh` 重新拉起**跑的，manifest schema、`kind`、收据全是 rh 的。产品早就写了 `check_many_requires_rh_error()`——**定义了，从没被调用过**，所以选别的后端时它静默跑 rh，报的是「rh parse error: unknown field …」，把「引擎选错了」说成「manifest 写错了」。已接线并具名 |
-| 3 | `pack build` | 形状必然不同，**且卡在一个更深的事实上**（2026-08-26 实测） | 产物是一份自足 `.wasm`，不是 `.qjsc` + 源码目录。但 `agenterm cli script` 这条面**在结构上只载文本**：读文件用 `read_to_string`，`ScriptEngineBackend::check`/`execute` 收 `&str`。产物类动词在这张脸上**没有地方放**，需要另一张吃字节的脸——那也是 wasmcore 至今在这条面上跑不通的同一个原因 |
-| 4 | `pack load` | 同上 | 同一张缺失的脸 |
+| 3 | `pack build` | **已交付**（2026-08-26） | 产物是**一份自足 `.wasm`**，不是 `.qjsc` + 源码目录 + manifest——这个方向的「形状不同」是变简单不是变差。挡路的曾是「`agenterm cli script` 结构上只载文本」，那张吃字节的脸已经补上：`pack_artifact` + `execute_artifact`，四个动词是**一张脸**不是四个适配器 |
+| 4 | `pack load` | **已交付** | 走 `Guest::CompiledQjs` 而不是 `Guest::Wasm`——从 `.qjs` 编出来的模块说 V1 约定，当匿名 wasm 客人装载会把它丢掉，调用者拿到裸 `(i32,i64)` |
 | 5 | `pack build` 模块模式（`pack_module`） | 可以不提供 | 它绕的是 rquickjs 的约束，那约束在这里不存在；零生产调用者 |
-| 6 | `qualify` | 形状必然不同 | 收据是超集：多 `steps` / `peak_call_depth`，qjs 造不出来 |
+| 6 | `qualify` | **已交付**（2026-08-26） | 收据确实是超集，而且这句话现在有东西支撑：`ScriptInvocationResult` 多了 `cost: Option<ScriptCost>`（`steps` / `peak_call_depth` / `peak_activation_slots`）。**`None` 是「这个引擎不计数」不是「免费」**——六个里五个不计，序列化成零会是一次没人做过的测量。实测 `return 40 + 2;` → `steps 65, peak_call_depth 2, peak_activation_slots 15` |
 | 7 | `corpus-scan` | **已交付**（2026-08-26） | 估得准：引擎侧四行（`crates/agenterm-qjswasm/src/corpus_scan.rs`），渲染/退出码/`--dir` 全走 `agenterm_script_common::cli` 的共享 driver——和 `agenterm qjs corpus-scan` 同一条，不会漂成两份报告。测试直接用共享的 `CorpusScanContract`。CLI 面是 `agenterm cli script corpus-scan [--dir DIR]`，按后端路由；rh 与 wasmcore **各自**给出自己的不提供理由（rh 的在它自己的 dev CLI；wasmcore 的语料是字节不是源码） |
 | 8 | `eval` | **已交付**（2026-08-26） | 曾经**每个引擎都收到 rh 源码**；wrapper 移到 `ScriptEngineBackend::eval_entry_source`，六个引擎各答各的方言，wasmcore 按名字拒绝 |
 | 9 | `run -- <args>` | 可以不提供（今天） | 门只有四件，没有 `args_len` / `arg`（`host.rs` 的 `SIGNATURES`） |
 | 10 | `hash` | **已交付**（2026-08-26），且差异是**改进**不是妥协 | `agenterm cli script hash FILE` 打三列：`<hex>  <哈希的是什么>  <路径>`。qjswasm 哈希的是**编译出来的 `.wasm`**，其余引擎哈希源码，标签跟着数字走——两者都是 `hash` 的正确答案，但互相不可比，看不见标签就比不了。实测的决定性性质：只差一条注释和空白的两份源码，qjswasm 同哈希（`1c8388e0…`），qjs 源码哈希不同（`b77e2112…` / `b9db333b…`）——「这是不是同一个程序」正是这个动词存在的问题，源码摘要答不了。编不过的源码没有产物也就没有哈希，给的是编译器自己的诊断而不是退回哈希文本。wasmcore 按名字拒绝：它的输入本身就是产物 |
-| 11 | `run-smoke` | 跟随 #4 | — |
+| 11 | `run-smoke` | **已交付**，且**就是** `pack load` 的同一条代码路径 | 不是复制一份：冒烟测试若跑的是另一条路，测的就是没人部署的那条。`agenterm-qjs` 的 `run-smoke` 委托给 `pack load` 同理。实测 `script run 源码` 与 `pack load 产物` 输出**逐字节相同**——第一版不同（`tabs.list` vs `"tabs.list"`），因为新动词自己渲染了一遍值；已抽成一个函数 |
 | 12 | `task` | **已有面**（2026-08-26 实测） | `agenterm cli script task list` 与引擎无关（读的是任务清单不是脚本），选 qjswasm 时照常列出 |
 | 13 | `version` | **已交付**（2026-08-26） | `agenterm cli script version`，六个引擎各答各的 identity。qjswasm 的多一样别人没有的：**上游 pin**——`agenterm-qjswasm 0.1.16 (tinyvm 577af37)`。一周里这个 pin 动了五次，每次都改变「`[1,2,3]` 编不编得过」的答案，拿着二进制的人此前无从分辨。`UPSTREAM_TINYVM_REV` 由本 crate 一条测试钉死在自己的 `Cargo.toml` 上（两个 pin 必须相等），所以打印出来的是事实不是声明 |
 

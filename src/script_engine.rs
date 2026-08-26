@@ -63,6 +63,29 @@ pub struct ScriptInvocationOptions {
 pub struct ScriptInvocationResult {
     pub stdout: String,
     pub value: Option<Value>,
+    /// What the run cost, for engines that count. `None` is not "it was
+    /// free" -- it is "this engine does not measure", which is the honest
+    /// answer for five of the six and the reason this is an `Option` rather
+    /// than zeroes.
+    ///
+    /// The distinction is what makes a qualification receipt a *superset*
+    /// rather than a differently-shaped equal: `agenterm-qjs` cannot produce
+    /// these numbers because nothing in rquickjs counts them, while an
+    /// engine whose ceilings live in its core has them already.
+    pub cost: Option<ScriptCost>,
+}
+
+/// What one run cost, in the units the engine's own budget is denominated in.
+///
+/// Deliberately the counters a *budget* is made of and not a wall clock:
+/// these are deterministic for a given artifact and input, so two runs of the
+/// same module report the same numbers and a receipt is comparable across
+/// machines. A duration is not, which is why there is not one here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct ScriptCost {
+    pub steps: u64,
+    pub peak_call_depth: usize,
+    pub peak_activation_slots: usize,
 }
 
 /// Unified error type. Trait boundary collapses `agenterm_rh::RhError`
@@ -108,6 +131,33 @@ pub trait ScriptEngineBackend {
         source: &str,
         options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError>;
+
+    /// Build the self-contained artifact this engine would deploy, and name
+    /// its file extension. `None` when this engine has no artifact to build
+    /// through this face.
+    ///
+    /// The first half of the byte-carrying face. `agenterm cli script` reads
+    /// files with `read_to_string` and every method above takes `&str`, so a
+    /// module has no route through any of them -- which is why `pack`,
+    /// `qualify` and `run-smoke` had nowhere to live and why wasmcore needs
+    /// [`Self::source_is_a_path`] to work at all. These two methods are that
+    /// missing face, and the four verbs are one face rather than four
+    /// adapters.
+    fn pack_artifact(&self, source: &str) -> Option<Result<(Vec<u8>, &'static str), String>>;
+
+    /// Run an already-built artifact. `None` when this engine cannot load
+    /// bytes.
+    ///
+    /// Separate from [`Self::execute`] and not a widening of it: that one
+    /// takes `&str` and six engines are green on those terms. A module is not
+    /// a program's text and pretending it is, is precisely the confusion
+    /// `source_is_a_path` documents.
+    fn execute_artifact(
+        &self,
+        artifact: &[u8],
+        options: &ScriptInvocationOptions,
+        fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>>;
 
     /// Whether this engine reads `source` as a **filesystem path** instead of
     /// as the program's text.
@@ -282,6 +332,24 @@ impl ScriptEngineBackend for RhEngineBackend {
         format!("agenterm-rh {}", env!("CARGO_PKG_VERSION"))
     }
 
+    /// `None`: this engine's deployable artifact is its own CLI's shape (rh's
+    /// native pack, lua's and qjs's bytecode directories), which is a
+    /// directory plus a manifest rather than one file of bytes. Offering half
+    /// of it here would be a second, thinner answer to a question that
+    /// already has one.
+    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        None
+    }
+
+    fn execute_artifact(
+        &self,
+        _artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        _fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        None
+    }
+
     fn source_is_a_path(&self) -> bool {
         false
     }
@@ -363,6 +431,7 @@ impl ScriptEngineBackend for RhEngineBackend {
             Ok(Some(result)) => Ok(ScriptInvocationResult {
                 stdout: result.stdout,
                 value: result.value,
+                cost: None,
             }),
             Ok(None) => Err(not_enabled_error(self.backend_id())),
             Err(error) => Err(error.to_string()),
@@ -392,6 +461,24 @@ impl ScriptEngineBackend for LuaEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-lua {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None`: this engine's deployable artifact is its own CLI's shape (rh's
+    /// native pack, lua's and qjs's bytecode directories), which is a
+    /// directory plus a manifest rather than one file of bytes. Offering half
+    /// of it here would be a second, thinner answer to a question that
+    /// already has one.
+    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        None
+    }
+
+    fn execute_artifact(
+        &self,
+        _artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        _fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        None
     }
 
     fn source_is_a_path(&self) -> bool {
@@ -473,6 +560,7 @@ impl ScriptEngineBackend for LuaEngineBackend {
         Ok(ScriptInvocationResult {
             stdout: result.stdout,
             value: Some(Value::from(result.value)),
+            cost: None,
         })
     }
 }
@@ -505,6 +593,24 @@ impl ScriptEngineBackend for QjsEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-qjs {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None`: this engine's deployable artifact is its own CLI's shape (rh's
+    /// native pack, lua's and qjs's bytecode directories), which is a
+    /// directory plus a manifest rather than one file of bytes. Offering half
+    /// of it here would be a second, thinner answer to a question that
+    /// already has one.
+    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        None
+    }
+
+    fn execute_artifact(
+        &self,
+        _artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        _fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        None
     }
 
     fn source_is_a_path(&self) -> bool {
@@ -583,6 +689,7 @@ impl ScriptEngineBackend for QjsEngineBackend {
         Ok(ScriptInvocationResult {
             stdout: result.stdout,
             value: result.value,
+            cost: None,
         })
     }
 }
@@ -617,6 +724,24 @@ impl ScriptEngineBackend for SqlEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-sql {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None`: this engine's deployable artifact is its own CLI's shape (rh's
+    /// native pack, lua's and qjs's bytecode directories), which is a
+    /// directory plus a manifest rather than one file of bytes. Offering half
+    /// of it here would be a second, thinner answer to a question that
+    /// already has one.
+    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        None
+    }
+
+    fn execute_artifact(
+        &self,
+        _artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        _fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        None
     }
 
     fn source_is_a_path(&self) -> bool {
@@ -691,6 +816,7 @@ impl ScriptEngineBackend for SqlEngineBackend {
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,
             value: outcome.value,
+            cost: None,
         })
     }
 }
@@ -727,6 +853,36 @@ impl ScriptEngineBackend for WasmcoreEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-wasmcore {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None` to build: this engine's input already *is* the artifact. There
+    /// is nothing to compile, and a `pack build` that copied the file would be
+    /// `cp` wearing a verb.
+    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        None
+    }
+
+    /// **Yes to load**, and this is the method wasmcore should have had all
+    /// along: `run_module_from_bytes` exists and takes exactly this. Its
+    /// `execute` reaches the same engine through a *path* instead, which is
+    /// the wart [`Self::source_is_a_path`] names -- a caller who comes through
+    /// here never needs it.
+    fn execute_artifact(
+        &self,
+        artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        let bridge: Option<agenterm_wasmcore::WasmFleetBridgeFn> = fleet_bridge;
+        Some(
+            agenterm_wasmcore::WasmCoreHost::run_module_from_bytes(&self.host, artifact, bridge)
+                .map(|result| ScriptInvocationResult {
+                    stdout: result.stdout,
+                    value: None,
+                    cost: None,
+                })
+                .map_err(|e| format!("wasm execution: {e}")),
+        )
     }
 
     /// **True, and this is the wart.** `WasmcoreEngineBackend::check` does
@@ -809,6 +965,7 @@ impl ScriptEngineBackend for WasmcoreEngineBackend {
         Ok(ScriptInvocationResult {
             stdout: result.stdout,
             value: None,
+            cost: None,
         })
     }
 }
@@ -854,6 +1011,54 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     /// owns the string and a test in that crate holds it to `Cargo.toml`.
     fn identity(&self) -> String {
         agenterm_qjswasm::identity()
+    }
+
+    /// One self-contained `.wasm`, which is the whole of this engine's pack
+    /// shape: no bytecode file beside a source directory, no manifest, nothing
+    /// that has to be kept in step with anything. That is the difference PRD
+    /// 02.36 records as "形状必然不同", and it is the direction that makes it
+    /// simpler rather than the direction that makes it worse.
+    fn pack_artifact(&self, source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        Some(
+            agenterm_qjswasm::compile_qjs(source)
+                .map(|wasm| (wasm, "wasm"))
+                .map_err(|e| e.to_string()),
+        )
+    }
+
+    /// `Guest::CompiledQjs`, which exists for exactly this and not for
+    /// `Guest::Wasm`: a module compiled from `.qjs` speaks the V1 calling
+    /// convention, and loading it as an anonymous wasm guest would lose that
+    /// and hand the caller a raw `(i32, i64)` pair where a JavaScript value
+    /// was returned. `tests/qjs_guest.rs::a_compiled_artifact_reloaded_gives_the_same_value_as_its_source`
+    /// is the assertion that keeps the two routes agreeing.
+    fn execute_artifact(
+        &self,
+        artifact: &[u8],
+        _options: &ScriptInvocationOptions,
+        fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        let bridge: Option<agenterm_qjswasm::FleetBridgeFn> = fleet_bridge;
+        let mut engine = agenterm_qjswasm::Engine::new();
+        Some(
+            engine
+                .run_once(
+                    agenterm_qjswasm::Guest::CompiledQjs(artifact),
+                    bridge,
+                    "main",
+                    &[],
+                )
+                .map(|outcome| ScriptInvocationResult {
+                    stdout: outcome.stdout,
+                    value: outcome.values.first().and_then(qjswasm_value_as_json),
+                    cost: Some(ScriptCost {
+                        steps: outcome.steps,
+                        peak_call_depth: outcome.peak_call_depth,
+                        peak_activation_slots: outcome.peak_activation_slots,
+                    }),
+                })
+                .map_err(|e| e.to_string()),
+        )
     }
 
     /// False, and it was not always: this backend's `execute` documents having
@@ -962,6 +1167,11 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,
             value: outcome.values.first().and_then(qjswasm_value_as_json),
+            cost: Some(ScriptCost {
+                steps: outcome.steps,
+                peak_call_depth: outcome.peak_call_depth,
+                peak_activation_slots: outcome.peak_activation_slots,
+            }),
         })
     }
 }
@@ -1187,6 +1397,43 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Wasmcore(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.source_is_a_path(),
+        }
+    }
+
+    fn execute_artifact(
+        &self,
+        artifact: &[u8],
+        options: &ScriptInvocationOptions,
+        fleet_bridge: Option<ScriptFleetBridgeFn>,
+    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
+        match self {
+            Self::Rh(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+        }
+    }
+
+    fn pack_artifact(&self, source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
+        match self {
+            Self::Rh(backend) => backend.pack_artifact(source),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.pack_artifact(source),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.pack_artifact(source),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.pack_artifact(source),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.pack_artifact(source),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.pack_artifact(source),
         }
     }
 
