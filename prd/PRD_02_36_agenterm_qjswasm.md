@@ -852,14 +852,63 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 在 tinyvm 上因上述重入约束不可行。两套 ABI 的 `status` 语义保持一致，让 guest 作者只
 学一套状态码。）
 
+## 记忆宫殿：一段 `.qjs` 走过的七个房间
+
+树说「有什么」，这张图说「东西放在哪」。每个房间放一件**只属于它**的知识；
+判断一件事该改在哪间，问的是**它随什么变**——随 JS 语言或 wasm 规范变，在上游房间；
+随 agenterm 业务变，在下游房间。这条判据本身就是编译器归属那次撤销的结论。
+
+```mermaid
+flowchart TD
+  subgraph UP["上游 tinyvm-qjs — 随语言与规范变"]
+    R1["① 词法 / 语法<br/>lex · parse · AST<br/><i>拒绝在这里说人话</i>"]
+    R2["② 降级到 V1<br/>八个 tag · 派发顺序<br/><i>Number → String → 其余</i>"]
+    R3["③ 运行时预制件<br/>bump 堆 · 对象 / 数组记录<br/><i>门控：不用就不发射</i>"]
+    R4["④ 编码 .wasm<br/>标准字节 · LEB128"]
+    R1 --> R2 --> R3 --> R4
+  end
+
+  subgraph CORE["核 tinyvm — 只吃字节"]
+    R5["⑤ 装载门<br/>校验 · Limits<br/><i>check 与 execute 同一道</i>"]
+    R6["⑥ 解释执行<br/>无 JIT · 每调用独立预算<br/><i>steps / depth / slots</i>"]
+    R5 --> R6
+  end
+
+  subgraph DOWN["下游 agenterm-qjswasm — 随业务变"]
+    R7["⑦ 槽 + 宿主门<br/>agenterm.* 四个 import<br/><i>两趟取回</i>"]
+  end
+
+  SRC(["fleet.qjs<br/>29 个操作"]) --> R1
+  R4 --> R5
+  R6 <--> R7
+  R7 --> BRK(["Fleet broker<br/>IPC · 真 server"])
+  R6 --> OUT(["完成值<br/>ScriptInvocationResult"])
+  FW["fault word<br/>堆耗尽 / 未捕获 throw"] -.->|"客人自己写下原因"| R7
+```
+
+**为什么值得画。** 2026-08-26 这一天抓到的三条真缺陷，**全是同一种病：东西放错房间**。
+
+| 缺陷 | 放错在哪 |
+|------|----------|
+| `script eval` 给每个引擎发 rh 源码 | 第 ⑦ 间的方言，焊进了公共走廊 |
+| `.wasm` 的**路径**被当程序发给每个引擎 | 按**扩展名**判，而不是按**谁来跑** |
+| 数组的 `typeof` / `truthy` 臂 | 加进了**无条件**运行时，绕过第 ③ 间的门，每个程序多付 11 字节 |
+
+三条都不是「写错了」，是「放错了」——所以这张图和那棵树同等重要：树防的是吹牛，
+图防的是把东西放进错误的房间。
+
 ## Capability tree
 
 Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` 有意排除
 
-**M0（脊柱）+ 上游 M1/M2（语言）已落地并有实测证据，见下节。** 下表每个 `[x]` 都由
+**M0（脊柱）+ 上游 M1/M2/M3（语言）已落地并有实测证据，见下节。** 下表每个 `[x]` 都由
 本仓 `tests/qjs_guest.rs` / `tests/qjs_door.rs` 或上游套件**编译并跑过**——不是读源码
-得出的。上游 rev：`f694733` → `df8decd`（2026-08-24）→ `6920c60`（门的机制）→
-`f8adef8`（客人自报堆耗尽，2026-08-25）。
+得出的。上游 rev 链：`f694733` → `df8decd`（2026-08-24）→ `6920c60`（门的机制）→
+`f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
+`048bcf2`（数组，含 JSON 收发）→ **`577af37`**（Array 出脸时具名，当前 pin，2026-08-26）。
+
+上游 head 是 `42898f3`，比 pin 多一个 commit，内容只有文档与测试（数组 36.6× 那次实测），
+**故意不抬**——为一条文档注释动 pin 是无谓的搅动。
 
 ```text
 agenterm-qjswasm                                        [~]
@@ -878,8 +927,8 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 自动分号插入（ECMA-262 12.10）                   [x]
 │   │   ├── 语句 / 块 / 控制流                              [x]
 │   │   ├── 函数声明                                        [x]
-│   │   ├── 函数表达式                                      [~] 只有立即调用可用；
-│   │   │                                                      赋给绑定后调用 = 拒绝
+│   │   ├── 函数表达式                                      [x] rev f21f0f2：存 / 传 /
+│   │   │                                                      返回 / 间接调用都可
 │   │   └── 诚实的「尚不支持」诊断（指语法，不指用户）        [x]
 │   ├── 值表示（V1 双字 tag:i32 + payload:i64）              [x] 由实测实验判定
 │   │   ├── 数字 = ECMA-262 binary64（非 i32）              [x] 1/0=Infinity，无回绕
@@ -894,7 +943,13 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 字符串（字面量池 + 拼接 + 相等 + bump 分配器）     [x]
 │   │   ├── 取余 `%` / `typeof`                              [x] 2026-08-25 复测：7%3=1，typeof "x"="string"
 │   │   ├── 对象（堆布局 + 属性读写 + 任意嵌套）              [x] rev f21f0f2
-│   │   ├── 数组                                            [ ] 连带挡住含数组的 JSON.parse
+│   │   ├── 数组（第八个 tag + 密集向量）                     [x] rev 048bcf2
+│   │   │   ├── 字面量 / `a[i]` 读写 / `.length` / 任意嵌套    [x]
+│   │   │   ├── 越界读 undefined；越界写补 undefined 不留 hole  [x]
+│   │   │   ├── 字符串 key 不是索引（`a["0"]`）                [具名分歧] 10.4.2.1
+│   │   │   ├── 非索引属性**写** → trap（密集向量无处放）       [具名]
+│   │   │   ├── 数组方法 push / map                            [ ] 需要 prototype
+│   │   │   └── 索引读 526 步/元素 vs 对象拼写 19 235          [x] 36.6×，取斜率
 │   │   ├── 闭包（环境捕获 + 间接调用表）                     [ ] 捕获外层局部 = 拒绝；
 │   │   │                                                      读脚本级绑定 = 可以
 │   │   ├── `?:`                                            [x] rev f21f0f2
@@ -963,9 +1018,15 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 验收测试读真文件 + driver（非缩略版）              [x] 照 eval_fleet_module
 │   │   ├── lua / js / qjs 三方绑定互锁                       [x] facade_parity
 │   │   └── 发出的 params 过 validate_fleet_parameters        [x] 全目录无一条发不出
-│   ├── 两处生产调用点迁移 + 行为等价测试                     [ ] 已无前置
-│   └── CLI 面对应或明确声明缺口                              [~] 十三动词判决已交付；
-│       └── Guest::CompiledQjs（pack 类动词的前置）           [x] 2026-08-25
+│   ├── 两处生产调用点迁移 + 行为等价测试                     [ ] **唯一还挡着归档的一件**
+│   │   └── 等价证据：6 条一致 / 0 具名分歧                    [x] script_engine_equivalence
+│   └── CLI 面对应或明确声明缺口                              [x] 2026-08-26 门 3 全绿
+│       ├── Guest::CompiledQjs（pack 类动词的前置）           [x] 2026-08-25
+│       ├── check / run / eval / version / hash               [x] 各按后端路由
+│       ├── corpus-scan（共享 driver + 共享契约测试）          [x] 2026-08-26
+│       ├── pack build / load · run-smoke · qualify           [x] 2026-08-26 产物面
+│       │   └── 收据带 steps / peak_call_depth（超集）         [x] qjs 造不出来
+│       └── check-many                                        [具名拒绝] manifest 是 rh 的
 │
 └── 归档 agenterm-wasmcore                                [~]
     ├── 能力差异诚实清单（3 要补 / 13 有意不补）              [x] 2026-08-25
@@ -1206,6 +1267,45 @@ cargo test --workspace --exclude agenterm-abi                     # 781 passed /
 | `Trap("call stack")` 覆盖 ≥3 种不同条件，`Trap("memory size")` ≥2 种 | 24 / 14 处调用点；下游无法区分——**已修**：上游拆成 `activation slot limit` / `operand stack` / `call stack allocation` / `activation slot overflow`，并给出 `WasmError::class()` / `ceiling()`，下游不再匹配文案 |
 | `Trap("no exported function named \`")` 文案被截断，尾随一个孤立反引号 | `wasm.rs` 5782 / 8442；fmt-free 核填不进名字——已派单 |
 | 抄文案表的代价是**静默**的 | 上游拆分 `"call stack"` 时，本 crate 的分类表不报编译错、测试也全绿，只是分类悄悄错了。存取器不会这样漂——已按此改写 `src/slot.rs::classify` |
+
+## 接下来：按「解锁什么」排，不按工作量排
+
+现状一句话：**引擎可用**，边界是「没有闭包、没有标准库」——写 fleet 绑定和自动化脚本够，
+写复杂逻辑不够。四条按各自解锁什么排序。
+
+**01 · 迁移两处生产调用点**（门 2，本仓）
+
+归档 `agenterm-qjs`、下掉 rquickjs 这条 C 依赖，**只差这一件**。门 1 与门 3 已绿，
+行为等价证据六条一致零分歧。真正的工作量不在引擎，在
+`src/script_engine.rs::QjsEngineBackend` 与 `agenterm qjs` 别名切过去之后的回归。
+
+排第一不是因为它难，是因为**它是唯一一条能删掉一整个外链 C 依赖的路**——不可逆的收益。
+另外三条随时可以做，这一条做完之后仓里就少一个 wasmtime 之外的原生依赖。
+
+**02 · 闭包捕获外层局部**（上游）
+
+语言层最大的单一缺口，也是「能用」和「顺手」的分界线。今天
+`function outer(){ let a = 1; function inner(){ return a; } }` 是编译期拒绝——
+任何稍复杂的脚本第一件事就撞它。它**不挡任何门**，但它挡住所有人。
+
+**03 · `_start` 入口约定**（决策，不是编码）
+
+手写 `.wasm` 客人用 WASI 的 `_start`，还是导出的 `"main"`？这是**产品决定**不是能力问题，
+而它是 `agenterm-wasmcore` 归档门 2 唯一的阻塞点。2026-08-26 起它可一条命令观测：
+把 qjswasm 的产物喂给 `AGENTERM_SCRIPT_BACKEND=wasmcore script pack load`，答
+`does not export a WASI '_start' command entry point`。
+
+**04 · GC，以及 `eval`**（长期）
+
+堆今天是 bump 分配 + 整堆丢弃：一次调用内只涨不落，调用结束整个实例扔掉。对当前脚本形态
+够用，对长驻脚本不够。`eval` 的前提（跨实例函数链接）核里已有，缺宿主侧重编译进新实例那段。
+
+### 两件小的，但会一直咬人
+
+- **扩展名不选引擎。** `.qjs` 今天必须显式给 `AGENTERM_SCRIPT_BACKEND`。
+  `from_entry_path` 写了路由表，但生产里只被用来判断「传路径还是传内容」——
+  *所有引擎都一样*，不是 qjswasm 独有。要不要让扩展名直接选引擎，是跨引擎的产品决定。
+- **验证口径是三条命令不是一条。** 见上文 §这个盲区已经咬过一次。
 
 ## Non-goals until 政委 orders otherwise
 
