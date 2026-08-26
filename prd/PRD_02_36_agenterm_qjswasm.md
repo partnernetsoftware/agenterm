@@ -290,9 +290,15 @@ tinyvm 解释执行（无 JIT）
 - `scripts/qjs/` 下**只有** `lib/fleet.js`（209 行 host binding 库），**没有任何实际
   任务脚本**——本仓 `plan/design-sql-execution-target.md` 已记录同一事实。
 - `script-qjs` 是 `optional`、`default` 关。
-- 生产路径真正调 `agenterm_qjs::` 的只有两处：`src/script_engine.rs` 的
+- 生产路径真正写 `agenterm_qjs::` 的只有两处：`src/script_engine.rs` 的
   `QjsEngineBackend`、`src/bin/agenterm.rs` 的 `qjs` 子命令。其余是兄弟 crate 的
   **文档注释**在引用它的形状，不是代码依赖。
+
+  **但「写 `agenterm_qjs::` 的地方」不等于「要动的地方」（2026-08-26 复核）。**
+  第三处是 `src/script_worker.rs:683`：它按 `QjsEngineBackend.enabled()` 分发，
+  **真 `task run` 走的就是这条**。它不写 `agenterm_qjs::`（写的是那个适配器），
+  所以按前一个口径数不出来。要迁的是三处：**后端本体、worker 分发、CLI 别名**。
+  这正是「先数无聊的那个数」那条纪律——数之前先说清楚数的是什么。
 
 所以归档不是「砸掉在用的引擎」，是「换掉一个几乎无人使用的外链依赖」。
 
@@ -366,6 +372,32 @@ tinyvm 解释执行（无 JIT）
 十条今天全部发得出去。`tests/qjs_produces_a_fleet_operation.rs::the_reachable_share_of_
 the_catalog_is_known` 按它自己文档里预写的规则，从「量比例并断言差额存在」改成了
 「全目录无一条因参数类型而写不出来」的等式。
+
+### 门 2 的等价现在锁在**迁移真正发生的那一层**（2026-08-26）
+
+`tests/script_engine_equivalence.rs` 比的是两个 **crate**——直接驱动
+`agenterm_qjs::eval_entry_with_host` 与 `agenterm_qjswasm::Engine`，走各自的真绑定。
+那是回答「两个引擎会不会发出同一个 Fleet 操作」的正确测试，**而它不是调用点用的那一层**：
+`script_worker.rs` 与 CLI 走的是 `ScriptEngineBackend::check` / `::execute`，上面还有
+启用闸门、宿主接线、结果投影。迁移动的是**那一层**，所以许可它的等价必须在那一层断言。
+
+`src/script_engine.rs::tests::gate_two_trait_equivalence` 四条：
+
+| 断言 | 内容 |
+|------|------|
+| stdout 与值一致 | 三段程序，各按引擎自己的入口约定写，`print` 输出与返回值逐条相同 |
+| `check` 一致 | 子集内的都收，坏语法的都拒 |
+| 未被选中时都拒绝 | worker 先问 `enabled()` 再调，一个照跑的后端会顶着别人的名字执行 |
+| **子集更窄，这是会坏的东西** | 箭头函数 / 模板字面量 / `Math` / 捕获外层局部的闭包——四条 rquickjs 跑得动、qjswasm 拒绝 |
+
+**第四条是故意留着的**，因为迁移的真实风险就在那里：两个引擎在 Fleet 面等价，在**语言**上
+不等价。可以接受的两条理由都不是假设：`scripts/` 里**没有任何 `.js` 任务脚本**（只有
+`fleet.js` 绑定库），而每一条拒绝都是**具名能力诊断**——编译期大声失败，不是运行期悄悄
+给错答案。
+
+写这条测试时第一版把捕获写在了脚本顶层，引擎**跑通了**返回 1——那里的 `a` 是脚本级绑定
+不是外层局部，上游原话就是「捕获外层局部 = 拒绝；读脚本级绑定 = 可以」。测试错了，不是
+引擎错了；已改成嵌在函数里。
 
 ### 门 2 的证据先行（2026-08-25）
 

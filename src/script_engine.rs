@@ -1499,6 +1499,169 @@ mod tests {
     // interference to a narrow window.)
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Gate 2's equivalence, **at the layer the migration actually happens**.
+    ///
+    /// `tests/script_engine_equivalence.rs` compares the two *crates*, driving
+    /// `agenterm_qjs::eval_entry_with_host` and `agenterm_qjswasm::Engine`
+    /// directly through the shipped fleet bindings. That is the right test for
+    /// "do the two engines produce the same Fleet operation", and it is not
+    /// the layer the call sites use: `script_worker.rs` and the CLI reach
+    /// `ScriptEngineBackend::check` and `::execute`, which add the enablement
+    /// gate, the host wiring and the result projection on top. Migrating means
+    /// repointing *those*, so the equivalence that licenses it has to be
+    /// asserted through *those*.
+    ///
+    /// Both engines are driven with the env var set to their own name, because
+    /// both methods refuse when `enabled()` is false -- which is itself a piece
+    /// of behaviour the migration must not change.
+    #[cfg(all(feature = "script-qjs", feature = "script-qjswasm"))]
+    mod gate_two_trait_equivalence {
+        use super::*;
+
+        /// Run one program on one backend, with the env var pointed at it.
+        /// The caller holds `ENV_LOCK`.
+        fn on(
+            backend: &dyn ScriptEngineBackend,
+            name: &str,
+            source: &str,
+        ) -> Result<ScriptInvocationResult, ScriptEngineError> {
+            let _env = EnvGuard::set(name);
+            backend.execute(source, &ScriptInvocationOptions::default(), None)
+        }
+
+        fn checked(
+            backend: &dyn ScriptEngineBackend,
+            name: &str,
+            source: &str,
+        ) -> Result<(), ScriptEngineError> {
+            let _env = EnvGuard::set(name);
+            backend.check(source, &ScriptInvocationOptions::default())
+        }
+
+        /// The same program, written in each engine's entry convention,
+        /// produces the same stdout and the same value through the trait.
+        ///
+        /// Not the same *source*: `agenterm-qjs` calls a top-level `entry()`
+        /// and `agenterm-qjswasm` takes the script's completion value. That
+        /// difference is the engines', not this test's, and
+        /// `ScriptEngineBackend::eval_entry_source` is where the product
+        /// already encodes it.
+        #[test]
+        fn both_backends_agree_on_stdout_and_value() {
+            let _guard = ENV_LOCK.lock().expect("lock");
+            for (js, qjs, want_out, want_value) in [
+                (
+                    "function entry() { print(\"hello\"); return 42; }",
+                    "print(\"hello\"); return 42;",
+                    "hello\n",
+                    serde_json::json!(42),
+                ),
+                (
+                    "function entry() { return \"tab\" + \"s.list\"; }",
+                    "return \"tab\" + \"s.list\";",
+                    "",
+                    serde_json::json!("tabs.list"),
+                ),
+                (
+                    "function entry() { var o = {a: 1}; return o.a + 1; }",
+                    "let o = {a: 1}; return o.a + 1;",
+                    "",
+                    serde_json::json!(2),
+                ),
+            ] {
+                let a = on(&QjsEngineBackend, "qjs", js).expect("qjs runs it");
+                let b = on(&QjswasmEngineBackend, "qjswasm", qjs).expect("qjswasm runs it");
+                assert_eq!(a.stdout, want_out, "qjs stdout for {js:?}");
+                assert_eq!(b.stdout, want_out, "qjswasm stdout for {qjs:?}");
+                assert_eq!(a.value, Some(want_value.clone()), "qjs value for {js:?}");
+                assert_eq!(b.value, Some(want_value), "qjswasm value for {qjs:?}");
+            }
+        }
+
+        /// `check` accepts and refuses on the same terms for a program inside
+        /// both subsets, and a broken one.
+        #[test]
+        fn both_backends_agree_on_check() {
+            let _guard = ENV_LOCK.lock().expect("lock");
+            checked(&QjsEngineBackend, "qjs", "function entry() { return 1; }")
+                .expect("qjs accepts");
+            checked(&QjswasmEngineBackend, "qjswasm", "return 1;").expect("qjswasm accepts");
+
+            // Neither engine parses this, and both must say so rather than
+            // accept and fail later.
+            let broken = "function entry( { return";
+            assert!(checked(&QjsEngineBackend, "qjs", broken).is_err());
+            assert!(checked(&QjswasmEngineBackend, "qjswasm", broken).is_err());
+        }
+
+        /// Both refuse to run when they are not the selected engine, and that
+        /// is load-bearing: the worker asks `enabled()` and then calls, so a
+        /// backend that ran anyway would execute under another engine's name.
+        #[test]
+        fn both_backends_refuse_when_they_are_not_selected() {
+            let _guard = ENV_LOCK.lock().expect("lock");
+            let _env = EnvGuard::set("rh");
+            let options = ScriptInvocationOptions::default();
+            assert!(
+                QjsEngineBackend
+                    .check("function entry(){}", &options)
+                    .is_err()
+            );
+            assert!(QjswasmEngineBackend.check("return 1;", &options).is_err());
+        }
+
+        /// **The migration's actual risk, pinned rather than hidden.**
+        ///
+        /// The two engines are equivalent on the Fleet surface and *not* on
+        /// the language. `agenterm-qjs` is rquickjs -- full modern JS;
+        /// `agenterm-qjswasm` is a growing subset. Repointing a call site
+        /// moves every script through the narrower one, and these are the
+        /// constructs that stop working the day it happens.
+        ///
+        /// Two facts make that acceptable, and both are checked elsewhere
+        /// rather than assumed here: `scripts/` ships no `.js` task script,
+        /// only the `fleet.js` binding library, and every refusal below is a
+        /// **named capability diagnostic** rather than a wrong answer -- the
+        /// failure is loud at compile time, not silent at run time.
+        ///
+        /// When one of these starts compiling, upstream grew it, and the row
+        /// moves to `both_backends_agree_on_stdout_and_value`.
+        #[test]
+        fn the_subset_is_narrower_and_this_is_what_breaks() {
+            let _guard = ENV_LOCK.lock().expect("lock");
+            for (js, qjs) in [
+                (
+                    "function entry() { const f = (x) => x + 1; return f(1); }",
+                    "let f = (x) => x + 1; return f(1);",
+                ),
+                ("function entry() { return `x`; }", "return `x`;"),
+                (
+                    "function entry() { return Math.max(1, 2); }",
+                    "return Math.max(1, 2);",
+                ),
+                // The capture has to be of an *outer local*. Written at the
+                // script's top level, `a` is a script-scope binding and
+                // reading it from a nested function is allowed -- the first
+                // draft of this row got that wrong and the engine ran it,
+                // returning 1. Upstream states the distinction in exactly
+                // those terms: "捕获外层局部 = 拒绝；读脚本级绑定 = 可以".
+                (
+                    "function entry() { function o() { let a = 1; function i() { return a; } return i(); } return o(); }",
+                    "function o() { let a = 1; function i() { return a; } return i(); } return o();",
+                ),
+            ] {
+                on(&QjsEngineBackend, "qjs", js)
+                    .unwrap_or_else(|e| panic!("rquickjs should run {js:?}: {e}"));
+                let refused = on(&QjswasmEngineBackend, "qjswasm", qjs)
+                    .expect_err("this is outside the subset");
+                assert!(
+                    refused.contains("this engine ") || refused.contains("no host function"),
+                    "a narrower subset must refuse by naming the capability, got {refused:?}"
+                );
+            }
+        }
+    }
+
     struct EnvGuard {
         prior: Option<String>,
     }
