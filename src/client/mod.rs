@@ -1412,6 +1412,20 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
 }
 
 fn run_script_check_many_hosted(arguments: &[String]) -> i32 {
+    // This verb runs on rh whatever the selected backend is: it re-invokes
+    // this executable behind the `__agenterm-internal-engine rh` marker, and
+    // its manifest schema, `kind` string and receipt are rh's. Say so rather
+    // than run rh behind the caller's back -- which is what happened until
+    // this guard existed, and which surfaced as rh complaining about the
+    // manifest rather than as an engine mismatch.
+    let selected = crate::script_backend::ScriptBackend::from_env();
+    if selected != crate::script_backend::ScriptBackend::Rh {
+        cli_eprintln!(
+            "{}",
+            crate::script_rh_cli::check_many_not_on_this_engine_error(selected.as_str())
+        );
+        return 2;
+    }
     let worker = match script_worker_executable() {
         Ok(worker) => worker,
         Err(error) => {
@@ -4332,6 +4346,42 @@ mod tests {
         assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
         assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
         assert!(source.ends_with("; 0 }"));
+    }
+
+    /// `check-many` names the engine mismatch instead of running rh behind
+    /// the caller's back.
+    ///
+    /// Measured before the guard existed:
+    /// `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script check-many
+    /// --manifest F` answered `rh parse error: check_many_manifest_json:
+    /// unknown field …` -- rh, complaining about a manifest, when the caller
+    /// had asked for another engine entirely. The refusal message had been
+    /// written months earlier and never wired to a caller.
+    ///
+    /// The message is asserted rather than just the exit code, because the
+    /// whole value of this change is that the sentence says *which* engine was
+    /// selected and what to do instead.
+    #[test]
+    fn check_many_names_the_engine_mismatch_rather_than_running_rh() {
+        let message = crate::script_rh_cli::check_many_not_on_this_engine_error("qjswasm");
+        assert!(
+            message.contains("only available on the rh engine"),
+            "{message}"
+        );
+        assert!(
+            message.contains("selects qjswasm"),
+            "the sentence must name the engine that was selected: {message}"
+        );
+        assert!(
+            message.contains("script check FILE"),
+            "the sentence must say what to do instead: {message}"
+        );
+        // And it must not read as a build problem, which is the *other*
+        // reason this verb can be unavailable and has its own message.
+        assert!(
+            !message.contains("cargo build"),
+            "an engine mismatch is not a build problem: {message}"
+        );
     }
 
     /// **Every engine wraps an expression in its own dialect**, and the one

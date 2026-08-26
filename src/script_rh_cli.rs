@@ -84,6 +84,32 @@ pub fn try_forward_dev_cli(arguments: &[String]) -> Option<std::io::Result<ExitS
     )
 }
 
+/// `check-many` exists only on rh, and this is what to say when it is asked
+/// for on another engine.
+///
+/// The verb is hosted by re-invoking this executable behind
+/// [`RH_ENGINE_ARGS`], so the engine it runs on is a literal `"rh"` and not
+/// the selected backend. That is a real constraint -- the manifest schema,
+/// its `kind` string and its receipt are rh's -- and the honest answer is to
+/// name it. Silently running rh instead is what happened before this was
+/// wired: `AGENTERM_SCRIPT_BACKEND=qjswasm ... check-many --manifest F`
+/// answered `rh parse error: check_many_manifest_json: unknown field …`,
+/// which blames the manifest for being the wrong engine's.
+///
+/// This function existed with the message below and **no caller** until
+/// 2026-08-26. Written and not wired is the same as absent, and worse,
+/// because it reads as covered.
+pub fn check_many_not_on_this_engine_error(selected: &str) -> String {
+    format!(
+        "check-many is only available on the rh engine; AGENTERM_SCRIPT_BACKEND \
+         selects {selected}. Its manifest schema and receipt are rh's, so there \
+         is nothing to run here -- use `script check FILE` per file on {selected}, \
+         or unset the variable to run check-many on rh."
+    )
+}
+
+/// The other reason `check-many` can be unavailable: rh is selected, but this
+/// build has no engine to reach.
 pub fn check_many_requires_rh_error() -> String {
     "check-many requires the rh script engine; build with: cargo build --bin agenterm".into()
 }

@@ -459,18 +459,18 @@ cargo test --features "script-qjs,script-qjswasm" \
 
 | # | 动词 | 判决 | 一句话 |
 |---|------|------|--------|
-| 1 | `check` | 必须提供 | backend 已实现（`src/script_engine.rs`），只差 CLI 壳 |
-| 2 | `check-many` | 必须提供 | 共享 driver，约 60 行适配器，`kind` = `agenterm-qjswasm-check-manifest` |
+| 1 | `check` | **已有面**（2026-08-26 实测） | 不需要新 CLI 壳：`agenterm cli script check FILE` 本来就按 `AGENTERM_SCRIPT_BACKEND` 路由。`.qjs` 过则答 `OK`，不过则给引擎自己的能力诊断 |
+| 2 | `check-many` | **判决改了**：不提供，按名字拒绝（2026-08-26） | 原估「约 60 行适配器」低估了：这个动词是**把本可执行文件按 `__agenterm-internal-engine rh` 重新拉起**跑的，manifest schema、`kind`、收据全是 rh 的。产品早就写了 `check_many_requires_rh_error()`——**定义了，从没被调用过**，所以选别的后端时它静默跑 rh，报的是「rh parse error: unknown field …」，把「引擎选错了」说成「manifest 写错了」。已接线并具名 |
 | 3 | `pack build` | 形状必然不同 | 产物是一份自足 `.wasm`，不是 `.qjsc` + 源码目录 |
 | 4 | `pack load` | 形状必然不同 | 前置已补，见下 |
 | 5 | `pack build` 模块模式（`pack_module`） | 可以不提供 | 它绕的是 rquickjs 的约束，那约束在这里不存在；零生产调用者 |
 | 6 | `qualify` | 形状必然不同 | 收据是超集：多 `steps` / `peak_call_depth`，qjs 造不出来 |
 | 7 | `corpus-scan` | 必须提供 | 约 20 行，与 #2 同一套脚手架 |
-| 8 | `eval` | 必须提供 | — |
+| 8 | `eval` | **已交付**（2026-08-26） | 曾经**每个引擎都收到 rh 源码**；wrapper 移到 `ScriptEngineBackend::eval_entry_source`，六个引擎各答各的方言，wasmcore 按名字拒绝 |
 | 9 | `run -- <args>` | 可以不提供（今天） | 门只有四件，没有 `args_len` / `arg`（`host.rs` 的 `SIGNATURES`） |
 | 10 | `hash` | 形状必然不同 | 应当是产物哈希而不是源码哈希，见下 |
 | 11 | `run-smoke` | 跟随 #4 | — |
-| 12 | `task` | 必须提供 | stub 即可；退出码与文案被测试锁住 |
+| 12 | `task` | **已有面**（2026-08-26 实测） | `agenterm cli script task list` 与引擎无关（读的是任务清单不是脚本），选 qjswasm 时照常列出 |
 | 13 | `version` | 必须提供 | — |
 
 **一处前置条件，已解除。** 一份 `.wasm` 文件不记得自己是从 `.qjs` 编来的：
