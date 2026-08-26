@@ -36,11 +36,17 @@ const fleet = {};
 /// Three behaviours are deliberately `fleet.js`'s and not this file's own:
 ///
 ///   1. **Parse, falling back to the raw text.** `JSON.parse` in a `try`, the
-///      string in the `catch`. The fallback is not defensive noise: an
-///      operation that answers with a JSON *array* still fails to parse here,
-///      because arrays are not in the subset yet, and a caller then gets the
-///      text rather than a lie. `fleet.js` has the same two lines for its own
-///      reasons and a ported script cannot tell the difference.
+///      string in the `catch`. The fallback is not defensive noise: a broker
+///      can answer with something that is not JSON at all -- a transport
+///      refusal, a plain sentence -- and a caller then gets the text rather
+///      than a trap. `fleet.js` has the same two lines for the same reason and
+///      a ported script cannot tell the difference.
+///
+///      This paragraph used to say the fallback also caught *arrays*, because
+///      the engine had no Array type and `tabs.list` therefore came back as
+///      text. Arrays landed at tinyvm `048bcf2`; `tabs.list` now returns a
+///      list a caller can index, and the `catch` is back to catching only what
+///      it was written for.
 ///   2. **A refusal throws.** Under `fleet.js` the host function itself throws,
 ///      so a script that wants to survive a rejected call writes `try`/`catch`.
 ///      This file used to return `"ERR " + text` instead, which meant a script
