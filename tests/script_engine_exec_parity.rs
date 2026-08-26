@@ -4,7 +4,11 @@
 //! Whole-file gate: parity across all four engines only exists when all
 //! four are compiled in — the engine features default off, so a plain
 //! `cargo test` skips this file rather than failing to name gated variants.
-#![cfg(all(feature = "script-lua", feature = "script-qjs", feature = "script-sql"))]
+#![cfg(all(
+    feature = "script-lua",
+    feature = "script-qjswasm",
+    feature = "script-sql"
+))]
 //!
 //! `tests/script_engine_parity.rs` already locks check-many-level parity.
 //! Nothing locked EXECUTION-level parity — what each engine actually
@@ -87,10 +91,22 @@ impl Drop for EnvGuard {
     }
 }
 
+/// **`Qjs` left this list on 2026-08-26 and `Qjswasm` took its place.**
+///
+/// Not a deletion: `AGENTERM_SCRIPT_BACKEND=qjs` now resolves to `Qjswasm`
+/// (PRD 02.36 archive gate 2), so the engine this file was asserting parity
+/// for is the one no environment value can select any more, and the engine a
+/// caller actually reaches under that name is the new one. Execution-level
+/// parity is worth having about engines that exist in the routing table.
+///
+/// The programs below change with it -- `agenterm-qjswasm` takes the script's
+/// completion value where `agenterm-qjs` called a top-level `entry()` -- and
+/// the divergences this file exists to record change with them. Each one is
+/// re-stated where it is asserted rather than carried over.
 const ENGINES: [ScriptBackend; 4] = [
     ScriptBackend::Rh,
     ScriptBackend::Lua,
-    ScriptBackend::Qjs,
+    ScriptBackend::Qjswasm,
     ScriptBackend::Sql,
 ];
 
@@ -140,16 +156,12 @@ fn script_engine_exec_parity_trivial_entry_value() {
         "lua: return 42 should yield Some(42)"
     );
 
-    // qjs: `function entry() { return 42; }`
+    // qjswasm: the script's completion value, no `entry()` wrapper.
     let qjs_result = {
-        let _env = EnvGuard::set("qjs");
-        engine_for(ScriptBackend::Qjs)
-            .execute(
-                "function entry() { return 42; }",
-                &ScriptInvocationOptions::default(),
-                None,
-            )
-            .expect("qjs execute should succeed")
+        let _env = EnvGuard::set("qjswasm");
+        engine_for(ScriptBackend::Qjswasm)
+            .execute("return 42;", &ScriptInvocationOptions::default(), None)
+            .expect("qjswasm execute should succeed")
     };
     assert_eq!(
         qjs_result.value,
@@ -210,17 +222,17 @@ fn script_engine_exec_parity_stdout_capture() {
         "lua: print('hi') should capture \"hi\\n\""
     );
 
-    // qjs: `print()` is host-bound and captured, newline-terminated per
-    // call per crates/agenterm-qjs/src/eval.rs's `EvalOutcome::stdout` doc.
+    // qjswasm: `print` is one of the four `agenterm.*` door imports and its
+    // bytes are captured into `Outcome::stdout`, newline-terminated per call.
     let qjs = {
-        let _env = EnvGuard::set("qjs");
-        engine_for(ScriptBackend::Qjs)
+        let _env = EnvGuard::set("qjswasm");
+        engine_for(ScriptBackend::Qjswasm)
             .execute(
-                "function entry() { print('hi'); return 0; }",
+                "print(\"hi\"); return 0;",
                 &ScriptInvocationOptions::default(),
                 None,
             )
-            .expect("qjs execute should succeed")
+            .expect("qjswasm execute should succeed")
     };
     assert_eq!(
         qjs.stdout, "hi\n",
@@ -261,9 +273,9 @@ fn script_engine_exec_parity_check_accepts_valid_rejects_broken() {
             broken: "return !!",
         },
         CheckFixture {
-            backend: ScriptBackend::Qjs,
-            valid: "function entry() { return 42; }",
-            broken: "function entry() { return 1 ",
+            backend: ScriptBackend::Qjswasm,
+            valid: "return 42;",
+            broken: "return 1 +",
         },
         // sql: same fixtures as `src/script_engine.rs`'s own `#[cfg(test)]`
         // `SQL_VALID_SOURCE`/`SQL_BROKEN_SOURCE` consts. Unlike the other
@@ -360,27 +372,38 @@ fn script_engine_exec_parity_execute_missing_entry_fails_closed() {
         "lua: a returnless script coerces to value 0 rather than erroring — this IS lua's actual (fail-open) contract"
     );
 
-    // qjs: no top-level `entry()` function. `eval_entry_with_host` requires
-    // it and fails closed (crates/agenterm-qjs/src/eval.rs:66-69:
-    // "{label}: no top-level `entry()` function").
-    let qjs_error = {
-        let _env = EnvGuard::set("qjs");
-        engine_for(ScriptBackend::Qjs)
+    // qjswasm: there is no `entry()` to be missing. The script *is* the
+    // entry point and its ECMA-262 completion value is the result, so
+    // `40 + 2;` is not a program with a missing entry -- it is a program
+    // whose entry is that expression. Measured: `Some(42)`.
+    let qjswasm_result = {
+        let _env = EnvGuard::set("qjswasm");
+        engine_for(ScriptBackend::Qjswasm)
             .execute("40 + 2;", &ScriptInvocationOptions::default(), None)
-            .expect_err("qjs: source without entry() should fail closed on execute")
+            .expect("qjswasm: a bare expression is a whole program here")
     };
-    assert!(
-        qjs_error.contains("entry()"),
-        "qjs: missing-entry error should mention entry(), got: {qjs_error}"
+    assert_eq!(
+        qjswasm_result.value,
+        Some(serde_json::json!(42)),
+        "qjswasm: the completion value is the result"
     );
 
-    // DIVERGENCE FOUND (this dimension's whole point): rh and qjs both
-    // fail closed on a missing entry point, each with its own wording
-    // ("cdylib pack requires fn entry()" vs "no top-level `entry()`
-    // function") — but lua has NO such contract. A lua script with no
-    // explicit `return` silently produces `0`. Callers relying on
-    // "missing entry point == execute() error" would be correct for
-    // rh/qjs and *wrong* for lua.
+    // DIVERGENCE FOUND, and it **moved** when the qjs slot in this file
+    // became qjswasm on 2026-08-26.
+    //
+    // It used to read: rh and qjs both fail closed on a missing entry point,
+    // each with its own wording, but lua has no such contract. Two of three
+    // fail closed.
+    //
+    // It now reads: **only rh fails closed.** lua's chunk is the program and
+    // qjswasm's script is the program, so for both of them "no entry point"
+    // is not a state that exists -- lua answers `0` and qjswasm answers the
+    // completion value. A caller relying on "missing entry point ==
+    // execute() error" is correct for rh alone.
+    //
+    // Worth stating rather than quietly updating: the engine that replaced
+    // qjs took the *opposite* side of this divergence, and a caller who was
+    // written against the old majority is the one this breaks.
 }
 
 // ---------------------------------------------------------------------
@@ -468,22 +491,35 @@ fn script_engine_exec_parity_error_not_panic() {
         "lua: error message should surface the original 'boom' text, got: {lua_error}"
     );
 
-    // qjs: `throw new Error('boom')` inside entry() is also a genuine
-    // *runtime* error — eval_entry_with_host wraps it as
-    // "{label}: entry() failed: {err}" (crates/agenterm-qjs/src/eval.rs:74).
+    // qjswasm: an uncaught `throw` is an error and not a panic, the same
+    // contract -- but the **thrown value does not come with it**, and that is
+    // a divergence worth its own sentence.
+    //
+    // `throw new Error('boom')` on rquickjs surfaced the text `boom`. Here the
+    // answer is `the script threw a value and nothing caught it`, with no
+    // `boom` in it: a compiled module exports no global holding the thrown
+    // pair, so it is not readable from outside (upstream
+    // `GuestFault::UncaughtThrow` says so and calls handing it out a decision
+    // about the host boundary rather than about throwing). A script that wants
+    // the host to see *what* went wrong has to catch it and return or print it
+    // -- which `scripts/qjs/lib/fleet.qjs` does.
+    //
+    // Also `throw "boom"` and not `throw new Error(...)`: this engine has no
+    // `Error` global, and `new` is not in the subset.
     let qjs_error = {
-        let _env = EnvGuard::set("qjs");
-        engine_for(ScriptBackend::Qjs)
-            .execute(
-                "function entry() { throw new Error('boom'); }",
-                &ScriptInvocationOptions::default(),
-                None,
-            )
-            .expect_err("qjs: throw new Error('boom') should error, not panic")
+        let _env = EnvGuard::set("qjswasm");
+        engine_for(ScriptBackend::Qjswasm)
+            .execute("throw \"boom\";", &ScriptInvocationOptions::default(), None)
+            .expect_err("qjswasm: an uncaught throw should error, not panic")
     };
     assert!(
-        qjs_error.contains("boom"),
-        "qjs: error message should surface the original 'boom' text, got: {qjs_error}"
+        qjs_error.contains("threw a value"),
+        "qjswasm: an uncaught throw should be named as one, got: {qjs_error}"
+    );
+    assert!(
+        !qjs_error.contains("boom"),
+        "qjswasm cannot surface the thrown value -- if it now can, upstream \
+         grew a way to read it and this divergence should be retired: {qjs_error}"
     );
 
     // sql: querying a table that doesn't exist. This parses fine (it's

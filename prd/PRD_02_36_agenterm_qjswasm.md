@@ -373,6 +373,27 @@ tinyvm 解释执行（无 JIT）
 the_catalog_is_known` 按它自己文档里预写的规则，从「量比例并断言差额存在」改成了
 「全目录无一条因参数类型而写不出来」的等式。
 
+### 门 2 迁完之后，两条分歧**翻转**了（2026-08-26 实测）
+
+`tests/script_engine_exec_parity.rs` 是「四引擎执行层平价」的记录，它的价值在于
+**把分歧写下来**而不是逼出假统一。qjs 的位置换成 qjswasm 之后，它记录的两条分歧
+不是失效了，是**换了边**：
+
+**一、「缺少入口点」这件事只剩 rh 还 fail-closed。** 原文记的是「rh 和 qjs 都
+fail-closed，lua 没有这个契约」——三个里两个。现在 lua 的 chunk 就是程序、qjswasm 的
+script 就是程序，两者都**不存在**「没有入口点」这个状态：lua 答 `0`，qjswasm 答完成值
+（实测 `40 + 2;` → `Some(42)`）。**按老的多数派写的调用者，正是这次会坏的那个。**
+
+**二、未捕获的 throw 不携带抛出的值。** rquickjs 上 `throw new Error('boom')` 的错误
+文本里有 `boom`；qjswasm 答的是 `the script threw a value and nothing caught it`，
+**里面没有 `boom`**——编译后的模块不导出持有那一对的 global，上游
+`GuestFault::UncaughtThrow` 明说这是宿主边界的决定而不是抛出的问题。测试对这条写了
+**双向断言**：既断言它被具名为一次 throw，也断言 `boom` **不在**里面，并注明「哪天在了，
+说明上游长出了读它的办法，这条分歧该退休」。
+
+（顺带：这里写的是 `throw "boom"` 不是 `throw new Error(...)`——这个引擎没有 `Error`
+全局，`new` 也不在子集里。）
+
 ### 门 2 的等价现在锁在**迁移真正发生的那一层**（2026-08-26）
 
 `tests/script_engine_equivalence.rs` 比的是两个 **crate**——直接驱动
