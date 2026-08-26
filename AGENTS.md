@@ -191,8 +191,12 @@ The highest-yield rules are:
   primitives without measured evidence.
 - Validate the feature in isolation with `--no-default-features --features ...`;
   a full build can hide undeclared dependencies through feature unification.
-- Use a dedicated `CARGO_TARGET_DIR` for isolated work and clean it after the
-  owning evidence. Never run competing Cargo builds in one target directory.
+- Isolated Cargo work may use a dedicated `CARGO_TARGET_DIR`, but it must stay
+  **repo-local** (`target/<lane>/`, same as the rust cheatsheet). Never point it
+  at a chat/session scratchpad (`/tmp/claude-*`, `/tmp/codex-*`,
+  `**/scratchpad/tgt-*`, or any tool-provided session directory). Those paths
+  are for tiny drafts, not multi-gigabyte `target/` trees. Clean the lane after
+  the owning evidence. Never run competing Cargo builds in one target directory.
 
 ## Script engines — read the condensed manual before writing a script
 

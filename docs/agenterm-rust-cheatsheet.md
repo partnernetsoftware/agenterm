@@ -29,7 +29,9 @@ cargo clippy -p owning-package --all-targets -- -D warnings
 
 Do not share that directory with another active Cargo process. Remove it after
 the owning evidence, after resolving and checking that it is the intended
-repo-local target.
+repo-local target. Never set `CARGO_TARGET_DIR` to `/tmp/claude-*`,
+`/tmp/codex-*`, or any session `scratchpad/` — that is how a chat session
+accumulates tens of gigabytes of leftover `target/` trees.
 
 The repository is pinned by `rust-toolchain.toml`. Do not solve a compiler
 failure by silently changing the toolchain, edition, target, linker, or global
