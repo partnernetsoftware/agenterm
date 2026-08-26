@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**133 passed / 0 ignored**，2026-08-25，上游 rev **`f21f0f2`**）；**`.qjs` 已经够得着
+**135 passed / 0 ignored**，2026-08-26，上游 rev **`048bcf2`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -9,6 +9,17 @@ Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswas
 crate 原样保留。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
+
+**上游数组落地，两引擎之间最后一条具名分歧消失（2026-08-26，rev `048bcf2`）。**
+`tinyvm-qjs` 长出了第八个 tag：数组字面量、`a[i]` 读写、`a.length`，以及
+`JSON.parse` / `JSON.stringify` 吃数组。对本产品的意义只有一句：**`fleet.tabs.list()`
+返回的不再是文本，是能索引的列表。**
+
+`tests/script_engine_equivalence.rs` 那条**写来会在成功时失败**的用例，如期失败了，
+然后按它自己文档里预写的规则**挪进了另外四条的行列**（不是放宽断言）。现在是
+**六条一致、零条具名分歧**。同轮 `qjs_guest.rs` 的「钉住能力不存在」清单第三次被
+上游追上（`return [1, 2, 3];` 现在能跑），照它自己的规则换成了 `[1, , 2]`——elision
+是 hole 不是 `undefined`，引擎按名字拒绝而不是二选一，所以清单里仍然留着一个 `[`。
 
 **归档门 1 已全绿（2026-08-25 下午）。** `scripts/qjs/lib/fleet.qjs` 从 8/29 补成
 `fleet.js` 的**完整**移植（同样 29 个操作、同名同序同 params 形状，拒绝时同样 `throw`），
@@ -34,7 +45,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
 | 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿** | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
-| 门 2（两处生产调用点迁移） | 未动，但**行为等价证据已先落地** | `tests/script_engine_equivalence.rs` 五条：同一段脚本经两条真绑定跑两个引擎，操作与值逐条对照；剩一条已具名的分歧（数组） |
+| 门 2（两处生产调用点迁移） | 未动，但**行为等价证据已全绿** | `tests/script_engine_equivalence.rs` **六条一致、零分歧**：同一段脚本经两条真绑定跑两个引擎，操作与值逐条对照。原先那条具名分歧（数组）已随上游 `048bcf2` 消失 |
 | 门 3（CLI 面） | **「声明」那一半已交付**，「有对应面」那一半未做 | 十三动词判决已定；前置 `Guest::CompiledQjs` 已补 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
 | 门 2（`.wasm` 路由切换） | 不能绿 | `_start` 入口约定；缺同客人性能对比 |
@@ -377,7 +388,8 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 | 数字 payload（`ui.tabs.set_width(320)`） | 两边同为 `{"width":320}`，是 JSON 数字 |
 | 无参操作（`ui.snapshot`） | 两边同送 `{}`，同取回 `snap.width` |
 | 拒绝可 catch（`ui.hello`） | 两边都抛、都被 `catch` 接住 |
-| **数组答案（`tabs.list`）** | **具名分歧**：rquickjs 解析成数组，tinyvm 无 Array 类型，绑定的 `catch` 交回原文 |
+| 数组答案（`tabs.list`） | **一致**（`048bcf2` 起）：两边都解析成列表，`tabs.length + "/" + tabs[0].id` 同为 `2/tab1/tab2` |
+| 非 JSON 答案 | **一致**：两边都走 `catch` 交回原文——数组能解析之后，这条兜底还在，且两边同样走 |
 
 **第一次跑就抓到一条，而且是测试自己错。** `1920` vs `1920.0`——`agenterm-qjs` 经
 `JSON.stringify` 出来的整值 double 不带小数，测试的投影带了。两个**产品脸**其实是一致的
@@ -386,9 +398,11 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 已改成按值比，并把这段写进文件注释：这个文件管的是线上的字节与值，JSON 数字怎么拼是
 上面一层的事。
 
-数组那条是**故意留红字的具名分歧**，不是通过的用例：上游 `tinyvm-qjs` README 在
-`JSON.parse("[1]")` 那条边界上自己写了这个下游后果。数组到了这条会失败，正确的修法是把它
-挪进上面四条的行列，**不是**把断言放宽。
+数组那条曾经是**故意留红字的具名分歧**：上游 `tinyvm-qjs` README 在
+`JSON.parse("[1]")` 那条边界上自己写了这个下游后果，而那条用例写明「数组到了这条会失败，
+正确的修法是把它挪进上面四条的行列，**不是**把断言放宽」。**2026-08-26 它如期失败，
+也照这条修了。** 一条写来会在成功时失败的测试，是把「上游落地了」从一句话变成一次
+别人能复跑的测量——这一轮它兑现了。
 
 **运行条件（诚实记一笔）**：本文件要 `script-qjs` 与 `script-qjswasm` **同时**打开，
 两个 feature 都不是 default，`.github/workflows/ci-agenterm.yml` 现在是 `.disabled`。

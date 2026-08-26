@@ -14,6 +14,14 @@
 //! be shown to agree on the wire, and the disagreements that remain have to be
 //! named rather than discovered by whoever moves first.
 //!
+//! **There are none left.** When this file was written there was one, and it
+//! was written as a case that would fail when it was fixed: `tabs.list`
+//! answers with a JSON array, and the tinyvm engine had no Array type, so the
+//! binding's `catch` handed the caller raw text where rquickjs handed it a
+//! list. Arrays landed at tinyvm `048bcf2`; the case failed, as designed, and
+//! moved in with the others rather than having its assertion widened. Six
+//! agreements, zero named divergences.
+//!
 //! # What "the same script" means here
 //!
 //! It cannot mean the same bytes. The two engines have different entry
@@ -273,45 +281,55 @@ fn both_engines_make_a_refusal_catchable() {
     assert_eq!(ran.value, Some(serde_json::json!("caught")));
 }
 
-/// **A named divergence, not a passing case.**
+/// An array answer, which used to be the one place the two engines differed.
 ///
-/// `tabs.list` answers with a JSON *array*. Both bindings wrap the parse in
-/// `try`/`catch` and fall back to the raw text, so on `agenterm-qjs` the caller
-/// gets an array and on `agenterm-qjswasm` it gets a String -- the tinyvm
-/// engine has no Array type yet and `JSON.parse` refuses one by name rather
-/// than approximating it (`tinyvm-qjs`'s README says so at the `JSON.parse("[1]")`
-/// boundary, and states this exact downstream consequence).
+/// **This test was written to fail on success**, and it did. It said:
 ///
-/// It is pinned here rather than left out because a gap nobody wrote down is a
-/// gap somebody rediscovers. When arrays land upstream this test fails, and the
-/// right fix is to move the case into [`both_engines_emit_the_same_operation_for_a_string_payload`]'s
-/// company as an ordinary agreement -- not to widen the assertion below.
+/// > `tabs.list` answers with a JSON *array*. Both bindings wrap the parse in
+/// > `try`/`catch` and fall back to the raw text, so on `agenterm-qjs` the
+/// > caller gets an array and on `agenterm-qjswasm` it gets a String -- the
+/// > tinyvm engine has no Array type and `JSON.parse` refuses one by name
+/// > rather than approximating it. [...] When arrays land upstream this test
+/// > fails, and the right fix is to move the case into the company of the
+/// > ordinary agreements -- not to widen the assertion below.
+///
+/// Arrays landed at tinyvm `048bcf2`. The engines now agree on all five cases,
+/// and this one asserts what the others do: the same operation on the wire,
+/// and the same value back. The assertion was not widened; the case changed
+/// sides.
 #[test]
-fn an_array_answer_is_the_one_place_the_two_engines_still_differ() {
+fn both_engines_parse_an_array_answer_into_a_list() {
     let broker = Broker {
-        reply: Ok(r#"[{"id":"tab1"}]"#.to_string()),
+        reply: Ok(r#"[{"id":"tab1"},{"id":"tab2"}]"#.to_string()),
     };
-    let body = r#"const tabs = fleet.tabs.list();
-                  return typeof tabs;"#;
+    let ran = agree(
+        r#"const tabs = fleet.tabs.list();
+           return tabs.length + "/" + tabs[0].id + "/" + tabs[1].id;"#,
+        &broker,
+    );
+    assert_eq!(ran.calls, vec![("tabs.list".to_string(), "{}".to_string())]);
+    assert_eq!(
+        ran.value,
+        Some(serde_json::json!("2/tab1/tab2")),
+        "both engines must parse the array and index it, not hand back its text"
+    );
+}
 
-    let qjs = run_on_qjs(body, &broker).expect("rquickjs runs it");
-    let qjswasm = run_on_qjswasm(body, &broker).expect("tinyvm runs it");
-
-    assert_eq!(
-        qjs.calls, qjswasm.calls,
-        "the two engines must still send the identical operation; only the \
-         answer's shape differs"
+/// The `catch` in both bindings still catches what it is for.
+///
+/// Worth its own case now that the array one has moved: the fallback exists
+/// because a broker can answer with something that is not JSON at all, and a
+/// milestone that made arrays parse must not have made the fallback
+/// unreachable. Both engines have to take it, and take it the same way.
+#[test]
+fn both_engines_fall_back_to_the_text_when_the_answer_is_not_json() {
+    let broker = Broker {
+        reply: Ok("broker_transport: not running".to_string()),
+    };
+    let ran = agree(
+        r#"const answer = fleet.protocol.info();
+           return typeof answer;"#,
+        &broker,
     );
-    assert_eq!(
-        qjs.value,
-        Some(serde_json::json!("object")),
-        "rquickjs parses the array, and an array is an object"
-    );
-    assert_eq!(
-        qjswasm.value,
-        Some(serde_json::json!("string")),
-        "tinyvm has no Array type, so the binding's catch hands back the raw \
-         text -- if this is no longer a string, arrays landed and this test \
-         should become an ordinary agreement case"
-    );
+    assert_eq!(ran.value, Some(serde_json::json!("string")));
 }

@@ -52,7 +52,15 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
   （hexadecimal）、`1_000`（numeric separators）各自撞自己的那条诊断。
 - **其他值**：字符串（转义与 `\u{…}` 已解码）、`true` / `false`、`null`、`undefined`。
 - **对象**：字面量 `{a: 1}`、点取属性、`o["a"]` 索引、属性赋值、任意嵌套（`o.a.b`）。
-  **数组还没有**（`[1]` 撞 array literals）。
+- **数组**（`048bcf2` 到）：字面量 `[1, 2, 3]`、`a[i]` 读写、`a.length`、任意嵌套、
+  与对象互相嵌套。越界读是 `undefined` 不是 fault；越界写把中间补成 `undefined`
+  而不是 hole（这个引擎没有 `in` / `forEach`，两者不可分辨——见上游 `arr_set`）；
+  `typeof []` 是 `"object"`，`[]` 是真值，`===` 是引用相等。**上一版说「数组还没有」，
+  已作废。**
+  三条边界照实说：**字符串 key 不是索引**（`a["0"]` 是 `undefined`，而 ECMA-262
+  10.4.2.1 读元素 0——具名分歧）；**非索引属性写会 trap**（`a.foo = 1`，密集向量里
+  没地方放，丢掉比 trap 更糟）；**没有任何数组方法**（`push` / `map` 读出来是
+  `undefined`，调用它 trap——那不是编译期诊断，因为接收者是运行期事实）。
 - **语句**：`let` / `const` / `var`（真作用域 + 文本可判定的 TDZ）、块、`if`/`else`、
   `while`、三段式 `for`、`return`、`throw`、`try`/`catch`/`finally`，以及脚本的
   ECMA-262 completion value（`1 + 2;` → `3`）。
@@ -65,13 +73,19 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
   `"a" < "b"` 是 `true`、`1 == "1"` 是 `true`。**上一版 README 说这些 trap，已作废。**
 - **`JSON` 是一个真名字**：`JSON.stringify({a:{b:"c"}})` 给 `{"a":{"b":"c"}}`，
   `JSON.parse("{\"a\":3}").a` 给 `3`。**上一版说「`JSON` 今天不是名字」，已作废。**
-  含数组的 JSON 仍然不行（`JSON.parse("[1]")` trap），因为数组还没有。
+  **含数组的 JSON 现在也行**（`048bcf2`）：`JSON.parse("[1,2,3]")[1]` 是 `2`，
+  `JSON.stringify([1,[2,{c:3}]])` 往返一致，`[{"id":"tab1"}]`——也就是 `tabs.list`
+  的真实形状——解析出来能索引。两条规范细节容易记反：`[undefined,1]` 是 `[null,1]`
+  而 `{a:undefined,b:1}` 是 `{"b":1}`（25.5.2.5 第 8 步 vs 25.5.2.4 第 5 步，数组的
+  下标是位置性的，丢一个会把后面全部改号）；自引用数组和自引用对象一样是可 catch 的
+  TypeError。**上一版说「含数组的 JSON 仍然不行」，已作废。**
 - **`agenterm.*` 门**：`print` / `fleet_call` / `fleet_result`——见下一节。
 
 **明确拒绝**（除注明外全在编译期）。分三类，因为拒绝的**理由**不是一个：
 
 1. **语法认得，能力还没有**——诊断形如「this engine does not support X yet」：
-   数组字面量、`class`、`switch`、`break`/`continue`、`for…of` / `for…in`、`do`/`while`、
+   数组 elision（`[1, , 2]`——hole 不是 `undefined`，引擎没法分辨，所以按名字拒绝
+   而不是二选一）、`class`、`switch`、`break`/`continue`、`for…of` / `for…in`、`do`/`while`、
    模板字面量、位运算与移位、`**`、`??`、可选链、逗号运算符、BigInt、箭头函数、
    `new` / `delete` / `void` / `in` / `instanceof`、展开与 rest、解构、默认参数、
    `async`/`await`、`import`、带标签的语句；**捕获外层局部变量的闭包**。
@@ -386,7 +400,7 @@ README 与 PRD 36 用 agenterm 自己的口径做能力声明，所以那些声�
 以及门那张表里的骨干（四个 import 的字节、三条状态路、`print` 求值为 `undefined`、门外
 名字被拒）——都在 `qjs_guest.rs` / `qjs_door.rs` 里。**没锁的**：「明确拒绝」那一栏只有
 六条源码进了 `a_source_outside_the_subset_is_a_compile_error_not_a_load_error`
-（模板字面量、箭头函数、数组字面量、小数字面量、`class`、捕获闭包），其余二十来条、
+（模板字面量、箭头函数、数组 elision、小数字面量、`class`、捕获闭包），其余二十来条、
 那条诊断缺口、以及门那张表里的编译期参数检查 / 遮蔽 / 死分支仍发射 import 这几行，都是
 逐条编译执行记录下来的：跑过，但上游一旦放宽，只有那六条会自己喊出来。
 

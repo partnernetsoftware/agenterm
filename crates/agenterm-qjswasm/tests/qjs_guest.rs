@@ -153,7 +153,7 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// grows past one of these, the copy has to be rewritten in the same commit
 /// that makes it stale.
 ///
-/// It has now caught that twice, which is what it is for.
+/// It has now caught that three times, which is what it is for.
 ///
 /// (1) The bump to `6920c60` -- taken for `Names::Declared`, the mechanism that
 /// lets a `.qjs` script reach the door -- also brought `%` (dd35c44) and
@@ -168,13 +168,21 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// deliberately not this one: a source that compiles does not belong in a list
 /// of sources the compiler refuses, whatever happens to it afterwards.
 ///
-/// Both times the README's refusal list was corrected in the same commit.
+/// (3) The bump to `048bcf2` brought arrays, this list's third entry. Measured:
+/// `return [1, 2, 3];` compiles and runs, and its `.length` is `3`. Its
+/// replacement is the one array form that did *not* land -- the elision
+/// `[1, , 2]`, which is a hole and not an `undefined`, and which the engine
+/// refuses by name rather than pick one of the two. Choosing that as the
+/// replacement is deliberate: it keeps a `[` in the list, so a future bump
+/// that widens array syntax lands here rather than nowhere.
+///
+/// Every time, the README's refusal list was corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
     for source in [
         "return `x`;",
         "let f = (x) => x + 1; return f(1);",
-        "return [1, 2, 3];",
+        "return [1, , 2];",
         "return 1.5;",
         "class A {} return 1;",
         "function outer() { let a = 1; function inner() { return a; } return inner(); }",
