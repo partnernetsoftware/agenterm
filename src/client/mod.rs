@@ -4612,8 +4612,7 @@ mod tests {
     use super::{
         HostedSubcommand, hosted_subcommand, non_text_script_hint, normalize_script_source,
         parse_loopback_ipc_address, parse_terminal_grid, render_script_value, run_wait_ui,
-        script_worker_executable,
-        validate_fleet_parameters,
+        script_worker_executable, validate_fleet_parameters,
     };
 
     /// Every `value_type` the catalog declares must have a real arm in the
@@ -4973,12 +4972,17 @@ mod tests {
     /// is worth testing here is the only per-engine part: which scanner, or
     /// which refusal.
     #[test]
+    // The `Vec::new()` + `push` shape below is `#[cfg]`-gated per engine, and
+    // an attribute cannot sit on an element of a `vec![]` literal.
+    #[allow(clippy::vec_init_then_push)]
     fn corpus_scan_reaches_each_engines_scanner_or_says_why_not() {
         use crate::script_backend::ScriptBackend;
         use crate::script_engine::ScriptEngineBackend as _;
 
         let empty = tempfile::tempdir().expect("a temp dir");
 
+        // Not a `vec![]` literal: each entry is `#[cfg]`-gated on its
+        // engine's feature, and an attribute cannot sit on an element of one.
         #[allow(unused_mut)]
         let mut have: Vec<ScriptBackend> = Vec::new();
         #[cfg(feature = "script-lua")]

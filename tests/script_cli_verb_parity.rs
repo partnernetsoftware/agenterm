@@ -206,8 +206,18 @@ const SQL: Engine = Engine {
     wrong_kind_check_many_exit: 2,
 };
 
-fn engines() -> [Engine; 4] {
-    [RH, LUA, QJS, SQL]
+/// The engines whose `agenterm <engine> <verb>` alias still exists.
+///
+/// **`QJS` is not here any more.** Its alias was retired on 2026-08-26 when
+/// PRD 02.36's archive gate 2 moved the three production call sites off
+/// `agenterm-qjs`; every verb it offered now lives on `agenterm cli script`,
+/// which routes by `AGENTERM_SCRIPT_BACKEND` rather than by having a door of
+/// its own. The `QJS` engine record is kept below and used by exactly one
+/// test -- [`qjs_alias_is_retired_and_names_where_its_verbs_went`] -- because
+/// what is worth asserting about a retired alias is that it says where its
+/// verbs went, not that it still answers them.
+fn engines() -> [Engine; 3] {
+    [RH, LUA, SQL]
 }
 
 /// SUB-M4's invocation axis (`plan/archive/design-script-engine-subcommands.md`
@@ -635,34 +645,36 @@ fn unknown_verb_rejected() {
 
 // ── 5b. qjs's `task` stub is an honest failure, not a silent success ────
 
-/// `agenterm-qjs task` is an informational stub (real task dispatch lives
-/// in the root `agenterm` binary, see `main.rs`'s module doc) — it used to
-/// print its redirect message and exit `0`, which is a lie to any
-/// automation caller that only checks the exit code. 2026-08: aligned with
-/// `agenterm-sql`'s reserved-verb stubs (see [`sql_reserved_verbs_stable_error`]
-/// below) to exit `2` instead, keeping the same helpful message.
+/// `agenterm qjs <verb>` is retired, and says where every verb went.
+///
+/// This used to assert the `task` stub's redirect message. The whole alias is
+/// gone now -- PRD 02.36's archive gate 2 moved the three production call
+/// sites off `agenterm-qjs`, and a second door to a retired engine is a second
+/// answer to a question that has one. It still exits 2, and the assertions
+/// that mattered still hold: it names the replacement surface, and it names
+/// the variable that selects an engine there.
 #[test]
-fn qjs_task_stub_exits_nonzero_with_redirect_message() {
+fn qjs_alias_is_retired_and_names_where_its_verbs_went() {
     assert_parity_across_invocations(&QJS, |engine, invocation| {
         let output = run(engine, invocation, &["task", "list"]);
         assert_eq!(
             output.status.code(),
             Some(2),
-            "qjs task/{invocation:?}: honest stub is documented to exit 2, not silently \
-             succeed; stdout={} stderr={}",
+            "qjs/{invocation:?}: a retired alias exits 2, it does not silently succeed; \
+             stdout={} stderr={}",
             String::from_utf8_lossy(&output.stdout),
             stderr_lossy(&output)
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.contains("agenterm task list"),
-            "qjs task/{invocation:?}: expected the redirect message to name the equivalent \
-             root-binary invocation; got {stderr}"
+            stderr.contains("agenterm cli script"),
+            "qjs/{invocation:?}: expected the message to name the surface that replaced \
+             it; got {stderr}"
         );
         assert!(
-            stderr.contains("AGENTERM_SCRIPT_BACKEND=qjs"),
-            "qjs task/{invocation:?}: expected the redirect message to mention the backend \
-             env var; got {stderr}"
+            stderr.contains("AGENTERM_SCRIPT_BACKEND"),
+            "qjs/{invocation:?}: expected the message to name the variable that selects \
+             an engine there; got {stderr}"
         );
         output
     });

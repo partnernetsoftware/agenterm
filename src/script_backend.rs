@@ -71,14 +71,38 @@ impl ScriptBackend {
             "rh" | "rhai" => Some(Self::Rh),
             #[cfg(feature = "script-lua")]
             "lua" => Some(Self::Lua),
-            #[cfg(feature = "script-qjs")]
-            "qjs" => Some(Self::Qjs),
             #[cfg(feature = "script-sql")]
             "sql" => Some(Self::Sql),
             #[cfg(feature = "script-wasmcore")]
             "wasmcore" | "wasm" => Some(Self::Wasmcore),
+            // `qjs` is a **deprecated spelling of `qjswasm`**, and the third
+            // alias pair in this match rather than a new mechanism -- `rh`
+            // takes `rhai` and `wasmcore` takes `wasm` for the same reason a
+            // name outlives the thing it first named.
+            //
+            // It used to select `agenterm-qjs`, the rquickjs engine. That
+            // engine is being retired (PRD 02.36 archive gate), and the two
+            // are equivalent on the Fleet surface -- six agreements, zero
+            // divergences, asserted through this very trait in
+            // `script_engine::tests::gate_two_trait_equivalence`. They are
+            // **not** equivalent on the language: the new one is a growing
+            // subset, so a script using arrow functions, template literals,
+            // `Math` or a closure over an outer local now fails. It fails
+            // *loudly*, at compile time, with a named capability diagnostic --
+            // that same test pins all four -- and `scripts/` ships no `.js`
+            // task script for it to break, only the `fleet.js` binding library.
+            //
+            // Serving the old name is the kinder half of the trade: every
+            // existing invocation keeps running, and only genuinely
+            // out-of-subset source stops.
             #[cfg(feature = "script-qjswasm")]
-            "qjswasm" => Some(Self::Qjswasm),
+            "qjs" | "qjswasm" => Some(Self::Qjswasm),
+            // Without the new engine compiled in, `qjs` is a name this build
+            // cannot serve rather than an unknown one -- it stays in
+            // `ALL_BACKEND_NAMES`, so the caller is told to rebuild rather
+            // than told no such backend exists.
+            #[cfg(all(feature = "script-qjs", not(feature = "script-qjswasm")))]
+            "qjs" => Some(Self::Qjs),
             _ => None,
         }
     }
@@ -513,18 +537,29 @@ mod tests {
     }
 
     #[cfg(feature = "script-qjs")]
+    /// `qjs` is a **deprecated spelling of `qjswasm`**, not its own backend.
+    ///
+    /// It selected `agenterm-qjs` until 2026-08-26, when PRD 02.36's archive
+    /// gate 2 moved the three production call sites off that engine. The name
+    /// keeps working -- the third alias pair in `from_name`, beside
+    /// `rh`/`rhai` and `wasmcore`/`wasm` -- so no existing invocation breaks
+    /// on the rename; what breaks is genuinely out-of-subset source, loudly,
+    /// with a named capability diagnostic
+    /// (`script_engine::tests::gate_two_trait_equivalence` pins which).
     #[test]
     fn qjs_backend_from_env() {
-        // Trait-M4: was mixed with a try_execute_qjs_invocation check-path
-        // probe and a qjs_backend_enabled() assertion; both are now covered
-        // in script_engine.rs (QjsEngineBackend::enabled /
-        // qjs_engine_check_valid_and_broken_source). This test stays
-        // ScriptBackend-enum-routing-only.
         let _guard = ENV_LOCK.lock().expect("lock");
         let prior = std::env::var("AGENTERM_SCRIPT_BACKEND").ok();
         unsafe {
             std::env::set_var("AGENTERM_SCRIPT_BACKEND", "qjs");
         }
+        #[cfg(feature = "script-qjswasm")]
+        assert_eq!(
+            ScriptBackend::from_env(),
+            ScriptBackend::Qjswasm,
+            "`qjs` must resolve to the engine that replaced it"
+        );
+        #[cfg(all(feature = "script-qjs", not(feature = "script-qjswasm")))]
         assert_eq!(ScriptBackend::from_env(), ScriptBackend::Qjs);
 
         match prior {

@@ -5,8 +5,8 @@ Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswas
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
-两条归档门**仍未全绿**（`agenterm-qjs` 三条中**门 1 与门 3 已绿、门 2 未动**——门 2 的
-行为等价证据已全绿，缺的是两处生产调用点真正切过去），两个被取代的 crate 原样保留。「authorized, not
+**`agenterm-qjs` 的三条归档门 2026-08-26 全部转绿**——但 crate **尚未删除**，
+`agenterm-wasmcore` 那三条也未全绿，所以两个被取代的 crate 目前原样保留。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
 
@@ -45,7 +45,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
 | 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿** | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
-| 门 2（两处生产调用点迁移） | 未动，但**行为等价证据已全绿** | `tests/script_engine_equivalence.rs` **六条一致、零分歧**：同一段脚本经两条真绑定跑两个引擎，操作与值逐条对照。原先那条具名分歧（数组）已随上游 `048bcf2` 消失 |
+| 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
 | 门 2（`.wasm` 路由切换） | 不能绿，**但阻塞点现在可直接观测** | `_start` 入口约定：拿 qjswasm 编出的 `.wasm` 喂 `AGENTERM_SCRIPT_BACKEND=wasmcore script pack load`，实测答 `guest module does not export a WASI \`_start\` command entry point`。以前这条要靠读代码推断，现在是一条命令。仍缺同客人性能对比 |

@@ -678,17 +678,17 @@ fn execute_inner(
         );
     }
 
-    // qjs backend: enabled via AGENTERM_SCRIPT_BACKEND=qjs or `.js`/`.mjs` entry.
-    #[cfg(all(not(test), feature = "script-qjs"))]
-    if crate::script_engine::QjsEngineBackend.enabled() {
-        return dispatch_via_engine(
-            &crate::script_engine::QjsEngineBackend,
-            invocation.operation,
-            &invocation.source,
-            &options,
-            fleet_bridge,
-        );
-    }
+    // The qjs backend used to be dispatched here, selected by
+    // `AGENTERM_SCRIPT_BACKEND=qjs`. **That name now resolves to qjswasm**
+    // (`script_backend::from_name`, where the reasoning lives), so this branch
+    // could never be taken again and is gone rather than left as dead code
+    // that reads like a live route.
+    //
+    // This was the third of the three places PRD 02.36's archive gate 2 has to
+    // move, and the one its own count could not see: it reaches
+    // `QjsEngineBackend` the adapter, never `agenterm_qjs::` the crate, so a
+    // grep for the crate name missed it -- while being the path a real
+    // `task run` actually takes.
 
     // sql backend: enabled via AGENTERM_SCRIPT_BACKEND=sql or `.sql` entry.
     // Same #[cfg(not(test))] gate as lua/qjs above (see script_engine.rs's

@@ -1518,24 +1518,29 @@ mod tests {
     mod gate_two_trait_equivalence {
         use super::*;
 
-        /// Run one program on one backend, with the env var pointed at it.
-        /// The caller holds `ENV_LOCK`.
-        fn on(
-            backend: &dyn ScriptEngineBackend,
-            name: &str,
-            source: &str,
-        ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-            let _env = EnvGuard::set(name);
-            backend.execute(source, &ScriptInvocationOptions::default(), None)
+        /// The old engine, at the layer that still exists: the crate. Its
+        /// adapter is unreachable now -- see the module doc and
+        /// [`the_old_adapter_is_unreachable_from_the_environment`].
+        fn on_qjs(source: &str) -> Result<(String, Option<serde_json::Value>), String> {
+            agenterm_qjs::eval_entry_with_host(
+                source,
+                "invocation.js",
+                &agenterm_qjs::QjsHostFunctions::default(),
+            )
+            .map(|outcome| (outcome.stdout, outcome.value))
+            .map_err(|e| e.to_string())
         }
 
-        fn checked(
-            backend: &dyn ScriptEngineBackend,
-            name: &str,
-            source: &str,
-        ) -> Result<(), ScriptEngineError> {
-            let _env = EnvGuard::set(name);
-            backend.check(source, &ScriptInvocationOptions::default())
+        /// The new engine, at the layer production uses. The caller holds
+        /// `ENV_LOCK`.
+        fn on_qjswasm(source: &str) -> Result<ScriptInvocationResult, ScriptEngineError> {
+            let _env = EnvGuard::set("qjswasm");
+            QjswasmEngineBackend.execute(source, &ScriptInvocationOptions::default(), None)
+        }
+
+        fn checked_qjswasm(source: &str) -> Result<(), ScriptEngineError> {
+            let _env = EnvGuard::set("qjswasm");
+            QjswasmEngineBackend.check(source, &ScriptInvocationOptions::default())
         }
 
         /// The same program, written in each engine's entry convention,
@@ -1569,11 +1574,11 @@ mod tests {
                     serde_json::json!(2),
                 ),
             ] {
-                let a = on(&QjsEngineBackend, "qjs", js).expect("qjs runs it");
-                let b = on(&QjswasmEngineBackend, "qjswasm", qjs).expect("qjswasm runs it");
-                assert_eq!(a.stdout, want_out, "qjs stdout for {js:?}");
+                let (a_out, a_val) = on_qjs(js).expect("qjs runs it");
+                let b = on_qjswasm(qjs).expect("qjswasm runs it");
+                assert_eq!(a_out, want_out, "qjs stdout for {js:?}");
                 assert_eq!(b.stdout, want_out, "qjswasm stdout for {qjs:?}");
-                assert_eq!(a.value, Some(want_value.clone()), "qjs value for {js:?}");
+                assert_eq!(a_val, Some(want_value.clone()), "qjs value for {js:?}");
                 assert_eq!(b.value, Some(want_value), "qjswasm value for {qjs:?}");
             }
         }
@@ -1583,31 +1588,53 @@ mod tests {
         #[test]
         fn both_backends_agree_on_check() {
             let _guard = ENV_LOCK.lock().expect("lock");
-            checked(&QjsEngineBackend, "qjs", "function entry() { return 1; }")
+            agenterm_qjs::check("function entry() { return 1; }", "invocation.js")
                 .expect("qjs accepts");
-            checked(&QjswasmEngineBackend, "qjswasm", "return 1;").expect("qjswasm accepts");
+            checked_qjswasm("return 1;").expect("qjswasm accepts");
 
             // Neither engine parses this, and both must say so rather than
             // accept and fail later.
             let broken = "function entry( { return";
-            assert!(checked(&QjsEngineBackend, "qjs", broken).is_err());
-            assert!(checked(&QjswasmEngineBackend, "qjswasm", broken).is_err());
+            assert!(agenterm_qjs::check(broken, "invocation.js").is_err());
+            assert!(checked_qjswasm(broken).is_err());
         }
 
-        /// Both refuse to run when they are not the selected engine, and that
-        /// is load-bearing: the worker asks `enabled()` and then calls, so a
-        /// backend that ran anyway would execute under another engine's name.
+        /// The new engine refuses to run when it is not the selected one, and
+        /// that is load-bearing: the worker asks `enabled()` and then calls,
+        /// so a backend that ran anyway would execute under another engine's
+        /// name.
         #[test]
-        fn both_backends_refuse_when_they_are_not_selected() {
+        fn the_new_backend_refuses_when_it_is_not_selected() {
             let _guard = ENV_LOCK.lock().expect("lock");
             let _env = EnvGuard::set("rh");
-            let options = ScriptInvocationOptions::default();
             assert!(
-                QjsEngineBackend
-                    .check("function entry(){}", &options)
+                QjswasmEngineBackend
+                    .check("return 1;", &ScriptInvocationOptions::default())
                     .is_err()
             );
-            assert!(QjswasmEngineBackend.check("return 1;", &options).is_err());
+        }
+
+        /// **The migration, as an assertion.** `qjs` names the new engine, and
+        /// the old adapter can no longer be reached from the environment.
+        ///
+        /// Both halves matter. The first keeps every existing invocation
+        /// working across the rename. The second is what makes the old engine
+        /// safe to archive: nothing in production can route to it, so removing
+        /// it cannot change what any caller gets.
+        #[test]
+        fn the_old_adapter_is_unreachable_from_the_environment() {
+            let _guard = ENV_LOCK.lock().expect("lock");
+            let _env = EnvGuard::set("qjs");
+            assert_eq!(
+                crate::script_backend::ScriptBackend::from_env(),
+                crate::script_backend::ScriptBackend::Qjswasm,
+                "`qjs` must name the engine that replaced it"
+            );
+            assert!(
+                !QjsEngineBackend.enabled(),
+                "no environment value may still select the retired engine"
+            );
+            assert!(QjswasmEngineBackend.enabled());
         }
 
         /// **The migration's actual risk, pinned rather than hidden.**
@@ -1650,10 +1677,8 @@ mod tests {
                     "function o() { let a = 1; function i() { return a; } return i(); } return o();",
                 ),
             ] {
-                on(&QjsEngineBackend, "qjs", js)
-                    .unwrap_or_else(|e| panic!("rquickjs should run {js:?}: {e}"));
-                let refused = on(&QjswasmEngineBackend, "qjswasm", qjs)
-                    .expect_err("this is outside the subset");
+                on_qjs(js).unwrap_or_else(|e| panic!("rquickjs should run {js:?}: {e}"));
+                let refused = on_qjswasm(qjs).expect_err("this is outside the subset");
                 assert!(
                     refused.contains("this engine ") || refused.contains("no host function"),
                     "a narrower subset must refuse by naming the capability, got {refused:?}"
@@ -1875,11 +1900,11 @@ mod tests {
     }
 
     // ---- qjs ----
-
-    #[cfg(feature = "script-qjs")]
-    const QJS_VALID_SOURCE: &str = "function entry() { return 42; }";
-    #[cfg(feature = "script-qjs")]
-    const QJS_BROKEN_SOURCE: &str = "function entry() { return 1 ";
+    //
+    // `QJS_VALID_SOURCE` and `QJS_BROKEN_SOURCE` lived here and went with the
+    // five adapter tests below. The two sources they held now appear inline in
+    // `gate_two_trait_equivalence::both_backends_agree_on_check`, where they
+    // are compared against qjswasm's answers rather than asserted alone.
 
     /// A `.qjs` script's completion value reaches the caller.
     ///
@@ -1960,109 +1985,35 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_engine_enabled_matches_env() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("qjs");
-        let engine = QjsEngineBackend;
-        assert_eq!(engine.backend_id(), ScriptBackend::Qjs);
-        assert!(engine.enabled());
-
-        let _env = EnvGuard::set("rh");
-        assert!(!QjsEngineBackend.enabled());
-    }
-
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_engine_check_valid_and_broken_source() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("qjs");
-        let engine = QjsEngineBackend;
-        let options = ScriptInvocationOptions::default();
-
-        engine
-            .check(QJS_VALID_SOURCE, &options)
-            .expect("valid qjs source should check clean");
-        assert!(
-            engine.check(QJS_BROKEN_SOURCE, &options).is_err(),
-            "broken qjs source should fail check"
-        );
-    }
-
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_engine_execute_returns_evaluated_value() {
-        // Trait-M4: was an equivalence test against try_execute_qjs_invocation
-        // (now folded/deleted); asserts the same expected shape (stdout
-        // empty, value == json!(42)) directly.
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("qjs");
-        let engine = QjsEngineBackend;
-        let options = ScriptInvocationOptions::default();
-
-        let result = engine
-            .execute(QJS_VALID_SOURCE, &options, None)
-            .expect("trait execute should succeed");
-
-        assert_eq!(result.stdout, "");
-        assert_eq!(result.value, Some(serde_json::json!(42)));
-    }
-
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_engine_execute_errors_when_not_enabled() {
-        // Migrated from script_backend.rs's qjs_backend_not_enabled_without_env
-        // (was: try_execute_qjs_invocation returns Ok(None) when the qjs
-        // backend isn't selected). The trait surface has no Option-wrapping
-        // "not enabled" case, so the equivalent is an Err from execute().
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::clear();
-        let engine = QjsEngineBackend;
-        let options = ScriptInvocationOptions::default();
-
-        assert!(engine.execute(QJS_VALID_SOURCE, &options, None).is_err());
-    }
-
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_engine_execute_wires_fleet_bridge_and_args() {
-        // Migrated from script_backend.rs's
-        // try_execute_qjs_invocation_wires_fleet_bridge_and_args — the
-        // richest surviving scenario: fleet_call AND args_len/arg wired
-        // together through a real qjs script.
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("qjs");
-        let engine = QjsEngineBackend;
-
-        let bridge: ScriptFleetBridgeFn = Arc::new(|op_id: &str, params: &str| {
-            if op_id == "protocol.info" && params == "{}" {
-                Ok("{\"version\":1}".to_owned())
-            } else {
-                Err(format!("unknown_op: {op_id}"))
-            }
-        });
-        let options = ScriptInvocationOptions {
-            arguments: Some(serde_json::json!(["first", "second"])),
-            ..Default::default()
-        };
-
-        let result = engine
-            .execute(
-                "function entry() { \
-                     const info = __host.fleet_call('protocol.info', '{}'); \
-                     return __host.args_len() + ':' + __host.arg(0) + ':' + info; \
-                 }",
-                &options,
-                Some(bridge),
-            )
-            .expect("execute should succeed");
-
-        assert_eq!(
-            result.value,
-            Some(serde_json::json!("2:first:{\"version\":1}"))
-        );
-    }
+    // ── the retired adapter's tests ──────────────────────────────────
+    //
+    // Five tests lived here and drove `QjsEngineBackend` through the trait:
+    // `enabled` against the env, `check` on valid and broken source,
+    // `execute`'s value projection, its not-enabled refusal, and its
+    // fleet-bridge plus args wiring.
+    //
+    // **They cannot run any more, and that is the migration working.**
+    // `AGENTERM_SCRIPT_BACKEND=qjs` resolves to `Qjswasm` since 2026-08-26
+    // (PRD 02.36 archive gate 2), so no environment value selects this
+    // adapter and every one of those tests began by selecting it. Keeping
+    // them alive would have meant reopening a route to the retired engine
+    // for the tests' own benefit, which is the tail wagging the dog.
+    //
+    // Where the coverage went, so nothing is lost silently:
+    //
+    // * `tests/script_engine_equivalence.rs` drives **the crate** --
+    //   `eval_entry_with_host` -- through the shipped `fleet.js`, and asserts
+    //   the same operation on the wire and the same value back as qjswasm.
+    //   Six cases, zero divergences. The bridge and value projection this
+    //   group covered are exercised there, on the layer that still exists.
+    // * `gate_two_trait_equivalence` above holds the two engines to the same
+    //   stdout, value and check verdict, and pins the four language
+    //   constructs where they *disagree*.
+    // * `the_old_adapter_is_unreachable_from_the_environment` is the one
+    //   assertion this group leaves behind: no env value selects it.
+    //
+    // They are deleted rather than `#[ignore]`d because an ignored test that
+    // can never pass is a claim of coverage that is not there.
 
     #[cfg(feature = "script-qjs")]
     #[test]

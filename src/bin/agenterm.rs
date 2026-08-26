@@ -305,8 +305,22 @@ fn dispatch_engine(engine: &str, rest: Vec<String>) -> std::process::ExitCode {
             full.extend(rest);
             std::process::ExitCode::from(agenterm_lua::cli::run(&full))
         }
+        // `agenterm qjs <verb>` is retired. Every verb it offered now has a
+        // surface on `agenterm cli script` or a named refusal there -- all
+        // thirteen, measured, in PRD 02.36's gate 3 table -- and those route
+        // by `AGENTERM_SCRIPT_BACKEND`, which is where the engine choice
+        // belongs. Keeping a second door to one retired engine would be a
+        // second answer to a question that has one.
         #[cfg(feature = "script-qjs")]
-        "qjs" => std::process::ExitCode::from(agenterm_qjs::cli::run(&rest)),
+        "qjs" => {
+            eprintln!(
+                "agenterm qjs is retired: its engine is being replaced by qjswasm. \
+                 Use `agenterm cli script <verb>` instead -- check, run, eval, hash, \
+                 corpus-scan, pack, qualify, run-smoke, task and version all live there \
+                 and follow AGENTERM_SCRIPT_BACKEND."
+            );
+            std::process::ExitCode::from(2)
+        }
         #[cfg(feature = "script-sql")]
         "sql" => std::process::ExitCode::from(agenterm_sql::cli::run(&rest)),
         other => {
