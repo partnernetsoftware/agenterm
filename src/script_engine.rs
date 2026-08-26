@@ -1666,15 +1666,20 @@ mod tests {
                     "function entry() { return Math.max(1, 2); }",
                     "return Math.max(1, 2);",
                 ),
-                // The capture has to be of an *outer local*. Written at the
-                // script's top level, `a` is a script-scope binding and
-                // reading it from a nested function is allowed -- the first
-                // draft of this row got that wrong and the engine ran it,
-                // returning 1. Upstream states the distinction in exactly
-                // those terms: "捕获外层局部 = 拒绝；读脚本级绑定 = 可以".
+                // A **closure over an outer local** was the fourth row here
+                // and it is gone: upstream `68afb35` landed captures, so both
+                // engines run it and it is no longer a divergence. This test
+                // said "when one of these starts compiling, upstream grew it,
+                // and the row moves"; it moved.
+                //
+                // `Math` stays, and is worth keeping over the other candidates
+                // for a reason: it is not a syntax the compiler could grow but
+                // a *binding* -- there is no global scope here, `JSON` is the
+                // one name this engine binds, and that is a design position
+                // rather than a queue position.
                 (
-                    "function entry() { function o() { let a = 1; function i() { return a; } return i(); } return o(); }",
-                    "function o() { let a = 1; function i() { return a; } return i(); } return o();",
+                    "function entry() { return Object.keys({}); }",
+                    "return Object.keys({});",
                 ),
             ] {
                 on_qjs(js).unwrap_or_else(|e| panic!("rquickjs should run {js:?}: {e}"));

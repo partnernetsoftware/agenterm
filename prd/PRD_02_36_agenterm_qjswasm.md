@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**138 passed / 0 ignored**，2026-08-26，上游 rev **`577af37`**）；**`.qjs` 已经够得着
+**144 passed / 0 ignored**，2026-08-27，上游 rev **`68afb35`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -1003,8 +1003,11 @@ agenterm-qjswasm                                        [~]
 │   │   │   ├── 非索引属性**写** → trap（密集向量无处放）       [具名]
 │   │   │   ├── 数组方法 push / map                            [ ] 需要 prototype
 │   │   │   └── 索引读 526 步/元素 vs 对象拼写 19 235          [x] 36.6×，取斜率
-│   │   ├── 闭包（环境捕获 + 间接调用表）                     [ ] 捕获外层局部 = 拒绝；
-│   │   │                                                      读脚本级绑定 = 可以
+│   │   ├── 闭包（环境捕获 + 间接调用表）                     [x] rev 68afb35
+│   │   │   ├── 按**绑定**捕获，不按值                          [x] a=2 之后闭包看见 2
+│   │   │   ├── 参数也是绑定；任意嵌套深度（扁平闭包）           [x]
+│   │   │   ├── 一个函数表达式的两个实例各有环境                 [x] 身份修复的可观测处
+│   │   │   └── 无捕获程序逐字节不变                            [x] 门 21 字节 / 每函数 99
 │   │   ├── `?:`                                            [x] rev f21f0f2
 │   │   ├── try/catch/finally + throw（自编码展开）           [x] rev f21f0f2
 │   │   ├── 函数是值（存 / 传 / 返回 / 间接调用）              [x] rev f21f0f2

@@ -66,7 +66,11 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
   ECMA-262 completion value（`1 + 2;` → `3`）。
 - **函数**：声明式带参数、递归与互递归、嵌套声明、读模块顶层绑定。
   **函数是值**：`let f = function(a){...}; f(1)` 可以，`return function(){...}` 再调用
-  也可以。**捕获外层局部变量的闭包仍然拒绝**——那是一条独立的能力，不随「函数是值」一起来。
+  也可以。**捕获外层局部变量的闭包也到了**（`68afb35`）：捕获按**绑定**不按值——
+  `let a = 1; function i(){return a;} a = 2; i()` 是 `2` 不是 `1`，闭包里写回声明处也看得见。
+  参数一样算绑定（`function mk(n){ return function(){ return n; }; }` 可用），
+  任意嵌套深度可用，同一个函数表达式的两个实例各有各的环境。
+  **上一版说「仍然拒绝」，已作废。**
 - **运算符**：赋值与复合赋值、`||`、`&&`、`==`/`!=`/`===`/`!==`、`<` `<=` `>` `>=`、
   `+` `-`、`*` `/`、`%`、`typeof`、前后缀 `++`/`--`、一元 `+ - !`、括号、**`?:`**。
 - **三个 ECMA-262 转换都到了**（`f21f0f2`）：`"n=" + 1` 是 `"n=1"`、`"2" * 2` 是 `4`、
@@ -88,7 +92,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
    而不是二选一）、`class`、`switch`、`break`/`continue`、`for…of` / `for…in`、`do`/`while`、
    模板字面量、位运算与移位、`**`、`??`、可选链、逗号运算符、BigInt、箭头函数、
    `new` / `delete` / `void` / `in` / `instanceof`、展开与 rest、解构、默认参数、
-   `async`/`await`、`import`、带标签的语句；**捕获外层局部变量的闭包**。
+   `async`/`await`、`import`、带标签的语句。（**捕获闭包已从这张表离开**，见上。）
 2. **根本没有全局对象。** `Math`、`String`、`Number`、`Object` 今天不是名字，写它们撞的是
    门的诊断：``this engine has no host function named `Math`; this embedder declares
    `print`, `fleet_call` and `fleet_result` ``。`JSON` 是唯一的例外——它是真的实现了。
@@ -400,7 +404,7 @@ README 与 PRD 36 用 agenterm 自己的口径做能力声明，所以那些声�
 以及门那张表里的骨干（四个 import 的字节、三条状态路、`print` 求值为 `undefined`、门外
 名字被拒）——都在 `qjs_guest.rs` / `qjs_door.rs` 里。**没锁的**：「明确拒绝」那一栏只有
 六条源码进了 `a_source_outside_the_subset_is_a_compile_error_not_a_load_error`
-（模板字面量、箭头函数、数组 elision、小数字面量、`class`、捕获闭包），其余二十来条、
+（模板字面量、箭头函数、数组 elision、小数字面量、`class`、`new`），其余二十来条、
 那条诊断缺口、以及门那张表里的编译期参数检查 / 遮蔽 / 死分支仍发射 import 这几行，都是
 逐条编译执行记录下来的：跑过，但上游一旦放宽，只有那六条会自己喊出来。
 

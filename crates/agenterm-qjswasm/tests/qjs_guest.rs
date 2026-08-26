@@ -153,7 +153,7 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// grows past one of these, the copy has to be rewritten in the same commit
 /// that makes it stale.
 ///
-/// It has now caught that three times, which is what it is for.
+/// It has now caught that four times, which is what it is for.
 ///
 /// (1) The bump to `6920c60` -- taken for `Names::Declared`, the mechanism that
 /// lets a `.qjs` script reach the door -- also brought `%` (dd35c44) and
@@ -176,6 +176,14 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// replacement is deliberate: it keeps a `[` in the list, so a future bump
 /// that widens array syntax lands here rather than nowhere.
 ///
+/// (4) The bump to `68afb35` brought **closures that capture**, this list's
+/// last entry. Measured: `function outer() { let a = 1; function inner() {
+/// return a; } return inner(); }` runs and answers `1`, and
+/// `function mk(n) { return function () { return n; }; }` gives a closure that
+/// outlives the frame. Its replacement is `new`, which is a keyword this
+/// engine has no plan for rather than a capability queued behind one -- so the
+/// list keeps an entry that will not be overtaken by the next language bump.
+///
 /// Every time, the README's refusal list was corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
@@ -185,7 +193,7 @@ fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
         "return [1, , 2];",
         "return 1.5;",
         "class A {} return 1;",
-        "function outer() { let a = 1; function inner() { return a; } return inner(); }",
+        "return new Object();",
     ] {
         let mut eng = engine();
         let err = eng
