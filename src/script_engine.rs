@@ -109,6 +109,35 @@ pub trait ScriptEngineBackend {
         options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError>;
 
+    /// Wrap one expression as a program this engine will run for its value:
+    /// the source `script eval EXPRESSION` should hand [`Self::execute`].
+    ///
+    /// `None` means this engine has no expression form, and `script eval`
+    /// refuses by name rather than running something.
+    ///
+    /// # Why this is on the trait and not one function in the CLI
+    ///
+    /// It *was* one function in the CLI, `script_eval_entry_source`, and it
+    /// emitted **rh source** -- `fn __agenterm_eval_expression() { … }` plus a
+    /// `rh::json::stringify` and a marker line -- for whichever engine was
+    /// selected. Measured 2026-08-26, `script eval '1 + 2'` on each engine:
+    ///
+    /// | engine | what it said |
+    /// |--------|--------------|
+    /// | lua | `lua_runtime: syntax error` |
+    /// | qjs | `qjs parse error: Error: expecting` … |
+    /// | qjswasm | ``compiling .qjs: this engine needs a `;` `` … |
+    /// | wasmcore | `wasm execution: loading wasm module fn` … |
+    ///
+    /// Four engines, four parsers complaining about a fifth engine's dialect.
+    /// A shared verb that bakes in one engine's syntax is not shared, and the
+    /// only structural fix is to let each engine answer for its own -- which
+    /// is what having no default implementation here enforces: a new engine
+    /// cannot compile without deciding.
+    ///
+    /// Every wrapper below is measured, not assumed. See each implementation.
+    fn eval_entry_source(&self, expression: &str) -> Option<String>;
+
     /// Run/Eval operation. `ScriptOperation::Api` is short-circuited by
     /// `execute_inner`'s caller before reaching any backend (design §1.3
     /// finding 2) so it is not represented in this trait's surface.
@@ -188,6 +217,20 @@ impl ScriptEngineBackend for RhEngineBackend {
         &["rh", "rhai"]
     }
 
+    /// The wrapper this verb has always used, now stated where it belongs.
+    ///
+    /// rh has no completion value, so the expression's value has to come back
+    /// out of `stdout` through a marker line that
+    /// `script_backend::take_rh_eval_value` strips. That is why this one is
+    /// shaped so differently from the others -- and why it read as a
+    /// reasonable shared default for as long as nobody ran the other engines.
+    fn eval_entry_source(&self, expression: &str) -> Option<String> {
+        Some(format!(
+            "fn __agenterm_eval_expression() {{ {expression} }}\nfn entry() {{ let __agenterm_eval_value = __agenterm_eval_expression(); print(\"{}\" + rh::json::stringify(__agenterm_eval_value)); 0 }}",
+            crate::script_protocol::RH_EVAL_VALUE_MARKER
+        ))
+    }
+
     fn check(
         &self,
         source: &str,
@@ -254,6 +297,15 @@ impl ScriptEngineBackend for LuaEngineBackend {
 
     fn entry_extensions(&self) -> &'static [&'static str] {
         &["lua"]
+    }
+
+    /// A top-level `return`, which is what a lua chunk answers with.
+    ///
+    /// Measured: `print("lua ok") return 1 + 2` through `script run` prints
+    /// and answers `3`, while a file defining only `entry()` answers `0` --
+    /// lua's entry point is the chunk itself and nothing calls `entry`.
+    fn eval_entry_source(&self, expression: &str) -> Option<String> {
+        Some(format!("return ({expression})"))
     }
 
     fn check(
@@ -338,6 +390,13 @@ impl ScriptEngineBackend for QjsEngineBackend {
         &["js", "mjs"]
     }
 
+    /// `entry()`, which is this engine's convention and not a habit: `eval.rs`
+    /// evaluates the source and then calls a top-level `entry`. Measured:
+    /// `function entry() { return 1 + 2; }` through `script run` answers `3`.
+    fn eval_entry_source(&self, expression: &str) -> Option<String> {
+        Some(format!("function entry() {{ return ({expression}); }}"))
+    }
+
     fn check(
         &self,
         source: &str,
@@ -417,6 +476,17 @@ impl ScriptEngineBackend for SqlEngineBackend {
         &["sql"]
     }
 
+    /// `SELECT`, because SQL has no expression that is also a statement.
+    /// Measured: `SELECT 1 + 2;` runs and answers rows; a bare `1 + 2` is
+    /// `sql parser error: Expected: an SQL statement, found: 1`.
+    ///
+    /// The answer is therefore a one-row result set rather than a scalar,
+    /// which is this engine's shape for every answer and not something this
+    /// verb should flatten.
+    fn eval_entry_source(&self, expression: &str) -> Option<String> {
+        Some(format!("SELECT ({expression});"))
+    }
+
     fn check(
         &self,
         source: &str,
@@ -492,6 +562,15 @@ impl ScriptEngineBackend for WasmcoreEngineBackend {
 
     fn entry_extensions(&self) -> &'static [&'static str] {
         &["wasm"]
+    }
+
+    /// **None.** This engine's source is a `.wasm` module, and there is no
+    /// text an expression could be wrapped in that would become one -- it has
+    /// no compiler. Refusing by name is the only honest answer; the
+    /// alternative is what this verb used to do, which was hand it rh source
+    /// and let the module loader complain about the bytes.
+    fn eval_entry_source(&self, _expression: &str) -> Option<String> {
+        None
     }
 
     fn check(
@@ -570,6 +649,17 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `ScriptBackend::from_entry_path` still routes `.wasm` to wasmcore by
         // default; reaching this backend for wasm is an explicit env choice.
         &["qjs", "wasm"]
+    }
+
+    /// A top-level `return`, whose value is the script's ECMA-262 completion
+    /// value and reaches the caller as `ScriptInvocationResult::value` with no
+    /// marker in between. Measured: `return 1 + 2;` through `script run`
+    /// answers `3`.
+    ///
+    /// Parenthesised so an object literal works: `return ({a: 1});` is an
+    /// expression where `return {a: 1};` would be read as a block.
+    fn eval_entry_source(&self, expression: &str) -> Option<String> {
+        Some(format!("return ({expression});"))
     }
 
     fn check(
@@ -772,6 +862,22 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Wasmcore(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.entry_extensions(),
+        }
+    }
+
+    fn eval_entry_source(&self, expression: &str) -> Option<String> {
+        match self {
+            Self::Rh(backend) => backend.eval_entry_source(expression),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.eval_entry_source(expression),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.eval_entry_source(expression),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.eval_entry_source(expression),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.eval_entry_source(expression),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.eval_entry_source(expression),
         }
     }
 
@@ -1103,17 +1209,28 @@ mod tests {
         let _env = EnvGuard::set("qjswasm");
         let engine = QjswasmEngineBackend;
         let options = ScriptInvocationOptions::default();
-        // `%` stood here until the 2026-08-25 bump to upstream `6920c60`, which
-        // implemented it (dd35c44) along with `typeof` (c707558) -- so the
-        // source this test called "outside the subset" started compiling and
-        // this assertion started failing. A conditional expression is measured
-        // to be outside it at that rev
-        // (`crates/agenterm-qjswasm/tests/qjs_guest.rs` carries the same list).
-        let source = "return 1 ? 2 : 3;";
+        // This has now been overtaken twice, which is the assertion working:
+        // `%` stood here until the bump to `6920c60` implemented it (dd35c44),
+        // and `1 ? 2 : 3` replaced it until the bump to `f21f0f2` implemented
+        // the conditional (5bdb557).
+        //
+        // **The second one went unnoticed for a day**, and the reason is worth
+        // more than the fix: this test lives in the root crate's lib behind
+        // `script-qjswasm`, which is not a default feature, so neither
+        // `cargo test -p agenterm-qjswasm` nor a plain `cargo test --workspace`
+        // reaches it. Both were run and both were green. The command that sees
+        // it is
+        // `cargo test --features script-qjswasm --lib script_engine`.
+        //
+        // `switch` is the replacement, and it is deliberately **not** one of
+        // the six in `crates/agenterm-qjswasm/tests/qjs_guest.rs`: two lists
+        // that share a source die on the same upstream commit and tell you
+        // once, where two that do not tell you twice.
+        let source = "switch (1) { case 1: return 2; }";
 
         let checked = engine
             .check(source, &options)
-            .expect_err("a conditional expression is not lowered");
+            .expect_err("`switch` is not lowered");
         assert!(
             checked.contains("this engine does not support"),
             "{checked}"

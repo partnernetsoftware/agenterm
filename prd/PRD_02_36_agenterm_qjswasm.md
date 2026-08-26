@@ -409,6 +409,35 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 所以它不会被 `cargo test --workspace` 带到。命令是
 `cargo test --features "script-qjs,script-qjswasm" --test script_engine_equivalence`。
 
+### 这个盲区已经咬过一次（2026-08-26）
+
+上面那句写的时候还是个隐患，现在不是了。`src/script_engine.rs` 里的
+`qjswasm_check_refuses_what_execute_would_refuse` **从 2026-08-25 抬 rev 起就是红的**，
+一整天没人看见：它钉的是「`1 ? 2 : 3` 在子集外」，而 `?:` 正是那次 rev（`5bdb557`）
+带来的。
+
+**为什么没看见**：它在 root crate 的 lib 里、藏在 `script-qjswasm` 后面。
+`cargo test -p agenterm-qjswasm` 跑的是那个 crate 自己的测试，够不着 root crate 的 lib；
+`cargo test --workspace` 用默认 feature（`default = []`），把它整个编译掉。**两条都跑过，
+两条都绿。**
+
+并且它 panic 时持着共享的 `ENV_LOCK`，把锁毒了——**一条真失败显示成六条**。
+（这正是 `baseline-must-predate-your-change` 那条记忆写的形状：一个模块整片红，先找
+有没有一条测试 panic 后污染了共享夹具，再怪模块。）
+
+**所以本产品的验证口径是三条命令，不是一条**：
+
+```sh
+cargo test --workspace --exclude agenterm-abi          # 默认 feature：够不着任何引擎门后的测试
+cargo test --features "script-qjswasm,script-lua,script-wasmcore,script-qjs,script-sql" \
+  --lib -- --test-threads=1                            # root crate lib 里的各引擎适配层
+cargo test --features "script-qjs,script-qjswasm" \
+  --test script_engine_equivalence                     # 要两个引擎同时在的集成测试
+```
+
+`--test-threads=1` 不是装饰：并行跑时锁一被毒，真正的那条失败会淹在五条
+`PoisonError` 里。
+
 #### 门 1 之外，本轮顺带关掉的一条
 
 **未捕获的 `throw` 不再报成裸 trap。** `QjswasmError::UncaughtThrow` 自成一类，

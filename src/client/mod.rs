@@ -1595,7 +1595,23 @@ fn run_script_command_with_context(
                 cli_eprintln!("script eval requires an expression");
                 return 2;
             };
-            ("eval".to_owned(), script_eval_entry_source(expression))
+            // Ask the engine that is going to run it. This used to be one
+            // shared function emitting rh source, which every other engine's
+            // parser then complained about -- see
+            // `ScriptEngineBackend::eval_entry_source` for the measurements.
+            use crate::script_engine::ScriptEngineBackend as _;
+            let backend = crate::script_backend::ScriptBackend::from_env();
+            let Some(source) =
+                crate::script_engine::engine_for(backend).eval_entry_source(expression)
+            else {
+                cli_eprintln!(
+                    "script eval is not offered on the {} engine: it has no expression form. \
+                     Write the program to a file and use `script run`.",
+                    backend.as_str()
+                );
+                return 2;
+            };
+            ("eval".to_owned(), source)
         }
         ScriptOperation::Check | ScriptOperation::Run => {
             let Some(path) = operand else {
@@ -3376,15 +3392,18 @@ fn normalize_script_source(mut source: String) -> String {
     source
 }
 
-/// `script eval` owns expression-to-program adaptation. Keep this out of the
-/// engine backend so file-backed scripts and direct engine callers continue to
-/// fail closed when their program omits the required entry point.
-fn script_eval_entry_source(expression: &str) -> String {
-    format!(
-        "fn __agenterm_eval_expression() {{ {expression} }}\nfn entry() {{ let __agenterm_eval_value = __agenterm_eval_expression(); print(\"{}\" + rh::json::stringify(__agenterm_eval_value)); 0 }}",
-        crate::script_protocol::RH_EVAL_VALUE_MARKER
-    )
-}
+// `script_eval_entry_source` lived here and emitted rh source for every
+// engine. It moved to `ScriptEngineBackend::eval_entry_source`, which the Eval
+// branch above asks; the measurements that forced the move are in that method's
+// doc comment.
+//
+// Its own doc gave a reason to keep it out of the backend: "so file-backed
+// scripts and direct engine callers continue to fail closed when their program
+// omits the required entry point". That reason still holds and is still
+// honoured -- the new method is called from the `Eval` arm and nowhere else, so
+// a `script check` or `script run` over a file still hands the engine exactly
+// the bytes on disk. What changed is only *which* engine's dialect an
+// expression is wrapped in, which was never what that sentence was protecting.
 
 fn script_operand(arguments: &[String]) -> Option<&str> {
     let mut position = 2;
@@ -4183,8 +4202,7 @@ fn print_mux_compatibility(json: bool) {
 mod tests {
     use super::{
         HostedSubcommand, hosted_subcommand, normalize_script_source, parse_loopback_ipc_address,
-        parse_terminal_grid, run_wait_ui, script_eval_entry_source, script_worker_executable,
-        validate_fleet_parameters,
+        parse_terminal_grid, run_wait_ui, script_worker_executable, validate_fleet_parameters,
     };
 
     /// Every `value_type` the catalog declares must have a real arm in the
@@ -4302,14 +4320,80 @@ mod tests {
         assert_eq!(normalize_script_source("print(1);".to_owned()), "print(1);");
     }
 
+    /// The rh wrapper is unchanged, asserted where it now lives.
     #[test]
     fn script_eval_wraps_expression_at_the_command_boundary() {
-        let source = script_eval_entry_source("let value = 40; value + 2");
+        use crate::script_engine::ScriptEngineBackend as _;
+        let source = crate::script_engine::engine_for(crate::script_backend::ScriptBackend::Rh)
+            .eval_entry_source("let value = 40; value + 2")
+            .expect("rh has an expression form");
         assert!(source.starts_with("fn __agenterm_eval_expression() {"));
         assert!(source.contains("fn entry() {"));
         assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
         assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
         assert!(source.ends_with("; 0 }"));
+    }
+
+    /// **Every engine wraps an expression in its own dialect**, and the one
+    /// that cannot says so.
+    ///
+    /// This is the test that would have caught the defect it was written for:
+    /// `script eval '1 + 2'` handed lua, qjs, qjswasm and wasmcore rh source,
+    /// and each answered with its own parser's complaint about a fifth
+    /// engine's syntax. Every expectation below is measured through
+    /// `agenterm cli script run` on the engine named, not read off its source.
+    #[test]
+    fn every_engine_wraps_an_expression_in_its_own_dialect() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        #[allow(unused_mut)]
+        let mut cases: Vec<(ScriptBackend, Option<&str>)> = vec![
+            // rh's marker wrapper, asserted in full by the test above.
+            (ScriptBackend::Rh, Some("fn __agenterm_eval_expression() {")),
+        ];
+        #[cfg(feature = "script-lua")]
+        cases.push((ScriptBackend::Lua, Some("return (1 + 2)")));
+        #[cfg(feature = "script-qjs")]
+        cases.push((
+            ScriptBackend::Qjs,
+            Some("function entry() { return (1 + 2); }"),
+        ));
+        #[cfg(feature = "script-qjswasm")]
+        cases.push((ScriptBackend::Qjswasm, Some("return (1 + 2);")));
+        #[cfg(feature = "script-sql")]
+        cases.push((ScriptBackend::Sql, Some("SELECT (1 + 2);")));
+        // No expression can become a `.wasm` module, and this engine has no
+        // compiler. `None` is what makes `script eval` refuse by name instead
+        // of running something.
+        #[cfg(feature = "script-wasmcore")]
+        cases.push((ScriptBackend::Wasmcore, None));
+
+        for (backend, want) in cases {
+            let got = crate::script_engine::engine_for(backend).eval_entry_source("1 + 2");
+            match want {
+                Some(needle) => {
+                    let got =
+                        got.unwrap_or_else(|| panic!("{backend:?} must offer an expression form"));
+                    assert!(
+                        got.contains(needle),
+                        "{backend:?}: want a wrapper containing {needle:?}, got {got:?}"
+                    );
+                    // The decisive property: no engine may be handed another's
+                    // dialect. rh's marker is the one that leaked before.
+                    if backend != ScriptBackend::Rh {
+                        assert!(
+                            !got.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER),
+                            "{backend:?} was handed rh's eval protocol"
+                        );
+                    }
+                }
+                None => assert!(
+                    got.is_none(),
+                    "{backend:?} must have no expression form, got {got:?}"
+                ),
+            }
+        }
     }
 
     #[test]
