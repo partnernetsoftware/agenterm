@@ -109,6 +109,28 @@ pub trait ScriptEngineBackend {
         options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError>;
 
+    /// What `hash FILE` should print for this engine: the digest, and **the
+    /// name of the thing that was digested**.
+    ///
+    /// The second half is the point. `agenterm-qjs hash` prints a sha256 of
+    /// the *source*; a compiler-backed engine can hash the artifact it would
+    /// actually produce, which is a different and stronger claim. Printing
+    /// both under one verb without saying which is which is the "one verb,
+    /// two questions" shape [`Self::corpus_scan`] refuses for `.wasm`, so this
+    /// returns the label with the digest and the caller prints both.
+    ///
+    /// There is a live reason not to trust an unlabelled hash here: PRD 02.36
+    /// records that `agenterm-qjs`'s `pack` writes a `bytecode_hash`
+    /// documented as "a genuine reproducibility fingerprint" which **is not
+    /// one** -- the same source built to two different `--dir`s produces two
+    /// different values, because the compile label is the absolute output path
+    /// and `Module::write` embeds it. A reader who cannot see what was hashed
+    /// cannot see that either.
+    ///
+    /// `None` when this engine has nothing to hash beyond bytes the caller
+    /// already has.
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>>;
+
     /// Scan a directory recursively for this engine's source files and check
     /// each, or `None` when this engine has no corpus scanner.
     ///
@@ -245,6 +267,16 @@ impl ScriptEngineBackend for RhEngineBackend {
         format!("agenterm-rh {}", env!("CARGO_PKG_VERSION"))
     }
 
+    /// The source, because rh's artifact is a native pack whose bytes depend
+    /// on the host toolchain -- hashing it would answer "which machine built
+    /// this" rather than "which program is this".
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+        Some(Ok((
+            agenterm_script_common::hex::sha256_hex(source.as_bytes()),
+            "source",
+        )))
+    }
+
     /// `None`: rh's corpus-scan is a verb of its own dev CLI
     /// (`agenterm rh corpus-scan`), reached through `script_rh_cli`'s
     /// `RH_DEV_COMMANDS`, and there is no scanner in the `agenterm-rh` crate
@@ -341,6 +373,13 @@ impl ScriptEngineBackend for LuaEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-lua {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+        Some(Ok((
+            agenterm_script_common::hex::sha256_hex(source.as_bytes()),
+            "source",
+        )))
     }
 
     fn corpus_scan(
@@ -445,6 +484,17 @@ impl ScriptEngineBackend for QjsEngineBackend {
         format!("agenterm-qjs {}", env!("CARGO_PKG_VERSION"))
     }
 
+    /// The source, which is what `agenterm-qjs hash` has always printed. Its
+    /// *bytecode* hash is the one PRD 02.36 records as not reproducible; this
+    /// verb does not offer it, and labelling this one `source` is what stops a
+    /// reader assuming it is the other.
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+        Some(Ok((
+            agenterm_script_common::hex::sha256_hex(source.as_bytes()),
+            "source",
+        )))
+    }
+
     fn corpus_scan(
         &self,
         dir: &std::path::Path,
@@ -540,6 +590,13 @@ impl ScriptEngineBackend for SqlEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-sql {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+        Some(Ok((
+            agenterm_script_common::hex::sha256_hex(source.as_bytes()),
+            "source",
+        )))
     }
 
     fn corpus_scan(
@@ -639,6 +696,13 @@ impl ScriptEngineBackend for WasmcoreEngineBackend {
 
     fn identity(&self) -> String {
         format!("agenterm-wasmcore {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None`. This engine's input *is* the artifact -- hashing it would hand
+    /// the caller a digest of the file they just named, which `sha256sum` does
+    /// without an engine.
+    fn artifact_hash(&self, _source: &str) -> Option<Result<(String, &'static str), String>> {
+        None
     }
 
     /// `None`, for the reason this engine has no `eval` either: its input is
@@ -746,6 +810,28 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     /// owns the string and a test in that crate holds it to `Cargo.toml`.
     fn identity(&self) -> String {
         agenterm_qjswasm::identity()
+    }
+
+    /// **The compiled `.wasm`**, not the source -- the one engine here that
+    /// can answer the question the verb is actually for.
+    ///
+    /// Two sources that differ only in whitespace or comments compile to the
+    /// same module and hash the same, which a source hash cannot say; and the
+    /// digest is of the bytes that will be loaded, so it survives being
+    /// written to a file and read back. It has no path in it and no toolchain
+    /// in it, which is what makes it reproducible where PRD 02.36's recorded
+    /// `bytecode_hash` defect is not.
+    ///
+    /// A source the compiler refuses has no artifact and no hash, and says so
+    /// with the compiler's own diagnostic rather than falling back to hashing
+    /// the text -- a digest of a program that cannot be built is a fingerprint
+    /// of nothing.
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+        Some(
+            agenterm_qjswasm::compile_qjs(source)
+                .map(|wasm| (agenterm_script_common::hex::sha256_hex(&wasm), "wasm"))
+                .map_err(|e| e.to_string()),
+        )
     }
 
     fn corpus_scan(
@@ -1017,6 +1103,22 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Wasmcore(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.corpus_scan(dir),
+        }
+    }
+
+    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
+        match self {
+            Self::Rh(backend) => backend.artifact_hash(source),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.artifact_hash(source),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.artifact_hash(source),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.artifact_hash(source),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.artifact_hash(source),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.artifact_hash(source),
         }
     }
 

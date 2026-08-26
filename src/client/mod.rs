@@ -1425,7 +1425,54 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "corpus-scan") {
         return run_script_corpus_scan(arguments);
     }
+    if arguments.get(1).is_some_and(|value| value == "hash") {
+        return run_script_hash(arguments);
+    }
     run_script_command_with_context(arguments, None)
+}
+
+/// `script hash FILE` — the digest, **what was digested**, and the path.
+///
+/// Three columns and not two, because the engines do not hash the same thing:
+/// a compiler-backed engine digests the module it would produce, the others
+/// digest the source. `<hex>  wasm  file.qjs` and `<hex>  source  file.js`
+/// are both correct answers to `hash`, and a reader who cannot see which one
+/// they got cannot compare two of them.
+fn run_script_hash(arguments: &[String]) -> i32 {
+    use crate::script_engine::ScriptEngineBackend as _;
+    let Some(path) = script_operand(arguments) else {
+        cli_eprintln!("script hash requires a file path");
+        return 2;
+    };
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) => {
+            cli_eprintln!("failed to read {path}: {error}");
+            return 2;
+        }
+    };
+    let backend = crate::script_backend::ScriptBackend::from_env();
+    match crate::script_engine::engine_for(backend).artifact_hash(&source) {
+        Some(Ok((digest, what))) => {
+            cli_println!("{digest}  {what}  {path}");
+            0
+        }
+        Some(Err(message)) => {
+            // A source that will not build has no artifact to fingerprint, and
+            // hashing its text instead would answer a different question in
+            // the same shape.
+            cli_eprintln!("{message}");
+            2
+        }
+        None => {
+            cli_eprintln!(
+                "script hash is not offered on the {} engine: its input is already the \
+                 artifact, so the answer would be a digest of the file you just named",
+                backend.as_str()
+            );
+            2
+        }
+    }
 }
 
 /// `script corpus-scan [--dir DIR]` on whichever engine is selected.
@@ -1565,7 +1612,7 @@ fn run_script_command_with_context(
     context: Option<ScriptExecutionContext>,
 ) -> i32 {
     let Some(operation_name) = arguments.get(1).map(String::as_str) else {
-        cli_eprintln!("script requires api, check, eval, run, task, version, or corpus-scan");
+        cli_eprintln!("script requires api, check, eval, run, task, version, corpus-scan, or hash");
         return 2;
     };
     let operation = match operation_name {
@@ -4415,6 +4462,72 @@ mod tests {
         assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
         assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
         assert!(source.ends_with("; 0 }"));
+    }
+
+    /// The compiler-backed engine hashes what it would **build**, and that is
+    /// a different and stronger claim than hashing the text.
+    ///
+    /// The decisive property, measured: two sources differing only by a
+    /// comment and some whitespace compile to the same module, so
+    /// `artifact_hash` gives them one digest -- while a source hash gives two.
+    /// That is what makes the answer usable for "is this the same program",
+    /// which is the question `hash` exists for and the one a source digest
+    /// cannot answer.
+    ///
+    /// It is also why the label travels with the digest: `<hex> wasm` and
+    /// `<hex> source` are both correct answers to `hash` and are not
+    /// comparable to each other.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn the_compiler_backed_engine_hashes_the_artifact_not_the_text() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        let plain = "return 1 + 2;";
+        let dressed = "// a comment\nreturn 1  +  2;";
+
+        let engine = crate::script_engine::engine_for(ScriptBackend::Qjswasm);
+        let (a, what_a) = engine
+            .artifact_hash(plain)
+            .expect("qjswasm hashes something")
+            .expect("this source builds");
+        let (b, what_b) = engine
+            .artifact_hash(dressed)
+            .expect("qjswasm hashes something")
+            .expect("this source builds");
+
+        assert_eq!(what_a, "wasm");
+        assert_eq!(what_b, "wasm");
+        assert_eq!(
+            a, b,
+            "two sources that build to the same module must have one digest"
+        );
+
+        // The contrast, so the claim is not just about one engine's number:
+        // a source hash separates the same two programs.
+        #[cfg(feature = "script-qjs")]
+        {
+            let qjs = crate::script_engine::engine_for(ScriptBackend::Qjs);
+            let (c, what_c) = qjs.artifact_hash(plain).expect("some").expect("ok");
+            let (d, _) = qjs.artifact_hash(dressed).expect("some").expect("ok");
+            assert_eq!(what_c, "source");
+            assert_ne!(
+                c, d,
+                "a source hash is expected to separate these -- if it stopped, \
+                 the contrast this test draws is gone and so is the reason for the label"
+            );
+        }
+
+        // A source that will not build has no artifact, so no digest: the
+        // compiler's own diagnostic instead of a fingerprint of nothing.
+        let refused = engine
+            .artifact_hash("return `x`;")
+            .expect("qjswasm hashes something")
+            .expect_err("a template literal does not build");
+        assert!(
+            refused.contains("template literals"),
+            "want the compiler's diagnostic, got {refused:?}"
+        );
     }
 
     /// `corpus-scan` reaches each engine's own scanner, and the two engines
