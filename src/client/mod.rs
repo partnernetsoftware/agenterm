@@ -1395,6 +1395,20 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "repl") {
         return run_script_repl(arguments);
     }
+    if arguments.get(1).is_some_and(|value| value == "version") {
+        // Which engine, and which build of it. Answered by the selected
+        // backend rather than here, because the engines do not agree on what
+        // identifies a build -- a compiler-backed one's upstream pin is half
+        // the answer. See `ScriptEngineBackend::identity`.
+        //
+        // Placed above the hosted-worker check on purpose: printing which
+        // engine you have must not require a worker to be spawnable, which is
+        // exactly the situation someone asking is likely to be in.
+        use crate::script_engine::ScriptEngineBackend as _;
+        let backend = crate::script_backend::ScriptBackend::from_env();
+        cli_println!("{}", crate::script_engine::engine_for(backend).identity());
+        return 0;
+    }
     if !crate::platform::services::script_host::hosted_worker_available() {
         cli_eprintln!(
             "agenterm cli script hosting is not yet available on this platform; \
@@ -1408,7 +1422,56 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "task") {
         return run_script_task_command(arguments);
     }
+    if arguments.get(1).is_some_and(|value| value == "corpus-scan") {
+        return run_script_corpus_scan(arguments);
+    }
     run_script_command_with_context(arguments, None)
+}
+
+/// `script corpus-scan [--dir DIR]` on whichever engine is selected.
+///
+/// The rendering, the exit code and the `--dir` handling are
+/// `agenterm_script_common::cli::run_corpus_scan_command`'s -- the same driver
+/// `agenterm qjs corpus-scan` and `agenterm lua corpus-scan` go through, so
+/// the three cannot drift into three different reports. What this function
+/// adds is the one thing that has to be per-engine: which scanner to hand it.
+fn run_script_corpus_scan(arguments: &[String]) -> i32 {
+    use crate::script_engine::ScriptEngineBackend as _;
+    let backend = crate::script_backend::ScriptBackend::from_env();
+    let engine = crate::script_engine::engine_for(backend);
+    // The refusal is returned *from the scanner slot* rather than checked
+    // before the driver runs, so there is no placeholder report to invent for
+    // the unavailable case -- an empty report would render as "0 scripts ok",
+    // which is a green answer to a question that was never asked.
+    let outcome = agenterm_script_common::cli::run_corpus_scan_command(&arguments[2..], |dir| {
+        engine.corpus_scan(dir).unwrap_or_else(|| {
+            // One reason per engine, not both reasons for whichever engine
+            // asked: the two are unavailable for entirely different causes,
+            // and a caller reading someone else's cause has to work out which
+            // half is theirs.
+            let why = match backend {
+                crate::script_backend::ScriptBackend::Rh => {
+                    "it lives in rh's own dev CLI instead -- run `agenterm rh corpus-scan`"
+                }
+                _ => {
+                    "this engine's corpus is `.wasm` modules, which are bytes and not source; \
+                     the question they answer is the load gate, and calling that a corpus scan \
+                     would put two different questions under one verb"
+                }
+            };
+            Err(format!(
+                "not offered on the {} engine: {why}",
+                backend.as_str()
+            ))
+        })
+    });
+    match outcome {
+        Ok(code) => i32::from(code),
+        Err(message) => {
+            cli_eprintln!("{message}");
+            2
+        }
+    }
 }
 
 fn run_script_check_many_hosted(arguments: &[String]) -> i32 {
@@ -1454,6 +1517,12 @@ fn run_script_check_many_hosted(arguments: &[String]) -> i32 {
 }
 
 fn run_script_command_direct(arguments: &[String]) -> i32 {
+    if arguments.get(1).is_some_and(|value| value == "version") {
+        use crate::script_engine::ScriptEngineBackend as _;
+        let backend = crate::script_backend::ScriptBackend::from_env();
+        cli_println!("{}", crate::script_engine::engine_for(backend).identity());
+        return 0;
+    }
     if arguments.get(1).is_some_and(|value| value == "task") {
         return run_script_task_command(arguments);
     }
@@ -1496,7 +1565,7 @@ fn run_script_command_with_context(
     context: Option<ScriptExecutionContext>,
 ) -> i32 {
     let Some(operation_name) = arguments.get(1).map(String::as_str) else {
-        cli_eprintln!("script requires api, check, eval, run, or task");
+        cli_eprintln!("script requires api, check, eval, run, task, version, or corpus-scan");
         return 2;
     };
     let operation = match operation_name {
@@ -4346,6 +4415,106 @@ mod tests {
         assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
         assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
         assert!(source.ends_with("; 0 }"));
+    }
+
+    /// `corpus-scan` reaches each engine's own scanner, and the two engines
+    /// without one say why -- with *their* reason, not each other's.
+    ///
+    /// The verb's rendering, exit code and `--dir` handling are the shared
+    /// driver's, the same one `agenterm qjs corpus-scan` goes through, so what
+    /// is worth testing here is the only per-engine part: which scanner, or
+    /// which refusal.
+    #[test]
+    fn corpus_scan_reaches_each_engines_scanner_or_says_why_not() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        let empty = tempfile::tempdir().expect("a temp dir");
+
+        #[allow(unused_mut)]
+        let mut have: Vec<ScriptBackend> = Vec::new();
+        #[cfg(feature = "script-lua")]
+        have.push(ScriptBackend::Lua);
+        #[cfg(feature = "script-qjs")]
+        have.push(ScriptBackend::Qjs);
+        #[cfg(feature = "script-sql")]
+        have.push(ScriptBackend::Sql);
+        #[cfg(feature = "script-qjswasm")]
+        have.push(ScriptBackend::Qjswasm);
+
+        for backend in have {
+            let report = crate::script_engine::engine_for(backend)
+                .corpus_scan(empty.path())
+                .unwrap_or_else(|| panic!("{backend:?} must have a scanner"))
+                .unwrap_or_else(|e| panic!("{backend:?} scanning an empty dir: {e}"));
+            assert_eq!(report.total_scripts, 0, "{backend:?} on an empty directory");
+            assert_eq!(report.failures, 0, "{backend:?} on an empty directory");
+        }
+
+        // rh's is a verb of its own dev CLI; wasmcore has no source to scan.
+        // Both are `None`, and the CLI turns each into its own sentence.
+        assert!(
+            crate::script_engine::engine_for(ScriptBackend::Rh)
+                .corpus_scan(empty.path())
+                .is_none(),
+            "rh's corpus-scan is `agenterm rh corpus-scan`, not this face"
+        );
+        #[cfg(feature = "script-wasmcore")]
+        assert!(
+            crate::script_engine::engine_for(ScriptBackend::Wasmcore)
+                .corpus_scan(empty.path())
+                .is_none(),
+            "a corpus of `.wasm` modules is not a corpus of source"
+        );
+    }
+
+    /// Every engine names itself, and the compiler-backed one names its pin.
+    ///
+    /// `version` is a "必须提供" verb on the archive gate, and the reason it is
+    /// worth more than a version string: over one week the `tinyvm` pin moved
+    /// five times, and each move changed the answer to "does `[1,2,3]`
+    /// compile". An operator holding a binary has no other way to tell which
+    /// one they have. `agenterm-qjswasm`'s own suite holds
+    /// `UPSTREAM_TINYVM_REV` to the two pins in its `Cargo.toml`, so what is
+    /// printed here cannot go stale silently.
+    #[test]
+    fn every_engine_names_itself_and_the_compiled_one_names_its_pin() {
+        use crate::script_backend::ScriptBackend;
+        use crate::script_engine::ScriptEngineBackend as _;
+
+        #[allow(unused_mut)]
+        let mut cases: Vec<(ScriptBackend, &str)> = vec![(ScriptBackend::Rh, "agenterm-rh ")];
+        #[cfg(feature = "script-lua")]
+        cases.push((ScriptBackend::Lua, "agenterm-lua "));
+        #[cfg(feature = "script-qjs")]
+        cases.push((ScriptBackend::Qjs, "agenterm-qjs "));
+        #[cfg(feature = "script-sql")]
+        cases.push((ScriptBackend::Sql, "agenterm-sql "));
+        #[cfg(feature = "script-wasmcore")]
+        cases.push((ScriptBackend::Wasmcore, "agenterm-wasmcore "));
+        #[cfg(feature = "script-qjswasm")]
+        cases.push((ScriptBackend::Qjswasm, "agenterm-qjswasm "));
+
+        for (backend, prefix) in cases {
+            let identity = crate::script_engine::engine_for(backend).identity();
+            assert!(
+                identity.starts_with(prefix),
+                "{backend:?}: want a line starting {prefix:?}, got {identity:?}"
+            );
+            assert!(
+                identity.contains(env!("CARGO_PKG_VERSION")),
+                "{backend:?}: the line must carry a version: {identity:?}"
+            );
+        }
+
+        #[cfg(feature = "script-qjswasm")]
+        {
+            let identity = crate::script_engine::engine_for(ScriptBackend::Qjswasm).identity();
+            assert!(
+                identity.contains(agenterm_qjswasm::UPSTREAM_TINYVM_REV),
+                "the compiler-backed engine must name its upstream pin: {identity:?}"
+            );
+        }
     }
 
     /// `check-many` names the engine mismatch instead of running rh behind

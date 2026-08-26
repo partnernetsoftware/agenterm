@@ -55,6 +55,7 @@ dependencies = [
  "agenterm-qjs",
  "agenterm-qjswasm",
  "agenterm-rh",
+ "agenterm-script-common",
  "agenterm-sql",
  "agenterm-ui-core",
  "agenterm-wasmcore",
@@ -165,6 +166,7 @@ dependencies = [
 name = "agenterm-qjswasm"
 version = "0.1.16"
 dependencies = [
+ "agenterm-script-common",
  "tinyvm",
  "tinyvm-qjs",
  "wat",

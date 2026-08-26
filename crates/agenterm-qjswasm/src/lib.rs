@@ -56,6 +56,36 @@
 //! world only through the `agenterm.*` host door, and a bad slot can only fail
 //! itself.
 
+/// The upstream `tinyvm` revision this crate is pinned to, as a string an
+/// operator can read.
+///
+/// It is a `const` and not a build-script probe because there is nothing to
+/// probe: the pin is two literals in this crate's own `Cargo.toml`, and the
+/// only failure mode worth guarding is those three drifting apart. A test in
+/// this crate reads that file and asserts all three agree, so the constant
+/// cannot go stale silently -- which is the whole reason it is safe to print
+/// it as fact.
+///
+/// Why print it at all: which `tinyvm` a build carries decides what the
+/// language can do. Over one week this pin moved five times and each move
+/// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
+/// binary has no other way to tell which one they have.
+pub const UPSTREAM_TINYVM_REV: &str = "577af37";
+
+/// This crate's own version, and the engine's name, as one line.
+///
+/// The `version` verb's answer. `agenterm-qjs` prints `agenterm-qjs 0.1.16`;
+/// this prints the same shape plus the pin, because for a compiler-backed
+/// engine the upstream revision is half of what "which build is this" means.
+pub fn identity() -> String {
+    format!(
+        "agenterm-qjswasm {} (tinyvm {UPSTREAM_TINYVM_REV})",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+pub mod corpus_scan;
+
 use std::sync::Arc;
 
 mod host;

@@ -42,6 +42,10 @@ agenterm-ui-core = { path = "crates/agenterm-ui-core", features = ["terminal-sel
 # so it turns on the `compile` feature. The default embedder graph stays clean.
 agenterm-rh = { path = "crates/agenterm-rh", features = ["compile"] }
 agenterm-lua = { path = "crates/agenterm-lua", optional = true }
+# The shared corpus-scan / check-many report types the engine trait speaks.
+# Not optional: `ScriptEngineBackend::corpus_scan` names them in its signature,
+# so the trait cannot compile without them whichever engines are enabled.
+agenterm-script-common = { path = "crates/agenterm-script-common" }
 agenterm-qjs = { path = "crates/agenterm-qjs", optional = true }
 agenterm-sql = { path = "crates/agenterm-sql", optional = true }
 agenterm-wasmcore = { path = "crates/agenterm-wasmcore", optional = true }

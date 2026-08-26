@@ -647,6 +647,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
             "agenterm cli script api [MODULE] [--status shipped|planned|all] [--tree|--json] | \
              check FILE|- [--project-root DIR] | eval EXPRESSION | \
              check-many --manifest FILE [--project-root DIR] | \
+             corpus-scan [--dir DIR] | version | \
              repl [--fail-fast] [--json] | run FILE|- \
              [--cwd DIR] [--project-root DIR] [-- ARGS...] | \
             task list|show|run [TASK] [--manifest FILE] [--json]",
@@ -663,6 +664,11 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
                 "--cwd",
                 "--project-root",
                 "--manifest",
+                // `corpus-scan`'s scan root. Its absence is a CWD scan, and a
+                // dangling `--dir` is a hard error rather than a CWD fallback
+                // -- that rule lives in the shared driver, which is why this
+                // is a value option here and not a flag.
+                "--dir",
                 "--status",
             ][..],
             &["--tree", "--json", "--fail-fast"][..],

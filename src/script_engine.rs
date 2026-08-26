@@ -109,6 +109,30 @@ pub trait ScriptEngineBackend {
         options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError>;
 
+    /// Scan a directory recursively for this engine's source files and check
+    /// each, or `None` when this engine has no corpus scanner.
+    ///
+    /// The `Option` is the same distinction [`Self::eval_entry_source`] makes
+    /// and for the same reason: "this engine cannot do that" and "the scan
+    /// failed" are two different answers, and a single `Result` would make a
+    /// caller read the first as the second. rh's corpus-scan lives in its own
+    /// dev CLI rather than here, and wasmcore has no source to scan.
+    fn corpus_scan(
+        &self,
+        dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>>;
+
+    /// One line naming this engine and the build it is: the `version` verb's
+    /// answer for whichever engine is selected.
+    ///
+    /// Every engine has an identity worth printing and they are not the same
+    /// shape -- a compiler-backed engine's upstream pin is half of "which
+    /// build is this", and an engine that is a thin binding has no such thing.
+    /// So each answers for itself, for the reason
+    /// [`Self::eval_entry_source`] gives at length about a shared verb that
+    /// bakes in one engine's assumptions.
+    fn identity(&self) -> String;
+
     /// Wrap one expression as a program this engine will run for its value:
     /// the source `script eval EXPRESSION` should hand [`Self::execute`].
     ///
@@ -217,6 +241,22 @@ impl ScriptEngineBackend for RhEngineBackend {
         &["rh", "rhai"]
     }
 
+    fn identity(&self) -> String {
+        format!("agenterm-rh {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None`: rh's corpus-scan is a verb of its own dev CLI
+    /// (`agenterm rh corpus-scan`), reached through `script_rh_cli`'s
+    /// `RH_DEV_COMMANDS`, and there is no scanner in the `agenterm-rh` crate
+    /// for this face to call. Pointing at the verb that exists beats
+    /// re-implementing one that would then be a second answer.
+    fn corpus_scan(
+        &self,
+        _dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        None
+    }
+
     /// The wrapper this verb has always used, now stated where it belongs.
     ///
     /// rh has no completion value, so the expression's value has to come back
@@ -297,6 +337,17 @@ impl ScriptEngineBackend for LuaEngineBackend {
 
     fn entry_extensions(&self) -> &'static [&'static str] {
         &["lua"]
+    }
+
+    fn identity(&self) -> String {
+        format!("agenterm-lua {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn corpus_scan(
+        &self,
+        dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        Some(agenterm_lua::corpus_scan::scan_directory(dir))
     }
 
     /// A top-level `return`, which is what a lua chunk answers with.
@@ -390,6 +441,17 @@ impl ScriptEngineBackend for QjsEngineBackend {
         &["js", "mjs"]
     }
 
+    fn identity(&self) -> String {
+        format!("agenterm-qjs {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn corpus_scan(
+        &self,
+        dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        Some(agenterm_qjs::corpus_scan::scan_directory(dir))
+    }
+
     /// `entry()`, which is this engine's convention and not a habit: `eval.rs`
     /// evaluates the source and then calls a top-level `entry`. Measured:
     /// `function entry() { return 1 + 2; }` through `script run` answers `3`.
@@ -474,6 +536,17 @@ impl ScriptEngineBackend for SqlEngineBackend {
 
     fn entry_extensions(&self) -> &'static [&'static str] {
         &["sql"]
+    }
+
+    fn identity(&self) -> String {
+        format!("agenterm-sql {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn corpus_scan(
+        &self,
+        dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        Some(agenterm_sql::corpus_scan::scan_directory(dir))
     }
 
     /// `SELECT`, because SQL has no expression that is also a statement.
@@ -564,6 +637,22 @@ impl ScriptEngineBackend for WasmcoreEngineBackend {
         &["wasm"]
     }
 
+    fn identity(&self) -> String {
+        format!("agenterm-wasmcore {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    /// `None`, for the reason this engine has no `eval` either: its input is
+    /// a `.wasm` module. "Check this file as text" has no meaning here -- the
+    /// question a corpus of modules answers is the load gate, which takes
+    /// bytes, and calling that a corpus scan would put two different
+    /// questions under one verb.
+    fn corpus_scan(
+        &self,
+        _dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        None
+    }
+
     /// **None.** This engine's source is a `.wasm` module, and there is no
     /// text an expression could be wrapped in that would become one -- it has
     /// no compiler. Refusing by name is the only honest answer; the
@@ -649,6 +738,21 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `ScriptBackend::from_entry_path` still routes `.wasm` to wasmcore by
         // default; reaching this backend for wasm is an explicit env choice.
         &["qjs", "wasm"]
+    }
+
+    /// Carries the upstream pin, which the other engines have no equivalent
+    /// of: this one is a compiler, and which `tinyvm` revision it was built
+    /// against decides what the language can do. `agenterm_qjswasm::identity`
+    /// owns the string and a test in that crate holds it to `Cargo.toml`.
+    fn identity(&self) -> String {
+        agenterm_qjswasm::identity()
+    }
+
+    fn corpus_scan(
+        &self,
+        dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        Some(agenterm_qjswasm::corpus_scan::scan_directory(dir))
     }
 
     /// A top-level `return`, whose value is the script's ECMA-262 completion
@@ -878,6 +982,41 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Wasmcore(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.eval_entry_source(expression),
+        }
+    }
+
+    fn identity(&self) -> String {
+        match self {
+            Self::Rh(backend) => backend.identity(),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.identity(),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.identity(),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.identity(),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.identity(),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.identity(),
+        }
+    }
+
+    fn corpus_scan(
+        &self,
+        dir: &std::path::Path,
+    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
+        match self {
+            Self::Rh(backend) => backend.corpus_scan(dir),
+            #[cfg(feature = "script-lua")]
+            Self::Lua(backend) => backend.corpus_scan(dir),
+            #[cfg(feature = "script-qjs")]
+            Self::Qjs(backend) => backend.corpus_scan(dir),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(backend) => backend.corpus_scan(dir),
+            #[cfg(feature = "script-wasmcore")]
+            Self::Wasmcore(backend) => backend.corpus_scan(dir),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(backend) => backend.corpus_scan(dir),
         }
     }
 

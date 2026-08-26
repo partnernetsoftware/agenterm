@@ -704,3 +704,50 @@ fn a_compiled_artifact_reloaded_gives_the_same_value_as_its_source() {
         "loading compiled bytes as plain wasm must still hand over the raw V1 pair"
     );
 }
+
+/// The pin printed by [`agenterm_qjswasm::identity`] is the pin the build
+/// actually uses.
+///
+/// A version string is worth exactly as much as its accuracy, and this one
+/// names an upstream revision that lives in a different file -- two literals
+/// in `Cargo.toml`, which a bump edits and a constant does not. Reading the
+/// manifest here is what makes printing the constant honest.
+///
+/// It also catches the half-bump: `tinyvm` and `tinyvm-qjs` are two
+/// dependencies on one repository and must be the same revision. They have
+/// never diverged, and this is what would say so if they did.
+#[test]
+fn the_printed_upstream_revision_is_the_one_this_build_pins() {
+    let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .expect("this crate's own Cargo.toml");
+
+    let pins: Vec<&str> = manifest
+        .lines()
+        .filter(|line| line.contains("partnernetsoftware/tinyvm"))
+        .map(|line| {
+            let at = line.find("rev = \"").expect("a pinned rev") + "rev = \"".len();
+            let rest = &line[at..];
+            &rest[..rest.find('"').expect("a closing quote")]
+        })
+        .collect();
+
+    assert_eq!(
+        pins.len(),
+        2,
+        "expected both tinyvm crates pinned, got {pins:?}"
+    );
+    assert_eq!(
+        pins[0], pins[1],
+        "the two tinyvm crates are on different revisions"
+    );
+    assert_eq!(
+        agenterm_qjswasm::UPSTREAM_TINYVM_REV,
+        pins[0],
+        "UPSTREAM_TINYVM_REV is stale; the build pins {}",
+        pins[0]
+    );
+
+    let identity = agenterm_qjswasm::identity();
+    assert!(identity.starts_with("agenterm-qjswasm "), "{identity}");
+    assert!(identity.contains(pins[0]), "{identity}");
+}
