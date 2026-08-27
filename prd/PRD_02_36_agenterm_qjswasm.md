@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**144 passed / 0 ignored**，2026-08-27，上游 rev **`68afb35`**）；**`.qjs` 已经够得着
+**144 passed / 0 ignored**，2026-08-27，上游 rev **`ab29522`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -1019,7 +1019,10 @@ agenterm-qjswasm                                        [~]
 │   │   ├── JS 字符串↔(ptr,len) 由编译器拆包，门不学 JS 值     [x] 手写 .wasm 九条测原样绿
 │   │   ├── 两趟字节结果包回 JS 字符串（长度不符即 trap）       [x]
 │   │   └── 未声明的名字 = 能力诊断（含 fleet_result_len）      [x]
-│   ├── 数字字面量的小数 / 指数 / 十六进制                     [ ] `3/2` 算得出 1.5，`1.5` 写不出来
+│   ├── 数字字面量：整个 DecimalLiteral 文法                  [x] rev ab29522
+│   │   ├── 1.5 · .5 · 1. · 1e3 · 2E2 · 1.5e-3                [x]
+│   │   ├── 超出 i32 / 超出 2^53 的整数                        [x] 取最近 double
+│   │   └── 十六 / 八 / 二进制 / 数字分隔符                     [ ] 各自的文法
 │   ├── 全局对象（Math / String / Number / Object）           [ ] JSON 是唯一已有的名字
 │   ├── 内建属性（`"ab".length`）                            [ ] 运行期 trap
 │   ├── 原型链 / getter / Proxy / 正则 / 标准库               [ ] 排期，非天花板

@@ -153,7 +153,7 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// grows past one of these, the copy has to be rewritten in the same commit
 /// that makes it stale.
 ///
-/// It has now caught that four times, which is what it is for.
+/// It has now caught that five times, which is what it is for.
 ///
 /// (1) The bump to `6920c60` -- taken for `Names::Declared`, the mechanism that
 /// lets a `.qjs` script reach the door -- also brought `%` (dd35c44) and
@@ -184,6 +184,14 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// engine has no plan for rather than a capability queued behind one -- so the
 /// list keeps an entry that will not be overtaken by the next language bump.
 ///
+/// (5) The bump to `ab29522` brought the whole DecimalLiteral grammar, so
+/// `return 1.5;` -- this list's fourth entry since the beginning -- compiles.
+/// Measured: `Number(1.5)`, and `0.1 + 0.2` is `0.30000000000000004`, which is
+/// what says these are doubles rather than decimals being humoured. Its
+/// replacement is a numeric separator, `1_000`: still a named refusal, and a
+/// *different grammar* rather than the next thing queued behind the one that
+/// just landed.
+///
 /// Every time, the README's refusal list was corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
@@ -191,7 +199,7 @@ fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
         "return `x`;",
         "let f = (x) => x + 1; return f(1);",
         "return [1, , 2];",
-        "return 1.5;",
+        "return 1_000;",
         "class A {} return 1;",
         "return new Object();",
     ] {
