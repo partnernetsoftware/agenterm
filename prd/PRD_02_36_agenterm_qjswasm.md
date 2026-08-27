@@ -509,7 +509,31 @@ cargo test --features "script-qjs,script-qjswasm" \
 
 本文件不改那条测试：`docs/agenterm-rust-cheatsheet.md` 正在被另一个 session 编辑，
 而它新加的那段讲的正是「跨机测试夹具不该拿 `env!("CARGO_MANIFEST_DIR")`
-当运行期仓库定位器」——同一片地。绕开，不动。
+当运行期仓库定位器」——同一片地。绕开，不动。（确认过是**孤例**：套件里其它用
+`TcpListener` 的测试都设了超时。）
+
+##### 加上 `--skip` 之后的真实数字，以及第一条命令**本身就是个不好的门**
+
+跑完一次：**154 条结果行，2658 passed / 70 failed**，exit 101。
+对照我之前报的「813 / 4」——那是 31% 的测试和 70 条失败里的 4 条。
+
+70 条里**落在 qjs 地界的只有 1 条**：
+`script_cli_verb_parity::qjs_alias_is_retired_and_names_where_its_verbs_went`。
+它的失败信息是 ``agenterm: unknown engine subcommand `qjs` ``——
+把引擎 feature 打开重跑，`script_cli_verb_parity` **10 passed / 0 failed**。
+旁边几条 `sql_*` 同理，同一句话。
+
+也就是说**它们不是回归，是第一条命令自己的构建配置造出来的**：
+`cargo test --workspace` 用**默认 feature** 编 `target/debug/agenterm`，
+而这些集成测试要 shell 出去调引擎子命令。这正是记忆
+`cargo-test-workspace-overwrites-the-binary` 记的那个机制，只是这次它不是
+「把我要量的二进制覆盖了」，而是「让一批测试在这条命令下必然红」。
+
+**结论：第一条命令目前不是一个能判绿的门**，它稳定产出几十条与被测改动无关的失败。
+剩下约 69 条落在 rh / sql / executor / stdlib / release-candidate 各处，
+**本轮没有逐条归属**——它们不在 qjs 地界，而本轮 agenterm 侧的整个 diff 里
+root crate 只动了测试字符串与注释，没有一行默认构建会编进去的生产代码。
+如实记为「未归属」，不写成「既有失败」，两者不是一回事。
 
 #### 门 1 之外，本轮顺带关掉的一条
 
