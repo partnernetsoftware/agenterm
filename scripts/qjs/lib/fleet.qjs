@@ -65,9 +65,9 @@ function call(opId, params) {
   const status = fleet_call(opId, params === undefined ? "{}" : params);
   if (status !== STATUS_OK) {
     if (status === STATUS_ERR) {
-      throw "fleet " + opId + ": " + fleet_result();
+      throw `fleet ${opId}: ${fleet_result()}`;
     }
-    throw "fleet " + opId + ": no fleet bridge is attached to this slot";
+    throw `fleet ${opId}: no fleet bridge is attached to this slot`;
   }
   const resultJson = fleet_result();
   try {

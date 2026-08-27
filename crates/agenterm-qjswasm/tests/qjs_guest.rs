@@ -401,9 +401,14 @@ fn the_array_claims_in_this_crates_own_copy() {
 
 /// The template-literal claims this crate's own copy makes, executed.
 ///
-/// The one that matters for the fleet bindings is the last group: a template
-/// is what `"{\"tab\":\"" + tab + "\"}"` should have been written as, and the
-/// two must produce the same string.
+/// The last group is the one that touches production, and it is smaller than
+/// it was first claimed to be. `scripts/qjs/lib/fleet.qjs` builds its params
+/// with `JSON.stringify` -- the right way, and one this engine already had --
+/// so it hand-rolls concatenation in exactly **three** places, all of them
+/// error messages. `grep -c '" *+ \|+ *"' scripts/qjs/lib/fleet.qjs` says 3.
+/// Those three are what a template replaces there; the general case is
+/// asserted anyway, because scripts other than that one binding library will
+/// build strings that are not JSON.
 #[test]
 fn the_template_claims_in_this_crates_own_copy() {
     // "无替换的模板就是一个字符串"
@@ -425,12 +430,12 @@ fn the_template_claims_in_this_crates_own_copy() {
     assert_eq!(returns("return `${[1, 2].length}`;"), JsValue::Str("2".into()));
     assert_eq!(returns("return `a${`b${1}`}c`;"), JsValue::Str("ab1c".into()));
 
-    // The reason this milestone was picked: the fleet bindings are full of
-    // hand-rolled JSON concatenation, and a template must mean the same thing.
-    let concatenated = returns("let tab = 3; return \"{\\\"tab\\\":\" + tab + \"}\";");
-    let templated = returns("let tab = 3; return `{\\\"tab\\\":${tab}}`;");
+    // The shape `fleet.qjs` actually hand-rolls: `throw "fleet " + opId + ...`.
+    // A template must mean exactly what the concatenation meant.
+    let concatenated = returns("let op = \"tabs.list\"; return \"fleet \" + op + \": \" + 2;");
+    let templated = returns("let op = \"tabs.list\"; return `fleet ${op}: ${2}`;");
     assert_eq!(concatenated, templated);
-    assert_eq!(templated, JsValue::Str("{\"tab\":3}".into()));
+    assert_eq!(templated, JsValue::Str("fleet tabs.list: 2".into()));
 }
 
 /// The two array claims the README states as **traps**, which the corpus above
