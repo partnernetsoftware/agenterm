@@ -409,6 +409,61 @@ fn the_array_claims_in_this_crates_own_copy() {
     );
 }
 
+/// The five methods this crate's copy claims, executed.
+///
+/// These arrived by a **measured** decision rather than a chosen one: upstream
+/// `research/method-binding/` built three ways of getting the receiver to a
+/// method body, ran all three against one corpus written before any of them
+/// existed, and compared marginal costs. What is pinned here is only what the
+/// product can see -- that the methods work through this crate's door, under
+/// `Names::Declared`, and that the neighbours which did *not* land still fail
+/// the way they did before.
+#[test]
+fn the_method_claims_in_this_crates_own_copy() {
+    // "字符串：trim、indexOf"
+    assert_eq!(returns("return \"  ab  \".trim();"), JsValue::Str("ab".into()));
+    assert_eq!(returns("return \"abc\".indexOf(\"b\");"), JsValue::Number(1.0));
+    assert_eq!(returns("return \"abc\".indexOf(\"z\");"), JsValue::Number(-1.0));
+    // 空白集合是整个 ECMA-262 12.2 + 12.3，不是「看起来像空格」。
+    assert_eq!(returns("return \"\u{3000}ab\u{2003}\".trim();"), JsValue::Str("ab".into()));
+    // 位置是 UTF-16 码元，与 `.length` 对得上。
+    assert_eq!(returns("return \"caf\u{e9}x\".indexOf(\"x\");"), JsValue::Number(4.0));
+
+    // "数组：push、pop、map"
+    assert_eq!(returns("let a = [1, 2]; return a.push(3);"), JsValue::Number(3.0));
+    assert_eq!(returns("let a = [1, 2]; a.push(3); return a[2];"), JsValue::Number(3.0));
+    assert_eq!(returns("let a = [1, 2, 3]; return a.pop();"), JsValue::Number(3.0));
+    assert_eq!(returns("let a = [1]; a.pop(); return a.length;"), JsValue::Number(0.0));
+    assert_eq!(returns("let a = [1, 2]; return a.map(x => x + 1)[1];"), JsValue::Number(3.0));
+    // 回调能捕获外层绑定，且 map 可链。
+    assert_eq!(
+        returns("let k = 10; let a = [1]; return a.map(x => x + k)[0];"),
+        JsValue::Number(11.0)
+    );
+    assert_eq!(
+        returns("let a = [1]; return a.map(x => x + 1).map(x => x * 2)[0];"),
+        JsValue::Number(4.0)
+    );
+
+    // "普通对象上同名的属性不受影响"
+    assert_eq!(
+        returns("const o = { trim: function () { return 7; } }; return o.trim();"),
+        JsValue::Number(7.0)
+    );
+
+    // "没落地的方法仍然按各自接收者的规矩拒绝"
+    for source in ["return \"ab\".toUpperCase();", "return (1).toFixed();"] {
+        let mut eng = engine();
+        assert!(
+            eng.run_once(Guest::Qjs(source), None, "main", &[]).is_err(),
+            "{source:?}: a String method this engine lacks must still trap"
+        );
+    }
+    // 数组上没落地的方法读出来是 `undefined`，调用才 trap——两种接收者的规矩不同，
+    // 这条差别是上游刻意保留的。
+    assert_eq!(returns("let a = [1]; return a.filter;"), JsValue::Undefined);
+}
+
 /// The one built-in property this crate's copy claims, executed -- and the
 /// neighbours it deliberately does not claim.
 #[test]
