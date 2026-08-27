@@ -202,12 +202,21 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// (3): it keeps a backtick in the list, so a bump that widens template
 /// syntax lands here rather than nowhere.
 ///
+/// (7) The bump to `9e02e37` brought **arrow functions** -- and brought them
+/// because closures had: in that engine an arrow *is* a function expression,
+/// so once a function expression could capture, so could an arrow. Measured:
+/// `let f = (x) => x + 1; return f(1);` answers `2`, `x => x` needs no
+/// parentheses, and `function mk(n) { return () => n; }` gives a capturing
+/// arrow. Its replacement is a **default parameter**, `(a = 1) => a`: still a
+/// named refusal, and parameter syntax rather than the next expression form
+/// queued behind the one that just landed.
+///
 /// Every time, the README's refusal list was corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
     for source in [
         "function t(s) { return s; } return t`x`;",
-        "let f = (x) => x + 1; return f(1);",
+        "let f = (a = 1) => a; return f();",
         "return [1, , 2];",
         "return 1_000;",
         "class A {} return 1;",
@@ -397,6 +406,44 @@ fn the_array_claims_in_this_crates_own_copy() {
         ),
         JsValue::Number(1.0)
     );
+}
+
+/// The arrow-function claims this crate's own copy makes, executed.
+///
+/// The reason they are worth their own test rather than folding into the
+/// function tests: in the upstream engine an arrow is a function expression
+/// *because* four things are absent -- `this`, `arguments`, `new`, function
+/// properties. That equivalence is upstream's to keep and is pinned there
+/// (`arrows_m3::the_absences_the_arrow_equivalence_rests_on`); what is pinned
+/// here is only that this crate can reach the feature at all, under
+/// `Names::Declared` and through the real door.
+#[test]
+fn the_arrow_claims_in_this_crates_own_copy() {
+    // "括号参数表、单参数免括号、空参数表"
+    assert_eq!(returns("let f = (x) => x + 1; return f(1);"), JsValue::Number(2.0));
+    assert_eq!(returns("let f = x => x * 3; return f(4);"), JsValue::Number(12.0));
+    assert_eq!(returns("let f = () => 7; return f();"), JsValue::Number(7.0));
+    assert_eq!(returns("let f = (a, b) => a * b; return f(3, 4);"), JsValue::Number(12.0));
+
+    // "简洁体就是它的 return，块体是普通函数体"
+    assert_eq!(
+        returns("let f = (x) => { let y = x * 2; return y; }; return f(5);"),
+        JsValue::Number(10.0)
+    );
+
+    // "捕获也能用"——箭头是函数表达式，所以闭包那套原样适用。
+    assert_eq!(returns("function mk(n) { return () => n; } return mk(6)();"), JsValue::Number(6.0));
+    assert_eq!(
+        returns("let f = (x) => (y) => x + y; return f(1)(2);"),
+        JsValue::Number(3.0)
+    );
+
+    // "分组括号还是分组括号"——覆盖文法没有把它吃掉。
+    assert_eq!(returns("let g = (n) => n; return (1 + 2) * g(3);"), JsValue::Number(9.0));
+
+    // 与本仓已有的其它特性合用。
+    assert_eq!(returns("let f = (a) => a[1]; return f([1, 2, 3]);"), JsValue::Number(2.0));
+    assert_eq!(returns("let f = (x) => `v${x}`; return f(3);"), JsValue::Str("v3".into()));
 }
 
 /// The template-literal claims this crate's own copy makes, executed.

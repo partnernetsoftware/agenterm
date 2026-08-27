@@ -1657,9 +1657,14 @@ mod tests {
         fn the_subset_is_narrower_and_this_is_what_breaks() {
             let _guard = ENV_LOCK.lock().expect("lock");
             for (js, qjs) in [
+                // An arrow with a **default parameter**, not a plain arrow:
+                // upstream `9e02e37` landed arrows, so the plain one moved out
+                // of this table the way the closure and template rows did.
+                // What is left is parameter syntax, which is a queue position
+                // -- unlike `Math` below. When it lands, this row moves too.
                 (
-                    "function entry() { const f = (x) => x + 1; return f(1); }",
-                    "let f = (x) => x + 1; return f(1);",
+                    "function entry() { const f = (a = 1) => a; return f(); }",
+                    "let f = (a = 1) => a; return f();",
                 ),
                 // A *tagged* template, not a plain one: upstream `653cebe`
                 // landed templates, so `` `x` `` moved out of this table the
