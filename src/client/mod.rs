@@ -4954,12 +4954,17 @@ mod tests {
 
         // A source that will not build has no artifact, so no digest: the
         // compiler's own diagnostic instead of a fingerprint of nothing.
+        //
+        // This used to be a plain template literal; upstream `653cebe` landed
+        // those. An elision replaces it because it is refused for a reason a
+        // language bump will not overtake: a hole is not an `undefined` and
+        // this engine cannot tell them apart.
         let refused = engine
-            .artifact_hash("return `x`;")
+            .artifact_hash("return [1, , 2];")
             .expect("qjswasm hashes something")
-            .expect_err("a template literal does not build");
+            .expect_err("an array elision does not build");
         assert!(
-            refused.contains("template literals"),
+            refused.contains("elisions in an array literal"),
             "want the compiler's diagnostic, got {refused:?}"
         );
     }

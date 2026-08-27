@@ -192,11 +192,21 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// *different grammar* rather than the next thing queued behind the one that
 /// just landed.
 ///
+/// (6) The bump to `653cebe` brought **template literals** -- this list's
+/// first entry since the beginning. Measured: `` return `a${1}b`; `` answers
+/// `"a1b"`, and `` `${1}${2}` `` answers `"12"` rather than `3`. Its
+/// replacement is a *tagged* template, which stays refused for a structural
+/// reason rather than a queued one: a tag is a call whose first argument is a
+/// frozen array of cooked strings carrying `raw`, and this engine has neither
+/// the array methods nor the property definition to build one. Same logic as
+/// (3): it keeps a backtick in the list, so a bump that widens template
+/// syntax lands here rather than nowhere.
+///
 /// Every time, the README's refusal list was corrected in the same commit.
 #[test]
 fn a_source_outside_the_subset_is_a_compile_error_not_a_load_error() {
     for source in [
-        "return `x`;",
+        "function t(s) { return s; } return t`x`;",
         "let f = (x) => x + 1; return f(1);",
         "return [1, , 2];",
         "return 1_000;",
@@ -387,6 +397,40 @@ fn the_array_claims_in_this_crates_own_copy() {
         ),
         JsValue::Number(1.0)
     );
+}
+
+/// The template-literal claims this crate's own copy makes, executed.
+///
+/// The one that matters for the fleet bindings is the last group: a template
+/// is what `"{\"tab\":\"" + tab + "\"}"` should have been written as, and the
+/// two must produce the same string.
+#[test]
+fn the_template_claims_in_this_crates_own_copy() {
+    // "无替换的模板就是一个字符串"
+    assert_eq!(returns("return `abc`;"), JsValue::Str("abc".into()));
+    assert_eq!(returns("return ``;"), JsValue::Str(String::new()));
+    assert_eq!(returns("return typeof `x`;"), JsValue::Str("string".into()));
+
+    // "替换取的是 ToString"
+    assert_eq!(returns("return `a${1}b`;"), JsValue::Str("a1b".into()));
+    assert_eq!(returns("return `${true}`;"), JsValue::Str("true".into()));
+    assert_eq!(returns("return `${null}`;"), JsValue::Str("null".into()));
+    assert_eq!(returns("return `${1.5}`;"), JsValue::Str("1.5".into()));
+
+    // "相邻的两个替换是拼接不是相加" -- `${1}${2}` 是 "12" 而不是 3.
+    assert_eq!(returns("return `${1}${2}`;"), JsValue::Str("12".into()));
+
+    // "替换里可以写任何表达式，包括带花括号的"
+    assert_eq!(returns("return `${ { a: 7 }.a }`;"), JsValue::Str("7".into()));
+    assert_eq!(returns("return `${[1, 2].length}`;"), JsValue::Str("2".into()));
+    assert_eq!(returns("return `a${`b${1}`}c`;"), JsValue::Str("ab1c".into()));
+
+    // The reason this milestone was picked: the fleet bindings are full of
+    // hand-rolled JSON concatenation, and a template must mean the same thing.
+    let concatenated = returns("let tab = 3; return \"{\\\"tab\\\":\" + tab + \"}\";");
+    let templated = returns("let tab = 3; return `{\\\"tab\\\":${tab}}`;");
+    assert_eq!(concatenated, templated);
+    assert_eq!(templated, JsValue::Str("{\"tab\":3}".into()));
 }
 
 /// The two array claims the README states as **traps**, which the corpus above

@@ -1661,7 +1661,16 @@ mod tests {
                     "function entry() { const f = (x) => x + 1; return f(1); }",
                     "let f = (x) => x + 1; return f(1);",
                 ),
-                ("function entry() { return `x`; }", "return `x`;"),
+                // A *tagged* template, not a plain one: upstream `653cebe`
+                // landed templates, so `` `x` `` moved out of this table the
+                // way the closure row did. A tag stays because it is not a
+                // queue position either -- it needs a frozen cooked array
+                // carrying `raw`, which is array methods and property
+                // definition this engine does not have.
+                (
+                    "function entry() { const t = (s) => s; return t`x`; }",
+                    "function t(s) { return s; } return t`x`;",
+                ),
                 (
                     "function entry() { return Math.max(1, 2); }",
                     "return Math.max(1, 2);",

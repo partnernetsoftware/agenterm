@@ -49,7 +49,11 @@ mod tests {
     const CONTRACT: CorpusScanContract<'_> = CorpusScanContract {
         good_a: ("a.qjs", "return 42;"),
         good_b: ("b.qjs", "return 1 + 1;"),
-        bad: ("bad.qjs", "return `nope`;"),
+        // An elision, not a template: templates landed with `653cebe`, and
+        // this row wants a refusal that a language bump will not overtake.
+        // A hole is not an `undefined` and this engine cannot tell them
+        // apart, so `[1, , 2]` is refused by name and will stay refused.
+        bad: ("bad.qjs", "return [1, , 2];"),
     };
 
     #[test]
