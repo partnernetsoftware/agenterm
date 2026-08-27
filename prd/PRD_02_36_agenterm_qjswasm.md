@@ -481,7 +481,8 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 **所以本产品的验证口径是三条命令，不是一条**：
 
 ```sh
-cargo test --workspace --exclude agenterm-abi          # 默认 feature：够不着任何引擎门后的测试
+cargo test --workspace --exclude agenterm-abi \
+  -- --skip live_resolution_removes_subshell_response_files   # 见下面那条，非跳不可
 cargo test --features "script-qjswasm,script-lua,script-wasmcore,script-qjs,script-sql" \
   --lib -- --test-threads=1                            # root crate lib 里的各引擎适配层
 cargo test --features "script-qjs,script-qjswasm" \
@@ -490,6 +491,25 @@ cargo test --features "script-qjs,script-qjswasm" \
 
 `--test-threads=1` 不是装饰：并行跑时锁一被毒，真正的那条失败会淹在五条
 `PoisonError` 里。
+
+##### 第一条命令**不加 `--skip` 就跑不完**（2026-08-28 发现）
+
+`tests/cursor_agent_chat.rs::live_resolution_removes_subshell_response_files`
+起一个 mock server 线程，**写死 `for _ in 0..2` 收两个连接**，然后 `server.join()`。
+被测脚本少发一个请求，`listener.accept()` 就永远阻塞——**没有任何超时**，
+整条 workspace 套件卡死在那里。
+
+这不是理论问题，它咬过：本轮我**四次**报告「第一条命令干净，813 passed / 4 failed」，
+四次读的都是**停在第 13 条 `test result` 行**的部分输出。而这个 workspace
+（root crate 54 个集成测试文件 + 各 crate 约 52 个）应当打印**一百多条**。
+也就是说那四次各自只覆盖了约 12%，而我把它当成了全绿。
+
+**教训不是「那条测试有 bug」，是「一条不会终止的命令，其部分输出和成功长得一模一样」。**
+跑完的证据不是「没看到失败」，是**结果行的条数**和末尾的退出码。
+
+本文件不改那条测试：`docs/agenterm-rust-cheatsheet.md` 正在被另一个 session 编辑，
+而它新加的那段讲的正是「跨机测试夹具不该拿 `env!("CARGO_MANIFEST_DIR")`
+当运行期仓库定位器」——同一片地。绕开，不动。
 
 #### 门 1 之外，本轮顺带关掉的一条
 
@@ -1386,6 +1406,12 @@ qjs 分发已删，`agenterm qjs` 别名退休成一条重定向（exit 2），
 三条的分歧是结构性的、可度量的（边际成本：每加一个方法各要付多少字节），
 符合 `.claude/skills/decisive-experiment` 的立项四条。**这是下一个该做的判决，
 不是下一段该写的代码。**
+
+规格已写：上游 `plan/design-method-binding-experiment.md`（`0c9b5f0`）。
+主判据是**斜率**——实现四个方法之后再加第五个要付多少字节和多少行——不是截距；
+主产出可能是判据 ⑥ 那张**泄漏清单**（每个变体为了跑通，被迫改了 V1 / 函数记录 /
+调用约定的哪些地方）。`research/method-binding/` **尚未开工**，
+所以按那个 skill 的引用资格，本 Q 的任何数字都还不得被当作已决结论引用。
 
 语法侧还剩的（各自独立、都不挡门）：`switch`/`break`/`continue`/`do`/`for…of`、
 位运算与 `**`/`??`/可选链/解构/展开、`class`、正则、十六/八/二进制字面量与数字分隔符、
