@@ -767,3 +767,82 @@ fn the_printed_upstream_revision_is_the_one_this_build_pins() {
     assert!(identity.starts_with("agenterm-qjswasm "), "{identity}");
     assert!(identity.contains(pins[0]), "{identity}");
 }
+
+/// **`_start` is a name, not a convention** — and the entry-point question
+/// PRD 02.36 carried as an open product decision is retired here by two
+/// measurements rather than answered by a preference.
+///
+/// # What the question was
+///
+/// `agenterm-wasmcore`'s archive gate 2 (switch `.wasm` default routing to
+/// this engine) was recorded as blocked on "does a hand-written `.wasm` guest
+/// use WASI's `_start`, or an exported `main`?", called a product decision.
+/// It is not a decision, because neither answer is reachable from where the
+/// disagreement actually is.
+///
+/// # Fact one: this engine calls whatever name you ask for
+///
+/// There is no entry convention to choose. `Engine::call` takes the export's
+/// name, `"main"` is only what the `.qjs` compiler happens to emit, and
+/// `_start` is an ordinary export that works today. A "convention" that costs
+/// nothing to satisfy either way is not a decision anyone has to make.
+///
+/// # Fact two: a WASI guest cannot reach the entry point at all
+///
+/// It is refused at the door, by import, before any export name is consulted.
+/// That is the door discipline PRD 02.36 states -- *"能力全在门。门名单是
+/// `agenterm.*`，不得把 WASI `fd_*` 做成第二扇 OS 面"* -- doing exactly what it
+/// was written to do.
+///
+/// So what separates the two engines is the **import surface**, not the entry
+/// name. A `wasmcore` guest is a Rust `std` program built for `wasm32-wasip1`:
+/// its `_start` is `std::rt::lang_start` and it imports WASI *because std
+/// does*, not because the product asked. Moving such a guest here is a
+/// `no_std` rewrite of the guest, which is a guest-authoring cost that can be
+/// measured -- not a convention the product has to pick.
+#[test]
+fn the_wasm_entry_point_is_a_name_and_the_wasi_surface_is_the_real_boundary() {
+    let mut eng = engine();
+
+    // A WASI command: imports `wasi_snapshot_preview1`, exports `_start`.
+    let wasi_command = wat::parse_str(
+        r#"(module
+             (import "wasi_snapshot_preview1" "fd_write"
+               (func $fd_write (param i32 i32 i32 i32) (result i32)))
+             (memory (export "memory") 1)
+             (func (export "_start")
+               (drop (call $fd_write (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0)))))"#,
+    )
+    .expect("fixture .wat must compile");
+
+    let refused = eng
+        .run_once(Guest::Wasm(&wasi_command), None, "_start", &[])
+        .expect_err("a WASI guest has no door here");
+    let refused = refused.to_string();
+    assert!(
+        refused.contains("wasi_snapshot_preview1.fd_write"),
+        "the refusal must name the import it could not bind, got {refused:?}"
+    );
+    assert!(
+        refused.contains("agenterm.*"),
+        "and the surface it does offer, got {refused:?}"
+    );
+    assert!(
+        !refused.contains("_start"),
+        "the export name must not appear: it was never consulted, and saying it \
+         would send a reader to rename their entry point. Got {refused:?}"
+    );
+
+    // The same module without the WASI import runs under that very name.
+    let no_wasi = wat::parse_str(r#"(module (func (export "_start")))"#).expect("fixture");
+    eng.run_once(Guest::Wasm(&no_wasi), None, "_start", &[])
+        .expect("`_start` is an export like any other");
+
+    // And so does any other name, which is what makes it not a convention.
+    let named = wat::parse_str(r#"(module (func (export "anything") (result i32) (i32.const 7)))"#)
+        .expect("fixture");
+    let out = eng
+        .run_once(Guest::Wasm(&named), None, "anything", &[])
+        .expect("an export is reached by its name");
+    assert_eq!(out.values, vec![Value::I32(7)]);
+}

@@ -48,7 +48,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
-| 门 2（`.wasm` 路由切换） | 不能绿，**但阻塞点现在可直接观测** | `_start` 入口约定：拿 qjswasm 编出的 `.wasm` 喂 `AGENTERM_SCRIPT_BACKEND=wasmcore script pack load`，实测答 `guest module does not export a WASI \`_start\` command entry point`。以前这条要靠读代码推断，现在是一条命令。仍缺同客人性能对比 |
+| 门 2（`.wasm` 路由切换） | 不能绿，**但阻塞点已改写：不是待决策，是可量的迁移成本** | `_start` 入口约定是**伪问题**（见 §接下来 03，已作废并留档）：本引擎调任何导出名，`_start` 今天就能用；真正分开两个引擎的是 **import 面**——wasmcore 的客人是 Rust `std` 编到 `wasm32-wasip1`，import WASI 是 std 要的。剩下的是把客人改成 `no_std` 只吃 `agenterm.*`，加同客人性能对比 |
 | 门 3（现状实测） | 已复核 | — |
 
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -1347,12 +1347,43 @@ cargo test --workspace --exclude agenterm-abi                     # 781 passed /
 `function outer(){ let a = 1; function inner(){ return a; } }` 是编译期拒绝——
 任何稍复杂的脚本第一件事就撞它。它**不挡任何门**，但它挡住所有人。
 
-**03 · `_start` 入口约定**（决策，不是编码）
+**03 · ~~`_start` 入口约定~~ —— 这是个伪问题，2026-08-27 已作废**
 
-手写 `.wasm` 客人用 WASI 的 `_start`，还是导出的 `"main"`？这是**产品决定**不是能力问题，
-而它是 `agenterm-wasmcore` 归档门 2 唯一的阻塞点。2026-08-26 起它可一条命令观测：
-把 qjswasm 的产物喂给 `AGENTERM_SCRIPT_BACKEND=wasmcore script pack load`，答
-`does not export a WASI '_start' command entry point`。
+我把它当成「等人拍板的产品决定」挂了好几轮。**它不是决定，因为两个答案都够不到分歧的所在。**
+两条实测把它退了休：
+
+**一、这个引擎调你要的任何名字。** 没有「约定」可选：`Engine::call` 收的是导出名，
+`"main"` 只是 `.qjs` 编译器碰巧发射的那个，而 `_start` 今天就是个能用的普通导出。
+一个两边都零成本满足的「约定」，不构成任何人要做的决定。
+
+**二、WASI 客人根本到不了入口点。** 它在**门**那里就被按 import 拒了，任何导出名都没被查过：
+
+```
+host door: guest imports `wasi_snapshot_preview1.fd_write`;
+`agenterm.*` is the only host module this engine offers, so nothing can bind it
+```
+
+这正是本文件 §纪律 写的那条在起作用：「能力全在门。门名单是 `agenterm.*`，
+**不得把 WASI `fd_*` 做成第二扇 OS 面**。」
+
+**所以分开两个引擎的是 import 面，不是入口名。** 而 wasmcore 的客人为什么带 WASI，
+也量出来了：它自己的测试客人是 **Rust `std` 编到 `wasm32-wasip1`** 的程序（产物里能读到
+`std::os::wasi::fs`、`std::rt::lang_start`、`wasip1`）。它的 `_start` 是
+`std::rt::lang_start`，它 import WASI **是因为 std 要，不是因为产品要**。
+
+**判定（我定的，不再等）：agenterm 的 `.wasm` 客人是 `agenterm.*` 门上的
+reactor，不是 WASI command。** 依据不是偏好：
+WASI 的 command 是「跑完就结束、走 stdin/stdout、导出 `_start`」，reactor 是
+「实例存活、宿主随时调具名导出」——而本引擎的槽**按设计就是持久的**
+（装一次、调多次、每次调用一份新鲜 `max_steps`），客人**返回一个值**而不是退出码。
+它本来就是 reactor，`_start` 是别的模块种类的约定。
+
+**门 2 的阻塞点因此换了个说法，也换了性质**：不是「等一个约定」，是
+「一个 std 客人要改成 `no_std`，只 import `agenterm.*`」——那是**客人侧的改写成本**，
+可以量，不需要谁拍板。零 `.wasm` 语料随包，所以今天没有客人要付这笔钱。
+
+两条实测锁在 `qjs_guest.rs::the_wasm_entry_point_is_a_name_and_the_wasi_surface_is_the_real_boundary`，
+其中一条断言那句拒绝里**不出现 `_start`**——出现了就会把读者引去改入口名，而那不是问题所在。
 
 **04 · GC，以及 `eval`**（长期）
 
