@@ -1658,7 +1658,7 @@ mod tests {
             let _guard = ENV_LOCK.lock().expect("lock");
             for (js, qjs) in [
                 // An arrow with a **default parameter**, not a plain arrow:
-                // upstream `9e02e37` landed arrows, so the plain one moved out
+                // upstream `ee3842b` landed arrows, so the plain one moved out
                 // of this table the way the closure and template rows did.
                 // What is left is parameter syntax, which is a queue position
                 // -- unlike `Math` below. When it lands, this row moves too.

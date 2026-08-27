@@ -97,7 +97,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
   字节都不多付**——实测六种程序 Δ 全 0，且模板与它等价的拼接编译出逐字节相同的模块。
   仍拒绝的是**带标签**的模板（`` t`a` ``）：那是一次调用，第一个实参得是带 `raw`
   的冻结 cooked 数组，这引擎既没有数组方法也没有属性定义，做不出那个形状。
-- **箭头函数**（`9e02e37` 到）：`(x) => x + 1`、单参数免括号 `x => x`、空参数表
+- **箭头函数**（`ee3842b` 到）：`(x) => x + 1`、单参数免括号 `x => x`、空参数表
   `() => 7`、简洁体与块体都行、任意柯里化（`(x) => (y) => x + y`）、捕获照常
   （`function mk(n) { return () => n; }`）。**上一版把它列在「拒绝」里，已作废。**
   实现上**箭头在这个引擎里就是函数表达式**——15.3 用来分开两者的四条（`this`、
@@ -121,7 +121,14 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
 2. **根本没有全局对象。** `Math`、`String`、`Number`、`Object` 今天不是名字，写它们撞的是
    门的诊断：``this engine has no host function named `Math`; this embedder declares
    `print`, `fleet_call` and `fleet_result` ``。`JSON` 是唯一的例外——它是真的实现了。
-   字符串与对象也没有内建属性：`"ab".length` 是运行期 trap，不是编译错误。
+   内建属性只有**一个**（`548fbbe`）：`"ab".length` 现在给正确答案，
+   且数的是 **UTF-16 码元**不是 UTF-8 字节——`"café".length` 是 4，`"😀".length` 是 2。
+   **上一版说它是运行期 trap，已作废。** 但那是 `obj_get` 里的**一条臂**，不是原型链：
+   字符串的**其它**属性仍然 trap（`"ab".trim` / `"ab".toUpperCase`），
+   而且是**故意**不返回 `undefined`——那两个在真 JS 里是函数，`undefined` 会是
+   看起来像对的错答案。数字与布尔的属性也仍然 trap（`(1).toFixed`）。
+   顺带：这条臂是门控的，所以**没写 `.length` 的程序比上一版更小**（`return 1;`
+   少 19 字节）——`__len` 之前在无条件 runtime 里，发射了但没人调。
 3. **解析就没过**——正则字面量 `/a/`（「needs an operand here, and found a `/`」）、
    生成器 `function*`（「needs a name for the function declared here」）。
 

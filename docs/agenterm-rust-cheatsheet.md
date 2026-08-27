@@ -142,6 +142,13 @@ partially mutated state; only inspection and close remain valid. Prove that
 transition under the exact unwind-enabled delivery profile, because the ordinary
 test profile does not establish that a release artifact can catch at all.
 
+Cross-machine Rust test harnesses must not treat `env!("CARGO_MANIFEST_DIR")`
+as a runtime repository locator. That value embeds the build host path in the
+test executable and fails when exact linked harnesses run in a clean VM. If a
+test owns repository metadata, accept an explicit runtime evidence root and
+copy only the bounded contract/fixture bundle into the target court; ordinary
+in-checkout execution may retain the manifest-directory fallback.
+
 A handle that separates a mutating operation from a later two-stage copy must
 clear its previous retained output before starting every new operation. Clear
 on typed failure and panic as well as success replacement; otherwise a caller

@@ -202,7 +202,8 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// (3): it keeps a backtick in the list, so a bump that widens template
 /// syntax lands here rather than nowhere.
 ///
-/// (7) The bump to `9e02e37` brought **arrow functions** -- and brought them
+/// (7) The bump to `9e02e37` brought **arrow functions** (which landed
+/// upstream in `ee3842b`; the pin skipped straight past it) -- and brought them
 /// because closures had: in that engine an arrow *is* a function expression,
 /// so once a function expression could capture, so could an arrow. Measured:
 /// `let f = (x) => x + 1; return f(1);` answers `2`, `x => x` needs no
@@ -406,6 +407,31 @@ fn the_array_claims_in_this_crates_own_copy() {
         ),
         JsValue::Number(1.0)
     );
+}
+
+/// The one built-in property this crate's copy claims, executed -- and the
+/// neighbours it deliberately does not claim.
+#[test]
+fn the_string_length_claim_in_this_crates_own_copy() {
+    // "`"ab".length` 现在给正确答案，数的是 UTF-16 码元不是 UTF-8 字节"
+    assert_eq!(returns("return \"ab\".length;"), JsValue::Number(2.0));
+    assert_eq!(returns("return \"\".length;"), JsValue::Number(0.0));
+    assert_eq!(returns("return \"caf\u{e9}\".length;"), JsValue::Number(4.0));
+    assert_eq!(returns("return \"\u{1f600}\".length;"), JsValue::Number(2.0));
+    assert_eq!(returns("let s = \"abc\"; return s.length;"), JsValue::Number(3.0));
+    assert_eq!(returns("return `a${1}b`.length;"), JsValue::Number(3.0));
+
+    // "那是一条臂，不是原型链：其它属性仍然 trap，而且是故意不给 undefined"
+    for source in ["return \"ab\".trim;", "return \"ab\".toUpperCase;", "return (1).toFixed;"] {
+        let mut eng = engine();
+        let err = eng
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .expect_err("a String property this engine has no answer for must trap");
+        assert!(
+            matches!(err, QjswasmError::Trap { .. }),
+            "{source:?}: want a trap, got {err:?}"
+        );
+    }
 }
 
 /// The arrow-function claims this crate's own copy makes, executed.
