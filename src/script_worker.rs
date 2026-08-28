@@ -9,7 +9,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::script_engine::ScriptEngineBackend as _;
 #[cfg(test)]
 use crate::script_protocol::ScriptProfile;
 use crate::script_protocol::{
@@ -654,11 +653,25 @@ fn execute_inner(
         ));
     }
 
-    // rh backend: no `#[cfg(not(test))]` gate — rh's `execute_inner` unit
-    // tests (below) rely on this branch actually running.
-    if crate::script_engine::RhEngineBackend.enabled() {
+    // **Which engine runs this.** One question, asked once, from one place --
+    // see `ScriptBackend::resolve` for why it is a named function and what
+    // routing did before it existed (`.qjs` files were answered with rh's
+    // parse error). The arms below compare against this rather than each
+    // calling `enabled()`, which read the environment and only the
+    // environment.
+    let selected = crate::script_backend::ScriptBackend::resolve(&invocation.source_label);
+
+    // The specific engines are tried before rh, because rh is the **fallback**
+    // and a fallback that matches first is not a fallback. `resolve` already
+    // returns rh for an unrecognised extension, so ordering here decides
+    // nothing on its own -- it is defence against a future arm forgetting to
+    // be exclusive.
+
+    // Lua backend: `AGENTERM_SCRIPT_BACKEND=lua` or a `.lua` entry.
+    #[cfg(all(not(test), feature = "script-lua"))]
+    if selected == crate::script_backend::ScriptBackend::Lua {
         return dispatch_via_engine(
-            &crate::script_engine::RhEngineBackend,
+            &crate::script_engine::LuaEngineBackend,
             invocation.operation,
             &invocation.source,
             &options,
@@ -666,11 +679,11 @@ fn execute_inner(
         );
     }
 
-    // Lua backend: enabled via AGENTERM_SCRIPT_BACKEND=lua or `.lua` entry.
-    #[cfg(all(not(test), feature = "script-lua"))]
-    if crate::script_engine::LuaEngineBackend.enabled() {
+    // rh backend: no `#[cfg(not(test))]` gate — rh's `execute_inner` unit
+    // tests (below) rely on this branch actually running.
+    if selected == crate::script_backend::ScriptBackend::Rh {
         return dispatch_via_engine(
-            &crate::script_engine::LuaEngineBackend,
+            &crate::script_engine::RhEngineBackend,
             invocation.operation,
             &invocation.source,
             &options,
@@ -699,7 +712,7 @@ fn execute_inner(
     // fail-closed behavior for a placeholder backend, not a bug: a `check`
     // operation still works (sql's check is real), only `run`/`eval` fail.
     #[cfg(all(not(test), feature = "script-sql"))]
-    if crate::script_engine::SqlEngineBackend.enabled() {
+    if selected == crate::script_backend::ScriptBackend::Sql {
         return dispatch_via_engine(
             &crate::script_engine::SqlEngineBackend,
             invocation.operation,
@@ -718,7 +731,7 @@ fn execute_inner(
     // lists have to be extended together; `all_backends_reach_a_dispatch_arm`
     // below now fails if they drift apart again.
     #[cfg(all(not(test), feature = "script-qjswasm"))]
-    if crate::script_engine::QjswasmEngineBackend.enabled() {
+    if selected == crate::script_backend::ScriptBackend::Qjswasm {
         return dispatch_via_engine(
             &crate::script_engine::QjswasmEngineBackend,
             invocation.operation,
@@ -736,7 +749,7 @@ fn execute_inner(
 
 /// Routes a single invocation through the `ScriptEngineBackend` trait layer
 /// (`src/script_engine.rs`) once its owning `execute_inner` call site has
-/// already confirmed `engine.enabled()`. Mirrors what each
+/// already matched it against `ScriptBackend::resolve`. Mirrors what each
 /// `try_execute_*`'s `Check` vs `Run|Eval` match arms did inline before
 /// Trait-M3 — kept as one shared function (instead of `ScriptEngine::all()`
 /// looped dispatch) so the three call sites above keep their independent

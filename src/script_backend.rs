@@ -159,6 +159,46 @@ impl ScriptBackend {
         }
     }
 
+    /// **The one place a backend gets chosen for an invocation.**
+    ///
+    /// Precedence: an explicit `AGENTERM_SCRIPT_BACKEND` wins; failing that,
+    /// the entry file's extension; failing that, rh. Explicit has to win --
+    /// a filename quietly overriding someone's stated choice would be this
+    /// function's own bug committed in the other direction.
+    ///
+    /// # Why this exists as a named function
+    ///
+    /// [`Self::from_entry_path`] had **zero callers in production code** until
+    /// 2026-08-28: it was exercised only by tests, one of which is literally
+    /// named `lua_task_entry_backend_selection` and commented "Verify
+    /// path-based backend selection" while verifying nothing but the pure
+    /// function. Routing was `AGENTERM_SCRIPT_BACKEND` and nothing else, so
+    /// `agenterm cli script run t.qjs` landed on **rh** and reported rh's
+    /// parse error for a JavaScript file. `.lua` did the same.
+    ///
+    /// Measured that day, before and after:
+    ///
+    /// ```text
+    /// $ agenterm cli script run t.qjs      # before: rh parse error at `map`
+    /// $ agenterm cli script run t.qjs      # after:  sum=3
+    /// ```
+    ///
+    /// The repair is one function rather than a call added at each of the nine
+    /// `from_env()` sites, because the defect was never a missing call -- it
+    /// was that "which engine runs this" had no single answer to be wrong in
+    /// one place. `script_worker::dispatch` asks this and nothing else.
+    ///
+    /// `label` is `ScriptInvocation::source_label`, which is the entry path for
+    /// a file and `"stdin"` / `"eval"` / `"api"` otherwise -- those have no
+    /// extension, fall to rh, and are exactly the cases where the caller must
+    /// say what they want.
+    pub fn resolve(label: &str) -> Self {
+        match std::env::var("AGENTERM_SCRIPT_BACKEND") {
+            Ok(name) if !name.trim().is_empty() => Self::from_env(),
+            _ => Self::from_entry_path(label),
+        }
+    }
+
     /// Select backend from task entry file extension.
     ///
     /// `.qjs` is the QuickJS-family extension for agenterm's own engine, named

@@ -313,17 +313,46 @@ impl WorkerSupervisor {
 }
 
 fn configure_script_backend(command: &mut Command) {
-    command.env(
-        "AGENTERM_SCRIPT_BACKEND",
-        script_backend_environment(std::env::var_os("AGENTERM_SCRIPT_BACKEND")),
-    );
+    match script_backend_environment(std::env::var_os("AGENTERM_SCRIPT_BACKEND")) {
+        Some(value) => {
+            command.env("AGENTERM_SCRIPT_BACKEND", value);
+        }
+        None => {
+            command.env_remove("AGENTERM_SCRIPT_BACKEND");
+        }
+    }
 }
 
-fn script_backend_environment(inherited: Option<OsString>) -> OsString {
+/// What the worker's `AGENTERM_SCRIPT_BACKEND` should be, or `None` for
+/// **leave it unset**.
+///
+/// # Why `None` and not `"rh"`
+///
+/// This returned `"rh"` for an unset parent until 2026-08-28, which
+/// materialised a default into the child's environment -- and that one line is
+/// why `ScriptBackend::from_entry_path` had no reachable effect for the whole
+/// life of the product. The worker asks `ScriptBackend::resolve`, whose
+/// precedence is *explicit environment beats extension beats rh*; with the
+/// variable always set, the first rule always won and the extension was never
+/// consulted. `agenterm cli script run t.qjs` answered with rh's parse error
+/// for a JavaScript file, and `.lua` did the same.
+///
+/// The defaulting was not wrong when written -- it made the worker's
+/// environment explicit rather than implicit, which is usually right. It
+/// became wrong when a second input (the entry path) was supposed to matter,
+/// because **an eagerly-materialised default is indistinguishable from a
+/// user's explicit choice**. The default still exists; it just lives at the
+/// point of decision (`resolve`'s final fallback) instead of being stamped
+/// into the environment ahead of it.
+///
+/// The `rhai` -> `rh` normalisation stays here: that is a rename, not a
+/// default, and it has to happen wherever the name is passed on.
+fn script_backend_environment(inherited: Option<OsString>) -> Option<OsString> {
     match inherited {
-        Some(value) if value == "rhai" => OsString::from("rh"),
-        Some(value) => value,
-        None => OsString::from("rh"),
+        Some(value) if value == "rhai" => Some(OsString::from("rh")),
+        Some(value) if value.is_empty() => None,
+        Some(value) => Some(value),
+        None => None,
     }
 }
 
@@ -387,16 +416,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn worker_backend_defaults_to_rh_and_normalizes_retired_rhai() {
-        assert_eq!(script_backend_environment(None), OsString::from("rh"));
+    /// An unset parent leaves the worker unset, and that is load-bearing.
+    ///
+    /// This asserted `None -> "rh"` until 2026-08-28. Stamping the default into
+    /// the child's environment made it indistinguishable from a caller's
+    /// explicit `AGENTERM_SCRIPT_BACKEND=rh`, so `ScriptBackend::resolve` --
+    /// whose whole job is *explicit beats extension beats rh* -- could never
+    /// reach its second rule. Extension routing was dead code for the life of
+    /// the product because of this one line.
+    ///
+    /// The `rhai` -> `rh` normalisation is a rename, not a default, and stays.
+    #[test]
+    fn worker_backend_stays_unset_when_unset_and_normalizes_retired_rhai() {
+        assert_eq!(
+            script_backend_environment(None),
+            None,
+            "materialising a default here is what killed extension routing"
+        );
+        assert_eq!(
+            script_backend_environment(Some(OsString::new())),
+            None,
+            "an empty value is not a choice; treat it as unset"
+        );
         assert_eq!(
             script_backend_environment(Some(OsString::from("rhai"))),
-            OsString::from("rh")
+            Some(OsString::from("rh"))
         );
         #[cfg(feature = "script-lua")]
         assert_eq!(
             script_backend_environment(Some(OsString::from("lua"))),
-            OsString::from("lua")
+            Some(OsString::from("lua"))
         );
     }
 

@@ -269,6 +269,24 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 // §4 Trait-M2 — per-engine thin adapters
 // ---------------------------------------------------------------------
 
+/// Only rh still raises this, and only for the one case that is genuinely
+/// about availability rather than selection.
+///
+/// Every engine's `check`/`execute` opened with `if !self.enabled()` until
+/// 2026-08-28 -- a second gate that re-read `AGENTERM_SCRIPT_BACKEND` after
+/// the dispatcher had already chosen. Once selection gained a second input
+/// (the entry path, via `ScriptBackend::resolve`), the two gates disagreed:
+/// `script run t.qjs` was routed to qjswasm by the dispatcher and then refused
+/// by qjswasm itself with "qjswasm backend not enabled", because the
+/// environment still said rh.
+///
+/// The guard was redundant even before that -- the dispatcher never called an
+/// engine it had not selected. Redundant is not harmless: **a second copy of a
+/// decision is a second place for it to be wrong**, which is the same lesson
+/// the memory palace records about `.wasm` routing. Selection now happens once,
+/// in `resolve`, and an engine reached directly by a library caller runs what
+/// it was asked to run rather than second-guessing the caller's intent from an
+/// environment variable.
 fn not_enabled_error(backend: ScriptBackend) -> ScriptEngineError {
     format!("{} backend not enabled", backend.as_str())
 }
@@ -513,9 +531,6 @@ impl ScriptEngineBackend for LuaEngineBackend {
         source: &str,
         _options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
 
         let engine = agenterm_lua::LuaEngine::new().map_err(|e| e.to_string())?;
 
@@ -529,9 +544,6 @@ impl ScriptEngineBackend for LuaEngineBackend {
         options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
 
         let engine = agenterm_lua::LuaEngine::new().map_err(|e| e.to_string())?;
 
@@ -650,9 +662,6 @@ impl ScriptEngineBackend for SqlEngineBackend {
         source: &str,
         _options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
 
         agenterm_sql::check(source, "invocation.sql").map_err(|e| e.to_string())?;
         Ok(())
@@ -664,9 +673,6 @@ impl ScriptEngineBackend for SqlEngineBackend {
         options: &ScriptInvocationOptions,
         _fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
 
         // agenterm_sql::ExecuteBudgets is a small crate-local mirror of
         // ScriptBudgets (agenterm-sql can't depend on this crate's types —
@@ -846,9 +852,6 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         source: &str,
         _options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
         // Same contract as `execute`: `source` is text. `check_qjs` compiles
         // and load-validates under the budget the run will spend, and executes
         // nothing -- the two must share an entry point, or a check would accept
@@ -863,9 +866,6 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         _options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
 
         // `ScriptFleetBridgeFn` and `agenterm_qjswasm::FleetBridgeFn` are the
         // same `Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>`
