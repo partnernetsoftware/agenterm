@@ -7,6 +7,12 @@
 //! It is that the two `agenterm.fleet_call`s had **different arities**: six
 //! here, four there.
 //!
+//! As of 2026-08-28 they no longer do. `agenterm.fleet_call` here is the same
+//! four-argument first pass it is there, with the same `fleet_result_len` and
+//! `fleet_result` behind it; the one-call convention kept its behaviour and
+//! took a name that describes it, `fleet_call_into`. The imports below are
+//! byte-for-byte what a guest would write for the other engine.
+//!
 //! And the impossibility ran one way. The six-argument form has the host write
 //! the answer into the guest through its `wasmcore_alloc`, which means the host
 //! re-enters the guest; tinyvm's typed host callback holds `&mut` on guest
@@ -36,7 +42,7 @@ use agenterm_wasmcore::{GuestExit, WasmCoreHost};
 fn two_pass_guest() -> Vec<u8> {
     wat::parse_str(
         r#"(module
-            (import "agenterm" "fleet_call_begin"
+            (import "agenterm" "fleet_call"
                 (func $begin (param i32 i32 i32 i32) (result i32)))
             (import "agenterm" "fleet_result_len" (func $len (result i32)))
             (import "agenterm" "fleet_result" (func $get (param i32 i32) (result i32)))
@@ -96,7 +102,7 @@ fn a_destination_too_small_is_refused_rather_than_truncated() {
         Arc::new(|_: &str, _: &str| Ok("0123456789".to_owned()));
     let guest = wat::parse_str(
         r#"(module
-            (import "agenterm" "fleet_call_begin"
+            (import "agenterm" "fleet_call"
                 (func $begin (param i32 i32 i32 i32) (result i32)))
             (import "agenterm" "fleet_result_len" (func $len (result i32)))
             (import "agenterm" "fleet_result" (func $get (param i32 i32) (result i32)))
@@ -131,7 +137,7 @@ fn no_bridge_is_a_status_and_not_a_crash() {
     let host = WasmCoreHost::new();
     let guest = wat::parse_str(
         r#"(module
-            (import "agenterm" "fleet_call_begin"
+            (import "agenterm" "fleet_call"
                 (func $begin (param i32 i32 i32 i32) (result i32)))
             (import "agenterm" "fleet_result_len" (func $len (result i32)))
             (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))

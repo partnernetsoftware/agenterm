@@ -379,3 +379,44 @@ fn a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi() {
         .spawn(Guest::Wasm(&ours), None)
         .expect("this door's own shape loads");
 }
+
+/// The other engine's **portable** door imports load here unchanged.
+///
+/// The companion to
+/// [`a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi`],
+/// which is what this looked like before. `agenterm-wasmcore` grew a two-pass
+/// door on 2026-08-28 and gave it the portable name: its
+/// `agenterm.fleet_call` is now the same four-argument first pass as this
+/// one's, with the same `fleet_result_len` and `fleet_result` behind it. Its
+/// original one-call convention kept its behaviour and took the name
+/// `fleet_call_into`, which says what it does -- the host writes *into* the
+/// guest.
+///
+/// The import block below is copied from
+/// `agenterm-wasmcore/tests/portable_door.rs` and is not adapted in any way.
+/// That is the whole assertion: **one import block, two engines.**
+///
+/// What still keeps one guest from running on both is no longer the door. It
+/// is how a guest *reports*: this engine calls a named export and takes its
+/// returned value, while wasmcore calls `_start` and reads none, so those
+/// guests reach for WASI's `proc_exit` -- which this engine refuses. That is
+/// the last item on PRD 02.36's gate 2, and it is a smaller one than the door
+/// was.
+#[test]
+fn the_other_engines_portable_door_imports_load_here_unchanged() {
+    let portable = wat::parse_str(
+        r#"(module
+            (import "agenterm" "fleet_call"
+                (func $begin (param i32 i32 i32 i32) (result i32)))
+            (import "agenterm" "fleet_result_len" (func $len (result i32)))
+            (import "agenterm" "fleet_result" (func $get (param i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "main") (result i32) (call $len))
+        )"#,
+    )
+    .expect("valid wat");
+    let mut engine = Engine::new();
+    engine
+        .spawn(Guest::Wasm(&portable), None)
+        .expect("the portable door is this door");
+}

@@ -21,9 +21,16 @@
 // ABI this file implements (see ../README.md "fleet_call calling
 // convention" for the full spec a non-Rust guest author would need):
 //
-//   import "agenterm" "fleet_call"
+//   import "agenterm" "fleet_call_into"
 //     (op_ptr: i32, op_len: i32, params_ptr: i32, params_len: i32,
 //      out_ptr_ptr: i32, out_len_ptr: i32) -> i32   (0=Ok, 1=Err, 2=NoBridge)
+//
+// This guest deliberately uses the **one-call** convention, which is what
+// `fleet_call_into` is. The portable three-call convention -- `fleet_call`,
+// `fleet_result_len`, `fleet_result`, the same names and arities
+// `agenterm-qjswasm` offers -- is exercised by `tests/portable_door.rs`. Two
+// guests, one per convention, because a guest that used both would prove
+// neither is sufficient on its own.
 //   export "wasmcore_alloc" (len: i32) -> i32
 //   export "memory" (the wasm32-wasip1 default -- nothing extra to do)
 
@@ -31,7 +38,7 @@ use std::alloc::{Layout, alloc};
 
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(
+    fn fleet_call_into(
         op_ptr: *const u8,
         op_len: i32,
         params_ptr: *const u8,
@@ -63,7 +70,7 @@ fn call_fleet(op_id: &str, params_json: &str) -> (i32, String) {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(
+        fleet_call_into(
             op_id.as_ptr(),
             op_id.len() as i32,
             params_json.as_ptr(),

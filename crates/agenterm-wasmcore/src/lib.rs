@@ -54,10 +54,18 @@ pub const FLEET_CALL_MODULE: &str = "agenterm";
 /// WASM import function name for the fleet bridge call.
 pub const FLEET_CALL_FUNCTION: &str = "fleet_call";
 
-/// The portable two-pass door, name for name with `agenterm-qjswasm`'s except
-/// for the first pass, which is `fleet_call` there and cannot be here without
-/// colliding with the six-argument original.
-pub const FLEET_CALL_BEGIN_FUNCTION: &str = "fleet_call_begin";
+/// The **one-call** convention: the host writes the answer into the guest
+/// through its `wasmcore_alloc` export, filling the two out-parameters.
+///
+/// This was `fleet_call` until 2026-08-28. It gave the name up because
+/// `agenterm-qjswasm` calls the *portable* first pass `fleet_call`, one
+/// `(module, name)` binds one function, and a guest that imports
+/// `agenterm.fleet_call` should mean the same thing at both engines. The
+/// convention itself is unchanged and still supported -- it is one border
+/// crossing instead of three, which is worth having where portability is not
+/// wanted. Its new name says what distinguishes it: it writes *into* the
+/// guest.
+pub const FLEET_CALL_INTO_FUNCTION: &str = "fleet_call_into";
 /// Second pass, part one -- byte length of the parked answer.
 pub const FLEET_RESULT_LEN_FUNCTION: &str = "fleet_result_len";
 /// Second pass, part two -- copy the answer where the guest asks.
@@ -369,13 +377,15 @@ fn run_loaded_module(
 
 /// Both `fleet_call` conventions, deliberately.
 ///
-/// * `fleet_call(op, op_len, params, params_len, out_ptr, out_len) -> i32`
-///   is this crate's original: one call, the host writing the answer into the
-///   guest through its `wasmcore_alloc` export.
-/// * `fleet_call_begin(op, op_len, params, params_len) -> i32` plus
+/// * `fleet_call(op, op_len, params, params_len) -> i32` plus
 ///   `fleet_result_len() -> i32` and `fleet_result(dst, dst_len) -> i32` is
-///   **`agenterm-qjswasm`'s door, verbatim**, under a distinct name so both can
-///   live in one linker.
+///   **`agenterm-qjswasm`'s door, name for name and arity for arity**. A guest
+///   that imports these three imports the same thing at both engines.
+/// * `fleet_call_into(op, op_len, params, params_len, out_ptr, out_len) -> i32`
+///   is this crate's original one-call convention, renamed on 2026-08-28 to
+///   free the portable name. Unchanged otherwise, and kept: one border
+///   crossing instead of three is worth having where portability is not
+///   wanted.
 ///
 /// # Why the second one exists
 ///
@@ -388,21 +398,24 @@ fn run_loaded_module(
 /// can do either -- so the portable shape is the two-pass one, and this is
 /// wasmtime growing it.
 ///
-/// The original stays. Guests written against it keep working, and the
-/// migration is a guest-by-guest choice rather than a flag day.
+/// Both stay. The rename is the whole cost, it was counted before it was
+/// taken -- one guest and five test/example files, all in this repo, and no
+/// `.wasm` guest ships -- and it buys a door whose portable half a guest can
+/// import without knowing which engine will answer.
 fn install_fleet_call(linker: &mut Linker<WasmCoreState>) -> Result<()> {
-    linker.func_wrap(FLEET_CALL_MODULE, FLEET_CALL_FUNCTION, fleet_call_import)?;
-    linker.func_wrap(FLEET_CALL_MODULE, FLEET_CALL_BEGIN_FUNCTION, fleet_call_begin)?;
+    linker.func_wrap(FLEET_CALL_MODULE, FLEET_CALL_INTO_FUNCTION, fleet_call_import)?;
+    linker.func_wrap(FLEET_CALL_MODULE, FLEET_CALL_FUNCTION, fleet_call_portable)?;
     linker.func_wrap(FLEET_CALL_MODULE, FLEET_RESULT_LEN_FUNCTION, fleet_result_len)?;
     linker.func_wrap(FLEET_CALL_MODULE, FLEET_RESULT_FUNCTION, fleet_result)?;
     Ok(())
 }
 
-/// First pass: run the bridge, park the answer, return only a status.
+/// First pass of the portable convention: run the bridge, park the answer,
+/// return only a status.
 ///
-/// The status codes are the six-argument call's, unchanged, so a guest author
-/// learns one set.
-fn fleet_call_begin(
+/// The status codes are `fleet_call_into`'s, unchanged, so a guest author
+/// learns one set whichever convention they use.
+fn fleet_call_portable(
     mut caller: Caller<'_, WasmCoreState>,
     op_ptr: i32,
     op_len: i32,
@@ -411,9 +424,9 @@ fn fleet_call_begin(
 ) -> Result<i32> {
     let memory = guest_memory(&mut caller)?;
     let op_id = read_guest_string(&mut caller, &memory, op_ptr, op_len)
-        .context("fleet_call_begin: reading operation_id from guest memory")?;
+        .context("fleet_call: reading operation_id from guest memory")?;
     let params_json = read_guest_string(&mut caller, &memory, params_ptr, params_len)
-        .context("fleet_call_begin: reading params_json from guest memory")?;
+        .context("fleet_call: reading params_json from guest memory")?;
 
     let bridge = caller.data().fleet_bridge.clone();
     let (status, payload) = match bridge {
@@ -464,9 +477,9 @@ fn fleet_result(
     Ok(pending.len() as i32)
 }
 
-/// The host side of the `fleet_call` import. See `README.md` "fleet_call
-/// calling convention" for the ABI this function and its guest-side
-/// counterpart both implement.
+/// The host side of the `fleet_call_into` import -- the one-call convention.
+/// See `README.md` "fleet_call calling convention" for the ABI this function
+/// and its guest-side counterpart both implement.
 fn fleet_call_import(
     mut caller: Caller<'_, WasmCoreState>,
     op_ptr: i32,

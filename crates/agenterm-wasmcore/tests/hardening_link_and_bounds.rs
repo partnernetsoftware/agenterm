@@ -88,7 +88,7 @@ fn echo_bridge() -> WasmFleetBridgeFn {
 const GUEST_MISSING_ALLOC: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 // Deliberately no `wasmcore_alloc` export at all.
 fn main() {
@@ -97,7 +97,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }
@@ -132,7 +132,7 @@ fn guest_missing_wasmcore_alloc_export_is_rejected_cleanly_not_crashed() {
 const GUEST_WRONG_ALLOC_SIGNATURE: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 // Wrong signature: host expects `(i32) -> i32`, this exports `(i32, i32) -> i32`.
 #[no_mangle]
@@ -145,7 +145,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }
@@ -178,14 +178,14 @@ const GUEST_MISMATCHED_FLEET_CALL_IMPORT: &str = r###"
 // registered `fleet_call` signature -- a genuine WASM import type mismatch.
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32) -> i32;
 }
 fn main() {
     let op = "x";
     let params = "{}";
     let mut out_ptr: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr)
     };
     println!("status={status}");
 }
@@ -232,7 +232,7 @@ fn guest_importing_fleet_call_with_mismatched_signature_is_rejected_at_link_time
 const GUEST_ALLOC_RETURNS_ZERO: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 // Returns 0 unconditionally -- not "null" in the native sense (WASM
 // linear memory address 0 is an ordinary, addressable byte, not a
@@ -246,7 +246,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     let payload_bytes = unsafe {
         std::slice::from_raw_parts(out_ptr as *const u8, out_len as usize).to_vec()
@@ -293,7 +293,7 @@ fn alloc_returning_zero_is_in_bounds_and_round_trips_without_host_corruption() {
 const GUEST_ALLOC_RETURNS_WILDLY_OOB: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 #[no_mangle]
 pub extern "C" fn wasmcore_alloc(_len: i32) -> i32 { i32::MAX }
@@ -303,7 +303,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }
@@ -335,7 +335,7 @@ fn alloc_returning_a_wildly_out_of_bounds_pointer_is_rejected_not_a_host_crash()
 const GUEST_ALLOC_RETURNS_NEAR_END_OOB: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 // Precisely 2 bytes before the guest's REAL current memory end -- the
 // host will be asked to write a payload far larger than 2 bytes there.
@@ -353,7 +353,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }
@@ -389,7 +389,7 @@ fn alloc_returning_a_pointer_two_bytes_before_the_real_end_is_rejected_precisely
 const GUEST_LIES_ABOUT_PARAMS_LEN: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 #[no_mangle]
 pub extern "C" fn wasmcore_alloc(len: i32) -> i32 {
@@ -404,7 +404,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), op.len() as i32, params.as_ptr(), lied_len, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), op.len() as i32, params.as_ptr(), lied_len, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }
@@ -450,7 +450,7 @@ fn guest_lying_about_a_huge_params_len_is_rejected_and_bridge_is_never_invoked()
 const GUEST_LIES_WITH_NEGATIVE_LEN: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 #[no_mangle]
 pub extern "C" fn wasmcore_alloc(len: i32) -> i32 {
@@ -464,7 +464,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op.as_ptr(), -5, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(op.as_ptr(), -5, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }
@@ -489,7 +489,7 @@ fn guest_lying_with_a_negative_op_len_is_rejected() {
 const GUEST_LIES_WITH_NEAR_END_OVERRUN: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 #[no_mangle]
 pub extern "C" fn wasmcore_alloc(len: i32) -> i32 {
@@ -508,7 +508,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(near_end_ptr as *const u8, overrun_len, near_end_ptr as *const u8, 1, &mut out_ptr, &mut out_len)
+        fleet_call_into(near_end_ptr as *const u8, overrun_len, near_end_ptr as *const u8, 1, &mut out_ptr, &mut out_len)
     };
     println!("status={status}");
 }

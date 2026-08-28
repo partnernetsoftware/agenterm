@@ -82,7 +82,7 @@ const RESULT_MB: usize = 6; // deliberately a different size than the params dir
 const GUEST_LARGE_ROUNDTRIP: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 #[no_mangle]
 pub extern "C" fn wasmcore_alloc(len: i32) -> i32 {
@@ -104,7 +104,7 @@ fn main() {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(params.as_ptr(), params.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
+        fleet_call_into(params.as_ptr(), params.len() as i32, params.as_ptr(), params.len() as i32, &mut out_ptr, &mut out_len)
     };
     let result_bytes = unsafe { std::slice::from_raw_parts(out_ptr as *const u8, out_len as usize) };
     println!(
@@ -202,7 +202,7 @@ const SEQUENTIAL_CALL_COUNT: usize = 200;
 const GUEST_SEQUENTIAL_CALLS: &str = r###"
 #[link(wasm_import_module = "agenterm")]
 extern "C" {
-    fn fleet_call(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
+    fn fleet_call_into(op_ptr: *const u8, op_len: i32, params_ptr: *const u8, params_len: i32, out_ptr_ptr: *mut i32, out_len_ptr: *mut i32) -> i32;
 }
 #[no_mangle]
 pub extern "C" fn wasmcore_alloc(len: i32) -> i32 {
@@ -218,7 +218,7 @@ fn call_fleet(op_id: &str, params_json: &str) -> (i32, String) {
     let mut out_ptr: i32 = 0;
     let mut out_len: i32 = 0;
     let status = unsafe {
-        fleet_call(op_id.as_ptr(), op_id.len() as i32, params_json.as_ptr(), params_json.len() as i32, &mut out_ptr as *mut i32, &mut out_len as *mut i32)
+        fleet_call_into(op_id.as_ptr(), op_id.len() as i32, params_json.as_ptr(), params_json.len() as i32, &mut out_ptr as *mut i32, &mut out_len as *mut i32)
     };
     let payload = unsafe {
         let slice = std::slice::from_raw_parts(out_ptr as *const u8, out_len as usize);
