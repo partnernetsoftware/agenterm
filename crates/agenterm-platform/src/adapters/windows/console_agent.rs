@@ -76,7 +76,7 @@ const IDLE_POLLS: u32 = 30;
 /// the buffer; that work can take substantially longer under x86 emulation.
 /// Keep this as elapsed time rather than a poll count so scheduler and API
 /// latency cannot silently change the recovery contract.
-const MAX_POLL_FAILURE_DURATION: std::time::Duration = std::time::Duration::from_secs(2);
+const MAX_POLL_FAILURE_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
 const SW_HIDE: u16 = 0;
 
