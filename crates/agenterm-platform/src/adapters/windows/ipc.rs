@@ -24,7 +24,8 @@ use windows_sys::Win32::{
     },
     Storage::FileSystem::{
         CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ,
-        FILE_GENERIC_WRITE, GetTempPathW, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, ReadFile, WriteFile,
+        FILE_GENERIC_WRITE, FlushFileBuffers, GetTempPathW, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
+        ReadFile, WriteFile,
     },
     System::{
         IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
@@ -247,6 +248,14 @@ impl NativeStream {
     pub(crate) fn set_io_timeout(&mut self, timeout: Duration) -> TransportResult<()> {
         self.timeout = timeout;
         Ok(())
+    }
+
+    pub(crate) fn finish_server_response(&mut self) -> io::Result<()> {
+        if unsafe { FlushFileBuffers(self.raw_handle()) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
     }
 
     fn raw_handle(&self) -> HANDLE {

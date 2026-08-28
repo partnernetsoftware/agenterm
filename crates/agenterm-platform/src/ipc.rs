@@ -54,6 +54,14 @@ impl NativeStream {
     pub fn set_io_timeout(&mut self, timeout: Duration) -> TransportResult<()> {
         self.0.set_io_timeout(timeout)
     }
+
+    /// Completes a server reply before its native connection is released.
+    ///
+    /// Windows named pipes may discard buffered reply bytes when the server
+    /// handle closes first. Unix streams need no extra completion operation.
+    pub fn finish_server_response(&mut self) -> io::Result<()> {
+        self.0.finish_server_response()
+    }
 }
 
 impl Read for NativeStream {

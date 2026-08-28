@@ -309,6 +309,10 @@ impl NativeStream {
             .and_then(|()| self.0.set_write_timeout(Some(timeout)))
             .map_err(|error| transport_io(&self.1, error))
     }
+
+    pub(crate) fn finish_server_response(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl Read for NativeStream {
