@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**153 passed / 0 ignored**，2026-08-28，上游 rev **`21d8d9a`**）；**`.qjs` 已经够得着
+**153 passed / 0 ignored**，2026-08-28，上游 rev **`0afc88a`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -1097,7 +1097,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ **`21d8d9a`**（五个方法，当前 pin，2026-08-28）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ **`0afc88a`**（每轮新绑定，当前 pin，2026-08-28）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。
@@ -1184,6 +1184,9 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 计算键能判定的不开门（`a[0]` / `o["a"]`）           [x] `a[i]` 仍要付
 │   │   └── 其它字符串属性仍 trap（**故意不给 undefined**）     [x] 一条臂，不是原型链
 │   ├── 方法：trim · indexOf · push · pop · map              [x] rev 21d8d9a
+│   ├── 循环里每轮是一个新绑定（14.3.1 / 13.7.4.7）          [x] rev 0afc88a
+│   │   ├── 函数内 / 脚本层 / `for` 头部，四处都 012          [x] 端到端过 CLI 验过
+│   │   └── `while` 闭包看到末值仍是 333                      [具名] 规范如此，不是缺陷
 │   │   ├── 绑定机制是**量出来的**（三选一，判决轨 Q1）        [x] 调用点特化胜
 │   │   ├── trim 认整个 Zs + LineTerminator                   [x] 12.2 + 12.3
 │   │   ├── indexOf 位置是 UTF-16 码元，与 length 对得上       [x]
@@ -1939,7 +1942,7 @@ selection.`，而它验的是**纯函数**，不是**任何产品路径会调用
 | `fleet.qjs` 29 个操作 | `grep -oE 'call\("[a-z.-]+"'` 去重 = **29** |
 | `.qjs` 语料干净 | `script corpus-scan --dir scripts/qjs` → `1 scripts ok` |
 | `script run` 走通门 | 一个用了 `map`+箭头、`trim`、`push`、模板、`.length`、`JSON.stringify`、`for` 的脚本跑出 `alpha:5 beta:4` / `ok 2 {"n":2}` |
-| `qualify` 出自足 `.wasm` + 收据 | **17 041 字节**，收据带 `steps 23745` / `peak_call_depth 10` / `peak_activation_slots 117`，engine 栏写着 `agenterm-qjswasm 0.1.16 (tinyvm 21d8d9a)` |
+| `qualify` 出自足 `.wasm` + 收据 | **17 041 字节**，收据带 `steps 23745` / `peak_call_depth 10` / `peak_activation_slots 117`，engine 栏写着 `agenterm-qjswasm 0.1.16 (tinyvm 21d8d9a)`（该次测量时的 pin） |
 | `pack load` 复现同样的 stdout 与值 | **一字不差** |
 | 失败路径的退出码 | 目录当产物、文件不存在、不是 wasm——**三条都退 1**（顺手查的：一次 `exit=0` 是 `head` 的退出码，不是命令的） |
 
