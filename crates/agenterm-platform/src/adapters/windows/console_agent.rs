@@ -71,10 +71,12 @@ const POLL_BUSY: std::time::Duration = std::time::Duration::from_millis(8);
 const POLL_IDLE: std::time::Duration = std::time::Duration::from_millis(40);
 /// Idle polls before backing off. Roughly a quarter second of quiet.
 const IDLE_POLLS: u32 = 30;
-/// Consecutive failed screen reads before the session is declared lost.
-/// Generous on purpose: the cost of giving up early is a terminal that dies,
-/// and the cost of giving up late is a fraction of a second of stale screen.
-const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 50;
+/// How long failed screen reads may persist before the session is declared
+/// lost. A resize can make `ReadConsoleOutputW` fail while Windows rebuilds
+/// the buffer; that work can take substantially longer under x86 emulation.
+/// Keep this as elapsed time rather than a poll count so scheduler and API
+/// latency cannot silently change the recovery contract.
+const MAX_POLL_FAILURE_DURATION: std::time::Duration = std::time::Duration::from_secs(2);
 
 const SW_HIDE: u16 = 0;
 
@@ -439,12 +441,12 @@ fn run_agent(
 
     let mut screen = ScreenMirror::new(cols, rows);
     let mut idle = 0_u32;
-    let mut consecutive_failures = 0_u32;
+    let mut first_poll_failure = None;
     loop {
         apply_pending_resize(&console);
         let changed = match screen.poll_and_emit(&console, output_write) {
             Ok(changed) => {
-                consecutive_failures = 0;
+                first_poll_failure = None;
                 changed
             }
             Err(error) => {
@@ -454,8 +456,7 @@ fn run_agent(
                 // persistent failure means the session is really gone, and
                 // treating the first one as fatal is what silently killed
                 // the terminal on every window resize.
-                consecutive_failures += 1;
-                if consecutive_failures > MAX_CONSECUTIVE_POLL_FAILURES {
+                if poll_failure_expired(&mut first_poll_failure, std::time::Instant::now()) {
                     return Err(error);
                 }
                 false
@@ -492,6 +493,14 @@ fn run_agent(
         CloseHandle(output_write);
     }
     Ok(code as i32)
+}
+
+fn poll_failure_expired(
+    first_failure: &mut Option<std::time::Instant>,
+    now: std::time::Instant,
+) -> bool {
+    let started = first_failure.get_or_insert(now);
+    now.saturating_duration_since(*started) >= MAX_POLL_FAILURE_DURATION
 }
 
 fn spawn_thread(name: &'static str, task: impl FnOnce() + Send + 'static) {
@@ -1627,5 +1636,21 @@ mod tests {
     fn a_malformed_agent_request_exits_with_its_own_code() {
         let arguments = vec![AGENT_ARGUMENT.to_owned(), "not-a-handle".to_owned()];
         assert_eq!(run_if_agent(&arguments), Some(251));
+    }
+
+    #[test]
+    fn screen_read_recovery_is_an_elapsed_time_budget() {
+        let start = std::time::Instant::now();
+        let mut first_failure = None;
+        assert!(!poll_failure_expired(&mut first_failure, start));
+        assert!(!poll_failure_expired(
+            &mut first_failure,
+            start + MAX_POLL_FAILURE_DURATION - std::time::Duration::from_millis(1)
+        ));
+        assert!(poll_failure_expired(
+            &mut first_failure,
+            start + MAX_POLL_FAILURE_DURATION
+        ));
+        assert_eq!(first_failure, Some(start));
     }
 }
