@@ -77,6 +77,10 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 rhai = { version = "1.22", default-features = false, features = ["std", "serde", "metadata"] }
+# Test-only: `tests/portable_guest_two_engines.rs` writes its guest in `wat`
+# so the module says its own import list in five readable lines. Never a
+# runtime dependency -- the product never assembles wasm from text.
+wat = "1"
 
 [profile.dev]
 debug = 1

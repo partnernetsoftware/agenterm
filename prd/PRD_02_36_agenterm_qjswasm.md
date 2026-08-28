@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**151 passed / 0 ignored**，2026-08-28，上游 rev **`21d8d9a`**）；**`.qjs` 已经够得着
+**153 passed / 0 ignored**，2026-08-28，上游 rev **`21d8d9a`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -49,7 +49,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
-| 门 2（`.wasm` 路由切换） | 不能绿，**但门已经通了**：两边 `agenterm.fleet_call` 同名同形，一个 import 块两个引擎都收（两处锁）。只差**客人怎么报告结果**这一条约定 | 见 §接下来 03 |
+| 门 2（`.wasm` 路由切换） | **两半都有了**：同一份字节两个引擎跑出同一个答案（三处锁），同客人性能对比也做了（短客人上 qjswasm 快 13.6×，但那是启动主导的数）。**但归档仍未授权——门 1 至今没正式判过** | 见 §接下来 03 |
 | 门 3（现状实测） | 已复核 | — |
 
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -1535,22 +1535,45 @@ wasmcore 那套要宿主**回调进客人**的 `wasmcore_alloc`，而 tinyvm 的
   ——把上面那个文件的 import 块**原样**拿过来，qjswasm 收下。
   **一个 import 块，两个引擎。**
 
-### 门 2 还差最后一条：**客人怎么报告结果**
+### 报告约定也通了：**同一份字节，两个引擎，同一个答案**
 
-门通了，路由还没通，因为两边的**入口与结果约定**不同：
+原来两边的入口/结果约定不同——wasmcore 只调 `_start` 且不取返回值，所以它的客人
+为了报告去用 WASI 的 `proc_exit`，而 qjswasm 拒 WASI。**wasmcore 长出了
+`run_export`**：调具名导出、取回一个 `i32`，与 qjswasm 同形。
 
-| | wasmcore | qjswasm |
+于是一个**只 import `agenterm.*`、用具名导出返回数字**的客人两边都能跑。
+三处锁：
+
+- `agenterm-wasmcore/tests/portable_door.rs::a_guest_that_imports_only_the_door_reports_through_a_named_export`
+- `agenterm-qjswasm/tests/host_door.rs::the_same_guest_bytes_run_here_and_at_wasmcore`
+- `tests/portable_guest_two_engines.rs::the_same_guest_gives_the_same_answer_at_both_engines`
+  ——根 crate 同时看得见两个引擎，**同一份 `wat` 源、同一个桥、比对两边的返回值**。
+
+客人源在两个 crate 里各存一份（两个 crate 互不依赖——**要靠链接对方才能共享的门
+不是门，是耦合**），
+`the_portable_guest_source_matches_wasmcores_character_for_character` 逐字符对账。
+
+### 门 2 要的「同客人性能对比」——现在能做了，做了
+
+200 轮，每轮含各自的装载 + 实例化 + 一次过桥：
+
+| 引擎 | 200 轮 | 每轮 |
 |---|---|---|
-| 调什么 | `_start` | 具名导出（如 `main`） |
-| 怎么拿结果 | 拿不到返回值，只有退出码与 stdout | 取回一个 V1 值 |
+| `agenterm-wasmcore`（wasmtime + WASI，JIT） | 414.8 ms | **2.07 ms** |
+| `agenterm-qjswasm`（tinyvm，无 JIT） | 30.5 ms | **0.152 ms** |
 
-于是两趟客人为了报告用了 `proc_exit`——**那是 WASI，qjswasm 会拒**。
-一个客人可以同时导出 `_start` 和 `main`，但**报告**这件事还没有可移植的做法。
+**qjswasm 快 13.6 倍**——但**必须连着读它量的是什么**：这个数由**启动**主导，
+不是执行吞吐。wasmcore 每轮起一个 worker 线程并建一份 WASI 上下文；wasmtime 的
+JIT 在这么小的客人身上没有时间把编译成本挣回来。**换一个计算密集的客人，
+结论很可能反过来**，这里没有任何数据说不会。
 
-三条候选（未判决）：让 wasmcore 也能调具名导出并取回值；让客人经**门本身**回报
-（拿一次 `fleet_call` 当出口，可移植但是个 hack）；或者接受 `.wasm` 客人按引擎分家。
+它支持的是更窄、但对本产品恰好相关的那句话：
+**对一个只过一次门的短客人，解释器是更便宜的引擎。**
 
-**门 2 因此仍不能绿——但阻塞点从「两扇不同的门」缩到了「一条报告约定」。**
+**门 2 的两半——「同一个客人两边都跑」与「同客人性能对比」——都有了。**
+但**归档 wasmcore 仍未授权**：门 1（能力清单）至今只是「可判绿」，没有正式判过，
+而 wasmcore 有 qjswasm 没有的东西（WASI、AOT 预编译、JIT）。
+**门通了不等于能力清单齐了**，这两件事不要混。
 
 锁在 `host_door::a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi`
 ——它同时断言那句诊断里**不出现 WASI**，因为出现了就会把读者引去改错的东西

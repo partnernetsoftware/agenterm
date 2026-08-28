@@ -226,6 +226,34 @@ impl WasmCoreHost {
             .map_err(|_| anyhow!("agenterm-wasmcore guest-run worker thread panicked"))?
     }
 
+    /// Run a guest by calling a **named export** that returns an `i32`,
+    /// rather than a WASI command's `_start`.
+    ///
+    /// The same worker thread and stack size as [`Self::run_module`], and the
+    /// same door. See [`run_export_on_worker_thread`] for why a second entry
+    /// shape exists: it is the one `agenterm-qjswasm` uses, so a guest can
+    /// report its answer the same way to either engine without importing
+    /// anything to do it.
+    pub fn run_export(
+        &self,
+        wasm_bytes: &[u8],
+        export: &str,
+        fleet_bridge: Option<WasmFleetBridgeFn>,
+    ) -> Result<i32> {
+        let engine = self.engine.clone();
+        let wasm_bytes = wasm_bytes.to_vec();
+        let export = export.to_owned();
+        let handle = std::thread::Builder::new()
+            .stack_size(WORKER_STACK_BYTES)
+            .spawn(move || {
+                run_export_on_worker_thread(&engine, &wasm_bytes, &export, fleet_bridge)
+            })
+            .context("spawning agenterm-wasmcore guest-run worker thread")?;
+        handle
+            .join()
+            .map_err(|_| anyhow!("agenterm-wasmcore guest-run worker thread panicked"))?
+    }
+
     /// Validate WASM binary bytes without executing them. Returns `Ok(())`
     /// if the bytes form a valid `wasm32-wasip1` module, or `Err` with a
     /// descriptive message if validation fails.
@@ -332,6 +360,57 @@ unsafe fn run_precompiled_module_on_worker_thread(
 /// and AOT (`Module::deserialize_file`) loading paths -- proves the AOT
 /// path is a genuine alternate route through the exact same host/bridge
 /// code, not a second, separately-tested mechanism.
+/// Call a **named export** that takes nothing and returns one `i32`, instead
+/// of running a WASI command's `_start`.
+///
+/// # Why this exists
+///
+/// PRD 02.36's archive gate 2 asks whether one `.wasm` guest could be routed
+/// to either engine. Once the two `agenterm.*` doors were made to match, the
+/// only thing left was **how a guest reports**: this crate called `_start` and
+/// read no returned value, so its guests reached for WASI's `proc_exit`, which
+/// `agenterm-qjswasm` refuses. That engine calls a named export and takes its
+/// value back. This is the same shape, so a guest can now report the same way
+/// to both -- return a number from a named function and import nothing to do
+/// it.
+///
+/// WASI is still linked, because a guest that wants it should keep working.
+/// A guest that imports none of it simply binds none of it, which is what
+/// makes the same bytes loadable at an engine that offers no WASI at all.
+fn run_export_on_worker_thread(
+    engine: &Engine,
+    wasm_bytes: &[u8],
+    export: &str,
+    fleet_bridge: Option<WasmFleetBridgeFn>,
+) -> Result<i32> {
+    let module = Module::from_binary(engine, wasm_bytes).context("loading wasm module")?;
+    let mut linker: Linker<WasmCoreState> = Linker::new(engine);
+    p1::add_to_linker_sync(&mut linker, |state: &mut WasmCoreState| &mut state.wasi)
+        .context("registering WASI p1 imports")?;
+    install_fleet_call(&mut linker).context("registering fleet_call imports")?;
+
+    let stdout_pipe = MemoryOutputPipe::new(STDOUT_CAPTURE_CAPACITY);
+    let wasi = WasiCtxBuilder::new()
+        .stdout(stdout_pipe)
+        .inherit_stderr()
+        .build_p1();
+    let state = WasmCoreState {
+        wasi,
+        fleet_bridge,
+        pending: Vec::new(),
+    };
+    let mut store = Store::new(engine, state);
+    let instance = linker
+        .instantiate(&mut store, &module)
+        .context("instantiating wasm module")?;
+    let entry = instance
+        .get_typed_func::<(), i32>(&mut store, export)
+        .with_context(|| format!("guest module does not export `{export}` as `() -> i32`"))?;
+    entry
+        .call(&mut store, ())
+        .with_context(|| format!("calling guest export `{export}`"))
+}
+
 fn run_loaded_module(
     engine: &Engine,
     module: &Module,

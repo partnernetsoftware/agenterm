@@ -163,3 +163,57 @@ fn no_bridge_is_a_status_and_not_a_crash() {
         .expect("the guest runs");
     assert_eq!(result.exit, GuestExit::Exited(0));
 }
+
+/// A guest that imports **only** `agenterm.*` and reports by **returning a
+/// number from a named export** -- no WASI at all.
+///
+/// This is the shape gate 2 needs, and the reason it did not exist before is
+/// that this crate only called `_start` and read no returned value, so a guest
+/// had to reach for `proc_exit`. `WasmCoreHost::run_export` closes that.
+///
+/// The bytes are reused verbatim by `agenterm-qjswasm`'s
+/// `host_door::the_same_guest_bytes_run_here_and_at_wasmcore`, which is the
+/// other half of the claim. Kept `pub` for exactly that.
+pub const PORTABLE_GUEST_WAT: &str = r#"(module
+    (import "agenterm" "fleet_call"
+        (func $begin (param i32 i32 i32 i32) (result i32)))
+    (import "agenterm" "fleet_result_len" (func $len (result i32)))
+    (import "agenterm" "fleet_result" (func $get (param i32 i32) (result i32)))
+    (memory (export "memory") 1)
+    (data (i32.const 0) "demo.echo")
+    (data (i32.const 16) "{}")
+    (func (export "main") (result i32)
+        (local $n i32)
+        (if (i32.ne
+                (call $begin (i32.const 0) (i32.const 9) (i32.const 16) (i32.const 2))
+                (i32.const 0))
+            (then (return (i32.const -1))))
+        (local.set $n (call $len))
+        (if (i32.ne (call $get (i32.const 256) (i32.const 512)) (local.get $n))
+            (then (return (i32.const -2))))
+        (if (i32.ne (i32.load8_u (i32.const 256)) (i32.const 123))
+            (then (return (i32.const -3))))
+        (local.get $n)
+    )
+)"#;
+
+/// **Gate 2's shape, proved on this side.** The same bytes run at
+/// `agenterm-qjswasm` too; see the test named in `PORTABLE_GUEST_WAT`.
+#[test]
+fn a_guest_that_imports_only_the_door_reports_through_a_named_export() {
+    let host = WasmCoreHost::new();
+    let bridge: agenterm_wasmcore::WasmFleetBridgeFn = Arc::new(|op: &str, params: &str| {
+        assert_eq!(op, "demo.echo");
+        assert_eq!(params, "{}");
+        Ok("{\"ok\":true}".to_owned())
+    });
+    let bytes = wat::parse_str(PORTABLE_GUEST_WAT).expect("valid wat");
+    let answer = host
+        .run_export(&bytes, "main", Some(bridge))
+        .expect("the guest runs");
+    assert_eq!(
+        answer, 11,
+        "the guest returns the byte length it read back; negatives name which \
+         of its own checks failed"
+    );
+}

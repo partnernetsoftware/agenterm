@@ -420,3 +420,91 @@ fn the_other_engines_portable_door_imports_load_here_unchanged() {
         .spawn(Guest::Wasm(&portable), None)
         .expect("the portable door is this door");
 }
+
+/// **The same bytes run here and at `agenterm-wasmcore`.** This is what PRD
+/// 02.36's archive gate 2 asks for, and it took three corrections to get here.
+///
+/// The blocker was first thought to be the entry name (`_start`), then the
+/// guest's `std`-ness and its WASI imports, then the two doors' differing
+/// `fleet_call` arities. Each was measured and each was wrong or incomplete
+/// until the last, and closing that left one more: **how a guest reports.**
+/// `agenterm-wasmcore` called `_start` and read no returned value, so its
+/// guests used WASI's `proc_exit`, which this engine refuses; it grew
+/// `run_export` so a guest can return a number from a named function instead.
+///
+/// The source below is `agenterm-wasmcore/tests/portable_door.rs`'s
+/// `PORTABLE_GUEST_WAT`, character for character. It is duplicated rather than
+/// imported because these two crates do not depend on each other -- that
+/// independence is the point of the door -- and
+/// `the_portable_guest_source_matches_wasmcores_character_for_character`
+/// is what keeps the copies honest.
+const PORTABLE_GUEST_WAT: &str = r#"(module
+    (import "agenterm" "fleet_call"
+        (func $begin (param i32 i32 i32 i32) (result i32)))
+    (import "agenterm" "fleet_result_len" (func $len (result i32)))
+    (import "agenterm" "fleet_result" (func $get (param i32 i32) (result i32)))
+    (memory (export "memory") 1)
+    (data (i32.const 0) "demo.echo")
+    (data (i32.const 16) "{}")
+    (func (export "main") (result i32)
+        (local $n i32)
+        (if (i32.ne
+                (call $begin (i32.const 0) (i32.const 9) (i32.const 16) (i32.const 2))
+                (i32.const 0))
+            (then (return (i32.const -1))))
+        (local.set $n (call $len))
+        (if (i32.ne (call $get (i32.const 256) (i32.const 512)) (local.get $n))
+            (then (return (i32.const -2))))
+        (if (i32.ne (i32.load8_u (i32.const 256)) (i32.const 123))
+            (then (return (i32.const -3))))
+        (local.get $n)
+    )
+)"#;
+
+#[test]
+fn the_same_guest_bytes_run_here_and_at_wasmcore() {
+    let bytes = wat::parse_str(PORTABLE_GUEST_WAT).expect("valid wat");
+    let bridge: FleetBridgeFn = Arc::new(|op: &str, params: &str| {
+        assert_eq!(op, "demo.echo");
+        assert_eq!(params, "{}");
+        Ok("{\"ok\":true}".to_owned())
+    });
+    let mut engine = Engine::new();
+    let out = engine
+        .run_once(Guest::Wasm(&bytes), Some(bridge), "main", &[])
+        .expect("the portable guest runs");
+    assert_eq!(
+        out.values,
+        vec![Value::I32(11)],
+        "the same guest returns the same answer at both engines; a negative \
+         names which of its own checks failed"
+    );
+}
+
+/// The two copies of the guest source must not drift.
+///
+/// A cross-crate constant would be better than a duplicate, but these crates
+/// deliberately do not depend on each other -- an engine that had to link the
+/// other to share a door would not have a door, it would have a coupling. So
+/// the copies are checked instead of shared.
+#[test]
+fn the_portable_guest_source_matches_wasmcores_character_for_character() {
+    let theirs = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates/")
+            .join("agenterm-wasmcore/tests/portable_door.rs"),
+    )
+    .expect("wasmcore's portable_door.rs is readable");
+    let start = theirs
+        .find("pub const PORTABLE_GUEST_WAT: &str = r#\"")
+        .expect("wasmcore still declares PORTABLE_GUEST_WAT");
+    let body = &theirs[start + "pub const PORTABLE_GUEST_WAT: &str = r#\"".len()..];
+    let end = body.find("\"#;").expect("the raw string is terminated");
+    assert_eq!(
+        &body[..end],
+        PORTABLE_GUEST_WAT,
+        "the two copies of the portable guest have drifted; one engine is now \
+         being tested with a guest the other never sees"
+    );
+}
