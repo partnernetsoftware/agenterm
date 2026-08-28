@@ -287,6 +287,51 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 /// in `resolve`, and an engine reached directly by a library caller runs what
 /// it was asked to run rather than second-guessing the caller's intent from an
 /// environment variable.
+/// What a `.qjs` module specifier points at, for this product.
+///
+/// The compiler never touches a filesystem, so somebody has to say what a
+/// specifier means, and this is where the product says it: **a path under the
+/// invocation's project root, with the extension left off**.
+///
+/// That root defaults to the *entry file's own directory*
+/// (`client::direct_script_context`), so a script beside `lib/fleet.qjs`
+/// writes `import * as lib from "lib/fleet"` and needs nothing configured --
+/// which is ECMA-262's relative-to-the-importing-file shape in practice.
+/// `--project-root` widens it when a script genuinely needs to reach further,
+/// and then the specifier is relative to that instead. One rule, two
+/// behaviours that follow from what the root is, rather than two rules.
+///
+/// The extension is left off because `scripts/rh/**` already writes its 42
+/// imports that way. There is no reason for the two languages to disagree
+/// about a detail neither of them cares about.
+///
+/// Three refusals, each returning `None` so the caller gets a diagnostic
+/// naming the specifier:
+///
+/// * no project root -- nothing to be relative *to*, which is the honest
+///   answer for a script run from stdin;
+/// * a specifier that leaves the root once resolved, `../` or a symlink or an
+///   absolute path alike. The check is on the **canonical** path, because a
+///   textual one is defeated by any of the three;
+/// * a file that is not there or is not UTF-8.
+fn qjs_module_resolver(
+    project_root: Option<&std::path::Path>,
+) -> impl Fn(&str) -> Option<String> + use<> {
+    let root = project_root.and_then(|p| p.canonicalize().ok());
+    move |specifier: &str| {
+        let root = root.as_ref()?;
+        let mut candidate = root.join(specifier);
+        if candidate.extension().is_none() {
+            candidate.set_extension("qjs");
+        }
+        let resolved = candidate.canonicalize().ok()?;
+        if !resolved.starts_with(root) {
+            return None;
+        }
+        std::fs::read_to_string(resolved).ok()
+    }
+}
+
 fn not_enabled_error(backend: ScriptBackend) -> ScriptEngineError {
     format!("{} backend not enabled", backend.as_str())
 }
@@ -856,14 +901,20 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // and load-validates under the budget the run will spend, and executes
         // nothing -- the two must share an entry point, or a check would accept
         // what the run then refuses.
-        agenterm_qjswasm::check_qjs(source).map_err(|e| e.to_string())?;
+        // The same resolver `execute` uses. A `check` that could not follow an
+        // `import` would refuse working scripts, which is the failure the door
+        // declaration comment above this impl already records for host names.
+        let resolve = qjs_module_resolver(_options.project_root.as_deref());
+        let wasm = agenterm_qjswasm::compile_qjs_with_modules(source, &resolve)
+            .map_err(|e| e.to_string())?;
+        agenterm_qjswasm::validate_wasm(&wasm).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn execute(
         &self,
         source: &str,
-        _options: &ScriptInvocationOptions,
+        options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
 
@@ -892,8 +943,20 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // A `.wasm` guest therefore cannot arrive here at all -- bytes do not
         // survive a `&str` -- and it is refused rather than guessed at. That
         // delivery path is the library API (`Guest::Wasm`), not this one.
+        // Compiled here rather than inside `run_once`, because a script may
+        // `import` and the resolver is this product's policy rather than the
+        // engine's. A script with no `import` never calls it and compiles to
+        // the same bytes either way.
+        let resolve = qjs_module_resolver(options.project_root.as_deref());
+        let wasm = agenterm_qjswasm::compile_qjs_with_modules(source, &resolve)
+            .map_err(|e| e.to_string())?;
         let outcome = engine
-            .run_once(agenterm_qjswasm::Guest::Qjs(source), bridge, "main", &[])
+            .run_once(
+                agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+                bridge,
+                "main",
+                &[],
+            )
             .map_err(|e| e.to_string())?;
 
         Ok(ScriptInvocationResult {

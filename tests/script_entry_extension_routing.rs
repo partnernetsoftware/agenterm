@@ -213,3 +213,67 @@ fn pack_build_routes_by_extension() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A `.qjs` file on disk can import the library beside it, through the CLI.
+///
+/// This is the whole point of the module milestone, asserted where a user
+/// would meet it. `scripts/qjs/lib/fleet.qjs` binds all 29 fleet operations
+/// and had no consumers, because the only way to reach it was to paste its
+/// text in front of a script from Rust. A file that says `import * as lib from
+/// "lib/fleet"` and runs is the difference.
+///
+/// Specifiers resolve under the invocation's project root, which defaults to
+/// the entry file's own directory -- so a script beside a `lib/` needs nothing
+/// configured, which is ECMA-262's relative-to-the-importer shape in practice.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn a_qjs_file_on_disk_can_import_the_library_beside_it() {
+    let dir = std::env::temp_dir().join(format!("agenterm-import-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("lib")).expect("temp dir");
+    std::fs::write(
+        dir.join("lib/greet.qjs"),
+        "export function hello(who) { return \"hi \" + who; }\n",
+    )
+    .expect("fixture is writable");
+    let entry = write(
+        &dir,
+        "main.qjs",
+        "import * as g from \"lib/greet\";\nreturn g.hello(\"world\");\n",
+    );
+
+    let (stdout, stderr, code) = run_script(&entry, None);
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(
+        stdout.contains("hi world"),
+        "the imported function must run; got stdout={stdout} stderr={stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A specifier that leaves the project root is refused.
+///
+/// Checked on the **canonical** path, so `../`, a symlink and an absolute path
+/// are all one case rather than three textual ones to get right separately.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn a_specifier_that_escapes_the_project_root_is_refused() {
+    let dir = std::env::temp_dir().join(format!("agenterm-escape-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("inner")).expect("temp dir");
+    std::fs::write(dir.join("outside.qjs"), "export const secret = 1;\n").expect("fixture");
+    let entry = write(
+        &dir.join("inner"),
+        "main.qjs",
+        "import * as o from \"../outside\";\nreturn o.secret;\n",
+    );
+
+    let (stdout, stderr, code) = run_script(&entry, None);
+    assert_ne!(code, 0, "stdout={stdout} stderr={stderr}");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("../outside"),
+        "the refusal must name the specifier it would not follow; got {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
