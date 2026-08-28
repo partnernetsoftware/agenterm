@@ -657,6 +657,19 @@ clients cannot create unbounded threads or retain every worker indefinitely.
 Queue saturation may return a bounded busy response; shutdown must clear queues
 and wake all blocked workers.
 
+A successful named-pipe request write does not prove that its reply will remain
+readable after the server releases the pipe instance. On Windows, complete the
+server response according to the native pipe lifecycle before releasing the
+handle. If the transport can still lose a request or reply, never retry a
+mutation under a fresh identity: wrap each request in a CSPRNG identity, claim
+that identity before GUI dispatch, and retain bounded pending, completed, and
+tombstone states. A reconnect may use only the same identity, so it either
+retrieves the exact cached result or fails closed without dispatching twice.
+Bound identity count, result bytes, and retention time; reject new work when
+those bounds are full rather than evicting a still-replayable mutation. Treat
+Windows pipe errors 109/233 and EOF during request write or response read as an
+unknown transport outcome, not proof that product work did or did not run.
+
 Every deferred control reply must have an owning cancellation path. Before a
 tab is removed, fail its waits and pending screenshot reply with the stable tab
 ID; before window shutdown, fail all remaining replies. Expose pending counts
