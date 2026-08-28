@@ -5,8 +5,9 @@ Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswas
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
-**`agenterm-qjs` 的三条归档门 2026-08-26 全部转绿**——但 crate **尚未删除**，
-`agenterm-wasmcore` 那三条也未全绿，所以两个被取代的 crate 目前原样保留。「authorized, not
+**`agenterm-qjs` 已于 2026-08-28 归档**：三条门 2026-08-26 全绿，crate 与 `script-qjs`
+feature 已摘除，**`rquickjs` 从依赖树里消失**（`Cargo.lock` 零条目，`cargo tree -i
+rquickjs` 找不到包）。`agenterm-wasmcore` 门 2 未绿，那个 crate 仍原样保留。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
 
@@ -44,7 +45,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 
 | 门 | 判定 | 挡在哪 |
 |----|------|--------|
-| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿** | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
+| 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿**，crate 已摘除 2026-08-28 | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
@@ -1416,15 +1417,33 @@ cargo test --workspace --exclude agenterm-abi                     # 781 passed /
 （`653cebe`）、箭头函数（`ee3842b`）都到了。写 fleet 绑定和自动化脚本够用且顺手；
 缺的是**方法**，不是语法。
 
-**01 · ~~迁移两处生产调用点~~ —— 2026-08-26 已完成，本条留档**
+**01 · ~~迁移两处生产调用点 / 归档 `agenterm-qjs`~~ —— 2026-08-28 已完成，本条留档**
 
 `agenterm-qjs` 的三条归档门全绿：`qjs` 现在是 `qjswasm` 的一个弃用拼写，worker 里的
 qjs 分发已删，`agenterm qjs` 别名退休成一条重定向（exit 2），
 `the_old_adapter_is_unreachable_from_the_environment` 断言生产里没有任何路由能回到旧引擎。
 
-**剩下的那一步不是「迁移」，是「删」**：两个被取代的 crate（`agenterm-qjs`、
-`agenterm-wasmcore`）今天**仍在仓里**。删 crate 是门授权的那个**独立动作**，
-还没做——`agenterm-wasmcore` 的门 2 也还没绿（见 03）。
+**那一步已经做了。** 2026-08-28 摘除 `crates/agenterm-qjs`（216K）、`script-qjs`
+feature 与可选依赖、workspace 成员、`QjsEngineBackend` 适配层、注册表里的那一支、
+以及 37 处 `#[cfg(feature = "script-qjs")]`。
+
+**收益是不可逆的那一条**：`rquickjs` 从依赖树里消失了——`Cargo.lock` 零条目，
+`cargo tree -i rquickjs` 报「找不到包」。这正是当初把它排第一的理由：
+**唯一一条能删掉一整个外链 C 依赖的路**。
+
+**两处兼容面**故意留着，而且都有断言：
+- `AGENTERM_SCRIPT_BACKEND=qjs` 仍然可用，解析到 `qjswasm`
+  （`script_backend::qjs_backend_from_env`）；
+- `agenterm qjs <verb>` 仍然打那条重定向并退 2
+  （`script_cli_verb_parity::qjs_alias_is_retired_and_names_where_its_verbs_went`）。
+  这条**不再挂在任何 feature 上**——它指向的引擎已经不在了，重定向反而更该在。
+
+**跟着走掉的证据**：`tests/script_engine_equivalence.rs`（六条一致、零分歧）与
+`script_engine.rs` 里的 `gate_two_trait_equivalence` 是门 1 的证据，它们比较的
+另一半没了，所以也一起摘除。**结论留在本文件里**——这是「证据可以退休、结论必须留档」
+的一个实例，两处代码里都写了指回这里的注释。
+
+`agenterm-wasmcore` **不动**：它的门 2 未绿（见 03），没有授权。
 
 **02 · ~~方法：接收者要怎么绑上去~~ —— 2026-08-28 已判决并落地，本条留档**
 

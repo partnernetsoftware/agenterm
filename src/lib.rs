@@ -36,7 +36,6 @@ pub mod script_net;
 pub mod script_process;
 pub mod script_project;
 pub mod script_protocol;
-pub mod script_qjs_host;
 pub mod script_rh_cache;
 pub mod script_rh_cli;
 pub mod script_rh_cli_main;

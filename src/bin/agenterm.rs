@@ -17,7 +17,6 @@ const ENGINE_SUBCOMMANDS: &[&str] = &[
     "rh",
     #[cfg(feature = "script-lua")]
     "lua",
-    #[cfg(feature = "script-qjs")]
     "qjs",
     #[cfg(feature = "script-sql")]
     "sql",
@@ -311,10 +310,15 @@ fn dispatch_engine(engine: &str, rest: Vec<String>) -> std::process::ExitCode {
         // by `AGENTERM_SCRIPT_BACKEND`, which is where the engine choice
         // belongs. Keeping a second door to one retired engine would be a
         // second answer to a question that has one.
-        #[cfg(feature = "script-qjs")]
+        // `agenterm qjs` was retired on 2026-08-26 and the engine it named was
+        // archived after. The redirect outlives both **on purpose**: someone
+        // with the old invocation in a script or in their fingers should be
+        // told where the verbs went, not told the subcommand does not exist.
+        // It is no longer behind a feature, because the engine it used to
+        // reach is no longer behind one either -- it is gone.
         "qjs" => {
             eprintln!(
-                "agenterm qjs is retired: its engine is being replaced by qjswasm. \
+                "agenterm qjs is retired: its engine was replaced by qjswasm. \
                  Use `agenterm cli script <verb>` instead -- check, run, eval, hash, \
                  corpus-scan, pack, qualify, run-smoke, task and version all live there \
                  and follow AGENTERM_SCRIPT_BACKEND."

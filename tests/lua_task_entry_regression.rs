@@ -67,7 +67,11 @@ fn lua_task_entry_backend_selection() {
 fn lua_backend_str() {
     assert_eq!(ScriptBackend::Lua.as_str(), "lua");
     assert_eq!(ScriptBackend::Rh.as_str(), "rh");
-    assert_eq!(ScriptBackend::Qjs.as_str(), "qjs");
+    // `Qjs` was a third row here until that engine was archived. `qjs` is
+    // still a name the CLI accepts -- it reaches `qjswasm` now -- but it is no
+    // longer a backend of its own, so there is nothing to spell.
+    #[cfg(feature = "script-qjswasm")]
+    assert_eq!(ScriptBackend::Qjswasm.as_str(), "qjswasm");
 }
 
 #[test]

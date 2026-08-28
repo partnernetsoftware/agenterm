@@ -285,13 +285,13 @@ fn not_enabled_error(backend: ScriptBackend) -> ScriptEngineError {
 ///
 /// Moved here (Trait-M4) from `script_backend.rs` — only `LuaEngineBackend`/
 /// `QjsEngineBackend::execute` call this now.
-#[cfg(any(feature = "script-lua", feature = "script-qjs"))]
+#[cfg(feature = "script-lua")]
 type ScriptArgsAccessors = (
     Arc<dyn Fn() -> i64 + Send + Sync>,
     Arc<dyn Fn(i64) -> Result<String, String> + Send + Sync>,
 );
 
-#[cfg(any(feature = "script-lua", feature = "script-qjs"))]
+#[cfg(feature = "script-lua")]
 fn script_args_accessors(arguments: Value) -> ScriptArgsAccessors {
     let args_for_len = arguments.clone();
     let args_for_arg = arguments;
@@ -565,134 +565,6 @@ impl ScriptEngineBackend for LuaEngineBackend {
     }
 }
 
-/// qjs engine adapter. Invocation logic folded in directly (Trait-M4) from
-/// the former `try_execute_qjs_invocation` in `script_backend.rs` — no
-/// other caller referenced it (grep-verified across `src/`, `tests/`,
-/// `crates/`).
-///
-/// Structurally mirrors `LuaEngineBackend` — same "not enabled -> error",
-/// same fleet-bridge/args wiring shape — because qjs, like lua, is an
-/// interpreted engine with no AOT/native-codegen step (unlike rh's
-/// `RhEngineBackend`, which resolves/loads a compiled native pack). `value`
-/// is `Option<serde_json::Value>` rather than lua's widened-from-`i64`
-/// because `agenterm_qjs::eval_entry_with_host` already produces a typed
-/// JSON value (via `JSON.stringify`) — a strict superset, not a divergence:
-/// any lua-shaped i64 result is also representable here.
-#[cfg(feature = "script-qjs")]
-pub struct QjsEngineBackend;
-
-#[cfg(feature = "script-qjs")]
-impl ScriptEngineBackend for QjsEngineBackend {
-    fn backend_id(&self) -> ScriptBackend {
-        ScriptBackend::Qjs
-    }
-
-    fn entry_extensions(&self) -> &'static [&'static str] {
-        &["js", "mjs"]
-    }
-
-    fn identity(&self) -> String {
-        format!("agenterm-qjs {}", env!("CARGO_PKG_VERSION"))
-    }
-
-    /// `None`: this engine's deployable artifact is its own CLI's shape (rh's
-    /// native pack, lua's and qjs's bytecode directories), which is a
-    /// directory plus a manifest rather than one file of bytes. Offering half
-    /// of it here would be a second, thinner answer to a question that
-    /// already has one.
-    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
-        None
-    }
-
-    fn execute_artifact(
-        &self,
-        _artifact: &[u8],
-        _options: &ScriptInvocationOptions,
-        _fleet_bridge: Option<ScriptFleetBridgeFn>,
-    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
-        None
-    }
-
-    fn source_is_a_path(&self) -> bool {
-        false
-    }
-
-    /// The source, which is what `agenterm-qjs hash` has always printed. Its
-    /// *bytecode* hash is the one PRD 02.36 records as not reproducible; this
-    /// verb does not offer it, and labelling this one `source` is what stops a
-    /// reader assuming it is the other.
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
-        Some(Ok((
-            agenterm_script_common::hex::sha256_hex(source.as_bytes()),
-            "source",
-        )))
-    }
-
-    fn corpus_scan(
-        &self,
-        dir: &std::path::Path,
-    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
-        Some(agenterm_qjs::corpus_scan::scan_directory(dir))
-    }
-
-    /// `entry()`, which is this engine's convention and not a habit: `eval.rs`
-    /// evaluates the source and then calls a top-level `entry`. Measured:
-    /// `function entry() { return 1 + 2; }` through `script run` answers `3`.
-    fn eval_entry_source(&self, expression: &str) -> Option<String> {
-        Some(format!("function entry() {{ return ({expression}); }}"))
-    }
-
-    fn check(
-        &self,
-        source: &str,
-        _options: &ScriptInvocationOptions,
-    ) -> Result<(), ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
-
-        agenterm_qjs::check(source, "invocation.js").map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn execute(
-        &self,
-        source: &str,
-        options: &ScriptInvocationOptions,
-        fleet_bridge: Option<ScriptFleetBridgeFn>,
-    ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
-
-        let mut host = agenterm_qjs::QjsHostFunctions::default();
-
-        // Wire fleet bridge
-        if let Some(bridge) = fleet_bridge {
-            host.fleet_call = Some(Arc::new(
-                move |op_id: &str, params: &str| -> Result<String, String> {
-                    bridge(op_id, params)
-                },
-            ));
-        }
-
-        // Wire args_len / arg from options.arguments
-        if let Some(arguments) = options.arguments.clone() {
-            let (args_len, arg) = script_args_accessors(arguments);
-            host.args_len = Some(args_len);
-            host.arg = Some(arg);
-        }
-
-        let result = agenterm_qjs::eval_entry_with_host(source, "invocation.js", &host)
-            .map_err(|e| format!("qjs_eval: {e}"))?;
-
-        Ok(ScriptInvocationResult {
-            stdout: result.stdout,
-            value: result.value,
-            cost: None,
-        })
-    }
-}
 
 /// sql engine adapter — see `plan/design-sql-execution-target.md` (the M1
 /// design doc this impl now implements) and
@@ -1233,8 +1105,6 @@ pub enum ScriptEngine {
     Rh(RhEngineBackend),
     #[cfg(feature = "script-lua")]
     Lua(LuaEngineBackend),
-    #[cfg(feature = "script-qjs")]
-    Qjs(QjsEngineBackend),
     #[cfg(feature = "script-sql")]
     Sql(SqlEngineBackend),
     #[cfg(feature = "script-wasmcore")]
@@ -1247,8 +1117,6 @@ impl ScriptEngine {
     pub fn all() -> Vec<ScriptEngine> {
         #[allow(unused_mut)]
         let mut engines = vec![Self::Rh(RhEngineBackend)];
-        #[cfg(feature = "script-qjs")]
-        engines.push(Self::Qjs(QjsEngineBackend));
         #[cfg(feature = "script-lua")]
         engines.push(Self::Lua(LuaEngineBackend));
         #[cfg(feature = "script-sql")]
@@ -1266,8 +1134,6 @@ impl ScriptEngine {
             ScriptBackend::Rh => Self::Rh(RhEngineBackend),
             #[cfg(feature = "script-lua")]
             ScriptBackend::Lua => Self::Lua(LuaEngineBackend),
-            #[cfg(feature = "script-qjs")]
-            ScriptBackend::Qjs => Self::Qjs(QjsEngineBackend),
             #[cfg(feature = "script-sql")]
             ScriptBackend::Sql => Self::Sql(SqlEngineBackend),
             #[cfg(feature = "script-wasmcore")]
@@ -1290,8 +1156,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.backend_id(),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.backend_id(),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.backend_id(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.backend_id(),
             #[cfg(feature = "script-wasmcore")]
@@ -1306,8 +1170,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.entry_extensions(),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-wasmcore")]
@@ -1322,8 +1184,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.eval_entry_source(expression),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-wasmcore")]
@@ -1338,8 +1198,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.identity(),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.identity(),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.identity(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.identity(),
             #[cfg(feature = "script-wasmcore")]
@@ -1357,8 +1215,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.corpus_scan(dir),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-wasmcore")]
@@ -1373,8 +1229,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.artifact_hash(source),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-wasmcore")]
@@ -1389,8 +1243,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.source_is_a_path(),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-wasmcore")]
@@ -1410,8 +1262,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-wasmcore")]
@@ -1426,8 +1276,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.pack_artifact(source),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.pack_artifact(source),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.pack_artifact(source),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.pack_artifact(source),
             #[cfg(feature = "script-wasmcore")]
@@ -1446,8 +1294,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.check(source, options),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.check(source, options),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.check(source, options),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.check(source, options),
             #[cfg(feature = "script-wasmcore")]
@@ -1467,8 +1313,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Rh(backend) => backend.execute(source, options, fleet_bridge),
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.execute(source, options, fleet_bridge),
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs(backend) => backend.execute(source, options, fleet_bridge),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.execute(source, options, fleet_bridge),
             #[cfg(feature = "script-wasmcore")]
@@ -1499,212 +1343,13 @@ mod tests {
     // interference to a narrow window.)
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Gate 2's equivalence, **at the layer the migration actually happens**.
-    ///
-    /// `tests/script_engine_equivalence.rs` compares the two *crates*, driving
-    /// `agenterm_qjs::eval_entry_with_host` and `agenterm_qjswasm::Engine`
-    /// directly through the shipped fleet bindings. That is the right test for
-    /// "do the two engines produce the same Fleet operation", and it is not
-    /// the layer the call sites use: `script_worker.rs` and the CLI reach
-    /// `ScriptEngineBackend::check` and `::execute`, which add the enablement
-    /// gate, the host wiring and the result projection on top. Migrating means
-    /// repointing *those*, so the equivalence that licenses it has to be
-    /// asserted through *those*.
-    ///
-    /// Both engines are driven with the env var set to their own name, because
-    /// both methods refuse when `enabled()` is false -- which is itself a piece
-    /// of behaviour the migration must not change.
-    #[cfg(all(feature = "script-qjs", feature = "script-qjswasm"))]
-    mod gate_two_trait_equivalence {
-        use super::*;
-
-        /// The old engine, at the layer that still exists: the crate. Its
-        /// adapter is unreachable now -- see the module doc and
-        /// [`the_old_adapter_is_unreachable_from_the_environment`].
-        fn on_qjs(source: &str) -> Result<(String, Option<serde_json::Value>), String> {
-            agenterm_qjs::eval_entry_with_host(
-                source,
-                "invocation.js",
-                &agenterm_qjs::QjsHostFunctions::default(),
-            )
-            .map(|outcome| (outcome.stdout, outcome.value))
-            .map_err(|e| e.to_string())
-        }
-
-        /// The new engine, at the layer production uses. The caller holds
-        /// `ENV_LOCK`.
-        fn on_qjswasm(source: &str) -> Result<ScriptInvocationResult, ScriptEngineError> {
-            let _env = EnvGuard::set("qjswasm");
-            QjswasmEngineBackend.execute(source, &ScriptInvocationOptions::default(), None)
-        }
-
-        fn checked_qjswasm(source: &str) -> Result<(), ScriptEngineError> {
-            let _env = EnvGuard::set("qjswasm");
-            QjswasmEngineBackend.check(source, &ScriptInvocationOptions::default())
-        }
-
-        /// The same program, written in each engine's entry convention,
-        /// produces the same stdout and the same value through the trait.
-        ///
-        /// Not the same *source*: `agenterm-qjs` calls a top-level `entry()`
-        /// and `agenterm-qjswasm` takes the script's completion value. That
-        /// difference is the engines', not this test's, and
-        /// `ScriptEngineBackend::eval_entry_source` is where the product
-        /// already encodes it.
-        #[test]
-        fn both_backends_agree_on_stdout_and_value() {
-            let _guard = ENV_LOCK.lock().expect("lock");
-            for (js, qjs, want_out, want_value) in [
-                (
-                    "function entry() { print(\"hello\"); return 42; }",
-                    "print(\"hello\"); return 42;",
-                    "hello\n",
-                    serde_json::json!(42),
-                ),
-                (
-                    "function entry() { return \"tab\" + \"s.list\"; }",
-                    "return \"tab\" + \"s.list\";",
-                    "",
-                    serde_json::json!("tabs.list"),
-                ),
-                (
-                    "function entry() { var o = {a: 1}; return o.a + 1; }",
-                    "let o = {a: 1}; return o.a + 1;",
-                    "",
-                    serde_json::json!(2),
-                ),
-            ] {
-                let (a_out, a_val) = on_qjs(js).expect("qjs runs it");
-                let b = on_qjswasm(qjs).expect("qjswasm runs it");
-                assert_eq!(a_out, want_out, "qjs stdout for {js:?}");
-                assert_eq!(b.stdout, want_out, "qjswasm stdout for {qjs:?}");
-                assert_eq!(a_val, Some(want_value.clone()), "qjs value for {js:?}");
-                assert_eq!(b.value, Some(want_value), "qjswasm value for {qjs:?}");
-            }
-        }
-
-        /// `check` accepts and refuses on the same terms for a program inside
-        /// both subsets, and a broken one.
-        #[test]
-        fn both_backends_agree_on_check() {
-            let _guard = ENV_LOCK.lock().expect("lock");
-            agenterm_qjs::check("function entry() { return 1; }", "invocation.js")
-                .expect("qjs accepts");
-            checked_qjswasm("return 1;").expect("qjswasm accepts");
-
-            // Neither engine parses this, and both must say so rather than
-            // accept and fail later.
-            let broken = "function entry( { return";
-            assert!(agenterm_qjs::check(broken, "invocation.js").is_err());
-            assert!(checked_qjswasm(broken).is_err());
-        }
-
-        /// The new engine refuses to run when it is not the selected one, and
-        /// that is load-bearing: the worker asks `enabled()` and then calls,
-        /// so a backend that ran anyway would execute under another engine's
-        /// name.
-        #[test]
-        fn the_new_backend_refuses_when_it_is_not_selected() {
-            let _guard = ENV_LOCK.lock().expect("lock");
-            let _env = EnvGuard::set("rh");
-            assert!(
-                QjswasmEngineBackend
-                    .check("return 1;", &ScriptInvocationOptions::default())
-                    .is_err()
-            );
-        }
-
-        /// **The migration, as an assertion.** `qjs` names the new engine, and
-        /// the old adapter can no longer be reached from the environment.
-        ///
-        /// Both halves matter. The first keeps every existing invocation
-        /// working across the rename. The second is what makes the old engine
-        /// safe to archive: nothing in production can route to it, so removing
-        /// it cannot change what any caller gets.
-        #[test]
-        fn the_old_adapter_is_unreachable_from_the_environment() {
-            let _guard = ENV_LOCK.lock().expect("lock");
-            let _env = EnvGuard::set("qjs");
-            assert_eq!(
-                crate::script_backend::ScriptBackend::from_env(),
-                crate::script_backend::ScriptBackend::Qjswasm,
-                "`qjs` must name the engine that replaced it"
-            );
-            assert!(
-                !QjsEngineBackend.enabled(),
-                "no environment value may still select the retired engine"
-            );
-            assert!(QjswasmEngineBackend.enabled());
-        }
-
-        /// **The migration's actual risk, pinned rather than hidden.**
-        ///
-        /// The two engines are equivalent on the Fleet surface and *not* on
-        /// the language. `agenterm-qjs` is rquickjs -- full modern JS;
-        /// `agenterm-qjswasm` is a growing subset. Repointing a call site
-        /// moves every script through the narrower one, and these are the
-        /// constructs that stop working the day it happens.
-        ///
-        /// Two facts make that acceptable, and both are checked elsewhere
-        /// rather than assumed here: `scripts/` ships no `.js` task script,
-        /// only the `fleet.js` binding library, and every refusal below is a
-        /// **named capability diagnostic** rather than a wrong answer -- the
-        /// failure is loud at compile time, not silent at run time.
-        ///
-        /// When one of these starts compiling, upstream grew it, and the row
-        /// moves to `both_backends_agree_on_stdout_and_value`.
-        #[test]
-        fn the_subset_is_narrower_and_this_is_what_breaks() {
-            let _guard = ENV_LOCK.lock().expect("lock");
-            for (js, qjs) in [
-                // An arrow with a **default parameter**, not a plain arrow:
-                // upstream `ee3842b` landed arrows, so the plain one moved out
-                // of this table the way the closure and template rows did.
-                // What is left is parameter syntax, which is a queue position
-                // -- unlike `Math` below. When it lands, this row moves too.
-                (
-                    "function entry() { const f = (a = 1) => a; return f(); }",
-                    "let f = (a = 1) => a; return f();",
-                ),
-                // A *tagged* template, not a plain one: upstream `653cebe`
-                // landed templates, so `` `x` `` moved out of this table the
-                // way the closure row did. A tag stays because it is not a
-                // queue position either -- it needs a frozen cooked array
-                // carrying `raw`, which is array methods and property
-                // definition this engine does not have.
-                (
-                    "function entry() { const t = (s) => s; return t`x`; }",
-                    "function t(s) { return s; } return t`x`;",
-                ),
-                (
-                    "function entry() { return Math.max(1, 2); }",
-                    "return Math.max(1, 2);",
-                ),
-                // A **closure over an outer local** was the fourth row here
-                // and it is gone: upstream `68afb35` landed captures, so both
-                // engines run it and it is no longer a divergence. This test
-                // said "when one of these starts compiling, upstream grew it,
-                // and the row moves"; it moved.
-                //
-                // `Math` stays, and is worth keeping over the other candidates
-                // for a reason: it is not a syntax the compiler could grow but
-                // a *binding* -- there is no global scope here, `JSON` is the
-                // one name this engine binds, and that is a design position
-                // rather than a queue position.
-                (
-                    "function entry() { return Object.keys({}); }",
-                    "return Object.keys({});",
-                ),
-            ] {
-                on_qjs(js).unwrap_or_else(|e| panic!("rquickjs should run {js:?}: {e}"));
-                let refused = on_qjswasm(qjs).expect_err("this is outside the subset");
-                assert!(
-                    refused.contains("this engine ") || refused.contains("no host function"),
-                    "a narrower subset must refuse by naming the capability, got {refused:?}"
-                );
-            }
-        }
-    }
+    // `gate_two_trait_equivalence` lived here: four assertions that the
+    // rquickjs engine and this one agreed on stdout and on values, refused the
+    // same sources, and differed only where their subsets did. It was archive
+    // gate 1's evidence, it came back **six agreements and zero divergences**,
+    // and it went when the engine it compared against did. The finding is
+    // recorded in `prd/PRD_02_36_agenterm_qjswasm.md`; there is nothing left
+    // to compare it with.
 
     struct EnvGuard {
         prior: Option<String>,
@@ -1748,8 +1393,6 @@ mod tests {
         assert!(RhEngineBackend.enabled());
         #[cfg(feature = "script-lua")]
         assert!(!LuaEngineBackend.enabled());
-        #[cfg(feature = "script-qjs")]
-        assert!(!QjsEngineBackend.enabled());
         #[cfg(feature = "script-sql")]
         assert!(!SqlEngineBackend.enabled());
     }
@@ -2034,18 +1677,6 @@ mod tests {
     // They are deleted rather than `#[ignore]`d because an ignored test that
     // can never pass is a claim of coverage that is not there.
 
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_engine_entry_extensions_match_from_entry_path() {
-        for ext in QjsEngineBackend.entry_extensions() {
-            let path = format!("script.{ext}");
-            assert_eq!(
-                ScriptBackend::from_entry_path(&path),
-                ScriptBackend::Qjs,
-                "extension {ext} should route to qjs"
-            );
-        }
-    }
 
     // ---- sql ----
 
@@ -2194,8 +1825,6 @@ mod tests {
             ScriptBackend::Rh,
             #[cfg(feature = "script-lua")]
             ScriptBackend::Lua,
-            #[cfg(feature = "script-qjs")]
-            ScriptBackend::Qjs,
             #[cfg(feature = "script-sql")]
             ScriptBackend::Sql,
         ] {
@@ -2209,8 +1838,6 @@ mod tests {
         let ids: Vec<ScriptBackend> = ScriptEngine::all().iter().map(|e| e.backend_id()).collect();
         #[allow(unused_mut)]
         let mut expected = vec![ScriptBackend::Rh];
-        #[cfg(feature = "script-qjs")]
-        expected.push(ScriptBackend::Qjs);
         #[cfg(feature = "script-lua")]
         expected.push(ScriptBackend::Lua);
         #[cfg(feature = "script-sql")]

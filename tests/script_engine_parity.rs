@@ -1,9 +1,13 @@
 //! Whole-file gate: cross-engine parity needs every engine compiled in.
-#![cfg(all(feature = "script-lua", feature = "script-qjs", feature = "script-sql"))]
+#![cfg(all(feature = "script-lua", feature = "script-sql"))]
 
 //! Cross-engine parity tests for the shared `check-many` driver
 //! (`agenterm_script_common::check_many`, re-exported unchanged through
-//! each of `agenterm-rh`, `agenterm-lua`, `agenterm-qjs`, `agenterm-sql`).
+//! each of `agenterm-rh`, `agenterm-lua`, `agenterm-sql`).
+//!
+//! `agenterm-qjs` was a fourth engine here until it was archived; the driver
+//! is unchanged, so what its row proved -- that a shared driver stays shared
+//! -- is proved by the three that remain.
 //!
 //! `CheckManyManifest` / `CheckManyOptions` / `CheckManyReport` are the same
 //! type across all four engines now (each crate does a bare
@@ -68,11 +72,6 @@ fn lua_read_and_run(path: &Path, options: CheckManyOptions) -> Result<CheckManyR
     Ok(agenterm_lua::check_many::run_check_many(manifest, options))
 }
 
-fn qjs_read_and_run(path: &Path, options: CheckManyOptions) -> Result<CheckManyReport, String> {
-    let manifest = agenterm_qjs::check_many::read_manifest(path).map_err(|err| err.to_string())?;
-    Ok(agenterm_qjs::check_many::run_check_many(manifest, options))
-}
-
 fn sql_read_and_run(path: &Path, options: CheckManyOptions) -> Result<CheckManyReport, String> {
     let manifest = agenterm_sql::check_many::read_manifest(path).map_err(|err| err.to_string())?;
     Ok(agenterm_sql::check_many::run_check_many(manifest, options))
@@ -98,15 +97,6 @@ const LUA: EngineSpec = EngineSpec {
     read_and_run: lua_read_and_run,
 };
 
-const QJS: EngineSpec = EngineSpec {
-    name: "qjs",
-    kind: "agenterm-qjs-check-manifest",
-    ext: "js",
-    valid_source: "function entry() { return 42; }",
-    broken_source: "this is not valid js (((",
-    read_and_run: qjs_read_and_run,
-};
-
 // Fixtures match `agenterm_sql::check`'s own tests verbatim
 // (crates/agenterm-sql/src/check.rs's `accepts_a_valid_select` /
 // `rejects_syntax_errors`) and `src/script_engine.rs`'s
@@ -120,8 +110,8 @@ const SQL: EngineSpec = EngineSpec {
     read_and_run: sql_read_and_run,
 };
 
-fn engines() -> [EngineSpec; 4] {
-    [RH, LUA, QJS, SQL]
+fn engines() -> [EngineSpec; 3] {
+    [RH, LUA, SQL]
 }
 
 /// Write a check-many manifest JSON with the given `kind` and file labels
@@ -354,14 +344,11 @@ fn wrong_manifest_kind_rejected_by_each_reader() {
     // strings. 4 readers x 3 "other" kinds each = the 4x4 cross-kind
     // rejection matrix (minus the 4 diagonal "own kind" cells, covered by
     // the per-reader sanity check below instead).
-    let readers: [(&str, ManifestReader); 4] = [
+    let readers: [(&str, ManifestReader); 3] = [
         ("rh", |p| {
             agenterm_rh::check_many::read_manifest(p).map_err(|e| e.to_string())
         }),
         ("lua", agenterm_lua::check_many::read_manifest),
-        ("qjs", |p| {
-            agenterm_qjs::check_many::read_manifest(p).map_err(|e| e.to_string())
-        }),
         ("sql", |p| {
             agenterm_sql::check_many::read_manifest(p).map_err(|e| e.to_string())
         }),

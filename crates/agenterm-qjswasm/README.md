@@ -417,7 +417,7 @@ tinyvm 的宿主回调签名是 `Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmE
 | 面 | crate | 引擎 | 信任模型 |
 |----|-------|------|----------|
 | `.qjs` / `.wasm`（本 crate） | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm，**无 JIT**，自研编译器 | 不信任字节 |
-| `.js` / `.mjs` | `agenterm-qjs` | rquickjs → QuickJS C | 信任脚本，**待归档** |
+| `.js` / `.mjs` | ~~`agenterm-qjs`~~ | ~~rquickjs → QuickJS C~~ | **2026-08-28 已归档**：crate 摘除，`rquickjs` 出依赖树。这两个扩展名现在不选任何引擎 |
 | `.wasm`（默认路由） | `agenterm-wasmcore` | wasmtime + WASI p1，**JIT** | 本机工具链产物 |
 
 本 crate **不改** `.js` / `.mjs` / `.wasm` 的默认路由。要让它接管 `.wasm`，显式设

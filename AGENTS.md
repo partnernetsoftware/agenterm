@@ -211,7 +211,7 @@ recurring, not hypothetical.
 | Manual | Use for |
 |--------|---------|
 | [`docs/agenterm-rh-cheatsheet.md`](docs/agenterm-rh-cheatsheet.md) | rh syntax subset, native-pack vs interpreter semantics, error model, shipped surface index, debug checklist |
-| [`docs/agenterm-qjs-cheatsheet.md`](docs/agenterm-qjs-cheatsheet.md) | the four-primitive qjs host surface, module vs classical mode, import resolution, pack format |
+| [`docs/agenterm-qjs-cheatsheet.md`](docs/agenterm-qjs-cheatsheet.md) | **archived 2026-08-28** — the engine it documents was removed. Kept as history; for writing scripts today see [`crates/agenterm-qjswasm/README.md`](crates/agenterm-qjswasm/README.md) |
 | [`docs/agenterm-rh-runtime.md`](docs/agenterm-rh-runtime.md) | the full interface *specification* (reference, not a how-to) |
 
 The two highest-yield rules, stated here so they are unmissable:

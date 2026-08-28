@@ -1,4 +1,13 @@
-# qjs condensed manual
+# qjs condensed manual —— **已归档，2026-08-28**
+
+> **这份手册描述的引擎已经不在仓里了。** `agenterm-qjs`（rquickjs → QuickJS C）
+> 在三条归档门全绿后于 2026-08-28 摘除，`rquickjs` 随之退出依赖树。
+> 本文保留作**历史记录**：`.js` / `.mjs` 现在不选任何引擎，模块导入、pack 格式
+> 这些描述都只对那个已移除的引擎成立。
+>
+> 今天写脚本请看 [`crates/agenterm-qjswasm/README.md`](../crates/agenterm-qjswasm/README.md)
+> ——`.qjs` 编译成 `.wasm`，纯 Rust，不链 C。归档的三条门与证据在
+> [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)。
 
 Practical reference for writing `scripts/qjs/**.js`. Companion to
 [`docs/agenterm-rh-cheatsheet.md`](agenterm-rh-cheatsheet.md). Engine roadmap

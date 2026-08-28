@@ -28,16 +28,19 @@ pub enum ScriptBackend {
     Rh,
     #[cfg(feature = "script-lua")]
     Lua,
-    #[cfg(feature = "script-qjs")]
-    Qjs,
     #[cfg(feature = "script-sql")]
     Sql,
     #[cfg(feature = "script-wasmcore")]
     Wasmcore,
     /// AgenTerm's own engine: `.qjs` compiled to `.wasm` in pure Rust, both run
-    /// on tinyvm with no JIT. Distinct from `Qjs` (rquickjs, native QuickJS C)
-    /// and from `Wasmcore` (wasmtime + WASI p1, JIT): different trust model and
-    /// a different capability set, so it never silently takes another's route.
+    /// on tinyvm with no JIT. Distinct from `Wasmcore` (wasmtime + WASI p1,
+    /// JIT): a different trust model and a different capability set, so it
+    /// never silently takes another's route.
+    ///
+    /// It is also what `qjs` now names. The rquickjs engine that used to
+    /// answer to that name was archived once it had been replaced -- the
+    /// three gates and their evidence are in
+    /// `prd/PRD_02_36_agenterm_qjswasm.md`.
     #[cfg(feature = "script-qjswasm")]
     Qjswasm,
 }
@@ -97,12 +100,6 @@ impl ScriptBackend {
             // out-of-subset source stops.
             #[cfg(feature = "script-qjswasm")]
             "qjs" | "qjswasm" => Some(Self::Qjswasm),
-            // Without the new engine compiled in, `qjs` is a name this build
-            // cannot serve rather than an unknown one -- it stays in
-            // `ALL_BACKEND_NAMES`, so the caller is told to rebuild rather
-            // than told no such backend exists.
-            #[cfg(all(feature = "script-qjs", not(feature = "script-qjswasm")))]
-            "qjs" => Some(Self::Qjs),
             _ => None,
         }
     }
@@ -150,8 +147,6 @@ impl ScriptBackend {
             Self::Rh => "rh",
             #[cfg(feature = "script-lua")]
             Self::Lua => "lua",
-            #[cfg(feature = "script-qjs")]
-            Self::Qjs => "qjs",
             #[cfg(feature = "script-sql")]
             Self::Sql => "sql",
             #[cfg(feature = "script-wasmcore")]
@@ -176,10 +171,6 @@ impl ScriptBackend {
         #[cfg(feature = "script-lua")]
         if path.ends_with(".lua") {
             return Self::Lua;
-        }
-        #[cfg(feature = "script-qjs")]
-        if path.ends_with(".js") || path.ends_with(".mjs") {
-            return Self::Qjs;
         }
         #[cfg(feature = "script-sql")]
         if path.ends_with(".sql") {
@@ -536,16 +527,17 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "script-qjs")]
     /// `qjs` is a **deprecated spelling of `qjswasm`**, not its own backend.
     ///
     /// It selected `agenterm-qjs` until 2026-08-26, when PRD 02.36's archive
-    /// gate 2 moved the three production call sites off that engine. The name
-    /// keeps working -- the third alias pair in `from_name`, beside
-    /// `rh`/`rhai` and `wasmcore`/`wasm` -- so no existing invocation breaks
-    /// on the rename; what breaks is genuinely out-of-subset source, loudly,
-    /// with a named capability diagnostic
-    /// (`script_engine::tests::gate_two_trait_equivalence` pins which).
+    /// gate 2 moved the three production call sites off that engine; that
+    /// crate was removed once all three gates were green. The name keeps
+    /// working -- the third alias pair in `from_name`, beside `rh`/`rhai` and
+    /// `wasmcore`/`wasm` -- so no existing invocation breaks on the removal.
+    ///
+    /// This is the test that says an old invocation still runs, which is the
+    /// whole reason the spelling was kept rather than retired with the crate.
+    #[cfg(feature = "script-qjswasm")]
     #[test]
     fn qjs_backend_from_env() {
         let _guard = ENV_LOCK.lock().expect("lock");
@@ -553,14 +545,11 @@ mod tests {
         unsafe {
             std::env::set_var("AGENTERM_SCRIPT_BACKEND", "qjs");
         }
-        #[cfg(feature = "script-qjswasm")]
         assert_eq!(
             ScriptBackend::from_env(),
             ScriptBackend::Qjswasm,
             "`qjs` must resolve to the engine that replaced it"
         );
-        #[cfg(all(feature = "script-qjs", not(feature = "script-qjswasm")))]
-        assert_eq!(ScriptBackend::from_env(), ScriptBackend::Qjs);
 
         match prior {
             Some(value) => unsafe {
@@ -572,28 +561,29 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "script-qjs")]
+    /// `.js` and `.mjs` no longer route anywhere by extension.
+    ///
+    /// They selected the rquickjs engine until it was archived. Nothing
+    /// inherited the extensions: `qjswasm` compiles `.qjs`, and whether an
+    /// extension should pick an engine at all is an open product question
+    /// recorded in PRD 02.36 -- routing is environment-only today. So a `.js`
+    /// path falls to the default, and this test says so rather than leaving
+    /// the silence to be discovered.
     #[test]
-    fn qjs_backend_from_entry_path() {
+    fn a_js_path_no_longer_selects_an_engine_by_extension() {
         assert_eq!(
             ScriptBackend::from_entry_path("scripts/qjs/test.js"),
-            ScriptBackend::Qjs
+            ScriptBackend::Rh
         );
         assert_eq!(
             ScriptBackend::from_entry_path("scripts/qjs/test.mjs"),
-            ScriptBackend::Qjs
+            ScriptBackend::Rh
         );
         #[cfg(feature = "script-lua")]
         assert_eq!(
             ScriptBackend::from_entry_path("test.lua"),
             ScriptBackend::Lua
         );
-    }
-
-    #[cfg(feature = "script-qjs")]
-    #[test]
-    fn qjs_backend_as_str() {
-        assert_eq!(ScriptBackend::Qjs.as_str(), "qjs");
     }
 
     #[test]
@@ -627,9 +617,11 @@ mod tests {
             ScriptBackend::from_entry_path("scripts/sql/test.sql"),
             ScriptBackend::Sql
         );
+        // `.js` stopped selecting an engine when the rquickjs one was
+        // archived; nothing inherited the extension.
         assert_eq!(
             ScriptBackend::from_entry_path("test.js"),
-            ScriptBackend::Qjs
+            ScriptBackend::Rh
         );
     }
 

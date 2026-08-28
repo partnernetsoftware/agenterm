@@ -4797,8 +4797,6 @@ mod tests {
         let mut text_only: Vec<ScriptBackend> = vec![ScriptBackend::Rh];
         #[cfg(feature = "script-lua")]
         text_only.push(ScriptBackend::Lua);
-        #[cfg(feature = "script-qjs")]
-        text_only.push(ScriptBackend::Qjs);
         #[cfg(feature = "script-sql")]
         text_only.push(ScriptBackend::Sql);
         for backend in text_only {
@@ -4858,8 +4856,6 @@ mod tests {
         let mut all: Vec<ScriptBackend> = vec![ScriptBackend::Rh];
         #[cfg(feature = "script-lua")]
         all.push(ScriptBackend::Lua);
-        #[cfg(feature = "script-qjs")]
-        all.push(ScriptBackend::Qjs);
         #[cfg(feature = "script-sql")]
         all.push(ScriptBackend::Sql);
         #[cfg(feature = "script-qjswasm")]
@@ -4939,18 +4935,12 @@ mod tests {
 
         // The contrast, so the claim is not just about one engine's number:
         // a source hash separates the same two programs.
-        #[cfg(feature = "script-qjs")]
-        {
-            let qjs = crate::script_engine::engine_for(ScriptBackend::Qjs);
-            let (c, what_c) = qjs.artifact_hash(plain).expect("some").expect("ok");
-            let (d, _) = qjs.artifact_hash(dressed).expect("some").expect("ok");
-            assert_eq!(what_c, "source");
-            assert_ne!(
-                c, d,
-                "a source hash is expected to separate these -- if it stopped, \
-                 the contrast this test draws is gone and so is the reason for the label"
-            );
-        }
+        // The contrast used to be drawn against the rquickjs engine, which
+        // hashed source where this one hashes the artifact. That engine was
+        // archived, so the foil is gone and only the claim it supported
+        // remains: `what` says "wasm", and two sources that build to the same
+        // module share a digest. `prd/PRD_02_36_agenterm_qjswasm.md` records
+        // what the comparison showed while it existed.
 
         // A source that will not build has no artifact, so no digest: the
         // compiler's own diagnostic instead of a fingerprint of nothing.
@@ -4992,8 +4982,6 @@ mod tests {
         let mut have: Vec<ScriptBackend> = Vec::new();
         #[cfg(feature = "script-lua")]
         have.push(ScriptBackend::Lua);
-        #[cfg(feature = "script-qjs")]
-        have.push(ScriptBackend::Qjs);
         #[cfg(feature = "script-sql")]
         have.push(ScriptBackend::Sql);
         #[cfg(feature = "script-qjswasm")]
@@ -5043,8 +5031,6 @@ mod tests {
         let mut cases: Vec<(ScriptBackend, &str)> = vec![(ScriptBackend::Rh, "agenterm-rh ")];
         #[cfg(feature = "script-lua")]
         cases.push((ScriptBackend::Lua, "agenterm-lua "));
-        #[cfg(feature = "script-qjs")]
-        cases.push((ScriptBackend::Qjs, "agenterm-qjs "));
         #[cfg(feature = "script-sql")]
         cases.push((ScriptBackend::Sql, "agenterm-sql "));
         #[cfg(feature = "script-wasmcore")]
@@ -5130,11 +5116,6 @@ mod tests {
         ];
         #[cfg(feature = "script-lua")]
         cases.push((ScriptBackend::Lua, Some("return (1 + 2)")));
-        #[cfg(feature = "script-qjs")]
-        cases.push((
-            ScriptBackend::Qjs,
-            Some("function entry() { return (1 + 2); }"),
-        ));
         #[cfg(feature = "script-qjswasm")]
         cases.push((ScriptBackend::Qjswasm, Some("return (1 + 2);")));
         #[cfg(feature = "script-sql")]
