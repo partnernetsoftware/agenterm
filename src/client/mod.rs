@@ -1462,8 +1462,6 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
     use crate::script_engine::ScriptEngineBackend as _;
 
     let verb = arguments[1].as_str();
-    let backend = crate::script_backend::ScriptBackend::from_env();
-    let engine = crate::script_engine::engine_for(backend);
 
     // `pack` takes a second word; the other two do not.
     let (action, rest_at) = if verb == "pack" {
@@ -1491,6 +1489,16 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
         cli_eprintln!("script {verb} requires a file path");
         return 2;
     };
+
+    // Chosen from the path, which is why it is read here and not above: these
+    // verbs all take a file, so the extension answers "which engine" the same
+    // way it does for `run`. `pack load` and `run-smoke` are handed an
+    // *artifact* rather than a source, and `resolve` gives them rh for a
+    // `.wasm` -- which is correct by omission rather than by design, and is
+    // the same open question `ScriptBackend::from_entry_path` records for
+    // `.wasm` generally.
+    let backend = crate::script_backend::ScriptBackend::resolve(path);
+    let engine = crate::script_engine::engine_for(backend);
 
     if action == "load" {
         let bytes = match std::fs::read(path) {
@@ -1639,8 +1647,9 @@ fn no_artifact_face(backend: &str, what: &str) -> String {
         "the {backend} engine cannot {what} through this verb. Its deployable shape is its \
          own CLI's -- a directory with a manifest rather than one file of bytes -- and half \
          of it offered here would be a second, thinner answer to a question that already \
-         has one. wasmcore is the other case: its input already *is* the artifact, so there \
-         is nothing to build."
+         has one. (`agenterm-wasmcore` was the other case, its input being the \
+         artifact already; it was archived on 2026-08-28, so rh is the only \
+         engine this sentence can be about now.)"
     )
 }
 
@@ -1664,7 +1673,10 @@ fn run_script_hash(arguments: &[String]) -> i32 {
             return 2;
         }
     };
-    let backend = crate::script_backend::ScriptBackend::from_env();
+    // The entry file decides, as it does for `run` -- `resolve` keeps an
+    // explicit `AGENTERM_SCRIPT_BACKEND` winning. Hashing is the verb where
+    // getting this wrong is quietest: the wrong engine still prints a digest.
+    let backend = crate::script_backend::ScriptBackend::resolve(path);
     match crate::script_engine::engine_for(backend).artifact_hash(&source) {
         Some(Ok((digest, what))) => {
             cli_println!("{digest}  {what}  {path}");

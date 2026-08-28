@@ -133,3 +133,83 @@ fn a_lua_entry_runs_on_lua_without_being_told_to() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The verbs that take a file and produce an **artifact** route the same way.
+///
+/// `run`/`check`/`eval` were fixed first because they are how a script is
+/// actually run, and the fix reached only them: `pack`, `qualify`,
+/// `run-smoke` and `hash` still asked the environment alone. That left
+/// `agenterm cli script hash t.qjs` answering with rh's *source* digest for a
+/// JavaScript file -- and hash is the quietest verb to be wrong in, because
+/// the wrong engine still prints a plausible hex string.
+///
+/// The two labels are what makes this assertable without hard-coding a digest.
+/// qjswasm hashes the compiled `.wasm` and says `wasm`; every other engine
+/// hashes the text and says `source`. They are both correct answers to
+/// different questions, which is why the label travels with the digest.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn hash_routes_by_extension_and_still_yields_to_an_explicit_backend() {
+    let dir = std::env::temp_dir().join(format!("agenterm-route-hash-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = write(&dir, "t.qjs", "return 1 + 2;\n");
+
+    let mut by_extension = Command::new(AGENTERM_BIN);
+    by_extension.args(["cli", "script", "hash"]).arg(&path);
+    by_extension.env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = by_extension.output().expect("the CLI binary runs");
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        text.contains("  wasm  "),
+        "a `.qjs` entry must be hashed by the engine that compiles it, which \
+         labels its digest `wasm`; got {text}"
+    );
+
+    let mut explicit = Command::new(AGENTERM_BIN);
+    explicit.args(["cli", "script", "hash"]).arg(&path);
+    explicit.env("AGENTERM_SCRIPT_BACKEND", "rh");
+    let out = explicit.output().expect("the CLI binary runs");
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        text.contains("  source  "),
+        "an explicit backend must still win here, and rh hashes the text; got {text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `pack build` too, which is the verb that would otherwise refuse outright.
+///
+/// Before this it reached rh, whose deployable shape is a directory rather
+/// than one file of bytes, so the answer was a paragraph explaining that rh
+/// cannot build an artifact through this verb -- correct about rh, and about
+/// an engine the caller never asked for.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn pack_build_routes_by_extension() {
+    let dir = std::env::temp_dir().join(format!("agenterm-route-pack-{}", std::process::id()));
+    let out_dir = dir.join("out");
+    std::fs::create_dir_all(&out_dir).expect("temp dir");
+    let path = write(&dir, "t.qjs", "return 1 + 2;\n");
+
+    let mut command = Command::new(AGENTERM_BIN);
+    command
+        .args(["cli", "script", "pack", "build"])
+        .arg(&path)
+        .arg("--dir")
+        .arg(&out_dir);
+    command.env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = command.output().expect("the CLI binary runs");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out_dir.join("t.wasm").exists(),
+        "the compiler-backed engine's pack shape is one self-contained `.wasm`"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
