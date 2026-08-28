@@ -1,7 +1,7 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
 Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**149 passed / 0 ignored**，2026-08-28，上游 rev **`21d8d9a`**）；**`.qjs` 已经够得着
+**150 passed / 0 ignored**，2026-08-28，上游 rev **`21d8d9a`**）；**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -49,7 +49,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
-| 门 2（`.wasm` 路由切换） | 不能绿，**但阻塞点已改写：不是待决策，是可量的迁移成本** | `_start` 入口约定是**伪问题**（见 §接下来 03，已作废并留档）：本引擎调任何导出名，`_start` 今天就能用；真正分开两个引擎的是 **import 面**——wasmcore 的客人是 Rust `std` 编到 `wasm32-wasip1`，import WASI 是 std 要的。剩下的是把客人改成 `no_std` 只吃 `agenterm.*`，加同客人性能对比 |
+| 门 2（`.wasm` 路由切换） | 不能绿。**阻塞点第三次改写，这次有实测**：不是入口名，不是 std，是**两扇门的 ABI 不同**，而且不可移植的方向是单向的 | 见 §接下来 03 |
 | 门 3（现状实测） | 已复核 | — |
 
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -1487,7 +1487,39 @@ cat scripts/qjs/lib/*.js scripts/qjs/lib/*.qjs | grep -oE '\.[a-zA-Z_][a-zA-Z0-9
 一行注册加一个方法体，不会因为等了而变贵。这条判决恰恰把「再加一个」变成了
 **可以安全推迟**的事。
 
-**03 · ~~`_start` 入口约定~~ —— 这是个伪问题，2026-08-27 已作废**
+**03 · wasmcore 门 2：阻塞点第三次改写（2026-08-28 实测）**
+
+这条被改写过三次，每次都因为**量了一下**：
+
+1. 「等一个 `_start` 入口约定」→ **伪问题**（2026-08-27）：本引擎调任何导出名。
+2. 「wasmcore 的客人是 std 编到 `wasm32-wasip1`，import 了 WASI；把它改成
+   `no_std` 只吃 `agenterm.*` 就行」→ **不充分**（2026-08-28）。
+3. 真正的阻塞点：**两扇 `agenterm.*` 门不是同一扇门。**
+
+实测——把一个「只 import `agenterm.*`、导出 `memory`/`_start`/`wasmcore_alloc`」
+的客人（也就是第 2 条要求的那个成品）喂给 qjswasm：
+
+```
+host door: guest declares `agenterm.fleet_call` with the wrong signature:
+the door takes 4 i32 parameter(s) and returns 1
+```
+
+**不是 WASI 的抱怨，是签名的抱怨。** wasmcore 的 `fleet_call` 是**六个参数**
+（宿主经 out-param 写回答案），qjswasm 的是**四个**（状态码 + 第二趟取回）。
+
+**而且不可移植的方向是单向的**，理由是结构性的、`src/host.rs` 头部早就写着：
+wasmcore 那套要宿主**回调进客人**的 `wasmcore_alloc`，而 tinyvm 的类型化宿主回调
+在整个调用期间持有客人内存的 `&mut`——**它做不到重入**。
+所以 qjswasm **长不出**六参数那套；而 wasmtime 两套都能做，它可以改成两趟。
+
+**门 2 的迁移成本因此是「改 wasmcore 的门」，不是「改客人」。** 这是一件
+明确、可估、不需要谁拍板的工程，而且方向只有一个。
+
+锁在 `host_door::a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi`
+——它同时断言那句诊断里**不出现 WASI**，因为出现了就会把读者引去改错的东西
+（正是第 2 条那次的教训）。
+
+**03b · ~~`_start` 入口约定~~ —— 这是个伪问题，2026-08-27 已作废**
 
 我把它当成「等人拍板的产品决定」挂了好几轮。**它不是决定，因为两个答案都够不到分歧的所在。**
 两条实测把它退了休：

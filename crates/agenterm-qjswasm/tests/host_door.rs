@@ -307,3 +307,75 @@ fn check_and_execute_agree_that_an_unbindable_import_is_refused_at_load() {
     }
     assert_eq!(engine.live_slots(), 0);
 }
+
+/// **The two `agenterm.*` doors are two different doors**, and this is the
+/// measurement that says so.
+///
+/// PRD 02.36's archive gate 2 for `agenterm-wasmcore` asks whether one `.wasm`
+/// guest could be routed to one engine. Its recorded blocker was "the guest is
+/// Rust `std` on `wasm32-wasip1`, so it imports WASI -- rewrite it as `no_std`
+/// importing only `agenterm.*`". That is **not sufficient**, and this test is
+/// why: a guest importing *only* `agenterm.*` is still refused, because
+/// `agenterm-wasmcore`'s `fleet_call` takes **six** arguments and this door's
+/// takes four.
+///
+/// The direction of portability is one-way, and the reason is structural
+/// rather than a matter of taste. wasmcore's convention has the host write the
+/// answer through out-parameters, which requires the host to call back into
+/// the guest's `wasmcore_alloc`. tinyvm's typed host callback holds `&mut` on
+/// guest memory for its whole duration, so it **cannot** re-enter the guest --
+/// see this crate's `src/host.rs` header. So this engine cannot grow the
+/// six-argument form; wasmtime, which can do either, could adopt the two-pass
+/// one.
+///
+/// That makes gate 2's migration cost "rewrite wasmcore's door", not "rewrite
+/// the guest".
+#[test]
+fn a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi() {
+    let mut engine = Engine::new();
+
+    // Imports only `agenterm.*`, exports `memory`, `_start` and the allocator
+    // wasmcore's convention needs -- i.e. exactly what "make the guest
+    // `no_std` importing only `agenterm.*`" would produce.
+    let wasmcore_shaped = wat::parse_str(
+        r#"(module
+            (import "agenterm" "fleet_call"
+                (func $f (param i32 i32 i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "wasmcore_alloc") (param i32) (result i32) i32.const 0)
+            (func (export "_start"))
+        )"#,
+    )
+    .expect("valid wat");
+    let refusal = engine
+        .spawn(Guest::Wasm(&wasmcore_shaped), None)
+        .expect_err("the six-argument door is not this door");
+    let text = refusal.to_string();
+    assert!(
+        text.contains("fleet_call") && text.contains("signature"),
+        "the refusal must name the door and the signature, not something vague: {text}"
+    );
+    assert!(
+        text.contains("4 i32 parameter"),
+        "and it must say what this door does take, so the author can act: {text}"
+    );
+    // The point of the test: it is **not** a WASI complaint.
+    assert!(
+        !text.contains("wasi"),
+        "a `no_std` guest has no WASI problem left; the door shape is the          blocker, and a diagnostic naming WASI here would send the reader to          fix the wrong thing: {text}"
+    );
+
+    // The same guest with this door's four-argument shape loads.
+    let ours = wat::parse_str(
+        r#"(module
+            (import "agenterm" "fleet_call"
+                (func $f (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "_start"))
+        )"#,
+    )
+    .expect("valid wat");
+    engine
+        .spawn(Guest::Wasm(&ours), None)
+        .expect("this door's own shape loads");
+}
