@@ -53,6 +53,15 @@ use wasmtime_wasi::{I32Exit, WasiCtxBuilder};
 pub const FLEET_CALL_MODULE: &str = "agenterm";
 /// WASM import function name for the fleet bridge call.
 pub const FLEET_CALL_FUNCTION: &str = "fleet_call";
+
+/// The portable two-pass door, name for name with `agenterm-qjswasm`'s except
+/// for the first pass, which is `fleet_call` there and cannot be here without
+/// colliding with the six-argument original.
+pub const FLEET_CALL_BEGIN_FUNCTION: &str = "fleet_call_begin";
+/// Second pass, part one -- byte length of the parked answer.
+pub const FLEET_RESULT_LEN_FUNCTION: &str = "fleet_result_len";
+/// Second pass, part two -- copy the answer where the guest asks.
+pub const FLEET_RESULT_FUNCTION: &str = "fleet_result";
 /// Export name the host calls back into the guest to obtain a
 /// host-writable buffer inside the guest's own linear memory.
 pub const GUEST_ALLOC_EXPORT: &str = "wasmcore_alloc";
@@ -97,6 +106,13 @@ pub type WasmFleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + 
 struct WasmCoreState {
     wasi: WasiP1Ctx,
     fleet_bridge: Option<WasmFleetBridgeFn>,
+    /// The answer to the most recent **two-pass** `fleet_call`, waiting for
+    /// the guest to ask its length and then ask for it.
+    ///
+    /// The six-argument call does not use this: it writes straight into the
+    /// guest through `wasmcore_alloc`. See [`install_fleet_call`] for why
+    /// both conventions exist.
+    pending: Vec<u8>,
 }
 
 /// How a guest run ended.
@@ -324,7 +340,11 @@ fn run_loaded_module(
         .inherit_stderr()
         .build_p1();
 
-    let state = WasmCoreState { wasi, fleet_bridge };
+    let state = WasmCoreState {
+        wasi,
+        fleet_bridge,
+        pending: Vec::new(),
+    };
     let mut store = Store::new(engine, state);
 
     let instance = linker
@@ -347,9 +367,101 @@ fn run_loaded_module(
     Ok(GuestRunResult { exit, stdout })
 }
 
+/// Both `fleet_call` conventions, deliberately.
+///
+/// * `fleet_call(op, op_len, params, params_len, out_ptr, out_len) -> i32`
+///   is this crate's original: one call, the host writing the answer into the
+///   guest through its `wasmcore_alloc` export.
+/// * `fleet_call_begin(op, op_len, params, params_len) -> i32` plus
+///   `fleet_result_len() -> i32` and `fleet_result(dst, dst_len) -> i32` is
+///   **`agenterm-qjswasm`'s door, verbatim**, under a distinct name so both can
+///   live in one linker.
+///
+/// # Why the second one exists
+///
+/// PRD 02.36's archive gate 2 asks whether one `.wasm` guest could be routed
+/// to either engine. It cannot today, and the reason is not WASI and not the
+/// entry name: the six-argument call **requires the host to re-enter the
+/// guest** to allocate a landing buffer, and tinyvm's typed host callback
+/// holds `&mut` on guest memory for its whole duration, so that engine
+/// structurally cannot offer it. The impossibility runs one way -- wasmtime
+/// can do either -- so the portable shape is the two-pass one, and this is
+/// wasmtime growing it.
+///
+/// The original stays. Guests written against it keep working, and the
+/// migration is a guest-by-guest choice rather than a flag day.
 fn install_fleet_call(linker: &mut Linker<WasmCoreState>) -> Result<()> {
     linker.func_wrap(FLEET_CALL_MODULE, FLEET_CALL_FUNCTION, fleet_call_import)?;
+    linker.func_wrap(FLEET_CALL_MODULE, FLEET_CALL_BEGIN_FUNCTION, fleet_call_begin)?;
+    linker.func_wrap(FLEET_CALL_MODULE, FLEET_RESULT_LEN_FUNCTION, fleet_result_len)?;
+    linker.func_wrap(FLEET_CALL_MODULE, FLEET_RESULT_FUNCTION, fleet_result)?;
     Ok(())
+}
+
+/// First pass: run the bridge, park the answer, return only a status.
+///
+/// The status codes are the six-argument call's, unchanged, so a guest author
+/// learns one set.
+fn fleet_call_begin(
+    mut caller: Caller<'_, WasmCoreState>,
+    op_ptr: i32,
+    op_len: i32,
+    params_ptr: i32,
+    params_len: i32,
+) -> Result<i32> {
+    let memory = guest_memory(&mut caller)?;
+    let op_id = read_guest_string(&mut caller, &memory, op_ptr, op_len)
+        .context("fleet_call_begin: reading operation_id from guest memory")?;
+    let params_json = read_guest_string(&mut caller, &memory, params_ptr, params_len)
+        .context("fleet_call_begin: reading params_json from guest memory")?;
+
+    let bridge = caller.data().fleet_bridge.clone();
+    let (status, payload) = match bridge {
+        None => (
+            FLEET_CALL_STATUS_NO_BRIDGE,
+            "agenterm-wasmcore: no fleet bridge configured for this host run".to_owned(),
+        ),
+        Some(bridge) => match bridge(&op_id, &params_json) {
+            Ok(result_json) => (FLEET_CALL_STATUS_OK, result_json),
+            Err(message) => (FLEET_CALL_STATUS_ERR, message),
+        },
+    };
+    caller.data_mut().pending = payload.into_bytes();
+    Ok(status)
+}
+
+/// Second pass, part one: how many bytes are waiting.
+fn fleet_result_len(caller: Caller<'_, WasmCoreState>) -> Result<i32> {
+    Ok(caller.data().pending.len() as i32)
+}
+
+/// Second pass, part two: copy the answer into a destination **the guest
+/// chose**, which is what removes the need to call back into it.
+///
+/// Returns the number of bytes written, or a negative value when the
+/// destination is too small -- a refusal rather than a truncation, because
+/// half an answer is worse than none.
+fn fleet_result(
+    mut caller: Caller<'_, WasmCoreState>,
+    dst_ptr: i32,
+    dst_len: i32,
+) -> Result<i32> {
+    let memory = guest_memory(&mut caller)?;
+    let pending = std::mem::take(&mut caller.data_mut().pending);
+    if (pending.len() as i32) > dst_len {
+        caller.data_mut().pending = pending;
+        return Ok(-1);
+    }
+    let data = memory.data_mut(&mut caller);
+    let start = usize::try_from(dst_ptr).context("fleet_result: negative destination pointer")?;
+    let end = start
+        .checked_add(pending.len())
+        .ok_or_else(|| anyhow!("fleet_result: destination overflows the address space"))?;
+    let slot = data
+        .get_mut(start..end)
+        .ok_or_else(|| anyhow!("fleet_result: destination is outside guest memory"))?;
+    slot.copy_from_slice(&pending);
+    Ok(pending.len() as i32)
 }
 
 /// The host side of the `fleet_call` import. See `README.md` "fleet_call

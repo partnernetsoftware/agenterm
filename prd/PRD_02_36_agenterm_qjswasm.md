@@ -49,7 +49,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
 | 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
-| 门 2（`.wasm` 路由切换） | 不能绿。**阻塞点第三次改写，这次有实测**：不是入口名，不是 std，是**两扇门的 ABI 不同**，而且不可移植的方向是单向的 | 见 §接下来 03 |
+| 门 2（`.wasm` 路由切换） | 不能绿，**但差距缩到两条具名的事**：第一趟的**名字**，以及**入口/结果约定**。wasmcore 已长出与 qjswasm 同形的两趟门（`portable_door.rs` 三条），六参数那套仍在 | 见 §接下来 03 |
 | 门 3（现状实测） | 已复核 | — |
 
 Owner: 政委定方向；主会话按独占文件域推进。
@@ -1514,6 +1514,30 @@ wasmcore 那套要宿主**回调进客人**的 `wasmcore_alloc`，而 tinyvm 的
 
 **门 2 的迁移成本因此是「改 wasmcore 的门」，不是「改客人」。** 这是一件
 明确、可估、不需要谁拍板的工程，而且方向只有一个。
+
+### 那件工程做了一半（2026-08-28）
+
+**wasmcore 长出了两趟门**：`fleet_call_begin` / `fleet_result_len` / `fleet_result`，
+状态码与 qjswasm 完全一致，六参数那套原样留着（现有客人不受影响，迁移是逐个客人的
+选择而不是一刀切）。锁在 `agenterm-wasmcore/tests/portable_door.rs` 三条，
+客人是手写 `wat`、**自己校验自己**（WASI 把退出码限死在 `[0,126)`，装不下字节数；
+而且会校验的客人本来就是更好的证人）：答案原样跨界、
+目的地太小是**拒绝不是截断且答案仍然留着**、无桥是状态 2 加一句诊断而不是崩。
+
+**剩下的差距缩到两条具名的东西**，都实测过：
+
+1. **第一趟的名字。** qjswasm 叫 `fleet_call`，wasmcore 只能叫 `fleet_call_begin`
+   ——因为 `agenterm.fleet_call` 这个名字在 wasmcore 那边已经被六参数那套占了，
+   一个 `(module, name)` 只能绑一个函数。实测：把两趟客人喂给 qjswasm，
+   报 ``guest imports unknown door function `agenterm.fleet_call_begin` ``。
+   **改名的代价数过了**：六参数那套只有 1 个客人（`guests/fleet_guest.rs`）
+   加 5 个测试/示例文件在用，**全在仓内**，而且**随包的 `.wasm` 语料是零**——
+   所以「破坏性改名」实际只破坏我们自己的东西。
+2. **入口与结果约定。** wasmcore 只调 `_start` 且不返回值，qjswasm 调具名导出并
+   取回一个值。一个客人可以同时导出两个名字，但**报告结果**的方式还不通用——
+   两趟客人为了报告用了 `proc_exit`，那是 WASI，qjswasm 会拒。
+
+**门 2 因此仍不能绿**，但阻塞点从「一件不知道多大的事」变成了**两条各自可数的事**。
 
 锁在 `host_door::a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi`
 ——它同时断言那句诊断里**不出现 WASI**，因为出现了就会把读者引去改错的东西

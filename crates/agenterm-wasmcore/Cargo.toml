@@ -31,3 +31,7 @@ wasmtime-wasi = { version = "47", features = ["p1"] }
 
 [dev-dependencies]
 tempfile = "3.25"
+# Test-only: the portable-door test hand-writes its guest in `wat` rather than
+# compiling one with `rustc`, because the point is the **door shape** and a
+# `wat` module states it in four lines with nothing else in the way.
+wat = "1"

@@ -252,6 +252,7 @@ dependencies = [
  "tempfile",
  "wasmtime",
  "wasmtime-wasi",
+ "wat",
 ]
 
 [[package]]
