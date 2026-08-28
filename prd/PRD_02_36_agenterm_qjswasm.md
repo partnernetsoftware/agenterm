@@ -1452,6 +1452,22 @@ qjs 分发已删，`agenterm qjs` 别名退休成一条重定向（exit 2），
 （读为 `undefined`，调用才 trap）。加一个方法今天是**一行注册 + 一个方法体**，
 且**不调它的程序付 0 字节**——这正是判决要挑的那个性质。
 
+**但「继续加方法」不是下一步，因为没有需求。** 数过了：
+
+```sh
+cat scripts/qjs/lib/*.js scripts/qjs/lib/*.qjs | grep -oE '\.[a-zA-Z_][a-zA-Z0-9_]*\(' | sort | uniq -c
+#   16 .stringify(   2 .parse(   2 .fleet_call(   2 .set_note(
+```
+
+本仓自己的脚本一个字符串/数组方法都没用；`research/value-representation/corpus/`
+的十几个 `.qjs` 也一个都没用。**唯一在用的是 `JSON.stringify` / `JSON.parse`，
+早就有了。** 文档里那个 `.join(` 是散文里的 Rust `server.join()`，不是 JS。
+
+所以再加方法是**替想象中的脚本做的**。按 `count-the-boring-thing-first`：
+先数，再说「只差 X」。**等有脚本真的写了 `.split()` 再加它**——那时的成本是
+一行注册加一个方法体，不会因为等了而变贵。这条判决恰恰把「再加一个」变成了
+**可以安全推迟**的事。
+
 **03 · ~~`_start` 入口约定~~ —— 这是个伪问题，2026-08-27 已作废**
 
 我把它当成「等人拍板的产品决定」挂了好几轮。**它不是决定，因为两个答案都够不到分歧的所在。**
