@@ -1060,6 +1060,7 @@ flowchart TD
 | `script eval` 给每个引擎发 rh 源码 | 第 ⑦ 间的方言，焊进了公共走廊 | 迁移前查不出来 |
 | `.wasm` 的**路径**被当程序发给每个引擎 | 按**扩展名**判，而不是按**谁来跑** | 同上 |
 | （同一条，2026-08-28 归档时**险些复发**） | 只剩一个引擎跑 wasm，于是想把 `.wasm` 指给它 | 差点把产物喂给编译器 |
+| **扩展名路由压根没接线** | `from_entry_path` 住在第 ⑦ 间，**而没有任何一条走廊通向它** | `.qjs` / `.lua` 全落到 rh，见 §接下来 04 |
 | 数组的 `typeof` / `truthy` 臂 | 加进了**无条件**运行时，绕过第 ③ 间的门 | 每个程序 +11 字节 |
 | `__len` 有身体没人调 | 在第 ③ 间**无条件**发射，而调用点在第 ① 间根本没接上 | 每个程序白背 19 字节 |
 | 方法门做在「整个集合」上 | 门装在第 ③ 间的**房门**上，而该装在**每件家具**上 | 只调 `trim()` 的程序为 `indexOf` 付 307 字节 |
@@ -1804,7 +1805,50 @@ WASI 的 command 是「跑完就结束、走 stdin/stdout、导出 `_start`」�
 两条实测锁在 `qjs_guest.rs::the_wasm_entry_point_is_a_name_and_the_wasi_surface_is_the_real_boundary`，
 其中一条断言那句拒绝里**不出现 `_start`**——出现了就会把读者引去改入口名，而那不是问题所在。
 
-**04 · GC，以及 `eval`**（长期）
+**04 · 扩展名路由从来没有接上（2026-08-28 归档验收时实测发现）**
+
+归档做完之后跑一次真实 CLI 验收，第一条命令就露了：
+
+```
+$ agenterm cli script run t.qjs          # 内容是模板 + 箭头 + map + .length
+{"code":"rh_backend","message":"rh parse error: Expecting ',' … function call 'map'"}
+$ AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run t.qjs
+sum=3
+```
+
+`.qjs` 落到了 **rh**。不是 qjswasm 坏了——加上环境变量它跑得好好的，一行里同时验过
+模板、箭头、`map`、`.length` 四个里程碑。坏的是**路由**。
+
+**范围：所有语言，不只 `.qjs`。** 同一轮实测 `.lua` 也落到 rh
+（`rh transpile error: cdylib pack requires fn entry()`）。
+
+**根因，一句话：`ScriptBackend::from_entry_path` 在生产代码里有零个调用者。**
+全仓 grep，它只出现在测试与文档注释里。`entry_extensions()` 同样。
+真正决定引擎的是 `ScriptEngineBackend::enabled()`，而它的全部内容是
+`ScriptBackend::from_env() == self.backend_id()`——`src/client/mod.rs` 里那条
+2026-08-26 的注释其实已经把话说白了：**「routing is `AGENTERM_SCRIPT_BACKEND`
+and nothing else」**。那句话是对的，只是没人把它和「有一个叫 `from_entry_path`
+的函数、还有一份叫 `lua_task_entry_backend_selection` 的测试」这两件事对上。
+
+**这条为什么该记在记忆宫殿那一节而不是普通 bug 列表**：它是同一种病的第八例。
+`lua_task_entry_backend_selection` 的注释写着 `// Verify path-based backend
+selection.`，而它验的是**纯函数**，不是**任何产品路径会调用它**。绿的测试
++ 未接线的功能 = 本文件 §接下来 01 那条 worker 分发臂漏掉时**一模一样**的形状
+（「`.qjs` 注册了、编译了、测试绿了，而产品根本跑不了一个」）。
+**同一个形状在不同层复发了一次，说明防它的不该是记性。**
+
+**要修成什么样（未开工）**：不是把 `from_entry_path` 塞进九个 `from_env()` 里的某一个，
+而是收成**一个**入口——「给定这次调用的 entry path（可能没有），解析出后端」，
+优先级钉死为 **显式 `AGENTERM_SCRIPT_BACKEND` 胜过扩展名，扩展名胜过 rh 默认**。
+显式必须赢，否则一个设了环境变量的人会被文件名悄悄改判，那是把这条缺陷换个方向再犯一次。
+
+**验收判据**（事前钉死，不许事后改）：
+1. `agenterm cli script run t.qjs` 不设任何环境变量 → 出 `sum=3`；
+2. `AGENTERM_SCRIPT_BACKEND=rh agenterm cli script run t.qjs` → 仍走 rh（显式赢）；
+3. `.lua` / `.sql` 同样按扩展名走通；
+4. 有一条测试断言的是**产品路径**而不是纯函数——否则这条修完还是原来那个形状。
+
+**05 · GC，以及 `eval`**（长期）
 
 堆今天是 bump 分配 + 整堆丢弃：一次调用内只涨不落，调用结束整个实例扔掉。
 
