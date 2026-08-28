@@ -48,7 +48,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿**，crate 已摘除 2026-08-28 | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
-| 归档 `agenterm-wasmcore` 门 1（能力清单） | **可判绿** | — |
+| 归档 `agenterm-wasmcore` 门 1（能力清单） | **已正式判定 2026-08-28：一半绿一半不绿**，见 §接下来 03 的「门 1 判定」 | 产品实际用到的三个方法全有替代；AOT / JIT / WASI 没有，且其中 WASI 是**纪律排除**不是缺口 |
 | 门 2（`.wasm` 路由切换） | **两半都有了**：同一份字节两个引擎跑出同一个答案（三处锁），同客人性能对比也做了（短客人上 qjswasm 快 13.6×，但那是启动主导的数）。**但归档仍未授权——门 1 至今没正式判过** | 见 §接下来 03 |
 | 门 3（现状实测） | 已复核 | — |
 
@@ -1571,9 +1571,58 @@ JIT 在这么小的客人身上没有时间把编译成本挣回来。**换一�
 **对一个只过一次门的短客人，解释器是更便宜的引擎。**
 
 **门 2 的两半——「同一个客人两边都跑」与「同客人性能对比」——都有了。**
-但**归档 wasmcore 仍未授权**：门 1（能力清单）至今只是「可判绿」，没有正式判过，
-而 wasmcore 有 qjswasm 没有的东西（WASI、AOT 预编译、JIT）。
-**门通了不等于能力清单齐了**，这两件事不要混。
+
+### 门 1 判定（2026-08-28，正式判一次）
+
+这条门挂着「可判绿」很久，从来没真判过。判之前先**数**，不是先列。
+
+**产品到底用了 wasmcore 的什么？**（`grep` 全仓，排除 wasmcore 自己）
+
+```
+agenterm_wasmcore::WasmCoreHost        6 处
+agenterm_wasmcore::WasmFleetBridgeFn   5 处
+方法：run_module / run_module_from_bytes / validate_binary
+适配层 execute 的返回：stdout 有，value: None，cost: None
+随包 .wasm 文件：0 个
+```
+
+**逐条对表：**
+
+| 能力 | wasmcore | qjswasm | 产品用了吗 |
+|---|---|---|---|
+| 跑一个 `.wasm` | ✓ `_start` | ✓ 具名导出 | **是** |
+| 抓 stdout | ✓ WASI `fd_write` | ✓ `agenterm.print` | **是** |
+| `fleet_call` | ✓（两套约定） | ✓ | **是** |
+| 不执行就校验 | ✓ `validate_binary` | ✓ 装载门 | **是** |
+| AOT 预编译（cwasm） | ✓ | ✗ | **否** |
+| JIT | ✓ | ✗（产品定义排除） | **否** |
+| WASI（fs / clocks / args / env） | ✓ | ✗（**纪律排除**） | **否** |
+| 每调用预算（steps/depth/pages/slots） | ✗ | ✓ | — |
+| trap 分类 / fault word | ✗ | ✓ | — |
+| 槽隔离、逐调用新鲜 fuel | ✗ | ✓ | — |
+
+**判定：这条门一半绿一半不绿，而两半必须分开说。**
+
+- **绿的那一半**：产品今天从 wasmcore 用到的每一样，qjswasm 都有替代，
+  而且 qjswasm 还多出 wasmcore 没有的三样（预算、trap 分类、槽隔离）。
+- **不绿的那一半**：AOT 预编译、JIT、WASI 三样 qjswasm 没有。
+  其中 **WASI 是纪律排除**——本文件的纪律那条写着「不得把 WASI `fd_*`
+  做成第二扇 OS 面」——所以它不是缺口，是**故意不做**。
+  **AOT 与 JIT 是真缺口**，qjswasm 没有也不打算有（`tinyvm` 的产品定义就是
+  执行核不生成机器码）。
+
+**所以「归档 wasmcore」这句话要拆开问**：
+
+> 产品今天需要 AOT / JIT 跑 `.wasm` 吗？
+
+**今天不需要**——随包 `.wasm` 是 0 个，适配层连返回值和 cost 都没在用。
+但这是**产品决定**，不是技术判定：删掉 wasmcore 就是宣布 agenterm 不再提供
+JIT 执行 `.wasm` 的能力。这一条**没有人授权过**（政委 2026-08-25 那句是
+「两者均待归档」，前提是被取代——而 AOT/JIT 这两样并没有被取代，是被**放弃**）。
+
+**因此：门 1 判定完毕，归档 wasmcore 仍不授权**，理由从「门 1 没判过」
+换成了「门 1 判出一个产品决定，而那个决定没人做过」。这是个更好的位置——
+它是一句可以直接问出口的话，不是一件不知道多大的工程。
 
 锁在 `host_door::a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi`
 ——它同时断言那句诊断里**不出现 WASI**，因为出现了就会把读者引去改错的东西
