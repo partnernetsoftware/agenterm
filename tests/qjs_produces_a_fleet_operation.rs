@@ -17,7 +17,7 @@
 use std::sync::{Arc, Mutex};
 
 use agenterm::operations::{OPERATION_CATALOG, OperationSpec};
-use agenterm_qjswasm::{Engine, FleetBridgeFn, Guest, JsValue, Value};
+use agenterm_qjswasm::{Engine, FleetBridgeFn, Guest, JsValue, Value, compile_qjs_with_modules};
 
 /// What the bridge was actually asked to do, captured from inside the door.
 #[derive(Default)]
@@ -54,8 +54,40 @@ fn fleet_binding() -> String {
 /// compilation unit, library first. There is no module system in the subset
 /// yet, so this is concatenation -- the same shape `agenterm-qjs`'s test uses
 /// for `fleet.js`, and for the same reason.
+/// The library is now **imported**, not pasted.
+///
+/// This function was `format!("{}\n{driver}", fleet_binding())` until
+/// 2026-08-29 -- the only way a script could use `scripts/qjs/lib/fleet.qjs`,
+/// and the reason a complete 29-operation binding had no consumers: a `.qjs`
+/// file on disk had no way to reach it. That `format!` is what upstream's
+/// module milestone was built to replace, and the difference between the two
+/// is that this one gives the library a namespace instead of tipping its
+/// top-level names into the script's scope.
 fn with_binding(driver: &str) -> String {
-    format!("{}\n{driver}", fleet_binding())
+    format!("import * as lib from \"fleet\";\nconst fleet = lib.fleet;\n{driver}")
+}
+
+/// Resolves the one specifier this test uses, from the real file on disk.
+///
+/// A closure and not a path: the compiler never reads a file, so the product
+/// decides what a specifier means. Here it means one name, bound to the same
+/// `scripts/qjs/lib/fleet.qjs` the assertions below are about -- read from the
+/// repository rather than copied, for the same reason the rest of this file
+/// reads it.
+fn resolve_fleet(specifier: &str) -> Option<String> {
+    (specifier == "fleet").then(fleet_binding)
+}
+
+/// Compile the importing script, so the run below can be handed bytes.
+///
+/// `Engine::run_once(Guest::Qjs(..))` compiles with no resolver, because the
+/// engine's guest path has no entry path to resolve against -- a script's
+/// source reaches it as text. Wiring that through so `agenterm cli script run
+/// FILE.qjs` can import is a separate, named piece of work; until then a
+/// caller that wants modules compiles first, which is what this does.
+fn compiled(script: &str) -> Vec<u8> {
+    compile_qjs_with_modules(script, &resolve_fleet)
+        .expect("the importing script compiles against the real fleet binding")
 }
 
 fn operation(id: &str) -> &'static OperationSpec {
@@ -144,7 +176,7 @@ fn a_qjs_script_drives_a_real_fleet_operation() {
 
     let mut engine = Engine::new();
     let outcome = engine
-        .run_once(Guest::Qjs(&script), Some(bridge), "main", &[])
+        .run_once(Guest::CompiledQjs(&compiled(&script)), Some(bridge), "main", &[])
         .expect("a .qjs script must reach the host door through the real binding");
 
     let captured = seen.lock().expect("bridge capture");
@@ -199,7 +231,7 @@ fn a_numeric_fleet_payload_survives_the_trip() {
 
     let mut engine = Engine::new();
     engine
-        .run_once(Guest::Qjs(&script), Some(bridge), "main", &[])
+        .run_once(Guest::CompiledQjs(&compiled(&script)), Some(bridge), "main", &[])
         .expect("a numeric operation runs");
 
     let captured = seen.lock().expect("bridge capture");
@@ -241,7 +273,7 @@ fn a_refused_operation_throws_and_is_catchable() {
 
     let mut engine = Engine::new();
     let outcome = engine
-        .run_once(Guest::Qjs(&script), Some(refusing), "main", &[])
+        .run_once(Guest::CompiledQjs(&compiled(&script)), Some(refusing), "main", &[])
         .expect("a caught refusal is not a failure");
 
     let Some(Value::Js(JsValue::Str(caught))) = outcome.values.first() else {

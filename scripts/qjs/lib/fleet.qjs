@@ -29,7 +29,11 @@
 const STATUS_OK = 0;
 const STATUS_ERR = 1;
 
-const fleet = {};
+// `export`ed since tinyvm 8bbdf2d, which is when a `.qjs` script first gained
+// a way to say `import * as fleet from "..."`. Until then the only way to use
+// this file was to paste its text in front of a script from Rust -- which is
+// why a complete, tested, 29-operation binding had no consumers at all.
+export const fleet = {};
 
 /// Send one operation and return its answer, parsed when it parses.
 ///

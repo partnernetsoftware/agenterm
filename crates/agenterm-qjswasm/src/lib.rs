@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "e32efcb";
+pub const UPSTREAM_TINYVM_REV: &str = "8bbdf2d";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -140,6 +140,37 @@ pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
         },
+    )
+}
+
+/// [`compile_qjs`], plus a way for the source to `import` other sources.
+///
+/// `resolve` turns a module specifier into source and is the **only** thing
+/// that knows about files: the compiler upstream never touches a filesystem,
+/// so where a specifier points -- relative to the entry file, under a project
+/// root, with what extension -- is this product's policy to state and this
+/// callback's job to apply. Returning `None` refuses the specifier and the
+/// caller gets a diagnostic naming it.
+///
+/// The result is still one `.wasm`. An `import` is compile-time inclusion, not
+/// a link, so the load gate, the budgets and the receipt are unchanged.
+///
+/// # Why this exists
+///
+/// `scripts/qjs/lib/fleet.qjs` binds all 29 fleet operations and had no
+/// consumers, because the only way to use it was
+/// `format!("{lib}\n{driver}")` from Rust. A `.qjs` file on disk could not
+/// reach it. This is the function that makes the library usable as a library.
+pub fn compile_qjs_with_modules(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(host::declarations()),
+        },
+        resolve,
     )
 }
 
