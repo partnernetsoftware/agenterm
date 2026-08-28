@@ -4775,22 +4775,9 @@ mod tests {
             assert!(cost.steps > 0, "a run that did something costs steps");
         }
 
-        // wasmcore loads bytes but has nothing to build: its input already is
-        // the artifact.
-        #[cfg(feature = "script-wasmcore")]
-        {
-            let engine = crate::script_engine::engine_for(ScriptBackend::Wasmcore);
-            assert!(
-                engine.pack_artifact("anything").is_none(),
-                "a `pack build` that copied the file would be `cp` wearing a verb"
-            );
-            assert!(
-                engine
-                    .execute_artifact(b"\0asm\x01\0\0\0", &options, None)
-                    .is_some(),
-                "wasmcore's `run_module_from_bytes` is exactly this face"
-            );
-        }
+        // The engine that loaded bytes with nothing to build -- wasmcore,
+        // whose input already *was* the artifact -- was archived on
+        // 2026-08-28. Every engine left here builds what it runs.
 
         // The text engines have neither half.
         #[allow(unused_mut)]
@@ -4860,22 +4847,12 @@ mod tests {
         all.push(ScriptBackend::Sql);
         #[cfg(feature = "script-qjswasm")]
         all.push(ScriptBackend::Qjswasm);
-        #[cfg(feature = "script-wasmcore")]
-        all.push(ScriptBackend::Wasmcore);
 
         let path_carrying: Vec<ScriptBackend> = all
             .into_iter()
             .filter(|b| crate::script_engine::engine_for(*b).source_is_a_path())
             .collect();
 
-        #[cfg(feature = "script-wasmcore")]
-        assert_eq!(
-            path_carrying,
-            vec![ScriptBackend::Wasmcore],
-            "a second engine started taking a path where the trait says text; the CLI \
-             branch that feeds it is keyed on this answer, so this is load-bearing"
-        );
-        #[cfg(not(feature = "script-wasmcore"))]
         assert!(
             path_carrying.is_empty(),
             "no engine in this build should read its source as a path, got {path_carrying:?}"
@@ -4996,20 +4973,15 @@ mod tests {
             assert_eq!(report.failures, 0, "{backend:?} on an empty directory");
         }
 
-        // rh's is a verb of its own dev CLI; wasmcore has no source to scan.
-        // Both are `None`, and the CLI turns each into its own sentence.
+        // rh's is a verb of its own dev CLI, so it is `None` here and the CLI
+        // turns that into its own sentence. (wasmcore was the other `None`,
+        // for the different reason that it had no source to scan; it was
+        // archived on 2026-08-28.)
         assert!(
             crate::script_engine::engine_for(ScriptBackend::Rh)
                 .corpus_scan(empty.path())
                 .is_none(),
             "rh's corpus-scan is `agenterm rh corpus-scan`, not this face"
-        );
-        #[cfg(feature = "script-wasmcore")]
-        assert!(
-            crate::script_engine::engine_for(ScriptBackend::Wasmcore)
-                .corpus_scan(empty.path())
-                .is_none(),
-            "a corpus of `.wasm` modules is not a corpus of source"
         );
     }
 
@@ -5033,8 +5005,6 @@ mod tests {
         cases.push((ScriptBackend::Lua, "agenterm-lua "));
         #[cfg(feature = "script-sql")]
         cases.push((ScriptBackend::Sql, "agenterm-sql "));
-        #[cfg(feature = "script-wasmcore")]
-        cases.push((ScriptBackend::Wasmcore, "agenterm-wasmcore "));
         #[cfg(feature = "script-qjswasm")]
         cases.push((ScriptBackend::Qjswasm, "agenterm-qjswasm "));
 
@@ -5123,8 +5093,6 @@ mod tests {
         // No expression can become a `.wasm` module, and this engine has no
         // compiler. `None` is what makes `script eval` refuse by name instead
         // of running something.
-        #[cfg(feature = "script-wasmcore")]
-        cases.push((ScriptBackend::Wasmcore, None));
 
         for (backend, want) in cases {
             let got = crate::script_engine::engine_for(backend).eval_entry_source("1 + 2");

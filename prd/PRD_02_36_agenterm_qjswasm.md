@@ -7,7 +7,10 @@ Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswas
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
 **`agenterm-qjs` 已于 2026-08-28 归档**：三条门 2026-08-26 全绿，crate 与 `script-qjs`
 feature 已摘除，**`rquickjs` 从依赖树里消失**（`Cargo.lock` 零条目，`cargo tree -i
-rquickjs` 找不到包）。`agenterm-wasmcore` 门 2 未绿，那个 crate 仍原样保留。「authorized, not
+rquickjs` 找不到包）。**`agenterm-wasmcore` 也已于 2026-08-28 归档**：crate、`script-wasmcore` feature、
+`WasmcoreEngineBackend` 适配层与 `ScriptBackend::Wasmcore` 变体全部摘除，`wasmtime`
+从依赖树里消失。它的归档是**政委重申的产品决定**，不是门判出来的——这条区别决定了
+哪些能力是**被放弃**的而不是**被替代**的，记在下面。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
 
@@ -48,7 +51,7 @@ implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品
 | 归档 `agenterm-qjs` 门 1（`fleet.js` 等价物） | **绿**，crate 已摘除 2026-08-28 | `fleet.qjs` 是 29/29 完整移植且行为对齐；验收测试读真文件；三方绑定互锁；全目录 params 都发得出去 |
 | 门 2（**三处**生产调用点迁移） | **绿**（2026-08-26） | `AGENTERM_SCRIPT_BACKEND=qjs` 现在解析到 **Qjswasm**（`from_name` 的第三对别名，与 `rh\|rhai`、`wasmcore\|wasm` 同一模式）；worker 的 qjs 分发已删；`agenterm qjs` 别名已退役并指向 `agenterm cli script`。**没有任何环境值还能选到那个引擎**，这条本身有断言 |
 | 门 3（CLI 面） | **绿**（2026-08-26） | 十三个动词**全部**有实测判决：十一个有面，两个具名拒绝并写明理由。终验收是真的 `scripts/qjs/lib/fleet.qjs` + driver 走完 `qualify` → 23 234 字节自足 `.wasm` + 带 `steps/peak_call_depth` 的收据 → `pack load` 复现同样的 stdout 与值 |
-| 归档 `agenterm-wasmcore` | **决定：不归档**（政委 2026-08-28）。门 1 判定与实测见 §接下来 03 | 桌面端未来仍要 JIT/AOT；实测计算密集载荷 wasmtime 快 **535×**。留着对默认构建**不花钱**（默认 0 个 wasmtime 依赖） |
+| 归档 `agenterm-wasmcore` | **已归档 2026-08-28**（政委重申需求：两个 crate 都归档）。门 1 判定与实测留档在 §接下来 03 | JIT/AOT 方向不放弃，但改从自研线长——见 tinyvm PRD「原生降级」。535× 与 1500 轮交叉点留作那条轨的输入 |
 | 门 2（`.wasm` 路由切换） | **两半都有了**：同一份字节两个引擎跑出同一个答案（三处锁），同客人性能对比也做了（短客人上 qjswasm 快 13.6×，但那是启动主导的数）。**但归档仍未授权——门 1 至今没正式判过** | 见 §接下来 03 |
 | 门 3（现状实测） | 已复核 | — |
 
@@ -58,7 +61,7 @@ Upstream: [`partnernetsoftware/tinyvm`](https://github.com/partnernetsoftware/ti
 PRD 35 记录其迁出。依赖方向 **agenterm → tinyvm**，单向。本 crate 依赖上游两个 crate：
 `tinyvm`（执行核）与 `tinyvm-qjs`（`.qjs → .wasm` 编译器），同一 rev 钉死。
 
-Supersedes: `crates/agenterm-qjs`（rquickjs 外链）与 `crates/agenterm-wasmcore`（wasmtime + WASI p1）——**两者均待归档**（政委 2026-08-25 定），门见下。
+Supersedes: `crates/agenterm-qjs`（rquickjs 外链）与 `crates/agenterm-wasmcore`（wasmtime + WASI p1）——**两者均已于 2026-08-28 归档**（政委 2026-08-25 定、2026-08-28 重申），门与实测留档见下。
 
 ---
 
@@ -479,16 +482,21 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 （这正是 `baseline-must-predate-your-change` 那条记忆写的形状：一个模块整片红，先找
 有没有一条测试 panic 后污染了共享夹具，再怪模块。）
 
-**所以本产品的验证口径是三条命令，不是一条**：
+**所以本产品的验证口径是两条命令，不是一条**（2026-08-28 前是三条）：
 
 ```sh
 cargo test --workspace --exclude agenterm-abi \
   -- --skip live_resolution_removes_subshell_response_files   # 见下面那条，非跳不可
-cargo test --features "script-qjswasm,script-lua,script-wasmcore,script-qjs,script-sql" \
+cargo test --features "script-qjswasm,script-lua,script-sql" \
   --lib -- --test-threads=1                            # root crate lib 里的各引擎适配层
-cargo test --features "script-qjs,script-qjswasm" \
-  --test script_engine_equivalence                     # 要两个引擎同时在的集成测试
 ```
+
+第三条曾是 `cargo test --features "script-qjs,script-qjswasm" --test
+script_engine_equivalence`，那份集成测试要**两个引擎同时在**才有意义；`agenterm-qjs`
+归档时它跟着走了。第二条的 feature 列表同时掉了 `script-qjs` 与 `script-wasmcore`。
+**口径缩短不等于覆盖变松**：掉的两条测的都是「两个引擎是否等价」，只剩一个引擎时那个
+问题不存在了。真正变少的覆盖是**另一件事**——没有第二个引擎能对照，本引擎的答案就只能
+与它自己的历史比。这条写在这里，不藏在命令块的行数变化里。
 
 `--test-threads=1` 不是装饰：并行跑时锁一被毒，真正的那条失败会淹在五条
 `PoisonError` 里。
@@ -733,9 +741,17 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 
 | 面 | crate | 引擎 | 去向 |
 |----|-------|------|------|
-| `.qjs` / `.wasm` | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm（**无 JIT**，自研纯 Rust 编译器） | **唯一长期主线** |
-| `.js` / `.mjs` | `agenterm-qjs` | rquickjs → QuickJS C | **归档**，门见下 |
-| `.wasm`（现默认路由） | `agenterm-wasmcore` | wasmtime + WASI p1（**JIT**） | **归档**，门见下 |
+| `.qjs` | `agenterm-qjswasm` + `tinyvm-qjs` | tinyvm（**无 JIT**，自研纯 Rust 编译器） | **唯一长期主线** |
+| `.js` / `.mjs` | `agenterm-qjs` | rquickjs → QuickJS C | **已归档 2026-08-28** |
+| `.wasm` | `agenterm-wasmcore` | wasmtime + WASI p1（**JIT**） | **已归档 2026-08-28**；扩展名**不改判到 qjswasm**，见下 |
+
+**`.wasm` 这个扩展名现在谁也不路由，这是想清楚之后的选择。** 顺手的做法是把它指到
+qjswasm——毕竟只剩它跑 wasm。但 `agenterm cli script` 这道门读的是 UTF-8 **脚本文本**，
+而 qjswasm 的入口形状是它自己编译的 `.qjs` 源码；把一个**已经编好的模块**交给一个
+**编译器**，正是 `script_backend.rs` 里那条 `File name too long` 注释记下的同一类病。
+所以 `.wasm` 落空，读取以「not UTF-8」失败，`non_text_script_hint` 点名 `.wasm` 说明原因。
+**吵闹胜过顺手。** 同理 `wasm` / `wasmcore` 两个名字留在 `ALL_BACKEND_NAMES` 里但
+**没有 arm**：它们答「本构建不提供」，绝不被另一个引擎悄悄顶替。
 | `.sql` | `agenterm-sql` | — | **待观察**，地位未定；已 optional + default 关，维持不编进主程序 |
 
 这一条同时结清了 [roadmap](PRD_02_18_roadmap.md) 末尾那个待派单任务「wasm/qjs 引擎重构为
@@ -973,7 +989,7 @@ flowchart TD
   end
 
   subgraph DOWN["下游 agenterm-qjswasm — 随业务变"]
-    R7["⑦ 槽 + 宿主门<br/>agenterm.* 四个 import<br/><i>两趟取回</i>"]
+    R7["⑦ 槽 + 宿主门<br/>agenterm.* 四个 import<br/><i>两趟取回</i><br/><b>2026-08-28 起是唯一一扇门</b>"]
   end
 
   SRC(["fleet.qjs<br/>29 个操作"]) --> R1
@@ -982,7 +998,23 @@ flowchart TD
   R7 --> BRK(["Fleet broker<br/>IPC · 真 server"])
   R6 --> OUT(["完成值<br/>ScriptInvocationResult"])
   FW["fault word<br/>堆耗尽 / 未捕获 throw"] -.->|"客人自己写下原因"| R7
+
+  GONE["🗄 已拆走的两间<br/>agenterm-qjs（rquickjs→QuickJS C）<br/>agenterm-wasmcore（wasmtime，<b>JIT</b>）<br/><i>2026-08-28 归档</i>"]
+  GONE -.->|"门的形状留下了<br/>四参 fleet_call + 两趟取回"| R7
+  GONE -.->|"535× 那个实测留下了<br/>成为 tinyvm「原生降级」的输入"| R6
+
+  style GONE fill:#eee,stroke:#999,stroke-dasharray: 5 5,color:#555
 ```
+
+**归档在这张图上是怎么读的。** 拆走两间房不等于图变简单了——**它变成了一间房要
+同时承担原来三间房的问题**。第 ⑦ 间现在是唯一一扇宿主门，第 ⑥ 间现在是唯一一种执行
+方式（解释，无 JIT）。所以「东西该放哪间」这条判据在归档之后**更严**而不是更松：
+以前放错房间还有另一个引擎的测试当对照，现在没有了。
+
+这也是为什么 `.wasm` 这个扩展名**没有**被顺手指到第 ⑦ 间：它看起来该进这间房
+（只剩这里跑 wasm），但这道门收的是**脚本文本**，而 `.wasm` 是**已经编好的产物**——
+放进去就是把第 ④ 间的**产出**塞回第 ① 间的**入口**。整张图里唯一一条反向的边，
+不能因为「只剩它了」就开。
 
 **为什么值得画。** 2026-08-26 这一天抓到的三条真缺陷，**全是同一种病：东西放错房间**。
 
@@ -990,6 +1022,7 @@ flowchart TD
 |------|----------|------|
 | `script eval` 给每个引擎发 rh 源码 | 第 ⑦ 间的方言，焊进了公共走廊 | 迁移前查不出来 |
 | `.wasm` 的**路径**被当程序发给每个引擎 | 按**扩展名**判，而不是按**谁来跑** | 同上 |
+| （同一条，2026-08-28 归档时**险些复发**） | 只剩一个引擎跑 wasm，于是想把 `.wasm` 指给它 | 差点把产物喂给编译器 |
 | 数组的 `typeof` / `truthy` 臂 | 加进了**无条件**运行时，绕过第 ③ 间的门 | 每个程序 +11 字节 |
 | `__len` 有身体没人调 | 在第 ③ 间**无条件**发射，而调用点在第 ① 间根本没接上 | 每个程序白背 19 字节 |
 | 方法门做在「整个集合」上 | 门装在第 ③ 间的**房门**上，而该装在**每件家具**上 | 只调 `trim()` 的程序为 `indexOf` 付 307 字节 |
@@ -1170,13 +1203,17 @@ agenterm-qjswasm                                        [~]
 │       │   └── 收据带 steps / peak_call_depth（超集）         [x] qjs 造不出来
 │       └── check-many                                        [具名拒绝] manifest 是 rh 的
 │
-└── 归档 agenterm-wasmcore                                [~]
+└── 归档 agenterm-wasmcore                                [x] 2026-08-28
     ├── 能力差异诚实清单（3 要补 / 13 有意不补）              [x] 2026-08-25
     │   ├── 3.7b 装载期导入可绑定检查                        [x] 2026-08-25
-    │   ├── 3.7a `_start` 入口约定                          [ ] 挡门 2
-    │   └── 3.5 时钟 / 熵（须先设计确定性开关）               [ ] 不挡门
-    ├── .wasm 默认路由切换 + 拒绝形状锁住                     [ ]
-    └── 现状实测复核                                        [x] 2026-08-25
+    │   ├── 3.7a `_start` 入口约定                          [x] 伪问题，2026-08-27 证伪
+    │   └── 3.5 时钟 / 熵（须先设计确定性开关）               [–] 随 crate 一起走
+    ├── 门 1（能力诚实清单）                                 [x] 判绿 2026-08-26
+    ├── 门 2（一个客人跑两个引擎）                            [x] 两扇门同名同形后跑通
+    ├── .wasm 默认路由切换                                   [–] **不切**：落空 + 点名诊断
+    ├── crate / feature / 适配层 / 枚举变体摘除               [x] 2026-08-28
+    ├── wasmtime 离开依赖树                                  [x] 2026-08-28
+    └── 主动放弃的两条（直通宿主 stderr / 完整 POSIX）        [具名] 见上「只有 wasmcore 有的」
 ```
 
 ## 证据门
@@ -1443,7 +1480,10 @@ feature 与可选依赖、workspace 成员、`QjsEngineBackend` 适配层、注�
 另一半没了，所以也一起摘除。**结论留在本文件里**——这是「证据可以退休、结论必须留档」
 的一个实例，两处代码里都写了指回这里的注释。
 
-`agenterm-wasmcore` **不动**：它的门 2 未绿（见 03），没有授权。
+~~`agenterm-wasmcore` **不动**：它的门 2 未绿（见 03），没有授权。~~
+**2026-08-28 作废并执行。** 政委重申「qjs 和 wasmcore 这两个 crate 都归档」，授权到位。
+门 2 到归档时也已不是阻塞——03 记的三次改写把它推到了「两扇门同名同形、同一份客人
+字节两边都跑」。
 
 **02 · ~~方法：接收者要怎么绑上去~~ —— 2026-08-28 已判决并落地，本条留档**
 

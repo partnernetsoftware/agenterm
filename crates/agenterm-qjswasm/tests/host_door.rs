@@ -328,8 +328,15 @@ fn check_and_execute_agree_that_an_unbindable_import_is_refused_at_load() {
 /// six-argument form; wasmtime, which can do either, could adopt the two-pass
 /// one.
 ///
-/// That makes gate 2's migration cost "rewrite wasmcore's door", not "rewrite
-/// the guest".
+/// That made gate 2's migration cost "rewrite wasmcore's door", not "rewrite
+/// the guest" -- and that is what happened, which is why the portable guest
+/// below exists and why the crate could be archived on 2026-08-28.
+///
+/// The test outlives the engine it was written against. What it pins is not a
+/// fact about wasmcore but a fact about **this** door: a six-argument
+/// `fleet_call` is refused, and the `&mut` reason above says it always will
+/// be. Any future host that wants to share guests with this one has to take
+/// the two-pass shape.
 #[test]
 fn a_wasmcore_shaped_guest_is_refused_for_its_door_signature_not_for_wasi() {
     let mut engine = Engine::new();
@@ -421,8 +428,12 @@ fn the_other_engines_portable_door_imports_load_here_unchanged() {
         .expect("the portable door is this door");
 }
 
-/// **The same bytes run here and at `agenterm-wasmcore`.** This is what PRD
-/// 02.36's archive gate 2 asks for, and it took three corrections to get here.
+/// **A guest written to nobody's engine in particular runs here.**
+///
+/// These bytes were built to answer PRD 02.36's archive gate 2: could one
+/// guest run unchanged on this engine *and* on `agenterm-wasmcore`? They did,
+/// which is part of why that crate could be archived on 2026-08-28 -- the door
+/// it defined was not lost with it. Getting there took three corrections.
 ///
 /// The blocker was first thought to be the entry name (`_start`), then the
 /// guest's `std`-ness and its WASI imports, then the two doors' differing
@@ -433,11 +444,12 @@ fn the_other_engines_portable_door_imports_load_here_unchanged() {
 /// `run_export` so a guest can return a number from a named function instead.
 ///
 /// The source below is `agenterm-wasmcore/tests/portable_door.rs`'s
-/// `PORTABLE_GUEST_WAT`, character for character. It is duplicated rather than
-/// imported because these two crates do not depend on each other -- that
-/// independence is the point of the door -- and
-/// `the_portable_guest_source_matches_wasmcores_character_for_character`
-/// is what keeps the copies honest.
+/// `PORTABLE_GUEST_WAT`, character for character as of the archival. A second
+/// test used to read that file and assert the two copies had not drifted;
+/// there is no second copy now, so the guarantee this test carries is weaker
+/// and worth naming: it pins that the door still accepts a guest written to
+/// the *portable* convention rather than to this engine's conveniences. If a
+/// third engine ever appears, that drift check comes back with it.
 const PORTABLE_GUEST_WAT: &str = r#"(module
     (import "agenterm" "fleet_call"
         (func $begin (param i32 i32 i32 i32) (result i32)))
@@ -462,7 +474,7 @@ const PORTABLE_GUEST_WAT: &str = r#"(module
 )"#;
 
 #[test]
-fn the_same_guest_bytes_run_here_and_at_wasmcore() {
+fn a_guest_written_to_the_portable_convention_runs_here() {
     let bytes = wat::parse_str(PORTABLE_GUEST_WAT).expect("valid wat");
     let bridge: FleetBridgeFn = Arc::new(|op: &str, params: &str| {
         assert_eq!(op, "demo.echo");
@@ -476,35 +488,7 @@ fn the_same_guest_bytes_run_here_and_at_wasmcore() {
     assert_eq!(
         out.values,
         vec![Value::I32(11)],
-        "the same guest returns the same answer at both engines; a negative \
-         names which of its own checks failed"
-    );
-}
-
-/// The two copies of the guest source must not drift.
-///
-/// A cross-crate constant would be better than a duplicate, but these crates
-/// deliberately do not depend on each other -- an engine that had to link the
-/// other to share a door would not have a door, it would have a coupling. So
-/// the copies are checked instead of shared.
-#[test]
-fn the_portable_guest_source_matches_wasmcores_character_for_character() {
-    let theirs = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("crates/")
-            .join("agenterm-wasmcore/tests/portable_door.rs"),
-    )
-    .expect("wasmcore's portable_door.rs is readable");
-    let start = theirs
-        .find("pub const PORTABLE_GUEST_WAT: &str = r#\"")
-        .expect("wasmcore still declares PORTABLE_GUEST_WAT");
-    let body = &theirs[start + "pub const PORTABLE_GUEST_WAT: &str = r#\"".len()..];
-    let end = body.find("\"#;").expect("the raw string is terminated");
-    assert_eq!(
-        &body[..end],
-        PORTABLE_GUEST_WAT,
-        "the two copies of the portable guest have drifted; one engine is now \
-         being tested with a guest the other never sees"
+        "the portable guest returns the length of the bridge's reply; a \
+         negative names which of its own checks failed"
     );
 }

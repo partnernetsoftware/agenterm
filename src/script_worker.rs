@@ -633,7 +633,7 @@ fn execute_inner(
         });
 
     // A backend this build did not compile in used to fall through to rh,
-    // so `AGENTERM_SCRIPT_BACKEND=wasmcore` on a build without that feature
+    // so `AGENTERM_SCRIPT_BACKEND=wasmcore` -- a name no build serves now --
     // ran the guest's bytes through rh's transpiler and reported rh's error.
     // The same swallowed a typo. Neither is a backend choice the product can
     // honour, and answering with a different language's diagnostic sends the
@@ -709,20 +709,6 @@ fn execute_inner(
         );
     }
 
-    // wasmcore backend: enabled via AGENTERM_SCRIPT_BACKEND=wasmcore or `.wasm` entry.
-    #[cfg(all(not(test), feature = "script-wasmcore"))]
-    {
-        let engine = crate::script_engine::WasmcoreEngineBackend::default();
-        if engine.enabled() {
-            return dispatch_via_engine(
-                &engine,
-                invocation.operation,
-                &invocation.source,
-                &options,
-                fleet_bridge,
-            );
-        }
-    }
 
     // qjswasm backend: enabled via AGENTERM_SCRIPT_BACKEND=qjswasm or a `.qjs`
     // entry. This arm is the second dispatch site for the backend list --
@@ -744,7 +730,7 @@ fn execute_inner(
 
     Err(configuration_error(
         "script_backend_unavailable",
-        "no script backend handled this invocation; set AGENTERM_SCRIPT_BACKEND to rh, lua, qjs, qjswasm, sql, or wasmcore with matching source",
+        "no script backend handled this invocation; set AGENTERM_SCRIPT_BACKEND to rh, lua, qjs, qjswasm, or sql with matching source",
     ))
 }
 

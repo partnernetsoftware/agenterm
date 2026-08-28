@@ -30,12 +30,11 @@ pub enum ScriptBackend {
     Lua,
     #[cfg(feature = "script-sql")]
     Sql,
-    #[cfg(feature = "script-wasmcore")]
-    Wasmcore,
     /// AgenTerm's own engine: `.qjs` compiled to `.wasm` in pure Rust, both run
-    /// on tinyvm with no JIT. Distinct from `Wasmcore` (wasmtime + WASI p1,
-    /// JIT): a different trust model and a different capability set, so it
-    /// never silently takes another's route.
+    /// on tinyvm with no JIT. It is the only engine left that runs wasm: the
+    /// wasmtime + WASI p1 one, `Wasmcore`, was archived on 2026-08-28 together
+    /// with its crate, and `.wasm` routes here now. That trade is deliberate
+    /// and priced -- see `prd/PRD_02_36_agenterm_qjswasm.md`.
     ///
     /// It is also what `qjs` now names. The rquickjs engine that used to
     /// answer to that name was archived once it had been replaced -- the
@@ -76,12 +75,18 @@ impl ScriptBackend {
             "lua" => Some(Self::Lua),
             #[cfg(feature = "script-sql")]
             "sql" => Some(Self::Sql),
-            #[cfg(feature = "script-wasmcore")]
-            "wasmcore" | "wasm" => Some(Self::Wasmcore),
-            // `qjs` is a **deprecated spelling of `qjswasm`**, and the third
-            // alias pair in this match rather than a new mechanism -- `rh`
-            // takes `rhai` and `wasmcore` takes `wasm` for the same reason a
-            // name outlives the thing it first named.
+            // `qjs` is a **deprecated spelling of `qjswasm`**, an alias pair
+            // in this match rather than a new mechanism -- `rh` takes `rhai`
+            // for the same reason a name outlives the thing it first named.
+            //
+            // `wasm` and `wasmcore` get **no arm**, and that asymmetry is
+            // deliberate. They named `agenterm-wasmcore` (wasmtime + WASI p1,
+            // Cranelift JIT) until it was archived on 2026-08-28. qjswasm is
+            // not a stand-in for it: it takes script *text* and compiles it,
+            // where those names took a *path* to an already-built module, so
+            // aliasing them here would hand a `.wasm` file to a `.qjs`
+            // compiler. They stay in `ALL_BACKEND_NAMES` and are answered
+            // with an honest "compiled out", never silently served.
             //
             // It used to select `agenterm-qjs`, the rquickjs engine. That
             // engine is being retired (PRD 02.36 archive gate), and the two
@@ -149,8 +154,6 @@ impl ScriptBackend {
             Self::Lua => "lua",
             #[cfg(feature = "script-sql")]
             Self::Sql => "sql",
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore => "wasmcore",
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm => "qjswasm",
         }
@@ -159,14 +162,20 @@ impl ScriptBackend {
     /// Select backend from task entry file extension.
     ///
     /// `.qjs` is the QuickJS-family extension for agenterm's own engine, named
-    /// so that it is not confused with Node/Bun `.js`. Note what this function
-    /// deliberately does NOT do: `.js`/`.mjs` keep routing to `Qjs` (rquickjs)
-    /// and `.wasm` keeps routing to `Wasmcore` (wasmtime + WASI p1). Those two
-    /// offer capabilities qjswasm does not — a full modern-JS surface and a
-    /// full POSIX surface respectively — so silently rerouting them would make
-    /// an existing guest lose `fd_write`, or an existing script stop compiling.
-    /// Taking those routes is an explicit `AGENTERM_SCRIPT_BACKEND=qjswasm`
-    /// decision, and retiring `agenterm-qjs` is gated separately (PRD 36).
+    /// so that it is not confused with Node/Bun `.js`.
+    ///
+    /// Note what this deliberately does NOT do: **`.wasm` routes nowhere.** It
+    /// reached `Wasmcore` (wasmtime + WASI p1) until that crate was archived
+    /// on 2026-08-28, and the tempting move was to point it at qjswasm, the
+    /// one engine left that runs wasm. That would be wrong: this verb reads
+    /// the entry file as UTF-8 script *text*, and qjswasm's input shape is
+    /// `.qjs` source it compiles itself -- so a `.wasm` file would arrive at a
+    /// compiler as if it were a program's text. Instead it falls through, the
+    /// read fails as "not UTF-8", and `non_text_script_hint` says why in a
+    /// sentence naming `.wasm` specifically. Loud beats convenient here.
+    /// `.js`/`.mjs` route nowhere for the neighbouring reason: qjswasm's
+    /// language is a growing subset, so a Node-shaped script must ask for it
+    /// by name and fail loudly if it does not fit.
     pub fn from_entry_path(path: &str) -> Self {
         #[cfg(feature = "script-lua")]
         if path.ends_with(".lua") {
@@ -175,10 +184,6 @@ impl ScriptBackend {
         #[cfg(feature = "script-sql")]
         if path.ends_with(".sql") {
             return Self::Sql;
-        }
-        #[cfg(feature = "script-wasmcore")]
-        if path.ends_with(".wasm") {
-            return Self::Wasmcore;
         }
         #[cfg(feature = "script-qjswasm")]
         if path.ends_with(".qjs") {
@@ -532,8 +537,8 @@ mod tests {
     /// It selected `agenterm-qjs` until 2026-08-26, when PRD 02.36's archive
     /// gate 2 moved the three production call sites off that engine; that
     /// crate was removed once all three gates were green. The name keeps
-    /// working -- the third alias pair in `from_name`, beside `rh`/`rhai` and
-    /// `wasmcore`/`wasm` -- so no existing invocation breaks on the removal.
+    /// working -- an alias pair in `from_name`, beside `rh`/`rhai` and
+    /// `wasm`/`qjswasm` -- so no existing invocation breaks on the removal.
     ///
     /// This is the test that says an old invocation still runs, which is the
     /// whole reason the spelling was kept rather than retired with the crate.
@@ -631,59 +636,44 @@ mod tests {
         assert_eq!(ScriptBackend::Sql.as_str(), "sql");
     }
 
-    #[cfg(feature = "script-wasmcore")]
+    /// The archived engine's two names stay **known but unserved**, and that
+    /// is the whole job of `ALL_BACKEND_NAMES`.
+    ///
+    /// `wasm` and `wasmcore` selected `agenterm-wasmcore` (wasmtime + WASI p1,
+    /// Cranelift JIT) until it was archived on 2026-08-28. The tempting move
+    /// was to alias them onto qjswasm, the one engine left that runs wasm --
+    /// and it would have been a silent substitution of a different thing: an
+    /// interpreter with no POSIX surface, reached through a door that takes
+    /// script text where these names took a path to a built module.
+    ///
+    /// So they resolve to `None`, which `unservable_request` turns into an
+    /// honest "compiled out" rather than the rh fallback that a name absent
+    /// from this list would get. A request for one language is never answered
+    /// by another's transpiler -- the failure this list was added to stop.
     #[test]
-    fn wasmcore_backend_from_env() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let prior = std::env::var("AGENTERM_SCRIPT_BACKEND").ok();
-        unsafe {
-            std::env::set_var("AGENTERM_SCRIPT_BACKEND", "wasmcore");
-        }
-        assert_eq!(ScriptBackend::from_env(), ScriptBackend::Wasmcore);
-
-        match prior {
-            Some(value) => unsafe {
-                std::env::set_var("AGENTERM_SCRIPT_BACKEND", value);
-            },
-            None => unsafe {
-                std::env::remove_var("AGENTERM_SCRIPT_BACKEND");
-            },
+    fn the_archived_engines_names_are_refused_rather_than_substituted() {
+        for name in ["wasm", "wasmcore"] {
+            assert!(
+                ScriptBackend::ALL_BACKEND_NAMES.contains(&name),
+                "{name} must stay known so it is not mistaken for a typo"
+            );
+            assert_eq!(
+                ScriptBackend::from_name(name),
+                None,
+                "{name} must not be silently served by another engine"
+            );
         }
     }
 
-    #[cfg(feature = "script-wasmcore")]
+    /// `.wasm` falls through rather than landing on qjswasm.
     #[test]
-    fn wasmcore_backend_from_env_alias_wasm() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let prior = std::env::var("AGENTERM_SCRIPT_BACKEND").ok();
-        unsafe {
-            std::env::set_var("AGENTERM_SCRIPT_BACKEND", "wasm");
-        }
-        assert_eq!(ScriptBackend::from_env(), ScriptBackend::Wasmcore);
-
-        match prior {
-            Some(value) => unsafe {
-                std::env::set_var("AGENTERM_SCRIPT_BACKEND", value);
-            },
-            None => unsafe {
-                std::env::remove_var("AGENTERM_SCRIPT_BACKEND");
-            },
-        }
-    }
-
-    #[cfg(feature = "script-wasmcore")]
-    #[test]
-    fn wasmcore_backend_from_entry_path() {
+    fn a_wasm_entry_path_routes_nowhere_now_that_its_engine_is_archived() {
         assert_eq!(
             ScriptBackend::from_entry_path("scripts/wasm/test.wasm"),
-            ScriptBackend::Wasmcore
+            ScriptBackend::Rh,
+            "handing a built module to a source compiler would be worse than \
+             the loud not-UTF-8 failure this produces"
         );
         assert_eq!(ScriptBackend::from_entry_path("test.rh"), ScriptBackend::Rh);
-    }
-
-    #[cfg(feature = "script-wasmcore")]
-    #[test]
-    fn wasmcore_backend_as_str() {
-        assert_eq!(ScriptBackend::Wasmcore.as_str(), "wasmcore");
     }
 }

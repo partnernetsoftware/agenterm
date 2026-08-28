@@ -693,154 +693,14 @@ impl ScriptEngineBackend for SqlEngineBackend {
     }
 }
 
-/// wasmcore engine adapter. Loads a `.wasm` file (source is the file path),
-/// JIT-compiles it via Cranelift, and runs it with the shared fleet bridge.
-///
-/// `check` validates the WASM binary via `wasmtime::Module::validate_binary`;
-/// `execute` calls `WasmCoreHost::run_module` with a `WasmFleetBridgeFn`
-/// passthrough (identical shape to `ScriptFleetBridgeFn` — zero-cost re-wrap).
-#[cfg(feature = "script-wasmcore")]
-pub struct WasmcoreEngineBackend {
-    host: agenterm_wasmcore::WasmCoreHost,
-}
-
-#[cfg(feature = "script-wasmcore")]
-impl Default for WasmcoreEngineBackend {
-    fn default() -> Self {
-        Self {
-            host: agenterm_wasmcore::WasmCoreHost::new(),
-        }
-    }
-}
-
-#[cfg(feature = "script-wasmcore")]
-impl ScriptEngineBackend for WasmcoreEngineBackend {
-    fn backend_id(&self) -> ScriptBackend {
-        ScriptBackend::Wasmcore
-    }
-
-    fn entry_extensions(&self) -> &'static [&'static str] {
-        &["wasm"]
-    }
-
-    fn identity(&self) -> String {
-        format!("agenterm-wasmcore {}", env!("CARGO_PKG_VERSION"))
-    }
-
-    /// `None` to build: this engine's input already *is* the artifact. There
-    /// is nothing to compile, and a `pack build` that copied the file would be
-    /// `cp` wearing a verb.
-    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
-        None
-    }
-
-    /// **Yes to load**, and this is the method wasmcore should have had all
-    /// along: `run_module_from_bytes` exists and takes exactly this. Its
-    /// `execute` reaches the same engine through a *path* instead, which is
-    /// the wart [`Self::source_is_a_path`] names -- a caller who comes through
-    /// here never needs it.
-    fn execute_artifact(
-        &self,
-        artifact: &[u8],
-        _options: &ScriptInvocationOptions,
-        fleet_bridge: Option<ScriptFleetBridgeFn>,
-    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
-        let bridge: Option<agenterm_wasmcore::WasmFleetBridgeFn> = fleet_bridge;
-        Some(
-            agenterm_wasmcore::WasmCoreHost::run_module_from_bytes(&self.host, artifact, bridge)
-                .map(|result| ScriptInvocationResult {
-                    stdout: result.stdout,
-                    value: None,
-                    cost: None,
-                })
-                .map_err(|e| format!("wasm execution: {e}")),
-        )
-    }
-
-    /// **True, and this is the wart.** `WasmcoreEngineBackend::check` does
-    /// `std::fs::read(source)`: it takes a path where the trait says program
-    /// text. It is answered honestly rather than hidden because the CLI has
-    /// to know, and a hidden one is what let the extension-keyed branch hand
-    /// paths to four other engines.
-    ///
-    /// Fixing it means a byte-carrying face -- the `&str` cannot hold a
-    /// module -- which is the same missing face `pack`/`qualify` need. Until
-    /// that exists, `true` is the truth.
-    fn source_is_a_path(&self) -> bool {
-        true
-    }
-
-    /// `None`. This engine's input *is* the artifact -- hashing it would hand
-    /// the caller a digest of the file they just named, which `sha256sum` does
-    /// without an engine.
-    fn artifact_hash(&self, _source: &str) -> Option<Result<(String, &'static str), String>> {
-        None
-    }
-
-    /// `None`, for the reason this engine has no `eval` either: its input is
-    /// a `.wasm` module. "Check this file as text" has no meaning here -- the
-    /// question a corpus of modules answers is the load gate, which takes
-    /// bytes, and calling that a corpus scan would put two different
-    /// questions under one verb.
-    fn corpus_scan(
-        &self,
-        _dir: &std::path::Path,
-    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
-        None
-    }
-
-    /// **None.** This engine's source is a `.wasm` module, and there is no
-    /// text an expression could be wrapped in that would become one -- it has
-    /// no compiler. Refusing by name is the only honest answer; the
-    /// alternative is what this verb used to do, which was hand it rh source
-    /// and let the module loader complain about the bytes.
-    fn eval_entry_source(&self, _expression: &str) -> Option<String> {
-        None
-    }
-
-    fn check(
-        &self,
-        source: &str,
-        _options: &ScriptInvocationOptions,
-    ) -> Result<(), ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
-
-        let wasm_bytes =
-            std::fs::read(source).map_err(|e| format!("reading wasm file {source}: {e}"))?;
-        agenterm_wasmcore::WasmCoreHost::validate_binary(&self.host, &wasm_bytes)
-            .map_err(|e| format!("wasm validation: {e}"))
-    }
-
-    fn execute(
-        &self,
-        source: &str,
-        _options: &ScriptInvocationOptions,
-        fleet_bridge: Option<ScriptFleetBridgeFn>,
-    ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-        if !self.enabled() {
-            return Err(not_enabled_error(self.backend_id()));
-        }
-
-        let wasm_bridge: Option<agenterm_wasmcore::WasmFleetBridgeFn> =
-            fleet_bridge.map(|bridge| {
-                let arc: agenterm_wasmcore::WasmFleetBridgeFn = bridge;
-                arc
-            });
-
-        let result = self
-            .host
-            .run_module(source, wasm_bridge)
-            .map_err(|e| format!("wasm execution: {e}"))?;
-
-        Ok(ScriptInvocationResult {
-            stdout: result.stdout,
-            value: None,
-            cost: None,
-        })
-    }
-}
+// `WasmcoreEngineBackend` lived here: a `.wasm` adapter over wasmtime that
+// JIT-compiled the guest and ran it with the shared fleet bridge. It went with
+// `agenterm-wasmcore` on 2026-08-28. `.wasm` is `qjswasm`'s to run now -- on
+// tinyvm, interpreted, with the per-call budgets and slot isolation the
+// wasmtime path never had. What that trade costs on compute-heavy work was
+// measured before the removal and is recorded in
+// `prd/PRD_02_36_agenterm_qjswasm.md`, as an input to tinyvm's native-lowering
+// track rather than as a regret.
 
 // ---------------------------------------------------------------------
 // §2.5 — qjswasm: agenterm's own engine (tinyvm core, no JIT)
@@ -1107,8 +967,6 @@ pub enum ScriptEngine {
     Lua(LuaEngineBackend),
     #[cfg(feature = "script-sql")]
     Sql(SqlEngineBackend),
-    #[cfg(feature = "script-wasmcore")]
-    Wasmcore(WasmcoreEngineBackend),
     #[cfg(feature = "script-qjswasm")]
     Qjswasm(QjswasmEngineBackend),
 }
@@ -1121,8 +979,6 @@ impl ScriptEngine {
         engines.push(Self::Lua(LuaEngineBackend));
         #[cfg(feature = "script-sql")]
         engines.push(Self::Sql(SqlEngineBackend));
-        #[cfg(feature = "script-wasmcore")]
-        engines.push(Self::Wasmcore(WasmcoreEngineBackend::default()));
         #[cfg(feature = "script-qjswasm")]
         engines.push(Self::Qjswasm(QjswasmEngineBackend));
         engines
@@ -1136,8 +992,6 @@ impl ScriptEngine {
             ScriptBackend::Lua => Self::Lua(LuaEngineBackend),
             #[cfg(feature = "script-sql")]
             ScriptBackend::Sql => Self::Sql(SqlEngineBackend),
-            #[cfg(feature = "script-wasmcore")]
-            ScriptBackend::Wasmcore => Self::Wasmcore(WasmcoreEngineBackend::default()),
             #[cfg(feature = "script-qjswasm")]
             ScriptBackend::Qjswasm => Self::Qjswasm(QjswasmEngineBackend),
         }
@@ -1158,8 +1012,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.backend_id(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.backend_id(),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.backend_id(),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.backend_id(),
         }
@@ -1172,8 +1024,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.entry_extensions(),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.entry_extensions(),
         }
@@ -1186,8 +1036,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.eval_entry_source(expression),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.eval_entry_source(expression),
         }
@@ -1200,8 +1048,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.identity(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.identity(),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.identity(),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.identity(),
         }
@@ -1217,8 +1063,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.corpus_scan(dir),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.corpus_scan(dir),
         }
@@ -1231,8 +1075,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.artifact_hash(source),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.artifact_hash(source),
         }
@@ -1245,8 +1087,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.source_is_a_path(),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.source_is_a_path(),
         }
@@ -1264,8 +1104,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
         }
@@ -1278,8 +1116,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.pack_artifact(source),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.pack_artifact(source),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.pack_artifact(source),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.pack_artifact(source),
         }
@@ -1296,8 +1132,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.check(source, options),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.check(source, options),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.check(source, options),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.check(source, options),
         }
@@ -1315,8 +1149,6 @@ impl ScriptEngineBackend for ScriptEngine {
             Self::Lua(backend) => backend.execute(source, options, fleet_bridge),
             #[cfg(feature = "script-sql")]
             Self::Sql(backend) => backend.execute(source, options, fleet_bridge),
-            #[cfg(feature = "script-wasmcore")]
-            Self::Wasmcore(backend) => backend.execute(source, options, fleet_bridge),
             #[cfg(feature = "script-qjswasm")]
             Self::Qjswasm(backend) => backend.execute(source, options, fleet_bridge),
         }
@@ -1842,8 +1674,6 @@ mod tests {
         expected.push(ScriptBackend::Lua);
         #[cfg(feature = "script-sql")]
         expected.push(ScriptBackend::Sql);
-        #[cfg(feature = "script-wasmcore")]
-        expected.push(ScriptBackend::Wasmcore);
         // Must match `ScriptEngine::all`'s own push order. This arm was missing
         // until 2026-08-25, so the test failed under `--features
         // script-qjswasm` -- an enumeration test that does not enumerate the

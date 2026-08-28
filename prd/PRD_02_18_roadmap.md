@@ -718,7 +718,8 @@ track remains planned, but every declared dependency must still pass.
   Resume after Grok Bot Cursor quota resets: harden leftovers, pointer-buffer
   Linux probes, paired examples. No cu/platform/JIT unless 政委 orders it.
 - [~] `agenterm-tinyvm` — **已迁出**到独立仓 `partnernetsoftware/tinyvm`（本地 `../tinyvm`）。WASM 1.0 interpret slot A；核 < 100 KiB。agenterm 只作下游 embedder，不再持有其写刀。
-- [ ] (待派单) **wasm/qjs 引擎重构为依赖 tinyvm** — 把 agenterm 内 `agenterm-wasmcore` / `agenterm-qjs` 的处理改为基于独立 tinyvm 运行时（依赖方向 agenterm → tinyvm）。**2026-08-23 记录，等另行下单再动工**；下单前不写代码、不改 Cargo 依赖。关联：tinyvm 独立仓 PRD、`plan/plan-v0.1.16.md` 脚本引擎小节。
+- [x] **wasm/qjs 引擎重构为依赖 tinyvm** — 2026-08-28 结清：两个旧 crate 都已归档，`agenterm-qjswasm` + tinyvm 是唯一一条。原文留档：
+- [ ] ~~(待派单) **wasm/qjs 引擎重构为依赖 tinyvm**~~ — 把 agenterm 内 `agenterm-wasmcore` / `agenterm-qjs` 的处理改为基于独立 tinyvm 运行时（依赖方向 agenterm → tinyvm）。**2026-08-23 记录，等另行下单再动工**；下单前不写代码、不改 Cargo 依赖。关联：tinyvm 独立仓 PRD、`plan/plan-v0.1.16.md` 脚本引擎小节。
   **本条已于 2026-08-25 全部结清，不再等派单。** 2026-08-24 立
   [`agenterm-qjswasm`](PRD_02_36_agenterm_qjswasm.md)（PRD 36）：在 tinyvm 上自研脚本引擎，
   `.qjs` 用纯 Rust 编译成 `.wasm`，**取代 `agenterm-qjs`**（rquickjs 外链，归档门见该文档）。
