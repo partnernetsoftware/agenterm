@@ -28,8 +28,8 @@ agenterm-script-common = { path = "../agenterm-script-common" }
 # vocabulary, so the layering rule governs: generic engine capability upstream,
 # business here. This crate keeps the half that is business -- the `agenterm.*`
 # door, slots, budget policy -- and re-exports the compiler's face.
-tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "4753719" }
-tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "4753719" }
+tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "e6a58b0" }
+tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "e6a58b0" }
 
 [dev-dependencies]
 # The shared corpus-scan contract: the scenarios every engine's scanner has to
