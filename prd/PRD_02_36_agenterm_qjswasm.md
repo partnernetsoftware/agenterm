@@ -1132,7 +1132,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ **`c357b56`**（三个字符串方法，当前 pin，2026-08-29）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ **`4753719`**（`split`，当前 pin，2026-08-29）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。
@@ -1222,7 +1222,9 @@ agenterm-qjswasm                                        [~]
 │   ├── includes · startsWith · endsWith                     [x] rev c357b56，需求普查前两名
 │   │   ├── 字节层比较，对 é / 😀 这类多字节字符精确         [x] UTF-8 自同步，是性质不是假设
 │   │   └── includes 不经由 indexOf：320 vs 440 字节         [x] 布尔值没有位置要报告
-│   └── split · toUpperCase · toLowerCase                    [ ] 下一批，大小写要先量成本
+│   ├── split（非空分隔符）                                  [x] rev 4753719，426 字节
+│   │   └── split("") **trap**：孤立代理 UTF-8 表示不了       [具名] 表示层禁止，不是未实现
+│   └── toUpperCase · toLowerCase                            [ ] 要先量成本再决定，见 tinyvm PRD
 │   ├── 循环里每轮是一个新绑定（14.3.1 / 13.7.4.7）          [x] rev 0afc88a
 │   ├── `for … of` 遍历数组（13.7.5）                        [x] rev 84f8161，需求第一
 │   ├── 模块：`import * as` + `export`（16.2）               [x] rev 8bbdf2d，需求第二
