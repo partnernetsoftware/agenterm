@@ -73,6 +73,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tinyvm::{Val, WasmError};
@@ -96,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 29] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 30] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -122,6 +123,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 29] = [
     ("process.kill", 1, 1),
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
+    ("process.read", 2, 1),
     ("fs.symlink_metadata", 2, 1),
     ("process.status", 2, 1),
     ("result_len", 0, 1),
@@ -219,6 +221,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
         decl("process.wait", vec![HostParam::I32, HostParam::I32], HostResult::I32),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
+        decl("process.read", vec![HostParam::I32, HostParam::I32], HostResult::I32),
         // `symlink_metadata` does not follow the link, so `is_symlink` is
         // answerable -- rh's gates use it to refuse a manifest that is a link.
         // `process.status` is `command` without capture: exit code only, for
@@ -262,8 +265,87 @@ pub(crate) struct ToolState {
 /// already reaped, and `complete` re-waits every owned handle -- wave 2 met
 /// "handle N was already waited" in every group that waits its own server.
 enum Handle {
-    Running(std::process::Child),
+    Running(Running),
     Done { pid: u32, answer: Result<String, String> },
+}
+
+/// A child that has not been waited: its drains run from the moment it is
+/// spawned, so `process.read` can hand out what has arrived so far and a
+/// chatty long-lived server never blocks on a full pipe. `timeout_ms` from
+/// the spec is a deadline `process.state`, `process.read` and `process.wait`
+/// all enforce -- rh gave `.start()` children a 15/22 s cap and wave 2 found
+/// the door ignored it.
+struct Running {
+    child: std::process::Child,
+    drains: Drains,
+    started: Instant,
+    deadline: Option<Duration>,
+    killed_by_deadline: bool,
+    read_stdout: usize,
+    read_stderr: usize,
+}
+
+impl Running {
+    /// Kill the child once its deadline has passed; true if it did.
+    fn enforce_deadline(&mut self) -> bool {
+        if !self.killed_by_deadline && self.deadline.is_some_and(|d| self.started.elapsed() >= d) {
+            let _ = self.child.kill();
+            // Reap it now, so the very next `try_wait` sees the exit rather
+            // than a SIGKILLed process the kernel has not yet collected.
+            let _ = self.child.wait();
+            self.killed_by_deadline = true;
+        }
+        self.killed_by_deadline
+    }
+}
+
+/// The two capture buffers a child's pipes drain into, from spawn on.
+struct Drains {
+    stdout: Option<Arc<Mutex<Vec<u8>>>>,
+    stderr: Option<Arc<Mutex<Vec<u8>>>>,
+}
+
+impl Drains {
+    fn start(child: &mut std::process::Child, max_capture: usize) -> Self {
+        fn drain<R: std::io::Read + Send + 'static>(
+            pipe: Option<R>,
+            max_capture: usize,
+        ) -> Option<Arc<Mutex<Vec<u8>>>> {
+            pipe.map(|mut pipe| {
+                let buf = Arc::new(Mutex::new(Vec::new()));
+                let sink = Arc::clone(&buf);
+                std::thread::spawn(move || {
+                    let mut chunk = [0u8; 4096];
+                    let mut total = 0usize;
+                    while let Ok(n) = pipe.read(&mut chunk) {
+                        if n == 0 {
+                            break;
+                        }
+                        let take = n.min(max_capture.saturating_sub(total));
+                        if take > 0 {
+                            if let Ok(mut b) = sink.lock() {
+                                b.extend_from_slice(&chunk[..take]);
+                            }
+                            total += take;
+                        }
+                    }
+                });
+                buf
+            })
+        }
+        Self {
+            stdout: drain(child.stdout.take(), max_capture),
+            stderr: drain(child.stderr.take(), max_capture),
+        }
+    }
+
+    /// Bytes from `from` onward, as text; and where the buffer ends now.
+    fn since(buf: &Option<Arc<Mutex<Vec<u8>>>>, from: usize) -> (String, usize) {
+        let Some(buf) = buf else { return (String::new(), from) };
+        let b = buf.lock().map(|b| b.clone()).unwrap_or_default();
+        let end = b.len().max(from);
+        (String::from_utf8_lossy(&b[from.min(b.len())..]).into_owned(), end)
+    }
 }
 
 impl Drop for ToolState {
@@ -272,9 +354,9 @@ impl Drop for ToolState {
     /// the door has to make that true rather than trust every script to.
     fn drop(&mut self) {
         for handle in &mut self.children {
-            if let Handle::Running(child) = handle {
-                let _ = child.kill();
-                let _ = child.wait();
+            if let Handle::Running(r) = handle {
+                let _ = r.child.kill();
+                let _ = r.child.wait();
             }
         }
     }
@@ -546,9 +628,18 @@ pub(crate) fn install(
         direct(&state, "process.spawn", || {
             let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                 .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
-            let child = spawn_command(&spec, true)?;
+            let mut child = spawn_command(&spec, true)?;
+            let drains = Drains::start(&mut child, max_capture);
             let mut s = state.borrow_mut();
-            s.children.push(Handle::Running(child));
+            s.children.push(Handle::Running(Running {
+                child,
+                drains,
+                started: Instant::now(),
+                deadline: spec.timeout_ms.map(Duration::from_millis),
+                killed_by_deadline: false,
+                read_stdout: 0,
+                read_stderr: 0,
+            }));
             i32::try_from(s.children.len() - 1).map_err(|_| "process.spawn: too many children".to_string())
         })
     })?;
@@ -560,11 +651,14 @@ pub(crate) fn install(
             let mut s = state.borrow_mut();
             let slot = usize::try_from(h).ok().and_then(|i| s.children.get_mut(i));
             Ok(match slot {
-                Some(Handle::Running(child)) => match child.try_wait() {
-                    Ok(Some(_)) => "exited",
-                    Ok(None) => "running",
-                    Err(_) => "unknown",
-                },
+                Some(Handle::Running(r)) => {
+                    r.enforce_deadline();
+                    match r.child.try_wait() {
+                        Ok(Some(_)) => "exited",
+                        Ok(None) => "running",
+                        Err(_) => "unknown",
+                    }
+                }
                 Some(Handle::Done { .. }) => "exited",
                 None => return Err(format!("process.state: no child with handle {h}")),
             }
@@ -578,7 +672,7 @@ pub(crate) fn install(
         direct(&state, "process.kill", || {
             let mut s = state.borrow_mut();
             match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
-                Some(Handle::Running(child)) => { let _ = child.kill(); Ok(0) }
+                Some(Handle::Running(r)) => { let _ = r.child.kill(); Ok(0) }
                 Some(Handle::Done { .. }) => Ok(0),
                 None => Err(format!("process.kill: no child with handle {h}")),
             }
@@ -586,7 +680,6 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    let max_capture = budget.max_bridge_result_bytes;
     bind(module, DOOR, "process.wait", move |args, _memory| {
         let h = arg(args, 0)?;
         let timeout_ms = arg(args, 1)?;
@@ -601,21 +694,28 @@ pub(crate) fn install(
                     .ok_or_else(|| format!("process.wait: no child with handle {h}"))?;
                 match slot {
                     Handle::Done { answer, .. } => return answer.clone(),
-                    Handle::Running(child) => {
-                        let pid = child.id();
+                    Handle::Running(r) => {
+                        let pid = r.child.id();
                         let taken = std::mem::replace(
                             slot,
                             Handle::Done { pid, answer: Err(format!("process.wait: handle {h} is being waited")) },
                         );
                         match taken {
-                            Handle::Running(child) => child,
+                            Handle::Running(r) => r,
                             Handle::Done { .. } => unreachable!("just matched Running"),
                         }
                     }
                 }
             };
+            // The wait's own timeout, capped by whatever is left of the
+            // spawn deadline.
             let timeout = u64::try_from(timeout_ms).ok().map(Duration::from_millis);
-            let answer = wait_child(child, timeout, max_capture);
+            let remaining = child.deadline.map(|d| d.saturating_sub(child.started.elapsed()));
+            let timeout = match (timeout, remaining) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            let answer = finish_child(child, timeout);
             {
                 let mut s = state.borrow_mut();
                 if let Some(Handle::Done { answer: kept, .. }) = index.and_then(|i| s.children.get_mut(i)) {
@@ -636,9 +736,48 @@ pub(crate) fn install(
         direct(&state, "process.pid", || {
             let s = state.borrow();
             match usize::try_from(h).ok().and_then(|i| s.children.get(i)) {
-                Some(Handle::Running(child)) => Ok(i32::try_from(child.id()).unwrap_or(i32::MAX)),
+                Some(Handle::Running(r)) => Ok(i32::try_from(r.child.id()).unwrap_or(i32::MAX)),
                 Some(Handle::Done { pid, .. }) => Ok(i32::try_from(*pid).unwrap_or(i32::MAX)),
                 None => Err(format!("process.pid: no child with handle {h}")),
+            }
+        })
+    })?;
+
+    // `process.read(handle, max_bytes)`: what the child has written since
+    // the last read, without waiting -- rh's `child.stdout.read(4096, 2s)`,
+    // minus the blocking (a script polls with `time_sleep_ms`). The
+    // answer is JSON `{stdout, stderr, state}`; `process.wait` still answers
+    // the whole capture.
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.read", move |args, _memory| {
+        let h = arg(args, 0)?;
+        let max_bytes = usize::try_from(arg(args, 1)?).unwrap_or(usize::MAX);
+        answer(&state, "process.read", || {
+            let mut s = state.borrow_mut();
+            match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
+                Some(Handle::Running(r)) => {
+                    r.enforce_deadline();
+                    let (mut out, end_out) = Drains::since(&r.drains.stdout, r.read_stdout);
+                    let (mut err, end_err) = Drains::since(&r.drains.stderr, r.read_stderr);
+                    // Hand out at most `max_bytes` of each, on char boundaries.
+                    let cut = |t: &mut String, from: usize| -> usize {
+                        if t.len() <= max_bytes { return from + t.len(); }
+                        let mut at = max_bytes;
+                        while !t.is_char_boundary(at) { at -= 1; }
+                        t.truncate(at);
+                        from + at
+                    };
+                    r.read_stdout = cut(&mut out, r.read_stdout).min(end_out);
+                    r.read_stderr = cut(&mut err, r.read_stderr).min(end_err);
+                    let state_text = match r.child.try_wait() {
+                        Ok(Some(_)) => "exited",
+                        Ok(None) => "running",
+                        Err(_) => "unknown",
+                    };
+                    Ok(serde_json::json!({ "stdout": out, "stderr": err, "state": state_text }).to_string())
+                }
+                Some(Handle::Done { .. }) => Ok(serde_json::json!({ "stdout": "", "stderr": "", "state": "exited" }).to_string()),
+                None => Err(format!("process.read: no child with handle {h}")),
             }
         })
     })?;
@@ -903,41 +1042,30 @@ fn wait_child(
     timeout: Option<Duration>,
     max_capture: usize,
 ) -> Result<String, String> {
-    use std::sync::{Arc, Mutex};
-    // Each stream drains into a shared buffer rather than a thread-owned one,
-    // so what has arrived is readable at the deadline even while the pipe is
-    // still open. EOF needs every holder of the write end to close it, and a
-    // grandchild (`sh -c "…; sleep 30"`) keeps it open after the child is
-    // dead; a thread-owned buffer would then be unreachable until `sleep`
-    // exited, which is what made the first cut of this take thirty seconds
-    // to report a one-word `echo`.
-    fn drain<R: std::io::Read + Send + 'static>(
-        pipe: Option<R>,
-        max_capture: usize,
-    ) -> Option<Arc<Mutex<Vec<u8>>>> {
-        pipe.map(|mut pipe| {
-            let buf = Arc::new(Mutex::new(Vec::new()));
-            let sink = Arc::clone(&buf);
-            std::thread::spawn(move || {
-                let mut chunk = [0u8; 4096];
-                let mut total = 0usize;
-                while let Ok(n) = pipe.read(&mut chunk) {
-                    if n == 0 { break; }
-                    let take = n.min(max_capture.saturating_sub(total));
-                    if take > 0 {
-                        if let Ok(mut b) = sink.lock() { b.extend_from_slice(&chunk[..take]); }
-                        total += take;
-                    }
-                }
-            });
-            buf
-        })
-    }
-    let stdout = drain(child.stdout.take(), max_capture);
-    let stderr = drain(child.stderr.take(), max_capture);
+    let drains = Drains::start(&mut child, max_capture);
+    finish_child(
+        Running {
+            child,
+            drains,
+            started: Instant::now(),
+            deadline: None,
+            killed_by_deadline: false,
+            read_stdout: 0,
+            read_stderr: 0,
+        },
+        timeout,
+    )
+}
 
+/// Wait for a running child (its drains already going), within `timeout`
+/// of *now*; the whole capture comes back, whatever `process.read` handed
+/// out before. A child the spawn deadline already killed reports
+/// `timed_out`.
+fn finish_child(mut running: Running, timeout: Option<Duration>) -> Result<String, String> {
+    let (stdout, stderr) = (running.drains.stdout.take(), running.drains.stderr.take());
+    let mut child = running.child;
+    let mut timed_out = running.killed_by_deadline;
     let started = Instant::now();
-    let mut timed_out = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),

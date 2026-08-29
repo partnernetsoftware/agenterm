@@ -259,6 +259,52 @@ fn process_pid_is_stable_across_the_wait_and_a_second_wait_replays() {
     assert_eq!(string_of(&out), "true|true|0|0|true|4|hi\n", "{out:?}");
 }
 
+/// A running child's output can be read as it arrives -- rh's
+/// `child.stdout.read(4096, 2s)` minus the blocking -- and the wait still
+/// answers the whole capture afterwards. Drains run from spawn, so a chatty
+/// server never blocks on a pipe nobody reads.
+#[cfg(unix)]
+#[test]
+fn process_read_hands_out_output_as_it_arrives_and_wait_still_has_all_of_it() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sh", args: ["-c", "echo a; sleep 0.4; echo b"] }));
+        let first = "";
+        for (let i = 0; i < 40; i = i + 1) {
+            if (process_read(h, 4096) !== 0) { return "read: " + tool_result(); }
+            let r = JSON.parse(tool_result());
+            first = first + r.stdout;
+            if (first.length > 0) { break; }
+            time_sleep_ms(25);
+        }
+        if (process_wait(h, 5000) !== 0) { return "wait: " + tool_result(); }
+        let w = JSON.parse(tool_result());
+        return first + "|" + w.stdout + "|" + w.exit_code;
+        "#,
+    );
+    assert_eq!(string_of(&out), "a\n|a\nb\n|0", "{out:?}");
+}
+
+/// A spawn spec's `timeout_ms` is a deadline: past it the child is killed,
+/// `state` says exited, and the wait reports `timed_out`. rh gave `.start()`
+/// children a 15/22 s cap; the door used to ignore the field.
+#[cfg(unix)]
+#[test]
+fn a_spawned_child_past_its_timeout_is_killed_and_the_wait_says_so() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sleep", args: ["30"], timeout_ms: 100 }));
+        time_sleep_ms(250);
+        if (process_state(h) !== 0) { return "state: " + tool_result(); }
+        let state = tool_result();
+        if (process_wait(h, 5000) !== 0) { return "wait: " + tool_result(); }
+        let w = JSON.parse(tool_result());
+        return state + "|" + w.timed_out + "|" + w.exit_code;
+        "#,
+    );
+    assert_eq!(string_of(&out), "exited|true|null", "{out:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn process_status_of_a_chatty_child_is_its_own_exit_code() {
