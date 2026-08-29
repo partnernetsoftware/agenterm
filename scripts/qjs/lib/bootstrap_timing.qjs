@@ -1,0 +1,159 @@
+// bootstrap_timing.qjs -- parse the stage-0 bootstrap timing facts inherited
+// by named native tasks. Moved from rh on 2026-08-29; build imports it.
+//
+// A tool library: it reads the environment through the `tool.*` door.
+//
+// Changed, each on purpose:
+//   - rh's five `read_*_ms` functions were one body five times; here it is
+//     `read_ms(name)` once. Same rule: unset or empty is -1, a parsed value
+//     below zero is -1, anything that is not an int is an error (rh's
+//     `parse_int` threw "`x` is not an int"; so does this).
+//   - rh's `null_json()` is JavaScript's `null`; JSON.stringify writes it the
+//     same way.
+//   - `wall_time` in rh read `"" + bootstrap.reason` and compared with "",
+//     which in rh meant "reason is JSON null". `"" + null` is "null" here,
+//     so the measured branch tests `reason === null` explicitly.
+
+import * as rh from "lib/rh_compat";
+
+const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+const HEX_DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7",
+                    "8", "9", "a", "b", "c", "d", "e", "f"];
+
+export function unavailable(unavailable_reason) {
+  const reason = "" + unavailable_reason;
+  return {
+    schema_version: 1,
+    kind: "agenterm-bootstrap-timing",
+    state: "unavailable",
+    reason: reason,
+    setup_ms: null,
+    cargo_build_ms: null,
+    worker_copy_ms: null,
+    other_setup_ms: null,
+    clock_resolution_ms: null,
+    worker: {
+      state: "unavailable",
+      compatibility_fingerprint: null
+    },
+    cargo_lock_wait: {
+      state: "unavailable",
+      duration_ms: null,
+      included_in: null
+    }
+  };
+}
+
+// rh's `text.parse_int()`: trim, then an i64 or a runtime error.
+function parse_int(text) {
+  const trimmed = text.trim();
+  // No character access: strip one leading sign and every digit, and what
+  // survives decides whether this was an integer at all.
+  let rest = trimmed;
+  if (rest.startsWith("-")) { rest = rest.replace("-", ""); }
+  const body = rest;
+  for (const digit of DIGITS) { rest = rest.replaceAll(digit, ""); }
+  rh.require(body !== "" && rest === "", "`" + text + "` is not an int");
+  return Number(trimmed);
+}
+
+function read_ms(name) {
+  const text = rh.env_or(name, "");
+  if (text === "") { return -1; }
+  const value = parse_int(text);
+  if (value < 0) { return -1; }
+  return value;
+}
+
+function is_hex(value) {
+  if (value.length !== 40 && value.length !== 64) { return 0; }
+  let rest = value;
+  for (const digit of HEX_DIGITS) { rest = rest.replaceAll(digit, ""); }
+  return rest === "" ? 1 : 0;
+}
+
+export function facts() {
+  if (!rh.has_env("AGENTERM_BOOTSTRAP_TIMING_SCHEMA")) {
+    return unavailable("direct_worker_invocation");
+  }
+  if (rh.env_or("AGENTERM_BOOTSTRAP_TIMING_SCHEMA", "") !== "1") {
+    return unavailable("invalid_environment:bootstrap_timing_schema");
+  }
+
+  const setup_ms = read_ms("AGENTERM_BOOTSTRAP_SETUP_MS");
+  const cargo_build_ms = read_ms("AGENTERM_BOOTSTRAP_CARGO_BUILD_MS");
+  const worker_copy_ms = read_ms("AGENTERM_BOOTSTRAP_WORKER_COPY_MS");
+  const other_setup_ms = read_ms("AGENTERM_BOOTSTRAP_OTHER_SETUP_MS");
+  const resolution_ms = read_ms("AGENTERM_BOOTSTRAP_CLOCK_RESOLUTION_MS");
+  if (setup_ms < 0 || cargo_build_ms < 0 || worker_copy_ms < 0 || other_setup_ms < 0 || resolution_ms < 0) {
+    return unavailable("invalid_environment:bootstrap_timing_missing");
+  }
+  if (setup_ms + resolution_ms < cargo_build_ms + worker_copy_ms + other_setup_ms) {
+    return unavailable("invalid_environment:bootstrap_timing_phase_sum");
+  }
+
+  const lock_state = rh.env_or("AGENTERM_BOOTSTRAP_LOCK_WAIT_STATE", "");
+  const worker_state = rh.env_or("AGENTERM_BOOTSTRAP_WORKER_STATE", "");
+  const fingerprint = rh.env_or("AGENTERM_BOOTSTRAP_FINGERPRINT", "");
+  let worker_state_ok = 0;
+  if (worker_state === "rebuilt" || worker_state === "reused") { worker_state_ok = 1; }
+  if (worker_state_ok === 0 || is_hex(fingerprint) === 0) {
+    return unavailable("invalid_environment:bootstrap_timing_worker");
+  }
+  if (worker_state === "rebuilt" && lock_state !== "included_not_separable") {
+    return unavailable("invalid_environment:bootstrap_timing_lock_state");
+  }
+  if (worker_state === "reused" && (lock_state !== "not_applicable" || cargo_build_ms !== 0)) {
+    return unavailable("invalid_environment:bootstrap_timing_lock_state");
+  }
+
+  let included_in = null;
+  if (lock_state === "included_not_separable") { included_in = "cargo_build_ms"; }
+  return {
+    schema_version: 1,
+    kind: "agenterm-bootstrap-timing",
+    state: "measured",
+    reason: null,
+    setup_ms: setup_ms,
+    cargo_build_ms: cargo_build_ms,
+    worker_copy_ms: worker_copy_ms,
+    other_setup_ms: other_setup_ms,
+    clock_resolution_ms: resolution_ms,
+    worker: {
+      state: worker_state,
+      compatibility_fingerprint: fingerprint
+    },
+    cargo_lock_wait: {
+      state: lock_state,
+      duration_ms: null,
+      included_in: included_in
+    }
+  };
+}
+
+export function wall_time(bootstrap, task_ms) {
+  // Measured facts carry `reason: null`; rh spelled that as `"" + reason == ""`.
+  const reason = bootstrap.reason;
+  if (reason === null || reason === undefined || "" + reason === "") {
+    const setup_ms = bootstrap.setup_ms;
+    const accounted_ms = setup_ms + task_ms;
+    return {
+      state: "partial",
+      task_ms: task_ms,
+      accounted_ms: accounted_ms,
+      accounted_scope: "bootstrap-timing-start-through-worker-setup plus timed-task-body",
+      unmeasured_intervals: [
+        "pre-timing-clock-probe",
+        "worker-start-handoff",
+        "post-task-bootstrap-cleanup"
+      ]
+    };
+  }
+  return {
+    state: "unavailable",
+    task_ms: task_ms,
+    accounted_ms: task_ms,
+    accounted_scope: "timed-task-body-only",
+    unmeasured_intervals: ["entire-bootstrap"]
+  };
+}
