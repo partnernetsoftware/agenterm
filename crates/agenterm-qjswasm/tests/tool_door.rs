@@ -322,7 +322,15 @@ fn fs_try_lock_exclusive_refuses_a_second_taker_until_unlock() {
         let a = fs_try_lock_exclusive("{0}");
         let b = fs_try_lock_exclusive("{0}");
         if (fs_unlock(a) !== 0) {{ return "unlock: " + tool_result(); }}
-        let c = fs_try_lock_exclusive("{0}");
+        // flock is tied to the open file description, and a child forked by
+        // a neighbouring test inherits our descriptor for the instant before
+        // its exec closes it (O_CLOEXEC); so the release can lag a fork by a
+        // few milliseconds. The door is a *try*: poll, as a script would.
+        let c = -1;
+        for (let i = 0; i < 40 && c < 0; i = i + 1) {{
+            c = fs_try_lock_exclusive("{0}");
+            if (c < 0) {{ time_sleep_ms(25); }}
+        }}
         return (a >= 0) + "|" + b + "|" + (c >= 0);
         "#,
         file.display()
