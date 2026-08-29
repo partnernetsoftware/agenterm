@@ -321,4 +321,4 @@ print("  " + counted + " cells, " + failed + " failed, " + blocked + " blocked")
 print("  receipt: " + receipt_path);
 
 rh.require(failed === 0, "qualify_failed_cells:" + failed);
-return 0;
+return;

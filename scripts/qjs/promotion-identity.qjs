@@ -108,4 +108,4 @@ const identity = {
   mac_channel: mac_channel
 };
 rh.atomic_write(output, rh.stringify_pretty(identity) + "\n");
-return 0;
+return;

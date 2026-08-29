@@ -310,4 +310,4 @@ if (rh.exists(scratch)) {
   rh.require(!rh.exists(scratch), "package_client_scratch_cleanup");
 }
 print("PACKAGED " + archive);
-return 0;
+return;

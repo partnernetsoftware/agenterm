@@ -182,4 +182,4 @@ rh.atomic_write(staging_manifest, manifest_text);
 candidate.validate_manifest(source_root, staging_manifest, asset_root, rh.now_ms());
 rh.atomic_write(output_path, manifest_text);
 print("CANDIDATE " + metadata_source_sha + " " + metadata_expected_tag + " " + output_path);
-return 0;
+return;

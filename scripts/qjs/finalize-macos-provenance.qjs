@@ -56,4 +56,4 @@ const updated = {
 };
 rh.atomic_write(provenance_path, rh.stringify_pretty(updated) + "\n");
 print("NOTARIZED PROVENANCE " + provenance_path);
-return 0;
+return;

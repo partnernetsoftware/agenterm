@@ -34,4 +34,4 @@ const report = {
   task_manifest_schema_version: 3
 };
 print(rh.stringify_pretty(report));
-return 0;
+return;

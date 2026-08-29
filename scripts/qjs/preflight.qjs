@@ -646,4 +646,4 @@ rh.require(
   passed !== 0,
   "AgenTerm read-only preflight failed; failed_gates=[" + failed_gates + "]; report:" + output
 );
-return 0;
+return;

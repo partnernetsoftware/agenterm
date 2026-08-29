@@ -77,4 +77,4 @@ print(
   "RELEASE ASSETS " + archive_destination + " " + sbom_destination + " "
     + provenance_destination + " " + checksum_destination
 );
-return 0;
+return;

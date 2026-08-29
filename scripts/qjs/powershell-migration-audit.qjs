@@ -424,4 +424,4 @@ rh.require(
     ", expected=" + report.expected_remaining_count
 );
 print(rh.stringify_pretty(report));
-return 0;
+return;

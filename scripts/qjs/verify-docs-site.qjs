@@ -100,4 +100,4 @@ const image_exists = exists_case_exact(assets, "agenterm-workspace.png");
 if (!image_exists) {
   throw "docs assets must contain the case-exact workspace image";
 }
-return 0;
+return;

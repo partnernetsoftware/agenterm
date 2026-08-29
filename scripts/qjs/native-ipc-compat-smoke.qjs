@@ -964,4 +964,4 @@ if (failure !== "") {
 if (completion_failure !== "") {
   throw completion_failure;
 }
-return 0;
+return;

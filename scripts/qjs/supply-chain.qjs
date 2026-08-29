@@ -513,4 +513,4 @@ print(
     dep_count +
     " resolved packages to " + output
 );
-return 0;
+return;

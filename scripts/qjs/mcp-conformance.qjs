@@ -43,4 +43,4 @@ if (stdout !== "") {
 print(
   "PASS: candidate-bound public MCP lifecycle, same-source, wait, fault, privacy, and isolation"
 );
-return 0;
+return;

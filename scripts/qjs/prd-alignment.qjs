@@ -508,4 +508,4 @@ print(
   " mux commands, " + capability_count + " capability IDs, and " +
   registered_count + " executable evidence IDs"
 );
-return 0;
+return;

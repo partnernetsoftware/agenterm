@@ -90,4 +90,4 @@ rh.require(qualify_code === 0, "rh_aot_qualify");
 rh.require(rh.exists(receipt_path), "rh_aot_receipt_missing");
 
 print("PASS rh-aot-smoke");
-return 0;
+return;

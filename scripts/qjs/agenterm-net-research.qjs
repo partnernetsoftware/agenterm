@@ -74,4 +74,4 @@ rh.require(
 );
 
 print("PASS: isolated agenterm-net libp2p/CID/block-store research contract");
-return 0;
+return;

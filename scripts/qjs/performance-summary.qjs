@@ -219,4 +219,4 @@ if (summary_value !== "") {
   print(markdown);
 }
 
-return 0;
+return;

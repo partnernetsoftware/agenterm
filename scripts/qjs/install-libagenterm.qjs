@@ -64,4 +64,4 @@ print("install-libagenterm: include=" + installed_header);
 print("install-libagenterm: static=" + installed_static);
 print("install-libagenterm: import=" + installed_link_library);
 print("install-libagenterm: runtime=" + installed_dynamic);
-return 0;
+return;

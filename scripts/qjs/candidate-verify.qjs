@@ -30,4 +30,4 @@ const source_sha = "" + manifest.source_sha;
 const expected_tag = "" + manifest.expected_tag;
 const run_id = candidate.child(manifest, "run").id;
 print("VALID CANDIDATE " + source_sha + " " + expected_tag + " run=" + run_id);
-return 0;
+return;

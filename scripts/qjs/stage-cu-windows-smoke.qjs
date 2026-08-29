@@ -71,4 +71,4 @@ rh.require(
 );
 
 print("PASS: staged Windows agenterm-cu smoke delivery pair");
-return 0;
+return;

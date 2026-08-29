@@ -41,4 +41,4 @@ if (!workflow_rejects_ps) {
     throw "The local coordinator and tag workflow must both reject v0.1.7.";
   }
 }
-return 0;
+return;

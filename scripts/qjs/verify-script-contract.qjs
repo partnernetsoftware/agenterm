@@ -95,4 +95,4 @@ print(
   reserved_count + " reserved, " +
   legacy_count + " legacy)"
 );
-return 0;
+return;

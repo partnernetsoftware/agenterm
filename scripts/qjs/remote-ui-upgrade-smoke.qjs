@@ -344,4 +344,4 @@ if (succeeded !== 0 && failure === "") {
 if (failure !== "") {
   throw failure;
 }
-return 0;
+return;

@@ -75,4 +75,4 @@ if (rh.exists(tag)) {
 }
 
 print("Prepared Cargo cache tag for exact repo target: " + target);
-return 0;
+return;

@@ -265,4 +265,4 @@ rh.atomic_write(report_path, rh.stringify_pretty(report) + "\n");
 print("RELEASE REHEARSAL " + report_path);
 
 print("PASS: local rehearsal completed; no tag, push, or Release occurred");
-return 0;
+return;

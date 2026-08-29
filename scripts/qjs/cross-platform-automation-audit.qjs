@@ -174,4 +174,4 @@ print(rh.stringify_pretty({
   batch_entry_count: batch_count,
   duplicate_business_rules: 0
 }));
-return 0;
+return;

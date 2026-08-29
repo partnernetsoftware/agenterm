@@ -164,4 +164,4 @@ for (const result of results) {
 print("  summary: " + summary_path);
 
 rh.require(failed === 0, "build_all_failed_cells:" + failed);
-return 0;
+return;

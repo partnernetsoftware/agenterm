@@ -181,4 +181,4 @@ print(
   "PASS: README names " + executable_count +
   " manifest artifacts and its command examples match the offline catalogs."
 );
-return 0;
+return;

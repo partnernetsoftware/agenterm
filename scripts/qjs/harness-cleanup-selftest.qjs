@@ -107,4 +107,4 @@ if (harness.state(owned) === "running") {
 harness.remove_run(context);
 if (succeeded === 0) { throw failure; }
 print("PASS: harness cleanup ownership and orphan proof");
-return 0;
+return;

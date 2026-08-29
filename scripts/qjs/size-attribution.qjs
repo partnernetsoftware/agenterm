@@ -160,4 +160,4 @@ for (const entry of report.crates) {
   );
 }
 print("  full list: " + output_path);
-return 0;
+return;

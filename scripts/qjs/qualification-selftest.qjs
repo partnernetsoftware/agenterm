@@ -358,4 +358,4 @@ if (harness_active !== 0) { harness.remove_run(harness_context); }
 remove_owned_scratch(scratch_root, scratch);
 if (failure !== "") { throw failure; }
 print("PASS: qualification fail-closed self-test");
-return 0;
+return;

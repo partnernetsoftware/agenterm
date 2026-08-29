@@ -150,4 +150,4 @@ cleanup_run_reports(run_directory, iterations);
 rh.require(all_passed !== 0, "One or more benchmark preflight runs failed.");
 rh.require(target_met !== 0, "Preflight p95 " + p95 + " ms exceeds the 15000 ms target.");
 
-return 0;
+return;

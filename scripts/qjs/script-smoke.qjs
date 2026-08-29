@@ -2040,4 +2040,4 @@ if (succeeded === 0) {
 if (completion_failure !== "") {
   throw completion_failure;
 }
-return 0;
+return;

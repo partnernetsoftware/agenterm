@@ -219,4 +219,4 @@ rh.atomic_write(output_path, index_text);
 
 const expected_tag = "" + manifest.expected_tag;
 print("RELEASES_INDEX " + expected_tag + " artifacts=" + artifact_count + " " + output_path);
-return 0;
+return;

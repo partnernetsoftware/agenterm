@@ -270,4 +270,4 @@ if (env_has("GITHUB_STEP_SUMMARY") === 1) {
   print(markdown);
 }
 
-return 0;
+return;

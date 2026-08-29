@@ -67,4 +67,4 @@ const report = {
   evidence_directory: evidence
 };
 print(rh.stringify_pretty(report));
-return 0;
+return;

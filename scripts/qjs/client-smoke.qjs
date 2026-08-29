@@ -154,4 +154,4 @@ rh.require(rh_dev_cli_count === 0, "client_smoke_rh_dev_cli_count");
 if (rh.exists(stdout_path)) { rh.try_remove_file(stdout_path); }
 
 print("PASS client entrypoints " + os_name + "-" + arch);
-return 0;
+return;

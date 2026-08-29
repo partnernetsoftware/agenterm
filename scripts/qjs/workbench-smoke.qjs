@@ -746,4 +746,4 @@ if (succeeded !== 0 && completion_failure === "") {
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
-return 0;
+return;

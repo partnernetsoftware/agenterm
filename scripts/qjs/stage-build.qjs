@@ -121,4 +121,4 @@ for (const obsolete of obsolete_names) {
 }
 
 print("PASS: staged build artifacts and metadata in " + destination_directory);
-return 0;
+return;

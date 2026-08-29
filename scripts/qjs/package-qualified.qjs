@@ -18,4 +18,4 @@ package_qualified.build_package(repo, args[1], args[2]);
 const sidecar_path = run_root + "/.latest-package-run";
 const qualified_run = rh.read_text(sidecar_path).trim();
 print("PACKAGE DRY-RUN " + qualified_run);
-return 0;
+return;

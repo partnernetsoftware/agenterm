@@ -312,4 +312,4 @@ assert_ok(!source.includes("scripts/qjs/release.qjs"), "package_selftest_forbidd
 
 cleanup_fixture(fixture, owned_root);
 print("PASS: qualified dry-run and public package self-test");
-return 0;
+return;

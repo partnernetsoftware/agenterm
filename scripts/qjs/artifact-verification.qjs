@@ -246,4 +246,4 @@ print(
   "PASS: verified " + expected_count + " staged executables and " + expected_library_count
     + " typed libraries, hashes, budgets, and offline catalogs"
 );
-return 0;
+return;

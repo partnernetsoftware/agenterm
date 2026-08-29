@@ -1223,4 +1223,4 @@ if (succeeded !== 0) {
 } else {
   throw failure;
 }
-return 0;
+return;
