@@ -1265,6 +1265,31 @@ CLI 的、把桩的退出码当判决、把工具链当死因、把注释当规�
 「已合并」。核验者只做一件事——照着写的命令再跑一遍——六组里四组因此翻案；核验的成本是
 原报告的零头，而它抓到的每一条，下一波都会变成别人的基线。
 
+第二波（2026-08-29，7 组 19 个句柄门脚本，仍是「一组写、另一人照命令重跑」）把上一段的
+结论推进了一格：**证明命令全部复现，判决仍可以不成立**。七组 51 条证明 51 条照抄跑出了
+同一行，而两组被判「不成立」——翻案的不是证明，是核验者自己另起的输入：给
+control-center-linux 一个真服务器，第一条 `protocol-info` 答 61 528 字节，`bounded_record_text`
+的 `slice` 在引擎里是 exit_class=configuration、try/catch 接不住，于是脚本跳过的恰是它存在的
+目的（bundle + 孤儿合同）；给 target-report 一个绝对路径，`rh_compat.absolute(".")` 答
+`<cwd>/.`，`repo_local` / `cleanup_allowed` 答反。两条都在脚本的**书面用法**之内，报告的证明
+只是没走到那里——证明的单位仍是输入，而「照抄能复现」只证明了报告没撒谎。第二课在库的
+合并上：五组各自给 `test_harness.qjs` 追加了一段（52 / 68 / 195 / 118 / 94 行），git 在文件尾
+把第三段的追加切成 **5 个冲突区**与前两段交错，又在第二段把两边共有的收尾 `}` 拉到冲突区
+外——两处都是「自动合并成功」的形状，都被那条一行的 importer 抓住（``needs a `}` to close
+the function body opened at byte 13832``）；最后的合并规则是「ours + 分支相对 merge-base 的
+纯追加」，先用 `cmp` 证明追加是纯的再拼。跨组唯一重名 `append_command_record_bounded`
+（同签名、两种截断），按先合者留：workbench 的 `ui-snapshot` 记录从 `<…omitted:13108 chars>`
+变成 548 字符加 rh 的截断标记，manifest 照写——重名不是错，但**保留哪个是行为**，得测。
+第三课是数字：同一堵墙被写了五遍——五组各自写了一个不用 `slice` 的截断
+（`_words` / `_safe` / `_lines` / `_cheap` 加 control-center-b 的本地版），而 main 在分支切出之后
+已经用 `5adcc238` 把 `slice` 落了地；「门的 `process.wait` 只答一次」也被写成五种拼法
+（`wait_collected` / `child_wait` / `wait_once` / `forget_child` / `drain`）。一条门事实在库里
+有五个名字，比缺一个名字更难维护。最后是步数：三组独立量出同一条曲线——61 KB 的
+`protocol-info` 一次 JSON.parse 约 10–16M 步、384 KiB 的 `script api --json` 单独超 50M、
+一张 822 行的 `ps` 表 30–40M——在 macOS 上真能跑的旅程（native-ipc 把答复过滤后打出
+PASS）卡住的不是门缺口，是 100M 的天花板；这条曲线现在有三个互不相识的测量，可以当
+基线用。工作区 118 条 `test result`，1 987 过 31 败，败集与基线逐名相同。
+
 ## 待办清单（`/goal` 可直接引用这一节）
 
 > **边界与方向（政委 2026-08-29，两句）**
@@ -1304,7 +1329,7 @@ CLI 的、把桩的退出码当判决、把工具链当死因、把注释当规�
 | ~~A1.3~~ | ~~开 `tool.fs/process/env` 门~~ **已进 crate（`4a7f0ec3`），CLI 未接** | 门是 opt-in：`Engine::with_tool_door(budget)` / `compile_qjs_tool`；沙箱编译器与沙箱槽都按名拒 `tool.*`，拒绝语指出开关 | 13 条声明 / 14 个 import（`fs.exists/read_to_string/write/create_dir_all/remove_file/read_dir/metadata`、`process.command/id`、`env.get/has/cwd`、两趟 `tool_result`）；`Outcome.tool_calls` 记收据；沙箱路径**逐字节不变**（`return 1;` 9 765 B，同 sha256）；crate 152 → 176 测试，0 失败；**没做**：二进制读写、`symlink_metadata`、锁句柄、`stringify_pretty`，以及 **CLI 接线**（A1.6） |
 | ~~A1.4~~ | ~~`agenterm-rh` 移出本仓~~ **已移出（`08c51b2e` + `7e2b61dd`；快照 `partnernetsoftware/rh` `a22d224`，182 文件 blob 逐一相同）** | 政委改序：rh 先走 | `Cargo.lock` 零 `rhai`、零 `agenterm-rh`；`scripts/rh/` 不存在；默认构建二进制 6 907 664 → 5 230 384 B（**−24.3%**）；workspace 失败集 52 → 31，**新失败 0**（comm 逐名比对） |
 | A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
-| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 44/71，库 11/11**（2026-08-29 第一波全部合入）：lander 只合了判「成立」的 2 组（8 入口）；另 4 组的判决为「不成立」，但**每一组的证明命令都复现了**，不成立的是**披露**——`return 0` 在 stdout 尾部多印一行 `0`、`rh_compat.absolute(".")` 给 `<cwd>/.`、`stringify_pretty` 出紧凑 JSON、门的 1 MiB 结果上限——四条都是产品面的已知差异，不是脚本坏了。于是本轮由我合入 1/2/3/6（`dbbe10fe`…`933582af`），三处同名库冲突按「谁的 importer 已证明」取舍：`release_candidate` 取组 1（组 3 的无人 import）、`artifact_files` 取组 5（同四个导出，组 6 的两个 importer 用它编译通过）、`rh_compat` 取组 2 整份再追加组 6 的 4 个 fs 包装（37 导出，无重名）。**未证的 27 个入口**在各组报告里逐条有原因：要 Windows 产物 / 要 dist / 要任务表里不存在的任务 / 真输入撞 16M 步（现在 `--max-operations` 可抬到 100M）/ ~~需要 `slice`~~（已落地，上游 `6b9464a`；`bounded_record_text` 的截断路径经 CLI 验证） | 每个入口至少 `script check --profile tool` 过；`corpus-scan` 对 44 入口全 ok。**下一波**：19 个用 `test_harness` 句柄的门脚本 + 2 个无 import 的句柄脚本（wave 2）；以及把 27 个「未证」按原因分桶逐个补证 |
+| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 58/71，库 12/11**（`ls scripts/qjs/*.qjs` = 58，`ls scripts/qjs/lib/*.qjs` = 12：rh 的 11 个库里 9 个已有同名 `.qjs`，加 `fleet` / `path` / `rh_compat` 三个 qjs 自有库；`prune_target_incremental`、`qualification` 尚无）。**2026-08-29 第二波**：7 组 19 个句柄门脚本 + 1 个库，合入判「成立」的 5 组（script-smoke、remote-ui、control-center-a、fleet-native-ipc、cli-frontends：14 入口 + `script_smoke_helpers`，全部「ported, unproven」——需要 Windows / GUI / dist / 100M 步以上），跳过 2 组：control-center-b（三个入口；核验者用真服务器跑出 `protocol-info` 61 528 字节的第一条记录撞 `bounded_record_text` 的 `slice`，exit_class=configuration 且不可 catch，跳过了它本该证明的 bundle/孤儿合同；另外 `platform-ux-parity` 的 try/catch 把 rh 里死的 `platform_script_missing` 分支变活）、small-gates（六个入口；`target-report.qjs -- . <绝对路径>` 因 `rh_compat.absolute(".")` 答 `<cwd>/.` 把 `repo_local` / `cleanup_allowed` 答反）。合并：`test_harness.qjs` 五段追加共 527 行、`rh_compat.qjs` 一段 77 行；跨组唯一重名 `append_command_record_bounded`（script-smoke 与 gui-smokes，同签名、不同截断），按「先合者留」取 script-smoke 的定义，gui-smokes 的 `run_cli_bounded` 改走它（实测：workbench 的 `ui-snapshot` 记录从 `<…omitted:13108 chars>` 变成 548 字符 + rh 截断标记，manifest 照写）。验证：`script_entry_extension_routing` 11/0；`corpus-scan --dir scripts/qjs` 70/70 ok；workspace 118 条 `test result`，1 987 过 31 败，败集与基线 31 个名字**逐一相同**（差集为空）。第一波原文：**入口 44/71，库 11/11**（2026-08-29 第一波全部合入）：lander 只合了判「成立」的 2 组（8 入口）；另 4 组的判决为「不成立」，但**每一组的证明命令都复现了**，不成立的是**披露**——`return 0` 在 stdout 尾部多印一行 `0`、`rh_compat.absolute(".")` 给 `<cwd>/.`、`stringify_pretty` 出紧凑 JSON、门的 1 MiB 结果上限——四条都是产品面的已知差异，不是脚本坏了。于是本轮由我合入 1/2/3/6（`dbbe10fe`…`933582af`），三处同名库冲突按「谁的 importer 已证明」取舍：`release_candidate` 取组 1（组 3 的无人 import）、`artifact_files` 取组 5（同四个导出，组 6 的两个 importer 用它编译通过）、`rh_compat` 取组 2 整份再追加组 6 的 4 个 fs 包装（37 导出，无重名）。**未证的 27 个入口**在各组报告里逐条有原因：要 Windows 产物 / 要 dist / 要任务表里不存在的任务 / 真输入撞 16M 步（现在 `--max-operations` 可抬到 100M）/ ~~需要 `slice`~~（已落地，上游 `6b9464a`；`bounded_record_text` 的截断路径经 CLI 验证） | 每个入口至少 `script check --profile tool` 过；`corpus-scan` 对 44 入口全 ok。**下一波**：19 个用 `test_harness` 句柄的门脚本 + 2 个无 import 的句柄脚本（wave 2）；以及把 27 个「未证」按原因分桶逐个补证 |
 | ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A1.8~~ | ~~预算到客人、失败分类、throw 可读~~ **已落地（`2cde8b63`）** | `--max-operations` 此前**验过、审计过、然后没人读**：没有一个引擎读 `ScriptBudgets.operations`，qjswasm 一直按自己的 16M 跑。接上后它成了第一个执行者，协议默认从没人选过的 1M 改为引擎一直在用的 16M——`validate-artifact-manifest.qjs` 对 5 项清单要 1–2M 步，一执行就撞 1M；V1 装箱下一次循环迭代约 100 步。`ScriptEngineError` 从 `String` 变成带 `ScriptFailureCategory`：耗尽 = `limit`，未捕获 throw / trap = `script`，其余仍 `configuration`。上游 `94237cb` 把被 throw 的 String 指针写进 `FAULT_THROWN`，下游 `UncaughtThrow(Option<String>)`，门脚本的 `throw "name_invalid:x"` 到达操作者 | 三条都有 CLI 级测试：`the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit`、迁移测试断言 `exit_class:script` 与原因文本；qjswasm 包 180/0，lib 720/2（平台对），路由 11/0 |
@@ -1617,7 +1642,7 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 默认构建二进制 −1 677 280 B                          [x] −24.3%
 │   │   ├── workspace 失败集 52 → 31，新失败 0                    [x] comm 逐名
 │   │   └── 什么暗了：39 条门 + 4 条 host-native 门 + 71 个任务    [x] 点名在 PRD 02.10
-│   ├── 71 个 .rh 脚本 → .qjs                                  [~] 入口 44/71，库 11/11（2026-08-29 第一波全部合入）
+│   ├── 71 个 .rh 脚本 → .qjs                                  [~] 入口 58/71，库 12/11（2026-08-29 第二波：7 组合入 5 组，corpus-scan 70/70 ok；失败集 = 基线 31）
 │   │   ├── package_qualified 库 + 4 入口                        [x] 0c929bd7 合入；自测 4 条拒绝码逐一复现
 │   │   ├── artifact_files 库 + 3 入口                           [~] 4549c8be 合入；artifact-verification 的探针要 Windows PE
 │   │   ├── 另 4 组 36 入口 + 4 库：证明复现、披露不足，本轮合入    [x] dbbe10fe…933582af；四条披露差异记在 A1.5
