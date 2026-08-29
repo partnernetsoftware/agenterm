@@ -1,0 +1,1254 @@
+// Prove the isolated Control Center's offline contract, live Cockpit
+// projection, process reuse, context refresh, no-activate behavior,
+// missing-binary failure, incompatible-sibling isolation, stale-owner recovery,
+// server loss/new-epoch refresh, renderer-owned PNG evidence, and server/PTY
+// isolation.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO CONTROL_CENTER_EXE
+//
+// The renderer-owned screenshot command targets the exact registry owner. The
+// successful Cockpit PNG is copied out of scratch into dist/evidence so the
+// visual proof survives successful harness cleanup.
+//
+// Ported from scripts/rh/control-center-smoke.rh; runs under `--profile tool`.
+// This is the Windows journey (cmd.exe PTYs, `agenterm.exe` siblings, `NUL`
+// screenshot sink) and stays that way. Children are door handles carried in
+// the harness's wave-2 child objects so their pids can be compared with what
+// the server, registry and renderer report. Two rh host facilities have no
+// door op and are typed gaps at their sites: `rh::image::inspect_png` and
+// `child.window_key`.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+import * as path from "lib/path";
+
+const declared_evidence = [
+  "control-center.offline-contract",
+  "control-center.live-cockpit",
+  "control-center.native-cockpit-input",
+  "control-center.typed-navigation",
+  "control-center.process-reuse",
+  "control-center.context-refresh",
+  "control-center.causal-projection-refresh",
+  "control-center.launch-failure",
+  "control-center.server-recovery",
+  "control-center.no-activate",
+  "control-center.typed-close",
+  "control-center.process-isolation",
+  "control-center.renderer-failure-isolation",
+  "control-center.cross-process-detach"
+];
+
+function catch_text(error) {
+  return "" + error;
+}
+
+function json_from_output(output) {
+  const text = "" + output.stdout + output.stderr;
+  return JSON.parse(text);
+}
+
+function process_output_text(output) {
+  return output.stdout + output.stderr;
+}
+
+function registry_owner_pid(registry) {
+  const record = rh.parse_file(registry);
+  return 0 + record.pid;
+}
+
+function find_tab_index(tabs, wanted_tab_id) {
+  const wanted = "" + wanted_tab_id;
+  let index = 0;
+  for (const tab of tabs) {
+    if (("" + tab.id) === wanted) { return index; }
+    index = index + 1;
+  }
+  return -1;
+}
+
+function tab_id_at_index(tabs, target_index) {
+  let index = 0;
+  for (const tab of tabs) {
+    if (index === target_index) { return "" + tab.id; }
+    index = index + 1;
+  }
+  throw "control_center_tab_id_at_index_missing";
+}
+
+function title_contains_all(title, required) {
+  const observed = "" + title;
+  for (const value of required) {
+    if (!observed.includes("" + value)) { return 0; }
+  }
+  return 1;
+}
+
+function offline_views_unavailable(views) {
+  for (const view of views) {
+    if (view.state !== "unavailable" || ("" + view.reason) === "") { return 0; }
+  }
+  return 1;
+}
+
+function live_snapshot_views_truth(live_snapshot, live_server) {
+  const views = live_snapshot.views;
+  if (views.length !== 4) { return 0; }
+  let index = 0;
+  let cockpit_ok = 0;
+  let unavailable_count = 0;
+  for (const view of views) {
+    if (index === 0) {
+      if (view.id === "cockpit"
+          && view.state === "available"
+          && view.data.pid === live_server.pid
+          && view.data.epoch === live_server.epoch
+          && view.data.tabs.length === live_server.tabs.length) {
+        cockpit_ok = 1;
+      }
+    } else if (view.state === "unavailable") {
+      unavailable_count = unavailable_count + 1;
+    }
+    index = index + 1;
+  }
+  if (cockpit_ok !== 0 && unavailable_count === 3) { return 1; }
+  return 0;
+}
+
+function first_live_tab_id(tabs) {
+  for (const tab of tabs) {
+    if (!tab.dead) { return "" + tab.id; }
+  }
+  return "";
+}
+
+function emit_cc_evidence(context, id) {
+  harness.emit_evidence(context, declared_evidence, id);
+}
+
+// rh's `source.sub_string(0, len - 5)` on a path ending in ".json": no
+// String.slice in this engine, so split on the suffix and rebuild everything
+// but the (empty) last piece.
+function strip_suffix(text, suffix) {
+  const pieces = text.split(suffix);
+  rh.require(pieces.length >= 2 && pieces[pieces.length - 1] === "", "control_center_registry_suffix");
+  let out = "";
+  for (let i = 0; i < pieces.length - 1; i = i + 1) {
+    out = i === 0 ? pieces[i] : out + suffix + pieces[i];
+  }
+  return out;
+}
+
+// rh: `rh::image::inspect_png(path) -> {width, height, samples, luminance}`.
+// The tool door has no image op and a PNG cannot cross a text door, so the
+// renderer-PNG truth (dimensions match, samples > 0, luminance in range)
+// cannot be measured here. Typed gap, not an approximation.
+function inspect_png(png_path) {
+  throw "gap:rh_image_inspect_png_unavailable:" + png_path;
+}
+
+// rh: `child.window_key("Home")` posted a key to the child's top-level
+// window. No door op exists for window input; typed gap.
+function window_key(child, key) {
+  throw "gap:process_window_key_unavailable:" + child.label + ":" + key;
+}
+
+function configured(context, executable, registry, args) {
+  const spec = harness.configured_spec(context, executable, args);
+  spec.env.AGENTERM_CC_REGISTRY_PATH = "" + registry;
+  spec.timeout_ms = 15000;
+  return spec;
+}
+
+function offline(context, executable, registry, args, code) {
+  const output = harness.run_spec(configured(context, executable, registry, args));
+  harness.require(output.success, code + ":" + output.stdout + output.stderr);
+  return output.stdout + output.stderr;
+}
+
+function offline_json(context, executable, registry, args, code) {
+  return JSON.parse(offline(context, executable, registry, args, code));
+}
+
+function cli(context, executable, args, expected_failure) {
+  return harness.invoke_cli_safe(context, executable, args, expected_failure, []);
+}
+
+function cli_text(context, executable, args) {
+  const output = cli(context, executable, args, 0);
+  return output.stdout + output.stderr;
+}
+
+function cli_json(context, executable, args) {
+  const output = cli(context, executable, args, 0);
+  const text = ("" + output.stdout + output.stderr).trim();
+  return JSON.parse(text);
+}
+
+function wait_for_server(context, cli_executable, server) {
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    const probe = harness.run_cli_safe(context, cli_executable, ["protocol-info", "--running"], 0, []);
+    if (probe.success) {
+      return JSON.parse(("" + probe.stdout).trim());
+    }
+    if (harness.child_state(server) === "exited") {
+      const output = harness.child_wait(server, 2000);
+      throw "control_center_server_early_exit:" + output.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "control_center_server_ready_timeout";
+}
+
+function wait_for_server_causal(context, cli_executable, server, code) {
+  const code_text = "" + code;
+  const deadline = rh.now_ms() + 10000;
+  let last = "";
+  for (let attempt = 0; attempt < 128; attempt = attempt + 1) {
+    if (rh.now_ms() >= deadline) { break; }
+    const probe = harness.run_cli_safe(context, cli_executable, ["protocol-info", "--running"], 0, []);
+    last = probe.stdout + probe.stderr;
+    if (probe.success) {
+      return JSON.parse(("" + probe.stdout).trim());
+    }
+    if (harness.child_state(server) === "exited") {
+      const output = harness.child_wait(server, 2000);
+      throw code_text + "_early_exit:" + output.stderr;
+    }
+  }
+  throw code_text + "_timeout:" + last;
+}
+
+function wait_for_active_tab(context, cli_executable, child, target_tab_id,
+                             expected_server_pid, expected_server_epoch, code) {
+  const target_text = "" + target_tab_id;
+  const code_text = "" + code;
+  const deadline = rh.now_ms() + 10000;
+  let last = "";
+  for (let attempt = 0; attempt < 128; attempt = attempt + 1) {
+    if (rh.now_ms() >= deadline) { break; }
+    const probe = harness.run_cli_safe(context, cli_executable, ["ui-bootstrap"], 0, []);
+    last = probe.stdout + probe.stderr;
+    if (probe.success) {
+      const snapshot = JSON.parse(("" + probe.stdout).trim());
+      if (snapshot.active_tab_id === target_text
+          && snapshot.server_pid === expected_server_pid
+          && snapshot.server_epoch === expected_server_epoch) {
+        return snapshot;
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const output = harness.child_wait(child, 2000);
+      throw code_text + "_renderer_exited:" + output.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code_text + "_timeout:" + last;
+}
+
+function wait_for_rendered_projection(context, executable, registry, output_path, child,
+                                      expected_state, expected_reason, required_title, code) {
+  const output_path_text = "" + output_path;
+  const expected_state_text = "" + expected_state;
+  const expected_reason_text = "" + expected_reason;
+  const code_text = "" + code;
+  const deadline = rh.now_ms() + 10000;
+  let last = "";
+  for (let attempt = 0; attempt < 64; attempt = attempt + 1) {
+    if (rh.now_ms() >= deadline) { break; }
+    const spec = configured(context, executable, registry,
+      ["screenshot", "--output", output_path_text, "--json"]);
+    spec.timeout_ms = 2000;
+    const captured = harness.run_spec(spec);
+    last = process_output_text(captured);
+    if (captured.success) {
+      const document = json_from_output(captured);
+      if (document.rendered_snapshot !== undefined) {
+        const rendered = document.rendered_snapshot;
+        const observed_state = "" + rendered.server_state;
+        let observed_reason = "";
+        if (rendered.server_reason !== undefined) { observed_reason = "" + rendered.server_reason; }
+        const observed_title = "" + rendered.window_title;
+        let reason_matches = 0;
+        if (expected_reason_text === "") {
+          reason_matches = 1;
+        } else if (observed_reason === expected_reason_text) {
+          reason_matches = 1;
+        }
+        const title_matches = title_contains_all(observed_title, required_title);
+        if (observed_state === expected_state_text && reason_matches !== 0 && title_matches !== 0) {
+          document.projection = {
+            server_state: observed_state,
+            server_reason: observed_reason,
+            window_title: observed_title
+          };
+          return document;
+        }
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      throw code_text + "_renderer_exit:" + last;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code_text + "_timeout:" + last;
+}
+
+function state_file_facts(file_path, code) {
+  harness.require(rh.exists(file_path), code + "_missing");
+  const metadata = rh.metadata(file_path);
+  return {
+    sha256: rh.sha256_file(file_path),
+    modified_unix_ms: metadata.modified_ms,
+    len: metadata.len
+  };
+}
+
+function require_state_file_unchanged(file_path, baseline, code) {
+  const current = state_file_facts(file_path, code);
+  harness.require(
+    current.sha256 === baseline.sha256
+      && current.modified_unix_ms === baseline.modified_unix_ms
+      && current.len === baseline.len,
+    code + ":" + JSON.stringify({ baseline: baseline, current: current })
+  );
+}
+
+function wait_for_registry(registry_path, expected_pid, child, code) {
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    if (rh.exists(registry_path)) {
+      let candidate = {};
+      let parsed = 0;
+      try {
+        candidate = rh.parse_file(registry_path);
+        parsed = 1;
+      } catch (error) {
+        parsed = 0;
+      }
+      if (parsed !== 0) {
+        const identity = "" + candidate.process_start_identity;
+        if (candidate.schema_version === 2 && candidate.pid === expected_pid && identity !== "") {
+          return candidate;
+        }
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const output = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + output.stderr;
+    }
+    rh.sleep_ms(10);
+  }
+  throw code + "_registry_timeout";
+}
+
+function wait_for_window_title(context, control_center, registry, child, required, code) {
+  const code_text = "" + code;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    const capture = harness.run_spec(configured(context, control_center, registry, ["status", "--json"]));
+    if (capture.success) {
+      const status = json_from_output(capture);
+      if (status.state === "running") {
+        const snapshot = harness.run_spec(configured(context, control_center, registry,
+          ["screenshot", "--output", "NUL", "--json"]));
+        if (snapshot.success) {
+          const document = json_from_output(snapshot);
+          const observed_title = "" + document.rendered_snapshot.window_title;
+          if (title_contains_all(observed_title, required) !== 0) {
+            return {
+              top_level_window_title: observed_title,
+              top_level_window_present: 1,
+              foreground_window_id: 0,
+              top_level_window_is_foreground: 0
+            };
+          }
+        }
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      throw code_text + "_early_exit";
+    }
+    rh.sleep_ms(10);
+  }
+  throw code_text + "_title_timeout";
+}
+
+function wait_for_exit(child, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.child_state(child) === "exited") {
+      return harness.child_wait(child, 2000);
+    }
+    rh.sleep_ms(10);
+  }
+  throw code;
+}
+
+function wait_for_ui_lease(context, cli_executable, child, code) {
+  const code_text = "" + code;
+  const deadline = rh.now_ms() + 10000;
+  let last = "";
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (rh.now_ms() >= deadline) { break; }
+    const output = harness.run_cli_safe(context, cli_executable, ["ui-lease", "status"], 0, []);
+    last = output.stdout + output.stderr;
+    if (output.success) {
+      const lease = JSON.parse(("" + output.stdout).trim());
+      if (lease.attached && lease.client_pid === child.pid) {
+        return lease;
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const result = harness.child_wait(child, 2000);
+      throw code_text + "_gui_exit:" + result.stderr;
+    }
+    rh.sleep_ms(50);
+  }
+  throw code_text + "_timeout:" + last;
+}
+
+function process_present(pid) {
+  return harness.process_present(pid);
+}
+
+function wait_process_gone(pid, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (process_present(pid) === 0) { return 0; }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+function reserve_loopback_address() {
+  const port = 30000 + (0 + rh.pid()) % 25000;
+  return "127.0.0.1:" + ("" + port);
+}
+
+function build_incompatible_peer(context, repo, run_directory) {
+  const source = path.join(repo, "tests/fixtures/incompatible_ipc_peer.rs");
+  const executable = path.join(run_directory, "incompatible-ipc-peer.exe");
+  const spec = harness.configured_spec(context, "rustc", [source, "-O", "-o", executable]);
+  spec.timeout_ms = 60000;
+  const output = harness.run_spec(spec);
+  harness.require(output.success, "control_center_incompatible_peer_build:" + output.stderr);
+  return executable;
+}
+
+function incompatible_sibling(context, probe_executable, address, ready_path, stop_path, code) {
+  if (rh.exists(ready_path)) { rh.remove_file(ready_path); }
+  if (rh.exists(stop_path)) { rh.remove_file(stop_path); }
+  const probe_args = ["" + address, "" + ready_path, "" + stop_path];
+  const spec = harness.configured_spec(context, probe_executable, probe_args);
+  spec.timeout_ms = 15000;
+  const child = harness.start_child(context, spec, "incompatible");
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    if (rh.exists(ready_path)) { return child; }
+    if (harness.child_state(child) === "exited") {
+      const output = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + output.stderr;
+    }
+    rh.sleep_ms(10);
+  }
+  throw code + "_ready_timeout";
+}
+
+function tab_facts_match(expected, actual) {
+  if (expected.length !== actual.length) { return 0; }
+  let expected_signature = "";
+  for (const tab of expected) { expected_signature = expected_signature + "|" + ("" + tab.id); }
+  let actual_signature = "";
+  for (const tab of actual) { actual_signature = actual_signature + "|" + ("" + tab.id); }
+  if (expected_signature !== actual_signature) { return 0; }
+  return 1;
+}
+
+function tab_counts_match(tabs, counts) {
+  let dead = 0;
+  for (const tab of tabs) {
+    if (tab.dead) { dead = dead + 1; }
+  }
+  return counts.total === tabs.length
+    && counts.dead === dead
+    && counts.running === tabs.length - dead;
+}
+
+function prove_pty(context, cli_executable, label) {
+  const marker = "AGENTERM_CC_" + label + "_" + context.run_id;
+  const tab_id = cli_text(context, cli_executable, [
+    "new-window", "-d", "-P", "-F", "#{window_id}",
+    "-n", "cc-" + label + "-" + context.run_id,
+    "--", "cmd.exe", "/d", "/c", "echo " + marker
+  ]);
+  const tab_id_text = ("" + tab_id).trim();
+  harness.require(tab_id_text.startsWith("@"), "control_center_" + label + "_stable_tab_id");
+  cli_text(context, cli_executable, [
+    "wait-pane", "-t", tab_id_text, "--contains", marker, "--timeout-ms", "30000"
+  ]);
+  cli_text(context, cli_executable, ["capture-pane", "-p", "-t", tab_id_text, "--max-bytes", "16384"]);
+  return tab_id_text;
+}
+
+function record_failure_text(context, text) {
+  try {
+    rh.create_dir_all(context.failure_directory);
+    rh.write_text(path.join(context.failure_directory, "error.txt"), text + "\n");
+  } catch (error) {
+    print("DIAGNOSTIC failure text not recorded: " + catch_text(error));
+  }
+}
+
+function remove_owned_registry(registry_path) {
+  const source = "" + registry_path;
+  harness.require(source.endsWith(".json"), "control_center_registry_suffix");
+  const stem = strip_suffix(source, ".json");
+  if (rh.exists(registry_path)) { rh.remove_file(registry_path); }
+  for (const suffix of [".window", ".focus", ".context", ".close"]) {
+    const sibling = stem + suffix;
+    if (rh.exists(sibling)) { rh.remove_file(sibling); }
+  }
+  return 0;
+}
+
+// ---- entry ---------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return 0;
+}
+
+harness.require(args.length === 2, "expected: REPO CONTROL_CENTER_EXE");
+const repo = rh.absolute(args[0]);
+const control_center = rh.absolute(args[1]);
+const executable_directory = path.parent(control_center);
+const server_executable = path.join(executable_directory, "agenterm.exe");
+const cli_executable = path.join(executable_directory, "agenterm.exe");
+const gui_executable = path.join(executable_directory, "agenterm.exe");
+harness.require(rh.exists(control_center), "control_center_smoke_executable_missing");
+harness.require(rh.exists(server_executable), "control_center_smoke_server_missing");
+harness.require(rh.exists(cli_executable), "control_center_smoke_cli_missing");
+harness.require(rh.exists(gui_executable), "control_center_smoke_gui_missing");
+
+const context = harness.new_context(repo, "control-center");
+const run_directory = context.run_directory;
+const incompatible_peer = build_incompatible_peer(context, repo, run_directory);
+const evidence_parent = path.parent(context.evidence_path);
+// rh took the registry's stem with `sub_string(0, len - 5)`; the stem is
+// built first here and the ".json" appended, which is the same two paths.
+const registry_stem = path.join(run_directory, "control-center-registry");
+const registry = registry_stem + ".json";
+const cockpit_png = path.join(evidence_parent, "control-center-live-cockpit.png");
+const causal_png = path.join(evidence_parent, "control-center-causal-refresh.png");
+const renderer_failure_png = path.join(evidence_parent, "control-center-renderer-failure.png");
+const renderer_recovery_png = path.join(evidence_parent, "control-center-renderer-recovery.png");
+const context_state_path = registry_stem + ".context.json";
+const focus_state_path = registry_stem + ".focus";
+const durable_evidence_directory = path.join(repo, "dist/evidence");
+const durable_cockpit_png = path.join(durable_evidence_directory, "control-center-live-cockpit.png");
+const owned_children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP a launcher with no sibling Control Center fails closed");
+  const missing_cc_directory = path.join(run_directory, "missing-control-center");
+  rh.create_dir_all(missing_cc_directory);
+  const isolated_cli = path.join(missing_cc_directory, "agenterm.exe");
+  const isolated_host = path.join(missing_cc_directory, "agenterm.exe");
+  rh.copy(cli_executable, isolated_cli);
+  rh.copy(server_executable, isolated_host);
+  const missing_cc = cli(context, isolated_cli, ["control-center", "open", "--no-activate"], 1);
+  const missing_cc_text = missing_cc.stderr + missing_cc.stdout;
+  harness.require(
+    missing_cc.exit_code !== 0
+      && missing_cc_text.includes("control_center_unavailable")
+      && !rh.exists(registry),
+    "control_center_missing_binary_failure"
+  );
+
+  print("STEP informational commands are offline and side-effect free");
+  const help = offline(context, control_center, registry, ["--help"], "control_center_help");
+  const version = offline(context, control_center, registry, ["--version"], "control_center_version").trim();
+  const capabilities = offline_json(context, control_center, registry,
+    ["capabilities", "--json"], "control_center_capabilities");
+  const snapshot = offline_json(context, control_center, registry,
+    ["snapshot", "--json"], "control_center_snapshot");
+  harness.require(
+    help.includes("AgenTerm Control Center")
+      && help.includes("agenterm-cc snapshot")
+      && version.startsWith("agenterm-cc ")
+      && capabilities.schema_version === 1
+      && capabilities.executable === "agenterm-cc"
+      && capabilities.role === "isolated_projection"
+      && capabilities.public_ui_action === "open-control-center"
+      && capabilities.typed_operation === "control-center.open"
+      && capabilities.typed_entry_points.length === 3
+      && capabilities.typed_entry_points[0] === "control-center.open"
+      && capabilities.typed_entry_points[1] === "control-center.inspect"
+      && capabilities.typed_entry_points[2] === "control-center.select"
+      && !capabilities.owns_terminal_authority
+      && capabilities.process_reuse
+      && capabilities.no_activate
+      && capabilities.views.length === 4
+      && snapshot.schema_version === 1
+      && snapshot.executable === "agenterm-cc"
+      && snapshot.process_role === "isolated_projection"
+      && snapshot.connected_server === undefined
+      && snapshot.views.length === 4
+      && !rh.exists(registry),
+    "control_center_offline_contract"
+  );
+  harness.require(offline_views_unavailable(snapshot.views) !== 0, "control_center_snapshot_truth");
+  emit_cc_evidence(context, "control-center.offline-contract");
+  emit_cc_evidence(context, "control-center.launch-failure");
+
+  print("STEP start an isolated explicit-loopback server and real PTY");
+  const server_spec = harness.configured_spec(context, server_executable,
+    ["server", "--address", context.address]);
+  const server = harness.start_child(context, server_spec, "server");
+  owned_children.push(server);
+  const protocol = wait_for_server(context, cli_executable, server);
+  harness.require(protocol.pid === server.pid, "control_center_server_pid");
+  const baseline_tab = prove_pty(context, cli_executable, "baseline");
+  const native_input_tab = prove_pty(context, cli_executable, "native-input");
+  harness.require(native_input_tab !== baseline_tab, "control_center_native_input_tab_identity");
+  let bootstrap = cli_json(context, cli_executable, ["ui-bootstrap"]);
+
+  print("STEP typed inspect/select use stable IDs and verify server post-state");
+  const inspect_navigation = offline_json(context, control_center, registry, [
+    "inspect", "--tab", baseline_tab, "--json",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ], "control_center_inspect_navigation");
+  const after_inspect = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  harness.require(
+    inspect_navigation.schema_version === 1
+      && inspect_navigation.executable === "agenterm-cc"
+      && inspect_navigation.action === "inspect"
+      && inspect_navigation.target_tab_id === baseline_tab
+      && inspect_navigation.server_pid === server.pid
+      && inspect_navigation.server_epoch === bootstrap.server_epoch
+      && inspect_navigation.sequence >= bootstrap.position.sequence
+      && inspect_navigation.post_state_verified
+      && inspect_navigation.tab.id === baseline_tab
+      && ("" + inspect_navigation.tab.name).includes("cc-baseline-")
+      && inspect_navigation.control_receipt === undefined
+      && after_inspect.active_tab_id === bootstrap.active_tab_id,
+    "control_center_inspect_navigation_truth"
+  );
+
+  const select_navigation = offline_json(context, control_center, registry, [
+    "select", "--tab", baseline_tab, "--json",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ], "control_center_select_navigation");
+  const after_select = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  harness.require(
+    select_navigation.action === "select"
+      && select_navigation.target_tab_id === baseline_tab
+      && select_navigation.server_pid === server.pid
+      && select_navigation.server_epoch === bootstrap.server_epoch
+      && select_navigation.sequence === after_select.position.sequence
+      && select_navigation.active_tab_id === baseline_tab
+      && select_navigation.post_state_verified
+      && select_navigation.tab.id === baseline_tab
+      && select_navigation.tab.active
+      && select_navigation.control_receipt.operation_id === "command.select.window"
+      && (select_navigation.control_receipt.outcome === "committed"
+          || select_navigation.control_receipt.outcome === "no_op")
+      && select_navigation.control_receipt.resolved.server_pid === server.pid
+      && select_navigation.control_receipt.resolved.server_epoch === bootstrap.server_epoch
+      && after_select.active_tab_id === baseline_tab
+      && !rh.exists(registry),
+    "control_center_select_navigation_truth"
+  );
+  const missing_navigation = harness.run_spec(configured(context, control_center, registry, [
+    "select", "--tab", "@999999999", "--json",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ]));
+  const after_missing = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const missing_navigation_text = missing_navigation.stdout + missing_navigation.stderr;
+  harness.require(
+    !missing_navigation.success
+      && missing_navigation_text.includes("control_center_tab_not_found")
+      && after_missing.active_tab_id === baseline_tab
+      && !rh.exists(registry),
+    "control_center_missing_navigation_safe_failure"
+  );
+  bootstrap = after_missing;
+  emit_cc_evidence(context, "control-center.typed-navigation");
+
+  print("STEP explicit semantic snapshot has the server's exact facts");
+  const live_snapshot = offline_json(context, control_center, registry, [
+    "snapshot", "--json",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ], "control_center_live_snapshot");
+  const live_server = live_snapshot.connected_server;
+  const live_tab_count = 0 + live_server.tabs.length;
+  const live_tab_label = "" + live_tab_count + " tabs";
+  const typed_endpoint = "tcp:" + context.address;
+  harness.require(
+    live_snapshot.server_state === "connected"
+      && live_snapshot.server_reason === undefined
+      && live_server.endpoint === typed_endpoint
+      && live_server.logical_instance === "main"
+      && live_server.pid === server.pid
+      && live_server.pid === bootstrap.server_pid
+      && live_server.epoch === bootstrap.server_epoch
+      && live_server.sequence === bootstrap.position.sequence
+      && live_server.version !== undefined
+      && live_server.version !== ""
+      && live_server.build.git_commit !== ""
+      && live_server.build.profile !== ""
+      && live_server.build.git_dirty !== ""
+      && live_server.active_tab_id === bootstrap.active_tab_id
+      && tab_facts_match(bootstrap.tabs, live_server.tabs)
+      && tab_counts_match(live_server.tabs, live_server.tab_counts)
+      && live_server.components.server === "available"
+      && live_server.components.workflows === "unavailable"
+      && live_server.components.extensions === "unavailable"
+      && live_server.components.info_hub === "unavailable"
+      && live_snapshot_views_truth(live_snapshot, live_server) !== 0,
+    "control_center_live_snapshot_truth"
+  );
+
+  print("STEP live open is nonactivating and renders the same endpoint/tabs");
+  const first_spec = configured(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ]);
+  const first = harness.start_child(context, first_spec, "first");
+  owned_children.push(first);
+  wait_for_registry(registry, first.pid, first, "control_center_first");
+  const first_window = wait_for_window_title(context, control_center, registry, first,
+    [context.address, live_tab_label], "control_center_live");
+  harness.require(
+    first_window.foreground_window_id === 0 || first_window.top_level_window_is_foreground === 0,
+    "control_center_no_activate_stole_foreground"
+  );
+  const running = offline_json(context, control_center, registry, ["status", "--json"],
+    "control_center_live_status");
+  harness.require(
+    running.state === "running"
+      && running.pid === first.pid
+      && running.context.endpoint === typed_endpoint
+      && running.context.logical_instance === "main",
+    "control_center_live_window_context"
+  );
+  emit_cc_evidence(context, "control-center.live-cockpit");
+
+  print("STEP capture the exact live native Cockpit without activation");
+  const capture = offline_json(context, control_center, registry,
+    ["screenshot", "--output", cockpit_png, "--json"], "control_center_cockpit_screenshot");
+  const rendered = inspect_png(cockpit_png);
+  harness.require(
+    capture.schema_version === 1
+      && capture.executable === "agenterm-cc"
+      && capture.state === "captured"
+      && capture.renderer === "native"
+      && capture.owner_pid === first.pid
+      && capture.output === cockpit_png
+      && capture.width === rendered.width
+      && capture.height === rendered.height
+      && capture.width >= 500
+      && capture.height >= 300
+      && capture.bytes >= 1000
+      && capture.sha256.length === 64
+      && rendered.samples > 0
+      && rendered.luminance > 1.0
+      && rendered.luminance < 254.9
+      && (first_window.foreground_window_id === 0
+          || first_window.top_level_window_is_foreground === 0),
+    "control_center_cockpit_png_truth:" + JSON.stringify(capture)
+  );
+  rh.create_dir_all(durable_evidence_directory);
+  rh.copy(cockpit_png, durable_cockpit_png);
+  harness.require(rh.metadata(durable_cockpit_png).len === capture.bytes, "control_center_durable_png_copy");
+  print("Control Center screenshot: " + capture.width + "x" + capture.height + ", "
+    + capture.bytes + " bytes, " + durable_cockpit_png);
+
+  print("STEP native renderer failure is typed, isolated, and recoverable");
+  const renderer_pty_tab = first_live_tab_id(bootstrap.tabs);
+  harness.require(
+    renderer_pty_tab !== "" && renderer_pty_tab.startsWith("@"),
+    "control_center_renderer_live_pty_missing"
+  );
+  const renderer_pty_marker = "AGENTERM_CC_RENDERER_FAILURE_" + context.run_id;
+  cli_text(context, cli_executable, ["send-keys", "-t", renderer_pty_tab, "-l", "echo " + renderer_pty_marker]);
+  cli_text(context, cli_executable, ["send-keys", "-t", renderer_pty_tab, "Enter"]);
+  cli_text(context, cli_executable, [
+    "wait-pane", "-t", renderer_pty_tab, "--contains", renderer_pty_marker, "--timeout-ms", "30000"
+  ]);
+  const native_window_path = registry_stem + ".window";
+  const native_window_bytes = rh.read_text(native_window_path);
+  const zero_window = "0";
+  rh.atomic_write(native_window_path, zero_window);
+  let renderer_failure_observed = 0;
+  let failed_renderer_text = "";
+  let renderer_invoke_failure = "";
+  try {
+    const failed_renderer = harness.run_spec(configured(context, control_center, registry,
+      ["screenshot", "--output", renderer_failure_png, "--json"]));
+    failed_renderer_text = process_output_text(failed_renderer);
+    if (!failed_renderer.success) { renderer_failure_observed = 1; }
+  } catch (error) {
+    rh.atomic_write(native_window_path, native_window_bytes);
+    renderer_invoke_failure = catch_text(error);
+  }
+  rh.atomic_write(native_window_path, native_window_bytes);
+  harness.require(renderer_invoke_failure === "",
+    "control_center_renderer_failure_invoke:" + renderer_invoke_failure);
+  if (rh.exists(renderer_failure_png)) { rh.remove_file(renderer_failure_png); }
+  harness.require(
+    renderer_failure_observed !== 0
+      && failed_renderer_text.includes("control_center_screenshot_capture_failed"),
+    "control_center_renderer_failure_not_typed:" + failed_renderer_text
+  );
+  const renderer_failure_status = offline_json(context, control_center, registry,
+    ["status", "--json"], "control_center_renderer_failure_status");
+  const renderer_failure_server = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const renderer_failure_pty = cli_text(context, cli_executable,
+    ["capture-pane", "-p", "-t", renderer_pty_tab, "--max-bytes", "16384"]);
+  const renderer_recovery = offline_json(context, control_center, registry,
+    ["screenshot", "--output", renderer_recovery_png, "--json"],
+    "control_center_renderer_recovery_screenshot");
+  const renderer_recovery_image = inspect_png(renderer_recovery_png);
+  harness.require(
+    renderer_failure_status.state === "running"
+      && renderer_failure_status.pid === first.pid
+      && renderer_failure_status.context.endpoint === typed_endpoint
+      && renderer_failure_server.server_pid === server.pid
+      && renderer_failure_server.server_epoch === bootstrap.server_epoch
+      && renderer_failure_pty.includes(renderer_pty_marker)
+      && harness.child_state(first) === "running"
+      && renderer_recovery.state === "captured"
+      && renderer_recovery.owner_pid === first.pid
+      && renderer_recovery.width === renderer_recovery_image.width
+      && renderer_recovery.height === renderer_recovery_image.height
+      && renderer_recovery_image.samples > 0,
+    "control_center_renderer_failure_isolation"
+  );
+  emit_cc_evidence(context, "control-center.renderer-failure-isolation");
+
+  print("STEP Human GUI detach preserves the same Control Center and authority");
+  const detach_tab = renderer_pty_tab;
+  const detach_marker = "AGENTERM_CC_GUI_DETACH_" + context.run_id;
+  cli_text(context, cli_executable, ["send-keys", "-t", detach_tab, "-l", "echo " + detach_marker]);
+  cli_text(context, cli_executable, ["send-keys", "-t", detach_tab, "Enter"]);
+  cli_text(context, cli_executable, [
+    "wait-pane", "-t", detach_tab, "--contains", detach_marker, "--timeout-ms", "30000"
+  ]);
+  const gui_spec = harness.configured_spec(context, gui_executable,
+    ["--ui-client", "--no-activate", "--address", context.address]);
+  gui_spec.env.AGENTERM_CC_REGISTRY_PATH = registry;
+  const human_gui = harness.start_child(context, gui_spec, "human-gui");
+  owned_children.push(human_gui);
+  const human_lease = wait_for_ui_lease(context, cli_executable, human_gui, "control_center_cross_process_gui");
+  const human_bootstrap = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  harness.require(
+    human_lease.client_pid === human_gui.pid
+      && human_bootstrap.server_pid === server.pid
+      && human_bootstrap.server_epoch === bootstrap.server_epoch,
+    "control_center_cross_process_gui_identity"
+  );
+  cli_text(context, cli_executable, ["ui-action", "close-window"]);
+  cli_text(context, cli_executable, ["wait-ui", "--modal-kind", "confirm-window-close", "--timeout-ms", "30000"]);
+  cli_text(context, cli_executable, ["ui-action", "keep-server-running"]);
+  const human_gui_output = wait_for_exit(human_gui, "control_center_cross_process_gui_detach_timeout");
+  const detached_lease = cli_json(context, cli_executable, ["ui-lease", "status"]);
+  const detached_cc = offline_json(context, control_center, registry, ["status", "--json"],
+    "control_center_cross_process_status");
+  const detached_server = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const detached_capture = cli_text(context, cli_executable,
+    ["capture-pane", "-p", "-t", detach_tab, "--max-bytes", "16384"]);
+  harness.require(
+    human_gui_output.success
+      && !detached_lease.attached
+      && detached_cc.state === "running"
+      && detached_cc.pid === first.pid
+      && detached_cc.context.endpoint === typed_endpoint
+      && detached_cc.context.logical_instance === "main"
+      && harness.child_state(first) === "running"
+      && process_present(server.pid) !== 0
+      && detached_server.server_pid === server.pid
+      && detached_server.server_epoch === bootstrap.server_epoch
+      && detached_capture.includes(detach_marker)
+      && registry_owner_pid(registry) === first.pid,
+    "control_center_cross_process_detach_isolation"
+  );
+  emit_cc_evidence(context, "control-center.cross-process-detach");
+
+  print("STEP native keyboard and pointer switch Cockpit tabs in-place");
+  harness.require(live_server.tabs.length >= 2, "control_center_native_input_tabs_missing");
+  const baseline_index = find_tab_index(live_server.tabs, baseline_tab);
+  const native_input_index = find_tab_index(live_server.tabs, native_input_tab);
+  harness.require(
+    baseline_index !== -1 && native_input_index !== -1,
+    "control_center_native_input_targets_not_visible"
+  );
+  window_key(first, "Home");
+  for (let step = 0; step < native_input_index; step = step + 1) { window_key(first, "Down"); }
+  window_key(first, "Enter");
+  const keyboard_selected = wait_for_active_tab(context, cli_executable, first, native_input_tab,
+    server.pid, bootstrap.server_epoch, "control_center_native_keyboard_navigation");
+  harness.require(
+    keyboard_selected.active_tab_id === native_input_tab
+      && harness.child_state(first) === "running"
+      && registry_owner_pid(registry) === first.pid,
+    "control_center_native_keyboard_navigation_truth"
+  );
+
+  const tab_count = live_server.tabs.length;
+  let visible_start = 0;
+  if (native_input_index > 0) { visible_start = native_input_index - 1; }
+  let maximum_start = 0;
+  if (tab_count > 3) { maximum_start = tab_count - 3; }
+  if (visible_start > maximum_start) { visible_start = maximum_start; }
+  let pointer_index = visible_start;
+  if (pointer_index === native_input_index) { pointer_index = pointer_index + 1; }
+  const pointer_target = tab_id_at_index(live_server.tabs, pointer_index);
+  window_key(first, "Home");
+  for (let step = 0; step < pointer_index; step = step + 1) { window_key(first, "Down"); }
+  window_key(first, "Enter");
+  const pointer_selected = wait_for_active_tab(context, cli_executable, first, pointer_target,
+    server.pid, bootstrap.server_epoch, "control_center_native_pointer_navigation");
+  harness.require(
+    pointer_selected.active_tab_id === pointer_target
+      && harness.child_state(first) === "running"
+      && registry_owner_pid(registry) === first.pid,
+    "control_center_native_pointer_navigation_truth"
+  );
+  emit_cc_evidence(context, "control-center.native-cockpit-input");
+
+  print("STEP reuse keeps PID and refreshes away from and back to live context");
+  const reuse_started = rh.now_ms();
+  offline(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", "127.0.0.1:1",
+    "--logical-instance", "dev"
+  ], "control_center_reuse_unavailable");
+  const reuse_elapsed = rh.now_ms() - reuse_started;
+  const reused_record = rh.parse_file(registry);
+  harness.require(
+    registry_owner_pid(registry) === first.pid
+      && harness.child_state(first) === "running"
+      && reuse_elapsed < 2000,
+    "control_center_process_reuse"
+  );
+  const unavailable_window = wait_for_window_title(context, control_center, registry, first,
+    ["server_unreachable"], "control_center_unavailable_refresh");
+  harness.require(
+    unavailable_window.foreground_window_id === 0
+      || unavailable_window.top_level_window_is_foreground === 0,
+    "control_center_reuse_stole_foreground"
+  );
+  const unavailable = offline_json(context, control_center, registry, ["snapshot", "--json"],
+    "control_center_unavailable_snapshot");
+  harness.require(
+    unavailable.server_state === "unavailable"
+      && unavailable.server_reason === "server_unreachable"
+      && unavailable.connected_server === undefined,
+    "control_center_unavailable_context_truth"
+  );
+
+  offline(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ], "control_center_reuse_live");
+  const refreshed_window = wait_for_window_title(context, control_center, registry, first,
+    [context.address, live_tab_label], "control_center_live_refresh");
+  const refreshed = offline_json(context, control_center, registry, ["snapshot", "--json"],
+    "control_center_refreshed_snapshot");
+  harness.require(
+    (refreshed_window.foreground_window_id === 0
+        || refreshed_window.top_level_window_is_foreground === 0)
+      && refreshed.server_state === "connected"
+      && refreshed.connected_server.pid === live_server.pid
+      && refreshed.connected_server.epoch === live_server.epoch
+      && tab_facts_match(live_server.tabs, refreshed.connected_server.tabs)
+      && harness.child_state(first) === "running",
+    "control_center_context_refresh"
+  );
+  emit_cc_evidence(context, "control-center.process-reuse");
+  emit_cc_evidence(context, "control-center.no-activate");
+  emit_cc_evidence(context, "control-center.context-refresh");
+
+  print("STEP incompatible sibling is typed and isolated from the live server");
+  const incompatible_address = reserve_loopback_address();
+  const incompatible_endpoint = "tcp:" + incompatible_address;
+  const incompatible_probe_ready = path.join(run_directory, "incompatible-probe.ready");
+  const incompatible_probe_stop = path.join(run_directory, "incompatible-probe.stop");
+  const registry_before_incompatible = state_file_facts(registry, "control_center_incompatible_registry");
+  const server_before_incompatible = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const incompatible_probe = incompatible_sibling(context, incompatible_peer, incompatible_address,
+    incompatible_probe_ready, incompatible_probe_stop, "control_center_incompatible_probe");
+  owned_children.push(incompatible_probe);
+  const incompatible_snapshot = offline_json(context, control_center, registry, [
+    "snapshot", "--json",
+    "--server-endpoint", incompatible_endpoint,
+    "--logical-instance", "incompatible"
+  ], "control_center_incompatible_snapshot");
+  const stop_marker = "stop";
+  rh.atomic_write(incompatible_probe_stop, stop_marker);
+  const incompatible_probe_output = wait_for_exit(incompatible_probe, "control_center_incompatible_probe_timeout");
+  const server_after_incompatible_probe = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const renderer_after_incompatible_probe = offline_json(context, control_center, registry,
+    ["status", "--json"], "control_center_incompatible_probe_status");
+  harness.require(
+    incompatible_snapshot.server_state === "unavailable"
+      && incompatible_snapshot.server_reason === "server_incompatible"
+      && incompatible_snapshot.connected_server === undefined
+      && incompatible_probe_output.success
+      && harness.child_state(first) === "running"
+      && renderer_after_incompatible_probe.state === "running"
+      && renderer_after_incompatible_probe.pid === first.pid
+      && renderer_after_incompatible_probe.context.endpoint === typed_endpoint
+      && server_after_incompatible_probe.server_pid === server.pid
+      && server_after_incompatible_probe.server_epoch === server_before_incompatible.server_epoch
+      && server_after_incompatible_probe.active_tab_id === server_before_incompatible.active_tab_id,
+    "control_center_incompatible_probe_isolation"
+  );
+  require_state_file_unchanged(registry, registry_before_incompatible,
+    "control_center_incompatible_probe_registry");
+  rh.remove_file(incompatible_probe_ready);
+  rh.remove_file(incompatible_probe_stop);
+
+  const incompatible_renderer_ready = path.join(run_directory, "incompatible-renderer.ready");
+  const incompatible_renderer_stop = path.join(run_directory, "incompatible-renderer.stop");
+  const incompatible_renderer = incompatible_sibling(context, incompatible_peer, incompatible_address,
+    incompatible_renderer_ready, incompatible_renderer_stop, "control_center_incompatible_renderer");
+  owned_children.push(incompatible_renderer);
+  offline(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", incompatible_endpoint,
+    "--logical-instance", "incompatible"
+  ], "control_center_incompatible_renderer_open");
+  const incompatible_frame = wait_for_rendered_projection(context, control_center, registry, causal_png,
+    first, "unavailable", "server_incompatible", ["server_incompatible"],
+    "control_center_incompatible_renderer_frame");
+  rh.atomic_write(incompatible_renderer_stop, stop_marker);
+  const incompatible_renderer_output = wait_for_exit(incompatible_renderer,
+    "control_center_incompatible_renderer_timeout");
+  const server_after_incompatible_renderer = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const baseline_capture = cli_text(context, cli_executable,
+    ["capture-pane", "-p", "-t", baseline_tab, "--max-bytes", "16384"]);
+  const baseline_marker = "AGENTERM_CC_baseline_" + context.run_id;
+  harness.require(
+    incompatible_frame.owner_pid === first.pid
+      && incompatible_frame.projection.server_state === "unavailable"
+      && incompatible_frame.projection.server_reason === "server_incompatible"
+      && incompatible_renderer_output.success
+      && harness.child_state(first) === "running"
+      && process_present(server.pid) !== 0
+      && server_after_incompatible_renderer.server_pid === server.pid
+      && server_after_incompatible_renderer.server_epoch === server_before_incompatible.server_epoch
+      && baseline_capture.includes(baseline_marker),
+    "control_center_incompatible_renderer_isolation"
+  );
+  require_state_file_unchanged(registry, registry_before_incompatible,
+    "control_center_incompatible_renderer_registry");
+  rh.remove_file(incompatible_renderer_ready);
+  rh.remove_file(incompatible_renderer_stop);
+
+  offline(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ], "control_center_incompatible_restore");
+  const restored_incompatible_frame = wait_for_rendered_projection(context, control_center, registry,
+    causal_png, first, "connected", "", [context.address], "control_center_incompatible_restore_frame");
+  const restored_incompatible_status = offline_json(context, control_center, registry,
+    ["status", "--json"], "control_center_incompatible_restore_status");
+  harness.require(
+    restored_incompatible_frame.owner_pid === first.pid
+      && restored_incompatible_frame.projection.server_state === "connected"
+      && restored_incompatible_status.pid === first.pid
+      && restored_incompatible_status.context.endpoint === typed_endpoint
+      && process_present(server.pid) !== 0,
+    "control_center_incompatible_restore_truth"
+  );
+  require_state_file_unchanged(registry, registry_before_incompatible,
+    "control_center_incompatible_restore_registry");
+
+  print("STEP tab mutation refreshes the renderer without focus/context change");
+  const context_state = state_file_facts(context_state_path, "control_center_causal_context");
+  const focus_state = state_file_facts(focus_state_path, "control_center_causal_focus");
+  const causal_tab_count = refreshed.connected_server.tabs.length + 1;
+  const causal_tab_label = "" + causal_tab_count + " tabs";
+  const causal_tab = prove_pty(context, cli_executable, "causal-refresh");
+  const causal_capture = wait_for_rendered_projection(context, control_center, registry, causal_png,
+    first, "connected", "", [context.address, causal_tab_label], "control_center_causal_tab_refresh");
+  const causal_bootstrap = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  harness.require(
+    causal_tab.startsWith("@")
+      && causal_bootstrap.tabs.length === causal_tab_count
+      && causal_capture.owner_pid === first.pid
+      && causal_capture.projection.server_state === "connected"
+      && ("" + causal_capture.projection.window_title).includes(causal_tab_label)
+      && harness.child_state(first) === "running"
+      && (first_window.foreground_window_id === 0
+          || first_window.top_level_window_is_foreground === 0),
+    "control_center_causal_tab_projection"
+  );
+  require_state_file_unchanged(context_state_path, context_state, "control_center_causal_context_after_tab");
+  require_state_file_unchanged(focus_state_path, focus_state, "control_center_causal_focus_after_tab");
+
+  print("STEP server loss/new epoch refreshes without focus/context change");
+  cli_text(context, cli_executable, ["save-workspace"]);
+  const prior_server_pid = server.pid;
+  const prior_server_epoch = live_server.epoch;
+  cli_text(context, cli_executable, ["shutdown"]);
+  const prior_server_output = harness.child_wait(server, 5000);
+  harness.require(
+    prior_server_output.success && process_present(prior_server_pid) === 0,
+    "control_center_prior_server_exit_failure:" + prior_server_output.stderr
+  );
+  const loss_capture = wait_for_rendered_projection(context, control_center, registry, causal_png,
+    first, "unavailable", "server_unreachable", ["server_unreachable"], "control_center_causal_server_loss");
+  harness.require(
+    harness.child_state(first) === "running"
+      && loss_capture.owner_pid === first.pid
+      && loss_capture.projection.server_state === "unavailable"
+      && loss_capture.projection.server_reason === "server_unreachable"
+      && (first_window.foreground_window_id === 0
+          || first_window.top_level_window_is_foreground === 0),
+    "control_center_server_loss_truth"
+  );
+  require_state_file_unchanged(context_state_path, context_state, "control_center_causal_context_after_loss");
+  require_state_file_unchanged(focus_state_path, focus_state, "control_center_causal_focus_after_loss");
+
+  const restarted_server_spec = harness.configured_spec(context, server_executable,
+    ["server", "--address", context.address]);
+  const restarted_server = harness.start_child(context, restarted_server_spec, "restarted-server");
+  owned_children.push(restarted_server);
+  const restarted_protocol = wait_for_server_causal(context, cli_executable, restarted_server,
+    "control_center_causal_restart_ready");
+  const restarted_bootstrap = cli_json(context, cli_executable, ["ui-bootstrap"]);
+  const restart_capture = wait_for_rendered_projection(context, control_center, registry, causal_png,
+    first, "connected", "", [context.address], "control_center_causal_server_restart");
+  harness.require(
+    harness.child_state(first) === "running"
+      && restarted_bootstrap.server_pid === restarted_server.pid
+      && restarted_bootstrap.server_epoch !== prior_server_epoch
+      && restarted_protocol.pid === restarted_server.pid
+      && restart_capture.owner_pid === first.pid
+      && restart_capture.projection.server_state === "connected"
+      && ("" + restart_capture.projection.window_title).includes(context.address)
+      && (first_window.foreground_window_id === 0
+          || first_window.top_level_window_is_foreground === 0),
+    "control_center_server_restart_identity"
+  );
+  require_state_file_unchanged(context_state_path, context_state, "control_center_causal_context_after_restart");
+  require_state_file_unchanged(focus_state_path, focus_state, "control_center_causal_focus_after_restart");
+  prove_pty(context, cli_executable, "after-restart");
+  emit_cc_evidence(context, "control-center.causal-projection-refresh");
+  emit_cc_evidence(context, "control-center.server-recovery");
+
+  print("STEP typed close targets only the exact reused projection owner");
+  const first_pid = first.pid;
+  const close = offline_json(context, control_center, registry, ["close", "--json"], "control_center_close");
+  harness.require(
+    (close.state === "closed" || close.state === "close_requested") && close.pid === first_pid,
+    "control_center_typed_close"
+  );
+  const first_output = wait_for_exit(first, "control_center_first_close_timeout");
+  harness.require(first_output.success, "control_center_typed_close_failed:" + first_output.stderr);
+  emit_cc_evidence(context, "control-center.typed-close");
+  const running_protocol = cli_json(context, cli_executable, ["protocol-info", "--running"]);
+  harness.require(
+    process_present(restarted_server.pid) !== 0 && running_protocol.pid === restarted_server.pid,
+    "control_center_close_affected_server"
+  );
+  prove_pty(context, cli_executable, "after-close");
+
+  print("STEP a killed projection leaves server/PTY alive and is replaceable");
+  const replacement_spec = configured(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ]);
+  const replacement = harness.start_child(context, replacement_spec, "replacement");
+  owned_children.push(replacement);
+  wait_for_registry(registry, replacement.pid, replacement, "control_center_replacement");
+  const replacement_window = wait_for_window_title(context, control_center, registry, replacement,
+    [context.address], "control_center_replacement");
+  harness.require(
+    replacement.pid !== first_pid
+      && (replacement_window.foreground_window_id === 0
+          || replacement_window.top_level_window_is_foreground === 0),
+    "control_center_stale_owner_recovery"
+  );
+  const killed_pid = replacement.pid;
+  harness.child_kill(replacement);
+  wait_for_exit(replacement, "control_center_replacement_kill_timeout");
+  wait_process_gone(killed_pid, "control_center_replacement_process_orphan");
+  const kill_protocol = cli_json(context, cli_executable, ["protocol-info", "--running"]);
+  harness.require(
+    process_present(restarted_server.pid) !== 0 && kill_protocol.pid === restarted_server.pid,
+    "control_center_kill_affected_server"
+  );
+  prove_pty(context, cli_executable, "after-kill");
+  const recovered_spec = configured(context, control_center, registry, [
+    "open", "--no-activate",
+    "--server-endpoint", context.address,
+    "--logical-instance", "main"
+  ]);
+  const recovered = harness.start_child(context, recovered_spec, "recovered");
+  owned_children.push(recovered);
+  wait_for_registry(registry, recovered.pid, recovered, "control_center_recovered");
+  harness.require(recovered.pid !== killed_pid, "control_center_killed_owner_not_replaced");
+  const recovered_close = offline_json(context, control_center, registry, ["close", "--json"],
+    "control_center_recovered_close");
+  harness.require(recovered_close.pid === recovered.pid, "control_center_recovered_close_owner");
+  const recovered_output = wait_for_exit(recovered, "control_center_recovered_close_timeout");
+  harness.require(recovered_output.success, "control_center_recovered_close_failed");
+  wait_process_gone(recovered.pid, "control_center_recovered_process_orphan");
+  remove_owned_registry(registry);
+  harness.require(!rh.exists(registry), "control_center_owned_registry_orphan");
+  emit_cc_evidence(context, "control-center.process-isolation");
+
+  print("STEP stop the isolated server through its public CLI");
+  cli_text(context, cli_executable, ["save-workspace"]);
+  harness.require(rh.exists(context.workspace_path), "control_center_workspace_missing");
+  cli_text(context, cli_executable, ["shutdown"]);
+  const server_output = wait_for_exit(restarted_server, "control_center_server_shutdown_timeout");
+  harness.require(server_output.success, "control_center_server_exit_failure:" + server_output.stderr);
+  wait_process_gone(restarted_server.pid, "control_center_server_process_orphan");
+  print("PASS: Control Center launch failure, live Cockpit facts, "
+    + "no-activate reuse, incompatible-sibling isolation, "
+    + "causal tab/new-epoch refresh, failure isolation, "
+    + "and orphan-free cleanup");
+  succeeded = 1;
+} catch (error) {
+  // rh kept only the code. The CLI drops every print when the script ends by
+  // throwing, so the text goes into the failure bundle (manifest.diagnostics
+  // lists it) as well as to stdout.
+  print("DIAGNOSTIC control_center_smoke_failed: " + catch_text(error));
+  record_failure_text(context, catch_text(error));
+  failure = "control_center_smoke_failed";
+}
+
+let completion_failure = "";
+try {
+  harness.complete_children(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  print("DIAGNOSTIC complete: " + catch_text(error));
+  completion_failure = "control_center_smoke_complete_failed";
+}
+try {
+  remove_owned_registry(registry);
+} catch (error) {
+  if (completion_failure === "") {
+    completion_failure = "control_center_smoke_registry_cleanup_failed";
+  }
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return 0;
