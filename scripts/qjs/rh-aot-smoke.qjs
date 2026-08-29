@@ -1,0 +1,93 @@
+// Prove rh-0 check, AOT pack build, native_hash receipt, and dlopen entry smoke.
+// Moved from rh on 2026-08-29; the commands it runs are rh's own (`rh check`,
+// `rh pack build`, `rh run-smoke`, `rh qualify`) and are kept verbatim.
+//
+// Args: REPO [AGENTERM_BINARY]
+//
+// Runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+if (args.length !== 1 && args.length !== 2) {
+  throw "expected: REPO [AGENTERM_BINARY]";
+}
+
+const repo = rh.absolute(args[0]);
+const fixture = rh.join(repo, "fixtures/rh/entry.rh");
+rh.require(rh.exists(fixture), "rh_aot_missing_fixture");
+
+// Prefer an explicit binary; otherwise pick host layout by path presence.
+let rh_binary = "";
+if (args.length === 2) {
+  rh_binary = rh.absolute(args[1]);
+} else {
+  const win = rh.join(repo, "target/debug/agenterm.exe");
+  const unix = rh.join(repo, "target/debug/agenterm");
+  if (rh.exists(win)) {
+    rh_binary = win;
+  } else {
+    rh_binary = unix;
+  }
+}
+rh.require(rh.exists(rh_binary), "rh_aot_missing_binary:" + rh_binary);
+
+// Fixed pack dir. pack build overwrites.
+const pack_dir = rh.join(repo, "target/rh-aot-smoke");
+rh.create_dir_all(pack_dir);
+
+const check_code = rh.command_status(
+  rh_binary,
+  ["rh", "check", fixture],
+  { cwd: repo, timeout_ms: 30000 }
+);
+rh.require(check_code === 0, "rh_aot_check");
+
+const build_code = rh.command_status(
+  rh_binary,
+  ["rh", "pack", "build", fixture, "--dir", pack_dir],
+  { cwd: repo, timeout_ms: 180000 }
+);
+rh.require(build_code === 0, "rh_aot_pack_build");
+
+const native_dll = rh.join(pack_dir, "pack.dll");
+const native_dylib = rh.join(pack_dir, "pack.dylib");
+const native_so = rh.join(pack_dir, "pack.so");
+let native = "";
+if (rh.exists(native_dll)) {
+  native = native_dll;
+} else if (rh.exists(native_dylib)) {
+  native = native_dylib;
+} else {
+  native = native_so;
+}
+
+const smoke_stdout = rh.join(pack_dir, "run-smoke.stdout.tmp");
+const smoke_code = rh.command_stdout_file(
+  rh_binary,
+  ["rh", "run-smoke", native],
+  smoke_stdout,
+  { cwd: repo, timeout_ms: 30000 }
+);
+rh.require(smoke_code === 0, "rh_aot_run_smoke");
+const smoke_text = rh.read_text(smoke_stdout);
+rh.try_remove_file(smoke_stdout);
+rh.require(
+  smoke_text.includes("rh_entry() = 42"),
+  "rh_aot_entry_value"
+);
+
+const receipt_path = rh.join(pack_dir, "qualification.json");
+const qualify_code = rh.command_status(
+  rh_binary,
+  ["rh", "qualify", fixture, "--dir", pack_dir, "-o", receipt_path],
+  { cwd: repo, timeout_ms: 180000 }
+);
+rh.require(qualify_code === 0, "rh_aot_qualify");
+rh.require(rh.exists(receipt_path), "rh_aot_receipt_missing");
+
+print("PASS rh-aot-smoke");
+return 0;
