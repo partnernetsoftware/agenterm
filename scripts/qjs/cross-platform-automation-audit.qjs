@@ -1,0 +1,177 @@
+// Reject duplicated Cargo executable lists and packaging rules outside rh tasks.
+//
+// Args: REPO
+// Ported from scripts/rh/cross-platform-automation-audit.rh; runs under
+// `--profile tool` (git inventory through the process door, file reads).
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length !== 1) { throw "expected: REPO"; }
+
+const repo = rh.absolute(args[0]);
+const stdout_path = repo + ".cross-platform-automation-audit.stdout.tmp";
+
+function read_repo(relative) {
+  return rh.read_text(rh.join(repo, relative));
+}
+
+const inventory_code = rh.command_stdout_file(
+  "git",
+  [
+    "-C", repo, "ls-files", "--",
+    ".github/workflows/*.yml", "scripts/*.sh",
+    "build.sh", "check.sh", "lint.sh", "release.sh"
+  ],
+  stdout_path,
+  { timeout_ms: 10000 }
+);
+rh.require(inventory_code === 0, "cross_platform_audit_inventory");
+const inventory_text = rh.read_text(stdout_path);
+
+const duplicate_rules = [
+  "--bin agenterm --bin",
+  "bins=(",
+  "cargo build --locked --release --target",
+  "cargo xwin build --locked --target",
+  "python3 - ./scripts/artifacts.json",
+  "package-client-release.sh",
+  "./scripts/build-"
+];
+
+let checked = 0;
+for (const source_line of inventory_text.split("\n")) {
+  const relative = source_line.trim();
+  if (relative === "") { continue; }
+  const path = rh.join(repo, relative);
+  if (!rh.exists(path)) { continue; }
+  checked = checked + 1;
+  const source = rh.read_text(path).toLowerCase();
+  for (const rule of duplicate_rules) {
+    rh.require(!source.includes(rule), "cross_platform_rule_duplicate:" + relative + ":" + rule);
+  }
+}
+rh.require(checked >= 9, "cross_platform_audit_inventory_too_small");
+
+const batch_code = rh.command_stdout_file(
+  "git",
+  ["-C", repo, "ls-files", "--", "*.bat", "*.cmd"],
+  stdout_path,
+  { timeout_ms: 10000 }
+);
+rh.require(batch_code === 0, "cross_platform_batch_inventory");
+const batch_text = rh.read_text(stdout_path);
+
+const actual_batch = {};
+let batch_count = 0;
+for (const source_line of batch_text.split("\n")) {
+  const relative = source_line.trim();
+  if (relative !== "") {
+    actual_batch[relative] = true;
+    batch_count = batch_count + 1;
+  }
+}
+rh.require(batch_count === 7, "cross_platform_batch_inventory_count:" + batch_count);
+for (const expected of [
+  "build.bat", "check.cmd", "lint.cmd", "release.cmd",
+  "rh-check.cmd", "scripts/rh-check.cmd", "scripts/bootstrap.cmd"
+]) {
+  rh.require(actual_batch[expected] === true, "cross_platform_batch_inventory_missing:" + expected);
+}
+
+// Closed alias set: build/check/lint/release (plus bootstrap.cmd below).
+for (const alias of [
+  { windows: "build.bat", unix: "build.sh", task: "build" },
+  { windows: "check.cmd", unix: "check.sh", task: "check" },
+  { windows: "lint.cmd", unix: "lint.sh", task: "lint" },
+  { windows: "release.cmd", unix: "release.sh", task: "release" }
+]) {
+  const windows_lower = read_repo(alias.windows).toLowerCase();
+  const unix_source = read_repo(alias.unix);
+  rh.require(
+    windows_lower.includes("agenterm_bootstrap_task=" + alias.task),
+    "cross_platform_windows_alias:" + alias.windows
+  );
+  rh.require(
+    unix_source.includes("AGENTERM_BOOTSTRAP_TASK=" + alias.task)
+      && unix_source.includes("scripts/bootstrap.sh"),
+    "cross_platform_unix_alias:" + alias.unix
+  );
+}
+
+const windows_bootstrap_lower = read_repo("scripts/bootstrap.cmd").toLowerCase();
+const unix_bootstrap = read_repo("scripts/bootstrap.sh");
+rh.require(
+  windows_bootstrap_lower.includes("task run \"%agenterm_bootstrap_task%\"")
+    && unix_bootstrap.includes("task run \"$AGENTERM_BOOTSTRAP_TASK\""),
+  "cross_platform_bootstrap_pair"
+);
+rh.require(
+  unix_bootstrap.includes("chmod +x \"$WORKER\"")
+    && !unix_bootstrap.includes("chmod +x -- \"$WORKER\""),
+  "cross_platform_macos_bsd_chmod"
+);
+
+const check_source = read_repo("scripts/rh/check.rh");
+rh.require(
+  check_source.includes("\"native public catalog clients\"")
+    && check_source.includes("\"client-build\"")
+    && check_source.includes("\"agenterm\""),
+  "cross_platform_unix_prd_catalog_bootstrap"
+);
+
+const manifest = rh.parse_file(rh.join(repo, "agenterm.tasks.json"));
+let check_task_count = 0;
+for (const task of manifest.tasks) {
+  if (task.id === "check") {
+    check_task_count = check_task_count + 1;
+    let has_windows = false;
+    let has_linux = false;
+    let has_macos = false;
+    for (const platform of task.platforms) {
+      const platform_name = "" + platform;
+      if (platform_name === "windows") { has_windows = true; }
+      if (platform_name === "linux") { has_linux = true; }
+      if (platform_name === "macos") { has_macos = true; }
+    }
+    rh.require(has_windows && has_linux && has_macos, "cross_platform_check_task_platforms");
+  }
+}
+rh.require(check_task_count === 1, "cross_platform_check_task_platforms");
+
+const ci_source = read_repo(".github/workflows/ci-agenterm.yml");
+for (const target of [
+  "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+  "aarch64-apple-darwin", "x86_64-apple-darwin"
+]) {
+  rh.require(ci_source.includes(target), "cross_platform_ci_agenterm_target:" + target);
+}
+rh.require(
+  ci_source.includes("cargo xwin check --locked -p agenterm"),
+  "cross_platform_ci_agenterm_xwin"
+);
+const release_source = read_repo(".github/workflows/candidate.yml");
+rh.require(
+  release_source.includes("AGENTERM_BOOTSTRAP_TASK: package-client-release"),
+  "cross_platform_release_package_task"
+);
+
+const client_source = read_repo("src/client/mod.rs");
+rh.require(
+  client_source.includes("run_script_command_direct(&arguments)")
+    && client_source.includes("fn run_script_command_direct(")
+    && client_source.includes("return run_script_task_command(arguments)")
+    && !client_source.includes("fn run_script_command(_arguments: &[String])"),
+  "cross_platform_task_host_unavailable"
+);
+
+rh.try_remove_file(stdout_path);
+
+print(rh.stringify_pretty({
+  schema_version: 1,
+  checked_files: checked,
+  alias_pairs: 5,
+  batch_entry_count: batch_count,
+  duplicate_business_rules: 0
+}));
+return 0;
