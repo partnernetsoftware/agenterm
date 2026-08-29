@@ -50,10 +50,11 @@ impl Slot {
         budget: &Budget,
         bridge: Option<FleetBridgeFn>,
         convention: Convention,
+        tool_door: bool,
     ) -> Result<Self, QjswasmError> {
         let mut module = tinyvm::WasmModule::from_bytes_with(bytes, budget.limits)
             .map_err(QjswasmError::Load)?;
-        let door = host::install(&mut module, budget, bridge)?;
+        let door = host::install(&mut module, budget, bridge, tool_door)?;
         // Instantiation applies data segments and initial globals and runs the
         // start function, so a guest whose start traps or overruns its budget
         // fails here -- classified like any other execution fault rather than
@@ -106,6 +107,11 @@ impl Slot {
         // only failures that could not be known until the guest had already
         // run.
         let (stdout, truncated_stdout) = self.door.take_stdout();
+        // Drained on every path for the same reason as stdout: a tool call
+        // made by a call that then trapped must not land on the next call's
+        // receipt. (It is lost on the error path, like stdout, and for the
+        // same stated reason.)
+        let tool_calls = self.door.take_tool_calls();
 
         let returned = match result {
             Ok(values) => values,
@@ -127,6 +133,7 @@ impl Slot {
             values,
             stdout,
             truncated_stdout,
+            tool_calls,
             steps,
             peak_call_depth,
             peak_activation_slots,

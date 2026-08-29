@@ -228,6 +228,41 @@ return status;
 对 `print("x")` 报 ``this engine finds no declaration of `print` ``，对 `return 1 + 1;`
 发射零个 import。`check` 与 `execute` 都走 `compile_qjs`，两边看见的是同一门语言。
 
+### 第二扇门：`tool.*`（只给工具脚本，沙箱永远开不了）
+
+PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看见 `agenterm.*`；
+**工具 `.qjs`**（CI 门、构建、qualification）多一扇 `tool.*`——文件系统、子进程、环境变量。
+区别在**谁能开**，不在脚本写了什么：
+
+- `compile_qjs` **不知道这扇门存在**：写 `fs_exists("/")` 撞的是能力诊断，列出来的也只有
+  `print` / `fleet_call` / `fleet_result`。开门的编译入口是 `compile_qjs_tool`
+  （及 `compile_qjs_tool_with_modules` / `check_qjs_tool_with`）。
+- `Engine::new()` / `with_budget` 的槽**装载期就拒** `tool.*` import，诊断点名 import 和
+  `Engine::with_tool_door`——同一份字节换到 `with_tool_door` 的引擎就绑上真门。
+  `validate_wasm` 与 `validate_wasm_tool_with` 分别与两种引擎口径一致。
+- **零成本**：没提到 `tool_*` 名字的脚本，两个入口编出的 `.wasm` **逐字节相同**
+  （实测 `return 1;` 9765 字节，改动前后 sha256 一致；`tests/tool_door.rs` 锁四个程序）。
+
+门表（`src/tool.rs`，公开面 `tool_door_declarations()`；脚本可见名 = field 名的 `.` 换 `_`）：
+
+| 脚本写 | wasm import | 答什么 |
+|--------|-------------|--------|
+| `fs_exists(p)` / `env_has(n)` | `tool.fs.exists` / `tool.env.has` | 直接 `1`/`0`；`-1` = 问不了（非 UTF-8），诊断暂存 |
+| `fs_read_to_string(p)` `fs_write(p, text)` `fs_create_dir_all(p)` `fs_remove_file(p)` | `tool.fs.*` | status `0`/`1`；文本或诊断暂存 |
+| `fs_metadata(p)` / `fs_read_dir(p)` | `tool.fs.metadata` / `tool.fs.read_dir` | status；暂存 JSON `{is_file,is_dir,len}` / 按名排序的 `[{name,path,is_file,is_dir,is_symlink}]` |
+| `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,timed_out}`；无 `timeout_ms` 默认 60 s 后杀 |
+| `process_id()` | `tool.process.id` | 直接 pid |
+| `env_get(n)` / `env_cwd()` | `tool.env.get` / `tool.env.cwd` | status；值或诊断暂存（未设置是 status `1`，不是空串——要空串用 `env_has`） |
+| `tool_result()` | `tool.result_len` + `tool.result` | 与 `fleet_result` 同一套两趟取回；**独立**于 fleet 的暂存区，互不覆盖 |
+
+预算与审计走 fleet 那一套：暂存答案受 `max_bridge_result_bytes`（超了是拒绝不是前缀），
+`process.command` 抓的 stdout/stderr 同一个数；操作里 panic 报 `QjswasmError::Door`
+不伪装成 status 1。**每次调用都记名**：`Outcome::tool_calls` 按调用顺序列出
+`tool.fs.read_to_string` 这样的全名，沙箱槽永远为空——回执上写的就是它。
+证据在 `tests/tool_door.rs`（17 条）与 `src/host.rs` / `src/tool.rs` 的单测。
+
+**CLI 还没接**：`script_engine.rs` 里的 qjswasm 后端仍只建沙箱引擎。
+
 `.wasm` 侧是完整的：任何过 tinyvm 装载门的标准模块都能装载、按名调用、有预算地执行。
 
 第一个具体锚点是 `scripts/qjs/lib/fleet.js` 的等价物，也就是本仓的

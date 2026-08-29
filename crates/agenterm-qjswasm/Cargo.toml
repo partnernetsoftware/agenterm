@@ -30,6 +30,11 @@ agenterm-script-common = { path = "../agenterm-script-common" }
 # door, slots, budget policy -- and re-exports the compiler's face.
 tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "ec67034" }
 tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "ec67034" }
+# The `tool.*` door speaks JSON where the wasm vocabulary has no record type:
+# `process.command` takes its spec as one, and `fs.metadata` / `fs.read_dir`
+# answer with one. Same crates the rest of the workspace already carries.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 # The shared corpus-scan contract: the scenarios every engine's scanner has to

@@ -146,6 +146,8 @@ name = "agenterm-qjswasm"
 version = "0.1.16"
 dependencies = [
  "agenterm-script-common",
+ "serde",
+ "serde_json",
  "tinyvm",
  "tinyvm-qjs",
  "wat",

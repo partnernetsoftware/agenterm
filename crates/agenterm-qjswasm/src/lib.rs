@@ -90,6 +90,9 @@ use std::sync::Arc;
 
 mod host;
 mod slot;
+mod tool;
+
+pub use tool::DEFAULT_COMMAND_TIMEOUT_MS;
 
 /// The `.qjs` compiler's diagnostic types, re-exported so this crate's callers
 /// see one door.
@@ -133,7 +136,9 @@ pub use tinyvm_qjs::{HostFn, HostParam, HostResult};
 /// nothing to a guest that does not reach for it.
 ///
 /// Callers who want a guest with no host surface at all -- one whose bytes
-/// provably cannot name the door -- use [`compile_qjs_without_door`].
+/// provably cannot name the door -- use [`compile_qjs_without_door`]. Callers
+/// compiling a *tool* script -- one that may also name the `tool.*` door --
+/// use [`compile_qjs_tool`]; this entry point does not know that door exists.
 pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
     tinyvm_qjs::compile_qjs_m1_with(
         source,
@@ -141,6 +146,63 @@ pub fn compile_qjs(source: &str) -> Result<Vec<u8>, CompileError> {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
         },
     )
+}
+
+/// [`compile_qjs`] for a **tool** script: the `agenterm.*` door plus the
+/// `tool.*` door (`fs_*`, `process_*`, `env_*`, `tool_result`; see
+/// [`tool_door_declarations`]).
+///
+/// # Opt-in, and why it is a separate function rather than a flag on the first
+///
+/// PRD 36 ("A1.1 的答案") decided there are two kinds of `.qjs`: a sandbox
+/// script, which sees `agenterm.*` and nothing else, and a tool script -- a
+/// CI gate, a build step, a qualification check -- which also gets the
+/// filesystem, the environment and child processes. The difference is who
+/// can open the second door, and the answer has to be "the product surface
+/// that runs tool scripts, explicitly, in code". A flag defaulting to closed
+/// would say the same thing; a separate name says it at every call site, and
+/// makes `grep compile_qjs_tool` the complete list of places the tool door is
+/// open.
+///
+/// A script that names no tool function compiles to **exactly** the bytes
+/// [`compile_qjs`] emits -- the declarations cost nothing until mentioned --
+/// so `check` and `execute` of a sandbox script are unchanged by this entry
+/// point existing. `tests/tool_door.rs` holds both halves of that claim.
+///
+/// The bytes this produces load only into an engine built with
+/// [`Engine::with_tool_door`]; a sandbox engine refuses them at load time,
+/// naming the `tool.*` import, so a tool artifact cannot be run somewhere it
+/// would be handed a door it should not have.
+pub fn compile_qjs_tool(source: &str) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(both_doors()),
+        },
+    )
+}
+
+/// [`compile_qjs_with_modules`] for a tool script. See [`compile_qjs_tool`].
+pub fn compile_qjs_tool_with_modules(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(both_doors()),
+        },
+        resolve,
+    )
+}
+
+/// The fleet door followed by the tool door: declaration order is import
+/// order, so a tool script's `agenterm.*` imports come first, exactly where a
+/// sandbox script's would be.
+fn both_doors() -> Vec<HostFn> {
+    let mut decls = host::declarations();
+    decls.extend(tool::declarations());
+    decls
 }
 
 /// [`compile_qjs`], plus a way for the source to `import` other sources.
@@ -224,6 +286,24 @@ pub fn check_qjs(source: &str) -> Result<(), QjswasmError> {
 pub fn check_qjs_with(source: &str, budget: &Budget) -> Result<(), QjswasmError> {
     let bytes = compile_qjs(source)?;
     validate_wasm_with(&bytes, budget)
+}
+
+/// [`check_qjs_with`] for a tool script: compiled with [`compile_qjs_tool`],
+/// gated as [`validate_wasm_tool_with`] gates. A check must refuse exactly
+/// what the engine that will run the script refuses, and a tool script runs
+/// in an [`Engine::with_tool_door`], so it is checked as one.
+pub fn check_qjs_tool_with(source: &str, budget: &Budget) -> Result<(), QjswasmError> {
+    let bytes = compile_qjs_tool(source)?;
+    validate_wasm_tool_with(&bytes, budget)
+}
+
+/// The `tool.*` door as declarations: what a tool script may call beyond the
+/// fleet door, and which raw import each call becomes. See `src/tool.rs`.
+///
+/// Thirteen declarations, fourteen imports: `tool_result` is the shared
+/// two-pass fetch and brings `result_len` with it.
+pub fn tool_door_declarations() -> Vec<HostFn> {
+    tool::declarations()
 }
 
 /// The `agenterm.*` door as declarations the `.qjs` compiler can unwrap onto:
@@ -447,6 +527,11 @@ pub struct Outcome {
     pub stdout: String,
     /// `true` when `stdout` hit [`Budget::max_stdout_bytes`] and was cut.
     pub truncated_stdout: bool,
+    /// Every `tool.*` operation this call reached, fully qualified
+    /// (`tool.fs.read_to_string`) and in call order, one entry per call --
+    /// the line a receipt names host capabilities by. Always empty for a
+    /// sandbox slot, which has no such door to reach.
+    pub tool_calls: Vec<String>,
     pub steps: u64,
     pub peak_call_depth: usize,
     pub peak_activation_slots: usize,
@@ -625,6 +710,9 @@ impl From<CompileError> for QjswasmError {
 /// `Module::from_bytes_with` + import binding + `instantiate` instead.
 pub struct Engine {
     budget: Budget,
+    /// Whether slots here get the `tool.*` door. Set only by
+    /// [`with_tool_door`](Self::with_tool_door), never by a guest.
+    tool_door: bool,
     slots: Vec<Option<slot::Slot>>,
     /// This engine's tag, stamped into every [`SlotId`] it mints so another
     /// engine's id cannot address a slot here. Process-wide and monotonic --
@@ -653,14 +741,37 @@ impl Engine {
     pub fn with_budget(budget: Budget) -> Self {
         Self {
             budget,
+            tool_door: false,
             slots: Vec::new(),
             id: NEXT_ENGINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             next_index: 0,
         }
     }
 
+    /// An engine whose slots also get the `tool.*` door: filesystem, child
+    /// processes, environment (see [`tool_door_declarations`]).
+    ///
+    /// This is the only way to open it. A `Guest::Qjs` spawned here is
+    /// compiled with [`compile_qjs_tool`]; a `Guest::Wasm` or
+    /// `Guest::CompiledQjs` may import `tool.*` and is bound to the real
+    /// door. The same bytes in an engine built any other way are refused at
+    /// load time, naming the import. Every tool operation a call reaches is
+    /// listed in [`Outcome::tool_calls`], so the caller that chose to open the
+    /// door can also say what came through it.
+    pub fn with_tool_door(budget: Budget) -> Self {
+        Self {
+            tool_door: true,
+            ..Self::with_budget(budget)
+        }
+    }
+
     pub fn budget(&self) -> &Budget {
         &self.budget
+    }
+
+    /// Whether this engine's slots have the `tool.*` door.
+    pub fn has_tool_door(&self) -> bool {
+        self.tool_door
     }
 
     /// Compile (for `.qjs`), validate, bind the host door, instantiate, and run
@@ -679,11 +790,18 @@ impl Engine {
             Guest::Wasm(bytes) => (bytes, slot::Convention::Wasm),
             Guest::CompiledQjs(bytes) => (bytes, slot::Convention::JsV1),
             Guest::Qjs(source) => {
-                owned = compile_qjs(source)?;
+                // Compiled against the doors this engine will actually bind,
+                // so a tool engine's `check` and `execute` agree just as a
+                // sandbox engine's do.
+                owned = if self.tool_door {
+                    compile_qjs_tool(source)?
+                } else {
+                    compile_qjs(source)?
+                };
                 (&owned[..], slot::Convention::JsV1)
             }
         };
-        let slot = slot::Slot::load(bytes, &self.budget, bridge, convention)?;
+        let slot = slot::Slot::load(bytes, &self.budget, bridge, convention, self.tool_door)?;
         let id = SlotId {
             engine: self.id,
             index: self.next_index,
@@ -836,7 +954,17 @@ pub fn validate_wasm(bytes: &[u8]) -> Result<(), QjswasmError> {
 pub fn validate_wasm_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
     let module =
         tinyvm::WasmModule::from_bytes_with(bytes, budget.limits).map_err(QjswasmError::Load)?;
-    host::check_declarations(&module)
+    host::check_declarations(&module, false)
+}
+
+/// [`validate_wasm_with`] as an [`Engine::with_tool_door`] would gate: a
+/// `tool.*` import is accepted (and still signature-checked) instead of
+/// refused. Use it to check a module that will run in a tool engine; the
+/// sandbox function stays the right check for everything else.
+pub fn validate_wasm_tool_with(bytes: &[u8], budget: &Budget) -> Result<(), QjswasmError> {
+    let module =
+        tinyvm::WasmModule::from_bytes_with(bytes, budget.limits).map_err(QjswasmError::Load)?;
+    host::check_declarations(&module, true)
 }
 
 /// Route a path to a guest kind by extension. `.wasm` and `.qjs` only.

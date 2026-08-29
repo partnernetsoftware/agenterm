@@ -69,13 +69,15 @@ use std::rc::Rc;
 use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
+use crate::tool;
 use crate::{Budget, FleetBridgeFn, QjswasmError};
 
-/// The one module name a guest may import from.
+/// The module name every guest may import from. `tool::DOOR` is the other,
+/// and only a slot that opened it may import from that one.
 const DOOR: &str = "agenterm";
 
-const STATUS_OK: i32 = 0;
-const STATUS_ERR: i32 = 1;
+pub(crate) const STATUS_OK: i32 = 0;
+pub(crate) const STATUS_ERR: i32 = 1;
 const STATUS_NO_BRIDGE: i32 = 2;
 
 /// Host-authored answers. These are the pending buffer's contents when the
@@ -211,9 +213,21 @@ impl Pending {
 /// instance; dropping it drops the pending buffer and the captured bridge.
 pub(crate) struct HostState {
     pending: Rc<RefCell<Pending>>,
+    /// The `tool.*` door's state, present only in a slot that opened it.
+    tool: Option<Rc<RefCell<tool::ToolState>>>,
 }
 
 impl HostState {
+    /// Every `tool.*` operation the guest reached since the previous take,
+    /// fully qualified and in call order -- the receipt's line. Draining,
+    /// like [`take_stdout`](Self::take_stdout), and empty in a sandbox slot.
+    pub(crate) fn take_tool_calls(&self) -> Vec<String> {
+        self.tool
+            .as_ref()
+            .map(|t| t.borrow_mut().take_calls())
+            .unwrap_or_default()
+    }
+
     /// Bytes `agenterm.print` accumulated since the previous take, and whether
     /// [`Budget::max_stdout_bytes`] cut them.
     ///
@@ -228,7 +242,11 @@ impl HostState {
     /// reason. Draining, like [`take_stdout`](Self::take_stdout) and for the
     /// same reason: one call's failure must not be attributed to the next.
     pub(crate) fn take_fault(&self) -> Option<String> {
-        self.pending.borrow_mut().fault.take()
+        self.pending
+            .borrow_mut()
+            .fault
+            .take()
+            .or_else(|| self.tool.as_ref().and_then(|t| t.borrow_mut().take_fault()))
     }
 
     pub(crate) fn take_stdout(&self) -> (String, bool) {
@@ -245,12 +263,22 @@ impl HostState {
 /// declares are bound; the rest are simply absent, which is why the loop below
 /// consults `Module::imports()` before binding rather than treating tinyvm's
 /// "no imported function named" as a failure.
+///
+/// `tool` opens the `tool.*` door beside this one (see `src/tool.rs`). It is
+/// a parameter here and a constructor choice on [`crate::Engine`], never a
+/// default: a sandbox slot must not be able to acquire it by importing it.
 pub(crate) fn install(
     module: &mut tinyvm::WasmModule,
     budget: &Budget,
     bridge: Option<FleetBridgeFn>,
+    tool: bool,
 ) -> Result<HostState, QjswasmError> {
-    check_declarations(module)?;
+    check_declarations(module, tool)?;
+    let tool = if tool {
+        Some(tool::install(module, budget)?)
+    } else {
+        None
+    };
 
     let pending = Rc::new(RefCell::new(Pending {
         stdout: Vec::new(),
@@ -261,7 +289,7 @@ pub(crate) fn install(
     }));
 
     let state = Rc::clone(&pending);
-    bind(module, "print", move |args, memory| {
+    bind(module, DOOR, "print", move |args, memory| {
         let bytes = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let mut state = state.borrow_mut();
         state.write_stdout(bytes);
@@ -279,7 +307,7 @@ pub(crate) fn install(
 
     let state = Rc::clone(&pending);
     let max_result = budget.max_bridge_result_bytes;
-    bind(module, "fleet_call", move |args, memory| {
+    bind(module, DOOR, "fleet_call", move |args, memory| {
         // Bounds-check both regions before anything else runs: an out-of-range
         // pointer must not reach the bridge, let alone read host memory.
         let op = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
@@ -315,12 +343,12 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&pending);
-    bind(module, "fleet_result_len", move |_args, _memory| {
+    bind(module, DOOR, "fleet_result_len", move |_args, _memory| {
         Ok(vec![Val::I32(pending_len(&state)?)])
     })?;
 
     let state = Rc::clone(&pending);
-    bind(module, "fleet_result", move |args, memory| {
+    bind(module, DOOR, "fleet_result", move |args, memory| {
         let dst_ptr = arg(args, 0)?;
         let dst_len = arg(args, 1)?;
         // Check the destination the guest *declared*, not the part that happens
@@ -337,7 +365,7 @@ pub(crate) fn install(
         Ok(vec![Val::I32(needed)])
     })?;
 
-    Ok(HostState { pending })
+    Ok(HostState { pending, tool })
 }
 
 /// Reject a guest whose door declarations do not match the ABI, at load time
@@ -348,35 +376,55 @@ pub(crate) fn install(
 /// `agenterm.*` name as an unbound-import trap. Catching them here keeps the
 /// crate's promise that load-time refusal and run-time trap are distinguishable
 /// failure classes.
-pub(crate) fn check_declarations(module: &tinyvm::WasmModule) -> Result<(), QjswasmError> {
+pub(crate) fn check_declarations(
+    module: &tinyvm::WasmModule,
+    tool: bool,
+) -> Result<(), QjswasmError> {
     for desc in module.imports() {
-        // An import from any other module namespace can never be bound: this
-        // door is the whole world a guest gets, and PRD 36 forbids growing a
-        // second OS-shaped surface (`wasi_snapshot_preview1`) beside it. It is
+        let door: &str = &desc.module;
+        // An import from any other module namespace can never be bound: these
+        // doors are the whole world a guest gets, and PRD 36 forbids growing
+        // an OS-shaped surface (`wasi_snapshot_preview1`) beside them. It is
         // refused here, at load time, naming the import -- because the
         // alternative is what happened before: such a module validated clean
         // and then died on the core's `Trap("call to unbound imported
         // function")` at the first call, which names nothing and reads as the
         // guest's fault. "Rejected before it could run" and "trapped while
         // running" must be tellable apart.
-        if desc.module != DOOR {
+        //
+        // `tool.*` in a slot that did not open it is refused the same way but
+        // says something different: the capability exists, this slot was not
+        // given it. That is the sandbox rule enforced at the only place it
+        // can be -- a guest's bytes cannot open a door by naming it.
+        let table: &[(&str, usize, usize)] = if door == DOOR {
+            &SIGNATURES
+        } else if door == tool::DOOR && tool {
+            &tool::SIGNATURES
+        } else if door == tool::DOOR {
+            return Err(QjswasmError::Door(format!(
+                "guest imports `{}.{}`, but the tool door is not open in this slot: \
+                 only an engine built with `Engine::with_tool_door` offers `{}.*`",
+                desc.module,
+                desc.field,
+                tool::DOOR
+            )));
+        } else {
             return Err(QjswasmError::Door(format!(
                 "guest imports `{}.{}`; `{DOOR}.*` is the only host module this engine \
                  offers, so nothing can bind it",
                 desc.module, desc.field
             )));
-        }
-        let Some(&(_, params, results)) =
-            SIGNATURES.iter().find(|(field, _, _)| *field == desc.field)
+        };
+        let Some(&(_, params, results)) = table.iter().find(|(field, _, _)| *field == desc.field)
         else {
             return Err(QjswasmError::Door(format!(
-                "guest imports unknown door function `{DOOR}.{}`",
+                "guest imports unknown door function `{door}.{}`",
                 desc.field
             )));
         };
         if desc.n_params != params || desc.n_results != results || !desc.i32_only {
             return Err(QjswasmError::Door(format!(
-                "guest declares `{DOOR}.{}` with the wrong signature: the door takes \
+                "guest declares `{door}.{}` with the wrong signature: the door takes \
                  {params} i32 parameter(s) and returns {results}",
                 desc.field
             )));
@@ -386,7 +434,12 @@ pub(crate) fn check_declarations(module: &tinyvm::WasmModule) -> Result<(), Qjsw
 }
 
 /// Bind one door function, tolerating a guest that never imported it.
-fn bind<F>(module: &mut tinyvm::WasmModule, field: &str, f: F) -> Result<(), QjswasmError>
+pub(crate) fn bind<F>(
+    module: &mut tinyvm::WasmModule,
+    door: &str,
+    field: &str,
+    f: F,
+) -> Result<(), QjswasmError>
 where
     F: Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmError> + 'static,
 {
@@ -396,12 +449,12 @@ where
     if !module
         .imports()
         .iter()
-        .any(|desc| desc.module == DOOR && desc.field == field)
+        .any(|desc| desc.module == door && desc.field == field)
     {
         return Ok(());
     }
-    module.bind_import_typed(DOOR, field, f).map_err(|error| {
-        QjswasmError::Door(format!("binding `{DOOR}.{field}`: {}", error.message()))
+    module.bind_import_typed(door, field, f).map_err(|error| {
+        QjswasmError::Door(format!("binding `{door}.{field}`: {}", error.message()))
     })
 }
 
@@ -423,23 +476,26 @@ fn call_bridge(
     op: &str,
     params: &str,
 ) -> Result<Result<String, String>, String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge(op, params))).map_err(
-        |payload| {
-            let said = payload
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned());
-            match said {
-                Some(said) => {
-                    format!("the fleet bridge panicked while serving `{op}`: {said}")
-                }
-                None => format!(
-                    "the fleet bridge panicked while serving `{op}` \
-                     (its payload is not a string, so there is nothing to quote)"
-                ),
-            }
-        },
+    contain(
+        &format!("the fleet bridge panicked while serving `{op}`"),
+        || bridge(op, params),
     )
+}
+
+/// Run host code on a guest's behalf without letting a panic escape into the
+/// interpreter. `Ok` is what it answered; `Err` is `what`, plus the panic's
+/// own message when it has one. Shared by both doors.
+pub(crate) fn contain<T>(what: &str, f: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|payload| {
+        let said = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned());
+        match said {
+            Some(said) => format!("{what}: {said}"),
+            None => format!("{what} (its payload is not a string, so there is nothing to quote)"),
+        }
+    })
 }
 
 /// The pending answer's length as an `i32`.
@@ -455,7 +511,7 @@ fn pending_len(state: &Rc<RefCell<Pending>>) -> Result<i32, WasmError> {
 
 /// One declared argument. The core already verified arity and types before
 /// dispatch; this only unpacks.
-fn arg(args: &[Val], index: usize) -> Result<i32, WasmError> {
+pub(crate) fn arg(args: &[Val], index: usize) -> Result<i32, WasmError> {
     match args.get(index) {
         Some(Val::I32(value)) => Ok(*value),
         _ => Err(WasmError::Trap("agenterm door: argument")),
@@ -466,14 +522,18 @@ fn arg(args: &[Val], index: usize) -> Result<i32, WasmError> {
 ///
 /// Negative values fail the conversion rather than wrapping, so a guest cannot
 /// reach behind the memory slice with a sign trick.
-fn guest_slice(memory: &[u8], ptr: i32, len: i32) -> Result<&[u8], WasmError> {
+pub(crate) fn guest_slice(memory: &[u8], ptr: i32, len: i32) -> Result<&[u8], WasmError> {
     let range = guest_range(memory.len(), ptr, len)?;
     memory
         .get(range)
         .ok_or(WasmError::Trap("agenterm door: pointer out of bounds"))
 }
 
-fn guest_slice_mut(memory: &mut [u8], ptr: i32, len: i32) -> Result<&mut [u8], WasmError> {
+pub(crate) fn guest_slice_mut(
+    memory: &mut [u8],
+    ptr: i32,
+    len: i32,
+) -> Result<&mut [u8], WasmError> {
     let range = guest_range(memory.len(), ptr, len)?;
     memory
         .get_mut(range)
@@ -574,7 +634,7 @@ mod tests {
         bridge: Option<FleetBridgeFn>,
     ) -> (Result<Vec<Val>, WasmError>, HostState) {
         let mut module = load(wasm, budget);
-        let state = match install(&mut module, budget, bridge) {
+        let state = match install(&mut module, budget, bridge, false) {
             Ok(state) => state,
             Err(error) => panic!("door failed to install: {error}"),
         };
@@ -599,7 +659,7 @@ mod tests {
     fn install_error(wasm: &[u8]) -> QjswasmError {
         let budget = Budget::default();
         let mut module = load(wasm, &budget);
-        match install(&mut module, &budget, None) {
+        match install(&mut module, &budget, None, false) {
             Ok(_) => panic!("expected the door to refuse this guest"),
             Err(error) => error,
         }
@@ -1148,9 +1208,72 @@ mod tests {
             .expect("valid wat");
             let module = tinyvm::WasmModule::from_bytes_with(&wasm, tinyvm::Limits::default())
                 .unwrap_or_else(|e| panic!("load gate: {}", e.message()));
-            check_declarations(&module).unwrap_or_else(|e| {
+            check_declarations(&module, false).unwrap_or_else(|e| {
                 panic!("the door refuses its own declaration `{}`: {e}", decl.field)
             });
+        }
+    }
+
+    /// A `tool.*` import in a slot that did not open the tool door is refused
+    /// at load, with a diagnostic that says the door exists and was not
+    /// given -- a different sentence from the one an unknown module gets,
+    /// because it is a different mistake.
+    #[test]
+    fn a_tool_import_is_refused_in_a_sandbox_slot_and_says_why() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (import "tool" "fs.exists" (func $exists (param i32 i32) (result i32)))
+                (memory 1)
+                (func (export "main") (result i32) (i32.const 3)))"#,
+        )
+        .expect("valid wat");
+        let error = install_error(&wasm);
+        assert!(
+            matches!(&error, QjswasmError::Door(message)
+                if message.contains("tool.fs.exists") && message.contains("with_tool_door")),
+            "expected a Door diagnostic naming the import and the constructor, got {error:?}"
+        );
+        // And the same bytes load once the door is open.
+        let budget = Budget::default();
+        let mut module = load(&wasm, &budget);
+        install(&mut module, &budget, None, true).expect("the tool door binds it");
+    }
+
+    /// Every tool declaration passes the load gate of a slot that opened the
+    /// door, through `check_declarations` itself.
+    #[test]
+    fn every_tool_declaration_passes_the_load_gate_when_the_door_is_open() {
+        for decl in tool::declarations() {
+            let raw: usize = decl
+                .params
+                .iter()
+                .map(|p| match p {
+                    HostParam::StrPtrLen => 2,
+                    HostParam::I32 | HostParam::F64 => 1,
+                })
+                .sum::<usize>()
+                + if matches!(decl.result, HostResult::Bytes { .. }) {
+                    2
+                } else {
+                    0
+                };
+            let wasm = wat::parse_str(format!(
+                "(module (import \"{}\" \"{}\" (func (param {}) (result i32))))",
+                decl.module,
+                decl.field,
+                "i32 ".repeat(raw),
+            ))
+            .expect("valid wat");
+            let module = tinyvm::WasmModule::from_bytes_with(&wasm, tinyvm::Limits::default())
+                .unwrap_or_else(|e| panic!("load gate: {}", e.message()));
+            check_declarations(&module, true).unwrap_or_else(|e| {
+                panic!(
+                    "the open door refuses its own declaration `{}`: {e}",
+                    decl.field
+                )
+            });
+            check_declarations(&module, false)
+                .expect_err("the same declaration is refused with the door shut");
         }
     }
 
