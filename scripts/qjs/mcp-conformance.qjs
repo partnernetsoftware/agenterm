@@ -1,0 +1,46 @@
+// Run the public MCP executable conformance and isolation suite.
+//
+// Args:
+//   [REPO]
+// Ported from scripts/rh/mcp-conformance.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length > 1) { throw "expected: [REPO]"; }
+
+let repo = rh.cwd();
+if (args.length === 1) {
+  repo = rh.absolute(args[0]);
+}
+
+// MCP is hosted only under `agenterm cli` (agenterm-mcp PE removed).
+const candidate = rh.join(repo, "dist/agenterm.com");
+rh.require(
+  rh.exists(candidate) && rh.metadata(candidate).is_file,
+  "mcp_candidate_missing:" + candidate
+);
+
+const stdout_path = repo + ".mcp-conformance.stdout.tmp";
+const code = rh.command_stdout_file(
+  "cargo",
+  ["test", "--quiet", "--locked", "--test", "mcp_stdio", "--", "--nocapture"],
+  stdout_path,
+  {
+    cwd: repo,
+    timeout_ms: 600000,
+    env: {
+      "AGENTERM_NO_ACTIVATE": "1",
+      "AGENTERM_MCP_CLI": candidate
+    }
+  }
+);
+rh.require(code === 0, "mcp-conformance");
+const stdout = rh.read_text(stdout_path);
+rh.try_remove_file(stdout_path);
+if (stdout !== "") {
+  print(stdout);
+}
+print(
+  "PASS: candidate-bound public MCP lifecycle, same-source, wait, fault, privacy, and isolation"
+);
+return 0;
