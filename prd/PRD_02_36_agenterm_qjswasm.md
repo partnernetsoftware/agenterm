@@ -1245,6 +1245,26 @@ flowchart TD
 代价降到 1/3.4，而整场判决的结论跟着反了过来。
 **「放错房间」不只是代价问题，它会让你把结构问题误读成方案优劣。**
 
+第一波迁脚本（2026-08-29，6 组并行，每组由另一个核验者**照着报告里的证明命令重跑**）
+教的不是哪个函数缺，是**证明本身怎么失效**——六种，每种都在这张图上有房间：
+① **证明命令照抄跑不出来**：build.qjs 的命令原样跑是 `host_hard_timeout`，默认 wall 是
+2 000 ms（`script_protocol.rs:104`），报告写成「~60 s」——那是门里 `process.command` 的
+子进程超时，另一个房间的数字。② **空证**：lint 自测说「夹具被 `cli script check-many`
+拒了」，可那条动词是对一切输入 exit 2 的桩，worker 换成 `/usr/bin/false` 照样 PASS——
+只看退出码非零的断言什么都没证。③ **归因错的「未证」**：build-all 说缺 cargo-zigbuild /
+cargo-xwin，机器上全装着；真因是它逐字复刻了已退役的 `rh task run client-build`，任务表里
+根本没有 client-build——搬家把死门牌一起搬了。④ **静默收窄**：`rh_compat.absolute`
+不规范化 `.`、不认 `C:\`，rh 接受的 `./target` 被拒、Windows 车道的每个 REPO 参数都会拼到
+cwd 底下，而文件里还留着 rh 的注释说「两种写法都规范化」——注释比代码活得久，就成了
+反证据。⑤ **夹具过了、实输入过不了**：四个脚本在 mini repo 上全绿，对真仓一律
+`budget exhausted: max_steps`——证明的单位是「输入」不是「脚本」。⑥ **合并不等于合对**：
+两支各自给 `rh_compat` 追加了同一个 `sha256_file`，git 判无冲突，模块却导出了两次；自测钉着
+CLI 的旧句子「the script threw a value」，而 main 在分支底下改了句子（`2cde8b63`），分支各自
+全绿、合到一起先红。六条里没有一条是「脚本写错了」，全是**证据放错了房间**：把门的超时当
+CLI 的、把桩的退出码当判决、把工具链当死因、把注释当规格、把夹具当输入、把「无冲突」当
+「已合并」。核验者只做一件事——照着写的命令再跑一遍——六组里四组因此翻案；核验的成本是
+原报告的零头，而它抓到的每一条，下一波都会变成别人的基线。
+
 ## 待办清单（`/goal` 可直接引用这一节）
 
 > **边界与方向（政委 2026-08-29，两句）**
@@ -1278,13 +1298,13 @@ flowchart TD
 
 | # | 事 | 为什么（实测） | 做完算什么 |
 |---|----|---------------|-----------|
-| A1 | **脚本体系转 `.qjs`：迁移语料 = 71 个 `.rh` + 11 个库** | 政委定方向；全仓真实 `.qjs` 今天只有一个库、零个任务脚本 | 分步见 A1.1–A1.7；**2026-08-29 做到 A1.4**，脚本本身**一个未迁** |
+| A1 | **脚本体系转 `.qjs`：迁移语料 = 71 个 `.rh` + 11 个库** | 政委定方向；全仓真实 `.qjs` 今天只有一个库、零个任务脚本 | 分步见 A1.1–A1.8；**2026-08-29 第一波迁完：入口 8/71，库 4/11**（A1.5） |
 | A1.1 | ~~先数迁移要跨的宿主面~~ **已数（2026-08-29）**，见下表 | 不数就会在第一个脚本上撞墙 | **答：缺口是 37 个宿主函数、4 个族；这是能力设计，不是特性** |
 | ~~A1.2~~ | ~~`path.qjs` 库（925 次调用、零宿主、零决定）~~ **已落地（`db42c944`）** | 草稿两处错：`parent("./a")` 答 `/`（Rust 答 `.`）；用了 `.slice` 与下标，pin 住的子集没有这两样 | `tests/qjs_path_library.rs` 走产品 CLI（`cli script run --project-root scripts/qjs`）对 `std::path` 算 18 条 `parent` + 7 条 `join`：**2/0**；核验方另拿 1 805 条 `parent` + 80 条 `join` 对 rustc oracle 差分：**0 差**；带 feature 的二进制前后**字节相同**（56 107 048 B，同 sha256） |
 | ~~A1.3~~ | ~~开 `tool.fs/process/env` 门~~ **已进 crate（`4a7f0ec3`），CLI 未接** | 门是 opt-in：`Engine::with_tool_door(budget)` / `compile_qjs_tool`；沙箱编译器与沙箱槽都按名拒 `tool.*`，拒绝语指出开关 | 13 条声明 / 14 个 import（`fs.exists/read_to_string/write/create_dir_all/remove_file/read_dir/metadata`、`process.command/id`、`env.get/has/cwd`、两趟 `tool_result`）；`Outcome.tool_calls` 记收据；沙箱路径**逐字节不变**（`return 1;` 9 765 B，同 sha256）；crate 152 → 176 测试，0 失败；**没做**：二进制读写、`symlink_metadata`、锁句柄、`stringify_pretty`，以及 **CLI 接线**（A1.6） |
 | ~~A1.4~~ | ~~`agenterm-rh` 移出本仓~~ **已移出（`08c51b2e` + `7e2b61dd`；快照 `partnernetsoftware/rh` `a22d224`，182 文件 blob 逐一相同）** | 政委改序：rh 先走 | `Cargo.lock` 零 `rhai`、零 `agenterm-rh`；`scripts/rh/` 不存在；默认构建二进制 6 907 664 → 5 230 384 B（**−24.3%**）；workspace 失败集 52 → 31，**新失败 0**（comm 逐名比对） |
 | A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
-| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 1/71，库 2/11**（2026-08-29）：`artifact_manifest`（13 个脚本 import）与 **`test_harness`（22 个脚本 import，16 个函数）**都已是可 import 的 `.qjs` 库，后者经 CLI 冒烟：`new_context → invoke_cli → emit_evidence → start/complete（强杀 1 子进程）→ remove_run` 全通。**门为此长了两截**：`fs.remove_dir_all/rename/copy` + `crypto.sha256_file` + `time.now_ms`；以及**子进程句柄** `process.spawn/state/kill/wait` + `time.sleep_ms`——先数了：**29/71 脚本需要长生命周期子进程，125 次 sleep**，`process.command` 一次性跑完的形状表达不了 | 每个门 `.qjs` 版通过原来那条 Rust 测试。**下一批可并行**：50/71 脚本不用句柄，按 import 的库分组互不冲突 |
+| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 8/71，库 4/11**（2026-08-29 第一波：6 组并行各自迁，每组由另一个核验者照证明命令重跑，只合入判「成立」的 2 组）。**合入** `package-qualified`（`package_qualified` 库 + `package-qualified` / `package-release-qualified` / `package-qualified-selftest` / `release` 4 个入口：自测 PASS 2.0 s，4 条拒绝腿的码 `package_receipt_cargo_lock_hash` / `_artifact_manifest_hash` / `package_executable_hash` / `_head_mismatch` 逐一复现；`release validate` 对干净 clone 答 `VALID RELEASE PLAN`，两个 workflow 哈希与 shasum 相同；rehearse 未证——任务表无 `check`）与 `artifact-files`（`artifact_files` 库 + `clean-locked-artifacts` / `stage-artifact` / `artifact-verification` 3 个入口：前两者实输入 + 夹具全复现，后者到 `git_dirty` 门为止，可执行探针要 Windows PE）。**未合入 4 组**（脚本已迁到各自分支，证明不成立，各带 fix_needed）：`noimport-a-c`（8 入口 + `release_candidate` 库：build-all 的「未证」归因错——cargo-zigbuild / cargo-xwin / zig 全装着，真因是它逐字复刻了已退役的 `rh task run client-build`，任务表里没有这个任务；库里一条注释与代码相反）；`noimport-d-p`（15 入口：lint 自测**空证**——`cli script check-many` 是对一切输入 exit 2 的桩，worker 换成 `/usr/bin/false` 照样 PASS；prepare-target-clean 把 rh 接受的 `./target` 静默拒掉，注释却说「都规范化」）；`noimport-q-z`（9 入口 + `release_candidate` 库：把 2 000 ms 的默认 wall 写成「~60 s」，四个跑 cargo 的脚本没声明 `--timeout-ms`；six-cell 子进程输出过 1 MiB 门就 throw，rh 是流到文件）；`build-identity-metadata`（4 入口 + 4 库：build.qjs 的证明命令照抄跑是 `host_hard_timeout`；`absolute("C:\\repo")` 答 `<cwd>/C:\repo`，而这批全是 Windows 车道）。跨组共同实测：`String.prototype.slice` 在 pin 住的 rev **不存在**（brief 说有；`test_harness.qjs:145` 仍在用）；16M 步预算挡住 6 个脚本的真实输入（Cargo.lock 170 KB、`script api` 目录 285 KB、全仓扫描）；门无 mtime / 无 env_remove / 无 net，各挡 1 个。**合并本身两处修**（`2a157706`）：两支各自给 `rh_compat` 追加了同一个 `sha256_file`，git 判无冲突却导出了两次；自测钉着 CLI 旧句子「the script threw a value」，`2cde8b63` 之后 CLI 改句，自测在合并后的 main 上先红，改为要求「nothing caught it: <码>」。合并后 workspace **1983 / 31**，31 条与合并前基线（同命令、临时 worktree、`21506b58`）**逐名相同、零新增**；路由测试 11/0 | 每个门 `.qjs` 版通过原来那条 Rust 测试。**下一波**：4 组按 fix_needed 修完再核验合入（36 入口 + 4 库已在分支上）；`rh_compat.absolute` 规范化 `.` 与 Windows 根是四组共用的一条修；然后才是 **29/71 用长生命周期子进程的脚本**（`process.spawn/state/kill/wait` + `time.sleep_ms`，125 次 sleep）与 8 个门 |
 | ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A1.8~~ | ~~预算到客人、失败分类、throw 可读~~ **已落地（`2cde8b63`）** | `--max-operations` 此前**验过、审计过、然后没人读**：没有一个引擎读 `ScriptBudgets.operations`，qjswasm 一直按自己的 16M 跑。接上后它成了第一个执行者，协议默认从没人选过的 1M 改为引擎一直在用的 16M——`validate-artifact-manifest.qjs` 对 5 项清单要 1–2M 步，一执行就撞 1M；V1 装箱下一次循环迭代约 100 步。`ScriptEngineError` 从 `String` 变成带 `ScriptFailureCategory`：耗尽 = `limit`，未捕获 throw / trap = `script`，其余仍 `configuration`。上游 `94237cb` 把被 throw 的 String 指针写进 `FAULT_THROWN`，下游 `UncaughtThrow(Option<String>)`，门脚本的 `throw "name_invalid:x"` 到达操作者 | 三条都有 CLI 级测试：`the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit`、迁移测试断言 `exit_class:script` 与原因文本；qjswasm 包 180/0，lib 720/2（平台对），路由 11/0 |
@@ -1445,7 +1465,7 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 记录（metadata / read_dir / command spec）以 JSON 过门 [x] spec 拒未知字段
 │   │   ├── process.command 有界：60 s 默认超时即杀、两管排干、捕获封顶 [x]
 │   │   ├── 二进制读写 / symlink_metadata / 锁句柄 / stringify_pretty [ ] 点名不在这扇门里
-│   │   └── 接到 CLI（谁能开：qualification / CI）              [ ] A1.6
+│   │   └── 接到 CLI（谁能开：qualification / CI）              [x] A1.6，`--profile tool` 是唯一开门方式
 │   ├── 数字字面量：整个 DecimalLiteral 文法                  [x] rev ab29522
 │   │   ├── 1.5 · .5 · 1. · 1e3 · 2E2 · 1.5e-3                [x]
 │   │   ├── 超出 i32 / 超出 2^53 的整数                        [x] 取最近 double
@@ -1596,9 +1616,14 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 默认构建二进制 −1 677 280 B                          [x] −24.3%
 │   │   ├── workspace 失败集 52 → 31，新失败 0                    [x] comm 逐名
 │   │   └── 什么暗了：39 条门 + 4 条 host-native 门 + 71 个任务    [x] 点名在 PRD 02.10
-│   ├── 71 个 .rh 脚本 → .qjs                                  [ ] 0/71
+│   ├── 71 个 .rh 脚本 → .qjs                                  [~] 入口 8/71，库 4/11（2026-08-29 第一波）
+│   │   ├── package_qualified 库 + 4 入口                        [x] 0c929bd7 合入；自测 4 条拒绝码逐一复现
+│   │   ├── artifact_files 库 + 3 入口                           [~] 4549c8be 合入；artifact-verification 的探针要 Windows PE
+│   │   ├── 另 4 组 36 入口 + 4 库：已迁、证明不成立、未合入      [ ] fix_needed 逐条在 A1.5
+│   │   ├── 合并 ≠ 合对：同名导出两次、自测钉死 CLI 旧句子        [x] 2a157706 修；见记忆宫殿末段
+│   │   └── 合并后 workspace 1983 / 31，与基线逐名相同            [x] 零新增
 │   ├── 8 个 qualification 门 → .qjs，重新点亮 39 条门           [ ] bootstrap / CI 已指向不存在的任务
-│   └── tool.* 门接到 CLI                                      [ ] A1.6
+│   └── tool.* 门接到 CLI                                      [x] A1.6，2026-08-29
 │
 └── 归档 agenterm-wasmcore                                [x] 2026-08-28
     ├── 能力差异诚实清单（3 要补 / 13 有意不补）              [x] 2026-08-25
