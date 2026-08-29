@@ -6,20 +6,44 @@
 //   REPO SERVER_EXE CLI_EXE
 //
 // Ported from scripts/rh/server-smoke.rh; runs under `--profile tool`. The
-// server is a door handle (process_spawn / _state / _wait), started, polled,
-// told to shut down, and drained; `complete_unwaited` covers whatever was
-// not. Windows-shaped like the original (`cmd.exe` in the PTY legs).
+// server is a door handle (process_spawn / _state / _pid / _wait), started,
+// polled, told to shut down, and drained; `complete_unwaited` covers whatever
+// was not. The PTY legs run the host's shell: `cmd.exe` on Windows exactly as
+// the original, `sh` elsewhere (the original was Windows-only; the server's
+// lease, PTY, receipt, event and workspace authority is the same on a Unix
+// host, and this port was proven on macOS).
 //
-// Gap, one door op short: a handle carries neither the child's OS pid nor
-// rh's `platform_facts`, so `protocol.pid == server.id` and the
-// top-level-window facts of the original's first assertion are not checked
-// here; the server-reported pid (`protocol.pid`) is what every later pid
-// comparison uses.
+// `protocol.pid == server.id` is checked through `process_pid(handle)`. Gap,
+// one door op short: a handle carries no `platform_facts`, so the original's
+// top-level-window assertion (the server owns no HWND) is not checked here;
+// the door op that would unblock it is a `process_platform_facts(handle)`
+// answering {top_level_window_supported, top_level_window_present}.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 function catch_text(error) {
   return "" + error;
+}
+
+const windows = rh.env_or("OS", "") === "Windows_NT";
+
+// The PTY legs: an interactive shell that stays, and a one-shot that echoes
+// a marker. `cmd.exe` on Windows as the original wrote them, `sh` elsewhere.
+function interactive_shell() {
+  if (windows) { return ["cmd.exe", "/d", "/q"]; }
+  return ["sh"];
+}
+
+function echo_shell(marker) {
+  if (windows) { return ["cmd.exe", "/d", "/c", "echo " + marker]; }
+  return ["sh", "-c", "echo " + marker];
+}
+
+function with_program(head, program) {
+  const out = [];
+  for (const a of head) { out.push(a); }
+  for (const a of program) { out.push(a); }
+  return out;
 }
 
 function configured_server_spec(server_exe, address, workspace_path, settings_path, instance_directory) {
@@ -39,24 +63,95 @@ function configured_server_spec(server_exe, address, workspace_path, settings_pa
   };
 }
 
+// The step economy, measured 2026-08-29 on this engine: every pass over a
+// string (a concat, a split, a trim, a JSON.parse) costs ~40-160 steps per
+// character, and this server answers big -- `protocol-info` is 61 KB,
+// `ui-bootstrap` 32-47 KB -- so `run_cli`'s three whole-answer passes
+// (redact, `"" + source`, the record bound) plus the script's own concat,
+// trim and parse exhausted the 100M budget in the receipt step. This
+// wrapper hands the library a copy pre-cut with `slice` (cheap) at one over
+// the record limit, so `bounded_record_text` still cuts and marks it
+// exactly as `run_cli` would, over 513 characters instead of 61,000.
+//
+// And the answer itself: the door's envelope carries stdout as an escaped
+// JSON string, and parsing a 61 KB answer out of it measured 8-12M steps
+// against 4-6M for the same answer written to a file by a shell redirect and
+// read back (the whole journey needed 80-100M through the envelope, and
+// runs in 60M this way). gap: `process_command` has no `stdout_path`; on
+// Unix the shell supplies it (`exec "$@" > "$0"`), on Windows the answer
+// comes through the envelope.
+const RECORD_LIMIT = 512;
+
+function pre_cut(text) {
+  if (text.length <= RECORD_LIMIT + 1) { return text; }
+  return text.slice(0, RECORD_LIMIT + 1);
+}
+
+function redirected_spec(spec, answer_path) {
+  const args = ["-c", "exec \"$@\" > \"$0\"", answer_path, spec.program];
+  for (const a of spec.args) { args.push(a); }
+  return { program: "sh", args: args, env: spec.env, timeout_ms: spec.timeout_ms };
+}
+
+function run(context, cli, arguments, expected_failure) {
+  const all = ["--address", "" + context.address];
+  for (const a of arguments) { all.push("" + a); }
+  let spec = harness.configured_cli_spec(context, cli, all);
+  let answer_path = "";
+  if (!windows) {
+    answer_path = rh.join(context.run_directory, "answer.txt");
+    spec = redirected_spec(spec, answer_path);
+  }
+  if (process_command(JSON.stringify(spec)) !== 0) { throw "process_command:" + tool_result(); }
+  const output = JSON.parse(tool_result());
+  if (answer_path !== "") {
+    output.stdout = rh.exists(answer_path) ? rh.read_text(answer_path) : "";
+    rh.try_remove_file(answer_path);
+  }
+  harness.append_command_record(
+    context, arguments,
+    {
+      exit_code: output.exit_code,
+      success: output.success,
+      timed_out: output.timed_out,
+      stdout: pre_cut(output.stdout),
+      stderr: pre_cut(output.stderr)
+    },
+    expected_failure, []
+  );
+  return output;
+}
+
 function invoke(context, cli, arguments, expected_failure) {
-  return harness.invoke_cli_bounded(context, cli, arguments, expected_failure, []);
+  const output = run(context, cli, arguments, expected_failure);
+  if (expected_failure !== 0) {
+    harness.require(!output.success, "test_harness_cli_unexpected_success");
+  } else {
+    harness.require(output.success, "test_harness_cli_failed:" + output.stderr);
+  }
+  return output;
+}
+
+// rh's `stdout_text() + stderr_text()`. The concat is skipped when one side
+// is empty (the success path): it would cost a whole pass over the answer.
+function combined_text(output) {
+  if (output.stderr === "") { return output.stdout; }
+  if (output.stdout === "") { return output.stderr; }
+  return output.stdout + output.stderr;
 }
 
 function command_text(context, cli, arguments) {
-  const output = invoke(context, cli, arguments, 0);
-  return ("" + output.stdout + output.stderr).trim();
+  return combined_text(invoke(context, cli, arguments, 0)).trim();
 }
 
 function command_text_expect(context, cli, arguments, expected_failure) {
-  const output = invoke(context, cli, arguments, expected_failure);
-  return ("" + output.stdout + output.stderr).trim();
+  return combined_text(invoke(context, cli, arguments, expected_failure)).trim();
 }
 
+// No `trim`: JSON.parse accepts the trailing newline, and a trim is another
+// pass over the answer.
 function command_json(context, cli, arguments, expected_failure) {
-  const output = invoke(context, cli, arguments, expected_failure);
-  const text = ("" + output.stdout + output.stderr).trim();
-  return JSON.parse(text);
+  return JSON.parse(combined_text(invoke(context, cli, arguments, expected_failure)));
 }
 
 function count_tab_events(events, tab_id, kind) {
@@ -71,10 +166,12 @@ function count_tab_events(events, tab_id, kind) {
   return count;
 }
 
+// Answers the probe that succeeded: rh asked `protocol-info --running` again
+// for the facts, and the second 61 KB answer is two more whole-answer passes.
 function wait_for_server(context, cli, server, waited) {
   for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
-    const probe = harness.run_cli_bounded(context, cli, ["protocol-info", "--running"], 0, []);
-    if (probe.success) { return 0; }
+    const probe = run(context, cli, ["protocol-info", "--running"], 0);
+    if (probe.success) { return probe; }
     if (harness.state(server) === "exited") {
       const output = harness.drain(server, 2000, waited);
       throw "server_smoke_early_exit:" + output.stderr;
@@ -132,11 +229,10 @@ try {
     server_exe, server_address, server_workspace, server_settings, server_instance
   ));
   owned_children.push(server);
-  wait_for_server(context, cli, server, waited);
-  const protocol = command_json(context, cli, ["protocol-info", "--running"], 0);
-  // gap: no `server.platform_facts` and no `server.id` on a door handle
-  // (see the header); the server's own pid stands in for `server.id`.
-  const server_pid = protocol.pid;
+  const protocol = JSON.parse(combined_text(wait_for_server(context, cli, server, waited)));
+  // rh's `server.id`: the handle's OS pid. gap: no `server.platform_facts`
+  // on a door handle (see the header).
+  const server_pid = process_pid(server);
   const ui_bridge = protocol.ui_bridge;
   harness.require(ui_bridge !== undefined && ui_bridge !== null, "server_smoke_process_ownership_boundary");
   const ownership_mode = "" + ui_bridge.ownership_mode;
@@ -144,6 +240,7 @@ try {
   harness.require(
     typeof server_pid === "number"
       && server_pid > 0
+      && protocol.pid === server_pid
       && ownership_mode === "split_server_client"
       && server_executable === "agenterm.exe"
       && ui_bridge.replaceable_ui
@@ -213,11 +310,14 @@ try {
   print("STEP require the lease for UI select, resize, and binary input");
   const interaction_tab = command_text(
     context, cli,
-    [
-      "new-window", "-d", "-P", "-F", "#{window_id}",
-      "-n", "interaction-" + run_id,
-      "--", "cmd.exe", "/d", "/q"
-    ]
+    with_program(
+      [
+        "new-window", "-d", "-P", "-F", "#{window_id}",
+        "-n", "interaction-" + run_id,
+        "--"
+      ],
+      interactive_shell()
+    )
   );
   const unauthorized = command_text_expect(
     context, cli,
@@ -331,8 +431,10 @@ try {
     0
   );
   const lease_status = command_json(context, cli, ["ui-lease", "status"], 0);
+  // rh compared the JSON boolean loosely (`attached == 0`); `status` answers
+  // `"attached": false` with a `client_count`, and JS `===` is strict.
   harness.require(
-    detached.detached && lease_status.attached === 0,
+    detached.detached && !lease_status.attached && lease_status.client_count === 0,
     "server_smoke_ui_lease_detach"
   );
 
@@ -360,11 +462,14 @@ try {
   }
   const tab_id = command_text(
     context, cli,
-    [
-      "new-window", "-d", "-P", "-F", "#{window_id}",
-      "-n", "headless-" + run_id,
-      "--", "cmd.exe", "/d", "/c", "echo AGENTERM_HEADLESS_OK"
-    ]
+    with_program(
+      [
+        "new-window", "-d", "-P", "-F", "#{window_id}",
+        "-n", "headless-" + run_id,
+        "--"
+      ],
+      echo_shell("AGENTERM_HEADLESS_OK")
+    )
   );
   harness.require(tab_id.startsWith("@"), "server_smoke_stable_tab_id");
   command_text(
