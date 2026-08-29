@@ -1090,6 +1090,22 @@ flowchart TD
 一种是**没去想**（把「压得更小」和「查得更快」当成能叠加）。
 **判据表防得住「忘了做」，防不住「没想到要判」——所以事前判据之外，还必须有事后回填。**
 
+**第三课，来自并行推进本身：并行的边界是「共享了什么」，不是「相关不相关」。**
+2026-08-29 把 `break`/`continue`（循环降级）与 `replace`（字符串 prefab）并行做，
+代码上零冲突，一次验证过。但在后台跑 workspace 测试的**同时**去 CLI 探一个问题，
+探出来的全是 rh 的错误——那次测试用默认 feature 把 `target/debug/agenterm`
+重建了。两件事在**代码**上无关，在 **target 目录**上是同一个资源。
+改到上游 `tinyvm` 去探就对了，那才是另一个 target。
+**并行拆分要按共享资源拆，不是按模块拆。**
+
+**一条待办，决定是对的而诊断是空的。** String 上读 `length` 以外的属性会 trap，
+理由写在 `runtime.rs` 里且成立：`"ab".toUpperCase` 在 ECMA-262 里**是个真函数**，
+返回 `undefined` 是「错答案穿着对答案的衣服」。但 trap 出来只有
+`unreachable executed`，**说不出是哪一类事**。fault word 现在三个码
+（预算 / 脚本抛了 / 引擎坏了），这是**第四类**：运行期撞上引擎能力边界。
+按 fault word 自己的立论——「分不清『你的脚本抛了』和『你的脚本坏了』的宿主，
+会告诉作者错误的事」——这一类该有自己的码。
+
 走廊在 2026-08-29 当天接通到了 CLI：规格串解析成什么由**本产品**说了算——
 编译器上游一个文件都不读——policy 是「project root 下的一条路径，扩展名省略」，
 而那个 root **默认就是入口文件自己的目录**，所以旁边有 `lib/` 的脚本写
@@ -1140,7 +1156,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ **`e6a58b0`**（`toLowerCase`，当前 pin，2026-08-29）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ **`aca1589`**（break/continue + replace/replaceAll，当前 pin，2026-08-29）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。
@@ -1236,7 +1252,11 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 价目公开：用到它的脚本约 +90%                     [x] 判据 ④ 记录、不设上限
 │   │   ├── 中文 / emoji / 已小写原样返回，不 trap            [x] 判据 ②
 │   │   └── `İ` 一对多、词尾 `Σ` → `ς`                        [具名] 两条分歧
-│   └── toUpperCase                                          [–] 语料 67 次里零使用
+│   ├── toUpperCase                                          [–] 语料 67 次里零使用
+│   ├── replace（首个）/ replaceAll（全部）                   [x] rev aca1589，语料写前者意思是后者
+│   ├── `break` / `continue`（无标签）                        [x] rev aca1589
+│   │   └── 跨 `finally` 的                                   [ ] 具名拒绝，要 pending 机械
+│   └── String 上非 `length` 的属性读取                       [~] **决定对、诊断空**，见下
 │   ├── 循环里每轮是一个新绑定（14.3.1 / 13.7.4.7）          [x] rev 0afc88a
 │   ├── `for … of` 遍历数组（13.7.5）                        [x] rev 84f8161，需求第一
 │   ├── 模块：`import * as` + `export`（16.2）               [x] rev 8bbdf2d，需求第二
