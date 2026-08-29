@@ -1,0 +1,113 @@
+// Reclaim obsolete finalized rustc sessions without discarding the newest
+// reusable cache for any Cargo compilation unit.
+//
+// Usage:
+//   agenterm cli script run --profile tool scripts/qjs/prune-target-incremental.qjs -- \
+//     REPO [TARGET] [--manifest PATH --invocation ID] [--dry-run]
+//
+// Ported from scripts/rh/prune-target-incremental.rh. `--dry-run` is new: it
+// takes every lock probe and walks every tree the wet run would, removes
+// nothing, and reports what would have gone with `dry_run=1` on the summary
+// line. Without it the script deletes, exactly as rh's did.
+//
+// Reach: the CLI's 100M-step ceiling covers a target of a few hundred
+// generations; the 1280-generation hoard in a long-lived checkout exhausts
+// it before the listing finishes (lib/prune_target_incremental.qjs header
+// has the measured prices). Advisory locks and the tree walks go through a
+// `perl -e` child because the tool door has no `fs_try_lock_exclusive`.
+import * as rh from "lib/rh_compat";
+import * as prune from "lib/prune_target_incremental";
+
+const USAGE = "expected: REPO [TARGET] [--manifest PATH --invocation ID] [--dry-run]";
+
+const raw_args = rh.args();
+const args = [];
+let dry_run = false;
+for (const item of raw_args) {
+  if (item === "--dry-run") { dry_run = true; } else { args.push(item); }
+}
+if (args.length !== 1 && args.length !== 2 && args.length !== 6) {
+  throw USAGE;
+}
+if (args.length === 6) {
+  rh.require(
+    args[2] === "--manifest" && args[4] === "--invocation",
+    "expected: REPO TARGET --manifest PATH --invocation ID"
+  );
+}
+
+const repo = rh.absolute(args[0]);
+prune.exact_repo_root(repo);
+
+const expected_target = rh.absolute(rh.join(repo, "target"));
+let target_argument = "target";
+if (args.length >= 2 && args[1] !== "") {
+  target_argument = args[1];
+}
+let target = rh.absolute(rh.join(repo, target_argument));
+if (target_argument.startsWith("/")) {
+  target = rh.absolute(target_argument);
+}
+rh.require(target === expected_target, "incremental_prune_target_not_exact_repo_target:" + target);
+prune.direct_directory(target, "incremental_prune_target");
+
+// Fingerprint-generation retention across every profile incremental root
+// under TARGET. The session-level sweep below only trims inside one live
+// `<crate>-<hash>` root; whole stale generations (the multi-GB hoard) follow
+// the same per-crate retention rule as scripts/prune-incremental.sh.
+const keep = prune.fingerprint_retention_keep();
+const removed_generations = prune.prune_target_generations(target, keep, dry_run);
+if (removed_generations > 0) {
+  print(
+    "Cargo incremental prune: scope=fingerprint-generations, " +
+      "keep=" + keep + ", removed=" + removed_generations +
+      (dry_run ? ", dry_run=1" : "")
+  );
+}
+
+const debug_profile = rh.join(target, "debug");
+const incremental = rh.join(debug_profile, "incremental");
+if (!rh.exists(incremental)) {
+  print("Cargo incremental prune: skipped (debug/incremental is absent)");
+  return;
+}
+
+prune.direct_directory(debug_profile, "incremental_prune_debug");
+prune.direct_directory(incremental, "incremental_prune_root");
+
+const cargo_lock_path = rh.join(debug_profile, ".cargo-lock");
+if (prune.direct_file(cargo_lock_path) === 0) {
+  print("Cargo incremental prune: skipped (debug/.cargo-lock is absent or indirect)");
+  return;
+}
+if (prune.lock_available(cargo_lock_path) === 0) {
+  print("Cargo incremental prune: skipped (debug/.cargo-lock is active)");
+  return;
+}
+
+let has_manifest = 0;
+let manifest_path = "";
+let invocation = "";
+let manifest_document = {};
+if (args.length === 6) {
+  has_manifest = 1;
+  manifest_path = rh.absolute(args[3]);
+  invocation = args[5];
+  if (rh.exists(manifest_path)) {
+    const manifest_text = rh.read_text(manifest_path);
+    if (prune.manifest_text_looks_valid(manifest_text)) {
+      manifest_document = JSON.parse(manifest_text);
+    }
+  }
+}
+
+prune.run_after_lock(
+  incremental,
+  target,
+  has_manifest,
+  manifest_path,
+  invocation,
+  manifest_document,
+  dry_run
+);
+return;
