@@ -599,3 +599,30 @@ fn uleb(wasm: &[u8], at: &mut usize) -> u64 {
         shift += 7;
     }
 }
+
+/// `crypto.sha256_file` answers lower hex, 64 chars, of the file's bytes --
+/// the fingerprint the build-identity library moved from rh needs for
+/// `Cargo.lock` and the artifact manifest.
+#[test]
+fn sha256_file_fingerprints_the_bytes_on_disk() {
+    let dir = std::env::temp_dir().join(format!("qjswasm-sha-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let file = dir.join("x.bin");
+    std::fs::write(&file, b"abc").expect("fixture");
+    let path = file.to_string_lossy().replace('\\', "\\\\");
+    let source = format!(
+        "if (crypto_sha256_file(\"{path}\") !== 0) {{ return \"err:\" + tool_result(); }} return tool_result();"
+    );
+    let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
+    let wasm = agenterm_qjswasm::compile_qjs_tool(&source).expect("compiles");
+    let out = engine
+        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .expect("runs");
+    let got = match out.values.first() {
+        Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
+        other => panic!("expected a string, got {other:?}"),
+    };
+    // sha256("abc"), the vector every implementation is checked against.
+    assert_eq!(got, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -13,6 +13,7 @@ name = "agenterm_qjswasm"
 path = "src/lib.rs"
 
 [dependencies]
+sha2 = { version = "0.11", default-features = false }
 # The shared corpus-scan / check-many drivers every engine's CLI wrapper uses.
 agenterm-script-common = { path = "../agenterm-script-common" }
 # tinyvm is the execution core; tinyvm-qjs is the `.qjs` -> `.wasm` compiler.

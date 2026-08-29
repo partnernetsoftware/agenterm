@@ -97,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 16] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 17] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -112,6 +112,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 16] = [
     ("env.cwd", 0, 1),
     ("arg_count", 0, 1),
     ("arg", 1, 1),
+    ("crypto.sha256_file", 2, 1),
     ("result_len", 0, 1),
     ("result", 2, 1),
 ];
@@ -167,6 +168,10 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         // two and finding `undefined`.
         decl("arg_count", Vec::new(), HostResult::I32),
         decl("arg", vec![HostParam::I32], HostResult::I32),
+        // rh's `rh::crypto::sha256_file`, which the build-identity library
+        // needs to fingerprint `Cargo.lock` and the artifact manifest. Lower
+        // hex, 64 chars, through the two-pass fetch like every other string.
+        decl("crypto.sha256_file", vec![HostParam::StrPtrLen], HostResult::I32),
         HostFn {
             name: "tool_result".to_string(),
             module: DOOR.to_string(),
@@ -360,6 +365,19 @@ pub(crate) fn install(
             std::env::current_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .map_err(|e| format!("env.cwd: {e}"))
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "crypto.sha256_file", move |args, memory| {
+        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        answer(&state, "crypto.sha256_file", || {
+            use sha2::Digest as _;
+            let path = utf8(path)?;
+            let bytes = std::fs::read(path)
+                .map_err(|e| format!("crypto.sha256_file `{path}`: {e}"))?;
+            let digest = sha2::Sha256::digest(&bytes);
+            Ok(digest.iter().map(|b| format!("{b:02x}")).collect::<String>())
         })
     })?;
 

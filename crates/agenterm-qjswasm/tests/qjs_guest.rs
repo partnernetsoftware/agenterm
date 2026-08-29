@@ -1023,3 +1023,47 @@ fn the_wasm_entry_point_is_a_name_and_the_wasi_surface_is_the_real_boundary() {
         .expect("an export is reached by its name");
     assert_eq!(out.values, vec![Value::I32(7)]);
 }
+
+/// The PRD's stated pin is the pin.
+///
+/// `prd/PRD_02_36_agenterm_qjswasm.md` ends its revision chain with
+/// ``**`<rev>`**（…当前 pin…）``. That line was found stale twice on
+/// 2026-08-29 -- once by a human asking whether the work was done -- and both
+/// times it was corrected by hand, which is not a gate. This is the gate: the
+/// bolded rev in the chain must be the one `Cargo.toml` pins, so the PRD
+/// cannot claim a revision the build does not have.
+#[test]
+fn the_prd_states_the_revision_this_build_pins() {
+    let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .expect("this crate's own Cargo.toml");
+    let pinned = manifest
+        .lines()
+        .find(|line| line.contains("partnernetsoftware/tinyvm"))
+        .and_then(|line| {
+            let at = line.find("rev = \"")? + "rev = \"".len();
+            let rest = &line[at..];
+            Some(&rest[..rest.find('"')?])
+        })
+        .expect("a pinned tinyvm rev");
+
+    let prd = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../prd/PRD_02_36_agenterm_qjswasm.md"
+    ))
+    .expect("the PRD beside this crate");
+    let stated = prd
+        .lines()
+        .filter(|line| line.contains("当前 pin"))
+        .find_map(|line| {
+            let at = line.find("**`")? + "**`".len();
+            let rest = &line[at..];
+            Some(&rest[..rest.find('`')?])
+        })
+        .expect("the PRD's revision chain ends in a bolded current pin");
+
+    assert_eq!(
+        stated, pinned,
+        "prd/PRD_02_36_agenterm_qjswasm.md says the current pin is `{stated}` but \
+         Cargo.toml pins `{pinned}`; update the chain in the same change as the pin"
+    );
+}
