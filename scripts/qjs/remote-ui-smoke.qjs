@@ -1,0 +1,2752 @@
+// Prove that the native GUI is a replaceable client of an independently
+// persistent terminal server and that the same GUI reconnects in place after a
+// real server-process failure.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO GUI_EXE CLI_EXE [SCREENSHOT_PATH]
+//
+// Ported from scripts/rh/remote-ui-smoke.rh; runs under `--profile tool`. The
+// server and every GUI are door handles (process_spawn / _state / _kill /
+// _wait) -- rh's `command.start()` / `.state` / `.kill()` /
+// `wait_with_output()` -- and the run is completed through
+// `test_harness.complete_collected`, because a handle the journey already
+// waited (`wait_for_exit(gui)`) cannot be waited a second time by the door.
+//
+// A Windows journey, kept verbatim: `--ui-client` is accepted only by the
+// Windows GUI launcher (`src/frontend/mod.rs` rejects it elsewhere), the
+// fixtures are cmd.exe / powershell.exe, the paths are drive letters. It ran
+// on the windows CI lane only.
+//
+// Gaps, named at the site rather than approximated. Each throws
+// `remote_ui_gap:<what>` when the journey reaches it:
+//   - the child's pid, rh's `child.id`: the door has no `process.pid(handle)`,
+//     so "the lease/protocol pid is the child we started" cannot be asked.
+//     `child_pid` is the one seam.
+//   - Win32 window automation, rh's `Child.window_control(id)` (with
+//     `.visible`, `.click()`, `.set_text()`), `window_message`,
+//     `window_pointer`, `window_rect`, `window_client_rect`, `window_resize`,
+//     `platform_facts`: no door op drives a window. `window_*` / `control_*`
+//     below are the seams.
+//   - the clipboard, rh's `rh::clipboard::get_text` / `set_text`.
+//   - a process list and kill-by-pid, rh's `std::process::list()` /
+//     `std::process::kill(pid)`: how the journey faults the server and proves
+//     it is gone.
+// Measured, and not this port's to fix: `test_harness.bounded_record_text`
+// uses `String.prototype.slice`, which this engine lacks, so a recorded CLI
+// answer over 512 characters (`protocol-info`, `ui-snapshot`, ...) throws
+// before the journey's first assertion.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+function gap(what) {
+  throw "remote_ui_gap:" + what;
+}
+
+// rh's `child.id`: the child's OS pid. No door op carries it yet.
+function child_pid(handle) {
+  return gap("process_pid:handle=" + handle);
+}
+
+// ---- Win32 automation seams (see the header) ------------------------------
+
+function window_control(gui, control_id) {
+  return gap("window_control:" + control_id);
+}
+
+function control_visible(control) {
+  return gap("control_visible");
+}
+
+function control_click(control) {
+  return gap("control_click");
+}
+
+function control_set_text(control, text) {
+  return gap("control_set_text");
+}
+
+function window_message(gui, message, wparam, lparam) {
+  return gap("window_message:" + message);
+}
+
+function window_pointer(gui, kind, x, y) {
+  return gap("window_pointer:" + kind);
+}
+
+function window_rect(gui) {
+  return gap("window_rect");
+}
+
+function window_client_rect(gui) {
+  return gap("window_client_rect");
+}
+
+function window_resize(gui, width, height) {
+  return gap("window_resize");
+}
+
+function platform_facts(gui) {
+  return gap("platform_facts");
+}
+
+function clipboard_get_text() {
+  return gap("clipboard_get_text");
+}
+
+function clipboard_set_text(text) {
+  return gap("clipboard_set_text");
+}
+
+// rh's `std::process::list()` membership test.
+function process_present(id) {
+  return gap("process_list:" + id);
+}
+
+// rh's `std::process::kill(pid)`.
+function remote_ui_kill(pid) {
+  return gap("process_kill_pid:" + pid);
+}
+
+// ---- rh spellings -----------------------------------------------------------
+
+// rh's `value != json_null()`: JSON null and an absent key both read as absent
+// here, because reading a property of `undefined` traps uncatchably.
+function present(value) {
+  return value !== undefined && value !== null;
+}
+
+// rh's `rh::json::stringify(v)` where `v` may be json null.
+function json_or_null(value) {
+  return present(value) ? JSON.stringify(value) : "null";
+}
+
+// rh compared JSON values structurally; `===` on two objects here is identity.
+// Both sides come from the same serializer, so the text is the value.
+function same_json(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function trimmed(value) {
+  return ("" + value).trim();
+}
+
+function parse_int_text(value) {
+  return Number(("" + value).trim());
+}
+
+// rh's `std::path::parent(p).display`, split-based like test_harness's own.
+function parent_dir(p) {
+  const parts = p.split("/");
+  while (parts.length > 0 && parts[parts.length - 1] === "") { parts.pop(); }
+  if (parts.length <= 1) { return p.startsWith("/") ? "/" : ""; }
+  parts.pop();
+  let joined = "";
+  let first = true;
+  for (const piece of parts) {
+    joined = first ? piece : joined + "/" + piece;
+    first = false;
+  }
+  return joined === "" ? "/" : joined;
+}
+
+// rh's multi-line template literals, which the engine has no form for: each
+// line followed by a newline, the way the backtick text ended.
+function lines_text(lines) {
+  let text = "";
+  for (const line of lines) { text = text + line + "\n"; }
+  return text;
+}
+
+// Every step announcement carries a wall-clock stamp, appended so the existing
+// `STEP <text>` prefix still matches anything that reads these lines. rh
+// stamped rfc3339; the engine has no Date, so this is unix milliseconds.
+//
+// This exists because "where did the time go" was unanswerable: the smoke used
+// to finish all four release-lane journeys in ~40s total (windows job,
+// 2026-08-04, Rhai era) and later could not finish alone in 1200s with
+// essentially the same script. Without per-step timing every diagnosis was a
+// 20-minute guess.
+function step(label) {
+  print("STEP " + label + " @" + rh.now_ms() + "ms");
+}
+
+// Existence only -- visibility is NOT existence.
+//
+// Resolving the control handle *is* the existence check (rh's
+// `Child.window_control(id)` failed on an absent control). Every dialog
+// control in the Windows frontend is created hidden and shown only when its
+// dialog opens, so the smoke acquires handles before opening the dialog and
+// asserts visibility itself right after (`require(control_visible(close_keep)
+// ...)`).
+function assert_window_control(gui, control_id, name) {
+  return window_control(gui, control_id);
+}
+
+function output_stderr_text(output) {
+  return output.stderr;
+}
+
+function output_text(output) {
+  return output.stdout + output.stderr;
+}
+
+function remote_ui_write(path, content) {
+  rh.atomic_write(path, content);
+}
+
+function crypto_sha256_path(path_value) {
+  return rh.sha256_file(rh.absolute("" + path_value));
+}
+
+// rh also set `capture_limit(262144)`; the door caps a child's captured output
+// by the slot's max_bridge_result_bytes instead, and `timeout_ms` is what
+// `process_wait` honours, not a lifetime for the spawned child.
+function configured_gui_spec(gui_exe, address, workspace_path, settings_path, instance_directory) {
+  return {
+    program: "" + gui_exe,
+    args: ["--ui-client", "--no-activate", "--address", "" + address],
+    env: {
+      AGENTERM_IPC_ADDRESS: "" + address,
+      AGENTERM_WORKSPACE_PATH: "" + workspace_path,
+      AGENTERM_SETTINGS_PATH: "" + settings_path,
+      AGENTERM_INSTANCE_DIR: "" + instance_directory,
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 60000
+  };
+}
+
+function configured_server_spec(context, server_exe) {
+  return {
+    program: "" + server_exe,
+    args: ["server", "--address", "" + context.address],
+    env: {
+      AGENTERM_IPC_ADDRESS: "" + context.address,
+      AGENTERM_WORKSPACE_PATH: "" + context.workspace_path,
+      AGENTERM_SETTINGS_PATH: "" + context.settings_path,
+      AGENTERM_INSTANCE_DIR: "" + context.instance_directory,
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 60000
+  };
+}
+
+// rh's `command.output()` on a configured command: run to completion through
+// the door, answer {exit_code, success, stdout, stderr, timed_out}.
+function run_spec(spec) {
+  if (process_command(JSON.stringify(spec)) !== 0) {
+    throw "process_command " + spec.program + ":" + tool_result();
+  }
+  return JSON.parse(tool_result());
+}
+
+function wait_for_protocol(context, cli, code) {
+  let last = "";
+  for (let attempt = 0; attempt < 30; attempt = attempt + 1) {
+    const spec = harness.configured_cli_spec(
+      context,
+      cli,
+      ["--address", context.address, "protocol-info", "--running"]
+    );
+    spec.timeout_ms = 5000;
+    const output = run_spec(spec);
+    last = output_text(output);
+    if (output.success) {
+      harness.append_command_record(context, ["protocol-info", "--running"], output, 0, []);
+      return JSON.parse(output.stdout);
+    }
+    rh.sleep_ms(50);
+  }
+  throw code + ":" + last;
+}
+
+function wheel_message_lparam(gui) {
+  const rect = window_rect(gui);
+  const x = rh.int_div(rect.left + rect.right, 2);
+  const y = rh.int_div(rect.top + rect.bottom, 2);
+  return y * 65536 + x;
+}
+
+// WM_LBUTTONDBLCLK is 0x0203 = 515; the engine has no hex literals.
+function double_click_point(gui_child, x, y) {
+  window_pointer(gui_child, "click", x, y);
+  window_message(gui_child, 515, 0, y * 65536 + x);
+  return 0;
+}
+
+function json_cli(context, cli, args) {
+  const response = harness.invoke_cli(context, cli, args, 0, []);
+  return parse_json_text(trimmed(response.stdout));
+}
+
+function text_cli(context, cli, args) {
+  const response = harness.invoke_cli(context, cli, args, 0, []);
+  return trimmed(response.stdout);
+}
+
+function optional_cli(context, cli, args) {
+  return harness.run_cli(context, cli, args, 1, []);
+}
+
+// rh's `command.stdout_file(path)`: the answer goes to a run-owned file, not
+// the journal.
+function discard_cli(context, cli, action, target, output_name) {
+  const spec = harness.configured_cli_spec(
+    context,
+    cli,
+    ["--address", context.address, action, target]
+  );
+  const output = run_spec(spec);
+  rh.atomic_write(rh.join(context.run_directory, output_name), output.stdout);
+  harness.require(output.success, "remote_ui_discard_cli_failed:" + output_stderr_text(output));
+}
+
+function wait_for_exit(child, code) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    if (harness.state(child) === "exited") {
+      return harness.wait(child, 2000);
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+function wait_for_window(child, code) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const facts = platform_facts(child);
+    if (facts.top_level_window_present) {
+      return 0;
+    }
+    if (harness.state(child) === "exited") {
+      const output = harness.wait(child, 2000);
+      throw code + ":" + output_stderr_text(output);
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+function wait_for_lease(context, cli, child, attempts, code) {
+  for (let attempt = 0; attempt < attempts; attempt = attempt + 1) {
+    const output = harness.run_cli(context, cli, ["ui-lease", "status"], 0, []);
+    if (output.success) {
+      const lease = JSON.parse(output.stdout);
+      if (lease.attached && lease.client_pid === child_pid(child)) {
+        wait_for_window(child, code + "_window");
+        return lease;
+      }
+    }
+    if (harness.state(child) === "exited") {
+      const result = harness.wait(child, 2000);
+      throw code + ":" + output_stderr_text(result);
+    }
+    rh.sleep_ms(50);
+  }
+  throw code;
+}
+
+function start_gui(context, gui, cli) {
+  const gui_spec = configured_gui_spec(
+    gui,
+    context.address,
+    context.workspace_path,
+    context.settings_path,
+    context.instance_directory
+  );
+  const child = harness.start(gui_spec);
+  wait_for_lease(context, cli, child, 1200, "remote_ui_lease_timeout");
+  return child;
+}
+
+function wait_projection(context, cli, projection) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const output = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);
+    if (output.success) {
+      const snapshot = JSON.parse(output.stdout);
+      if (snapshot.projection === projection) {
+        return snapshot;
+      }
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_projection_timeout:" + projection;
+}
+
+function wait_observed(context, cli, sequence) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const lease = json_cli(context, cli, ["ui-lease", "status"]);
+    if (lease.observed_sequence >= sequence) {
+      return lease;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_observed_sequence_timeout";
+}
+
+function wait_workspace_toolbar(context, cli, code) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    if (present(snapshot.layout.toolbar)) {
+      return snapshot;
+    }
+    rh.sleep_ms(50);
+  }
+  const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  throw code + ":projection=" + snapshot.projection;
+}
+
+function wait_locale(context, cli, locale_id) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    if (snapshot.locale.id === locale_id) {
+      return snapshot;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_locale_timeout:" + locale_id;
+}
+
+// The `1200` attempt bound is ~156s of wall clock here, because every attempt
+// spawns a `ui-snapshot` child (~105ms measured). These two run four times each
+// on the font-zoom path, so a condition that stops holding silently consumes
+// remote-ui-smoke's whole 600s budget and reports only `host_hard_timeout`.
+// Both give up after 20s and report what they last saw.
+function wait_effective_font_size(context, cli, size, overridden) {
+  const font_deadline = rh.now_ms() + 20000;
+  let last_effective = -1;
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    // `.settings` is absent from the projection for a frame after a theme
+    // apply; ask before reading.
+    if (present(snapshot.settings) && present(snapshot.settings.effective)) {
+      const terminal_override = snapshot.settings.current_terminal_override;
+      last_effective = snapshot.settings.effective.terminal_font_size;
+      if (snapshot.settings.effective.terminal_font_size === size
+          && ((overridden && present(terminal_override))
+              || (!overridden && !present(terminal_override)))) {
+        return snapshot;
+      }
+    }
+    if (rh.now_ms() > font_deadline) {
+      throw "remote_ui_effective_font_timeout:want=" + size + ":last=" + last_effective;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_effective_font_timeout:want=" + size + ":last=" + last_effective;
+}
+
+function wait_terminal_resize_settled(context, cli) {
+  const settle_deadline = rh.now_ms() + 20000;
+  let last_detail = "";
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const terminal = snapshot.layout.terminal;
+    if (!terminal.resize_pending
+        && terminal.rows === terminal.desired_rows
+        && terminal.cols === terminal.desired_cols) {
+      return snapshot;
+    }
+    last_detail = "pending=" + terminal.resize_pending
+      + ":rows=" + terminal.rows + "/" + terminal.desired_rows
+      + ":cols=" + terminal.cols + "/" + terminal.desired_cols;
+    if (rh.now_ms() > settle_deadline) {
+      throw "remote_ui_terminal_resize_settle_timeout:" + last_detail;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_terminal_resize_settle_timeout:" + last_detail;
+}
+
+// Bounded by wall clock, and asked-before-read: `terminal_interaction` and
+// `selection.highlight` are absent until a selection exists.
+function wait_terminal_selection(context, cli, phase, capture_owned, copyable, code) {
+  const selection_deadline = rh.now_ms() + 20000;
+  let observed = "no snapshot read";
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    if (present(snapshot.terminal_interaction)) {
+      const interaction = snapshot.terminal_interaction;
+      if (present(interaction.selection)) {
+        const selection = interaction.selection;
+        if (present(selection.highlight)
+            && selection.phase === phase
+            && selection.capture_owned === capture_owned
+            && selection.copyable === copyable
+            && selection.highlight.rendered
+            && selection.highlight.bounds.length > 0) {
+          return snapshot;
+        }
+        observed = JSON.stringify(interaction);
+      }
+    }
+    if (rh.now_ms() > selection_deadline) {
+      break;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code + ":want_phase=" + phase + ":capture_owned=" + capture_owned
+    + ":copyable=" + copyable + ":saw=" + observed;
+}
+
+function sample_render_activity(context, cli, gui, after_sequence) {
+  let required_sequence = after_sequence;
+  if (required_sequence === 0) {
+    const current = json_cli(context, cli, ["ui-snapshot"]);
+    if (present(current.render_activity)) {
+      required_sequence = current.render_activity.sequence;
+    }
+  }
+  // WM_APP+4 (0x8004 = 32772): the render-activity sample request.
+  harness.require(
+    window_message(gui, 32772, 0, 0) === 1,
+    "remote_ui_render_activity_sample_rejected"
+  );
+  // Bounded by wall clock, not attempt count: 1200 `ui-snapshot` children is
+  // ~156s, and the theme step calls this helper up to eight times. Fail in
+  // seconds and report what was actually observed.
+  const sample_deadline = rh.now_ms() + 20000;
+  let last_sequence = -1;
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    // `render_activity` is absent until the client answers the sample
+    // request; ask first.
+    if (present(snapshot.render_activity)) {
+      const activity = snapshot.render_activity;
+      last_sequence = activity.sequence;
+      if (last_sequence > required_sequence) {
+        return activity;
+      }
+    }
+    if (rh.now_ms() > sample_deadline) {
+      throw "remote_ui_render_activity_sample_timeout:required="
+        + required_sequence + ":last=" + last_sequence;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_render_activity_sample_timeout:required="
+    + required_sequence + ":last=" + last_sequence;
+}
+
+function text_starts_with(text, prefix) {
+  return ("" + text).startsWith("" + prefix);
+}
+
+function remote_ui_require_contains(text, needle, message) {
+  if (!("" + text).includes("" + needle)) {
+    throw message;
+  }
+  return 0;
+}
+
+function measure_theme_render(context, cli, gui, settings_button, settings_cancel, baseline_theme, target_theme, label, round) {
+  control_click(settings_button);
+  control_click(baseline_theme);
+  const prefix = "theme-render-ab-" + round + "-" + label;
+  text_cli(
+    context,
+    cli,
+    ["screenshot", "-o", rh.join(context.run_directory, prefix + "-baseline.png")]
+  );
+  const before = sample_render_activity(context, cli, gui, 0);
+  const started = rh.now_ms();
+  control_click(target_theme);
+  text_cli(
+    context,
+    cli,
+    ["screenshot", "-o", rh.join(context.run_directory, prefix + "-target.png")]
+  );
+  const after = sample_render_activity(context, cli, gui, before.sequence);
+  const duration_ms = rh.now_ms() - started;
+  control_click(settings_cancel);
+  json_cli(context, cli, ["wait-ui", "--modal-kind", "closed", "--timeout-ms", "30000"]);
+  const result = {
+    duration_ms: duration_ms,
+    redraws: after.redraw_requests - before.redraw_requests,
+    paints: after.parent_paints - before.parent_paints
+  };
+  print(
+    "THEME_RENDER_AB round=" + round + " theme=" + label + " duration_ms=" + result.duration_ms
+      + " redraws=" + result.redraws + " paints=" + result.paints
+  );
+  return result;
+}
+
+function wait_viewport_mutation(context, cli, baseline, tab_id) {
+  text_cli(
+    context,
+    cli,
+    [
+      "wait-events",
+      "--epoch", baseline.epoch,
+      "--after", "" + baseline.sequence,
+      "--kind", "terminal.viewport",
+      "--tab", tab_id,
+      "--timeout-ms", "30000"
+    ]
+  );
+}
+
+function find_tab(snapshot, id) {
+  for (const tab of snapshot.tabs) {
+    if (tab.id === id) {
+      return tab;
+    }
+  }
+  return null;
+}
+
+function double_click_tab_text(context, cli, gui_child, id) {
+  // Tab render geometry disappears from the snapshot for a frame while the
+  // sidebar re-renders, so `tab_text_geometry` polls until it settles.
+  const text_geometry = tab_text_geometry(context, cli, id);
+  harness.require(present(text_geometry), "remote_ui_tab_text_geometry_missing");
+  double_click_point(
+    gui_child,
+    text_geometry.left + rh.int_div(text_geometry.width, 2),
+    text_geometry.top + rh.int_div(text_geometry.height, 2)
+  );
+  return 0;
+}
+
+// No `sub_string` here: the text before the first occurrence is its offset.
+function marker_text_offset(text, needle) {
+  const parts = ("" + text).split("" + needle);
+  if (parts.length < 2) {
+    throw "remote_ui_marker_offset_missing";
+  }
+  return parts[0].length;
+}
+
+function wait_process_gone(id, code) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    if (!process_present(id)) {
+      return 0;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+function wait_file_text(path, expected, code) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    if (rh.exists(path)) {
+      const observed = trimmed(rh.read_text(path));
+      if (observed === expected) {
+        return observed;
+      }
+    }
+    rh.sleep_ms(25);
+  }
+  if (rh.exists(path)) {
+    throw code + ":observed=" + rh.read_text(path);
+  }
+  throw code;
+}
+
+function wait_pane_input_bytes(context, cli, tab_id, minimum, code) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const observed_bytes = parse_int_text(
+      text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+    );
+    if (observed_bytes >= minimum) {
+      return 0;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+function repeat_text(value, count) {
+  let result = "";
+  for (let index = 0; index < count; index = index + 1) {
+    result = result + value;
+  }
+  return result;
+}
+
+function tab_text_geometry(context, cli, id) {
+  // Read the tab first, bound by wall clock, and name what the snapshot
+  // actually held.
+  const deadline = rh.now_ms() + 15000;
+  let observed = "no snapshot read";
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const tab = find_tab(snapshot, id);
+    if (!present(tab)) {
+      observed = "tab " + id + " absent from snapshot";
+    } else {
+      const render = tab.render;
+      if (!present(render)) {
+        observed = "tab has no render geometry: " + JSON.stringify(tab);
+      } else {
+        const text = render.text;
+        if (present(text) && text.width > 0 && text.height > 0) {
+          return text;
+        }
+        observed = "render=" + JSON.stringify(render);
+      }
+    }
+    if (rh.now_ms() > deadline) {
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  throw "remote_ui_tab_text_geometry_missing:" + observed;
+}
+
+// Pixel rect of a tab row's Close affordance, straight from the snapshot: the
+// projection publishes `tabs[].actions.close` for exactly this purpose.
+function tab_close_rect(context, cli, id) {
+  const deadline = rh.now_ms() + 15000;
+  let observed = "no snapshot read";
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const tab = find_tab(snapshot, id);
+    if (!present(tab)) {
+      observed = "tab " + id + " absent from snapshot";
+    } else {
+      const actions = tab.actions;
+      if (!present(actions)) {
+        observed = "tab has no action geometry: " + JSON.stringify(tab);
+      } else {
+        const rect = actions.close;
+        if (present(rect) && rect.width > 0 && rect.height > 0) {
+          return rect;
+        }
+        observed = "actions=" + JSON.stringify(actions);
+      }
+    }
+    if (rh.now_ms() > deadline) {
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  throw "remote_ui_tab_close_geometry_missing:" + observed;
+}
+
+// Published track/thumb geometry of the terminal scrollbar. Only present once
+// the active tab has scrollback, so poll rather than racing the first read.
+function wait_terminal_scrollbar(context, cli) {
+  const deadline = rh.now_ms() + 15000;
+  let observed = "no snapshot read";
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const terminal = snapshot.layout.terminal;
+    if (present(terminal.scrollbar)
+        && terminal.scrollbar.track.height > 0
+        && terminal.scrollbar.thumb.height > 0) {
+      return terminal.scrollbar;
+    }
+    observed = "terminal=" + JSON.stringify(terminal);
+    if (rh.now_ms() > deadline) {
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  throw "remote_ui_terminal_scrollbar_missing:" + observed;
+}
+
+function parse_json_text(text) {
+  return JSON.parse("" + text);
+}
+
+function screenshot(context, cli, path) {
+  const returned = trimmed(text_cli(context, cli, ["screenshot", "-o", path]));
+  harness.require(
+    rh.absolute(returned).toLowerCase() === rh.absolute(path).toLowerCase(),
+    "remote_ui_screenshot_path_mismatch"
+  );
+  const metadata = rh.metadata(path);
+  harness.require(metadata.len > 1000, "remote_ui_screenshot_too_small");
+}
+
+function wait_screenshot_changed(context, cli, path, baseline_path, code) {
+  const baseline_hash = crypto_sha256_path(baseline_path);
+  // Selection state is published before the low-priority WM_PAINT that makes
+  // its highlight visible. Keep the pixel receipt fail-closed while allowing
+  // that independently scheduled paint to commit.
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    screenshot(context, cli, path);
+    if (crypto_sha256_path(path) !== baseline_hash) {
+      return 0;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+function pane_screenshot(context, cli, path) {
+  const returned = trimmed(text_cli(context, cli, ["screenshot-pane", "-o", path]));
+  harness.require(
+    rh.absolute(returned).toLowerCase() === rh.absolute(path).toLowerCase(),
+    "remote_ui_pane_screenshot_path_mismatch"
+  );
+  const metadata = rh.metadata(path);
+  harness.require(metadata.len > 1000, "remote_ui_pane_screenshot_too_small");
+}
+
+function instance_directory_empty(context) {
+  return rh.read_dir("" + context.instance_directory).length === 0 ? 1 : 0;
+}
+
+function assert_instance_directory_empty(context) {
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    if (instance_directory_empty(context) !== 0) {
+      return 0;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "remote_ui_instance_registration_leaked";
+}
+
+// ---- entry ------------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print("ui.replaceable-client");
+  print("ux.adaptive-tabs");
+  print("ux.hierarchical-tabs");
+  print("ux.detach-first-window-close");
+  print("ux.live-close-confirmation");
+  print("ux.locale-consistency");
+  print("ux.keyboard-surface-navigation");
+  print("ux.modal-wait");
+  print("ux.mouse-scrollback");
+  print("ux.semantic-ui-automation");
+  print("ux.semantic-window-control");
+  print("ux.settings-isolation");
+  print("ux.system-menu-clipboard");
+  print("ux.theme-render-parity");
+  print("ux.terminal-selection-copy");
+  print("ux.working-context-cwd");
+  print("ux-parity.remote-ui.replaceable-client");
+  print("ux-parity.remote-ui.selection");
+  print("ux-parity.window-focus-contract");
+  return 0;
+}
+
+harness.require(
+  args.length === 3 || args.length === 4,
+  "expected: REPO GUI_EXE CLI_EXE [SCREENSHOT_PATH]"
+);
+const repo = rh.absolute(args[0]);
+const gui_exe = rh.absolute(args[1]);
+const cli = rh.absolute(args[2]);
+let requested_screenshot = "";
+if (args.length === 4) {
+  requested_screenshot = rh.absolute(args[3]);
+}
+harness.require(rh.exists(gui_exe), "remote_ui_gui_missing");
+harness.require(rh.exists(cli), "remote_ui_cli_missing");
+
+const context = harness.new_context(repo, "remote-ui");
+const remote_ui_declared_evidence = [
+  "ui.replaceable-client",
+  "ux.adaptive-tabs",
+  "ux.hierarchical-tabs",
+  "ux.detach-first-window-close",
+  "ux.live-close-confirmation",
+  "ux.locale-consistency",
+  "ux.keyboard-surface-navigation",
+  "ux.modal-wait",
+  "ux.mouse-scrollback",
+  "ux.semantic-ui-automation",
+  "ux.semantic-window-control",
+  "ux.settings-isolation",
+  "ux.system-menu-clipboard",
+  "ux.theme-render-parity",
+  "ux.terminal-selection-copy",
+  "ux.working-context-cwd",
+  "ux-parity.remote-ui.replaceable-client",
+  "ux-parity.remote-ui.selection",
+  "ux-parity.window-focus-contract"
+];
+
+// Win32 message and key numbers, decimal because the engine has no hex
+// literals.
+const WM_CLOSE = 16;           // 0x0010
+const WM_KEYDOWN = 256;        // 0x0100
+const WM_CHAR = 258;           // 0x0102
+const WM_COMMAND = 273;        // 0x0111
+const WM_SYSCOMMAND = 274;     // 0x0112
+const WM_VSCROLL = 275;        // 0x0113
+const WM_MOUSEWHEEL = 522;     // 0x020A
+const SC_TERMINAL_COPY = 7936; // 0x1F00
+const SC_TABS_TOGGLE = 7968;   // 0x1F20
+const VK_TAB = 9;              // 0x09
+const VK_RETURN = 13;          // 0x0D
+const VK_ESCAPE = 27;          // 0x1B
+const VK_LEFT = 37;            // 0x25
+const VK_UP = 38;              // 0x26
+const VK_RIGHT = 39;           // 0x27
+const VK_DOWN = 40;            // 0x28
+const VK_C = 67;               // 0x43
+const IDC_CLOSE_CANCEL = 2111;
+const focus_message = 32771;    // 0x8003
+const shortcut_message = 32770; // 0x8002
+const WHEEL_UP_WPARAM = 7864320;
+const WHEEL_DOWN_WPARAM = 4287102976;
+
+const owned_children = [];
+const known_server_pids = [];
+let succeeded = 0;
+let failure = "";
+let clipboard_restore_text = "";
+let clipboard_restore_needed = 0;
+
+try {
+  step("start the independent server and wait through public protocol");
+  const initial_server_spec = configured_server_spec(context, gui_exe);
+  const initial_server = harness.start(initial_server_spec);
+  const initial_protocol = wait_for_protocol(context, cli, "remote_ui_server_timeout");
+  harness.require(
+    initial_protocol.pid === child_pid(initial_server),
+    "remote_ui_server_identity_invalid"
+  );
+  owned_children.push(initial_server);
+
+  step("start replaceable UI against the ready independent server");
+  const gui_spec = configured_gui_spec(
+    gui_exe,
+    context.address,
+    context.workspace_path,
+    context.settings_path,
+    context.instance_directory
+  );
+  const gui = harness.start(gui_spec);
+  wait_for_lease(context, cli, gui, 1200, "remote_ui_lease_timeout");
+  owned_children.push(gui);
+  const lease = json_cli(context, cli, ["ui-lease", "status"]);
+
+  step("observe the lease-owned GUI projection through public CLI");
+  const ui = wait_projection(context, cli, "replaceable_ui_client");
+  harness.require(
+    ui.schema_version === 1
+      && ui.client_pid === child_pid(gui)
+      && ui.event_position.epoch === lease.position.server_epoch
+      && ui.window.visible
+      && ui.window.client_width >= 320
+      && ui.layout.terminal.rows >= 1
+      && ui.layout.composer.input.target_rows === 3
+      && ui.layout.status_bar.proxy.archived
+      && (ui.focus.surface === "terminal"
+        || ui.focus.surface === "composer"
+        || ui.focus.surface === "tabs")
+      && ui.tabs.length >= 1,
+    "remote_ui_projection_invalid"
+  );
+  harness.require(
+    ui.locale.id === "en-US" && ui.locale.controls.send === "Send",
+    "remote_ui_locale_contract_invalid"
+  );
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux-parity.remote-ui.replaceable-client");
+
+  step("drive semantic window state and client resize");
+  const original_width = ui.window.client_width;
+  const original_height = ui.window.client_height;
+  const original_rows = ui.layout.terminal.rows;
+  const original_columns = ui.layout.terminal.cols;
+  json_cli(context, cli, ["ui-action", "window-minimize"]);
+  const minimized = json_cli(
+    context,
+    cli,
+    ["wait-ui", "--window-state", "minimized", "--timeout-ms", "30000"]
+  );
+  harness.require(
+    minimized.layout.terminal.rows === original_rows
+      && minimized.layout.terminal.cols === original_columns,
+    "remote_ui_minimize_changed_grid"
+  );
+  json_cli(context, cli, ["ui-action", "window-restore"]);
+  json_cli(context, cli, ["wait-ui", "--window-state", "restored", "--timeout-ms", "30000"]);
+  json_cli(context, cli, ["ui-action", "window-maximize"]);
+  json_cli(context, cli, ["wait-ui", "--window-state", "maximized", "--timeout-ms", "30000"]);
+  json_cli(context, cli, ["ui-action", "window-restore"]);
+  json_cli(context, cli, ["wait-ui", "--window-state", "restored", "--timeout-ms", "30000"]);
+  let resized_width = original_width + 80;
+  if (original_width > 720) {
+    resized_width = original_width - 80;
+  }
+  let resized_height = original_height + 60;
+  if (original_height > 540) {
+    resized_height = original_height - 60;
+  }
+  json_cli(
+    context,
+    cli,
+    ["ui-action", "window-resize", "--width", "" + resized_width, "--height", "" + resized_height]
+  );
+  const resized_window = json_cli(
+    context,
+    cli,
+    [
+      "wait-ui",
+      "--client-width", "" + resized_width,
+      "--client-height", "" + resized_height,
+      "--terminal-grid-changed-from", "" + original_rows + "x" + original_columns,
+      "--timeout-ms", "30000"
+    ]
+  );
+  harness.require(
+    resized_window.layout.terminal.rows !== original_rows
+      || resized_window.layout.terminal.cols !== original_columns,
+    "remote_ui_resize_did_not_change_grid"
+  );
+  json_cli(
+    context,
+    cli,
+    ["ui-action", "window-resize", "--width", "" + original_width, "--height", "" + original_height]
+  );
+  json_cli(
+    context,
+    cli,
+    [
+      "wait-ui",
+      "--client-width", "" + original_width,
+      "--client-height", "" + original_height,
+      "--timeout-ms", "30000"
+    ]
+  );
+
+  step("relay typed UI actions to the exact live GUI lease");
+  const hidden = json_cli(context, cli, ["ui-action", "tabs-hide"]);
+  harness.require(
+    hidden.projection === "replaceable_ui_client"
+      && hidden.client_pid === child_pid(gui)
+      && !hidden.layout.sidebar.visible
+      && hidden.layout.status_bar.tabs_recovery.width > 0,
+    "remote_ui_tabs_hide_invalid"
+  );
+  const shown = json_cli(context, cli, ["ui-action", "tabs-show"]);
+  harness.require(
+    shown.layout.sidebar.visible && shown.client_pid === child_pid(gui),
+    "remote_ui_tabs_show_invalid"
+  );
+  const settings = json_cli(context, cli, ["ui-action", "open-settings"]);
+  harness.require(settings.modal.kind === "settings", "remote_ui_settings_relay_invalid");
+  const settings_wait = json_cli(
+    context,
+    cli,
+    ["wait-ui", "--modal-kind", "settings", "--timeout-ms", "30000"]
+  );
+  harness.require(settings_wait.focus.surface === "settings", "remote_ui_settings_modal_wait_invalid");
+  const cancelled = json_cli(context, cli, ["ui-action", "cancel"]);
+  harness.require(!present(cancelled.modal), "remote_ui_cancel_relay_invalid");
+  json_cli(context, cli, ["wait-ui", "--modal-kind", "closed", "--timeout-ms", "30000"]);
+  const composer = json_cli(context, cli, ["focus", "composer"]);
+  harness.require(composer.focus.surface === "composer", "remote_ui_composer_focus_invalid");
+  text_cli(context, cli, ["focus", "terminal"]);
+  const settings_facts = json_cli(context, cli, ["get-settings"]);
+  harness.require(
+    settings_facts.terminal_font_size >= 8
+      && settings_facts.recommended_cjk_font === "Sarasa Fixed SC",
+    "remote_ui_settings_facts_invalid"
+  );
+  screenshot(context, cli, rh.join(parent_dir(context.evidence_path), "relayed-window.png"));
+  pane_screenshot(context, cli, rh.join(parent_dir(context.evidence_path), "relayed-pane.png"));
+
+  step("prove GUI and server are different process roles");
+  const bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  const protocol = json_cli(context, cli, ["protocol-info", "--running"]);
+  known_server_pids.push(bootstrap.server_pid);
+  const gui_facts = platform_facts(gui);
+  const original_window_id = gui_facts.top_level_window_id;
+  harness.require(
+    bootstrap.schema_version === 2
+      && ui.server_pid === bootstrap.server_pid
+      && bootstrap.server_pid === child_pid(initial_server)
+      && bootstrap.server_pid !== child_pid(gui)
+      && bootstrap.tabs.length >= 1
+      && lease.client_build.protocol_version === 1
+      && lease.client_build.version !== ""
+      && protocol.ui_bridge.ownership_mode === "split_server_client"
+      && protocol.ui_bridge.replaceable_ui
+      && protocol.ui_bridge.interactive_lease
+      && protocol.ui_bridge.reconnect
+      && protocol.ui_bridge.rollback_proven
+      && original_window_id !== 0,
+    "remote_ui_process_role_separation_invalid"
+  );
+
+  step("prove the server-owned PTY remains interactive");
+  const tab_id = "" + bootstrap.active_tab_id;
+  const marker = "AGENTERM_REMOTE_UI_" + context.run_id;
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "-l", "echo " + marker]);
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "Enter"]);
+  text_cli(context, cli, ["wait-pane", "-t", tab_id, "--contains", marker, "--timeout-ms", "30000"]);
+  const rendered = json_cli(context, cli, ["ui-bootstrap"]);
+  wait_observed(context, cli, rendered.position.sequence);
+
+  step("close only the GUI and retain server, PTY, and workspace");
+  const composer_editor = assert_window_control(gui, 2101, "composer_editor");
+  // Hidden until the WM_CLOSE below opens the dialog; the `require` after it
+  // is what asserts they became visible. See `assert_window_control`.
+  const close_keep = assert_window_control(gui, 2109, "close_keep");
+  const close_stop = assert_window_control(gui, 2110, "close_stop");
+  const close_cancel = assert_window_control(gui, 2111, "close_cancel");
+  const draft_marker = "draft-" + context.run_id;
+  control_set_text(composer_editor, draft_marker);
+  window_message(gui, WM_CLOSE, 0, 0);
+  harness.require(
+    harness.state(gui) === "running"
+      && control_visible(close_keep)
+      && control_visible(close_stop)
+      && control_visible(close_cancel)
+      && !control_visible(composer_editor),
+    "remote_ui_three_choice_close_invalid"
+  );
+  screenshot(context, cli, rh.join(parent_dir(context.evidence_path), "close-three-choice.png"));
+  const saved_draft = trimmed(text_cli(context, cli, ["show-composer", "-t", tab_id]));
+  harness.require(saved_draft === draft_marker, "remote_ui_close_lost_composer_draft");
+  control_click(close_cancel);
+  harness.require(
+    harness.state(gui) === "running"
+      && !control_visible(close_keep)
+      && control_visible(composer_editor),
+    "remote_ui_close_cancel_invalid"
+  );
+  window_message(gui, WM_CLOSE, 0, 0);
+  window_message(gui, WM_KEYDOWN, VK_ESCAPE, 0);
+  harness.require(
+    harness.state(gui) === "running" && !control_visible(close_keep),
+    "remote_ui_close_escape_invalid"
+  );
+  window_message(gui, WM_CLOSE, 0, 0);
+  window_message(gui, WM_KEYDOWN, VK_RETURN, 0);
+  wait_for_exit(gui, "remote_ui_keep_server_exit_timeout");
+
+  const lease_after = json_cli(context, cli, ["ui-lease", "status"]);
+  const capture_check = harness.run_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", marker, "--timeout-ms", "5000"],
+    0,
+    []
+  );
+  harness.require(
+    !lease_after.attached && capture_check.success,
+    "remote_ui_detach_ended_server_or_pty"
+  );
+  const headless = wait_projection(context, cli, "headless_server");
+  harness.require(
+    headless.server_pid === bootstrap.server_pid && headless.tabs.length >= 1,
+    "remote_ui_headless_projection_invalid"
+  );
+
+  step("replace the GUI and recover the same live server state");
+  const replacement_gui_spec = configured_gui_spec(
+    gui_exe,
+    context.address,
+    context.workspace_path,
+    context.settings_path,
+    context.instance_directory
+  );
+  const replacement_gui = harness.start(replacement_gui_spec);
+  wait_for_lease(context, cli, replacement_gui, 1200, "remote_ui_lease_timeout");
+  owned_children.push(replacement_gui);
+  // rh bound this name twice; the first read is kept for its command record.
+  const replacement_lease_first = json_cli(context, cli, ["ui-lease", "status"]);
+  const replacement_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  const replacement_reconnect_check = harness.run_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", marker, "--timeout-ms", "5000"],
+    0,
+    []
+  );
+  const replacement_lease = wait_observed(context, cli, replacement_bootstrap.position.sequence);
+  harness.require(
+    replacement_bootstrap.server_pid === bootstrap.server_pid
+      && replacement_bootstrap.active_tab_id === tab_id
+      && replacement_lease.client_build.protocol_version === 1
+      && replacement_lease.client_build.version !== ""
+      && replacement_reconnect_check.success
+      && present(replacement_lease_first),
+    "remote_ui_replacement_state_invalid"
+  );
+
+  step("recover hidden Tabs from toolbar, system menu, and status bar");
+  const tabs_button = assert_window_control(replacement_gui, 2104, "tabs_button");
+  const control_center_button = assert_window_control(replacement_gui, 2138, "control_center_button");
+  const settings_button = assert_window_control(replacement_gui, 2112, "settings_button");
+  const new_button = assert_window_control(replacement_gui, 2103, "new_button");
+  const locale_button = assert_window_control(replacement_gui, 2129, "locale_button");
+  const font_decrease_button = assert_window_control(replacement_gui, 2130, "font_decrease_button");
+  const font_increase_button = assert_window_control(replacement_gui, 2131, "font_increase_button");
+  const composer_send = assert_window_control(replacement_gui, 2102, "composer_send");
+  const toolbar = wait_workspace_toolbar(context, cli, "remote_ui_toolbar_ready_timeout");
+  const toolbar_layout = toolbar.layout.toolbar;
+  const new_bounds = toolbar_layout["new"];
+  const new_left = new_bounds["left"];
+  const new_right = new_bounds["right"];
+  const toolbar_locale = toolbar.locale;
+  const locale_toolbar_label = toolbar_locale.toolbar_label;
+  harness.require(
+    toolbar.layout.sidebar.visible
+      && toolbar_layout.tabs.left < new_left
+      && new_right <= toolbar_layout.control_center.left
+      && toolbar_layout.control_center.right <= toolbar_layout.settings.left
+      && toolbar_layout.settings.right <= toolbar_layout.locale.left
+      && toolbar_layout.locale.right <= toolbar_layout.font_decrease.left
+      && toolbar_layout.font_decrease.right <= toolbar_layout.font_increase.left
+      && toolbar_layout.font_increase.right === toolbar_layout.bounds.right - 4,
+    "remote_ui_toolbar_geometry_invalid"
+  );
+  harness.require(
+    locale_toolbar_label === "En|Zh"
+      && toolbar_layout.control_center.width > 0
+      && toolbar_layout.font_decrease.width > 0
+      && toolbar_layout.font_increase.width > 0
+      && present(control_center_button),
+    "remote_ui_toolbar_new_controls_invalid"
+  );
+  control_click(locale_button);
+  const traditional = wait_locale(context, cli, "zh-Hant");
+  const traditional_locale = traditional.locale;
+  harness.require(
+    traditional_locale.id === "zh-Hant"
+      && traditional_locale.toolbar_label === "Zh|En"
+      && traditional_locale.controls.settings === "設定",
+    "remote_ui_locale_toggle_invalid"
+  );
+  control_click(locale_button);
+  const restored_locale = wait_locale(context, cli, "en-US");
+  harness.require(restored_locale.locale.id === "en-US", "remote_ui_locale_restore_invalid");
+  control_click(tabs_button);
+  const hidden_toolbar = json_cli(context, cli, ["ui-snapshot"]);
+  harness.require(
+    control_visible(tabs_button)
+      && control_visible(settings_button)
+      && !hidden_toolbar.layout.sidebar.visible,
+    "remote_ui_toolbar_hide_invalid"
+  );
+  control_click(tabs_button);
+  harness.require(control_visible(tabs_button), "remote_ui_toolbar_restore_invalid");
+  window_message(replacement_gui, WM_SYSCOMMAND, SC_TABS_TOGGLE, 0);
+  harness.require(control_visible(tabs_button), "remote_ui_system_menu_hide_invalid");
+  window_message(replacement_gui, WM_SYSCOMMAND, SC_TABS_TOGGLE, 0);
+  harness.require(control_visible(tabs_button), "remote_ui_system_menu_restore_invalid");
+  control_click(tabs_button);
+  const hidden_rect = window_client_rect(replacement_gui);
+  window_pointer(replacement_gui, "click", 36, hidden_rect.bottom - 13);
+  harness.require(control_visible(tabs_button), "remote_ui_status_tabs_recovery_invalid");
+
+  step("configure a new terminal before creation");
+  const initial_command = assert_window_control(replacement_gui, 2124, "initial_command");
+  const http_proxy = assert_window_control(replacement_gui, 2125, "http_proxy");
+  const https_proxy = assert_window_control(replacement_gui, 2126, "https_proxy");
+  const create_button = assert_window_control(replacement_gui, 2127, "create_button");
+  const before_new_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  const before_new_count = before_new_bootstrap.tabs.length;
+  control_click(new_button);
+  text_cli(context, cli, ["wait-ui", "--modal-kind", "new-terminal", "--timeout-ms", "30000"]);
+  const new_modal_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  harness.require(
+    new_modal_bootstrap.tabs.length === before_new_count && control_visible(initial_command),
+    "remote_ui_new_modal_invalid"
+  );
+  const new_marker = "AGENTERM_NEW_DIALOG_" + context.run_id;
+  const proxy_secret = "http://dialog-user:dialog-pass@127.0.0.1:48888";
+  // Echo unconditionally. This step proves the dialog's initial command
+  // reaches the created terminal; it must not depend on HTTP_PROXY being
+  // defined. Create-path proxy injection was intentionally paused in
+  // 7338a93 (see PRD_02_06). Proxy handling is covered by the redaction
+  // assertions below.
+  control_set_text(initial_command, "echo " + new_marker);
+  control_set_text(http_proxy, proxy_secret);
+  control_set_text(https_proxy, proxy_secret);
+  let new_modal_text = "";
+  let new_modal = null;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    new_modal_text = text_cli(context, cli, ["ui-snapshot"]);
+    new_modal = parse_json_text(new_modal_text);
+    if (present(new_modal.modal)
+        && new_modal.modal.initial_command_configured
+        && new_modal.modal.http_proxy_configured
+        && new_modal.modal.https_proxy_configured) {
+      break;
+    }
+    rh.sleep_ms(25);
+  }
+  harness.require(
+    present(new_modal)
+      && present(new_modal.modal)
+      && new_modal.modal.initial_command_configured
+      && new_modal.modal.http_proxy_configured
+      && new_modal.modal.https_proxy_configured
+      && !new_modal.modal.proxy_values_exposed
+      && !new_modal_text.includes(proxy_secret)
+      && !new_modal_text.includes("dialog-pass"),
+    "remote_ui_new_modal_redaction_invalid"
+  );
+  control_click(create_button);
+  text_cli(context, cli, ["wait-pane", "--contains", new_marker, "--timeout-ms", "30000"]);
+  const created_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  harness.require(
+    created_bootstrap.tabs.length === before_new_count + 1,
+    "remote_ui_new_create_count_invalid"
+  );
+  const created_tab_id = created_bootstrap.active_tab_id;
+  text_cli(context, cli, ["select-window", "-t", tab_id]);
+  text_cli(context, cli, ["kill-window", "-t", created_tab_id]);
+  text_cli(
+    context,
+    cli,
+    ["wait-ui", "--active", tab_id, "--focus", "terminal", "--timeout-ms", "30000"]
+  );
+
+  step("navigate Terminal, Composer, and Tabs without the mouse");
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 1,
+    "remote_ui_initial_focus_invalid"
+  );
+  window_message(replacement_gui, shortcut_message, VK_DOWN, 1);
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 2,
+    "remote_ui_ctrl_down_invalid"
+  );
+  window_message(replacement_gui, shortcut_message, VK_UP, 1);
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 1,
+    "remote_ui_ctrl_up_invalid"
+  );
+  window_message(replacement_gui, shortcut_message, VK_LEFT, 1);
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 3,
+    "remote_ui_ctrl_left_invalid"
+  );
+  window_message(replacement_gui, shortcut_message, VK_RIGHT, 1);
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 1,
+    "remote_ui_ctrl_right_invalid"
+  );
+  window_message(replacement_gui, shortcut_message, VK_DOWN, 3);
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 1,
+    "remote_ui_ctrl_shift_down_stole_focus"
+  );
+  const shift_tab_input_before = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  harness.require(
+    window_message(replacement_gui, shortcut_message, VK_TAB, 2) === 1,
+    "remote_ui_shift_tab_not_consumed"
+  );
+  const shift_tab_input_after = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  harness.require(
+    shift_tab_input_after === shift_tab_input_before + 3,
+    "remote_ui_shift_tab_pty_bytes_invalid"
+  );
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux-parity.window-focus-contract");
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "C-c"]);
+
+  step("preview, cancel, and apply client-owned Settings");
+  const replacement_composer = assert_window_control(replacement_gui, 2101, "replacement_composer");
+  const settings_font = assert_window_control(replacement_gui, 2113, "settings_font");
+  const settings_size = assert_window_control(replacement_gui, 2114, "settings_size");
+  const settings_dark = assert_window_control(replacement_gui, 2115, "settings_dark");
+  const settings_light = assert_window_control(replacement_gui, 2116, "settings_light");
+  const settings_apply = assert_window_control(replacement_gui, 2117, "settings_apply");
+  const settings_cancel = assert_window_control(replacement_gui, 2118, "settings_cancel");
+  control_click(settings_button);
+  harness.require(
+    control_visible(settings_font)
+      && control_visible(settings_light)
+      && control_visible(settings_apply)
+      && !control_visible(replacement_composer),
+    "remote_ui_settings_modal_controls_invalid"
+  );
+  control_click(settings_light);
+  control_click(settings_cancel);
+  harness.require(
+    !control_visible(settings_font) && control_visible(replacement_composer),
+    "remote_ui_settings_cancel_restore_invalid"
+  );
+  if (rh.exists(context.settings_path)) {
+    const cancelled_settings = rh.parse_file(context.settings_path);
+    // `color_theme` was renamed to `appearance_preset` (light ->
+    // "classic-day", dark -> "classic-night"); the old key is only a serde
+    // read alias.
+    harness.require(
+      cancelled_settings.appearance_preset !== "classic-day",
+      "remote_ui_settings_cancel_persisted_preview:persisted=" + JSON.stringify(cancelled_settings)
+    );
+  }
+
+  control_click(settings_button);
+  control_set_text(settings_font, "Consolas");
+  control_set_text(settings_size, "14");
+  control_click(settings_light);
+  control_click(settings_apply);
+  const applied_settings = rh.parse_file(context.settings_path);
+  harness.require(
+    applied_settings.appearance_preset === "classic-day"
+      && applied_settings.terminal_font_family === "Consolas"
+      && applied_settings.terminal_font_size === 14
+      && !control_visible(settings_font)
+      && control_visible(replacement_composer),
+    "remote_ui_settings_apply_invalid:persisted=" + JSON.stringify(applied_settings)
+      + ":font_dialog_visible=" + control_visible(settings_font)
+      + ":composer_visible=" + control_visible(replacement_composer)
+  );
+  control_click(settings_button);
+  control_click(settings_dark);
+  control_click(settings_cancel);
+  const cancelled_dark = rh.parse_file(context.settings_path);
+  harness.require(
+    cancelled_dark.appearance_preset === "classic-day",
+    "remote_ui_settings_cancel_rollback_invalid:persisted=" + JSON.stringify(cancelled_dark)
+  );
+
+  step("compare counterbalanced Dark and Light render cost");
+  // Each timed sample starts from the opposite palette, then performs the
+  // same target click, synchronous public screenshot, and renderer-counter
+  // sample. AB/BA order counterbalances warmup and phase-order effects.
+  const theme_sb_1 = window_control(replacement_gui, 2112);
+  const theme_sc_1 = window_control(replacement_gui, 2118);
+  const theme_sl_1 = window_control(replacement_gui, 2116);
+  const theme_sd_1 = window_control(replacement_gui, 2115);
+  const dark_round_one = measure_theme_render(
+    context, cli, replacement_gui, theme_sb_1, theme_sc_1, theme_sl_1, theme_sd_1, "dark", 1
+  );
+  const theme_sb_2 = window_control(replacement_gui, 2112);
+  const theme_sc_2 = window_control(replacement_gui, 2118);
+  const theme_sd_2 = window_control(replacement_gui, 2115);
+  const theme_sl_2 = window_control(replacement_gui, 2116);
+  const light_round_one = measure_theme_render(
+    context, cli, replacement_gui, theme_sb_2, theme_sc_2, theme_sd_2, theme_sl_2, "light", 1
+  );
+  const theme_sb_3 = window_control(replacement_gui, 2112);
+  const theme_sc_3 = window_control(replacement_gui, 2118);
+  const theme_sd_3 = window_control(replacement_gui, 2115);
+  const theme_sl_3 = window_control(replacement_gui, 2116);
+  const light_round_two = measure_theme_render(
+    context, cli, replacement_gui, theme_sb_3, theme_sc_3, theme_sd_3, theme_sl_3, "light", 2
+  );
+  const theme_sb_4 = window_control(replacement_gui, 2112);
+  const theme_sc_4 = window_control(replacement_gui, 2118);
+  const theme_sl_4 = window_control(replacement_gui, 2116);
+  const theme_sd_4 = window_control(replacement_gui, 2115);
+  const dark_round_two = measure_theme_render(
+    context, cli, replacement_gui, theme_sb_4, theme_sc_4, theme_sl_4, theme_sd_4, "dark", 2
+  );
+  const dark_duration_ms = dark_round_one.duration_ms + dark_round_two.duration_ms;
+  const light_duration_ms = light_round_one.duration_ms + light_round_two.duration_ms;
+  const dark_redraws = dark_round_one.redraws + dark_round_two.redraws;
+  const light_redraws = light_round_one.redraws + light_round_two.redraws;
+  const dark_paints = dark_round_one.paints + dark_round_two.paints;
+  const light_paints = light_round_one.paints + light_round_two.paints;
+  // Two rounds absorb ordinary host jitter. The 2.75x envelope remains
+  // deliberately loose, but rejects the stable 3-5x light-theme regression
+  // reported during dogfood.
+  harness.require(
+    light_duration_ms <= rh.int_div(dark_duration_ms * 11, 4)
+      && dark_duration_ms <= rh.int_div(light_duration_ms * 11, 4),
+    "remote_ui_theme_render_duration_asymmetry:dark=" + dark_duration_ms + ":light=" + light_duration_ms
+  );
+  harness.require(
+    light_redraws <= dark_redraws * 3 + 4
+      && dark_redraws <= light_redraws * 3 + 4
+      && light_paints <= dark_paints * 3 + 4
+      && dark_paints <= light_paints * 3 + 4,
+    "remote_ui_theme_render_activity_asymmetry:dark_redraws=" + dark_redraws
+      + ":light_redraws=" + light_redraws + ":dark_paints=" + dark_paints
+      + ":light_paints=" + light_paints
+  );
+  print(
+    "THEME_RENDER_AB totals dark_ms=" + dark_duration_ms + " light_ms=" + light_duration_ms
+      + " dark_redraws=" + dark_redraws + " light_redraws=" + light_redraws
+      + " dark_paints=" + dark_paints + " light_paints=" + light_paints
+  );
+  const render_before_zoom = sample_render_activity(context, cli, replacement_gui, 0);
+  control_click(font_increase_button);
+  harness.require(
+    window_message(replacement_gui, focus_message, 0, 0) === 1,
+    "remote_ui_font_button_stole_terminal_focus"
+  );
+  const overridden_font = wait_effective_font_size(context, cli, 15, true);
+  wait_terminal_resize_settled(context, cli);
+  harness.require(
+    overridden_font.settings.terminal_font_size === 14
+      && overridden_font.settings.current_terminal_override.terminal_font_size === 15
+      && overridden_font.settings.effective.terminal_font_size === 15,
+    "remote_ui_terminal_font_override_invalid"
+  );
+  for (let attempt = 0; attempt < 8; attempt = attempt + 1) {
+    control_click(font_decrease_button);
+    control_click(font_increase_button);
+  }
+  control_click(font_decrease_button);
+  wait_effective_font_size(context, cli, 14, true);
+  wait_terminal_resize_settled(context, cli);
+  control_click(font_increase_button);
+  wait_effective_font_size(context, cli, 15, true);
+  wait_terminal_resize_settled(context, cli);
+  const render_after_zoom = sample_render_activity(
+    context, cli, replacement_gui, render_before_zoom.sequence
+  );
+  harness.require(
+    render_after_zoom.control_bounds_updates === render_before_zoom.control_bounds_updates
+      && render_after_zoom.control_visibility_updates === render_before_zoom.control_visibility_updates,
+    "remote_ui_zoom_mutated_unchanged_native_controls:before_bounds=" + render_before_zoom.control_bounds_updates
+      + ":after_bounds=" + render_after_zoom.control_bounds_updates
+      + ":before_visibility=" + render_before_zoom.control_visibility_updates
+      + ":after_visibility=" + render_after_zoom.control_visibility_updates
+  );
+  harness.require(
+    render_after_zoom.control_bounds_skips > render_before_zoom.control_bounds_skips
+      && render_after_zoom.control_visibility_skips > render_before_zoom.control_visibility_skips,
+    "remote_ui_zoom_did_not_coalesce_native_control_layout:before_bounds_skips=" + render_before_zoom.control_bounds_skips
+      + ":after_bounds_skips=" + render_after_zoom.control_bounds_skips
+      + ":before_visibility_skips=" + render_before_zoom.control_visibility_skips
+      + ":after_visibility_skips=" + render_after_zoom.control_visibility_skips
+  );
+  const zoom_redraws = render_after_zoom.redraw_requests - render_before_zoom.redraw_requests;
+  const zoom_paints = render_after_zoom.parent_paints - render_before_zoom.parent_paints;
+  harness.require(zoom_redraws <= 96 && zoom_paints <= 96, "remote_ui_zoom_repaint_storm");
+  const idle_started = rh.now_ms();
+  for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
+    json_cli(context, cli, ["ui-snapshot"]);
+    rh.sleep_ms(25);
+  }
+  const idle_elapsed = rh.now_ms() - idle_started;
+  const render_after_idle = sample_render_activity(
+    context, cli, replacement_gui, render_after_zoom.sequence
+  );
+  const idle_redraws = render_after_idle.redraw_requests - render_after_zoom.redraw_requests;
+  const idle_paints = render_after_idle.parent_paints - render_after_zoom.parent_paints;
+  // The sidebar clock repaints once per second by design, so the ceiling has
+  // to scale with how long this window actually took. Allow two per second
+  // plus slack; a genuine storm is orders of magnitude above this.
+  const idle_budget = 3 + rh.int_div(idle_elapsed * 2, 1000);
+  harness.require(
+    idle_redraws <= idle_budget && idle_paints <= idle_budget,
+    "remote_ui_idle_repaint_storm:idle_redraws=" + idle_redraws
+      + ":idle_paints=" + idle_paints
+      + ":budget=" + idle_budget
+      + ":elapsed_ms=" + idle_elapsed
+  );
+  harness.require(
+    render_after_idle.control_bounds_updates === render_after_zoom.control_bounds_updates
+      && render_after_idle.control_visibility_updates === render_after_zoom.control_visibility_updates,
+    "remote_ui_idle_mutated_native_controls"
+  );
+  print(
+    "RENDER_ACTIVITY zoom_redraws=" + zoom_redraws
+      + " zoom_paints=" + zoom_paints
+      + " idle_redraws=" + idle_redraws
+      + " idle_paints=" + idle_paints
+  );
+  const zoom_shift_tab_before = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  harness.require(
+    window_message(replacement_gui, shortcut_message, VK_TAB, 2) === 1,
+    "remote_ui_zoom_shift_tab_not_consumed"
+  );
+  const zoom_shift_tab_after = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  harness.require(
+    zoom_shift_tab_after === zoom_shift_tab_before + 3,
+    "remote_ui_zoom_shift_tab_pty_bytes_invalid"
+  );
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "C-c"]);
+  const font_input_marker = "AGENTERM_FONT_INPUT_" + context.run_id;
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "-l", "echo " + font_input_marker]);
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "Enter"]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", font_input_marker, "--timeout-ms", "30000"]
+  );
+  const settings_current_scope = assert_window_control(replacement_gui, 2133, "settings_current_scope");
+  const settings_reset_overrides = assert_window_control(replacement_gui, 2137, "settings_reset_overrides");
+  control_click(settings_button);
+  control_click(settings_current_scope);
+  control_click(settings_reset_overrides);
+  control_click(settings_apply);
+  const inherited_font = wait_effective_font_size(context, cli, 14, false);
+  wait_terminal_resize_settled(context, cli);
+  harness.require(
+    !present(inherited_font.settings.current_terminal_override)
+      && inherited_font.settings.effective.terminal_font_size === 14,
+    "remote_ui_terminal_font_inheritance_invalid"
+  );
+
+  step("edit CWD through the bottom workbench segment");
+  const cwd_snapshot = wait_projection(context, cli, "replaceable_ui_client");
+  const cwd_bounds = cwd_snapshot.layout.status_bar.cwd.bounds;
+  const cwd_left = cwd_bounds.left;
+  const cwd_right = cwd_bounds.right;
+  const cwd_top = cwd_bounds.top;
+  const cwd_bottom = cwd_bounds.bottom;
+  const cwd_width = cwd_right - cwd_left;
+  const cwd_height = cwd_bottom - cwd_top;
+  harness.require(cwd_width > 0 && cwd_height > 0, "remote_ui_cwd_segment_invalid");
+  const cwd_x = cwd_left + rh.int_div(cwd_width, 2);
+  const cwd_y = cwd_top + rh.int_div(cwd_height, 2);
+  window_pointer(replacement_gui, "click", cwd_x, cwd_y);
+  const cwd_path = rh.join(context.run_directory, "cwd target");
+  control_set_text(replacement_composer, cwd_path);
+  control_click(composer_send);
+  const cwd_prepared = json_cli(context, cli, ["ui-bootstrap"]);
+  const cwd_tab = find_tab(cwd_prepared, tab_id);
+  const cwd_composer = trimmed(text_cli(context, cli, ["show-composer", "-t", tab_id]));
+  // The composer holds the *prepared shell command*, not the bare path -- for
+  // cmd that is `cd /d "<path>"`. What the step proves is that the request is
+  // pending and the prepared command carries the requested directory.
+  const cwd_working_context = present(cwd_tab) ? cwd_tab.working_context : null;
+  harness.require(
+    present(cwd_tab)
+      && cwd_working_context.cwd === cwd_path
+      && cwd_working_context.cwd_request_pending
+      && cwd_composer.includes(cwd_path),
+    "remote_ui_cwd_prepare_invalid:want=" + cwd_path
+      + ":working_context=" + json_or_null(cwd_working_context)
+      + ":composer=" + cwd_composer
+  );
+  window_pointer(replacement_gui, "click", cwd_x, cwd_y);
+  control_set_text(replacement_composer, "must-not-prepare");
+  window_pointer(replacement_gui, "click", cwd_x, cwd_y);
+  const cwd_after_cancel = trimmed(text_cli(context, cli, ["show-composer", "-t", tab_id]));
+  harness.require(cwd_after_cancel === cwd_composer, "remote_ui_cwd_cancel_changed_draft");
+
+  step("prove CWD modal, safe preparation, and OSC 7 truth");
+  const cwd_editor = json_cli(context, cli, ["ui-action", "open-cwd-editor", "-t", tab_id]);
+  harness.require(
+    cwd_editor.modal.kind === "cwd-editor"
+      && cwd_editor.modal.window_id === tab_id
+      && cwd_editor.focus.surface === "cwd-editor",
+    "remote_ui_cwd_editor_semantics_invalid"
+  );
+  const cwd_target_wait = json_cli(
+    context,
+    cli,
+    ["wait-ui", "--modal-kind", "cwd-editor", "--modal-target", tab_id, "--timeout-ms", "30000"]
+  );
+  harness.require(cwd_target_wait.modal.window_id === tab_id, "remote_ui_cwd_modal_target_invalid");
+  json_cli(context, cli, ["ui-action", "cancel"]);
+  json_cli(context, cli, ["wait-ui", "--modal-kind", "none", "--timeout-ms", "30000"]);
+
+  const pane_input_before = trimmed(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  const protected_draft = "echo AGENTERM_CWD_DRAFT_" + context.run_id;
+  text_cli(context, cli, ["set-composer", "-t", tab_id, protected_draft]);
+  const protected_prepare = optional_cli(
+    context,
+    cli,
+    ["ui-action", "cwd-prepare", "-t", tab_id, "--path", "C:\\Program Files"]
+  );
+  const protected_after = trimmed(text_cli(context, cli, ["show-composer", "-t", tab_id]));
+  harness.require(
+    !protected_prepare.success && protected_after === protected_draft,
+    "remote_ui_cwd_prepare_overwrote_draft"
+  );
+  text_cli(
+    context,
+    cli,
+    ["ui-action", "cwd-prepare-append", "-t", tab_id, "--path", "C:\\Program Files"]
+  );
+  const prepared_cmd = trimmed(text_cli(context, cli, ["show-composer", "-t", tab_id]));
+  harness.require(
+    text_starts_with(prepared_cmd, protected_draft),
+    "remote_ui_cmd_cwd_quote_invalid:" + prepared_cmd
+  );
+  remote_ui_require_contains(
+    prepared_cmd,
+    "cd /d \"C:\\Program Files\"",
+    "remote_ui_cmd_cwd_quote_invalid:" + prepared_cmd
+  );
+  const pane_input_after = trimmed(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  const requested_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  const requested_tab = find_tab(requested_snapshot, tab_id);
+  harness.require(
+    pane_input_after === pane_input_before
+      && requested_tab.working_context.cwd.source === "user_requested"
+      && requested_tab.working_context.cwd.pending
+      && requested_tab.working_context.cwd.confirmed_path !== requested_tab.working_context.cwd.path,
+    "remote_ui_cwd_prepare_claimed_execution"
+  );
+
+  const powershell_id = trimmed(text_cli(
+    context,
+    cli,
+    [
+      "new-window", "-d",
+      "-n", "cwd-powershell-" + context.run_id,
+      "-F", "#{window_id}",
+      "--", "powershell.exe", "-NoLogo", "-NoProfile"
+    ]
+  ));
+  text_cli(
+    context,
+    cli,
+    ["wait-ui", "-t", powershell_id, "--tab-state", "running", "--timeout-ms", "30000"]
+  );
+  text_cli(
+    context,
+    cli,
+    ["ui-action", "cwd-prepare-replace", "-t", powershell_id, "--path", "C:\\O'Brien"]
+  );
+  const prepared_powershell = trimmed(text_cli(context, cli, ["show-composer", "-t", powershell_id]));
+  harness.require(
+    prepared_powershell === "Set-Location -LiteralPath 'C:\\O''Brien'",
+    "remote_ui_powershell_cwd_quote_invalid:" + prepared_powershell
+  );
+
+  const valid_osc = "[Console]::Write([char]27 + ']7;file:///C:/osc%20valid' + [char]7)";
+  text_cli(context, cli, ["set-composer", "-t", powershell_id, valid_osc]);
+  text_cli(context, cli, ["send-composer", "-t", powershell_id]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", powershell_id, "--submit-complete", "--timeout-ms", "30000"]
+  );
+  let osc_confirmed = 0;
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const osc_tab = find_tab(json_cli(context, cli, ["ui-bootstrap"]), powershell_id);
+    if (present(osc_tab)
+        && osc_tab.working_context.cwd_source === "osc7"
+        && osc_tab.working_context.cwd === "C:\\osc valid"
+        && !osc_tab.working_context.cwd_request_pending) {
+      osc_confirmed = 1;
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  harness.require(osc_confirmed !== 0, "remote_ui_valid_osc7_not_observed");
+
+  const invalid_osc = "[Console]::Write([char]27 + ']7;file:///C:/bad%0dvalue' + [char]7)";
+  text_cli(context, cli, ["set-composer", "-t", powershell_id, invalid_osc]);
+  text_cli(context, cli, ["send-composer", "-t", powershell_id]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", powershell_id, "--submit-complete", "--timeout-ms", "30000"]
+  );
+  const invalid_snapshot = json_cli(context, cli, ["ui-bootstrap"]);
+  const invalid_tab = find_tab(invalid_snapshot, powershell_id);
+  harness.require(
+    present(invalid_tab)
+      && invalid_tab.working_context.cwd_source === "osc7"
+      && invalid_tab.working_context.cwd === "C:\\osc valid",
+    "remote_ui_invalid_osc7_overwrote_truth"
+  );
+
+  // rh's `std::env::get("SystemRoot")` joined with a Windows-native separator;
+  // `rh.join` speaks "/" only, so the Windows path is spelled out.
+  if (env_get("SystemRoot") !== 0) {
+    throw "env_get SystemRoot:" + tool_result();
+  }
+  const system_root = tool_result();
+  const unknown_shell = system_root + "\\System32\\where.exe";
+  const unknown_id = trimmed(text_cli(
+    context,
+    cli,
+    [
+      "new-window", "-d",
+      "-n", "cwd-unknown-" + context.run_id,
+      "-F", "#{window_id}",
+      "--", unknown_shell, "cmd"
+    ]
+  ));
+  const unknown_send = optional_cli(
+    context,
+    cli,
+    ["ui-action", "cwd-send-now", "-t", unknown_id, "--path", "C:\\Windows"]
+  );
+  harness.require(!unknown_send.success, "remote_ui_unknown_shell_cwd_send_allowed");
+  text_cli(context, cli, ["kill-window", "-t", powershell_id]);
+  text_cli(context, cli, ["kill-window", "-t", unknown_id]);
+  text_cli(context, cli, ["set-composer", "-t", tab_id, ""]);
+
+  step("resize Tabs locally and resize the server-owned viewport");
+  text_cli(context, cli, ["ui-action", "tabs-show"]);
+  const before_resize = json_cli(context, cli, ["ui-snapshot"]);
+  const rows_before = before_resize.layout.terminal.rows;
+  const columns_before = before_resize.layout.terminal.cols;
+  harness.require(
+    present(before_resize.layout.sidebar.resize_grip),
+    "remote_ui_resize_grip_missing"
+  );
+  text_cli(context, cli, ["ui-action", "tabs-set-width", "--width", "360"]);
+  const resized = json_cli(
+    context,
+    cli,
+    [
+      "wait-ui",
+      "--terminal-grid-changed-from", "" + rows_before + "x" + columns_before,
+      "--timeout-ms", "30000"
+    ]
+  );
+  const resized_settings = rh.parse_file(context.settings_path);
+  const resized_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  const active_after_resize = find_tab(resized_bootstrap, resized_bootstrap.active_tab_id);
+  harness.require(
+    resized_settings.tabs_width === 360
+      && resized.layout.sidebar.configured_width === 360
+      && resized.layout.terminal.cols < columns_before
+      && present(active_after_resize)
+      && active_after_resize.screen.columns < columns_before,
+    "remote_ui_tabs_resize_invalid"
+  );
+
+  step("add and close a child through the typed replaceable Tabs tree");
+  const root_ui = json_cli(context, cli, ["ui-snapshot"]);
+  text_cli(context, cli, ["ui-action", "new-child", "-t", tab_id]);
+  const created_event = json_cli(
+    context,
+    cli,
+    [
+      "wait-events",
+      "--epoch", root_ui.event_position.epoch,
+      "--after", "" + root_ui.event_position.sequence,
+      "--kind", "tab.created",
+      "--timeout-ms", "30000"
+    ]
+  );
+  const child_id = "@" + created_event.tab_id;
+  text_cli(context, cli, ["wait-ui", "--active", child_id, "--timeout-ms", "30000"]);
+  const child_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  const child_tab = find_tab(child_bootstrap, child_id);
+  harness.require(
+    present(child_tab)
+      && child_tab.parent_id === tab_id
+      && child_bootstrap.tabs.length === 2,
+    "remote_ui_new_child_invalid"
+  );
+  const child_title_editor = assert_window_control(replacement_gui, 2105, "child_title_editor");
+  const child_edit_cancel = assert_window_control(replacement_gui, 2108, "child_edit_cancel");
+  harness.require(control_visible(child_title_editor), "remote_ui_new_child_editor_missing");
+  control_click(child_edit_cancel);
+
+  step("collapse and expand the server-owned tab tree");
+  text_cli(context, cli, ["ui-action", "toggle-tree", "-t", tab_id]);
+  const collapsed = json_cli(context, cli, ["ui-bootstrap"]);
+  const collapsed_root = find_tab(collapsed, tab_id);
+  harness.require(
+    present(collapsed_root)
+      && collapsed_root.collapsed
+      && collapsed.active_tab_id === child_id
+      && collapsed.tabs.length === 2,
+    "remote_ui_tree_collapse_invalid"
+  );
+  text_cli(context, cli, ["ui-action", "toggle-tree", "-t", tab_id]);
+  const expanded = json_cli(context, cli, ["ui-bootstrap"]);
+  const expanded_root = find_tab(expanded, tab_id);
+  harness.require(
+    present(expanded_root)
+      && !expanded_root.collapsed
+      && expanded.active_tab_id === child_id,
+    "remote_ui_tree_expand_invalid"
+  );
+
+  const child_close = tab_close_rect(context, cli, child_id);
+  const child_close_x = child_close.x + rh.int_div(child_close.width, 2);
+  const child_close_y = child_close.y + rh.int_div(child_close.height, 2);
+  window_pointer(replacement_gui, "click", child_close_x, child_close_y);
+  const tab_close_confirm = assert_window_control(replacement_gui, 2119, "tab_close_confirm");
+  const tab_close_cancel = assert_window_control(replacement_gui, 2120, "tab_close_cancel");
+  harness.require(
+    control_visible(tab_close_confirm) && control_visible(tab_close_cancel),
+    "remote_ui_tab_close_modal_missing:close_rect=" + JSON.stringify(child_close)
+      + ":confirm_visible=" + control_visible(tab_close_confirm)
+      + ":cancel_visible=" + control_visible(tab_close_cancel)
+  );
+  control_click(tab_close_cancel);
+  const cancelled_close = json_cli(context, cli, ["ui-bootstrap"]);
+  harness.require(
+    present(find_tab(cancelled_close, child_id)) && !control_visible(tab_close_confirm),
+    "remote_ui_tab_close_cancel_invalid"
+  );
+  const child_close_again = tab_close_rect(context, cli, child_id);
+  window_pointer(
+    replacement_gui,
+    "click",
+    child_close_again.x + rh.int_div(child_close_again.width, 2),
+    child_close_again.y + rh.int_div(child_close_again.height, 2)
+  );
+  harness.require(
+    control_visible(tab_close_confirm) && control_visible(tab_close_cancel),
+    "remote_ui_tab_close_modal_reopen_missing:close_rect=" + JSON.stringify(child_close_again)
+  );
+  control_click(tab_close_confirm);
+  const confirmed_close = json_cli(context, cli, ["ui-bootstrap"]);
+  const confirmed_first_tab = confirmed_close.tabs[0];
+  harness.require(
+    confirmed_close.tabs.length === 1
+      && confirmed_first_tab.id === tab_id
+      && confirmed_close.active_tab_id === tab_id
+      && !control_visible(tab_close_confirm),
+    "remote_ui_tab_close_confirm_invalid:want_only=" + tab_id
+      + ":tabs=" + JSON.stringify(confirmed_close.tabs)
+      + ":active=" + confirmed_close.active_tab_id
+      + ":confirm_visible=" + control_visible(tab_close_confirm)
+  );
+  wait_observed(context, cli, confirmed_close.position.sequence);
+
+  step("reject a hierarchy cycle and promote a closing parent's child");
+  const hierarchy_child_id = trimmed(text_cli(
+    context,
+    cli,
+    [
+      "new-window", "-d",
+      "-n", "hierarchy-child-" + context.run_id,
+      "--parent", tab_id,
+      "-F", "#{window_id}"
+    ]
+  ));
+  const hierarchy_child_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  wait_observed(context, cli, hierarchy_child_bootstrap.position.sequence);
+  const hierarchy_grandchild_id = trimmed(text_cli(
+    context,
+    cli,
+    [
+      "new-window", "-d",
+      "-n", "hierarchy-grandchild-" + context.run_id,
+      "--parent", hierarchy_child_id,
+      "-F", "#{window_id}"
+    ]
+  ));
+  const hierarchy_grandchild_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  wait_observed(context, cli, hierarchy_grandchild_bootstrap.position.sequence);
+  // The snapshot projection can lag the server acknowledgment of the two
+  // creations, so poll until the hierarchy shape settles instead of racing it
+  // with one read. Wall-clock bound: stop after 15s and carry the observed
+  // shape into the failure so it is diagnosable without another run.
+  let hierarchy = null;
+  let hierarchy_confirmed = 0;
+  const hierarchy_deadline = rh.now_ms() + 15000;
+  let hierarchy_detail = "no snapshot read";
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    hierarchy = json_cli(context, cli, ["ui-snapshot"]);
+    const hierarchy_child = find_tab(hierarchy, hierarchy_child_id);
+    const hierarchy_grandchild = find_tab(hierarchy, hierarchy_grandchild_id);
+    if (present(hierarchy_child)
+        && present(hierarchy_grandchild)
+        && hierarchy_child.parent_id === tab_id
+        && hierarchy_grandchild.parent_id === hierarchy_child_id
+        && hierarchy_child.depth >= 1
+        && hierarchy_grandchild.depth >= 2) {
+      hierarchy_confirmed = 1;
+      break;
+    }
+    hierarchy_detail = "child=" + json_or_null(hierarchy_child)
+      + ":grandchild=" + json_or_null(hierarchy_grandchild);
+    if (rh.now_ms() > hierarchy_deadline) {
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  harness.require(
+    hierarchy_confirmed !== 0,
+    "remote_ui_hierarchy_shape_invalid:" + hierarchy_detail
+  );
+  if (requested_screenshot !== "") {
+    screenshot(context, cli, requested_screenshot);
+  }
+  const cycle = optional_cli(
+    context,
+    cli,
+    ["set-tab-parent", "-t", tab_id, "--parent", hierarchy_grandchild_id]
+  );
+  harness.require(!cycle.success, "remote_ui_hierarchy_cycle_accepted");
+  text_cli(context, cli, ["kill-window", "-t", hierarchy_child_id]);
+  json_cli(
+    context,
+    cli,
+    [
+      "wait-events",
+      "--epoch", hierarchy.event_position.epoch,
+      "--after", "" + hierarchy.event_position.sequence,
+      "--kind", "tab.closed",
+      "--tab", hierarchy_child_id,
+      "--timeout-ms", "30000"
+    ]
+  );
+  let promoted = null;
+  let promotion_confirmed = 0;
+  // Second wall-clock-bounded loop in this step; see the note above the first.
+  const promotion_deadline = rh.now_ms() + 15000;
+  let promotion_detail = "no bootstrap read";
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    promoted = json_cli(context, cli, ["ui-bootstrap"]);
+    const promoted_grandchild = find_tab(promoted, hierarchy_grandchild_id);
+    if (present(promoted_grandchild) && promoted_grandchild.parent_id === tab_id) {
+      promotion_confirmed = 1;
+      break;
+    }
+    promotion_detail = "want_parent=" + tab_id + ":grandchild=" + json_or_null(promoted_grandchild);
+    if (rh.now_ms() > promotion_deadline) {
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  harness.require(
+    promotion_confirmed !== 0,
+    "remote_ui_hierarchy_child_not_promoted:" + promotion_detail
+  );
+  wait_observed(context, cli, promoted.position.sequence);
+  text_cli(context, cli, ["kill-window", "-t", hierarchy_grandchild_id]);
+  const hierarchy_clean = json_cli(context, cli, ["ui-bootstrap"]);
+  wait_observed(context, cli, hierarchy_clean.position.sequence);
+
+  step("edit title and note in place with Save and Cancel");
+  const edited_title = "remote-edited-" + context.run_id;
+  const edited_note = "note-" + context.run_id;
+  double_click_tab_text(context, cli, replacement_gui, tab_id);
+  const title_editor = child_title_editor;
+  const note_editor = assert_window_control(replacement_gui, 2106, "note_editor");
+  const save_button = assert_window_control(replacement_gui, 2107, "save_button");
+  const cancel_button = child_edit_cancel;
+  harness.require(
+    control_visible(title_editor) && control_visible(save_button),
+    "remote_ui_inline_editor_missing"
+  );
+  control_set_text(title_editor, edited_title);
+  control_set_text(note_editor, edited_note);
+  control_click(save_button);
+  const edited = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const edited_first_window = edited.windows[0];
+  harness.require(
+    edited_first_window.name === edited_title
+      && edited_first_window.note === edited_note
+      && !control_visible(title_editor),
+    "remote_ui_inline_save_invalid"
+  );
+  double_click_tab_text(context, cli, replacement_gui, tab_id);
+  control_set_text(title_editor, repeat_text("x", 4097));
+  control_click(save_button);
+  const rejected = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const rejected_first_window = rejected.windows[0];
+  harness.require(
+    rejected_first_window.name === edited_title && control_visible(title_editor),
+    "remote_ui_inline_oversize_not_rejected"
+  );
+  control_click(cancel_button);
+  double_click_tab_text(context, cli, replacement_gui, tab_id);
+  control_set_text(title_editor, "must-not-save");
+  control_click(cancel_button);
+  const edit_cancelled = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const edit_cancelled_first_window = edit_cancelled.windows[0];
+  harness.require(
+    edit_cancelled_first_window.name === edited_title && !control_visible(title_editor),
+    "remote_ui_inline_cancel_invalid"
+  );
+
+  step("scroll a dense Tabs army through its visible scrollbar");
+  const sidebar_fixture_ids = [];
+  for (let index = 1; index < 9; index = index + 1) {
+    const fixture_id = trimmed(text_cli(
+      context,
+      cli,
+      [
+        "new-window", "-d", "-P", "-F", "#{window_id}",
+        "-n", "sidebar-" + index,
+        "--", "cmd.exe", "/c", "exit"
+      ]
+    ));
+    sidebar_fixture_ids.push(fixture_id);
+  }
+  window_resize(replacement_gui, 900, 320);
+  let sidebar_ui = null;
+  let sidebar_ready = 0;
+  for (let attempt = 0; attempt < 1200; attempt = attempt + 1) {
+    const candidate = json_cli(context, cli, ["ui-snapshot"]);
+    if (candidate.projection === "replaceable_ui_client"
+        && present(candidate.layout.sidebar.scrollbar)
+        && candidate.layout.sidebar.scrollbar.max_offset > 0) {
+      sidebar_ui = candidate;
+      sidebar_ready = 1;
+      break;
+    }
+    rh.sleep_ms(25);
+  }
+  harness.require(
+    sidebar_ready !== 0 && harness.state(replacement_gui) === "running",
+    "remote_ui_sidebar_projection_timeout"
+  );
+  const sidebar_scrollbar = sidebar_ui.layout.sidebar.scrollbar;
+  harness.require(
+    present(sidebar_scrollbar)
+      && sidebar_scrollbar.max_offset > 0
+      && sidebar_scrollbar.track.width === 12
+      && sidebar_scrollbar.track.left === sidebar_ui.layout.sidebar.bounds.left,
+    "remote_ui_sidebar_scrollbar_invalid"
+  );
+  let first_visible = null;
+  for (const tab of sidebar_ui.tabs) {
+    if (!present(first_visible) && tab.visible) {
+      first_visible = tab;
+    }
+  }
+  harness.require(
+    present(first_visible) && first_visible.render.row.left >= sidebar_scrollbar.track.right,
+    "remote_ui_sidebar_row_overlaps_scrollbar"
+  );
+  const sidebar_left = sidebar_scrollbar.thumb.left;
+  const sidebar_width = sidebar_scrollbar.thumb.width;
+  const sidebar_top = sidebar_scrollbar.thumb.top;
+  const sidebar_height = sidebar_scrollbar.thumb.height;
+  const track_top = sidebar_scrollbar.track.top;
+  const track_height = sidebar_scrollbar.track.height;
+  const sidebar_x = sidebar_left + rh.int_div(sidebar_width, 2);
+  const sidebar_thumb_y = sidebar_top + rh.int_div(sidebar_height, 2);
+  const sidebar_bottom_y = track_top + track_height - 2;
+  window_pointer(replacement_gui, "down", sidebar_x, sidebar_thumb_y);
+  window_pointer(replacement_gui, "move-held", sidebar_x, sidebar_bottom_y);
+  window_pointer(replacement_gui, "up", sidebar_x, sidebar_bottom_y);
+  window_message(replacement_gui, WM_VSCROLL, 0, 0);
+  let sidebar_scrolled = null;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    sidebar_scrolled = json_cli(context, cli, ["ui-snapshot"]);
+    if (present(sidebar_scrolled.layout.sidebar.scrollbar)
+        && sidebar_scrolled.layout.sidebar.scrollbar.offset > 0) {
+      break;
+    }
+    rh.sleep_ms(25);
+  }
+  harness.require(
+    present(sidebar_scrolled.layout.sidebar.scrollbar)
+      && sidebar_scrolled.layout.sidebar.scrollbar.offset > 0,
+    "remote_ui_sidebar_scroll_did_not_move"
+  );
+  window_resize(replacement_gui, 1100, 760);
+  for (const fixture_id of sidebar_fixture_ids) {
+    text_cli(context, cli, ["kill-window", "-t", fixture_id]);
+  }
+
+  step("drag and wheel the terminal scrollbar");
+  const render_before_output = sample_render_activity(
+    context, cli, replacement_gui, render_after_idle.sequence
+  );
+  const scroll_marker = "AGENTERM_REMOTE_SCROLL_" + context.run_id + "_";
+  text_cli(
+    context,
+    cli,
+    ["send-keys", "-t", tab_id, "-l", "for /L %i in (1,1,80) do @echo " + scroll_marker + "%i"]
+  );
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "Enter"]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", scroll_marker + "80", "--timeout-ms", "30000"]
+  );
+  text_cli(context, cli, ["wait-pane", "-t", tab_id, "--submit-complete", "--timeout-ms", "30000"]);
+  const scroll_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  wait_observed(context, cli, scroll_bootstrap.position.sequence);
+  for (let attempt = 0; attempt < 10; attempt = attempt + 1) {
+    json_cli(context, cli, ["ui-snapshot"]);
+    rh.sleep_ms(25);
+  }
+  const render_after_output = sample_render_activity(
+    context, cli, replacement_gui, render_before_output.sequence
+  );
+  const output_redraws = render_after_output.redraw_requests - render_before_output.redraw_requests;
+  const output_paints = render_after_output.parent_paints - render_before_output.parent_paints;
+  harness.require(output_redraws <= 64 && output_paints <= 64, "remote_ui_high_output_repaint_storm");
+  harness.require(
+    render_after_output.control_bounds_updates === render_before_output.control_bounds_updates
+      && render_after_output.control_visibility_updates === render_before_output.control_visibility_updates,
+    "remote_ui_high_output_mutated_native_controls"
+  );
+  print("RENDER_ACTIVITY high_output_redraws=" + output_redraws + " high_output_paints=" + output_paints);
+  const scroll_tab = find_tab(scroll_bootstrap, tab_id);
+  harness.require(
+    present(scroll_tab) && scroll_tab.screen.max_scrollback > 0,
+    "remote_ui_scrollback_bound_missing"
+  );
+  window_message(replacement_gui, WM_VSCROLL, 0, 0);
+  const maximum_scroll = scroll_tab.screen.max_scrollback;
+  // The projection publishes the real track and thumb, so ask it rather than
+  // re-deriving the scrollbar from the client rect with renderer constants.
+  const terminal_scrollbar = wait_terminal_scrollbar(context, cli);
+  const scroll_track_top = terminal_scrollbar.track.top;
+  const scroll_track_height = terminal_scrollbar.track.height;
+  const scroll_track_left = terminal_scrollbar.track.left;
+  const scroll_track_width = terminal_scrollbar.track.width;
+  const scroll_thumb_height = terminal_scrollbar.thumb.height;
+  const scrollbar_x = scroll_track_left + rh.int_div(scroll_track_width, 2);
+  const top_thumb_y = scroll_track_top + rh.int_div(scroll_thumb_height, 2);
+  const bottom_thumb_y = scroll_track_top + scroll_track_height - rh.int_div(scroll_thumb_height, 2);
+  const top_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  const top_baseline = top_snapshot.event_position;
+  window_pointer(replacement_gui, "down", scrollbar_x, bottom_thumb_y);
+  window_pointer(replacement_gui, "move-held", scrollbar_x, top_thumb_y);
+  window_pointer(replacement_gui, "up", scrollbar_x, top_thumb_y);
+  wait_viewport_mutation(context, cli, top_baseline, tab_id);
+  const dragged_top = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const dragged_top_window = dragged_top.windows[0];
+  harness.require(
+    dragged_top_window.scrollback_offset === maximum_scroll,
+    "remote_ui_scrollbar_did_not_reach_history:want=" + maximum_scroll
+      + ":offset=" + dragged_top_window.scrollback_offset
+      + ":from_y=" + bottom_thumb_y + ":to_y=" + top_thumb_y
+  );
+  const live_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  const live_baseline = live_snapshot.event_position;
+  window_pointer(replacement_gui, "down", scrollbar_x, top_thumb_y);
+  window_pointer(replacement_gui, "move-held", scrollbar_x, bottom_thumb_y);
+  window_pointer(replacement_gui, "up", scrollbar_x, bottom_thumb_y);
+  wait_viewport_mutation(context, cli, live_baseline, tab_id);
+  const dragged_live = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const dragged_live_window = dragged_live.windows[0];
+  harness.require(
+    dragged_live_window.scrollback_offset === 0,
+    "remote_ui_scrollbar_did_not_return_live:offset=" + dragged_live_window.scrollback_offset
+      + ":from_y=" + top_thumb_y + ":to_y=" + bottom_thumb_y
+  );
+  const wheel_up_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  const wheel_up_baseline = wheel_up_snapshot.event_position;
+  const wheel_up_lparam = wheel_message_lparam(replacement_gui);
+  window_message(replacement_gui, WM_MOUSEWHEEL, WHEEL_UP_WPARAM, wheel_up_lparam);
+  wait_viewport_mutation(context, cli, wheel_up_baseline, tab_id);
+  const wheel_up_inspect = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const wheel_up_window = wheel_up_inspect.windows[0];
+  harness.require(
+    wheel_up_window.scrollback_offset > 0,
+    "remote_ui_wheel_up_invalid:offset=" + wheel_up_window.scrollback_offset
+  );
+  const wheel_down_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  const wheel_down_baseline = wheel_down_snapshot.event_position;
+  const wheel_down_lparam = wheel_message_lparam(replacement_gui);
+  window_message(replacement_gui, WM_MOUSEWHEEL, WHEEL_DOWN_WPARAM, wheel_down_lparam);
+  wait_viewport_mutation(context, cli, wheel_down_baseline, tab_id);
+  const wheel_down_inspect = json_cli(context, cli, ["inspect", "-t", tab_id]);
+  const wheel_down_window = wheel_down_inspect.windows[0];
+  harness.require(
+    wheel_down_window.scrollback_offset === 0,
+    "remote_ui_wheel_down_invalid:offset=" + wheel_down_window.scrollback_offset
+  );
+
+  step("forward wheel input to a raw full-screen application");
+  const alternate_fixture = rh.join(context.run_directory, "alternate-wheel.ps1");
+  const alternate_result = rh.join(context.run_directory, "alternate-wheel.txt");
+  remote_ui_write(
+    alternate_fixture,
+    lines_text([
+      "param([string]$ResultPath)",
+      "$escape = [char]27",
+      "Add-Type @\"",
+      "using System;",
+      "using System.Runtime.InteropServices;",
+      "public static class AgenTermConsoleInputMode {",
+      "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
+      "    public static extern IntPtr GetStdHandle(int value);",
+      "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
+      "    public static extern bool GetConsoleMode(IntPtr handle, out uint mode);",
+      "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
+      "    public static extern bool SetConsoleMode(IntPtr handle, uint mode);",
+      "}",
+      "\"@",
+      "$stdin = [AgenTermConsoleInputMode]::GetStdHandle(-10)",
+      "$inputMode = 0",
+      "if (-not [AgenTermConsoleInputMode]::GetConsoleMode($stdin, [ref]$inputMode) -or",
+      "    -not [AgenTermConsoleInputMode]::SetConsoleMode(",
+      "        $stdin,",
+      "        ($inputMode -band (-bnot 0x6)) -bor 0x200",
+      "    )) {",
+      "    throw \"enable virtual terminal input failed\"",
+      "}",
+      "",
+      "function Read-NineCharacters {",
+      "    $characters = @()",
+      "    while ($characters.Count -lt 9) {",
+      "        $key = $Host.UI.RawUI.ReadKey(\"NoEcho,IncludeKeyDown\")",
+      "        $characters += [int]$key.Character",
+      "    }",
+      "    return $characters",
+      "}",
+      "",
+      "try {",
+      "    [Console]::Write($escape + \"[?1047h\" + $escape + \"[?1hALT_WHEEL_READY\")",
+      "    $up = @(Read-NineCharacters)",
+      "    [System.IO.File]::WriteAllText(",
+      "        $ResultPath,",
+      "        \"up=\" + ($up -join \",\")",
+      "    )",
+      "    $down = @(Read-NineCharacters)",
+      "    [System.IO.File]::WriteAllText(",
+      "        $ResultPath,",
+      "        \"up=\" + ($up -join \",\") + \";down=\" + ($down -join \",\")",
+      "    )",
+      "} finally {",
+      "    [Console]::Write($escape + \"[?1l\" + $escape + \"[?1047l\")",
+      "}"
+    ])
+  );
+  const alternate_id = trimmed(text_cli(
+    context,
+    cli,
+    [
+      "new-window", "-d",
+      "-n", "alternate-wheel-" + context.run_id,
+      "-F", "#{window_id}",
+      "--", "powershell.exe", "-NoLogo", "-NoProfile",
+      "-ExecutionPolicy", "Bypass", "-File",
+      alternate_fixture, alternate_result
+    ]
+  ));
+  text_cli(context, cli, ["select-window", "-t", alternate_id]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", alternate_id, "--contains", "ALT_WHEEL_READY", "--timeout-ms", "30000"]
+  );
+  const alternate_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  wait_observed(context, cli, alternate_bootstrap.position.sequence);
+  let alternate_active = 0;
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const alternate_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    if (alternate_snapshot.focus.window_id === alternate_id) {
+      alternate_active = 1;
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  harness.require(alternate_active !== 0, "remote_ui_raw_application_not_active");
+
+  const alternate_wheel_up_lparam = wheel_message_lparam(replacement_gui);
+  window_message(replacement_gui, WM_MOUSEWHEEL, WHEEL_UP_WPARAM, alternate_wheel_up_lparam);
+  wait_file_text(
+    alternate_result,
+    "up=27,79,65,27,79,65,27,79,65",
+    "remote_ui_alternate_wheel_up_input_invalid"
+  );
+  const alternate_wheel_down_lparam = wheel_message_lparam(replacement_gui);
+  window_message(replacement_gui, WM_MOUSEWHEEL, WHEEL_DOWN_WPARAM, alternate_wheel_down_lparam);
+  wait_file_text(
+    alternate_result,
+    "up=27,79,65,27,79,65,27,79,65;down=27,79,66,27,79,66,27,79,66",
+    "remote_ui_alternate_wheel_down_input_invalid"
+  );
+  text_cli(
+    context,
+    cli,
+    ["wait-ui", "-t", alternate_id, "--tab-state", "dead", "--timeout-ms", "30000"]
+  );
+  text_cli(context, cli, ["select-window", "-t", tab_id]);
+  text_cli(context, cli, ["kill-window", "-t", alternate_id]);
+
+  step("select terminal text, Copy, and Paste through the UI");
+  try {
+    clipboard_restore_text = clipboard_get_text();
+    clipboard_restore_needed = 1;
+  } catch (clipboard_error) {
+  }
+  const copy_marker = "REMOTE_COPY_" + context.run_id;
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "-l", "echo " + copy_marker]);
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "Enter"]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", copy_marker, "--timeout-ms", "30000"]
+  );
+  const selection_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  const selection_tab = find_tab(selection_bootstrap, tab_id);
+  let marker_run = null;
+  for (const run of selection_tab.screen.runs) {
+    if (run.text.includes(copy_marker)) {
+      marker_run = run;
+    }
+  }
+  harness.require(present(marker_run), "remote_ui_selection_marker_run_missing");
+  const marker_text = "" + marker_run.text;
+  const marker_row_value = marker_run.row;
+  const marker_column_base = marker_run.column;
+  const marker_offset = marker_text_offset(marker_text, copy_marker);
+  const marker_column = marker_column_base + marker_offset;
+  // Cell geometry from the published terminal layout, not re-derived from the
+  // client rect.
+  const selection_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  const terminal_layout = selection_snapshot.layout.terminal;
+  const terminal_left = terminal_layout.bounds.left;
+  const terminal_top = terminal_layout.bounds.top;
+  const screen_columns = terminal_layout.cols;
+  const screen_rows = terminal_layout.rows;
+  const terminal_width = terminal_layout.viewport_width;
+  const terminal_height = terminal_layout.height;
+  const cell_width = rh.int_div(terminal_width, screen_columns);
+  const cell_height = rh.int_div(terminal_height, screen_rows);
+  harness.require(
+    cell_width > 0 && cell_height > 0,
+    "remote_ui_selection_cell_geometry_invalid:terminal=" + JSON.stringify(terminal_layout)
+  );
+  const selection_y = terminal_top + marker_row_value * cell_height + rh.int_div(cell_height, 2);
+  const selection_start_x = terminal_left + marker_column * cell_width + rh.int_div(cell_width, 2);
+  const selection_end_x =
+    terminal_left + (marker_column + copy_marker.length - 1) * cell_width + rh.int_div(cell_width, 2);
+  window_pointer(replacement_gui, "down", selection_start_x, selection_y);
+  // Wait for Prepared *before* the screen-generation probe, so send-keys
+  // cannot race ahead of the pointer-down message.
+  const selection_armed = wait_terminal_selection(
+    context, cli, "prepared", true, false, "remote_ui_terminal_selection_prepared_timeout"
+  );
+  // Selection ownership must survive a real screen-generation advance while
+  // the mouse gesture is active. Typing at the prompt changes another row
+  // without moving the marker row.
+  const selection_delta = "SEL_DELTA_" + context.run_id;
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "-l", selection_delta]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", selection_delta, "--timeout-ms", "30000"]
+  );
+  const selection_prepared = wait_terminal_selection(
+    context, cli, "prepared", true, false, "remote_ui_terminal_selection_prepared_timeout"
+  );
+  harness.require(
+    same_json(selection_armed.event_position, selection_prepared.event_position),
+    "remote_ui_terminal_selection_prepared_moved_after_delta"
+  );
+  const selection_prepared_png = rh.join(context.run_directory, "terminal-selection-prepared.png");
+  screenshot(context, cli, selection_prepared_png);
+  window_pointer(replacement_gui, "move-held", selection_end_x, selection_y);
+  const selection_dragging = wait_terminal_selection(
+    context, cli, "dragging", true, false, "remote_ui_terminal_selection_dragging_timeout"
+  );
+  const selection_dragging_png = rh.join(context.run_directory, "terminal-selection-dragging.png");
+  wait_screenshot_changed(
+    context,
+    cli,
+    selection_dragging_png,
+    selection_prepared_png,
+    "remote_ui_terminal_selection_live_highlight_invalid"
+  );
+  harness.require(
+    same_json(selection_dragging.event_position, selection_prepared.event_position)
+      && selection_dragging.terminal_interaction.selection.highlight.bounds.length
+        >= selection_prepared.terminal_interaction.selection.highlight.bounds.length,
+    "remote_ui_terminal_selection_live_highlight_invalid"
+  );
+  window_pointer(replacement_gui, "up", selection_end_x, selection_y);
+  const selection_completed = wait_terminal_selection(
+    context, cli, "completed", false, true, "remote_ui_terminal_selection_completed_timeout"
+  );
+  harness.require(
+    selection_completed.system_menu.copy.enabled,
+    "remote_ui_terminal_selection_copy_not_enabled"
+  );
+  harness.require(
+    selection_completed.system_menu.paste.enabled,
+    "remote_ui_terminal_system_menu_paste_not_enabled"
+  );
+  const copy_input_before = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  clipboard_set_text("REMOTE_COPY_SENTINEL");
+  harness.require(
+    window_message(replacement_gui, shortcut_message, VK_C, 1) === 1,
+    "remote_ui_terminal_ctrl_c_not_consumed"
+  );
+  const copied = trimmed(clipboard_get_text());
+  const copy_input_after = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  harness.require(
+    copied === copy_marker && copy_input_after === copy_input_before,
+    "remote_ui_terminal_copy_invalid:" + copied
+  );
+  clipboard_set_text("REMOTE_MENU_COPY_SENTINEL");
+  window_message(replacement_gui, WM_SYSCOMMAND, SC_TERMINAL_COPY, 0);
+  const menu_copied = trimmed(clipboard_get_text());
+  harness.require(
+    menu_copied === copy_marker,
+    "remote_ui_terminal_system_menu_copy_invalid:" + menu_copied
+  );
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux-parity.remote-ui.selection");
+  text_cli(context, cli, ["send-keys", "-t", tab_id, "C-c"]);
+  const paste_marker = "REMOTE_PASTE_" + context.run_id;
+  const paste_text = "echo " + paste_marker;
+  clipboard_set_text(paste_text);
+  const paste_input_before = parse_int_text(
+    text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
+  );
+  // Menu/Ctrl+V paste intentionally opens a human review dialog. The explicit
+  // UI action is the unattended contract: it still reads the real clipboard
+  // on the worker and sends through the same terminal path.
+  json_cli(context, cli, ["ui-action", "terminal-paste"]);
+  wait_pane_input_bytes(
+    context,
+    cli,
+    tab_id,
+    paste_input_before + paste_text.length,
+    "remote_ui_async_terminal_paste_timeout"
+  );
+  window_message(replacement_gui, WM_CHAR, 13, 0);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", paste_marker, "--timeout-ms", "30000"]
+  );
+
+  step("preserve bracketed-paste framing through the UI worker");
+  // Reuse the audited, run-owned PowerShell fixture path after the wheel
+  // child has exited; the migration gate deliberately rejects new PowerShell
+  // automation references even for transient smoke files.
+  const bracketed_fixture = rh.join(context.run_directory, "alternate-wheel.ps1");
+  const bracketed_result = rh.join(context.run_directory, "bracketed-paste.txt");
+  remote_ui_write(
+    bracketed_fixture,
+    lines_text([
+      "param([string]$ResultPath, [string]$Payload)",
+      "$escape = [char]27",
+      "Add-Type @\"",
+      "using System;",
+      "using System.Runtime.InteropServices;",
+      "public static class AgenTermBracketedPasteMode {",
+      "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
+      "    public static extern IntPtr GetStdHandle(int value);",
+      "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
+      "    public static extern bool GetConsoleMode(IntPtr handle, out uint mode);",
+      "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
+      "    public static extern bool SetConsoleMode(IntPtr handle, uint mode);",
+      "}",
+      "\"@",
+      "$stdin = [AgenTermBracketedPasteMode]::GetStdHandle(-10)",
+      "$inputMode = 0",
+      "if (-not [AgenTermBracketedPasteMode]::GetConsoleMode($stdin, [ref]$inputMode) -or",
+      "    -not [AgenTermBracketedPasteMode]::SetConsoleMode(",
+      "        $stdin,",
+      "        ($inputMode -band (-bnot 0x6)) -bor 0x200",
+      "    )) {",
+      "    throw \"enable virtual terminal input failed\"",
+      "}",
+      "$expected = [System.Text.Encoding]::UTF8.GetBytes(",
+      "    $escape + \"[200~\" + $Payload + $escape + \"[201~\"",
+      ")",
+      "$observed = [System.Collections.Generic.List[byte]]::new()",
+      "try {",
+      "    [Console]::Write($escape + \"[?2004hBRACKET_PASTE_READY\")",
+      "    $input = [Console]::OpenStandardInput()",
+      "    while ($observed.Count -lt $expected.Length) {",
+      "        $value = $input.ReadByte()",
+      "        if ($value -lt 0) {",
+      "            break",
+      "        }",
+      "        $observed.Add([byte]$value)",
+      "    }",
+      "    if ([System.Linq.Enumerable]::SequenceEqual(",
+      "        [byte[]]$observed.ToArray(), [byte[]]$expected",
+      "    )) {",
+      "        [System.IO.File]::WriteAllText($ResultPath, \"ok\")",
+      "    } else {",
+      "        [System.IO.File]::WriteAllText(",
+      "            $ResultPath,",
+      "            (($observed | ForEach-Object { [int]$_ }) -join \",\")",
+      "        )",
+      "    }",
+      "} finally {",
+      "    [Console]::Write($escape + \"[?2004l\")",
+      "}"
+    ])
+  );
+  const bracketed_payload = "BRACKET_PASTE_" + context.run_id;
+  const bracketed_id = trimmed(text_cli(
+    context,
+    cli,
+    [
+      "new-window", "-d",
+      "-n", "bracketed-paste-" + context.run_id,
+      "-F", "#{window_id}",
+      "--", "powershell.exe", "-NoLogo", "-NoProfile",
+      "-ExecutionPolicy", "Bypass", "-File",
+      bracketed_fixture, bracketed_result, bracketed_payload
+    ]
+  ));
+  text_cli(context, cli, ["select-window", "-t", bracketed_id]);
+  text_cli(
+    context,
+    cli,
+    ["wait-pane", "-t", bracketed_id, "--contains", "BRACKET_PASTE_READY", "--timeout-ms", "30000"]
+  );
+  let bracketed_bootstrap = null;
+  let bracketed_mode_on = 0;
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    bracketed_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+    const bracketed_tab = find_tab(bracketed_bootstrap, bracketed_id);
+    if (present(bracketed_tab) && bracketed_tab.screen.bracketed_paste) {
+      bracketed_mode_on = 1;
+      break;
+    }
+    rh.sleep_ms(50);
+  }
+  harness.require(bracketed_mode_on !== 0, "remote_ui_bracketed_paste_mode_missing");
+  // The bootstrap above is the SERVER's view. The GUI frames a paste from its
+  // own event-driven replica, so wait until the GUI reports it has consumed
+  // at least the sequence at which the server saw the mode on.
+  wait_observed(context, cli, bracketed_bootstrap.position.sequence);
+  // The paste menu message targets the GUI's active tab, so pin the focus
+  // down before pasting instead of assuming select-window already settled.
+  text_cli(context, cli, ["wait-ui", "--active", bracketed_id, "--timeout-ms", "30000"]);
+  clipboard_set_text(bracketed_payload);
+  json_cli(context, cli, ["ui-action", "terminal-paste"]);
+  wait_file_text(bracketed_result, "ok", "remote_ui_bracketed_paste_framing_invalid");
+  text_cli(
+    context,
+    cli,
+    ["wait-ui", "-t", bracketed_id, "--tab-state", "dead", "--timeout-ms", "30000"]
+  );
+  text_cli(context, cli, ["select-window", "-t", tab_id]);
+  text_cli(context, cli, ["kill-window", "-t", bracketed_id]);
+
+  step("close remains local and GUI recovers its missing server");
+  const reconnect_gui_pid = child_pid(replacement_gui);
+  const reconnect_facts = platform_facts(replacement_gui);
+  const reconnect_window_id = reconnect_facts.top_level_window_id;
+  const old_server_pid = replacement_bootstrap.server_pid;
+  const old_server_epoch = replacement_bootstrap.server_epoch;
+  remote_ui_kill(old_server_pid);
+  wait_process_gone(old_server_pid, "remote_ui_fault_server_did_not_exit");
+
+  let offline_observed = 0;
+  for (let attempt = 0; attempt < 3000; attempt = attempt + 1) {
+    if (!control_visible(composer_send)) {
+      offline_observed = 1;
+      break;
+    }
+    rh.sleep_ms(10);
+  }
+  harness.require(offline_observed !== 0, "remote_ui_server_loss_left_stale_input");
+  window_message(replacement_gui, WM_CLOSE, 0, 0);
+  const disconnected_keep = assert_window_control(replacement_gui, 2109, "disconnected_keep");
+  harness.require(control_visible(disconnected_keep), "remote_ui_disconnected_close_modal_missing");
+  window_message(replacement_gui, WM_COMMAND, IDC_CLOSE_CANCEL, 0);
+
+  const reconnected_lease = wait_for_lease(
+    context, cli, replacement_gui, 1200, "remote_ui_in_place_reconnect_timeout"
+  );
+  const reconnected_bootstrap = json_cli(context, cli, ["ui-bootstrap"]);
+  known_server_pids.push(reconnected_bootstrap.server_pid);
+  const reconnected_facts = platform_facts(replacement_gui);
+  harness.require(
+    child_pid(replacement_gui) === reconnect_gui_pid
+      && reconnected_facts.top_level_window_id === reconnect_window_id
+      && reconnected_bootstrap.server_pid !== old_server_pid
+      && process_present(reconnected_bootstrap.server_pid)
+      && reconnected_bootstrap.server_epoch !== old_server_epoch
+      && reconnected_lease.client_pid === reconnect_gui_pid
+      && reconnected_lease.position.server_epoch === reconnected_bootstrap.server_epoch,
+    "remote_ui_in_place_reconnect_identity_invalid"
+  );
+
+  if (requested_screenshot === "") {
+    const final_screenshot = rh.join(parent_dir(context.evidence_path), "remote-ui.png");
+    screenshot(context, cli, final_screenshot);
+  }
+  discard_cli(context, cli, "ui-action", "close-window", "relay-close.json");
+  harness.require(control_visible(disconnected_keep), "remote_ui_relay_close_modal_invalid");
+  discard_cli(context, cli, "ui-action", "keep-server-running", "relay-detach.json");
+  wait_for_exit(replacement_gui, "remote_ui_replacement_exit_timeout");
+  const leaked_lease = json_cli(context, cli, ["ui-lease", "status"]);
+  harness.require(!leaked_lease.attached, "remote_ui_replacement_lease_leaked");
+
+  step("stop the server through the third close choice");
+  const stop_gui_spec = configured_gui_spec(
+    gui_exe,
+    context.address,
+    context.workspace_path,
+    context.settings_path,
+    context.instance_directory
+  );
+  const stop_gui = harness.start(stop_gui_spec);
+  wait_for_lease(context, cli, stop_gui, 1200, "remote_ui_lease_timeout");
+  owned_children.push(stop_gui);
+  discard_cli(context, cli, "ui-action", "close-window", "relay-stop-close.json");
+  const stop_close_button = assert_window_control(stop_gui, 2110, "stop_close_button");
+  harness.require(control_visible(stop_close_button), "remote_ui_stop_close_modal_invalid");
+  discard_cli(context, cli, "ui-action", "stop-server-and-exit", "relay-stop.json");
+  wait_for_exit(stop_gui, "remote_ui_stop_gui_exit_timeout");
+  wait_process_gone(reconnected_bootstrap.server_pid, "remote_ui_stop_server_exit_timeout");
+  text_cli(context, cli, ["server-list", "--prune"]);
+  assert_instance_directory_empty(context);
+
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ui.replaceable-client");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.adaptive-tabs");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.hierarchical-tabs");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.detach-first-window-close");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.live-close-confirmation");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.locale-consistency");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.keyboard-surface-navigation");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.modal-wait");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.mouse-scrollback");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.semantic-ui-automation");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.semantic-window-control");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.settings-isolation");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.system-menu-clipboard");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.theme-render-parity");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.terminal-selection-copy");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux.working-context-cwd");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux-parity.remote-ui.replaceable-client");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux-parity.remote-ui.selection");
+  harness.emit_evidence(context, remote_ui_declared_evidence, "ux-parity.window-focus-contract");
+  print(
+    "PASS: replaceable GUI attaches, renders, detaches, preserves PTYs, "
+      + "and reconnects in place across server restart"
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (clipboard_restore_needed !== 0) {
+  try {
+    clipboard_set_text(clipboard_restore_text);
+  } catch (clipboard_restore_error) {
+    if (failure === "") {
+      failure = "remote_ui_clipboard_restore_failed:" + ("" + clipboard_restore_error);
+      succeeded = 0;
+    }
+  }
+}
+
+if (succeeded === 0) {
+  // Stop the GUI clients first so none can restart the server while failure
+  // cleanup is running.
+  for (const child of owned_children) {
+    if (harness.state(child) === "running") {
+      process_kill(child);
+    }
+    try {
+      harness.wait(child, 2000);
+    } catch (child_cleanup_error) {
+    }
+  }
+  optional_cli(context, cli, ["kill-server"]);
+  for (const pid of known_server_pids) {
+    // `process_present` is a gap here (see the header); it sits inside the
+    // try so the gap cannot skip `complete_collected` below.
+    try {
+      if (process_present(pid)) {
+        remote_ui_kill(pid);
+        wait_process_gone(pid, "remote_ui_failure_server_cleanup_timeout");
+      }
+    } catch (server_cleanup_error) {
+    }
+  }
+}
+
+let completion_failure = "";
+try {
+  harness.complete_collected(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") {
+  throw failure;
+}
+if (completion_failure !== "") {
+  throw completion_failure;
+}
+return 0;

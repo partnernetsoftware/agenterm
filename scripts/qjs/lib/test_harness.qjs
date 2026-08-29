@@ -380,3 +380,71 @@ export function append_command_record_bounded(context, args, output, expected_fa
   write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
   write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
 }
+
+// ---- wave-2 remote-ui ----
+
+// `process.wait` answers a handle once: the door takes the child out of its
+// slot and refuses a second wait with "already waited". rh's
+// `wait_with_output` could be asked again on an exited child, and the GUI
+// smokes do exactly that -- `wait_for_exit(gui)` while the journey runs, then
+// `complete()` over every owned child at the end. This wait treats the
+// refusal as "already collected" and answers null; any other refusal throws.
+export function wait_collected(handle, timeout_ms) {
+  if (process_wait(handle, timeout_ms) === 0) { return JSON.parse(tool_result()); }
+  const why = tool_result();
+  if (why.includes("already waited")) { return null; }
+  throw "process_wait:" + why;
+}
+
+// `complete` for a run whose owned children may already have been waited.
+// Same cleanup.json and manifest.json as `complete`, same announcement; the
+// only difference is `wait_collected` in place of `wait`. A copy rather than
+// a parameter on `complete_impl` because this file is append-only while
+// several groups migrate against it.
+export function complete_collected(context, owned_children, succeeded, failure) {
+  assert_owned_run(context);
+  const forced = [];
+  const completed = [];
+  for (const h of owned_children) {
+    if (state(h) === "running") { process_kill(h); forced.push(h); }
+    wait_collected(h, 2000);
+    completed.push(h);
+  }
+  const cleanup = {
+    schema_version: 1,
+    orphan_free: true,
+    owned_count: owned_children.length,
+    completed_pids: completed,
+    forced_pids: forced,
+    remaining_pids: [],
+    remaining_windows: [],
+    remaining_registrations: []
+  };
+  finalize_command_log(context);
+  const diagnostics = [];
+  if (!succeeded) {
+    door(fs_create_dir_all(context.failure_directory), "fs_create_dir_all");
+    const entries = JSON.parse(door(fs_read_dir(context.failure_directory), "fs_read_dir"));
+    for (const e of entries) { if (e.is_file) { diagnostics.push("" + e.name); } }
+  }
+  const manifest = {
+    schema_version: 1,
+    suite: context.suite,
+    run_id: context.run_id,
+    result_class: succeeded ? "success" : "failure",
+    failure: "" + failure,
+    cleanup: cleanup,
+    command_log: file_name(context.command_log_path),
+    evidence: file_name(context.evidence_path),
+    diagnostics: diagnostics,
+    privacy: {
+      command_arguments: "known content-bearing arguments redacted",
+      output_limit_bytes: 65536,
+      pane_capture: "disabled for this suite"
+    }
+  };
+  write_atomic(context.cleanup_path, JSON.stringify(cleanup) + "\n");
+  write_atomic(context.manifest_path, JSON.stringify(manifest) + "\n");
+  if (!succeeded) { print("FAILURE BUNDLE " + context.run_directory); }
+  return { cleanup: cleanup, manifest: manifest };
+}
