@@ -1,0 +1,33 @@
+// Verify an exact-SHA Candidate manifest and every payload byte.
+//
+// Args:
+//   SOURCE_ROOT MANIFEST ASSET_DIRECTORY [NOW_UNIX_MS]
+//
+// Ported from scripts/rh/candidate-verify.rh; the verification itself is
+// lib/release_candidate (rh inlined it here and in candidate-aggregate).
+// Runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+import * as candidate from "lib/release_candidate";
+
+const args = rh.args();
+if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
+  print("usage: candidate-verify SOURCE_ROOT MANIFEST ASSET_DIRECTORY [NOW_UNIX_MS]");
+  print(
+    "fails closed on identity, expiry, receipt, platform-set, "
+      + "companion, provenance, hash, size, or payload-set mismatch"
+  );
+  return 0;
+}
+if (args.length !== 3 && args.length !== 4) {
+  throw "candidate_verify_arguments: expected SOURCE_ROOT MANIFEST ASSET_DIRECTORY [NOW_UNIX_MS]";
+}
+let now_ms = rh.now_ms();
+if (args.length === 4) { now_ms = candidate.parse_int_ms(args[3]); }
+candidate.validate_manifest(args[0], args[1], args[2], now_ms);
+
+const manifest = rh.parse_file(rh.absolute(args[1]));
+const source_sha = "" + manifest.source_sha;
+const expected_tag = "" + manifest.expected_tag;
+const run_id = candidate.child(manifest, "run").id;
+print("VALID CANDIDATE " + source_sha + " " + expected_tag + " run=" + run_id);
+return 0;

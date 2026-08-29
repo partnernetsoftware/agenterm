@@ -1,0 +1,37 @@
+// Report stage-0 inputs without performing a build or changing the repository.
+//
+// Ported from scripts/rh/bootstrap-info.rh. No arguments; runs under
+// `--profile tool` (git, cargo, rustc through the process door).
+import * as rh from "lib/rh_compat";
+
+// rh spelled the repository as `absolute(join(".", ""))`, which Rust's
+// `std::path::absolute` normalises to the current directory.
+const repo = rh.cwd();
+const stdout_path = rh.join(repo, "bootstrap-info.stdout.tmp");
+
+function captured(program, args, code) {
+  const exit = rh.command_stdout_file(program, args, stdout_path, { timeout_ms: 10000 });
+  rh.require(exit === 0, code);
+  return rh.read_text(stdout_path).trim();
+}
+
+const commit = captured("git", ["rev-parse", "HEAD"], "bootstrap-git-head");
+const branch = captured("git", ["branch", "--show-current"], "bootstrap-git-branch");
+const cargo = captured("cargo", ["--version"], "bootstrap-cargo");
+const rustc = captured("rustc", ["--version"], "bootstrap-rustc");
+
+rh.try_remove_file(stdout_path);
+
+const report = {
+  schema_version: 1,
+  task_id: "bootstrap-info",
+  repository: repo,
+  commit: commit,
+  branch: branch,
+  cargo: cargo,
+  rustc: rustc,
+  script_api_version: 2,
+  task_manifest_schema_version: 3
+};
+print(rh.stringify_pretty(report));
+return 0;

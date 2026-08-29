@@ -1,0 +1,167 @@
+// Build all six architecture cells from one host in one invocation.
+//
+// Args: REPO [release-fast|release|dev]
+// Ported from scripts/rh/build-all.rh; runs under `--profile tool`.
+//
+// Cells and drivers (see plan/goal-local-six-cell.md §2 D3/D4/D5):
+//   macos   -> cargo            (native; the Xcode SDK carries both slices)
+//   linux   -> cargo-zigbuild   (zig supplies linker + libc for both arches)
+//   windows -> cargo-xwin       (host-agnostic MSVC CRT/SDK)
+//
+// **Sequential, not concurrent.** Cargo takes an exclusive lock on the build
+// directory for the whole build, so six concurrent `client-build` runs against
+// one `target/` would serialize on that lock anyway -- with the added cost of
+// five processes idling in "Blocking waiting for file lock". Real concurrency
+// needs one `CARGO_TARGET_DIR` per cell; that trade (wall clock against disk)
+// is not taken here because a shared directory is what every other task in this
+// repository already assumes.
+//
+// Every cell runs even after an earlier one fails, so one invocation reports the
+// whole matrix instead of stopping at the first red. A failure is never silent:
+// the summary marks it FAIL and the task throws at the end.
+import * as rh from "lib/rh_compat";
+
+// The glibc floor is measured, not chosen for roundness. 2.17 -- the usual
+// "oldest thing anyone still runs" number -- does not link: this tree calls
+// `getrandom(2)` from `crates/agenterm-platform/src/adapters/linux/entropy.rs`,
+// and glibc only grew that wrapper in 2.25. 2.28 is the next distribution-
+// meaningful step above it (RHEL 8, Debian 10), and a binary built against it
+// verifiably tops out at GLIBC_2.28. Raising this number silently narrows who
+// can run the release; lowering it below 2.25 does not link at all.
+const cells = [
+  { target: "aarch64-apple-darwin",      driver: "cargo",          glibc: "" },
+  { target: "x86_64-apple-darwin",       driver: "cargo",          glibc: "" },
+  { target: "aarch64-unknown-linux-gnu", driver: "cargo-zigbuild", glibc: "2.28" },
+  { target: "x86_64-unknown-linux-gnu",  driver: "cargo-zigbuild", glibc: "2.28" },
+  { target: "aarch64-pc-windows-msvc",   driver: "cargo-xwin",     glibc: "" },
+  { target: "x86_64-pc-windows-msvc",    driver: "cargo-xwin",     glibc: "" }
+];
+
+// rh kept the last `limit` characters. This engine has no substring
+// operation, so the tail is whole trailing lines that fit in `limit` --
+// the same diagnostic, cut at a line instead of mid-line.
+function tail_of(text, limit) {
+  const value = ("" + text).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  if (value.length <= limit) { return value; }
+  const lines = value.split("\n");
+  let tail = "";
+  let i = lines.length - 1;
+  while (i >= 0) {
+    const candidate = i === lines.length - 1 ? lines[i] : lines[i] + "\n" + tail;
+    if (candidate.length > limit) { break; }
+    tail = candidate;
+    i = i - 1;
+  }
+  return tail;
+}
+
+// The `client-build` stdout ends with a "Built client artifacts" block whose
+// entries are two-space-indented absolute paths. Reading them back is what lets
+// this task hash exactly the files the build claims it produced, rather than
+// guessing names from the target triple.
+function artifact_paths(stdout_text) {
+  const paths = [];
+  const text = ("" + stdout_text).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  for (const line of text.split("\n")) {
+    const candidate = "" + line;
+    if (candidate.startsWith("  /") || candidate.startsWith("  \\")) {
+      // No substring in this engine: the first "  " is the indent, so
+      // removing the first occurrence drops exactly the two-character prefix.
+      paths.push(candidate.replace("  ", ""));
+    }
+  }
+  return paths;
+}
+
+const args = rh.args();
+rh.require(args.length >= 1, "expected: REPO [PROFILE]");
+const repo = rh.absolute(args[0]);
+
+let profile = "release-fast";
+if (args.length >= 2) {
+  const requested = "" + args[1];
+  rh.require(
+    requested === "release" || requested === "release-fast" || requested === "dev",
+    "build_all_profile:" + requested
+  );
+  profile = requested;
+}
+
+rh.require(env_has("AGENTERM_BOOTSTRAP_WORKER") === 1, "build_all_bootstrap_worker_missing");
+const worker = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
+const task_manifest = rh.join(repo, "agenterm.tasks.json");
+
+const output_root = rh.join(repo, "target/qualification/six-cell");
+rh.create_dir_all(output_root);
+
+const results = [];
+let failed = 0;
+
+for (const cell of cells) {
+  const target = "" + cell.target;
+  const driver = "" + cell.driver;
+  const glibc = "" + cell.glibc;
+  let label = target + " via " + driver;
+  if (glibc !== "") { label = label + " (glibc " + glibc + ")"; }
+  print("six-cell: building " + label);
+
+  const stdout_path = rh.join(output_root, target + ".stdout");
+  const stderr_path = rh.join(output_root, target + ".stderr");
+
+  const cell_args = [
+    "rh", "task", "run", "client-build",
+    "--manifest", task_manifest,
+    "--", profile, "--target", target, "--driver", driver
+  ];
+  if (glibc !== "") {
+    cell_args.push("--glibc");
+    cell_args.push(glibc);
+  }
+  // The task schema caps a contract budget at 3_600_000 ms, so all six
+  // cells share a one-hour ceiling. Half an hour per cell keeps a single
+  // stuck cell from eating the whole budget and starving the rest.
+  const output = rh.command(worker, cell_args, { cwd: repo, timeout_ms: 1800000 });
+  // rh streamed both pipes to files beside the summary; the door captures
+  // them, so they are written after the fact and read back from the object.
+  rh.atomic_write(stdout_path, output.stdout);
+  rh.atomic_write(stderr_path, output.stderr);
+  const stdout_text = output.stdout;
+
+  if (!output.success) {
+    failed = failed + 1;
+    const diagnostic = output.stderr + stdout_text;
+    print("six-cell: FAIL " + target);
+    print(tail_of(diagnostic, 4096));
+    results.push({ target: target, driver: driver, state: "FAIL", artifacts: [] });
+  } else {
+    const hashed = [];
+    for (const path of artifact_paths(stdout_text)) {
+      const artifact_path = "" + path;
+      if (rh.exists(artifact_path)) {
+        hashed.push({ path: artifact_path, sha256: rh.sha256_file(artifact_path) });
+      }
+    }
+    rh.require(hashed.length > 0, "build_all_no_artifacts:" + target);
+    print("six-cell: PASS " + target + " (" + hashed.length + " artifacts)");
+    results.push({ target: target, driver: driver, state: "PASS", artifacts: hashed });
+  }
+}
+
+const summary = {
+  kind: "agenterm-six-cell-build",
+  schema_version: 1,
+  profile: profile,
+  cells: results
+};
+const summary_path = rh.join(output_root, "summary.json");
+rh.atomic_write(summary_path, rh.stringify_pretty(summary));
+
+print("");
+print("Six-cell build summary [" + profile + "]:");
+for (const result of results) {
+  print("  " + result.state + "  " + result.target + "  (" + result.driver + ")");
+}
+print("  summary: " + summary_path);
+
+rh.require(failed === 0, "build_all_failed_cells:" + failed);
+return 0;

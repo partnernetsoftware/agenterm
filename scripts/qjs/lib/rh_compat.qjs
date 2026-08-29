@@ -130,11 +130,17 @@ export function command(program, args, options) {
   return JSON.parse(door(process_command(spec(program, args, options)), "process_command " + program));
 }
 
-// rh's `command_status`: exit code only, nothing captured.
+// rh's `command_status`: exit code only, nothing kept.
+//
+// Spelled over `command`, not `process_status`, on purpose. The door's
+// `process.status` spawns the child with piped stdout/stderr and then drops
+// the pipes, so a child that prints anything dies of SIGPIPE and the door
+// answers -1 -- measured on `agenterm-cc --help`, which `command` saw exit 0
+// and `process_status` reported as -1 (2026-08-29). Capturing and discarding
+// is bounded and answers the exit code the child actually produced.
 export function command_status(program, args, options) {
-  const code = process_status(spec(program, args, options));
-  if (code < 0 && tool_result() !== "") { throw "process_status " + program + ":" + tool_result(); }
-  return code;
+  const out = command(program, args, options);
+  return out.exit_code === null ? -1 : out.exit_code;
 }
 
 // rh's `command_stdout_file(path)`: run, write stdout to `path`, return the
@@ -165,4 +171,24 @@ export function sleep_ms(ms) {
 export function env_or(name, fallback) {
   if (env_has(name) !== 1) { return fallback; }
   return door(env_get(name), "env_get " + name);
+}
+
+// ---- crypto -------------------------------------------------------------
+
+// rh's `rh::crypto::sha256_file`: lowercase hex, 64 chars.
+export function sha256_file(p) {
+  return door(crypto_sha256_file(p), "crypto_sha256_file " + p);
+}
+
+// ---- args ---------------------------------------------------------------
+
+// rh's `args`: the invocation's own arguments as an array, collected through
+// the two-pass fetch (`arg(i)` parks one, `tool_result()` fetches it).
+export function args() {
+  const count = arg_count();
+  const out = [];
+  for (let i = 0; i < count; i = i + 1) {
+    out.push(door(arg(i), "arg " + i));
+  }
+  return out;
 }

@@ -1,0 +1,77 @@
+// Validate the isolated agenterm-net research workspace without linking it
+// into the AgenTerm product graph or stable artifact manifest.
+//
+// Args: REPO
+// Ported from scripts/rh/agenterm-net-research.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length !== 1) { throw "expected: REPO"; }
+
+const repo = rh.absolute(args[0]);
+const research = rh.join(repo, "research/agenterm-net");
+const lock_path = rh.join(research, "Cargo.lock");
+rh.require(rh.exists(lock_path), "agenterm_net_lock_missing");
+
+const stdout_path = research + ".agenterm-net-research.stdout.tmp";
+
+// Each cargo step captures stdout to the sibling temp file, prints it on
+// failure, and removes the file -- exactly the rh shape.
+function cargo_step(cargo_args, timeout_ms, code) {
+  const exit = rh.command_stdout_file("cargo", cargo_args, stdout_path, {
+    cwd: research,
+    env: { CARGO_TERM_COLOR: "never" },
+    timeout_ms: timeout_ms
+  });
+  if (exit !== 0) {
+    print(rh.read_text(stdout_path));
+    rh.try_remove_file(stdout_path);
+    throw code;
+  }
+}
+
+cargo_step(["clippy", "--locked", "--all-targets", "--", "-D", "warnings"], 300000, "agenterm_net_clippy");
+rh.try_remove_file(stdout_path);
+
+cargo_step(["test", "--locked", "--quiet"], 300000, "agenterm_net_tests");
+rh.try_remove_file(stdout_path);
+
+cargo_step(["run", "--locked", "--quiet", "--", "self-test", "--json"], 120000, "agenterm_net_self_test");
+const receipt_text = rh.read_text(stdout_path);
+rh.try_remove_file(stdout_path);
+const receipt = JSON.parse(receipt_text);
+
+rh.require(receipt.schema === "agenterm-net/result/v1", "agenterm_net_schema");
+rh.require(
+  receipt.state === "complete" && receipt.result.status === "research-pass",
+  "agenterm_net_state"
+);
+const process = receipt.result.process;
+rh.require(
+  process.child_exit_clean
+    && process.orphan_cleanup_armed
+    && process.forced_cleanup_reaped
+    && process.forced_cleanup_pid > 0
+    && process.listener_pid !== process.connector_pid
+    && process.listener_peer_id !== process.connector_peer_id
+    && process.handshake
+    && process.bounded_ping
+    && process.listener_lifecycle_observed,
+  "agenterm_net_process_isolation"
+);
+const resources = receipt.result.resources;
+rh.require(
+  resources.measurement_complete
+    && resources.peak_child_rss_bytes > 0
+    && resources.max_observed_child_threads > 0
+    && resources.process_samples.length === 2,
+  "agenterm_net_resource_evidence"
+);
+const block = receipt.result.block;
+rh.require(
+  block.round_trip_verified && block.corruption_rejected && block.store_removed,
+  "agenterm_net_block_evidence"
+);
+
+print("PASS: isolated agenterm-net libp2p/CID/block-store research contract");
+return 0;

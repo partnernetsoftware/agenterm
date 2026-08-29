@@ -1,0 +1,185 @@
+// Build and validate one exact-SHA Candidate manifest from a closed payload.
+//
+// Usage:
+//   agenterm cli script run --profile tool scripts/qjs/candidate-aggregate.qjs -- \
+//     SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY OUTPUT_MANIFEST
+//
+// METADATA_JSON schema v1 fields:
+//   source_sha, version, expected_tag, workflow_path, workflow_sha256,
+//   run_id, run_attempt, run_event, created_at_unix_ms, expires_at_unix_ms.
+//
+// Ported from scripts/rh/candidate-aggregate.rh; the shared verification is
+// lib/release_candidate (rh inlined it here and in candidate-verify).
+// Runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+import * as path from "lib/path";
+import * as candidate from "lib/release_candidate";
+
+function readme_entry(asset_root, readme_name) {
+  candidate.require_asset_name(readme_name);
+  const readme_path = rh.join(asset_root, readme_name);
+  candidate.require_file(readme_path, "candidate_preview_readme_missing");
+  const readme_size = candidate.file_size(readme_path, "candidate_preview_readme_missing");
+  const readme_hash = rh.sha256_file(readme_path);
+  return { name: readme_name, size: readme_size, sha256: readme_hash };
+}
+
+const args = rh.args();
+if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
+  print("usage: candidate-aggregate SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY OUTPUT_MANIFEST");
+  print(
+    "creates schema-v1 exact-SHA Candidate metadata; validates the "
+      + "closed six-platform payload before writing"
+  );
+  return 0;
+}
+if (args.length !== 4) {
+  throw "candidate_aggregate_arguments: expected SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY OUTPUT_MANIFEST";
+}
+
+const source_root = rh.absolute(args[0]);
+const metadata_path = rh.absolute(args[1]);
+const asset_root = rh.absolute(args[2]);
+const output_path = rh.absolute(args[3]);
+const metadata = rh.parse_file(metadata_path);
+const metadata_source_sha = "" + metadata.source_sha;
+const metadata_version = "" + metadata.version;
+const metadata_expected_tag = "" + metadata.expected_tag;
+const metadata_workflow_path = "" + metadata.workflow_path;
+const metadata_workflow_sha256 = "" + metadata.workflow_sha256;
+rh.require(metadata.schema_version === 1, "candidate_metadata_schema");
+rh.require(candidate.valid_source_sha(metadata_source_sha), "candidate_source_sha");
+rh.require(candidate.valid_version(metadata_version), "candidate_version");
+rh.require(metadata_expected_tag === "v" + metadata_version, "candidate_expected_tag");
+
+const workflow_path = rh.join(source_root, metadata_workflow_path);
+candidate.require_file(workflow_path, "candidate_workflow_missing");
+const workflow_hash = rh.sha256_file(workflow_path);
+rh.require(
+  candidate.valid_sha256(metadata_workflow_sha256) && metadata_workflow_sha256 === workflow_hash,
+  "candidate_metadata_workflow_hash"
+);
+const cargo_path = rh.join(source_root, "Cargo.lock");
+const artifact_path = rh.join(source_root, "scripts/artifacts.json");
+const gate_path = rh.join(source_root, "scripts/qualification-gates.json");
+const sbom_name = "agenterm-" + metadata_version + "-sbom.spdx.json";
+const receipt_name = "qualification-receipt.json";
+candidate.require_asset_name(sbom_name);
+const sbom_path = rh.join(asset_root, sbom_name);
+candidate.require_asset_name(receipt_name);
+const receipt_path = rh.join(asset_root, receipt_name);
+candidate.require_file(cargo_path, "candidate_cargo_lock_missing");
+const cargo_hash = rh.sha256_file(cargo_path);
+candidate.require_file(artifact_path, "candidate_artifact_manifest_missing");
+const artifact_hash = rh.sha256_file(artifact_path);
+candidate.require_file(sbom_path, "candidate_sbom_missing");
+const sbom_hash = rh.sha256_file(sbom_path);
+
+const assets = [];
+let mac_channel = "";
+for (const spec of candidate.platform_specs(metadata_version)) {
+  const spec_os = "" + spec.os;
+  const spec_arch = "" + spec.arch;
+  const spec_release_name = "" + spec.release_name;
+  const spec_preview_name = "" + spec.preview_name;
+  const release_exists = rh.exists(rh.join(asset_root, spec_release_name));
+  let preview_exists = false;
+  if (spec_preview_name !== "") {
+    preview_exists = rh.exists(rh.join(asset_root, spec_preview_name));
+  }
+  rh.require(
+    release_exists !== preview_exists,
+    "candidate_platform_archive_count:" + spec_os + "-" + spec_arch
+  );
+  const name = release_exists ? spec_release_name : spec_preview_name;
+  candidate.require_asset_name(name);
+  const archive_path = rh.join(asset_root, name);
+  candidate.require_file(archive_path, "candidate_archive_missing");
+  const archive_hash = rh.sha256_file(archive_path);
+  const checksum_name = name + ".sha256";
+  const provenance_name = name + ".provenance.json";
+  candidate.require_asset_name(checksum_name);
+  const checksum_path = rh.join(asset_root, checksum_name);
+  candidate.require_asset_name(provenance_name);
+  const provenance_path = rh.join(asset_root, provenance_name);
+  candidate.require_file(checksum_path, "candidate_checksum_missing");
+  const checksum_hash = rh.sha256_file(checksum_path);
+  candidate.require_file(provenance_path, "candidate_provenance_missing");
+  const provenance_hash = rh.sha256_file(provenance_path);
+  candidate.verify_checksum(checksum_path, archive_hash, name);
+  // rh parsed the provenance twice (once inside validate_provenance); one
+  // parse serves both, since a parse is this engine's costliest step.
+  const provenance = rh.parse_file(provenance_path);
+  candidate.validate_provenance_parsed(
+    provenance, name, archive_hash, metadata_source_sha, metadata_version,
+    metadata_expected_tag, spec_os, spec_arch, cargo_hash, artifact_hash, sbom_hash
+  );
+  const channel_text = candidate.text(provenance.channel);
+  if (spec_os === "macos") {
+    if (mac_channel === "") {
+      mac_channel = channel_text;
+    } else {
+      rh.require(mac_channel === channel_text, "candidate_macos_mixed_channels");
+    }
+  }
+  const archive_size = candidate.file_size(archive_path, "candidate_archive_missing");
+  const checksum_size = candidate.file_size(checksum_path, "candidate_checksum_missing");
+  const provenance_size = candidate.file_size(provenance_path, "candidate_provenance_missing");
+  assets.push({
+    name: name,
+    os: spec_os,
+    arch: spec_arch,
+    channel: channel_text,
+    signed: provenance.signed,
+    notarized: provenance.notarized,
+    size: archive_size,
+    sha256: archive_hash,
+    checksum: { name: checksum_name, size: checksum_size, sha256: checksum_hash },
+    provenance: { name: provenance_name, size: provenance_size, sha256: provenance_hash }
+  });
+}
+
+const readme_entries = [];
+if (mac_channel === "macos-unsigned-preview") {
+  readme_entries.push(readme_entry(asset_root, candidate.README_NAME));
+  readme_entries.push(readme_entry(asset_root, candidate.README_NAME_ZH));
+}
+
+candidate.require_file(gate_path, "candidate_gate_manifest_missing");
+const gate_hash = rh.sha256_file(gate_path);
+candidate.require_file(receipt_path, "candidate_receipt_missing");
+const receipt_size = candidate.file_size(receipt_path, "candidate_receipt_missing");
+const receipt_hash = rh.sha256_file(receipt_path);
+const sbom_size = candidate.file_size(sbom_path, "candidate_sbom_missing");
+
+const manifest = {
+  schema_version: 1,
+  kind: "agenterm-release-candidate",
+  product: "AgenTerm",
+  source_sha: metadata.source_sha,
+  version: metadata.version,
+  expected_tag: metadata.expected_tag,
+  workflow: { path: metadata.workflow_path, sha256: workflow_hash },
+  run: { id: metadata.run_id, attempt: metadata.run_attempt, event: metadata.run_event },
+  created_at_unix_ms: metadata.created_at_unix_ms,
+  expires_at_unix_ms: metadata.expires_at_unix_ms,
+  inputs: {
+    cargo_lock_sha256: cargo_hash,
+    artifact_manifest_sha256: artifact_hash,
+    gate_manifest_sha256: gate_hash
+  },
+  qualification: { name: receipt_name, size: receipt_size, sha256: receipt_hash },
+  sbom: { name: sbom_name, size: sbom_size, sha256: sbom_hash },
+  assets: assets,
+  unsigned_macos_readmes: readme_entries
+};
+const staging_manifest = output_path + ".staging";
+rh.create_dir_all(path.parent(output_path));
+// rh stringified twice; the same document once is the same bytes in both
+// files, and a stringify is not cheap in this engine.
+const manifest_text = rh.stringify_pretty(manifest) + "\n";
+rh.atomic_write(staging_manifest, manifest_text);
+candidate.validate_manifest(source_root, staging_manifest, asset_root, rh.now_ms());
+rh.atomic_write(output_path, manifest_text);
+print("CANDIDATE " + metadata_source_sha + " " + metadata_expected_tag + " " + output_path);
+return 0;
