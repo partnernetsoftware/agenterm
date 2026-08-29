@@ -97,11 +97,13 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 31] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 33] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
     ("fs.append", 4, 1),
+    ("fs.try_lock_exclusive", 2, 1),
+    ("fs.unlock", 1, 1),
     ("fs.create_dir_all", 2, 1),
     ("fs.remove_file", 2, 1),
     ("fs.read_dir", 2, 1),
@@ -168,6 +170,8 @@ pub(crate) fn declarations() -> Vec<HostFn> {
             vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
             HostResult::I32,
         ),
+        decl("fs.try_lock_exclusive", s(), HostResult::I32),
+        decl("fs.unlock", vec![HostParam::I32], HostResult::I32),
         decl("fs.create_dir_all", s(), HostResult::I32),
         decl("fs.remove_file", s(), HostResult::I32),
         decl("fs.read_dir", s(), HostResult::I32),
@@ -264,6 +268,11 @@ pub(crate) struct ToolState {
     args: Vec<String>,
     /// Children started by `process.spawn`, by handle. `None` once waited.
     children: Vec<Handle>,
+    /// Advisory locks held by handle index; released on `fs.unlock` or when
+    /// the state drops. rh's `fs_try_lock_exclusive` backed the `.cargo-lock`
+    /// pre-flight and the hold-every-`.lock`-while-removing protocol of
+    /// prune-target-incremental (wave 3).
+    locks: Vec<Option<std::fs::File>>,
 }
 
 /// One spawned child, by handle index. A waited child keeps its pid and
@@ -391,6 +400,7 @@ pub(crate) fn install(
         max_result: budget.max_bridge_result_bytes,
         args,
         children: Vec::new(),
+        locks: Vec::new(),
     }));
 
     // ---- fs ---------------------------------------------------------------
@@ -421,6 +431,50 @@ pub(crate) fn install(
                 return Err(RESULT_TOO_LARGE.to_string());
             }
             std::fs::read_to_string(path).map_err(|e| format!("fs.read_to_string `{path}`: {e}"))
+        })
+    })?;
+
+    // `fs.try_lock_exclusive(path) -> handle | -1`: an advisory exclusive lock
+    // on the file (created if absent), or -1 when another holder has it.
+    // `fs.unlock(handle)` releases it; dropping the state releases the rest.
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.try_lock_exclusive", move |args, memory| {
+        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        direct(&state, "fs.try_lock_exclusive", || {
+            let path = utf8(path)?;
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(path)
+                .map_err(|e| format!("fs.try_lock_exclusive `{path}`: {e}"))?;
+            match file.try_lock() {
+                Ok(()) => {
+                    let mut s = state.borrow_mut();
+                    s.locks.push(Some(file));
+                    i32::try_from(s.locks.len() - 1).map_err(|_| "fs.try_lock_exclusive: too many locks".to_string())
+                }
+                Err(std::fs::TryLockError::WouldBlock) => Ok(-1),
+                Err(std::fs::TryLockError::Error(e)) => Err(format!("fs.try_lock_exclusive `{path}`: {e}")),
+            }
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.unlock", move |args, _memory| {
+        let h = arg(args, 0)?;
+        direct(&state, "fs.unlock", || {
+            let mut s = state.borrow_mut();
+            match usize::try_from(h).ok().and_then(|i| s.locks.get_mut(i)) {
+                Some(slot @ Some(_)) => {
+                    // Dropping the file releases the lock.
+                    *slot = None;
+                    Ok(0)
+                }
+                Some(None) => Ok(0),
+                None => Err(format!("fs.unlock: no lock with handle {h}")),
+            }
         })
     })?;
 

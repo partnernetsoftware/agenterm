@@ -308,6 +308,30 @@ fn a_spawned_child_past_its_timeout_is_killed_and_the_wait_says_so() {
 /// `stdout_path` / `stderr_path` send a stream to a file instead of the
 /// bounded capture: a 6 MB cargo log was a thrown refusal at the 1 MiB
 /// bridge cap (wave 3). rh had `stdout_file`/`stderr_file`.
+/// An advisory exclusive lock: the second taker is told -1 while the first
+/// holds it, and gets it after the release. prune-target-incremental's
+/// `.cargo-lock` pre-flight and its hold-while-removing protocol need this.
+#[cfg(unix)]
+#[test]
+fn fs_try_lock_exclusive_refuses_a_second_taker_until_unlock() {
+    let dir = std::env::temp_dir().join(format!("agenterm-lock-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let file = dir.join("held.lock");
+    let source = format!(
+        r#"
+        let a = fs_try_lock_exclusive("{0}");
+        let b = fs_try_lock_exclusive("{0}");
+        if (fs_unlock(a) !== 0) {{ return "unlock: " + tool_result(); }}
+        let c = fs_try_lock_exclusive("{0}");
+        return (a >= 0) + "|" + b + "|" + (c >= 0);
+        "#,
+        file.display()
+    );
+    let out = run_tool(&source);
+    assert_eq!(string_of(&out), "true|-1|true", "{out:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `fs.append` writes at the end without reading the file back: the harness
 /// journal was read whole, concatenated and rewritten per record.
 #[test]
