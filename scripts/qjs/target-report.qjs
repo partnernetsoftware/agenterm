@@ -1,0 +1,187 @@
+// Deterministic Cargo target inventory.
+//
+// Usage:
+//   agenterm cli script run --profile tool scripts/qjs/target-report.qjs -- REPO [TARGET] [--json]
+//
+// Ported from scripts/rh/target-report.rh. `fs.metadata` carries
+// `modified_ms` for the oldest/newest write and the age; `rfc3339_from_ms`
+// spells the timestamps the way rh's `SystemTime.rfc3339` did. "Absolute"
+// is a leading "/" here (this wave measured on a Unix host).
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length < 1) {
+  throw "expected: REPO [TARGET] [--json]";
+}
+if (args.length > 3) {
+  throw "expected: REPO [TARGET] [--json]";
+}
+
+const repo_path = rh.absolute(args[0]);
+const repo_target_path = rh.join(repo_path, "target");
+const repo_release_target_path = rh.join(repo_path, "target-release");
+
+let target_argument = "target";
+if (args.length >= 2) {
+  if (args[1] !== "") {
+    target_argument = args[1];
+  }
+}
+let target_path = rh.join(repo_path, target_argument);
+if (target_argument.startsWith("/")) {
+  target_path = rh.absolute(target_argument);
+}
+
+let json_output = 0;
+if (args.length === 3) {
+  if (args[2] !== "--json") {
+    throw "unknown target-report option";
+  }
+  json_output = 1;
+}
+
+const target_lower = target_path.toLowerCase();
+const repo_target_lower = repo_target_path.toLowerCase();
+const repo_release_lower = repo_release_target_path.toLowerCase();
+
+let repo_local = 0;
+if (target_lower === repo_target_lower) {
+  repo_local = 1;
+}
+if (target_lower === repo_release_lower) {
+  repo_local = 1;
+}
+let target_kind = "external";
+if (target_lower === repo_release_lower) {
+  target_kind = "release-scratch";
+}
+if (target_lower === repo_target_lower) {
+  target_kind = "development";
+}
+
+const exists = rh.exists(target_path) ? 1 : 0;
+if (exists !== 0) {
+  if (!rh.metadata(target_path).is_dir) {
+    throw "Cargo target path is not a directory";
+  }
+}
+
+const pending = [];
+if (exists !== 0) {
+  pending.push({ queue_root: "" + target_path, queue_profile: "(root)" });
+}
+
+const seen_profiles = {};
+const file_rows = [];
+let file_count = 0;
+let total_bytes = 0;
+let oldest_millis = 0;
+let oldest_text = "";
+let newest_millis = 0;
+let newest_text = "";
+let head = 0;
+while (head < pending.length) {
+  const item = pending[head];
+  const item_profile = "" + item.queue_profile;
+  const scan_path = rh.absolute("" + item.queue_root);
+  head = head + 1;
+  for (const dir_entry of rh.read_dir(scan_path)) {
+    if (dir_entry.is_dir) {
+      const child = "" + dir_entry.path;
+      let child_profile = "" + item_profile;
+      if (item_profile === "(root)") {
+        child_profile = "" + dir_entry.name;
+      }
+      pending.push({ queue_root: child, queue_profile: child_profile });
+    }
+    if (dir_entry.is_file) {
+      // The door's read_dir entry carries no metadata; ask for the file's.
+      const metadata = rh.metadata("" + dir_entry.path);
+      let modified_millis = 0;
+      if (metadata.modified_ms !== undefined && metadata.modified_ms !== null) {
+        modified_millis = metadata.modified_ms;
+      }
+      const bytes = metadata.len;
+
+      file_count = file_count + 1;
+      total_bytes = total_bytes + bytes;
+      if (file_count === 1) {
+        oldest_millis = modified_millis;
+        oldest_text = rh.rfc3339_from_ms(modified_millis);
+        newest_millis = modified_millis;
+        newest_text = rh.rfc3339_from_ms(modified_millis);
+      }
+      if (modified_millis < oldest_millis) {
+        oldest_millis = modified_millis;
+        oldest_text = rh.rfc3339_from_ms(modified_millis);
+      }
+      if (modified_millis > newest_millis) {
+        newest_millis = modified_millis;
+        newest_text = rh.rfc3339_from_ms(modified_millis);
+      }
+
+      if (seen_profiles[item_profile] === undefined) {
+        seen_profiles[item_profile] = true;
+      }
+      file_rows.push({ profile: item_profile, bytes: bytes });
+    }
+  }
+}
+
+const now_millis = rh.now_ms();
+let oldest_age_thousandths = 0;
+if (file_count > 0) {
+  const diff_millis = now_millis - oldest_millis;
+  oldest_age_thousandths = rh.int_div(diff_millis * 1000 + 43200000, 86400000);
+}
+const oldest_age_whole = rh.int_div(oldest_age_thousandths, 1000);
+const oldest_age_frac = oldest_age_thousandths % 1000;
+
+const profile_reports = [];
+for (const name of Object.keys(seen_profiles)) {
+  let files = 0;
+  let bytes = 0;
+  for (const row of file_rows) {
+    if (row.profile === name) {
+      files = files + 1;
+      bytes = bytes + row.bytes;
+    }
+  }
+  profile_reports.push({ name: name, files: files, bytes: bytes });
+}
+
+const report = {
+  schema_version: 1,
+  target_path: target_path,
+  exists: exists,
+  repo_local: repo_local,
+  cleanup_allowed: repo_local,
+  target_kind: target_kind,
+  files: file_count,
+  bytes: total_bytes,
+  oldest_write_utc: oldest_text,
+  oldest_age_thousandths: oldest_age_thousandths,
+  newest_write_utc: newest_text,
+  profiles: profile_reports
+};
+
+if (json_output !== 0) {
+  print(rh.stringify_pretty(report));
+} else {
+  print(
+    "Cargo target: " + target_path
+      + "; kind=" + target_kind
+      + "; repo_local=" + repo_local
+      + "; files=" + file_count
+      + "; bytes=" + total_bytes
+      + "; oldest_age_days=" + oldest_age_whole + "." + oldest_age_frac
+  );
+  for (const profile of profile_reports) {
+    print(
+      "  " + profile.name
+        + ": files=" + profile.files
+        + ", bytes=" + profile.bytes
+    );
+  }
+}
+return 0;
