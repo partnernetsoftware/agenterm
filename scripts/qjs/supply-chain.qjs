@@ -1,0 +1,516 @@
+// Validate locked Cargo licenses and write a deterministic SPDX 2.3 inventory.
+// Moved from rh on 2026-08-29.
+//
+// Args:
+//   REPO OUTPUT_PATH
+//
+// Runs under `--profile tool`.
+//
+// GAP (budget): `cargo metadata --locked` for this workspace is ~3.5 MB of
+// JSON. The door parks at most `max_bridge_result_bytes` (1 MiB) per answer,
+// so neither `process.command` nor `fs.read_to_string` can carry it, and
+// `JSON.parse` of a document that size would exhaust `max_steps` (16 M)
+// besides. The port is the faithful mapping and is correct on a workspace
+// whose metadata fits; on this one it stops at `supply_chain_cargo_metadata`
+// or at the parse. Raising the budget (or a slimmer metadata source) is the
+// fix, not a rewrite of this gate.
+import * as rh from "lib/rh_compat";
+
+// rh's `rh::crypto::sha256_file`; rh_compat has no spelling for it yet.
+function sha256_file(p) {
+  if (crypto_sha256_file(p) !== 0) {
+    throw "crypto_sha256_file " + p + ":" + tool_result();
+  }
+  return tool_result();
+}
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+if (args.length !== 2) {
+  throw "expected: REPO OUTPUT_PATH";
+}
+
+const repo = rh.absolute(args[0]);
+const output_arg = args[1];
+// rh's `PathBuf::is_absolute`; the door speaks `/` paths (see lib/path.qjs).
+let output = rh.join(repo, output_arg);
+if (output_arg.startsWith("/")) {
+  output = output_arg;
+}
+const output_parts = output_arg.split("/");
+let output_parent = repo;
+if (output_parts.length > 1) {
+  let output_dir = output_parts[0];
+  for (let index = 1; index < output_parts.length - 1; index = index + 1) {
+    output_dir = output_dir + "/" + output_parts[index];
+  }
+  output_parent = rh.join(repo, output_dir);
+}
+
+const cargo_lock_path = rh.join(repo, "Cargo.lock");
+let lock_text = rh.read_text(cargo_lock_path);
+lock_text = lock_text.replaceAll("\r\n", "\n");
+lock_text = lock_text.replaceAll("\r", "\n");
+const checksum_keys = [];
+const checksum_values = [];
+let lock_name = "";
+let lock_version = "";
+let lock_source = "";
+let lock_checksum = "";
+for (const source_line of lock_text.split("\n")) {
+  const line = source_line.trim();
+  if (line === "[[package]]") {
+    if (lock_checksum !== "") {
+      checksum_keys.push(lock_name + "\n" + lock_version + "\n" + lock_source);
+      checksum_values.push(lock_checksum);
+    }
+    lock_name = "";
+    lock_version = "";
+    lock_source = "";
+    lock_checksum = "";
+  } else if (line.startsWith("name = ")) {
+    const parts = line.split("\"");
+    if (parts.length >= 3) {
+      lock_name = parts[1];
+    } else {
+      lock_name = "";
+    }
+  } else if (line.startsWith("version = ")) {
+    const parts = line.split("\"");
+    if (parts.length >= 3) {
+      lock_version = parts[1];
+    } else {
+      lock_version = "";
+    }
+  } else if (line.startsWith("source = ")) {
+    const parts = line.split("\"");
+    if (parts.length >= 3) {
+      lock_source = parts[1];
+    } else {
+      lock_source = "";
+    }
+  } else if (line.startsWith("checksum = ")) {
+    const parts = line.split("\"");
+    if (parts.length >= 3) {
+      lock_checksum = parts[1];
+    } else {
+      lock_checksum = "";
+    }
+  }
+}
+if (lock_checksum !== "") {
+  checksum_keys.push(lock_name + "\n" + lock_version + "\n" + lock_source);
+  checksum_values.push(lock_checksum);
+}
+
+rh.create_dir_all(output_parent);
+const run_stamp = rh.now_ms();
+const metadata_name = "cargo-metadata-" + run_stamp + ".json";
+const metadata_path = rh.join(output_parent, metadata_name);
+const manifest_path = rh.join(repo, "Cargo.toml");
+const metadata_code = rh.command_stdout_file(
+  "cargo",
+  [
+    "metadata", "--locked", "--format-version", "1",
+    "--manifest-path", manifest_path
+  ],
+  metadata_path,
+  // `cargo metadata --locked` does not resolve, but it still takes the
+  // cargo package lock, and this gate runs in a chain where clippy and the
+  // unit tests hold it. 45s was tight enough that a cold Windows runner
+  // blew the child deadline instead of reporting a supply-chain problem.
+  { cwd: repo, timeout_ms: 120000 }
+);
+rh.require(
+  metadata_code === 0,
+  "supply_chain_cargo_metadata:exit=" + metadata_code
+);
+const metadata = rh.parse_file(metadata_path);
+rh.try_remove_file(metadata_path);
+rh.require(
+  metadata.resolve !== undefined && metadata.resolve !== null,
+  "supply_chain_resolve_missing"
+);
+
+// Even `cargo metadata --no-deps` filters target-conditioned declarations
+// for its selected platform. Build the notice authority from the exact six
+// supported target cells instead of whichever host runs this task.
+// No `Object.keys` in this engine yet: `direct_name_keys` is the key list,
+// kept alongside the set.
+const direct_names = {};
+const direct_name_keys = [];
+const supported_targets = [
+  "x86_64-pc-windows-msvc",
+  "aarch64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin"
+];
+for (const target of supported_targets) {
+  const target_metadata_name =
+    "cargo-manifest-metadata-" + target + "-" + run_stamp + ".json";
+  const target_metadata_path = rh.join(output_parent, target_metadata_name);
+  const target_metadata_code = rh.command_stdout_file(
+    "cargo",
+    [
+      "metadata", "--locked", "--format-version", "1", "--no-deps",
+      "--filter-platform", target, "--manifest-path", manifest_path
+    ],
+    target_metadata_path,
+    { cwd: repo, timeout_ms: 120000 }
+  );
+  rh.require(
+    target_metadata_code === 0,
+    "supply_chain_manifest_metadata:" + target + ":exit=" + target_metadata_code
+  );
+  const target_metadata = rh.parse_file(target_metadata_path);
+  rh.try_remove_file(target_metadata_path);
+  const target_workspace_names = {};
+  for (const root of target_metadata.packages) {
+    const root_name = "" + root.name;
+    target_workspace_names[root_name] = true;
+  }
+  for (const root of target_metadata.packages) {
+    for (const dependency of root.dependencies) {
+      const dependency_name = "" + dependency.name;
+      if (target_workspace_names[dependency_name] !== true) {
+        if (direct_names[dependency_name] !== true) {
+          direct_names[dependency_name] = true;
+          direct_name_keys.push(dependency_name);
+        }
+      }
+    }
+  }
+}
+
+const allowed_list = [
+  "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+  "(MIT OR Apache-2.0) AND Unicode-3.0",
+  "0BSD OR MIT OR Apache-2.0",
+  "Apache-2.0",
+  "Apache-2.0 / MIT",
+  "Apache-2.0 AND ISC",
+  "Apache-2.0 AND MIT",
+  "Apache-2.0 OR ISC OR MIT",
+  "Apache-2.0 OR MIT",
+  // Bare form of the already-reviewed
+  // "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT": the
+  // cranelift/wasmtime family (38 packages) ships it without the
+  // OR-alternatives. Same permissive Apache-2.0 terms plus the LLVM
+  // exception, which only widens what linking is permitted.
+  "Apache-2.0 WITH LLVM-exception",
+  "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "BSD-2-Clause",
+  "BSD-2-Clause OR Apache-2.0 OR MIT",
+  "BSD-2-Clause OR MIT OR Apache-2.0",
+  "BSD-3-Clause",
+  "BSD-3-Clause OR MIT OR Apache-2.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  // Dual license, and we take the BSD-3-Clause option (already
+  // reviewed above). Reached only through wasmtime's optional Intel
+  // VTune profiling support (ittapi / ittapi-sys). Recorded
+  // explicitly because one of its alternatives is GPL-2.0-only: the
+  // choice of the permissive option is deliberate, not an oversight.
+  "GPL-2.0-only OR BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "MIT OR Apache-2.0",
+  "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+  "MIT OR Apache-2.0 OR Zlib",
+  "MIT OR Zlib OR Apache-2.0",
+  "MIT/Apache-2.0",
+  "MPL-2.0+",
+  // Bare form of the already-reviewed
+  // "(MIT OR Apache-2.0) AND Unicode-3.0": the ICU4X crates (18
+  // packages) carry Unicode-3.0 alone.
+  "Unicode-3.0",
+  "Unlicense/MIT",
+  "Unlicense OR MIT",
+  "Zlib",
+  "Zlib OR Apache-2.0 OR MIT"
+];
+const allowed = {};
+for (const license_name of allowed_list) {
+  allowed[license_name] = true;
+}
+
+const workspace_ids = {};
+let workspace_id_count = 0;
+for (const id of metadata.workspace_members) {
+  const workspace_id = "" + id;
+  if (workspace_ids[workspace_id] !== true) {
+    workspace_ids[workspace_id] = true;
+    workspace_id_count = workspace_id_count + 1;
+  }
+}
+const resolved_ids = {};
+for (const node of metadata.resolve.nodes) {
+  const resolved_id = "" + node.id;
+  resolved_ids[resolved_id] = true;
+}
+const dependencies = [];
+const roots = [];
+let dep_count = 0;
+for (const pkg of metadata.packages) {
+  const pkg_id = "" + pkg.id;
+  if (workspace_ids[pkg_id] === true) {
+    roots.push(pkg);
+  } else if (resolved_ids[pkg_id] === true) {
+    dependencies.push(pkg);
+    dep_count = dep_count + 1;
+  }
+}
+rh.require(dependencies.length > 0, "supply_chain_dependencies_empty");
+rh.require(
+  roots.length === workspace_id_count,
+  "supply_chain_workspace_package_count"
+);
+
+const sorted_dependencies = [];
+const picked = {};
+for (let pass = 0; pass < dependencies.length; pass = pass + 1) {
+  let best_index = -1;
+  let best_key = "";
+  for (let index = 0; index < dependencies.length; index = index + 1) {
+    const index_key = "" + index;
+    if (picked[index_key] !== true) {
+      const candidate = dependencies[index];
+      const key =
+        "" + candidate.name + "\n" + candidate.version + "\n" +
+          candidate.source + "\n" + candidate.id;
+      if (best_index < 0 || key < best_key) {
+        best_index = index;
+        best_key = key;
+      }
+    }
+  }
+  const picked_key = "" + best_index;
+  picked[picked_key] = true;
+  sorted_dependencies.push(dependencies[best_index]);
+}
+
+for (const pkg of sorted_dependencies) {
+  let license = "";
+  if (typeof pkg.license === "string") {
+    license = "" + pkg.license;
+  }
+  let package_source = "";
+  if (typeof pkg.source === "string") {
+    package_source = "" + pkg.source;
+  }
+  const pkg_name = "" + pkg.name;
+  const pkg_version = "" + pkg.version;
+  rh.require(
+    license !== "",
+    "supply_chain_license_missing:" + pkg_name + ":" + pkg_version
+  );
+  rh.require(
+    allowed[license] === true,
+    "supply_chain_license_unreviewed:" + pkg_name + ":" +
+      pkg_version + ":" + license
+  );
+  if (pkg_name === "softbuffer" || pkg_name === "vt100") {
+    rh.require(
+      package_source === "",
+      "supply_chain_vendored_source_unexpected:" + pkg_name + ":" + pkg_version
+    );
+    let package_id = "";
+    if (typeof pkg.id === "string") {
+      package_id = "" + pkg.id;
+    }
+    package_id = package_id.replaceAll("\\", "/");
+    let vendored_tree = "";
+    if (pkg_name === "softbuffer") {
+      vendored_tree = "third_party/softbuffer";
+    } else {
+      vendored_tree = "third_party/vt100";
+    }
+    const vendored_marker = "/" + vendored_tree;
+    rh.require(
+      package_id.includes(vendored_marker),
+      "supply_chain_vendored_path_mismatch:" + pkg_name + ":" + pkg_version
+    );
+  } else {
+    rh.require(
+      package_source !== "",
+      "supply_chain_source_missing:" + pkg_name + ":" + pkg_version
+    );
+    const key = pkg_name + "\n" + pkg_version + "\n" + package_source;
+    if (package_source.startsWith("registry+")) {
+      let checksum_found = 0;
+      for (let index = 0; index < checksum_keys.length; index = index + 1) {
+        if (checksum_keys[index] === key) {
+          checksum_found = 1;
+        }
+      }
+      rh.require(
+        checksum_found === 1,
+        "supply_chain_checksum_missing:" + pkg_name + ":" + pkg_version
+      );
+    }
+  }
+}
+
+const notice_names = {};
+const notice_name_keys = [];
+const notices_path = rh.join(repo, "THIRD_PARTY_NOTICES.md");
+const notices_text = rh.read_text(notices_path);
+for (const source_line of notices_text.split("\n")) {
+  const line = source_line.trim();
+  if (line.startsWith("| `")) {
+    const fields = line.split("`");
+    if (fields.length >= 3 && fields[1] !== "") {
+      const notice_name = "" + fields[1];
+      if (notice_names[notice_name] !== true) {
+        notice_names[notice_name] = true;
+        notice_name_keys.push(notice_name);
+      }
+    }
+  }
+}
+// Name the difference. A bare count mismatch says only "these two sets are
+// different sizes", so every occurrence cost a manual diff of
+// `cargo metadata` against THIRD_PARTY_NOTICES.md -- and the loop below,
+// which does name the missing ones, is never reached because this fires
+// first. Report both directions here.
+const missing_notices = [];
+for (const name of direct_name_keys) {
+  if (notice_names[name] !== true) {
+    missing_notices.push("" + name);
+  }
+}
+const stale_notices = [];
+for (const name of notice_name_keys) {
+  if (direct_names[name] !== true) {
+    stale_notices.push("" + name);
+  }
+}
+rh.require(
+  direct_name_keys.length === notice_name_keys.length,
+  "supply_chain_notice_count:direct=" + direct_name_keys.length
+    + ":notices=" + notice_name_keys.length
+    + ":missing_from_notices=" + JSON.stringify(missing_notices)
+    + ":notices_without_dependency="
+    + JSON.stringify(stale_notices)
+);
+for (const name of direct_name_keys) {
+  rh.require(
+    notice_names[name] === true,
+    "supply_chain_notice_missing:" + name
+  );
+}
+
+const cargo_lock_hash = sha256_file(cargo_lock_path);
+const scratch_name = "spdx-key-" + run_stamp + ".tmp";
+const spdx_scratch = rh.join(output_parent, scratch_name);
+const spdx_packages = [];
+const relationships = [];
+const described = [];
+for (const pkg of sorted_dependencies) {
+  let package_source = "";
+  if (typeof pkg.source === "string") {
+    package_source = "" + pkg.source;
+  }
+  const pkg_name = "" + pkg.name;
+  const pkg_version = "" + pkg.version;
+  const key = pkg_name + "\n" + pkg_version + "\n" + package_source;
+  rh.atomic_write(spdx_scratch, key);
+  const id_hash = sha256_file(spdx_scratch);
+  const spdx_id = "SPDXRef-Package-" + id_hash;
+  let license_text = "";
+  if (typeof pkg.license === "string") {
+    license_text = "" + pkg.license;
+  }
+  let spdx_license_text = license_text;
+  if (license_text === "MIT/Apache-2.0") {
+    spdx_license_text = "MIT OR Apache-2.0";
+  } else if (license_text === "MPL-2.0+") {
+    spdx_license_text = "MPL-2.0-or-later";
+  }
+  const reference_locator = "pkg:cargo/" + pkg_name + "@" + pkg_version;
+  const source_comment = "Cargo source: " + package_source;
+  const external_refs = [];
+  external_refs.push({
+    referenceCategory: "PACKAGE-MANAGER",
+    referenceType: "purl",
+    referenceLocator: reference_locator
+  });
+  let checksum_found = 0;
+  let checksum_index = -1;
+  for (let index = 0; index < checksum_keys.length; index = index + 1) {
+    if (checksum_keys[index] === key) {
+      checksum_found = 1;
+      checksum_index = index;
+    }
+  }
+  if (checksum_found === 1) {
+    const checksum_value = checksum_values[checksum_index];
+    const checksums = [];
+    checksums.push({
+      algorithm: "SHA256",
+      checksumValue: checksum_value
+    });
+    spdx_packages.push({
+      SPDXID: spdx_id,
+      name: pkg.name,
+      versionInfo: pkg.version,
+      downloadLocation: "NOASSERTION",
+      filesAnalyzed: false,
+      licenseConcluded: spdx_license_text,
+      licenseDeclared: spdx_license_text,
+      copyrightText: "NOASSERTION",
+      comment: source_comment,
+      externalRefs: external_refs,
+      checksums: checksums
+    });
+  } else {
+    spdx_packages.push({
+      SPDXID: spdx_id,
+      name: pkg.name,
+      versionInfo: pkg.version,
+      downloadLocation: "NOASSERTION",
+      filesAnalyzed: false,
+      licenseConcluded: spdx_license_text,
+      licenseDeclared: spdx_license_text,
+      copyrightText: "NOASSERTION",
+      comment: source_comment,
+      externalRefs: external_refs
+    });
+  }
+  described.push(spdx_id);
+  relationships.push({
+    spdxElementId: "SPDXRef-DOCUMENT",
+    relationshipType: "DESCRIBES",
+    relatedSpdxElement: spdx_id
+  });
+}
+rh.try_remove_file(spdx_scratch);
+
+const document = {
+  spdxVersion: "SPDX-2.3",
+  dataLicense: "CC0-1.0",
+  SPDXID: "SPDXRef-DOCUMENT",
+  name: "AgenTerm Cargo dependencies " + cargo_lock_hash,
+  documentNamespace: "https://agenterm.local/spdx/cargo-lock/" + cargo_lock_hash,
+  creationInfo: {
+    created: "1970-01-01T00:00:00Z",
+    creators: ["Tool: agenterm rh task run supply-chain"],
+    comment:
+      "Generation time is fixed so identical Cargo.lock inputs produce identical bytes."
+  },
+  documentDescribes: described,
+  packages: spdx_packages,
+  relationships: relationships
+};
+rh.atomic_write(output, rh.stringify_pretty(document) + "\n");
+print(
+  "PASS: wrote deterministic SPDX inventory for " +
+    dep_count +
+    " resolved packages to " + output
+);
+return 0;
