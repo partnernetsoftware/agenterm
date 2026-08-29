@@ -58,13 +58,15 @@ function expect_package_success(worker, repo, entry, fixture, receipt, output_re
 
 function expect_package_rejection(worker, repo, fixture, output_relative, code) {
   // A rejection is a throw the packager does not catch, observed as the
-  // child's non-zero exit rather than ending this self-test. The CLI reports
-  // an uncaught throw with a fixed sentence; requiring it separates "the
-  // packager refused" from "the child crashed or ran out of budget", which
+  // child's non-zero exit rather than ending this self-test. Since 2cde8b63
+  // the CLI reports an uncaught throw as "the script threw and nothing
+  // caught it: <value>", so the refusal code itself is required here (rh's
+  // self-test named the same codes); that separates "the packager refused
+  // for this reason" from "the child crashed or ran out of budget", which
   // exit alone cannot.
   const reject = run_packager(worker, repo, "package-qualified", fixture, "target/qualification/receipt.json", output_relative);
   assert_ok(
-    reject.exit_code !== 0 && reject.stderr.includes("the script threw a value"),
+    reject.exit_code !== 0 && reject.stderr.includes("nothing caught it: " + code),
     "package_selftest_expected_rejection:" + code + ":" + reject.stdout + reject.stderr
   );
 }
