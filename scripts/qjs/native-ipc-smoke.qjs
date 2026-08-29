@@ -21,10 +21,11 @@ import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";
 
-// rh cut diagnostics at 512 characters; no `slice` here, so the value is
-// carried whole.
+// rh cut diagnostics at 512 characters (`sub_string(0, 512)`).
 function bounded_diagnostic(value) {
-  return value;
+  const text = "" + value;
+  if (text.length <= 512) { return text; }
+  return text.slice(0, 512) + "<truncated>";
 }
 
 function catch_text(error) {
@@ -51,9 +52,9 @@ function macos_settings_root(home_directory) {
   return rh.join(rh.join(home_directory, "Library"), "Application Support");
 }
 
-// No `slice`: the socket path is what follows the "unix:" scheme.
+// rh's `sub_string(5)`: the socket path is what follows the "unix:" scheme.
 function unix_socket_path(endpoint) {
-  return ("" + endpoint).split("unix:")[1];
+  return ("" + endpoint).slice(5);
 }
 
 function native_endpoint_shape_ok(transport, endpoint) {
@@ -135,8 +136,68 @@ function spawn_configured(context, program, arguments, endpoint, address, instan
   return harness.start(spec);
 }
 
+// The engine prices string work per character (measured 2026-08-29 on this
+// host: `JSON.parse` of the 62 KB `protocol-info --running` answer 5-10M
+// steps, its door envelope another 5-10M, `.length` on it ~1.5M,
+// `JSON.stringify` of one 500-byte record ~125K) and `--max-operations`
+// stops at 100M. Two shapes in this journey blow that ceiling by themselves:
+// the harness journal (read the whole file, concatenate one record, write it
+// back: 80 records measured 50-100M) and the nine full protocol-info parses
+// (~25M each as ported). The door has no `fs.append` and no
+// `process.command` stdout-to-file / field selection -- those are the gaps
+// -- so on a Unix host both go through `sh`: the journal line is appended
+// by `cat >>` (the guest never holds the journal) and protocol-info is cut
+// to its seven top-level keys by `grep` before the guest parses it. A
+// non-Unix host keeps the harness paths.
+const PROTOCOL_KEYS = ["agenterm_version", "endpoint", "instance", "pid", "server_scope_id", "settings_path", "transport"];
+
+function protocol_filter_script() {
+  let alternatives = "";
+  for (const key of PROTOCOL_KEYS) {
+    alternatives = alternatives === "" ? key : alternatives + "|" + key;
+  }
+  return "o=$(\"$@\") || exit $?; printf '%s\\n' \"$o\" | grep -E '^  \"(" + alternatives + ")\": '";
+}
+
+// Run `spec` with its stdout cut to the top-level protocol keys; the
+// arguments recorded are the CLI's own. Only called where `unix_host` holds.
+function run_filtered(spec) {
+  const wrapped_args = ["-c", protocol_filter_script(), "sh", "" + spec.program];
+  for (const a of spec.args) { wrapped_args.push("" + a); }
+  spec.program = "sh";
+  spec.args = wrapped_args;
+  return rh.command_spec(spec);
+}
+
+// The seven keys as one object: the filtered lines wrapped in braces, the
+// last line's trailing comma (present unless it was the object's last key)
+// removed.
+function parse_filtered_protocol(text) {
+  let body = ("" + text).trim();
+  if (body.endsWith(",")) { body = body.slice(0, body.length - 1); }
+  return JSON.parse("{" + body + "}");
+}
+
 function record(context, arguments, output, expected_failure) {
-  harness.append_command_record_lines(context, arguments, output, expected_failure, []);
+  if (unix_host === 0) {
+    harness.append_command_record(context, arguments, output, expected_failure, []);
+    return;
+  }
+  const safe_args = [];
+  for (const a of arguments) { safe_args.push("" + a); }
+  const combined = output.stdout + output.stderr;
+  const entry = {
+    recorded_at_ms: rh.now_ms(),
+    arguments: safe_args,
+    expected_failure: expected_failure !== 0,
+    exit_code: output.exit_code,
+    output: harness.bounded_record_text(combined, 512)
+  };
+  // Stringified once: ~125K steps each time on this engine.
+  const entry_text = JSON.stringify(entry);
+  const appended = rh.command("sh", ["-c", "cat >> \"$1\"", "sh", context.command_journal_path], { stdin: entry_text + "\n", timeout_ms: 5000 });
+  harness.require(appended.success === true, "native_ipc_journal_append_failed:" + appended.stderr);
+  harness.write_atomic(context.command_log_path, "[" + entry_text + "]\n");
 }
 
 function invoke(context, program, arguments, expected_failure, endpoint, address, instance, workspace) {
@@ -181,15 +242,36 @@ function probe(context, program, arguments, endpoint, address, instance, workspa
   };
 }
 
+// `probe` for `protocol-info --running`: the answer cut to the keys this
+// journey reads (see `record`), so a successful probe costs ~0.5M steps
+// instead of ~25M.
+function probe_protocol(context, program, arguments, endpoint, address, instance, workspace, timeout_ms) {
+  const spec = configured(context, program, arguments, endpoint, address, instance, workspace);
+  spec.timeout_ms = timeout_ms;
+  const output = unix_host !== 0 ? run_filtered(spec) : rh.command_spec(spec);
+  record(context, arguments, output, output.success === true ? 0 : 1);
+  return {
+    success: output.success === true ? 1 : 0,
+    exit_code: output.exit_code,
+    stdout: output.stdout,
+    stderr: output.stderr
+  };
+}
+
+function parse_protocol(output) {
+  if (unix_host !== 0) { return parse_filtered_protocol(output.stdout); }
+  return JSON.parse(("" + output.stdout + output.stderr).trim());
+}
+
 function wait_protocol(context, cli, selector_arguments, endpoint, address, instance, workspace, server_child) {
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
     const arguments = [];
     for (const a of selector_arguments) { arguments.push("" + a); }
     arguments.push("protocol-info");
     arguments.push("--running");
-    const output = probe(context, cli, arguments, endpoint, address, instance, workspace);
+    const output = probe_protocol(context, cli, arguments, endpoint, address, instance, workspace, 2000);
     if (output.success !== 0) {
-      const parsed = JSON.parse(("" + output.stdout + output.stderr).trim());
+      const parsed = parse_protocol(output);
       return {
         transport: "" + parsed.transport,
         endpoint: "" + parsed.endpoint,
@@ -219,11 +301,12 @@ function wait_exit(child, code) {
   throw code;
 }
 
-// rh compared `protocol.pid == child.id`. A door handle is a slot index, not
-// a PID, so the identity is asked of the host instead: the pid the server
-// reports must be a direct child of this script host (`ps -o ppid=`).
-function spawned_by_us(pid) {
-  return rh.process_parent_pid(pid) === process_id();
+// rh's `child.id`: the door answers a spawned child's OS pid from its
+// handle, before and after the wait.
+function child_pid(handle) {
+  const pid = process_pid(handle);
+  if (pid < 0) { throw "process_pid:" + tool_result(); }
+  return pid;
 }
 
 function normalize_row(row) {
@@ -555,7 +638,7 @@ try {
   );
   const expected_native_settings_suffix = rh.join("settings", native_scope_id + ".json");
   harness.require(
-    spawned_by_us(native_pid)
+    native_pid === child_pid(native_server)
       && native_instance_name === custom_instance
       && native_endpoint_shape !== 0
       && native_scope_id.startsWith("agt-v1-")
@@ -595,13 +678,13 @@ try {
       );
       set_env(alias_spec, "XDG_RUNTIME_DIR", alias_runtime);
       alias_spec.timeout_ms = 2000;
-      const alias_output = rh.command_spec(alias_spec);
+      const alias_output = run_filtered(alias_spec);
       record(context, alias_arguments, alias_output, alias_output.success === true ? 0 : 1);
       harness.require(
         alias_output.success === true,
         "native_ipc_macos_tmp_alias_unreachable:" + alias_output.stderr
       );
-      const alias_parsed = JSON.parse((alias_output.stdout + alias_output.stderr).trim());
+      const alias_parsed = parse_protocol(alias_output);
       harness.require(
         rh.int_of(alias_parsed.pid) === native_pid
           && alias_parsed.endpoint === native_endpoint
@@ -735,20 +818,26 @@ try {
     tcp_server
   );
   harness.require(
-    spawned_by_us(tcp_protocol.pid)
+    tcp_protocol.pid === child_pid(tcp_server)
       && tcp_protocol.endpoint === tcp_endpoint
       && tcp_protocol.transport === "tcp",
     "native_ipc_explicit_endpoint_precedence"
   );
-  const legacy_protocol = invoke_json(
+  const legacy_output = probe_protocol(
     context,
     cli,
     ["--address", context.address, "protocol-info", "--running"],
     dead_endpoint,
     "127.0.0.1:1",
     custom_instance,
-    tcp_workspace
+    tcp_workspace,
+    15000
   );
+  harness.require(
+    legacy_output.success !== 0,
+    "native_ipc_command_failed:[\"--address\",\"" + context.address + "\",\"protocol-info\",\"--running\"]:" + legacy_output.stderr
+  );
+  const legacy_protocol = parse_protocol(legacy_output);
   harness.require(
     rh.int_of(legacy_protocol.pid) === tcp_protocol.pid
       && ("" + legacy_protocol.endpoint) === tcp_endpoint
