@@ -959,4 +959,4 @@ try {
 if (succeeded && completion_failure === "") { harness.remove_run(context); }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
-return 0;
+return;

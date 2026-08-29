@@ -266,4 +266,4 @@ for (const p of retained_bundles(bundle_root)) {
 }
 harness.remove_run(outer_context);
 if (failure !== "") { throw failure; }
-return 0;
+return;

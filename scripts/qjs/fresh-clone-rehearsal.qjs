@@ -815,4 +815,4 @@ if (failure !== "") {
   throw failure;
 }
 print("PASS: fresh clone qualified, packaged, observed, and removed");
-return 0;
+return;

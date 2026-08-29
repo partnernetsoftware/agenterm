@@ -478,4 +478,4 @@ if (preflight_message === "") {
 const failure = aggregate_failure_message(failure_messages);
 write_matrix_reports(context, platform_text, evidence_states, emit_matrix);
 harness.complete(context, [], succeeded, failure);
-return 0;
+return;
