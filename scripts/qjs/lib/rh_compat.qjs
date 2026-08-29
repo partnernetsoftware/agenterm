@@ -86,6 +86,40 @@ export function create_dir_all(p) {
   door(fs_create_dir_all(p), "fs_create_dir_all " + p);
 }
 
+// The fail-on-error spellings the build libraries lean on (rh's
+// `std::fs::copy` / `rename` / `remove_file` / `remove_dir_all` threw), and
+// rh's `try_rename` / `try_copy`, which answered 1 on success and 0 otherwise.
+export function copy(from, to) {
+  door(fs_copy(from, to), "fs_copy " + from + " -> " + to);
+}
+
+export function rename(from, to) {
+  door(fs_rename(from, to), "fs_rename " + from + " -> " + to);
+}
+
+export function remove_file(p) {
+  door(fs_remove_file(p), "fs_remove_file " + p);
+}
+
+export function remove_dir_all(p) {
+  door(fs_remove_dir_all(p), "fs_remove_dir_all " + p);
+}
+
+export function try_rename(from, to) {
+  return fs_rename(from, to) === 0 ? 1 : 0;
+}
+
+export function try_copy(from, to) {
+  return fs_copy(from, to) === 0 ? 1 : 0;
+}
+
+// ---- crypto -------------------------------------------------------------
+
+// rh's `rh::crypto::sha256_file`: lower hex, 64 chars.
+export function sha256_file(p) {
+  return door(crypto_sha256_file(p), "crypto_sha256_file " + p);
+}
+
 // ---- json ---------------------------------------------------------------
 
 export function parse_file(p) {
@@ -153,4 +187,9 @@ export function sleep_ms(ms) {
 export function env_or(name, fallback) {
   if (env_has(name) !== 1) { return fallback; }
   return door(env_get(name), "env_get " + name);
+}
+
+// rh's `std::env::has`, as a boolean.
+export function has_env(name) {
+  return env_has(name) === 1;
 }

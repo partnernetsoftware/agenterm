@@ -1,0 +1,171 @@
+// build_identity.qjs -- shared build identity freeze (INT-only native pack).
+// Moved from rh on 2026-08-29; build-identity and build import it.
+//
+// A tool library: git, the hashes and the batch file all go through the
+// `tool.*` door, so importers run under `--profile tool`.
+//
+// Kept exactly from rh: the three git facts (exact root, HEAD, porcelain
+// status), the two input hashes, the environment shapes and the batch text.
+//
+// Changed, each on purpose:
+//   - rh parked each git command's stdout in `<repo>.build-identity.stdout.tmp`
+//     and read it back; the door's `command` answers stdout directly, so the
+//     side file (and its removal) is gone. Same text, one fewer write.
+//   - `write` returns 0 as before; failure is a thrown message, which the CLI
+//     reports as an uncaught throw.
+
+import * as rh from "lib/rh_compat";
+
+const HEX_DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7",
+                    "8", "9", "a", "b", "c", "d", "e", "f"];
+
+function is_lower_hex(value, expected_length) {
+  if (value.length !== expected_length) { return 0; }
+  // No character access in this engine (no `s[i]`, no `split("")`): delete
+  // every hex digit and ask whether anything survives.
+  let rest = value;
+  for (const digit of HEX_DIGITS) { rest = rest.replaceAll(digit, ""); }
+  return rest === "" ? 1 : 0;
+}
+
+export function is_git_commit(value) {
+  const n = value.length;
+  if (n === 40) { return is_lower_hex(value, 40); }
+  if (n === 64) { return is_lower_hex(value, 64); }
+  return 0;
+}
+
+function git_stdout(args, failure) {
+  const out = rh.command("git", args, { timeout_ms: 10000 });
+  rh.require(out.exit_code === 0, failure);
+  return out.stdout;
+}
+
+export function facts(repo_value, profile) {
+  const repo = rh.absolute(repo_value);
+  rh.require(
+    profile === "dev" || profile === "release-fast" || profile === "release",
+    "build_identity_profile_invalid:" + profile
+  );
+
+  const prefix = git_stdout(["-C", repo, "rev-parse", "--show-prefix"], "build-identity-git-root").trim();
+  rh.require(prefix === "", "build_identity_repo_not_exact_git_root:" + repo);
+
+  const commit = git_stdout(["-C", repo, "rev-parse", "--verify", "HEAD"], "build-identity-git-commit")
+    .trim()
+    .toLowerCase();
+  rh.require(is_git_commit(commit) === 1, "build_identity_git_commit_invalid");
+
+  const status = git_stdout(
+    ["-C", repo, "status", "--porcelain=v1", "--untracked-files=normal"],
+    "build-identity-git-status"
+  ).trim();
+  let dirty = 0;
+  if (status !== "") { dirty = 1; }
+
+  const cargo_lock = rh.absolute(rh.join(repo, "Cargo.lock"));
+  const artifact_manifest = rh.absolute(rh.join(repo, "scripts/artifacts.json"));
+  rh.require(rh.exists(cargo_lock), "build_identity_cargo_lock_missing");
+  rh.require(rh.exists(artifact_manifest), "build_identity_artifact_manifest_missing");
+
+  const cargo_lock_sha256 = rh.sha256_file(cargo_lock);
+  const artifact_manifest_sha256 = rh.sha256_file(artifact_manifest);
+  rh.require(is_lower_hex(cargo_lock_sha256, 64) === 1, "build_identity_cargo_lock_hash_invalid");
+  rh.require(
+    is_lower_hex(artifact_manifest_sha256, 64) === 1,
+    "build_identity_artifact_manifest_hash_invalid"
+  );
+
+  return {
+    schema_version: 1,
+    commit: commit,
+    dirty: dirty,
+    cargo_lock_sha256: cargo_lock_sha256,
+    artifact_manifest_sha256: artifact_manifest_sha256,
+    profile: profile
+  };
+}
+
+export function environment(identity) {
+  let dirty_label = "false";
+  if (identity.dirty) { dirty_label = "true"; }
+  const schema_version = 0 + identity.schema_version;
+  rh.require(schema_version === 1, "build_identity_schema_version");
+  return {
+    AGENTERM_BUILD_IDENTITY_VERSION: "" + schema_version,
+    AGENTERM_BUILD_GIT_COMMIT: identity.commit,
+    AGENTERM_BUILD_GIT_DIRTY: dirty_label,
+    AGENTERM_BUILD_CARGO_LOCK_SHA256: identity.cargo_lock_sha256,
+    AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256: identity.artifact_manifest_sha256,
+    AGENTERM_BUILD_PROFILE: identity.profile
+  };
+}
+
+export function environment_with_cargo_target(identity, cargo_target_dir) {
+  const target_dir = "" + cargo_target_dir;
+  const base = environment(identity);
+  return {
+    AGENTERM_BUILD_IDENTITY_VERSION: base.AGENTERM_BUILD_IDENTITY_VERSION,
+    AGENTERM_BUILD_GIT_COMMIT: base.AGENTERM_BUILD_GIT_COMMIT,
+    AGENTERM_BUILD_GIT_DIRTY: base.AGENTERM_BUILD_GIT_DIRTY,
+    AGENTERM_BUILD_CARGO_LOCK_SHA256: base.AGENTERM_BUILD_CARGO_LOCK_SHA256,
+    AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256: base.AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256,
+    AGENTERM_BUILD_PROFILE: base.AGENTERM_BUILD_PROFILE,
+    CARGO_TARGET_DIR: target_dir
+  };
+}
+
+export function environment_with_incremental(
+  identity,
+  stable_wrapper,
+  incremental_invocation,
+  cargo_output,
+  incremental_root,
+  incremental_state
+) {
+  const wrapper = "" + stable_wrapper;
+  const invocation = "" + incremental_invocation;
+  const target = "" + cargo_output;
+  const root = "" + incremental_root;
+  const state = "" + incremental_state;
+  const base = environment(identity);
+  return {
+    AGENTERM_BUILD_IDENTITY_VERSION: base.AGENTERM_BUILD_IDENTITY_VERSION,
+    AGENTERM_BUILD_GIT_COMMIT: base.AGENTERM_BUILD_GIT_COMMIT,
+    AGENTERM_BUILD_GIT_DIRTY: base.AGENTERM_BUILD_GIT_DIRTY,
+    AGENTERM_BUILD_CARGO_LOCK_SHA256: base.AGENTERM_BUILD_CARGO_LOCK_SHA256,
+    AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256: base.AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256,
+    AGENTERM_BUILD_PROFILE: base.AGENTERM_BUILD_PROFILE,
+    RUSTC_WRAPPER: wrapper,
+    AGENTERM_INTERNAL_RUSTC_WRAPPER: "agenterm-incremental-manifest-v1",
+    AGENTERM_INCREMENTAL_INVOCATION_ID: invocation,
+    AGENTERM_INCREMENTAL_TARGET: target,
+    AGENTERM_INCREMENTAL_ROOT: root,
+    AGENTERM_INCREMENTAL_STATE: state
+  };
+}
+
+export function batch_environment(identity) {
+  const env = environment(identity);
+  return "set \"AGENTERM_BUILD_IDENTITY_VERSION=" + env.AGENTERM_BUILD_IDENTITY_VERSION + "\"\n" +
+    "set \"AGENTERM_BUILD_GIT_COMMIT=" + env.AGENTERM_BUILD_GIT_COMMIT + "\"\n" +
+    "set \"AGENTERM_BUILD_GIT_DIRTY=" + env.AGENTERM_BUILD_GIT_DIRTY + "\"\n" +
+    "set \"AGENTERM_BUILD_CARGO_LOCK_SHA256=" + env.AGENTERM_BUILD_CARGO_LOCK_SHA256 + "\"\n" +
+    "set \"AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256=" + env.AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256 + "\"\n" +
+    "set \"AGENTERM_BUILD_PROFILE=" + env.AGENTERM_BUILD_PROFILE + "\"\n";
+}
+
+export function write(repo_value, profile, output_path_value) {
+  const identity = facts(repo_value, profile);
+  const batch = batch_environment(identity);
+  const output_path = rh.absolute(output_path_value);
+  rh.atomic_write(output_path, batch);
+
+  let dirty_label = "false";
+  if (identity.dirty) { dirty_label = "true"; }
+  print(
+    "Prepared build identity for " + identity.commit +
+    " (" + profile + ", dirty=" + dirty_label + ")"
+  );
+  return 0;
+}
