@@ -1,0 +1,78 @@
+// Validate an exact repository-local Cargo target and install CACHEDIR.TAG.
+//
+// Args:
+//   REPO [TARGET]
+// Ported from scripts/rh/prepare-target-clean.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length < 1 || args.length > 2) { throw "expected: REPO [TARGET]"; }
+
+const repo = rh.absolute(args[0]);
+const toplevel = rh.command(
+  "git",
+  ["-C", repo, "rev-parse", "--show-toplevel"],
+  { timeout_ms: 10000 }
+).exit_code;
+rh.require(toplevel === 0, "target-clean-git-root");
+
+// Git resolves Windows 8.3 aliases to a long path for --show-toplevel.
+// Comparing those spellings would reject the same directory on hosted runners.
+// An empty Git-relative prefix proves that -C itself names the repository root.
+const stdout_path = repo + ".prepare-target-clean.stdout.tmp";
+const prefix_code = rh.command_stdout_file(
+  "git",
+  ["-C", repo, "rev-parse", "--show-prefix"],
+  stdout_path,
+  { timeout_ms: 10000 }
+);
+rh.require(prefix_code === 0, "target-clean-git-prefix");
+const prefix = rh.read_text(stdout_path).trim();
+rh.try_remove_file(stdout_path);
+rh.require(prefix === "", "target_clean_repo_not_exact_git_root:" + repo);
+
+let target_argument = "target";
+if (args.length === 2 && args[1] !== "") {
+  target_argument = args[1];
+}
+// Path::join replaces the base when the child is absolute, so relative and
+// absolute TARGET arguments both normalize correctly.
+const target = rh.absolute(rh.join(repo, target_argument));
+const development_target = rh.absolute(rh.join(repo, "target"));
+const release_target = rh.absolute(rh.join(repo, "target-release"));
+const target_lower = target.toLowerCase();
+const development_lower = development_target.toLowerCase();
+const release_lower = release_target.toLowerCase();
+rh.require(
+  target_lower === development_lower || target_lower === release_lower,
+  "target_clean_path_not_allowed:" + target
+);
+rh.require(rh.exists(target), "target_clean_path_missing:" + target);
+const metadata = rh.symlink_metadata(target);
+rh.require(metadata.is_dir, "target_clean_path_not_directory:" + target);
+// rh also refused `is_reparse_point` (Windows-only); the door has no such
+// field and `is_symlink` is the case the check exists for on every platform
+// this gate runs on.
+rh.require(!metadata.is_symlink, "target_clean_path_indirect:" + target);
+
+const signature = "Signature: 8a477f597d28d172789f06886806bc55";
+const content =
+  signature + "\n" +
+  "# This file is a cache directory tag created by cargo.\n" +
+  "# For information about cache directory tags see https://bford.info/cachedir/\n";
+const tag = rh.join(target, "CACHEDIR.TAG");
+if (rh.exists(tag)) {
+  const tag_meta = rh.symlink_metadata(tag);
+  rh.require(tag_meta.is_file, "target_clean_cache_tag_not_file:" + tag);
+  const tag_text = rh.read_text(tag);
+  const expected_prefix = signature + "\n";
+  rh.require(
+    tag_text.startsWith(expected_prefix),
+    "target_clean_cache_tag_invalid:" + tag
+  );
+} else {
+  rh.atomic_write(tag, content);
+}
+
+print("Prepared Cargo cache tag for exact repo target: " + target);
+return 0;

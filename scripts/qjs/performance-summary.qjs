@@ -1,0 +1,222 @@
+// Validate three ordered AgenTerm Quick timing samples and emit one typed
+// cold-to-warm comparison. This describes the Quick lane only; it must not be
+// used alone to claim Candidate release/stress runner speedups.
+//
+// Args:
+//   OUTPUT_JSON RUNNER_CLASS CACHE_STRATEGY SAMPLE_1 SAMPLE_2 SAMPLE_3
+//     SCCACHE_1 SCCACHE_2 SCCACHE_3
+// Ported from scripts/rh/performance-summary.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+// rh's "last non-empty piece after splitting on `/`, then on `\`": kept
+// exactly, including that a path with no `\` yields the whole path from the
+// second pass.
+function last_piece(path) {
+  let name = "";
+  for (const part of path.split("/")) {
+    if (part !== "") { name = part; }
+  }
+  for (const part of path.split("\\")) {
+    if (part !== "") { name = part; }
+  }
+  return name;
+}
+
+const args = rh.args();
+if (args.length !== 9) { throw "performance_summary_arguments"; }
+
+const output = rh.absolute(args[0]);
+const runner_class = args[1];
+const cache_strategy = args[2];
+rh.require(
+  runner_class === "standard" || runner_class === "trial",
+  "performance_summary_runner"
+);
+rh.require(
+  cache_strategy === "target" || cache_strategy === "sccache" || cache_strategy === "none",
+  "performance_summary_cache"
+);
+
+const samples = [];
+const sccache_samples = [];
+let cold_total = 0;
+let warm_one = 0;
+let warm_two = 0;
+let source_commit = "";
+let workload_fingerprint = "";
+for (let index = 0; index < 3; index = index + 1) {
+  const sample_tag = "" + (index + 1);
+
+  const path = rh.absolute(args[index + 3]);
+  rh.require(
+    rh.exists(path) && rh.symlink_metadata(path).is_file,
+    "performance_summary_sample_missing:" + sample_tag
+  );
+  const report = JSON.parse(rh.read_text(path));
+  rh.require(
+    report.schema_version === 2
+      && report.kind === "agenterm-quality-timing"
+      && report.lane === "quick"
+      && report.profile === "quick"
+      && report.status === "passed"
+      && report.total_wall_ms >= 0
+      && (report.wall_time.state === "partial" || report.wall_time.state === "unavailable")
+      && report.wall_time.task_ms === report.total_wall_ms
+      && report.wall_time.accounted_ms >= report.total_wall_ms,
+    "performance_summary_sample_schema:" + sample_tag
+  );
+  if (source_commit === "") {
+    source_commit = "" + report.source.commit;
+    workload_fingerprint = "" + report.workload.fingerprint;
+  } else {
+    rh.require(
+      source_commit === report.source.commit
+        && workload_fingerprint === report.workload.fingerprint,
+      "performance_summary_identity:" + sample_tag
+    );
+  }
+
+  const timing_path = last_piece(path);
+  const accounted_ms = report.wall_time.accounted_ms;
+  const task_wall_ms = report.total_wall_ms;
+  const phase = index === 0 ? "cold" : "warm";
+  samples.push({
+    ordinal: index + 1,
+    phase: phase,
+    total_wall_ms: accounted_ms,
+    task_wall_ms: task_wall_ms,
+    bootstrap: report.bootstrap,
+    timing_path: timing_path
+  });
+  if (index === 0) { cold_total = accounted_ms; }
+  if (index === 1) { warm_one = accounted_ms; }
+  if (index === 2) { warm_two = accounted_ms; }
+
+  if (cache_strategy === "sccache") {
+    const stats_path = rh.absolute(args[index + 6]);
+    rh.require(
+      rh.exists(stats_path) && rh.symlink_metadata(stats_path).is_file,
+      "performance_summary_sccache_missing:" + sample_tag
+    );
+    const stats = JSON.parse(rh.read_text(stats_path));
+
+    // Live `sccache --show-stats --stats-format json` nests counters under
+    // `.stats`; a counter is either a bare integer or a per-language map.
+    const bucket = stats.stats;
+    const compile_requests = bucket.compile_requests;
+    let cache_hits = 0;
+    let cache_misses = 0;
+    let cache_errors = 0;
+    if (typeof bucket.cache_hits === "number") {
+      cache_hits = bucket.cache_hits;
+    } else if (rh.is_map(bucket.cache_hits)) {
+      cache_hits = bucket.cache_hits.Rust;
+    }
+    if (typeof bucket.cache_misses === "number") {
+      cache_misses = bucket.cache_misses;
+    } else if (rh.is_map(bucket.cache_misses)) {
+      cache_misses = bucket.cache_misses.Rust;
+    }
+    cache_errors = cache_errors + bucket.cache_read_errors;
+    cache_errors = cache_errors + bucket.cache_write_errors;
+
+    sccache_samples.push({
+      ordinal: index + 1,
+      compile_requests: compile_requests,
+      cache_hits: cache_hits,
+      cache_misses: cache_misses,
+      cache_errors: cache_errors,
+      raw_sha256: rh.sha256_file(stats_path),
+      stats_path: last_piece(stats_path)
+    });
+  }
+}
+rh.require(
+  source_commit.length === 40 && workload_fingerprint !== "",
+  "performance_summary_source"
+);
+
+let warm_min = warm_one;
+if (warm_two < warm_min) { warm_min = warm_two; }
+let warm_max = warm_one;
+if (warm_two > warm_max) { warm_max = warm_two; }
+// rh's `/` on integers truncates; no `Math.*` here, so int_div.
+const warm_median = rh.int_div(warm_one + warm_two, 2);
+
+let all_min = cold_total;
+if (warm_one < all_min) { all_min = warm_one; }
+if (warm_two < all_min) { all_min = warm_two; }
+let all_max = cold_total;
+if (warm_one > all_max) { all_max = warm_one; }
+if (warm_two > all_max) { all_max = warm_two; }
+
+let warm_speedup_percent = 0;
+if (cold_total > 0) {
+  warm_speedup_percent = rh.int_div((cold_total - warm_median) * 100, cold_total);
+}
+
+let cache_namespace_scope = "runner_local";
+if (cache_strategy === "sccache") {
+  cache_namespace_scope = "unique_per_workflow_run";
+}
+
+let sample_model = "three_same_runner_clean_target_samples";
+if (cache_strategy === "target") {
+  sample_model = "cold_then_same_runner_incremental_warm";
+} else if (cache_strategy === "sccache") {
+  sample_model = "cold_then_same_runner_sccache_warm_with_clean_target";
+}
+
+const sccache_block = {
+  available: cache_strategy === "sccache",
+  samples: sccache_samples
+};
+
+const summary = {
+  schema_version: 2,
+  kind: "agenterm-performance-experiment",
+  workload_scope: "quick",
+  runner_class: runner_class,
+  cache_strategy: cache_strategy,
+  source_commit: source_commit,
+  workload_fingerprint: workload_fingerprint,
+  cache_namespace_scope: cache_namespace_scope,
+  sample_model: sample_model,
+  samples: samples,
+  cold_total_wall_ms: cold_total,
+  warm_median_total_wall_ms: warm_median,
+  warm_min_total_wall_ms: warm_min,
+  warm_max_total_wall_ms: warm_max,
+  all_sample_min_total_wall_ms: all_min,
+  all_sample_max_total_wall_ms: all_max,
+  warm_speedup_percent: warm_speedup_percent,
+  sccache: sccache_block
+};
+rh.atomic_write(output, rh.stringify_pretty(summary) + "\n");
+
+const markdown =
+  "## AgenTerm CI performance experiment\n\n" +
+  "- Scope: **Quick lane only**\n" +
+  "- Runner: `" + runner_class + "`\n" +
+  "- Cache: `" + cache_strategy + "`\n" +
+  "- Cold / warm / warm: `" + cold_total + " / " + warm_one + " / " + warm_two + " ms`\n" +
+  "- Cold: **" + cold_total + " ms**\n" +
+  "- Warm median/range: **" + warm_median + " ms** (`" + warm_min + ".." + warm_max + "`)\n" +
+  "- Sample model: `" + sample_model + "`\n\n" +
+  "Runner-purchase decisions also require real Candidate release/stress " +
+  "timing evidence.\n";
+const summary_value = rh.env_or("GITHUB_STEP_SUMMARY", "");
+if (summary_value !== "") {
+  const summary_path = rh.absolute(summary_value);
+  let previous = "";
+  if (rh.exists(summary_path)) {
+    const summary_meta = rh.symlink_metadata(summary_path);
+    rh.require(summary_meta.len <= 1048576, "performance_summary_previous_too_large");
+    previous = rh.read_text(summary_path);
+  }
+  rh.atomic_write(summary_path, previous + markdown);
+} else {
+  print(markdown);
+}
+
+return 0;

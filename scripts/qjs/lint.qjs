@@ -1,0 +1,244 @@
+// Fail-fast repository lint without a PowerShell dependency.
+//
+// Args:
+//   REPO [WORKER] [all|static|rust|rh] [--json] [--self-test]
+// Ported from scripts/rh/lint.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+function has_conflict_marker(text) {
+  return text.startsWith("<<<<<<<")
+    || text.startsWith("=======")
+    || text.startsWith(">>>>>>>")
+    || text.includes("\n<<<<<<<")
+    || text.includes("\n=======")
+    || text.includes("\n>>>>>>>");
+}
+
+const args = rh.args();
+if (args.length < 1) { throw "expected: REPO [WORKER] [MODE] [OPTIONS]"; }
+
+const repo = rh.absolute(args[0]);
+let worker = rh.join(repo, "target/debug/agenterm");
+let mode = "all";
+let json = 0;
+let internal_selftest = 0;
+
+const rh_target = rh.join(repo, "target/debug/agenterm.exe");
+if (rh.exists(rh_target)
+    && rh.metadata(rh_target).is_file
+    && rh.metadata(rh_target).len > 0) {
+  worker = rh_target;
+}
+const rh_dist = rh.join(repo, "dist/agenterm.exe");
+if (rh.exists(rh_dist)
+    && rh.metadata(rh_dist).is_file
+    && rh.metadata(rh_dist).len > 0) {
+  worker = rh_dist;
+}
+
+let index = 1;
+while (index < args.length) {
+  const value = args[index];
+  if (value === "--json") {
+    json = 1;
+  } else if (value === "--self-test") {
+    internal_selftest = 1;
+  } else if (value === "all" || value === "static" || value === "rust" || value === "rh") {
+    mode = value;
+  } else if (value === "--worker") {
+    rh.require(index + 1 < args.length, "lint_worker_value_missing");
+    worker = rh.absolute(args[index + 1]);
+    index = index + 1;
+  } else if (rh.exists(value)) {
+    worker = rh.absolute(value);
+  } else {
+    throw "lint_unknown_argument:" + value;
+  }
+  index = index + 1;
+}
+
+const stdout_path = repo + ".lint.stdout.tmp";
+const manifest_path = repo + ".lint-check-many.json";
+const started = rh.now_ms();
+
+// The checker verb. rh spelled it `worker rh check-many ...`; `agenterm rh`
+// is retired and the binary itself names `cli script check-many` as the
+// replacement. The flag list is rh's (all still accepted).
+function check_many_args(manifest) {
+  return [
+    "cli", "script", "check-many", "--manifest", manifest,
+    "--profile", "local",
+    "--project-root", repo,
+    "--timeout-ms", "10000",
+    "--max-operations", "1000000"
+  ];
+}
+const check_options = { cwd: repo, timeout_ms: 60000 };
+
+if (internal_selftest === 1) {
+  const bad_json = repo + ".lint-selftest-bad.json";
+  const conflict = repo + ".lint-selftest-conflict.md";
+  // rh's fixture was `.lint-selftest-bad.rh`; the checker now routes by
+  // extension and no longer knows `.rh`, so the broken script is a `.qjs`
+  // and the manifest carries the qjs kind -- otherwise "rejected" would be
+  // the checker refusing the manifest, not the broken source.
+  const bad_qjs = repo + ".lint-selftest-bad.qjs";
+  const selftest_manifest = repo + ".lint-selftest-check-many.json";
+  rh.write_text(bad_json, "{\"missing\":");
+  // GAP: rh also wrote `.lint-selftest-bad.md` as the bytes [255,254,253]
+  // (`std::fs::write_bytes`) and asserted the checker rejects invalid
+  // UTF-8. The door has no byte write and a JS string cannot carry those
+  // bytes, so that leg is not here. See the port report.
+  rh.write_text(conflict, "<<<<<<< ours\n=======\n>>>>>>> theirs\n");
+  rh.write_text(bad_qjs, "let broken = ;");
+
+  const conflict_text = rh.read_text(conflict);
+  rh.require(has_conflict_marker(conflict_text), "lint_selftest_did_not_reject_malformed_inputs");
+
+  rh.write_text(
+    selftest_manifest,
+    JSON.stringify({
+      schema_version: 1,
+      kind: "agenterm-qjs-check-manifest",
+      files: [bad_qjs]
+    }) + "\n"
+  );
+
+  const check_code = rh.command_stdout_file(worker, check_many_args(selftest_manifest), stdout_path, check_options);
+  rh.require(check_code !== 0, "lint_selftest_did_not_reject_malformed_inputs");
+
+  // Malformed JSON is proven rejected by OUR OWN binary: `check-many` reads
+  // its `--manifest` as JSON text, so handing it the bad fixture directly
+  // exercises agenterm's json parse path and must exit non-zero.
+  const bad_json_code = rh.command_stdout_file(worker, check_many_args(bad_json), stdout_path, check_options);
+  rh.require(bad_json_code !== 0, "lint_selftest_did_not_reject_malformed_inputs");
+
+  rh.try_remove_file(bad_json);
+  rh.try_remove_file(conflict);
+  rh.try_remove_file(bad_qjs);
+  rh.try_remove_file(selftest_manifest);
+} else {
+  if (mode === "all" || mode === "static") {
+    const code = rh.command_stdout_file(
+      "git",
+      ["-C", repo, "ls-files", "--", "*.json"],
+      stdout_path,
+      { cwd: repo, timeout_ms: 10000 }
+    );
+    rh.require(code === 0, "lint_git_ls_files");
+    const output = rh.read_text(stdout_path);
+    for (const source_line of output.split("\n")) {
+      const relative_path = source_line.trim();
+      if (relative_path === "") { continue; }
+      const path = rh.join(repo, relative_path);
+      if (!rh.exists(path)) { continue; }
+      if (!rh.metadata(path).is_file) { continue; }
+      rh.parse_file(path);
+    }
+
+    const text_code = rh.command_stdout_file(
+      "git",
+      [
+        "-C", repo, "ls-files", "--",
+        "*.rs", "*.toml", "*.rh", "*.rhai", "*.json", "*.md", "*.html",
+        "*.yml", "*.yaml", "*.sh", "*.bat", "*.cmd"
+      ],
+      stdout_path,
+      { cwd: repo, timeout_ms: 10000 }
+    );
+    rh.require(text_code === 0, "lint_git_ls_files");
+    const text_output = rh.read_text(stdout_path);
+    for (const source_line of text_output.split("\n")) {
+      const relative_path = source_line.trim();
+      if (relative_path === "") { continue; }
+      const path = rh.join(repo, relative_path);
+      if (!rh.exists(path)) { continue; }
+      if (!rh.metadata(path).is_file) { continue; }
+      const text = rh.read_text(path);
+      if (text.includes("\u0000")) {
+        throw "Tracked text hygiene errors:\n" + relative_path + ": embedded NUL byte";
+      }
+      if (has_conflict_marker(text)) {
+        throw "Tracked text hygiene errors:\n" + relative_path + ": unresolved merge-conflict marker";
+      }
+    }
+  }
+
+  if (mode === "all" || mode === "rust") {
+    const fmt_code = rh.command_stdout_file(
+      "cargo",
+      ["fmt", "--all", "--", "--check"],
+      stdout_path,
+      { cwd: repo, timeout_ms: 60000 }
+    );
+    if (fmt_code !== 0) {
+      throw "lint_rustfmt:\n" + rh.read_text(stdout_path);
+    }
+    const clippy_code = rh.command_stdout_file(
+      "cargo",
+      ["clippy", "--locked", "--all-targets", "--all-features", "--", "-D", "warnings"],
+      stdout_path,
+      { cwd: repo, timeout_ms: 60000 }
+    );
+    if (clippy_code !== 0) {
+      throw "lint_clippy:\n" + rh.read_text(stdout_path);
+    }
+  }
+
+  if (mode === "all" || mode === "rh") {
+    rh.require(
+      rh.exists(worker) && rh.metadata(worker).is_file,
+      "lint_worker_missing:" + worker
+    );
+    const manifest_code = rh.command_stdout_file(
+      "git",
+      ["-C", repo, "ls-files", "--", "scripts/rh/*.rh"],
+      stdout_path,
+      { cwd: repo, timeout_ms: 10000 }
+    );
+    rh.require(manifest_code === 0, "lint_rh_files_git");
+    const rh_files = [];
+    for (const source_line of rh.read_text(stdout_path).split("\n")) {
+      const relative_path = source_line.trim();
+      if (relative_path !== "") {
+        rh_files.push(relative_path);
+      }
+    }
+    rh.require(rh_files.length > 0, "lint_rh_files_empty");
+    rh.write_text(
+      manifest_path,
+      JSON.stringify({
+        schema_version: 1,
+        kind: "agenterm-rh-check-manifest",
+        files: rh_files
+      }) + "\n"
+    );
+
+    const check_code = rh.command_stdout_file(worker, check_many_args(manifest_path), stdout_path, check_options);
+    if (check_code !== 0) {
+      throw "Rh lint errors:\n" + rh.read_text(stdout_path);
+    }
+  }
+}
+
+rh.try_remove_file(stdout_path);
+rh.try_remove_file(manifest_path);
+
+const duration_ms = rh.now_ms() - started;
+let report_mode = mode;
+if (internal_selftest === 1) {
+  report_mode = "self-test";
+}
+const report = {
+  schema_version: 1,
+  ok: 1,
+  mode: report_mode,
+  duration_ms: duration_ms,
+  phases: []
+};
+if (json === 1) {
+  print(rh.stringify_pretty(report));
+} else {
+  print("PASS: repository lint (" + duration_ms + " ms)");
+}
+return 0;

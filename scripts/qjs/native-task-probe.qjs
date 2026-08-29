@@ -1,0 +1,20 @@
+// Named-task probe: a deterministic exit value computed from the arguments
+// and the repository's Cargo.toml.
+//
+// Args: ROOT
+// Ported from scripts/rh/native-task-probe.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+const root = args[0];
+const path = rh.join(root, "Cargo.toml");
+const present = rh.exists(path);
+const content = rh.read_text(path);
+const marker = content.includes("name = \"agenterm\"");
+const present_count = present ? 1 : 0;
+const marker_count = marker ? 1 : 0;
+let total = args.length + root.length + present_count + marker_count;
+for (let value = 1; value < 5; value = value + 1) {
+  total = total + value;
+}
+return total;

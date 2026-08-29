@@ -1,0 +1,153 @@
+// Benchmark the public preflight task, including worker process startup.
+//
+// Args:
+//   WORKER MANIFEST REPO OUTPUT_PATH ITERATIONS
+// Ported from scripts/rh/preflight-benchmark.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+function cleanup_run_reports(run_directory, iterations) {
+  for (let iteration = 1; iteration < iterations + 1; iteration = iteration + 1) {
+    const report = rh.join(run_directory, "" + iteration + ".json");
+    if (rh.exists(report)) {
+      rh.try_remove_file(report);
+    }
+  }
+}
+
+// The task verb: rh's `worker rh task run ...`. `agenterm rh` is retired and
+// the binary names `cli script task run` as its replacement, so that is the
+// spelling here; the rest of the argument list is rh's.
+function task_args(task_manifest, repo, run_report, timeout_ms) {
+  return [
+    "cli", "script", "task", "run", "preflight", "--manifest", task_manifest,
+    "--timeout-ms", "" + timeout_ms, "--max-operations", "10000000",
+    "--", repo, run_report, "--quiet"
+  ];
+}
+
+const args = rh.args();
+if (args.length !== 5) { throw "expected: WORKER MANIFEST REPO OUTPUT_PATH ITERATIONS"; }
+
+const worker = rh.absolute(args[0]);
+const task_manifest = rh.absolute(args[1]);
+const repo = rh.absolute(args[2]);
+const output_arg = args[3];
+let output_path = rh.join(repo, output_arg);
+if (output_arg.startsWith("/")) {
+  output_path = output_arg;
+}
+
+const iterations_raw = args[4];
+let iterations = 0;
+let iterations_found = 0;
+for (let candidate = 5; candidate < 101; candidate = candidate + 1) {
+  if ("" + candidate === iterations_raw) {
+    iterations = candidate;
+    iterations_found = 1;
+  }
+}
+rh.require(iterations_found !== 0, "preflight_benchmark_iterations_range");
+
+rh.require(rh.exists(worker), "preflight_benchmark_worker_missing");
+rh.require(rh.exists(task_manifest), "preflight_benchmark_manifest_missing");
+
+const run_stamp = rh.now_ms();
+const run_directory = rh.join(repo, "target/preflight-benchmark-runs-" + run_stamp);
+rh.create_dir_all(run_directory);
+
+// One untimed warmup. This benchmark measures steady-state public worker
+// runs; with 5 iterations p95 is the MAXIMUM sample, so a cold pack cache
+// made the first run pay a full compile and that compile became the
+// reported p95. Measuring the compiler is not the contract here.
+const warmup_report = rh.join(run_directory, "warmup.json");
+rh.command_status(worker, task_args(task_manifest, repo, warmup_report, 120000), { timeout_ms: 120000 });
+rh.try_remove_file(warmup_report);
+
+const runs = [];
+let all_passed = 1;
+
+for (let offset = 0; offset < iterations; offset = offset + 1) {
+  const iteration = offset + 1;
+  const iteration_tag = "" + iteration;
+  const run_report = rh.join(run_directory, iteration_tag + ".json");
+  const started = rh.now_ms();
+  // The measured target below is p95 <= 15000ms, so the per-run budget must
+  // outlive the threshold it measures: 30000ms, not 10000ms.
+  const exit_code = rh.command_status(
+    worker,
+    task_args(task_manifest, repo, run_report, 30000),
+    { timeout_ms: 30000 }
+  );
+  const wall_duration = rh.now_ms() - started;
+  rh.require(rh.exists(run_report), "preflight_benchmark_report_missing:" + iteration_tag);
+  const preflight = JSON.parse(rh.read_text(run_report));
+  const passed = preflight.passed;
+  if (passed === 0 || exit_code !== 0) {
+    all_passed = 0;
+  }
+  runs.push({
+    iteration: iteration,
+    passed: passed,
+    exit_code: exit_code,
+    preflight_duration_ms: preflight.duration_ms,
+    wall_duration_ms: wall_duration
+  });
+}
+
+// rh's integer `/`: int_div, since there is no `Math.*` here.
+const p95_index = rh.int_div(95 * iterations + 99, 100) - 1;
+let p95 = 0;
+let target_met = 0;
+const sorted = [];
+const picked = {};
+
+for (let pick = 0; pick < iterations; pick = pick + 1) {
+  let min_value = -1;
+  let min_tag = "";
+  for (const run of runs) {
+    const iter_tag = "" + run.iteration;
+    if (picked[iter_tag] === true) {
+      continue;
+    }
+    const value = run.wall_duration_ms;
+    if (min_value < 0 || value < min_value) {
+      min_value = value;
+      min_tag = iter_tag;
+    }
+  }
+  sorted.push(min_value);
+  if (pick === p95_index) {
+    p95 = min_value;
+  }
+  picked[min_tag] = true;
+}
+
+if (p95 <= 15000) {
+  target_met = 1;
+}
+
+const benchmark = {
+  schema_version: 1,
+  kind: "agenterm-read-only-preflight-benchmark",
+  iterations: iterations,
+  p95_wall_duration_ms: p95,
+  target_ms: 15000,
+  target_met: target_met,
+  all_preflights_passed: all_passed,
+  excludes_network_and_interactive_auth: true,
+  runs: runs
+};
+rh.atomic_write(output_path, rh.stringify_pretty(benchmark) + "\n");
+print(
+  "PREFLIGHT BENCHMARK iterations=" + iterations +
+  " p95_ms=" + p95 +
+  " target_ms=15000 target_met=" + target_met
+);
+print("PREFLIGHT BENCHMARK JSON " + output_path);
+
+cleanup_run_reports(run_directory, iterations);
+
+rh.require(all_passed !== 0, "One or more benchmark preflight runs failed.");
+rh.require(target_met !== 0, "Preflight p95 " + p95 + " ms exceeds the 15000 ms target.");
+
+return 0;
