@@ -477,15 +477,28 @@ fn the_string_length_claim_in_this_crates_own_copy() {
     assert_eq!(returns("return `a${1}b`.length;"), JsValue::Number(3.0));
 
     // "那是一条臂，不是原型链：其它属性仍然 trap，而且是故意不给 undefined"
-    for source in ["return \"ab\".trim;", "return \"ab\".toUpperCase;", "return (1).toFixed;"] {
+    // -- and since tinyvm d2e66b3 a String receiver's trap names the
+    // property. A Number receiver still traps bare: `unbox_object` has no
+    // key in hand there.
+    for (source, want) in [
+        ("return \"ab\".trim;", Some("trim")),
+        ("return \"ab\".toUpperCase;", Some("toUpperCase")),
+        ("return (1).toFixed;", None),
+    ] {
         let mut eng = engine();
         let err = eng
             .run_once(Guest::Qjs(source), None, "main", &[])
-            .expect_err("a String property this engine has no answer for must trap");
-        assert!(
-            matches!(err, QjswasmError::Trap { .. }),
-            "{source:?}: want a trap, got {err:?}"
-        );
+            .expect_err("a String property this engine has no answer for must stop the script");
+        match want {
+            Some(name) => assert!(
+                matches!(&err, QjswasmError::UnsupportedMethod(Some(n)) if n == name),
+                "{source:?}: want `{name}` named, got {err:?}"
+            ),
+            None => assert!(
+                matches!(err, QjswasmError::Trap { .. }),
+                "{source:?}: want a trap, got {err:?}"
+            ),
+        }
     }
 }
 
@@ -696,6 +709,26 @@ fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
 /// a reason. This test is the reason that trouble was worth taking: it pins
 /// that this crate spends the evidence instead of leaving it on the floor,
 /// which is what it did until now.
+/// A String property this engine lacks is named at the engine face. Until
+/// tinyvm d2e66b3 the guest trapped bare (or, if the program said `.length`
+/// somewhere, as a nameless capability boundary), and every migrated script
+/// that reached `slice` reported "guest trapped: unreachable executed".
+#[test]
+fn a_missing_string_method_is_named_at_the_engine_face() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(Guest::Qjs("let s = \"abc\"; return s.slice(0, 2);"), None, "main", &[])
+        .expect_err("a property this engine lacks stops the script");
+    assert!(
+        matches!(&err, QjswasmError::UnsupportedMethod(Some(name)) if name == "slice"),
+        "expected the property to be named, got {err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "this engine does not support `slice` on a String yet; the script reached it at run time"
+    );
+}
+
 #[test]
 fn an_uncaught_throw_is_reported_as_a_throw_and_not_as_a_trap() {
     let mut eng = engine();

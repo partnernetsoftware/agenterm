@@ -301,6 +301,16 @@ impl Slot {
                 Some(tinyvm_qjs::GuestFault::CapabilityBoundary) => {
                     return QjswasmError::CapabilityBoundary;
                 }
+                // The fifth reason, and the first that carries a name: the
+                // guest wrote the property's record where the thrown String
+                // goes, and the reader is gated on this very code.
+                Some(tinyvm_qjs::GuestFault::MissingStringMethod) => {
+                    let name = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_missing_string_method(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::UnsupportedMethod(name);
+                }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
                 // record a *fifth* reason at the same word. Falling through to
                 // `classify` stays the right default -- a reason this build

@@ -798,7 +798,10 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         &self,
         dir: &std::path::Path,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
-        Some(agenterm_qjswasm::corpus_scan::scan_directory(dir))
+        // Rooted at the corpus directory, so `import "lib/x"` resolves the
+        // way `run` resolves it for an entry in that directory.
+        let resolve = qjs_module_resolver(Some(dir));
+        Some(agenterm_qjswasm::corpus_scan::scan_directory_with(dir, &resolve))
     }
 
     /// A top-level `return`, whose value is the script's ECMA-262 completion

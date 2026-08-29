@@ -413,12 +413,10 @@ pub(crate) fn install(
             let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                 .map_err(|e| format!("process.status: the spec is not valid: {e}"))?;
             let timeout = spec.timeout_ms.map(Duration::from_millis);
-            let mut child = spawn_command(&spec)?;
-            // Not captured, so the pipes are closed at once rather than
-            // drained: a child that writes a lot to a pipe nobody reads would
-            // otherwise block on it.
-            drop(child.stdout.take());
-            drop(child.stderr.take());
+            // Not captured: spawned with null pipes, so a chatty child
+            // neither blocks on a pipe nobody reads nor dies of SIGPIPE on
+            // one that was dropped.
+            let mut child = spawn_command(&spec, false)?;
             let started = Instant::now();
             loop {
                 match child.try_wait() {
@@ -529,7 +527,7 @@ pub(crate) fn install(
         direct(&state, "process.spawn", || {
             let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                 .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
-            let child = spawn_command(&spec)?;
+            let child = spawn_command(&spec, true)?;
             let mut s = state.borrow_mut();
             s.children.push(Some(child));
             i32::try_from(s.children.len() - 1).map_err(|_| "process.spawn: too many children".to_string())
@@ -778,14 +776,20 @@ struct CommandSpec {
 /// that carries text.
 fn run_command(spec: CommandSpec, max_capture: usize) -> Result<String, String> {
     let timeout = spec.timeout_ms.map(Duration::from_millis);
-    let child = spawn_command(&spec)?;
+    let child = spawn_command(&spec, true)?;
     wait_child(child, timeout, max_capture)
 }
 
 /// Spawn per the spec with both streams piped and stdin fed on its own
 /// thread. Shared by `process.command` (which waits at once) and
 /// `process.spawn` (which hands back a handle).
-fn spawn_command(spec: &CommandSpec) -> Result<std::process::Child, String> {
+/// `capture` is whether the caller will read the child's stdout and stderr.
+/// `process.status` will not, and it used to spawn with pipes and drop them at
+/// once -- so a child that printed anything died of SIGPIPE and the door
+/// answered `-1` for `agenterm-cc --help` (wave-1 measured it). A caller that
+/// does not read gets `Stdio::null()`: the child writes into nothing and
+/// exits with its own status.
+fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Child, String> {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
@@ -806,8 +810,8 @@ fn spawn_command(spec: &CommandSpec) -> Result<std::process::Child, String> {
         } else {
             Stdio::null()
         })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdout(if capture { Stdio::piped() } else { Stdio::null() })
+        .stderr(if capture { Stdio::piped() } else { Stdio::null() });
 
     let mut child = command
         .spawn()

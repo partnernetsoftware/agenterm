@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "94237cb";
+pub const UPSTREAM_TINYVM_REV: &str = "d2e66b3";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -294,6 +294,19 @@ pub fn check_qjs_with(source: &str, budget: &Budget) -> Result<(), QjswasmError>
 /// in an [`Engine::with_tool_door`], so it is checked as one.
 pub fn check_qjs_tool_with(source: &str, budget: &Budget) -> Result<(), QjswasmError> {
     let bytes = compile_qjs_tool(source)?;
+    validate_wasm_tool_with(&bytes, budget)
+}
+
+/// [`check_qjs_tool_with`] for a script that may `import`: the resolver is
+/// the embedder's, as for [`compile_qjs_tool_with_modules`]. The corpus scan
+/// needs this shape -- without a resolver every entry that imports a library
+/// was "not ok" for a reason that had nothing to do with the entry.
+pub fn check_qjs_tool_with_modules(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+    budget: &Budget,
+) -> Result<(), QjswasmError> {
+    let bytes = compile_qjs_tool_with_modules(source, resolve)?;
     validate_wasm_tool_with(&bytes, budget)
 }
 
@@ -601,6 +614,13 @@ pub enum QjswasmError {
     /// clothes -- the engine refuses instead, and this is that refusal
     /// arriving with a name.
     CapabilityBoundary,
+    /// The script read a String property this engine does not have --
+    /// `"ab".slice`, say -- and the guest named it before stopping. An engine
+    /// boundary like [`CapabilityBoundary`](Self::CapabilityBoundary), reached
+    /// at run time because a receiver's type is a run-time fact; unlike it,
+    /// this one says which property. `None` only if the name could not be
+    /// read back, which no build of tinyvm-qjs since d2e66b3 produces.
+    UnsupportedMethod(Option<String>),
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -659,6 +679,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
             Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
             Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
+            Self::UnsupportedMethod(name) => f.debug_tuple("UnsupportedMethod").field(name).finish(),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -681,6 +702,13 @@ impl std::fmt::Display for QjswasmError {
             Self::UncaughtThrow(None) => {
                 write!(f, "the script threw a value and nothing caught it")
             }
+            Self::UnsupportedMethod(Some(name)) => write!(
+                f,
+                "this engine does not support `{name}` on a String yet; the script reached it at run time"
+            ),
+            Self::UnsupportedMethod(None) => f.write_str(
+                "this engine does not support a String property the script asked for, and could not read back which"
+            ),
             Self::CapabilityBoundary => write!(
                 f,
                 "the script reached something this engine does not have yet; \

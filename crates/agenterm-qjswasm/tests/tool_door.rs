@@ -203,6 +203,27 @@ fn fs_read_over_the_result_cap_is_a_refusal_not_a_prefix() {
 // process
 // =========================================================================
 
+/// `process.status` does not read the child's output, and it used to spawn
+/// with pipes and drop them at once: a child that printed anything died of
+/// SIGPIPE and the door answered `-1`. Wave-1 measured it on
+/// `agenterm-cc --help` (command: exit 0, status: -1). Null pipes now: a
+/// chatty child exits with its own status.
+#[cfg(unix)]
+#[test]
+fn process_status_of_a_chatty_child_is_its_own_exit_code() {
+    let out = run_tool(
+        r#"
+        let spec = JSON.stringify({
+            program: "sh",
+            args: ["-c", "yes | head -c 300000; exit 3"],
+            timeout_ms: 10000
+        });
+        return "" + process_status(spec);
+        "#,
+    );
+    assert_eq!(string_of(&out), "3", "{out:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn process_command_captures_stdout_stderr_and_the_exit_code() {

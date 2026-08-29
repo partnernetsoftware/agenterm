@@ -32,6 +32,38 @@ pub fn scan_directory(dir: &Path) -> Result<CorpusScanReport, String> {
     })
 }
 
+/// [`scan_directory`] for a corpus whose entries `import` libraries and
+/// call the tool door: each file is checked through the tool door's
+/// declarations (a scan asks "does this compile", not "may this run", and
+/// the tool set is the superset) with the embedder's resolver. The product
+/// passes a resolver rooted at `dir`, which is where the libraries sit.
+pub fn scan_directory_with(
+    dir: &Path,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<CorpusScanReport, String> {
+    let budget = crate::Budget::default();
+    agenterm_script_common::corpus_scan::scan_directory(dir, &["qjs"], |source, label| {
+        // A library is a file with a top-level `export`. Compiled as an entry
+        // it is refused -- correctly: nothing imports an entry -- so it is
+        // checked the way it is used, through a one-line importer resolved
+        // against the same root. `label` is the file's path as walked.
+        let specifier = std::path::Path::new(label)
+            .strip_prefix(dir)
+            .ok()
+            .map(|rel| rel.with_extension(""))
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"));
+        let is_library = source.lines().any(|line| line.starts_with("export "));
+        let checked = match (is_library, specifier) {
+            (true, Some(specifier)) => {
+                let importer = format!("import * as lib from \"{specifier}\"; return typeof lib;");
+                crate::check_qjs_tool_with_modules(&importer, resolve, &budget)
+            }
+            _ => crate::check_qjs_tool_with_modules(source, resolve, &budget),
+        };
+        checked.map_err(|e| e.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use agenterm_script_common::test_support::CorpusScanContract;
