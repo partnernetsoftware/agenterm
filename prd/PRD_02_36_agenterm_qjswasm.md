@@ -1287,6 +1287,7 @@ flowchart TD
 | A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 1/71，库 2/11**（2026-08-29）：`artifact_manifest`（13 个脚本 import）与 **`test_harness`（22 个脚本 import，16 个函数）**都已是可 import 的 `.qjs` 库，后者经 CLI 冒烟：`new_context → invoke_cli → emit_evidence → start/complete（强杀 1 子进程）→ remove_run` 全通。**门为此长了两截**：`fs.remove_dir_all/rename/copy` + `crypto.sha256_file` + `time.now_ms`；以及**子进程句柄** `process.spawn/state/kill/wait` + `time.sleep_ms`——先数了：**29/71 脚本需要长生命周期子进程，125 次 sleep**，`process.command` 一次性跑完的形状表达不了 | 每个门 `.qjs` 版通过原来那条 Rust 测试。**下一批可并行**：50/71 脚本不用句柄，按 import 的库分组互不冲突 |
 | ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
+| ~~A1.8~~ | ~~预算到客人、失败分类、throw 可读~~ **已落地（`2cde8b63`）** | `--max-operations` 此前**验过、审计过、然后没人读**：没有一个引擎读 `ScriptBudgets.operations`，qjswasm 一直按自己的 16M 跑。接上后它成了第一个执行者，协议默认从没人选过的 1M 改为引擎一直在用的 16M——`validate-artifact-manifest.qjs` 对 5 项清单要 1–2M 步，一执行就撞 1M；V1 装箱下一次循环迭代约 100 步。`ScriptEngineError` 从 `String` 变成带 `ScriptFailureCategory`：耗尽 = `limit`，未捕获 throw / trap = `script`，其余仍 `configuration`。上游 `94237cb` 把被 throw 的 String 指针写进 `FAULT_THROWN`，下游 `UncaughtThrow(Option<String>)`，门脚本的 `throw "name_invalid:x"` 到达操作者 | 三条都有 CLI 级测试：`the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit`、迁移测试断言 `exit_class:script` 与原因文本；qjswasm 包 180/0，lib 720/2（平台对），路由 11/0 |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |
 | ~~A3~~ | ~~下游既有失败逐条归因~~ **已归因（2026-08-29，rh 移出后 31 条）** | **五族，无一是本产品线代码缺陷**：`executor` ×11 = `agenterm-cu` 无障碍树，本机无可用显示；lua `stdlib` ×8 = `process_spawn: No such file or directory`，环境缺二进制；`platform::boundary_tests` ×2 = windows cfg 放错层，`3b63c87a` 引入；`script_cli_verb_parity` ×9 = **feature 条件**——带三个 feature 跑 **11/0**，默认 feature 的 workspace 跑不到引擎别名；vnc-rs doctest ×1 = 第三方 | 判据仍是失败**集合**逐名不变；带 feature 的 `--lib` + parity 是第二条口径，不可省 |
 | ~~A4~~ | ~~Status 行上门~~ **已上门（`bc1a22d5`）** | `the_prd_states_the_revision_this_build_pins`：读本文件版本链末尾的粗体「当前 pin」，与 `Cargo.toml` 的 tinyvm rev 比对；不一致则 `cargo test -p agenterm-qjswasm` 红 | 已闭合；抬 pin 时**同一提交**改版本链，否则门响 |
@@ -1526,6 +1527,9 @@ agenterm-qjswasm                                        [~]
 │   ├── 持久 Instance，逐调用新鲜 fuel                       [x]
 │   ├── trap 不回收槽（明确承诺，非意外）                     [x]
 │   ├── 预算耗尽自成一类（非 Trap）                           [x]
+│   │   ├── `--max-operations` 到达客人（= `Limits.max_steps`）    [x] 2cde8b63；此前只验不用，默认 1M→16M
+│   │   ├── 耗尽报 `exit_class=limit`，throw/trap 报 `script`     [x] 2cde8b63；此前一律 `configuration`
+│   │   └── 未捕获 throw 的 String 宿主可读并打印                 [x] 94237cb（上游指针）+ 2cde8b63（下游读）
 │   ├── 运行期堆耗尽 = Budget("max_memory_pages")            [x] 2026-08-25（问客人，不猜）
 │   │   └── 撑爆后的槽不自愈，但每次都报同一句话                [x] 已写进 Engine::call 文档
 │   ├── 桥 panic 被门接住 → Door，不外泄、不伪装成 status      [x] 2026-08-25
@@ -2290,10 +2294,31 @@ selection.`，而它验的是**纯函数**，不是**任何产品路径会调用
 
 ### 两件小的，但会一直咬人
 
-- **扩展名不选引擎。** `.qjs` 今天必须显式给 `AGENTERM_SCRIPT_BACKEND`。
-  `from_entry_path` 写了路由表，但生产里只被用来判断「传路径还是传内容」——
-  *所有引擎都一样*，不是 qjswasm 独有。要不要让扩展名直接选引擎，是跨引擎的产品决定。
+- ~~**扩展名不选引擎。**~~ **已选（2026-08-29）**：`ScriptBackend::resolve(label)`——显式环境
+  变量 > 扩展名 > 具名拒绝；`.qjs` 不用告诉就走 qjswasm，`tests/script_entry_extension_routing.rs`
+  11 条。留下的坑见下节：环境变量能压过扩展名，测试里谁 `set_var` 谁就改了别人的路由。
 - **验证口径是三条命令不是一条。** 见上文 §这个盲区已经咬过一次。
+
+### 预算与类别落地时照出来的五件事（2026-08-29）
+
+1. **一个字段出现三处不等于有一处在执行。** `operations` 在 help 文本里、在
+   `validate!` 里、在 audit 记录里——没有一个引擎读它。数「执行者」，别数「提及」。
+   接上的那一刻它才第一次有了含义，而含义（一步 = 一条 wasm 指令）是接上的那个
+   引擎给的。
+2. **「有损但非新损」是有期限的前提。** 设计 §2.2 把 `ScriptEngineError = String`
+   记成无害，理由是反正一切都归 `configuration`。预算一执行，「步数用完」报
+   `configuration` 就是把操作者指向错的修法。前提写在注释里，过期时注释不会自己响。
+3. **默认值要有人选过。** 1M 是谁定的？没人。它从未执行过，所以从未被质疑过。
+   第一个真实脚本（5 项清单，1–2M 步）在执行的第一分钟撞上它。改成 16M 不是调参，
+   是把「引擎一直在用的数」写回协议。
+4. **两把模块级锁 = 没锁。** `script_backend.rs` 与 `script_engine.rs` 各一把
+   `ENV_LOCK`，都只锁写者；`script_worker.rs` 的读者一把也不拿。`resolve` 让环境变量
+   压过扩展名之后，`unit.rh` 在并行跑里被邻居的 `set_var("lua")` 路由到 lua，一条
+   「必须拒绝」的测试看到了成功。单独跑永远过——这是「先单跑再归因」规则的反面：
+   单跑过了也不等于没 bug。
+5. **机器级上限会咬测试文件。** `GLOBAL_CONCURRENCY_LIMIT = 8`，cargo 每核一线程，
+   路由测试文件加到第 11 条时，第 9 个并发 CLI 被 `host_concurrency_limit` 拒掉——
+   失败的是哪一条看运气。文件级一把锁，一次一个 CLI，几秒跑完。
 
 ## Non-goals until 政委 orders otherwise
 

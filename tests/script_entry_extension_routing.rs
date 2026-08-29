@@ -476,6 +476,7 @@ fn the_first_migrated_task_script_validates_the_real_manifest() {
 /// default whatever the CLI said. The loop below costs ~100 steps per
 /// iteration under the V1 boxed representation, so 1000 iterations need
 /// ~100k steps: a 1000-step budget must refuse it and the default must not.
+#[cfg(feature = "script-qjswasm")]
 #[test]
 fn the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit() {
     let _slot = cli_slot();
