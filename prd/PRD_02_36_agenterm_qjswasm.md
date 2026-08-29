@@ -4,7 +4,7 @@ Status: **`[~]` 部分完成——见下面能力树的根，那个记号是本�
 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
 **152 passed / 0 failed** 在 main `9aef2995`；**176 passed / 0 failed** 在带 `tool.*` 门的
 `4a7f0ec3`（+7 lib、+17 `tests/tool_door.rs`）——两个数都是 2026-08-29 本次更新时跑出来的；
-上游 rev **`d2e66b3`**，即 `Cargo.lock` 里的 pin）；
+上游 rev **`6b9464a`**，即 `Cargo.lock` 里的 pin）；
 
 > **这一行以前停在 2026-08-28 / rev `0afc88a` / 153 passed，而 pin 已经走到
 > `ec67034`。** 记在这里而不是悄悄改掉：**一份 PRD 的第一行落后，是它整体可信度的
@@ -1304,7 +1304,7 @@ CLI 的、把桩的退出码当判决、把工具链当死因、把注释当规�
 | ~~A1.3~~ | ~~开 `tool.fs/process/env` 门~~ **已进 crate（`4a7f0ec3`），CLI 未接** | 门是 opt-in：`Engine::with_tool_door(budget)` / `compile_qjs_tool`；沙箱编译器与沙箱槽都按名拒 `tool.*`，拒绝语指出开关 | 13 条声明 / 14 个 import（`fs.exists/read_to_string/write/create_dir_all/remove_file/read_dir/metadata`、`process.command/id`、`env.get/has/cwd`、两趟 `tool_result`）；`Outcome.tool_calls` 记收据；沙箱路径**逐字节不变**（`return 1;` 9 765 B，同 sha256）；crate 152 → 176 测试，0 失败；**没做**：二进制读写、`symlink_metadata`、锁句柄、`stringify_pretty`，以及 **CLI 接线**（A1.6） |
 | ~~A1.4~~ | ~~`agenterm-rh` 移出本仓~~ **已移出（`08c51b2e` + `7e2b61dd`；快照 `partnernetsoftware/rh` `a22d224`，182 文件 blob 逐一相同）** | 政委改序：rh 先走 | `Cargo.lock` 零 `rhai`、零 `agenterm-rh`；`scripts/rh/` 不存在；默认构建二进制 6 907 664 → 5 230 384 B（**−24.3%**）；workspace 失败集 52 → 31，**新失败 0**（comm 逐名比对） |
 | A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
-| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 44/71，库 11/11**（2026-08-29 第一波全部合入）：lander 只合了判「成立」的 2 组（8 入口）；另 4 组的判决为「不成立」，但**每一组的证明命令都复现了**，不成立的是**披露**——`return 0` 在 stdout 尾部多印一行 `0`、`rh_compat.absolute(".")` 给 `<cwd>/.`、`stringify_pretty` 出紧凑 JSON、门的 1 MiB 结果上限——四条都是产品面的已知差异，不是脚本坏了。于是本轮由我合入 1/2/3/6（`dbbe10fe`…`933582af`），三处同名库冲突按「谁的 importer 已证明」取舍：`release_candidate` 取组 1（组 3 的无人 import）、`artifact_files` 取组 5（同四个导出，组 6 的两个 importer 用它编译通过）、`rh_compat` 取组 2 整份再追加组 6 的 4 个 fs 包装（37 导出，无重名）。**未证的 27 个入口**在各组报告里逐条有原因：要 Windows 产物 / 要 dist / 要任务表里不存在的任务 / 真输入撞 16M 步（现在 `--max-operations` 可抬到 100M）/ 需要 `slice` | 每个入口至少 `script check --profile tool` 过；`corpus-scan` 对 44 入口全 ok。**下一波**：19 个用 `test_harness` 句柄的门脚本 + 2 个无 import 的句柄脚本（wave 2）；以及把 27 个「未证」按原因分桶逐个补证 |
+| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 44/71，库 11/11**（2026-08-29 第一波全部合入）：lander 只合了判「成立」的 2 组（8 入口）；另 4 组的判决为「不成立」，但**每一组的证明命令都复现了**，不成立的是**披露**——`return 0` 在 stdout 尾部多印一行 `0`、`rh_compat.absolute(".")` 给 `<cwd>/.`、`stringify_pretty` 出紧凑 JSON、门的 1 MiB 结果上限——四条都是产品面的已知差异，不是脚本坏了。于是本轮由我合入 1/2/3/6（`dbbe10fe`…`933582af`），三处同名库冲突按「谁的 importer 已证明」取舍：`release_candidate` 取组 1（组 3 的无人 import）、`artifact_files` 取组 5（同四个导出，组 6 的两个 importer 用它编译通过）、`rh_compat` 取组 2 整份再追加组 6 的 4 个 fs 包装（37 导出，无重名）。**未证的 27 个入口**在各组报告里逐条有原因：要 Windows 产物 / 要 dist / 要任务表里不存在的任务 / 真输入撞 16M 步（现在 `--max-operations` 可抬到 100M）/ ~~需要 `slice`~~（已落地，上游 `6b9464a`；`bounded_record_text` 的截断路径经 CLI 验证） | 每个入口至少 `script check --profile tool` 过；`corpus-scan` 对 44 入口全 ok。**下一波**：19 个用 `test_harness` 句柄的门脚本 + 2 个无 import 的句柄脚本（wave 2）；以及把 27 个「未证」按原因分桶逐个补证 |
 | ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A1.8~~ | ~~预算到客人、失败分类、throw 可读~~ **已落地（`2cde8b63`）** | `--max-operations` 此前**验过、审计过、然后没人读**：没有一个引擎读 `ScriptBudgets.operations`，qjswasm 一直按自己的 16M 跑。接上后它成了第一个执行者，协议默认从没人选过的 1M 改为引擎一直在用的 16M——`validate-artifact-manifest.qjs` 对 5 项清单要 1–2M 步，一执行就撞 1M；V1 装箱下一次循环迭代约 100 步。`ScriptEngineError` 从 `String` 变成带 `ScriptFailureCategory`：耗尽 = `limit`，未捕获 throw / trap = `script`，其余仍 `configuration`。上游 `94237cb` 把被 throw 的 String 指针写进 `FAULT_THROWN`，下游 `UncaughtThrow(Option<String>)`，门脚本的 `throw "name_invalid:x"` 到达操作者 | 三条都有 CLI 级测试：`the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit`、迁移测试断言 `exit_class:script` 与原因文本；qjswasm 包 180/0，lib 720/2（平台对），路由 11/0 |
@@ -1397,7 +1397,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ `3a347be`（`Number`）→ `ec67034`（第四类 fault code）→ `94237cb`（未捕获 throw 的消息指针 `FAULT_THROWN` + `Object.keys` 折叠）→ **`d2e66b3`**（缺失的 String 属性报自己的名字：`FAULT_MISSING_STRING_METHOD`，当前 pin，2026-08-29）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ `3a347be`（`Number`）→ `ec67034`（第四类 fault code）→ `94237cb`（未捕获 throw 的消息指针 `FAULT_THROWN` + `Object.keys` 折叠）→ `d2e66b3`（缺失的 String 属性报自己的名字：`FAULT_MISSING_STRING_METHOD`）→ **`6b9464a`**（`String.prototype.slice`，码元位置，两种元数共用一个核心，当前 pin，2026-08-29）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。
@@ -1622,7 +1622,7 @@ agenterm-qjswasm                                        [~]
 │   │   ├── artifact_files 库 + 3 入口                           [~] 4549c8be 合入；artifact-verification 的探针要 Windows PE
 │   │   ├── 另 4 组 36 入口 + 4 库：证明复现、披露不足，本轮合入    [x] dbbe10fe…933582af；四条披露差异记在 A1.5
 │   │   ├── corpus-scan 认得 import 与工具门                        [x] 之前对每个带 import 的入口都报「no module resolver」
-│   │   └── 27 个未证入口按原因分桶补证                              [ ] Windows 产物 / dist / 任务表 / 步数 / slice
+│   │   └── 27 个未证入口按原因分桶补证                              [ ] Windows 产物 / dist / 任务表 / 步数（slice 已落地 6b9464a）
 │   │   ├── 合并 ≠ 合对：同名导出两次、自测钉死 CLI 旧句子        [x] 2a157706 修；见记忆宫殿末段
 │   │   ├── 合并后 workspace 1983 / 31，与基线逐名相同            [x] 零新增
 │   ├── 8 个 qualification 门 → .qjs，重新点亮 39 条门           [ ] bootstrap / CI 已指向不存在的任务
