@@ -1,0 +1,103 @@
+// artifact_manifest.qjs -- shared validation for the canonical local Windows
+// executable contract. The first library moved from rh (2026-08-29); 13 of the
+// 71 rh scripts imported it, which is why it went first.
+//
+// A tool script: it reads the manifest off disk through the `tool.*` door,
+// so it runs only under `--profile tool`. Everything else is plain JS.
+//
+// Differences from the rh original, each deliberate:
+//   - rh's `symlink_metadata(...).is_reparse_point` is Windows-only and the
+//     door has no such field; `is_symlink` covers the case the check exists
+//     for on every platform the gate runs on.
+//   - `require(cond, msg)` was rh's; here it is a `throw`, which `catch` sees
+//     and which the CLI reports as an uncaught throw with the message.
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function isArtifactName(name) {
+  if (name === "agenterm.exe" || name === "agenterm.com") { return true; }
+  if (!name.startsWith("agenterm-") || !name.endsWith(".exe")) { return false; }
+  if (name.includes("/") || name.includes("\\")) { return false; }
+  const role = name.replace("agenterm-", "").replace(".exe", "");
+  if (role === "") { return false; }
+  // "Every character is a-z", written without character access: this engine
+  // has neither `s[i]` nor `split("")` (the latter refuses on purpose -- it
+  // would have to produce lone surrogates for non-BMP text). Deleting each
+  // letter in turn and checking nothing survives asks the same question with
+  // the tools that exist, and costs 26 `replaceAll` calls on a string that
+  // is a few characters long.
+  const letters = ["a","b","c","d","e","f","g","h","i","j","k","l","m",
+                   "n","o","p","q","r","s","t","u","v","w","x","y","z"];
+  let rest = role;
+  for (const letter of letters) {
+    rest = rest.replaceAll(letter, "");
+  }
+  return rest === "";
+}
+
+function isLibraryName(name) {
+  return name === "agenterm.dll";
+}
+
+function readJson(path) {
+  require(fs_exists(path) === 1, "artifact_manifest_missing:" + path);
+  require(fs_metadata(path) === 0, "artifact_manifest_path_invalid:" + path);
+  const meta = JSON.parse(tool_result());
+  require(meta.is_file && !meta.is_symlink, "artifact_manifest_path_invalid:" + path);
+  require(fs_read_to_string(path) === 0, "artifact_manifest_unreadable:" + path);
+  return JSON.parse(tool_result());
+}
+
+export function validate(path) {
+  const manifest = readJson(path);
+  require(manifest.schema_version === 2, "artifact_manifest_schema_unsupported");
+  require(typeof manifest.executables === "object", "artifact_manifest_executables_invalid");
+  require(typeof manifest.libraries === "object", "artifact_manifest_libraries_invalid");
+
+  const names = {};
+  let executableCount = 0;
+  for (const entry of manifest.executables) {
+    executableCount = executableCount + 1;
+    const name = entry.name;
+    require(isArtifactName(name), "artifact_manifest_name_invalid:" + name);
+    require(names[name] === undefined, "artifact_manifest_name_duplicate:" + name);
+    names[name] = true;
+    require(entry.role.trim() !== "", "artifact_manifest_role_empty:" + name);
+    const subsystem = entry.pe_subsystem;
+    require(subsystem === 2 || subsystem === 3, "artifact_manifest_pe_subsystem_invalid:" + name);
+    require(entry.documentation_role.trim() !== "", "artifact_manifest_documentation_role_empty:" + name);
+    require(typeof entry.offline_probe === "object", "artifact_manifest_offline_probe_invalid:" + name);
+    if (subsystem === 2) {
+      const role = entry.role;
+      if (role === "control-center-gui" || role === "gui-cli" || role === "lightweight-terminal-host") {
+        require(entry.offline_probe.length > 0, "artifact_manifest_gui_probe_required:" + name);
+      } else {
+        require(entry.offline_probe.length === 0, "artifact_manifest_gui_probe_forbidden:" + name);
+      }
+    } else {
+      require(entry.offline_probe.length > 0, "artifact_manifest_console_probe_required:" + name);
+    }
+    for (const argument of entry.offline_probe) {
+      require(argument.trim() !== "", "artifact_manifest_probe_argument_empty:" + name);
+    }
+    require(entry.release_budget_bytes > 0, "artifact_manifest_release_budget_missing:" + name);
+  }
+  require(executableCount > 0, "artifact_manifest_executables_empty");
+
+  let libraryCount = 0;
+  for (const entry of manifest.libraries) {
+    libraryCount = libraryCount + 1;
+    const name = entry.name;
+    require(isLibraryName(name), "artifact_manifest_library_name_invalid:" + name);
+    require(names[name] === undefined, "artifact_manifest_name_duplicate:" + name);
+    names[name] = true;
+    require(entry.role.trim() !== "", "artifact_manifest_library_role_empty:" + name);
+    require(entry.kind === "dynamic-library", "artifact_manifest_library_kind_invalid:" + name);
+    require(entry.documentation_role.trim() !== "", "artifact_manifest_library_documentation_role_empty:" + name);
+    require(entry.release_budget_bytes > 0, "artifact_manifest_library_release_budget_missing:" + name);
+  }
+  require(libraryCount > 0, "artifact_manifest_libraries_empty");
+  return executableCount + libraryCount;
+}

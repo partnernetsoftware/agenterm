@@ -285,6 +285,24 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 ///   textual one is defeated by any of the three;
 /// * a file that is not there or is not UTF-8.
 #[cfg(feature = "script-qjswasm")]
+#[cfg(feature = "script-qjswasm")]
+/// The invocation's `-- ARGS...` as text, in order. Every CLI argument is
+/// text; a script that wants a number writes `Number(tool_result())` after
+/// `arg(n)`, which is the conversion ECMA-262 would apply and the one the
+/// `Number` fold exists for.
+fn qjs_arguments(arguments: Option<&Value>) -> Vec<String> {
+    arguments
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned).unwrap_or_else(|| item.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(feature = "script-qjswasm")]
 /// Compile through whichever door this invocation is allowed: the tool door
 /// when the profile says so, the sandbox otherwise. One function so `check`
 /// and `execute` cannot disagree about which language a script is checked
@@ -805,6 +823,20 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         } else {
             agenterm_qjswasm::Engine::new()
         };
+        // The CLI's `-- ARGS...` arrive as `options.arguments` (a JSON array
+        // of strings) and become the script's `$0`, `$1`, ... -- the only way
+        // a `.qjs` task entry can be told what to act on. `main`'s arity is
+        // fixed at compile time from the highest `$N` the script mentions, so
+        // a count mismatch is refused by the engine as a `Signature` error
+        // rather than padded with `undefined`: a script that reads `$2` and
+        // was given two arguments has a bug, and hiding it was the shape
+        // `rh::fail("expected: REPO PROFILE OUTPUT_PATH")` existed to prevent.
+        // Through the tool door, not the engine face: the face cannot carry a
+        // string into a guest (no door onto its allocator), so a task entry
+        // reads `arg_count()` / `arg(n)` instead of `$N`. A sandbox script
+        // has no arguments to read and no door to read them through, which
+        // is the right answer for a script that is not a task entry.
+        engine.set_tool_args(qjs_arguments(options.arguments.as_ref()));
         let outcome = engine
             .run_once(
                 agenterm_qjswasm::Guest::CompiledQjs(&wasm),

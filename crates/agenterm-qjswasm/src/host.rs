@@ -271,13 +271,12 @@ pub(crate) fn install(
     module: &mut tinyvm::WasmModule,
     budget: &Budget,
     bridge: Option<FleetBridgeFn>,
-    tool: bool,
+    tool: Option<Vec<String>>,
 ) -> Result<HostState, QjswasmError> {
-    check_declarations(module, tool)?;
-    let tool = if tool {
-        Some(tool::install(module, budget)?)
-    } else {
-        None
+    check_declarations(module, tool.is_some())?;
+    let tool = match tool {
+        Some(args) => Some(tool::install(module, budget, args)?),
+        None => None,
     };
 
     let pending = Rc::new(RefCell::new(Pending {
@@ -634,7 +633,7 @@ mod tests {
         bridge: Option<FleetBridgeFn>,
     ) -> (Result<Vec<Val>, WasmError>, HostState) {
         let mut module = load(wasm, budget);
-        let state = match install(&mut module, budget, bridge, false) {
+        let state = match install(&mut module, budget, bridge, None) {
             Ok(state) => state,
             Err(error) => panic!("door failed to install: {error}"),
         };
@@ -659,7 +658,7 @@ mod tests {
     fn install_error(wasm: &[u8]) -> QjswasmError {
         let budget = Budget::default();
         let mut module = load(wasm, &budget);
-        match install(&mut module, &budget, None, false) {
+        match install(&mut module, &budget, None, None) {
             Ok(_) => panic!("expected the door to refuse this guest"),
             Err(error) => error,
         }
@@ -1236,7 +1235,7 @@ mod tests {
         // And the same bytes load once the door is open.
         let budget = Budget::default();
         let mut module = load(&wasm, &budget);
-        install(&mut module, &budget, None, true).expect("the tool door binds it");
+        install(&mut module, &budget, None, Some(Vec::new())).expect("the tool door binds it");
     }
 
     /// Every tool declaration passes the load gate of a slot that opened the

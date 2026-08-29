@@ -375,3 +375,61 @@ fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The first task script moved from rh, run the way CI will run it.
+///
+/// `validate-artifact-manifest.qjs` imports `lib/artifact_manifest.qjs`
+/// (13 of the 71 rh scripts imported the rh original), takes its argument
+/// through the tool door -- `arg_count()` / `arg(0)` -- because the engine
+/// face cannot carry a string into a guest, and validates the real
+/// `scripts/artifacts.json`. The count it returns is the manifest's: four
+/// executables and one library.
+///
+/// A manifest with a bad name must fail by that name. The check that catches
+/// it is written without character access, because this engine has neither
+/// `s[i]` nor `split("")`; the library's comment says how.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn the_first_migrated_task_script_validates_the_real_manifest() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script = repo.join("scripts/qjs/validate-artifact-manifest.qjs");
+    let manifest = repo.join("scripts/artifacts.json");
+
+    let mut ok = Command::new(AGENTERM_BIN);
+    ok.args(["cli", "script", "run", "--profile", "tool"])
+        .arg(&script)
+        .arg("--")
+        .arg(&manifest)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = ok.output().expect("the CLI binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.trim() == "5",
+        "the real manifest has 4 executables + 1 library; stdout={stdout} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let dir = std::env::temp_dir().join(format!("agenterm-manifest-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let mut bad: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest).expect("read")).expect("json");
+    bad["executables"][0]["name"] = serde_json::json!("agenterm-x1.exe");
+    let bad_path = dir.join("bad.json");
+    std::fs::write(&bad_path, bad.to_string()).expect("fixture");
+
+    let mut refused = Command::new(AGENTERM_BIN);
+    refused
+        .args(["cli", "script", "run", "--profile", "tool"])
+        .arg(&script)
+        .arg("--")
+        .arg(&bad_path)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = refused.output().expect("the CLI binary runs");
+    assert!(
+        !out.status.success(),
+        "a digit in the role must be refused; stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

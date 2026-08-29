@@ -713,6 +713,10 @@ pub struct Engine {
     /// Whether slots here get the `tool.*` door. Set only by
     /// [`with_tool_door`](Self::with_tool_door), never by a guest.
     tool_door: bool,
+    /// What `arg_count()` / `arg(n)` answer inside a tool script. Set by the
+    /// embedder per invocation with [`set_tool_args`](Self::set_tool_args);
+    /// meaningless -- and unreachable -- without the tool door.
+    tool_args: Vec<String>,
     slots: Vec<Option<slot::Slot>>,
     /// This engine's tag, stamped into every [`SlotId`] it mints so another
     /// engine's id cannot address a slot here. Process-wide and monotonic --
@@ -742,6 +746,7 @@ impl Engine {
         Self {
             budget,
             tool_door: false,
+            tool_args: Vec::new(),
             slots: Vec::new(),
             id: NEXT_ENGINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             next_index: 0,
@@ -758,9 +763,17 @@ impl Engine {
     /// load time, naming the import. Every tool operation a call reaches is
     /// listed in [`Outcome::tool_calls`], so the caller that chose to open the
     /// door can also say what came through it.
+    /// What a tool script's `arg_count()` / `arg(n)` answer. Applies to slots
+    /// spawned after the call; a sandbox engine keeps the values and never
+    /// exposes them, because it has no door they could leave through.
+    pub fn set_tool_args(&mut self, args: Vec<String>) {
+        self.tool_args = args;
+    }
+
     pub fn with_tool_door(budget: Budget) -> Self {
         Self {
             tool_door: true,
+            tool_args: Vec::new(),
             ..Self::with_budget(budget)
         }
     }
@@ -801,7 +814,8 @@ impl Engine {
                 (&owned[..], slot::Convention::JsV1)
             }
         };
-        let slot = slot::Slot::load(bytes, &self.budget, bridge, convention, self.tool_door)?;
+        let tool = self.tool_door.then(|| self.tool_args.clone());
+        let slot = slot::Slot::load(bytes, &self.budget, bridge, convention, tool)?;
         let id = SlotId {
             engine: self.id,
             index: self.next_index,

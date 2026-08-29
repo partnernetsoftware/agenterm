@@ -1,0 +1,9 @@
+// Validate the canonical local Windows executable contract.
+//
+// Args: MANIFEST_PATH
+// Runs under `--profile tool`: it reads the manifest from disk, and it reads
+// its own argument through the same door.
+import * as manifest from "lib/artifact_manifest";
+if (arg_count() !== 1) { throw "expected: MANIFEST_PATH"; }
+if (arg(0) !== 0) { throw "arg: " + tool_result(); }
+return manifest.validate(tool_result());

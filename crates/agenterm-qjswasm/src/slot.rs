@@ -50,7 +50,7 @@ impl Slot {
         budget: &Budget,
         bridge: Option<FleetBridgeFn>,
         convention: Convention,
-        tool_door: bool,
+        tool_door: Option<Vec<String>>,
     ) -> Result<Self, QjswasmError> {
         let mut module = tinyvm::WasmModule::from_bytes_with(bytes, budget.limits)
             .map_err(QjswasmError::Load)?;

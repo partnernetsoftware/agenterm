@@ -97,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 14] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 16] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -110,6 +110,8 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 14] = [
     ("env.get", 2, 1),
     ("env.has", 2, 1),
     ("env.cwd", 0, 1),
+    ("arg_count", 0, 1),
+    ("arg", 1, 1),
     ("result_len", 0, 1),
     ("result", 2, 1),
 ];
@@ -155,6 +157,16 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("env.get", s(), HostResult::I32),
         decl("env.has", s(), HostResult::I32),
         decl("env.cwd", Vec::new(), HostResult::I32),
+        // The invocation's own arguments, through the same two-pass fetch.
+        // A tool script is a task entry -- `validate-artifact-manifest.qjs
+        // -- scripts/artifacts.json` -- and the engine face cannot carry a
+        // string *into* a guest (it has no door onto the guest allocator),
+        // so argv arrives the way every other host string does: `arg(n)`
+        // parks it, `tool_result()` collects it. `arg_count()` first, so a
+        // script can refuse a bad count by name instead of reading `$2` of
+        // two and finding `undefined`.
+        decl("arg_count", Vec::new(), HostResult::I32),
+        decl("arg", vec![HostParam::I32], HostResult::I32),
         HostFn {
             name: "tool_result".to_string(),
             module: DOOR.to_string(),
@@ -179,6 +191,9 @@ pub(crate) struct ToolState {
     /// A contained panic's message, for `slot.rs` to report as `Door`.
     fault: Option<String>,
     max_result: usize,
+    /// The invocation's arguments, set by the embedder before the script
+    /// runs. Read through `arg_count` / `arg`; never written by the guest.
+    args: Vec<String>,
 }
 
 impl ToolState {
@@ -195,12 +210,14 @@ impl ToolState {
 pub(crate) fn install(
     module: &mut tinyvm::WasmModule,
     budget: &Budget,
+    args: Vec<String>,
 ) -> Result<Rc<RefCell<ToolState>>, QjswasmError> {
     let shared = Rc::new(RefCell::new(ToolState {
         result: Vec::new(),
         calls: Vec::new(),
         fault: None,
         max_result: budget.max_bridge_result_bytes,
+        args,
     }));
 
     // ---- fs ---------------------------------------------------------------
@@ -343,6 +360,25 @@ pub(crate) fn install(
             std::env::current_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .map_err(|e| format!("env.cwd: {e}"))
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "arg_count", move |_args, _memory| {
+        let n = state.borrow().args.len();
+        Ok(vec![Val::I32(n as i32)])
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "arg", move |args, _memory| {
+        let index = arg(args, 0)?;
+        answer(&state, "arg", || {
+            let s = state.borrow();
+            usize::try_from(index)
+                .ok()
+                .and_then(|i| s.args.get(i))
+                .cloned()
+                .ok_or_else(|| format!("arg: index {index} out of range; arg_count() is {}", s.args.len()))
         })
     })?;
 
