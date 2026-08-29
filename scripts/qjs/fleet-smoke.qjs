@@ -320,7 +320,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   print("fleet.mux-frontend");
   print("fleet.tab-environment");
   print("fleet.upgrade-truth");
-  return 0;
+  return;
 }
 
 harness.require(

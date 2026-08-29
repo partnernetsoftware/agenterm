@@ -231,7 +231,7 @@ function retain_failure_snapshot(context, cli) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("ux.theme-settings");
-  return 0;
+  return;
 }
 
 harness.require(

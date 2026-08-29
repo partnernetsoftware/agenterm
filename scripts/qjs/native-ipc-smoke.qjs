@@ -350,7 +350,7 @@ function unix_mode(context, target) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("control.native-local-ipc");
-  return 0;
+  return;
 }
 
 harness.require(args.length >= 3, "expected: REPO SERVER_EXE CLI_EXE");

@@ -96,7 +96,7 @@ const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("startup.first-window-async-ready");
   print("ux.no-activate-launch");
-  return 0;
+  return;
 }
 
 harness.require(

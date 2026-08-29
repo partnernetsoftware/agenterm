@@ -824,7 +824,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   print("ux-parity.remote-ui.replaceable-client");
   print("ux-parity.remote-ui.selection");
   print("ux-parity.window-focus-contract");
-  return 0;
+  return;
 }
 
 harness.require(

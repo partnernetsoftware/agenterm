@@ -1,0 +1,569 @@
+// qualification.qjs -- versioned qualification manifest, result, timing,
+// provenance and receipt logic. Ported from scripts/rh/lib/qualification.rh
+// (710 lines, INT-only) on 2026-08-29; check.qjs imports it.
+//
+// A tool library: git, the hashes and the written documents all go through
+// the `tool.*` door, so importers run under `--profile tool`.
+//
+// Kept exactly from rh: every refusal code (`qualification_*`,
+// `quality_timing_*`), the manifest/result/receipt shapes, the timing
+// document (schema 2) and the gate-status transition rule (`not_run` -> one
+// terminal status, once).
+//
+// Changed, each on purpose:
+//   - rh's `null_json()` is JavaScript `null`; JSON.stringify writes it the
+//     same way and the timing consumers (timing-summary.qjs) read it back as
+//     null already.
+//   - `valid_id` walked the id one character at a time with `sub_string`;
+//     this engine has no character access, so the same rule is spelled as
+//     "nothing survives deleting the allowed characters" plus a check that
+//     no two separators touch. Same accept/reject set.
+//   - the workload fingerprint was rh's `rh::hash::fnv1a64(...)`, a signed
+//     int; here it is `rh_compat.fnv1a64_hex` of the same JSON, 16 hex
+//     digits. Same hash, spelled the way the product's PayloadFingerprint
+//     spells it; timing-summary only requires it non-empty.
+//   - `timing_finish` drops `output_path` / `started_at_unix_ms` from the
+//     written document by copying the object without them (no `delete`
+//     here) and hands back the live object unchanged, which is what rh's
+//     remove-write-restore amounted to.
+//   - `stringify_pretty` is compact JSON, as every other port writes it.
+
+import * as rh from "lib/rh_compat";
+import * as path from "lib/path";
+import * as bootstrap_timing from "lib/bootstrap_timing";
+
+function q_require(condition, code) {
+  if (!condition) { throw code; }
+}
+
+// Insertion sort by text, as rh's; no `splice` here, so an insert rebuilds
+// the array around the slot.
+export function sorted(values) {
+  let result = [];
+  for (const value of values) {
+    const text_value = "" + value;
+    let inserted = 0;
+    let index = 0;
+    while (index < result.length) {
+      const existing = "" + result[index];
+      if (text_value < existing) {
+        const rebuilt = [];
+        let i = 0;
+        while (i < index) { rebuilt.push(result[i]); i = i + 1; }
+        rebuilt.push(text_value);
+        while (i < result.length) { rebuilt.push(result[i]); i = i + 1; }
+        result = rebuilt;
+        inserted = 1;
+        break;
+      }
+      index = index + 1;
+    }
+    if (inserted === 0) { result.push(text_value); }
+  }
+  return result;
+}
+
+export function exact_values(left, right) {
+  const first = sorted(left);
+  const second = sorted(right);
+  if (first.length !== second.length) { return 0; }
+  let index = 0;
+  while (index < first.length) {
+    if (first[index] !== second[index]) { return 0; }
+    index = index + 1;
+  }
+  return 1;
+}
+
+function id_alphabet(allow_period) {
+  const alphabet = [];
+  for (const c of rh.LOWER) { alphabet.push(c); }
+  for (const c of rh.DIGITS) { alphabet.push(c); }
+  alphabet.push("-");
+  if (allow_period !== 0) { alphabet.push("."); }
+  return alphabet;
+}
+
+// Lower-case letters, digits and `-` (and `.` when allowed); never empty,
+// never starting or ending with a separator, never two separators in a row.
+export function valid_id(value, allow_period) {
+  const text_value = "" + value;
+  if (text_value === ""
+      || text_value.startsWith(".") || text_value.startsWith("-")
+      || text_value.endsWith(".") || text_value.endsWith("-")) {
+    return 0;
+  }
+  if (!rh.only_chars(text_value, id_alphabet(allow_period))) { return 0; }
+  if (text_value.includes("--")) { return 0; }
+  if (allow_period !== 0
+      && (text_value.includes("..") || text_value.includes(".-") || text_value.includes("-."))) {
+    return 0;
+  }
+  return 1;
+}
+
+export function sha256(p) {
+  q_require(
+    rh.exists(p) && rh.metadata(p).is_file,
+    "qualification_input_missing:" + p
+  );
+  return rh.sha256_file(p);
+}
+
+export function read_manifest(p) {
+  q_require(
+    rh.exists(p) && rh.metadata(p).is_file,
+    "qualification_manifest_missing:" + p
+  );
+  const manifest = rh.parse_file(p);
+  q_require(
+    rh.int_of(manifest.schema_version) === 1
+      && rh.int_of(manifest.receipt_schema_version) === 1,
+    "qualification_manifest_schema"
+  );
+  q_require(
+    rh.is_array(manifest.required_gates) && manifest.required_gates.length > 0,
+    "qualification_manifest_empty"
+  );
+  const gate_ids = {};
+  const evidence_ids = {};
+  for (const gate of manifest.required_gates) {
+    const gate_id = "" + gate.id;
+    q_require(
+      valid_id(gate_id, 0) !== 0 && gate_ids[gate_id] === undefined,
+      "qualification_gate_id:" + gate_id
+    );
+    gate_ids[gate_id] = true;
+    for (const id of gate.evidence) {
+      const evidence_id = "" + id;
+      q_require(
+        valid_id(evidence_id, 1) !== 0 && evidence_ids[evidence_id] === undefined,
+        "qualification_evidence_id:" + evidence_id
+      );
+      evidence_ids[evidence_id] = true;
+    }
+  }
+  return manifest;
+}
+
+export function new_context(manifest_path, release, stress_included) {
+  const p = rh.absolute(manifest_path);
+  return {
+    manifest: read_manifest(p),
+    manifest_path: p,
+    manifest_sha256: sha256(p),
+    release: release,
+    stress_included: stress_included,
+    started_at_utc: rh.rfc3339_from_ms(rh.now_ms()),
+    results: {},
+    process_observation: {
+      owned_commands: 0,
+      process_samples: 0,
+      automation_processes: [],
+      terminal_compatibility_payloads: []
+    }
+  };
+}
+
+export function add_process_observation(context, process_samples, observed_powershell, terminal_compatibility) {
+  const observation = context.process_observation;
+  observation.owned_commands = rh.int_of(observation.owned_commands) + 1;
+  observation.process_samples = rh.int_of(observation.process_samples) + process_samples;
+  for (const process of observed_powershell) {
+    const process_text = "" + process;
+    if (terminal_compatibility !== 0) {
+      if (!rh.array_has(observation.terminal_compatibility_payloads, process_text)) {
+        observation.terminal_compatibility_payloads.push(process_text);
+      }
+    } else if (!rh.array_has(observation.automation_processes, process_text)) {
+      observation.automation_processes.push(process_text);
+    }
+  }
+  return context;
+}
+
+export function assert_process_observation(context) {
+  q_require(
+    context.process_observation.owned_commands > 0
+      && context.process_observation.process_samples > 0,
+    "qualification_process_observation_missing"
+  );
+  q_require(
+    context.process_observation.automation_processes.length === 0,
+    "qualification_process_observation_powershell"
+  );
+  return 0;
+}
+
+export function gate_declared(manifest, gate_key) {
+  const key = "" + gate_key;
+  for (const gate of manifest.required_gates) {
+    if ("" + gate.id === key) { return 1; }
+  }
+  return 0;
+}
+
+export function evidence_from_output(output) {
+  const evidence = [];
+  for (const item of output) {
+    const line = ("" + item).trim();
+    if (line.startsWith("EVIDENCE ")) {
+      const id = line.slice(9);
+      if (valid_id(id, 1) !== 0) { evidence.push(id); }
+    }
+  }
+  return evidence;
+}
+
+export function add_result(context, gate_id, status, duration_ms, output) {
+  const status_text = "" + status;
+  const gate_key = "" + gate_id;
+  q_require(
+    status_text === "passed" || status_text === "failed" || status_text === "skipped",
+    "qualification_result_status:" + status_text
+  );
+  q_require(
+    context.results[gate_key] === undefined,
+    "qualification_result_duplicate:" + gate_key
+  );
+  q_require(
+    gate_declared(context.manifest, gate_key) !== 0,
+    "qualification_result_undeclared:" + gate_key
+  );
+  context.results[gate_key] = {
+    id: gate_key,
+    status: status_text,
+    duration_ms: duration_ms,
+    evidence: evidence_from_output(output)
+  };
+  return context;
+}
+
+// rh's `command_output`: a 10 s child in `cwd`, success required, trimmed
+// stdout answered. rh capped the capture at 256 KiB; the door's slot cap
+// (1 MiB) bounds it here.
+export function command_output(program, args, cwd, code) {
+  const output = rh.command(program, args, { cwd: "" + cwd, timeout_ms: 10000 });
+  q_require(output.success, "" + code + ":" + output.stdout + output.stderr);
+  return output.stdout.trim();
+}
+
+export function timing_source(repo) {
+  const head = command_output(
+    "git", ["rev-parse", "HEAD"], repo, "quality_timing_git_head"
+  ).toLowerCase();
+  q_require(head.length === 40, "quality_timing_git_head_invalid");
+  const status = command_output(
+    "git", ["status", "--porcelain", "--untracked-files=normal"], repo, "quality_timing_git_status"
+  );
+  return {
+    commit: head,
+    dirty: status !== "",
+    cargo_lock_sha256: sha256(path.join(repo, "Cargo.lock"))
+  };
+}
+
+export function timing_lane_allowed(lane_text) {
+  const lane = "" + lane_text;
+  if (lane === "quick" || lane === "ordinary" || lane === "candidate") { return 1; }
+  return 0;
+}
+
+export function timing_gate_status_allowed(status_text) {
+  const status = "" + status_text;
+  if (status === "passed" || status === "failed" || status === "skipped" || status === "not_run") {
+    return 1;
+  }
+  return 0;
+}
+
+export function new_timing(repo, manifest_path, output_path, lane, profile, workload, gate_ids) {
+  const lane_text = "" + lane;
+  const profile_text = "" + profile;
+  q_require(timing_lane_allowed(lane_text) !== 0, "quality_timing_lane");
+  q_require(profile_text !== "", "quality_timing_profile");
+  q_require(gate_ids.length > 0, "quality_timing_gates_empty");
+  const root = rh.absolute(repo);
+  const manifest = rh.absolute(manifest_path);
+  const ids = {};
+  const gates = [];
+  for (const raw_id of gate_ids) {
+    const gate_id = "" + raw_id;
+    q_require(
+      valid_id(gate_id, 0) !== 0 && ids[gate_id] === undefined,
+      "quality_timing_gate_id:" + gate_id
+    );
+    ids[gate_id] = true;
+    gates.push({ id: gate_id, status: "not_run", duration_ms: 0 });
+  }
+  const workload_identity = {
+    lane: lane_text,
+    profile: profile_text,
+    parameters: workload,
+    gate_manifest_sha256: sha256(manifest)
+  };
+  const started_at_unix_ms = rh.now_ms();
+  return {
+    schema_version: 2,
+    kind: "agenterm-quality-timing",
+    output_path: rh.absolute(output_path),
+    started_at_utc: rh.rfc3339_from_ms(started_at_unix_ms),
+    started_at_unix_ms: started_at_unix_ms,
+    completed_at_utc: null,
+    status: "running",
+    total_wall_ms: 0,
+    bootstrap: bootstrap_timing.facts(),
+    wall_time: null,
+    lane: lane_text,
+    profile: profile_text,
+    source: timing_source(root),
+    gate_manifest: {
+      path: "scripts/qualification-gates.json",
+      sha256: workload_identity.gate_manifest_sha256
+    },
+    workload: {
+      identity: workload_identity,
+      fingerprint: rh.fnv1a64_hex(JSON.stringify(workload_identity))
+    },
+    first_failure: null,
+    gates: gates
+  };
+}
+
+export function timing_set_gate(timing, gate_id, status, duration_ms, exit_code, timed_out) {
+  const status_text = "" + status;
+  const gate_key = "" + gate_id;
+  q_require(
+    timing_gate_status_allowed(status_text) !== 0,
+    "quality_timing_gate_status:" + status_text
+  );
+  q_require(duration_ms >= 0, "quality_timing_gate_duration");
+  let found = 0;
+  let match_index = 0;
+  let index = 0;
+  while (index < timing.gates.length) {
+    const gate_entry = timing.gates[index];
+    if ("" + gate_entry.id === gate_key) {
+      q_require(found === 0, "quality_timing_gate_duplicate:" + gate_key);
+      q_require(
+        "" + gate_entry.status === "not_run",
+        "quality_timing_gate_transition:" + gate_key
+      );
+      match_index = index;
+      found = 1;
+    }
+    index = index + 1;
+  }
+  q_require(found !== 0, "quality_timing_gate_undeclared:" + gate_key);
+  timing.gates[match_index].status = status_text;
+  timing.gates[match_index].duration_ms = duration_ms;
+  if (status_text === "failed" && timing.first_failure === null) {
+    timing.first_failure = {
+      kind: "gate",
+      gate_id: gate_key,
+      elapsed_ms: rh.now_ms() - timing.started_at_unix_ms,
+      exit_code: exit_code,
+      timed_out: timed_out
+    };
+  }
+  return timing;
+}
+
+export function timing_fail_stage(timing, stage_id) {
+  const stage_text = "" + stage_id;
+  q_require(valid_id(stage_text, 0) !== 0, "quality_timing_failure_stage:" + stage_text);
+  if (timing.first_failure === null) {
+    timing.first_failure = {
+      kind: "stage",
+      stage_id: stage_text,
+      elapsed_ms: rh.now_ms() - timing.started_at_unix_ms
+    };
+  }
+  return timing_finish(timing, "failed");
+}
+
+function without_keys(value, names) {
+  const out = {};
+  for (const key of Object.keys(value)) {
+    if (!rh.array_has(names, key)) { out[key] = value[key]; }
+  }
+  return out;
+}
+
+export function timing_finish(timing, status) {
+  const status_text = "" + status;
+  q_require(
+    status_text === "passed" || status_text === "failed",
+    "quality_timing_run_status:" + status_text
+  );
+  const total_wall_ms = rh.now_ms() - timing.started_at_unix_ms;
+  timing.status = status_text;
+  timing.completed_at_utc = rh.rfc3339_from_ms(rh.now_ms());
+  timing.total_wall_ms = total_wall_ms;
+  timing.wall_time = bootstrap_timing.wall_time(timing.bootstrap, total_wall_ms);
+  const output_path = timing.output_path;
+  rh.create_dir_all(path.parent(output_path));
+  rh.atomic_write(
+    output_path,
+    rh.stringify_pretty(without_keys(timing, ["output_path", "started_at_unix_ms"])) + "\n"
+  );
+  return timing;
+}
+
+export function assert_results(context) {
+  for (const gate of context.manifest.required_gates) {
+    const gate_id = "" + gate.id;
+    q_require(
+      context.results[gate_id] !== undefined,
+      "qualification_gate_missing:" + gate_id
+    );
+    const result = context.results[gate_id];
+    const result_status = "" + result.status;
+    q_require(
+      result_status === "passed",
+      "qualification_gate_not_passed:" + gate_id + ":" + result_status
+    );
+    const unique = {};
+    for (const id of result.evidence) {
+      const evidence_id = "" + id;
+      q_require(
+        unique[evidence_id] === undefined,
+        "qualification_evidence_duplicate:" + gate_id
+      );
+      unique[evidence_id] = true;
+    }
+    q_require(
+      exact_values(gate.evidence, result.evidence) !== 0,
+      "qualification_evidence_mismatch:" + gate_id
+    );
+  }
+  q_require(context.stress_included, "qualification_stress_required");
+  return 0;
+}
+
+// One named entry of `metadata.<list>`, or null; a second entry with the
+// same name is the duplicate refusal `code` names.
+function metadata_entry_named(entries, name, code) {
+  let found = null;
+  let count = 0;
+  for (const entry of entries) {
+    if ("" + entry.name === name) {
+      q_require(found === null, code + name);
+      found = entry;
+      count = count + 1;
+    }
+  }
+  return { entry: found, count: count };
+}
+
+export function provenance(repo, metadata_path, artifact_manifest_path, staged_directory, require_clean) {
+  const root = rh.absolute(repo);
+  const head = command_output(
+    "git", ["rev-parse", "HEAD"], root, "qualification_git_head"
+  ).toLowerCase();
+  q_require(head.length === 40, "qualification_git_head_invalid");
+  const metadata = rh.parse_file(metadata_path);
+  q_require(rh.int_of(metadata.schema_version) === 2, "qualification_metadata_schema");
+  q_require("" + metadata.git_commit === head, "qualification_metadata_commit");
+  q_require(
+    require_clean === 0 || metadata.git_dirty === 0 || metadata.git_dirty === false,
+    "qualification_metadata_dirty"
+  );
+  const cargo_hash = sha256(path.join(root, "Cargo.lock"));
+  q_require("" + metadata.cargo_lock_sha256 === cargo_hash, "qualification_cargo_lock_hash");
+  const artifact_hash = sha256(artifact_manifest_path);
+  q_require(
+    "" + metadata.artifact_manifest_sha256 === artifact_hash,
+    "qualification_artifact_manifest_hash"
+  );
+  const artifact_spec = rh.parse_file(artifact_manifest_path);
+  q_require(
+    rh.is_array(artifact_spec.executables) && artifact_spec.executables.length > 0,
+    "qualification_artifact_manifest_empty"
+  );
+  const names = {};
+  const artifacts = [];
+  for (const executable of artifact_spec.executables) {
+    const executable_name = "" + executable.name;
+    q_require(
+      names[executable_name] === undefined,
+      "qualification_artifact_duplicate:" + executable_name
+    );
+    names[executable_name] = true;
+    const hash = sha256(path.join(staged_directory, executable_name));
+    const named = metadata_entry_named(
+      metadata.executables, executable_name, "qualification_metadata_artifact_duplicate:"
+    );
+    q_require(
+      named.entry !== null && "" + named.entry.sha256 === hash,
+      "qualification_metadata_artifact_hash:" + executable_name
+    );
+    artifacts.push({ name: executable_name, sha256: hash });
+  }
+  const libraries = [];
+  const spec_libraries = rh.is_array(artifact_spec.libraries) ? artifact_spec.libraries : [];
+  for (const library of spec_libraries) {
+    const library_name = "" + library.name;
+    q_require(
+      names[library_name] === undefined,
+      "qualification_artifact_duplicate:" + library_name
+    );
+    names[library_name] = true;
+    const hash = sha256(path.join(staged_directory, library_name));
+    const metadata_libraries = rh.is_array(metadata.libraries) ? metadata.libraries : [];
+    const named = metadata_entry_named(
+      metadata_libraries, library_name, "qualification_metadata_library_duplicate:"
+    );
+    q_require(
+      named.entry !== null
+        && named.count === 1
+        && "" + named.entry.kind === "dynamic-library"
+        && "" + named.entry.sha256 === hash,
+      "qualification_metadata_library_hash:" + library_name
+    );
+    libraries.push({ name: library_name, kind: library.kind, sha256: hash });
+  }
+  return {
+    git_head: head,
+    source_dirty: metadata.git_dirty,
+    cargo_lock_sha256: cargo_hash,
+    artifact_manifest_sha256: artifact_hash,
+    sbom_sha256: sha256(path.join(staged_directory, "agenterm-sbom.spdx.json")),
+    executables: artifacts,
+    libraries: libraries
+  };
+}
+
+export function write_receipt(context, repo, output_path) {
+  assert_results(context);
+  assert_process_observation(context);
+  const root = rh.absolute(repo);
+  const receipt = {
+    schema_version: context.manifest.receipt_schema_version,
+    product: "AgenTerm",
+    completed_at_utc: rh.rfc3339_from_ms(rh.now_ms()),
+    started_at_utc: context.started_at_utc,
+    release: context.release,
+    stress_included: context.stress_included,
+    gate_manifest: {
+      path: "scripts/qualification-gates.json",
+      sha256: context.manifest_sha256
+    },
+    process_observation: context.process_observation,
+    provenance: provenance(
+      root,
+      path.join(root, "dist/agenterm.json"),
+      path.join(root, "scripts/artifacts.json"),
+      path.join(root, "dist"),
+      1
+    ),
+    gates: []
+  };
+  for (const gate of context.manifest.required_gates) {
+    receipt.gates.push(context.results["" + gate.id]);
+  }
+  const p = rh.absolute(output_path);
+  rh.create_dir_all(path.parent(p));
+  rh.atomic_write(p, rh.stringify_pretty(receipt) + "\n");
+  return p;
+}

@@ -416,7 +416,7 @@ function remove_native_runtime(runtime) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
-  return 0;
+  return;
 }
 
 harness.require(args.length >= 4, "expected: REPO CONTROL_CENTER_EXE SERVER_EXE CLI_EXE");

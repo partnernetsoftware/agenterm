@@ -1,0 +1,1177 @@
+// Repository quality, qualification, and receipt orchestration.
+//
+// Args:
+//   [REPO] [--quick] [--release] [--skip-smoke] [--include-stress]
+//     [--internal-qualification-dry-run] [--receipt PATH] [--target TARGET]
+//     [--timing PATH] [--only GATE[,GATE...]]
+//   [REPO] --list-evidence
+//   [REPO] --check-evidence
+//
+// REPO defaults to the current directory when the first argument is an
+// option (the rh task catalog passed `.`).
+//
+// Ported from scripts/rh/check.rh (2271 lines) on 2026-08-29; runs under
+// `--profile tool`. The gate order, budgets, refusal codes, timing document
+// and receipt are rh's. What changed, each on purpose:
+//
+//   - Nested gates. rh ran `WORKER rh task run NAME --manifest
+//     agenterm.tasks.json -- EXTRA...`; the task catalog left with rh, so
+//     `task()` below carries the catalog's fixed arguments for every task
+//     this driver names (the archived agenterm.tasks.json at 6a12d8f0^,
+//     `.` spelled as the absolute repo) and runs
+//     `WORKER cli script run --profile tool --timeout-ms N --max-operations
+//     100000000 REPO/scripts/qjs/ENTRY.qjs -- FIXED... EXTRA...` with the
+//     repo as the child's directory. No `--project-root`: measured
+//     2026-08-29 at a56afd0c, it makes `lib/rh_compat` unresolvable for the
+//     child (fixed on main by c538685d; the cwd spelling works on both).
+//   - The worker. rh required $AGENTERM_BOOTSTRAP_WORKER (bootstrap.sh sets
+//     it). It is still preferred; without it the driver uses
+//     REPO/target/debug/agenterm(.exe), so the lanes can be driven directly.
+//     Children that need the variable (build.qjs) get it from this driver.
+//   - Unix detection. rh read only $AGENTERM_BOOTSTRAP_PLATFORM; here an
+//     unset variable on a host whose $OS is not Windows_NT also counts as
+//     unix, so a direct run takes the same lane bootstrap.sh would.
+//   - Output capture. rh redirected each child's streams to
+//     target/qualification/scratch/command-N.{stdout,stderr} and read the
+//     files back. The door's capture refuses (not truncates) anything over
+//     its 1 MiB slot cap, and a cargo gate can exceed that, so on unix the
+//     child runs through `sh -c 'exec "$@" >OUT 2>ERR'` and the same files
+//     are read back: whole when at most 512 KiB, otherwise the last 64 KiB
+//     via the host's `tail` with the EVIDENCE lines recovered by `grep` so
+//     a long smoke transcript still qualifies. On Windows there is no such
+//     shell here; the door captures directly and a stream over the cap is a
+//     thrown refusal. GAP: the door op for this is a `stdout_path` /
+//     `stderr_path` on process.command.
+//   - The `rh-lint` gate (rh source lint) is gone with rh and with the
+//     gate manifest entry; `task-catalog` (`rh task check`) is
+//     `cli script task list --manifest agenterm.tasks.json`, the catalog
+//     verb the binary still has.
+//   - The evidence-declaration stage reports every stale or missing suite
+//     before failing, not only the first; `--check-evidence` runs that
+//     stage alone, and `--list-evidence` prints the manifest's declarations
+//     (`GATE EVIDENCE-ID` per line, data only, no worker).
+//   - `--only` restricts the quick lane to the named gates; the others stay
+//     `not_run` in timing.json. It is refused outside the quick lane.
+//   - The AOT typing wrappers (`wrap_*`, `map_*`, `pass_int`,
+//     `copy_string_list`, the `_proof` locals) are gone: they carried
+//     values across rh's native-pack boundary and do nothing here. The
+//     "Slowest completed gates" list, a typed no-op in rh, is real here.
+//
+// Kept as rh had it, including what it inherits: process sampling was
+// already a stub (no PowerShell observation, `process_samples` 0), so
+// `write_receipt` refuses with `qualification_process_observation_missing`
+// exactly as the rh driver would have; the full lane is Windows-shaped
+// (build.bat through cmd.exe, dist/agenterm.exe, %TEMP%) and is refused on
+// unix unless `--quick`.
+import * as rh from "lib/rh_compat";
+import * as path from "lib/path";
+import * as qualification from "lib/qualification";
+import * as build_identity from "lib/build_identity";
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function joined_text(values, separator) {
+  let result = "";
+  let first = true;
+  for (const value of values) {
+    if (!first) { result = result + separator; }
+    result = result + "" + value;
+    first = false;
+  }
+  return result;
+}
+
+function host_is_windows() {
+  return rh.env_or("OS", "") === "Windows_NT";
+}
+
+// ---- command specs --------------------------------------------------------
+
+function spec(program, arguments_list, timeout_ms, environment, allow_powershell) {
+  return {
+    program: "" + program,
+    arguments: arguments_list,
+    timeout_ms: rh.int_of(timeout_ms),
+    environment: environment,
+    allow_powershell: rh.int_of(allow_powershell)
+  };
+}
+
+function empty_environment() {
+  return {};
+}
+
+// The rh task catalog's fixed arguments for every task this driver names
+// (agenterm.tasks.json before 6a12d8f0), `.` spelled as the absolute repo
+// and the other relative paths joined onto it. Extras are appended after,
+// exactly as `rh task run NAME -- EXTRA...` did.
+function catalog_entry(repo, id) {
+  if (id === "lint") { return { entry: "lint", args: [repo] }; }
+  if (id === "client-build") { return { entry: "build", args: [repo, "--clients-only"] }; }
+  if (id === "prd-alignment") { return { entry: "prd-alignment", args: [repo, path.join(repo, "dist/agenterm")] }; }
+  if (id === "build-identity") { return { entry: "build-identity", args: [] }; }
+  if (id === "qualification-selftest") {
+    return { entry: "qualification-selftest", args: [repo, path.join(repo, "dist/agenterm.com")] };
+  }
+  if (id === "preflight") { return { entry: "preflight", args: [] }; }
+  if (id === "preflight-benchmark") { return { entry: "preflight-benchmark", args: [] }; }
+  if (id === "mcp-conformance") { return { entry: "mcp-conformance", args: [repo] }; }
+  if (id === "migration-audit") { return { entry: "powershell-migration-audit", args: [] }; }
+  if (id === "artifact-verification") { return { entry: "artifact-verification", args: [repo] }; }
+  if (id === "readme-examples") { return { entry: "readme-examples", args: [path.join(repo, "dist")] }; }
+  if (id === "verify-docs-site") { return { entry: "verify-docs-site", args: [path.join(repo, "docs")] }; }
+  if (id === "supply-chain") { return { entry: "supply-chain", args: [] }; }
+  if (id === "target-report") { return { entry: "target-report", args: [repo] }; }
+  if (id === "internal-version-policy") { return { entry: "internal-version-policy", args: [repo] }; }
+  if (id === "package-qualified-selftest") { return { entry: "package-qualified-selftest", args: [repo] }; }
+  if (id === "harness-cleanup-selftest") { return { entry: "harness-cleanup-selftest", args: [repo] }; }
+  if (id === "diagnostic-bundle-selftest") {
+    return {
+      entry: "diagnostic-bundle-selftest",
+      args: [repo, path.join(repo, "dist/agenterm.com"), path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.exe")]
+    };
+  }
+  if (id === "startup-smoke") {
+    return { entry: "startup-smoke", args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.com"), "1000"] };
+  }
+  if (id === "wake-smoke" || id === "cli-smoke" || id === "server-smoke"
+      || id === "theme-smoke" || id === "working-context-smoke" || id === "workbench-smoke"
+      || id === "remote-ui-smoke") {
+    return { entry: id, args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.com")] };
+  }
+  if (id === "native-ipc-smoke") {
+    return { entry: "native-ipc-smoke", args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.exe")] };
+  }
+  if (id === "native-ipc-compat-smoke") { return { entry: "native-ipc-compat-smoke", args: [repo] }; }
+  if (id === "remote-ui-upgrade-smoke") {
+    return {
+      entry: "remote-ui-upgrade-smoke",
+      args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "target/release-fast/agenterm.exe"), path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.com")]
+    };
+  }
+  if (id === "fleet-smoke") {
+    return { entry: "fleet-smoke", args: [repo, path.join(repo, "dist/agenterm.com"), "--skip-event-load"] };
+  }
+  if (id === "script-smoke") {
+    return { entry: "script-smoke", args: [repo, path.join(repo, "dist/agenterm.com"), path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.exe")] };
+  }
+  if (id === "control-center-smoke") {
+    return { entry: "control-center-smoke", args: [repo, path.join(repo, "dist/agenterm-cc.exe")] };
+  }
+  if (id === "cu-windows-smoke") {
+    return {
+      entry: "cu-windows-smoke",
+      args: [repo, path.join(repo, "dist/agenterm-cu.exe"), path.join(repo, "dist/agenterm.dll"), path.join(repo, "examples/c/agenterm_plain_window.c")]
+    };
+  }
+  throw "check_task_unknown:" + id;
+}
+
+// The `cli script run` argument list for a repository script: the spelling
+// every nested gate uses.
+function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
+  const arguments_list = [
+    "cli", "script", "run",
+    "--profile", "tool",
+    "--timeout-ms", "" + timeout_ms,
+    "--max-operations", "100000000",
+    path.join(repo, "scripts/qjs/" + entry + ".qjs"),
+    "--"
+  ];
+  for (const item of script_arguments) { arguments_list.push("" + item); }
+  return arguments_list;
+}
+
+// rh's `task(worker, manifest, id, timeout_ms, extra, environment,
+// allow_powershell)`: the catalog entry's script with its fixed arguments,
+// then the extras.
+function task(worker, repo, id, timeout_ms, extra, environment, allow_powershell) {
+  const entry = catalog_entry(repo, "" + id);
+  const script_arguments = [];
+  for (const item of entry.args) { script_arguments.push(item); }
+  for (const item of extra) { script_arguments.push("" + item); }
+  const deadline = rh.int_of(timeout_ms) + 10000;
+  return spec(
+    worker,
+    script_run_arguments(repo, entry.entry, rh.int_of(timeout_ms), script_arguments),
+    deadline,
+    environment,
+    allow_powershell
+  );
+}
+
+// rh's `direct_task`: the script by name with exactly the given arguments,
+// no catalog prefix.
+function direct_task(worker, repo, id, timeout_ms, script_arguments, environment, allow_powershell) {
+  const timeout_value = rh.int_of(timeout_ms);
+  return spec(
+    worker,
+    script_run_arguments(repo, "" + id, timeout_value, script_arguments),
+    timeout_value + 10000,
+    environment,
+    allow_powershell
+  );
+}
+
+function evidence_list_spec(worker, repo, gate_id) {
+  return direct_task(worker, repo, gate_id, 10000, ["--list-evidence"], empty_environment(), 0);
+}
+
+function cmd_build_bat_spec(repo, profile, timeout_ms, environment) {
+  const arguments_list = ["/d", "/c", path.join(repo, "build.bat")];
+  if ("" + profile !== "") { arguments_list.push("" + profile); }
+  return spec("cmd.exe", arguments_list, timeout_ms, environment, 0);
+}
+
+// rh's `rh task check --manifest`; the catalog verb this binary has.
+function task_catalog_spec(worker, repo) {
+  const arguments_list = ["cli", "script", "task", "list", "--manifest", path.join(repo, "agenterm.tasks.json")];
+  return spec(worker, arguments_list, 300000, empty_environment(), 0);
+}
+
+function cargo_fmt_all_check_spec(environment) {
+  return spec("cargo", ["fmt", "--all", "--", "--check"], 60000, environment, 0);
+}
+
+function cargo_fmt_check_spec(environment) {
+  return spec("cargo", ["fmt", "--", "--check"], 60000, environment, 0);
+}
+
+function cargo_preflight_selftest_spec(environment) {
+  // Building the rhai_migration integration test links the whole agenterm
+  // crate -- minutes on a cold CI target, not seconds.
+  return spec("cargo", [
+    "test", "--quiet", "--locked",
+    "--test", "rhai_migration",
+    "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
+    "--", "--nocapture"
+  ], 600000, environment, 0);
+}
+
+function cargo_clippy_all_spec(environment) {
+  // 60s only fit a fully warm cache; any crate edit forces a workspace
+  // re-lint that runs minutes on CI runners.
+  return spec("cargo", [
+    "clippy", "--quiet", "--locked", "--all-targets",
+    "--all-features", "--", "-D", "warnings"
+  ], 600000, environment, 0);
+}
+
+function cargo_unit_primary_spec(environment) {
+  // `-p agenterm-ui-core` is load-bearing: a dependency crate's own
+  // `#[cfg(test)]` modules are NOT built or run by `cargo test -p agenterm`.
+  // The skip list is rh's verbatim; the 900s budget tolerates a rebuild of
+  // every test target (timing.json still records the real duration).
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "--all-features",
+    "-p", "agenterm", "-p", "agenterm-ui-core", "--",
+    "--skip", "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
+    "--skip", "preflight_benchmark_task_measures_clean_public_worker_runs",
+    "--skip", "prd_alignment_task_matches_public_catalogs_and_fails_closed",
+    "--skip", "supply_chain_task_is_deterministic_and_covers_the_resolved_lock_graph",
+    "--skip", "quality_timing_is_complete_on_success_and_failure_and_renders_markdown",
+    "--skip", "rhai_working_context_smoke_is_private_ephemeral_and_orphan_free",
+    "--skip", "rhai_server_smoke_preserves_headless_authority_and_cleanup",
+    "--skip", "rhai_wake_smoke_preserves_concurrent_ipc_pty_and_expired_mutation",
+    "--skip", "rhai_startup_smoke_preserves_first_window_and_async_terminal_contract",
+    "--skip", "rhai_cli_smoke_preserves_public_control_ui_bridge_and_pty_contract",
+    "--skip", "rhai_fleet_smoke_preserves_discovery_event_launch_and_mux_contract",
+    "--skip", "rhai_remote_ui_smoke_preserves_replaceable_client_and_reconnect_contract",
+    "--skip", "rhai_script_smoke_preserves_unrestricted_runtime_and_supervisor_contract",
+    "--skip", "rhai_theme_smoke_preserves_native_rendering_pty_and_restart_contract",
+    "--skip", "rhai_workbench_smoke_preserves_physical_editing_and_compact_tree_contract",
+    "--skip", "rhai_diagnostic_bundles_are_bounded_private_and_orphan_free",
+    "--skip", "rhai_harness_cleanup_owns_only_registered_children",
+    "--skip", "migration_audit_rejects_operational_references_to_deleted_scripts",
+    "--skip", "rhai_qualification_contract_fails_closed_and_cleans_owned_scratch",
+    "--skip", "rhai_qualified_package_accepts_only_the_exact_receipt_bytes",
+    "--skip", "uses_bundled_pack",
+    "--skip", "uses_native_bundled_pack",
+    "--skip", "pack_builds",
+    "--skip", "native_pack_",
+    "--skip", "source_cache_is_stable_for_same_source",
+    "--skip", "script_engine_exec_parity_",
+    "--skip", "native_for_fixtures_qualify_with_expected_entry_values",
+    "--skip", "_executes_natively_without_interpreter",
+    "--skip", "native_pack_executes_without_interpreter"
+  ], 900000, environment, 0);
+}
+
+function cargo_unit_migration_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "--all-features",
+    "--test", "rhai_migration",
+    "quality_timing_is_complete_on_success_and_failure_and_renders_markdown",
+    "--", "--nocapture"
+  ], 300000, environment, 0);
+}
+
+function build_artifact_timeout_ms(release) {
+  return release !== 0 ? 600000 : 300000;
+}
+
+function build_artifact_profile(release) {
+  return release !== 0 ? "release" : "";
+}
+
+function smoke_timeout_ms(id) {
+  if (id === "script-smoke") {
+    // The suite waits up to 180s per HTTP fixture pack compile (two
+    // fixtures) plus the rest of the journey.
+    return 1200000;
+  }
+  if (id === "remote-ui-smoke" || id === "cli-smoke" || id === "fleet-smoke") {
+    return 600000;
+  }
+  return 300000;
+}
+
+// ---- execution ------------------------------------------------------------
+
+function stderr_powershell_notice(observed) {
+  return "\nrepository_automation_spawned_powershell:" + joined_text(observed, ",");
+}
+
+function stderr_timeout_notice(timeout_ms) {
+  return "\ngate_deadline_exceeded:" + timeout_ms;
+}
+
+function compose_execute_stderr(stderr, powershell_violation, observed_powershell, timed_out, timeout_ms) {
+  let stderr_text = "" + stderr;
+  if (powershell_violation) { stderr_text = stderr_text + stderr_powershell_notice(observed_powershell); }
+  if (timed_out) { stderr_text = stderr_text + stderr_timeout_notice(timeout_ms); }
+  return stderr_text;
+}
+
+const WHOLE_STREAM_LIMIT = 524288;
+const STREAM_TAIL_BYTES = 65536;
+
+// A captured stream from its scratch file: whole when it fits the door's
+// answer cap with room to spare, else its tail with a marker naming what
+// was left in the file.
+function read_stream(p) {
+  if (!rh.exists(p)) { return { text: "", truncated: false }; }
+  const length = rh.int_of(rh.metadata(p).len);
+  if (length <= WHOLE_STREAM_LIMIT) { return { text: rh.read_text(p), truncated: false }; }
+  if (host_is_windows()) {
+    return {
+      text: "<agenterm-check-output-omitted:" + length + " bytes, full text in " + p + ">\n",
+      truncated: true
+    };
+  }
+  const tail = rh.command("tail", ["-c", "" + STREAM_TAIL_BYTES, p], { timeout_ms: 10000 });
+  return {
+    text: "<agenterm-check-output-head-omitted:" + (length - STREAM_TAIL_BYTES)
+      + " bytes, full text in " + p + ">\n" + tail.stdout,
+    truncated: true
+  };
+}
+
+// The EVIDENCE lines of a stream too long to read whole, from the host.
+function evidence_lines_of_file(p) {
+  let out;
+  if (host_is_windows()) {
+    out = rh.command("findstr", ["/B", "/C:EVIDENCE ", p], { timeout_ms: 10000 });
+  } else {
+    out = rh.command("grep", ["^EVIDENCE ", p], { timeout_ms: 10000 });
+  }
+  const lines = [];
+  for (const line of out.stdout.split("\n")) {
+    if (line.trim() !== "") { lines.push(line.trim()); }
+  }
+  return lines;
+}
+
+function execute(command_spec, repo, scratch, sequence) {
+  require(command_spec.arguments.length > 0, "check_execute_argv_empty");
+  const timeout_ms = command_spec.timeout_ms;
+  const allow_powershell = command_spec.allow_powershell;
+  const seq_text = "" + rh.int_of(sequence);
+  // The scratch directory lives under target/, and gates are allowed to wipe
+  // target/ (`--release` runs build.bat, whose cleanup does exactly that), so
+  // whoever owns the directory has to guarantee it exists at the moment of
+  // use.
+  rh.create_dir_all(scratch);
+  const stdout_path = path.join(scratch, "command-" + seq_text + ".stdout");
+  const stderr_path = path.join(scratch, "command-" + seq_text + ".stderr");
+  rh.try_remove_file(stdout_path);
+  rh.try_remove_file(stderr_path);
+  const options = { cwd: "" + repo, timeout_ms: timeout_ms + 10000 };
+  if (Object.keys(command_spec.environment).length > 0) { options.env = command_spec.environment; }
+  let program = "" + command_spec.program;
+  let argv = [];
+  const redirected = !host_is_windows();
+  if (redirected) {
+    // The shell records nothing and then *becomes* the program, so the
+    // door's timeout kills the program itself.
+    argv = ["-c", "out=$1; err=$2; shift 2; exec \"$@\" >\"$out\" 2>\"$err\"", "sh", stdout_path, stderr_path, program];
+    program = "sh";
+  }
+  for (const item of command_spec.arguments) { argv.push("" + item); }
+  const started = rh.now_ms();
+  const result = rh.command(program, argv, options);
+  const duration = rh.now_ms() - started;
+  let stdout = { text: result.stdout, truncated: false };
+  let stderr = { text: result.stderr, truncated: false };
+  if (redirected) {
+    stdout = read_stream(stdout_path);
+    stderr = read_stream(stderr_path);
+  } else {
+    rh.atomic_write(stdout_path, result.stdout);
+    rh.atomic_write(stderr_path, result.stderr);
+  }
+  const timed_out = result.timed_out || duration > timeout_ms;
+  // Process sampling was already a stub in rh (no observation, no samples).
+  const observed_powershell = [];
+  const process_samples = 0;
+  const powershell_violation = observed_powershell.length > 0 && allow_powershell === 0;
+  return {
+    success: result.success && !powershell_violation && !timed_out,
+    exit_code: result.exit_code,
+    duration_ms: duration,
+    stdout: stdout.text,
+    stderr: compose_execute_stderr(stderr.text, powershell_violation, observed_powershell, timed_out, timeout_ms),
+    stdout_path: stdout_path,
+    stderr_path: stderr_path,
+    stdout_truncated: stdout.truncated,
+    timed_out: timed_out,
+    observed_powershell: observed_powershell,
+    process_samples: process_samples
+  };
+}
+
+// rh's `bounded_text`: the LAST `maximum` characters.
+function bounded_text(text, maximum) {
+  const value = "" + text;
+  if (value.length <= maximum) { return value; }
+  return value.slice(value.length - maximum);
+}
+
+function append_text_lines(target, text) {
+  for (const source_line of text.split("\n")) {
+    const line = source_line.trim();
+    if (line !== "") { target.push(line); }
+  }
+}
+
+function print_streams(result) {
+  if (result.stdout !== "") { print(result.stdout); }
+  if (result.stderr !== "") { print(result.stderr); }
+}
+
+function gate_failure(label, result) {
+  // Bound each stream separately: a single tail-bound over stdout+stderr let
+  // cargo's stderr noise evict the stdout failures section (the part that
+  // names the failing tests).
+  return label + " failed with exit code " + result.exit_code + "\n"
+    + bounded_text(result.stdout, 8192) + "\n" + bounded_text(result.stderr, 8192);
+}
+
+function run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output) {
+  const command_sequence = rh.int_of(sequence);
+  const result = execute(command_spec, repo, scratch, command_sequence);
+  qualification.add_process_observation(context, result.process_samples, [], command_spec.allow_powershell);
+  print_streams(result);
+  if (result.observed_powershell.length > 0 && command_spec.allow_powershell !== 0) {
+    print("OBSERVED explicit terminal compatibility payload: " + joined_text(result.observed_powershell, ","));
+  }
+  append_text_lines(all_output, result.stdout);
+  append_text_lines(all_output, result.stderr);
+  if (result.stdout_truncated) {
+    for (const line of evidence_lines_of_file(result.stdout_path)) { all_output.push(line); }
+  }
+  if (!result.success) {
+    const duration = rh.now_ms() - started;
+    qualification.timing_set_gate(timing, id, "failed", duration, result.exit_code, result.timed_out);
+    qualification.timing_finish(timing, "failed");
+    throw gate_failure(label, result);
+  }
+  return { context: context, timing: timing, sequence: command_sequence + 1 };
+}
+
+function run_gate(context, timing, id, label, command_spec, repo, scratch, sequence) {
+  print("\n==> " + label);
+  const started = rh.now_ms();
+  const all_output = [];
+  const step = run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output);
+  const duration = rh.now_ms() - started;
+  qualification.add_result(context, id, "passed", duration, all_output);
+  qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
+  print("PASS: " + label + " (" + duration + " ms)");
+  return { context: context, timing: timing, sequence: step.sequence };
+}
+
+function run_gate_two(context, timing, id, label, first_spec, second_spec, repo, scratch, sequence) {
+  print("\n==> " + label);
+  const started = rh.now_ms();
+  const all_output = [];
+  let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output);
+  step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output);
+  const duration = rh.now_ms() - started;
+  qualification.add_result(context, id, "passed", duration, all_output);
+  qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
+  print("PASS: " + label + " (" + duration + " ms)");
+  return { context: context, timing: timing, sequence: step.sequence };
+}
+
+function run_quick_gate(timing, id, label, command_spec, repo, scratch, sequence) {
+  print("\n==> " + label);
+  const started = rh.now_ms();
+  const result = execute(command_spec, repo, scratch, sequence);
+  print_streams(result);
+  if (!result.success) {
+    const duration = rh.now_ms() - started;
+    qualification.timing_set_gate(timing, id, "failed", duration, result.exit_code, result.timed_out);
+    qualification.timing_finish(timing, "failed");
+    throw gate_failure(label, result);
+  }
+  const duration = rh.now_ms() - started;
+  qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
+  print("PASS: " + label + " (" + duration + " ms)");
+  return { timing: timing, sequence: sequence + 1 };
+}
+
+function run_step(label, command_spec, repo, scratch, sequence) {
+  print("\n==> " + label);
+  const started = rh.now_ms();
+  const result = execute(command_spec, repo, scratch, sequence);
+  print_streams(result);
+  require(
+    result.success,
+    label + " failed with exit code " + result.exit_code + "\n"
+      + bounded_text(result.stdout + result.stderr, 16384)
+  );
+  print("PASS: " + label + " (" + (rh.now_ms() - started) + " ms)");
+  return sequence + 1;
+}
+
+// ---- resolution -----------------------------------------------------------
+
+function nonempty_file(p) {
+  return rh.exists(p) && rh.metadata(p).is_file && rh.int_of(rh.metadata(p).len) > 0;
+}
+
+function lint_cli_worker(fallback) {
+  if (rh.has_env("AGENTERM_BOOTSTRAP_RH_CLI")) {
+    const p = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_RH_CLI", ""));
+    if (nonempty_file(p)) { return p; }
+  }
+  return "" + fallback;
+}
+
+function first_nonempty_file(repo, first_relative, second_relative) {
+  const first_path = path.join(repo, first_relative);
+  if (nonempty_file(first_path)) { return first_path; }
+  const second_path = path.join(repo, second_relative);
+  if (nonempty_file(second_path)) { return second_path; }
+  return "";
+}
+
+function resolve_bootstrap_worker(repo) {
+  if (rh.has_env("AGENTERM_BOOTSTRAP_WORKER")) {
+    return rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
+  }
+  const built = first_nonempty_file(repo, "target/debug/agenterm.exe", "target/debug/agenterm");
+  require(built !== "", "check_bootstrap_worker_missing");
+  return built;
+}
+
+function compute_quick_native_bin_root(repo, quick_target) {
+  const target = "" + quick_target;
+  let base = path.join(repo, "target");
+  if (rh.has_env("CARGO_TARGET_DIR")) {
+    base = rh.absolute(rh.env_or("CARGO_TARGET_DIR", ""));
+  }
+  if (target !== "") { return path.join(path.join(base, target), "debug"); }
+  return path.join(base, "debug");
+}
+
+function resolve_task_cli(dist_agenterm, repo) {
+  if (dist_agenterm !== "") { return dist_agenterm; }
+  return first_nonempty_file(repo, "target/debug/agenterm.exe", "target/debug/agenterm");
+}
+
+function resolve_artifact_verification_mode(release) {
+  return release !== 0 ? "release" : "development";
+}
+
+function quick_prd_alignment_spec(unix_bootstrap, bootstrap_worker, repo, quick_native_bin_root) {
+  if (unix_bootstrap !== 0) {
+    return direct_task(
+      bootstrap_worker, repo, "prd-alignment", 10000,
+      [repo, path.join(quick_native_bin_root, "agenterm")],
+      empty_environment(), 0
+    );
+  }
+  return task(bootstrap_worker, repo, "prd-alignment", 10000, [], empty_environment(), 0);
+}
+
+// ---- evidence declarations -----------------------------------------------
+
+// Every gate that declares evidence has a suite whose `--list-evidence`
+// answer must equal the declaration. Answers one report per such gate and
+// the next sequence; `report_each` prints a line per gate. Fails closed
+// after the whole manifest has been compared, naming every problem.
+function assert_declarations(worker, repo, scratch, sequence, gate_manifest, report_each) {
+  let sequence_value = rh.int_of(sequence);
+  const problems = [];
+  for (const gate of gate_manifest.required_gates) {
+    if (gate.evidence.length === 0) { continue; }
+    const gate_id = "" + gate.id;
+    const suite_path = path.join(repo, "scripts/qjs/" + gate_id + ".qjs");
+    if (!rh.exists(suite_path)) {
+      problems.push("check_evidence_suite_missing:" + gate_id);
+      if (report_each) { print("EVIDENCE-DECLARATIONS " + gate_id + ": suite missing (" + suite_path + ")"); }
+      continue;
+    }
+    const result = execute(evidence_list_spec(worker, repo, gate_id), repo, scratch, sequence_value);
+    sequence_value = sequence_value + 1;
+    if (!result.success) {
+      problems.push("check_evidence_declaration_failed:" + gate_id + ":" + result.stderr);
+      if (report_each) { print("EVIDENCE-DECLARATIONS " + gate_id + ": --list-evidence failed"); }
+      continue;
+    }
+    const evidence = [];
+    append_text_lines(evidence, result.stdout);
+    if (qualification.exact_values(gate.evidence, evidence) === 0) {
+      problems.push("check_evidence_declaration_stale:" + gate_id);
+      if (report_each) {
+        print("EVIDENCE-DECLARATIONS " + gate_id + ": stale (manifest " + gate.evidence.length
+          + ", suite " + evidence.length + ": " + joined_text(evidence, " ") + ")");
+      }
+      continue;
+    }
+    if (report_each) { print("EVIDENCE-DECLARATIONS " + gate_id + ": ok (" + evidence.length + ")"); }
+  }
+  require(problems.length === 0, joined_text(problems, "\n"));
+  return sequence_value;
+}
+
+function freeze_identity(worker, repo, scratch, sequence) {
+  const identity_path = path.join(scratch, "build-identity.cmd");
+  const result = execute(
+    task(worker, repo, "build-identity", 10000, [repo, "dev", identity_path], empty_environment(), 0),
+    repo, scratch, sequence
+  );
+  require(result.success, "check_build_identity:" + result.stdout + result.stderr);
+  const identity_text = rh.read_text(identity_path);
+  let line_count = 0;
+  for (const source_line of identity_text.split("\n")) {
+    const line = source_line.trim();
+    if (line === "") { continue; }
+    require(
+      line.startsWith("set \"") && line.endsWith("\""),
+      "check_build_identity_line:" + line
+    );
+    const body = line.slice(5, line.length - 1);
+    require(body.split("=").length === 2, "check_build_identity_value:" + line);
+    line_count = line_count + 1;
+  }
+  require(line_count === 6, "check_build_identity_fields");
+  const environment = build_identity.environment(build_identity.facts(repo, "dev"));
+  return { environment: environment, sequence: sequence + 1 };
+}
+
+// The completed gates by duration, longest first (insertion sort; the
+// engine has no `sort`).
+function slowest_gates(timing) {
+  let ordered = [];
+  for (const gate of timing.gates) {
+    const status = "" + gate.status;
+    if (status !== "passed" && status !== "failed") { continue; }
+    const next = [];
+    let inserted = false;
+    for (const existing of ordered) {
+      if (!inserted && gate.duration_ms > existing.duration_ms) { next.push(gate); inserted = true; }
+      next.push(existing);
+    }
+    if (!inserted) { next.push(gate); }
+    ordered = next;
+  }
+  return ordered;
+}
+
+// The smoke gates in the order the full lane runs them (and skips them).
+function smoke_gate_ids() {
+  return [
+    "startup-smoke", "wake-smoke", "cli-smoke", "server-smoke",
+    "native-ipc-smoke", "native-ipc-compat-smoke", "remote-ui-smoke",
+    "remote-ui-upgrade-smoke", "fleet-smoke", "script-smoke", "theme-smoke",
+    "working-context-smoke", "workbench-smoke", "control-center-smoke",
+    "cu-windows-smoke"
+  ];
+}
+
+function copy_release_fast_fixture(repo, upgrade_fixture) {
+  rh.copy(path.join(repo, "target/release-fast/agenterm.exe"), upgrade_fixture);
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+let arg_index = 0;
+let repo = rh.cwd();
+if (args.length >= 1 && !args[0].startsWith("--")) {
+  repo = rh.absolute(args[0]);
+  arg_index = 1;
+}
+let quick = 0;
+let release = 0;
+let skip_smoke = 0;
+let include_stress = 0;
+let dry_run = 0;
+let list_evidence = 0;
+let check_evidence = 0;
+let quick_target = "";
+let only_gates = [];
+let receipt_path = path.join(repo, "target/qualification/receipt.json");
+let timing_path = path.join(repo, "target/qualification/timing.json");
+while (arg_index < args.length) {
+  const value = args[arg_index];
+  if (value === "--quick") {
+    quick = 1;
+  } else if (value === "--release") {
+    release = 1;
+  } else if (value === "--skip-smoke") {
+    skip_smoke = 1;
+  } else if (value === "--include-stress") {
+    include_stress = 1;
+  } else if (value === "--internal-qualification-dry-run") {
+    dry_run = 1;
+  } else if (value === "--list-evidence") {
+    list_evidence = 1;
+  } else if (value === "--check-evidence") {
+    check_evidence = 1;
+  } else if (value === "--receipt") {
+    require(arg_index + 1 < args.length, "check_receipt_value_missing");
+    receipt_path = rh.absolute(args[arg_index + 1]);
+    arg_index = arg_index + 1;
+  } else if (value === "--target") {
+    require(arg_index + 1 < args.length, "check_target_value_missing");
+    quick_target = args[arg_index + 1];
+    arg_index = arg_index + 1;
+  } else if (value === "--timing") {
+    require(arg_index + 1 < args.length, "check_timing_value_missing");
+    timing_path = rh.absolute(args[arg_index + 1]);
+    arg_index = arg_index + 1;
+  } else if (value === "--only") {
+    require(arg_index + 1 < args.length, "check_only_value_missing");
+    for (const piece of args[arg_index + 1].split(",")) {
+      const gate_id = piece.trim();
+      require(qualification.valid_id(gate_id, 0) !== 0, "check_only_gate_id:" + gate_id);
+      only_gates.push(gate_id);
+    }
+    arg_index = arg_index + 1;
+  } else {
+    throw "check_unknown_argument:" + value;
+  }
+  arg_index = arg_index + 1;
+}
+
+const gate_manifest_path = path.join(repo, "scripts/qualification-gates.json");
+
+if (list_evidence !== 0) {
+  // Data only: the manifest's declarations, one `GATE EVIDENCE-ID` per line.
+  const manifest = qualification.read_manifest(gate_manifest_path);
+  for (const gate of manifest.required_gates) {
+    for (const id of gate.evidence) { print("" + gate.id + " " + id); }
+  }
+  return;
+}
+
+require(quick_target === "" || quick !== 0, "check_target_only_for_quick");
+require(
+  quick === 0 || !(release !== 0 || skip_smoke !== 0 || include_stress !== 0 || dry_run !== 0),
+  "check_quick_option_conflict"
+);
+let unix_bootstrap = 0;
+if (rh.has_env("AGENTERM_BOOTSTRAP_PLATFORM")) {
+  if (rh.env_or("AGENTERM_BOOTSTRAP_PLATFORM", "") === "unix") { unix_bootstrap = 1; }
+} else if (!host_is_windows()) {
+  unix_bootstrap = 1;
+}
+if (unix_bootstrap !== 0 && quick === 0
+    && release === 0 && skip_smoke === 0 && include_stress === 0 && dry_run === 0
+    && check_evidence === 0) {
+  quick = 1;
+}
+require(only_gates.length === 0 || quick !== 0, "check_only_requires_quick");
+require(unix_bootstrap === 0 || quick !== 0 || check_evidence !== 0, "check_full_qualification_requires_windows");
+
+const bootstrap_worker = resolve_bootstrap_worker(repo);
+const lint_worker = lint_cli_worker(bootstrap_worker);
+const scratch = path.join(repo, "target/qualification/scratch");
+rh.create_dir_all(scratch);
+let sequence = 1;
+
+if (check_evidence !== 0) {
+  const manifest = qualification.read_manifest(gate_manifest_path);
+  const checked = assert_declarations(bootstrap_worker, repo, scratch, sequence, manifest, true);
+  print("PASS: evidence declarations (" + (checked - sequence) + " suites)");
+  return;
+}
+
+function selected(gate_id) {
+  return only_gates.length === 0 || rh.array_has(only_gates, gate_id);
+}
+
+if (dry_run !== 0) {
+  sequence = run_step(
+    "qualification fail-closed dry run",
+    task(bootstrap_worker, repo, "qualification-selftest", 20000, [], empty_environment(), 0),
+    repo, scratch, sequence
+  );
+  return;
+}
+
+rh.try_remove_file(timing_path);
+
+if (quick !== 0) {
+  const quick_started = rh.now_ms();
+  const quick_native_bin_root = compute_quick_native_bin_root(repo, quick_target);
+  const clippy_arguments = ["clippy", "--quiet", "--locked", "--all-targets", "--", "-D", "warnings"];
+  const unit_arguments = ["test", "--quiet", "--locked", "--lib"];
+  // dev, explicitly: build.qjs defaults to release-fast, but
+  // compute_quick_native_bin_root (and so prd-alignment's probe) addresses
+  // <root>/<triple>/debug.
+  const quick_client_build_args = ["dev"];
+  if (quick_target !== "") {
+    clippy_arguments.push("--target");
+    clippy_arguments.push(quick_target);
+    unit_arguments.push("--target");
+    unit_arguments.push(quick_target);
+    quick_client_build_args.push("--target");
+    quick_client_build_args.push(quick_target);
+  }
+  const quick_gate_ids = ["repo-lint", "rustfmt"];
+  if (unix_bootstrap !== 0) { quick_gate_ids.push("native-public-catalog-clients"); }
+  quick_gate_ids.push("prd-alignment");
+  quick_gate_ids.push("clippy");
+  quick_gate_ids.push("unit-tests");
+  for (const gate_id of only_gates) {
+    require(rh.array_has(quick_gate_ids, gate_id), "check_only_gate_not_in_lane:" + gate_id);
+  }
+  let timing = qualification.new_timing(
+    repo, gate_manifest_path, timing_path, "quick", "quick",
+    { unix_bootstrap: unix_bootstrap }, quick_gate_ids
+  );
+  let quick_gate;
+  if (selected("repo-lint")) {
+    quick_gate = run_quick_gate(
+      timing, "repo-lint", "repository static lint",
+      task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "static"], empty_environment(), 0),
+      repo, scratch, sequence
+    );
+    sequence = quick_gate.sequence;
+  } else {
+    print("SKIP: repository static lint (not selected)");
+  }
+  if (selected("rustfmt")) {
+    quick_gate = run_quick_gate(
+      timing, "rustfmt", "rustfmt", cargo_fmt_all_check_spec(empty_environment()),
+      repo, scratch, sequence
+    );
+    sequence = quick_gate.sequence;
+  } else {
+    print("SKIP: rustfmt (not selected)");
+  }
+  if (unix_bootstrap !== 0) {
+    if (selected("native-public-catalog-clients")) {
+      quick_gate = run_quick_gate(
+        timing, "native-public-catalog-clients", "native public catalog clients",
+        task(
+          bootstrap_worker, repo, "client-build", 600000, quick_client_build_args,
+          { AGENTERM_BOOTSTRAP_WORKER: bootstrap_worker }, 0
+        ),
+        repo, scratch, sequence
+      );
+      sequence = quick_gate.sequence;
+    } else {
+      print("SKIP: native public catalog clients (not selected)");
+    }
+  }
+  if (selected("prd-alignment")) {
+    quick_gate = run_quick_gate(
+      timing, "prd-alignment", "PRD capability alignment",
+      quick_prd_alignment_spec(unix_bootstrap, bootstrap_worker, repo, quick_native_bin_root),
+      repo, scratch, sequence
+    );
+    sequence = quick_gate.sequence;
+  } else {
+    print("SKIP: PRD capability alignment (not selected)");
+  }
+  let identity_environment = empty_environment();
+  if (selected("clippy") || selected("unit-tests")) {
+    try {
+      const identity = freeze_identity(bootstrap_worker, repo, scratch, sequence);
+      identity_environment = identity.environment;
+      sequence = identity.sequence;
+    } catch (error) {
+      qualification.timing_fail_stage(timing, "build-identity");
+      throw error;
+    }
+  }
+  if (selected("clippy")) {
+    quick_gate = run_quick_gate(
+      timing, "clippy", "all-target Clippy",
+      spec("cargo", clippy_arguments, 600000, identity_environment, 0),
+      repo, scratch, sequence
+    );
+    sequence = quick_gate.sequence;
+  } else {
+    print("SKIP: all-target Clippy (not selected)");
+  }
+  if (selected("unit-tests")) {
+    quick_gate = run_quick_gate(
+      timing, "unit-tests", "library unit tests",
+      spec("cargo", unit_arguments, 600000, identity_environment, 0),
+      repo, scratch, sequence
+    );
+    sequence = quick_gate.sequence;
+  } else {
+    print("SKIP: library unit tests (not selected)");
+  }
+  qualification.timing_finish(timing, "passed");
+  print("\nPASS: AgenTerm quick development gate (" + (rh.now_ms() - quick_started) + " ms)");
+  return;
+}
+
+// ---- full qualification lane -------------------------------------------------
+
+rh.try_remove_file(receipt_path);
+let context = qualification.new_context(gate_manifest_path, release, include_stress);
+let timing_profile = "full";
+if (release !== 0 && include_stress !== 0) {
+  timing_profile = "release-stress";
+} else if (skip_smoke !== 0) {
+  timing_profile = "skip-smoke";
+}
+const timing_kind = release !== 0 ? "candidate" : "ordinary";
+const smoke_included = skip_smoke !== 0 ? 0 : 1;
+const gate_manifest = context.manifest;
+const timing_gate_ids = [];
+for (const gate of gate_manifest.required_gates) { timing_gate_ids.push("" + gate.id); }
+let timing = qualification.new_timing(
+  repo, context.manifest_path, timing_path, timing_kind, timing_profile,
+  { release: release, stress_included: include_stress, smoke_included: smoke_included },
+  timing_gate_ids
+);
+if (release === 0) {
+  qualification.timing_set_gate(timing, "release-preflight", "skipped", 0, 0, false);
+  qualification.timing_set_gate(timing, "preflight-benchmark", "skipped", 0, 0, false);
+}
+if (skip_smoke !== 0) {
+  for (const id of smoke_gate_ids()) { qualification.timing_set_gate(timing, id, "skipped", 0, 0, false); }
+}
+const full_started = rh.now_ms();
+let gate = run_gate(
+  context, timing, "preflight-selftest", "read-only preflight self-test",
+  cargo_preflight_selftest_spec(empty_environment()), repo, scratch, sequence
+);
+sequence = gate.sequence;
+
+if (release !== 0) {
+  gate = run_gate(
+    context, timing, "release-preflight", "clean internal candidate preflight",
+    task(
+      bootstrap_worker, repo, "preflight", 10000,
+      [repo, path.join(repo, "target/preflight/preflight.json")],
+      empty_environment(), 0
+    ),
+    repo, scratch, sequence
+  );
+  sequence = gate.sequence;
+  // agenterm-net-research is no longer a release/Candidate gate (R3, v0.1.15).
+  gate = run_gate(
+    context, timing, "preflight-benchmark", "local preflight p95 benchmark",
+    task(
+      bootstrap_worker, repo, "preflight-benchmark",
+      // 5 iterations of a task whose own target is 15s each.
+      240000,
+      [bootstrap_worker, path.join(repo, "agenterm.tasks.json"), repo, path.join(repo, "target/preflight/benchmark.json"), "5"],
+      empty_environment(), 0
+    ),
+    repo, scratch, sequence
+  );
+  sequence = gate.sequence;
+}
+
+let lint_gate = run_gate_two(
+  context, timing, "repo-lint", "repository static lint",
+  task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "--self-test"], empty_environment(), 0),
+  task(bootstrap_worker, repo, "lint", 300000, [lint_worker, "static"], empty_environment(), 0),
+  repo, scratch, sequence
+);
+sequence = lint_gate.sequence;
+try {
+  sequence = assert_declarations(bootstrap_worker, repo, scratch, sequence, gate_manifest, false);
+} catch (error) {
+  qualification.timing_fail_stage(timing, "evidence-declarations");
+  throw error;
+}
+let rustfmt_gate = run_gate(
+  context, timing, "rustfmt", "rustfmt", cargo_fmt_check_spec(empty_environment()),
+  repo, scratch, sequence
+);
+sequence = rustfmt_gate.sequence;
+
+let build_environment = empty_environment();
+try {
+  const identity = freeze_identity(bootstrap_worker, repo, scratch, sequence);
+  build_environment = identity.environment;
+  sequence = identity.sequence;
+} catch (error) {
+  qualification.timing_fail_stage(timing, "build-identity");
+  throw error;
+}
+gate = run_gate(
+  context, timing, "clippy", "Clippy", cargo_clippy_all_spec(build_environment),
+  repo, scratch, sequence
+);
+sequence = gate.sequence;
+gate = run_gate_two(
+  context, timing, "unit-tests", "unit tests",
+  cargo_unit_primary_spec(build_environment), cargo_unit_migration_spec(build_environment),
+  repo, scratch, sequence
+);
+sequence = gate.sequence;
+
+require(rh.has_env("TEMP"), "qualification_temp_directory_missing");
+// The release build owns and reclaims the complete Cargo target tree. Park
+// this cross-build fixture in the OS temporary directory instead, with a
+// process-qualified name so parallel qualifications cannot share bytes.
+const upgrade_fixture = path.join(
+  rh.env_or("TEMP", ""),
+  "agenterm-qualification-" + rh.pid() + "-prior-agenterm.exe"
+);
+rh.try_remove_file(upgrade_fixture);
+// The release-fast fixture must be captured before the release build runs:
+// a staged release reclaims the development target with `cargo clean`.
+if (skip_smoke === 0) {
+  gate = run_gate(
+    context, timing, "artifact-build-fast", "alternate GUI fixture build",
+    cmd_build_bat_spec(repo, "release-fast", 300000, build_environment),
+    repo, scratch, sequence
+  );
+  sequence = gate.sequence;
+  try {
+    copy_release_fast_fixture(repo, upgrade_fixture);
+  } catch (error) {
+    qualification.timing_fail_stage(timing, "upgrade-fixture");
+    throw error;
+  }
+}
+gate = run_gate(
+  context, timing,
+  "artifact-build",
+  "current artifact",
+  cmd_build_bat_spec(repo, build_artifact_profile(release), build_artifact_timeout_ms(release), build_environment),
+  repo, scratch, sequence
+);
+sequence = gate.sequence;
+const dist_agenterm = first_nonempty_file(repo, "dist/agenterm.exe", "dist/agenterm");
+const task_cli = resolve_task_cli(dist_agenterm, repo);
+require(task_cli !== "", "check_dist_task_worker_missing");
+const worker = dist_agenterm !== "" ? dist_agenterm : task_cli;
+const artifact_verification_mode = resolve_artifact_verification_mode(release);
+const no_env = empty_environment();
+
+function ordinary_gate(id, label, command_spec) {
+  const completed = run_gate(context, timing, id, label, command_spec, repo, scratch, sequence);
+  sequence = completed.sequence;
+}
+
+ordinary_gate("prd-alignment", "PRD capability alignment",
+  task(worker, repo, "prd-alignment", 10000, [], no_env, 0));
+ordinary_gate("task-catalog", "repository script task catalog",
+  task_catalog_spec(worker, repo));
+ordinary_gate("mcp-conformance", "public MCP conformance and isolation",
+  task(worker, repo, "mcp-conformance", 600000, [], no_env, 0));
+ordinary_gate("migration-audit", "PowerShell migration ledger and no-new-PS1 gate",
+  task(worker, repo, "migration-audit", 10000, [], no_env, 0));
+ordinary_gate("artifact-verification", "binary roles and metadata",
+  task(worker, repo, "artifact-verification", 30000, [artifact_verification_mode], no_env, 0));
+ordinary_gate("readme-examples", "manifest-driven README examples",
+  task(worker, repo, "readme-examples", 10000, [], no_env, 0));
+ordinary_gate("docs-site", "case-exact static docs assets",
+  task(worker, repo, "verify-docs-site", 10000, [], no_env, 0));
+ordinary_gate("supply-chain", "locked dependency licenses and SPDX inventory",
+  // 60s could not cover its own `cargo metadata` child budget once the cargo
+  // package lock was contended; the manifest budget is 300s.
+  task(worker, repo, "supply-chain", 180000, [repo, path.join(repo, "dist/agenterm-sbom.spdx.json")], no_env, 0));
+ordinary_gate("target-report", "Cargo target inventory",
+  task(worker, repo, "target-report", 10000, [], no_env, 0));
+ordinary_gate("internal-version-policy", "internal version publication policy",
+  task(worker, repo, "internal-version-policy", 10000, [], no_env, 0));
+ordinary_gate("qualification-selftest", "qualification fail-closed self-test",
+  task(worker, repo, "qualification-selftest", 20000, [], no_env, 0));
+ordinary_gate("package-boundary-selftest", "qualified package boundary self-test",
+  task(worker, repo, "package-qualified-selftest", 60000, [], no_env, 0));
+ordinary_gate("harness-cleanup-selftest", "owned-resource cleanup self-test",
+  task(worker, repo, "harness-cleanup-selftest", 10000, [], no_env, 0));
+
+if (skip_smoke === 0) {
+  const no_activate = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_SCRIPT_WORKER_STDERR: "inherit"
+  };
+  const smoke_ids = smoke_gate_ids();
+  for (const id of smoke_ids) {
+    const extra = [];
+    if (id === "remote-ui-upgrade-smoke") { extra.push(upgrade_fixture); }
+    if (id === "fleet-smoke" && include_stress !== 0) { extra.push("--event-load"); }
+    const smoke_allow_powershell = id === "remote-ui-smoke" ? 1 : 0;
+    const smoke_spec = task(worker, repo, id, smoke_timeout_ms(id), extra, no_activate, smoke_allow_powershell);
+    // GUI journeys on shared runners are load-sensitive: transient races
+    // pass on a second attempt while genuine regressions fail
+    // deterministically both times. One bounded retry keeps the gate honest.
+    let completed;
+    try {
+      completed = run_gate(context, timing, id, id, smoke_spec, repo, scratch, sequence);
+    } catch (first_failure) {
+      print("RETRY " + id + " after transient failure: " + first_failure);
+      try {
+        completed = run_gate(context, timing, id, id + " (retry)", smoke_spec, repo, scratch, sequence + 1000);
+      } catch (retry_failure) {
+        if (id === "remote-ui-upgrade-smoke") { rh.try_remove_file(upgrade_fixture); }
+        throw retry_failure;
+      }
+    }
+    if (id === "remote-ui-upgrade-smoke") { rh.try_remove_file(upgrade_fixture); }
+    sequence = completed.sequence;
+  }
+}
+
+if (skip_smoke !== 0) {
+  qualification.timing_set_gate(timing, "diagnostic-bundle-selftest", "skipped", 0, 0, false);
+} else {
+  ordinary_gate("diagnostic-bundle-selftest", "CLI GUI and script diagnostic bundle self-test",
+    task(worker, repo, "diagnostic-bundle-selftest", 60000, [], { AGENTERM_NO_ACTIVATE: "1" }, 0));
+}
+if (skip_smoke !== 0) {
+  print("\nQUALIFICATION RECEIPT NOT WRITTEN: smoke gates were skipped.");
+} else if (include_stress === 0) {
+  print("\nQUALIFICATION RECEIPT NOT WRITTEN: explicit stress gate was not included.");
+} else {
+  try {
+    const written = qualification.write_receipt(context, repo, receipt_path);
+    print("\nQUALIFICATION RECEIPT " + written);
+  } catch (error) {
+    qualification.timing_fail_stage(timing, "qualification-receipt");
+    throw error;
+  }
+}
+qualification.timing_finish(timing, "passed");
+print("\nSlowest completed gates:");
+const slowest = slowest_gates(timing);
+let shown = 0;
+for (const entry of slowest) {
+  if (shown >= 8) { break; }
+  print("  " + entry.id + ": " + entry.duration_ms + " ms");
+  shown = shown + 1;
+}
+print("Total quality gate: " + (rh.now_ms() - full_started) + " ms");
+print("\nPASS: AgenTerm quality gate");
+return;

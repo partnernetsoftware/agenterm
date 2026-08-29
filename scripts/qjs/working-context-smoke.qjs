@@ -86,7 +86,7 @@ const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("ux.working-context-proxy");
   print("ux.persistent-workspace");
-  return 0;
+  return;
 }
 
 harness.require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");

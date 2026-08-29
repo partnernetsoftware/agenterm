@@ -104,7 +104,7 @@ function find_tab(tabs, tab_id) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("server.headless-authority");
-  return 0;
+  return;
 }
 
 harness.require(args.length === 3, "expected: REPO SERVER_EXE CLI_EXE");

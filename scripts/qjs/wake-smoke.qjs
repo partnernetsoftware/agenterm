@@ -74,7 +74,7 @@ const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("fleet.wake-coalescing");
   print("ux-parity.wake-coalescing");
-  return 0;
+  return;
 }
 
 harness.require(args.length === 3, "expected: REPO SERVER_EXE CLI_EXE");

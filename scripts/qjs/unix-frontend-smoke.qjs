@@ -416,7 +416,7 @@ function evidence_directory_of(context) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
-  return 0;
+  return;
 }
 
 harness.require(

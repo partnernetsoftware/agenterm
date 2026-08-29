@@ -4,12 +4,10 @@
 // Args: REPO CLI_EXE
 //
 // Ported from scripts/rh/qualification-selftest.rh; runs under
-// `--profile tool`. The two inputs it reads that are not in this tree today
-// are kept as the original spelled them and are reported as gaps, not
-// re-pointed: `dist/agenterm.json` is what stage-build writes, and
-// `scripts/rh/check.rh` is the qualification driver whose gate order this
-// asserts -- the driver left with rh on 2026-08-29 (6a12d8f0) and the marker
-// set here has to move to its .qjs port when that lands.
+// `--profile tool`. `dist/agenterm.json` (what stage-build writes) is not in
+// this tree today and is kept as the original spelled it. The gate-order
+// assertion reads the driver's port, scripts/qjs/check.qjs, with the marker
+// set that port carries (the rh driver left on 2026-08-29, 6a12d8f0).
 import * as rh from "lib/rh_compat";
 import * as path from "lib/path";
 import * as harness from "lib/test_harness";
@@ -266,9 +264,10 @@ expect_rejection(
   would_reject_process_observation(forbidden_process)
 );
 
-// GAP: scripts/rh/check.rh left the tree with rh; re-point at the driver's
-// .qjs port (and its markers) when it lands.
-const check_source = rh.read_text(path.join(repo, "scripts/rh/check.rh"));
+// The driver's .qjs port keeps rh's marker spellings for the first four;
+// its smoke list is answered by `smoke_gate_ids()` (the skip branch reads
+// it too, earlier in the file), so the smoke marker is the run-site call.
+const check_source = rh.read_text(path.join(repo, "scripts/qjs/check.qjs"));
 // `run_gate_two(` since 6881c5e4 -- the gate and its position in the order
 // below are unchanged, only the helper it calls. Matched without the
 // trailing `(` so a future arity change does not silently break this
@@ -277,7 +276,7 @@ const lint_marker = "let lint_gate = run_gate";
 const decl_marker = "sequence = assert_declarations(";
 const rustfmt_marker = "let rustfmt_gate = run_gate(";
 const artifact_marker = "\"artifact-build\",";
-const smoke_marker = "let smoke_ids = [";
+const smoke_marker = "const smoke_ids = smoke_gate_ids(";
 let order_ok = 0;
 if (check_source.includes(lint_marker)
     && check_source.includes(decl_marker)

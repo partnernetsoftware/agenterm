@@ -515,7 +515,7 @@ function start_with_pid(spec, pid_file, stdout_log, stderr_log) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
-  return 0;
+  return;
 }
 
 harness.require(args.length >= 4, "expected: REPO CONTROL_CENTER_EXE SERVER_EXE CLI_EXE [--backend auto|x11|wayland]");
