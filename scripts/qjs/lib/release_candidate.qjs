@@ -1,0 +1,510 @@
+// release_candidate.qjs -- the exact-SHA Candidate contract shared by
+// candidate-verify and candidate-aggregate.
+//
+// rh inlined these ~750 lines in both scripts "until
+// scripts/rh/lib/release_candidate.rh ships"; the port is where it ships.
+// The two rh copies were identical, so this is one text with two importers.
+//
+// A tool library: it hashes and stats files through the door, so importers
+// run under `--profile tool`.
+//
+// Engine notes, each at its site:
+//   - no substring or character access, so a "digits only" / "hex only"
+//     check deletes each allowed character with `replaceAll` and asks
+//     whether anything is left;
+//   - reading a property of `undefined` traps uncatchably, so optional
+//     sub-objects go through `child` / `list`;
+//   - `"" + x` on a runtime string costs thousands of interpreter steps
+//     (measured: 2 000 fit the 16M-step budget, 20 000 do not), so rh's
+//     "force a string compare" idiom is `text(x)` here -- a `typeof` check
+//     that passes a string through untouched -- and a failure message with
+//     a name in it is assembled by `check` only when the check fails.
+
+import * as rh from "lib/rh_compat";
+
+// rh's `"" + value`, without the concat when it is already a string.
+export function text(value) {
+  return typeof value === "string" ? value : "" + value;
+}
+
+// rh's `require(cond, code + ":" + name)`, with the concat deferred to the
+// failure path.
+function check(condition, code, detail) {
+  if (!condition) { throw code + detail; }
+}
+
+export function child(value, key) {
+  if (typeof value !== "object" || value === null) { return {}; }
+  const inner = value[key];
+  if (typeof inner !== "object" || inner === null) { return {}; }
+  return inner;
+}
+
+function is_array(value) {
+  return typeof value === "object" && value !== null && typeof value.length === "number";
+}
+
+// An array field, or `[]` when absent: every consumer counts or iterates.
+function list(value, key) {
+  if (typeof value !== "object" || value === null) { return []; }
+  const inner = value[key];
+  return is_array(inner) ? inner : [];
+}
+
+function only_characters(value, allowed) {
+  let rest = value;
+  for (const character of allowed) { rest = rest.replaceAll(character, ""); }
+  return rest === "";
+}
+
+const HEX = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"];
+const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+export function require_file(path, code) {
+  check(rh.exists(path) && rh.metadata(path).is_file, code, ":" + path);
+}
+
+// rh: `PathBuf::from(name).file_name == name` and no separator. `file_name`
+// is `None` for `.` and `..`, which is the only way a separator-free name
+// can differ from its own file name.
+export function require_asset_name(name) {
+  check(
+    name !== "" && name !== "." && name !== ".." && !name.includes("/") && !name.includes("\\"),
+    "candidate_asset_name:", name
+  );
+}
+
+export function file_size(path, code) {
+  check(rh.exists(path), code, ":" + path);
+  // rh asked for the metadata twice; one answer serves both questions.
+  const meta = rh.metadata(path);
+  check(meta.is_file, code, ":" + path);
+  return meta.len;
+}
+
+export function valid_sha256(value) {
+  return value.length === 64 && only_characters(value, HEX);
+}
+
+export function valid_source_sha(value) {
+  return value.length === 40 && only_characters(value, HEX);
+}
+
+export function valid_version(value) {
+  if (value === "" || value.includes("/") || value.includes("\\")) { return false; }
+  const build_parts = value.split("+");
+  if (build_parts.length > 2) { return false; }
+  const prerelease_parts = build_parts[0].split("-");
+  if (prerelease_parts.length > 2) { return false; }
+  const parts = prerelease_parts[0].split(".");
+  if (parts.length !== 3) { return false; }
+  if (parts[0] === "" || parts[1] === "" || parts[2] === "") { return false; }
+  return true;
+}
+
+// Decimal text to a number, refusing anything but digits.
+export function parse_int_ms(value) {
+  const trimmed = text(value).trim();
+  rh.require(trimmed !== "" && only_characters(trimmed, DIGITS), "candidate_verify_now_ms");
+  return Number(trimmed);
+}
+
+// Same set of texts on both sides (order-free, duplicates collapse exactly
+// as rh's did). Both sides are arrays of strings by construction.
+export function exact_values(expected, actual) {
+  if (expected.length !== actual.length) { return false; }
+  for (const value of expected) {
+    const value_text = text(value);
+    let found = false;
+    for (const candidate of actual) {
+      if (text(candidate) === value_text) { found = true; }
+    }
+    if (!found) { return false; }
+  }
+  for (const value of actual) {
+    const value_text = text(value);
+    let found = false;
+    for (const candidate of expected) {
+      if (text(candidate) === value_text) { found = true; }
+    }
+    if (!found) { return false; }
+  }
+  return true;
+}
+
+export function verify_checksum(path, hash, name) {
+  const content = rh.read_text(path).trim();
+  check(content === hash + "  " + name, "candidate_checksum_content:", name);
+}
+
+// `validate_provenance` on an already-parsed document: a JSON parse costs
+// this engine ~100 steps a byte, so a caller that has the document keeps it.
+export function validate_provenance_parsed(
+  provenance, name, hash, source_sha, version, expected_tag,
+  os_name, arch, cargo_hash, artifact_hash, sbom_hash
+) {
+  check(
+    provenance.schema_version === 1
+      && provenance.product === "AgenTerm"
+      && provenance.version === version
+      && provenance.artifact === name
+      && provenance.sha256 === hash,
+    "candidate_provenance_artifact:", name
+  );
+  check(provenance.source_commit === source_sha, "candidate_provenance_source_commit:", name);
+  check(provenance.source_tag === expected_tag, "candidate_provenance_source_tag:", name);
+  check(provenance.cargo_lock_sha256 === cargo_hash, "candidate_provenance_cargo_lock:", name);
+  check(
+    provenance.artifact_manifest_sha256 === artifact_hash,
+    "candidate_provenance_artifact_manifest:", name
+  );
+  check(provenance.os === os_name && provenance.arch === arch, "candidate_provenance_platform:", name);
+  if (os_name === "macos") {
+    check(provenance.sbom_sha256 === sbom_hash, "candidate_provenance_sbom:", name);
+    check(
+      (provenance.channel === "release" && provenance.signed === true && provenance.notarized === true)
+        || (provenance.channel === "macos-unsigned-preview"
+          && provenance.signed === false && provenance.notarized === false),
+      "candidate_provenance_macos_channel:", name
+    );
+  } else {
+    check(
+      provenance.channel === "release" && provenance.signed === false && provenance.notarized === false,
+      "candidate_provenance_release_channel:", name
+    );
+  }
+}
+
+export function validate_provenance(
+  provenance_path, name, hash, source_sha, version, expected_tag,
+  os_name, arch, cargo_hash, artifact_hash, sbom_hash
+) {
+  validate_provenance_parsed(
+    rh.parse_file(provenance_path), name, text(hash), text(source_sha), text(version),
+    text(expected_tag), text(os_name), text(arch), text(cargo_hash), text(artifact_hash),
+    text(sbom_hash)
+  );
+}
+
+export function verify_platform(
+  manifest, asset_root, source_sha, version, expected_tag,
+  cargo_hash, artifact_hash, sbom_hash, os_name, arch, release_name, preview_name
+) {
+  const os_text = text(os_name);
+  const arch_text = text(arch);
+  const release_text = text(release_name);
+  const preview_text = text(preview_name);
+  let found = false;
+  let asset_name = "";
+  let asset_channel = "";
+  let asset_signed = false;
+  let asset_notarized = false;
+  let asset_sha256 = "";
+  let asset_size = 0;
+  let asset_checksum_name = "";
+  let asset_checksum_sha256 = "";
+  let asset_checksum_size = 0;
+  let asset_provenance_name = "";
+  let asset_provenance_sha256 = "";
+  let asset_provenance_size = 0;
+  for (const asset of list(manifest, "assets")) {
+    if (asset.os === os_text && asset.arch === arch_text) {
+      check(!found, "candidate_platform_duplicate:", os_text + "-" + arch_text);
+      found = true;
+      asset_name = text(asset.name);
+      asset_channel = text(asset.channel);
+      asset_signed = asset.signed;
+      asset_notarized = asset.notarized;
+      asset_sha256 = text(asset.sha256);
+      asset_size = asset.size;
+      const checksum = child(asset, "checksum");
+      asset_checksum_name = text(checksum.name);
+      asset_checksum_sha256 = text(checksum.sha256);
+      asset_checksum_size = checksum.size;
+      const provenance = child(asset, "provenance");
+      asset_provenance_name = text(provenance.name);
+      asset_provenance_sha256 = text(provenance.sha256);
+      asset_provenance_size = provenance.size;
+    }
+  }
+  check(found, "candidate_platform_missing:", os_text + "-" + arch_text);
+  check(
+    asset_name === release_text || (preview_text !== "" && asset_name === preview_text),
+    "candidate_archive_name:", os_text + "-" + arch_text
+  );
+  // rh asked `require_file` and then `file_size` of each companion; the
+  // second asks the first's question again, so here it is asked once.
+  const archive_path = rh.join(asset_root, asset_name);
+  const archive_size = file_size(archive_path, "candidate_archive_missing");
+  const archive_hash = rh.sha256_file(archive_path);
+  check(
+    asset_sha256 === archive_hash && asset_size === archive_size,
+    "candidate_archive_identity:", asset_name
+  );
+  const checksum_name = asset_name + ".sha256";
+  const provenance_name = asset_name + ".provenance.json";
+  const checksum_path = rh.join(asset_root, checksum_name);
+  const provenance_path = rh.join(asset_root, provenance_name);
+  const checksum_size = file_size(checksum_path, "candidate_checksum_missing");
+  const checksum_hash = rh.sha256_file(checksum_path);
+  check(
+    asset_checksum_name === checksum_name
+      && asset_checksum_sha256 === checksum_hash
+      && asset_checksum_size === checksum_size,
+    "candidate_checksum_identity:", asset_name
+  );
+  verify_checksum(checksum_path, archive_hash, asset_name);
+  const provenance_file_size = file_size(provenance_path, "candidate_provenance_missing");
+  const provenance_hash = rh.sha256_file(provenance_path);
+  check(
+    asset_provenance_name === provenance_name
+      && asset_provenance_sha256 === provenance_hash
+      && asset_provenance_size === provenance_file_size,
+    "candidate_provenance_identity:", asset_name
+  );
+  // rh parsed the provenance twice (once inside validate_provenance); one
+  // parse serves both here.
+  const provenance = rh.parse_file(provenance_path);
+  validate_provenance_parsed(
+    provenance, asset_name, archive_hash, text(source_sha), text(version),
+    text(expected_tag), os_text, arch_text, text(cargo_hash), text(artifact_hash), text(sbom_hash)
+  );
+  check(
+    asset_channel === provenance.channel
+      && asset_signed === provenance.signed
+      && asset_notarized === provenance.notarized,
+    "candidate_asset_channel:", asset_name
+  );
+}
+
+export function validate_receipt(
+  receipt_path, source_sha, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path
+) {
+  const receipt = rh.parse_file(receipt_path);
+  const gate_spec = rh.parse_file(gate_path);
+  const provenance = child(receipt, "provenance");
+  rh.require(
+    receipt.schema_version === 1
+      && receipt.product === "AgenTerm"
+      && receipt.release === true
+      && receipt.stress_included === true,
+    "candidate_receipt_profile"
+  );
+  rh.require(
+    provenance.git_head === text(source_sha) && provenance.source_dirty === false,
+    "candidate_receipt_source"
+  );
+  rh.require(provenance.cargo_lock_sha256 === text(cargo_hash), "candidate_receipt_cargo_lock");
+  rh.require(
+    provenance.artifact_manifest_sha256 === text(artifact_hash),
+    "candidate_receipt_artifact_manifest"
+  );
+  rh.require(child(receipt, "gate_manifest").sha256 === text(gate_hash), "candidate_receipt_gate_manifest");
+  rh.require(provenance.sbom_sha256 === text(sbom_hash), "candidate_receipt_sbom");
+  const declared_gates = list(gate_spec, "required_gates");
+  const required = [];
+  for (const gate of declared_gates) { required.push(text(gate.id)); }
+  const actual = [];
+  for (const gate of list(receipt, "gates")) {
+    const gate_id = text(gate.id);
+    let duplicate = false;
+    for (const earlier of actual) { if (earlier === gate_id) { duplicate = true; } }
+    check(gate_id !== "" && !duplicate, "candidate_receipt_gate_duplicate:", gate_id);
+    check(gate.status === "passed", "candidate_receipt_gate_status:", gate_id);
+    const expected_evidence = [];
+    let expected_found = false;
+    for (const declared of declared_gates) {
+      if (declared.id === gate_id) {
+        check(!expected_found, "candidate_receipt_gate_unknown:", gate_id);
+        expected_found = true;
+        for (const evidence of list(declared, "evidence")) { expected_evidence.push(text(evidence)); }
+      }
+    }
+    check(expected_found, "candidate_receipt_gate_unknown:", gate_id);
+    const actual_evidence = [];
+    for (const evidence of list(gate, "evidence")) {
+      const evidence_id = text(evidence);
+      let evidence_duplicate = false;
+      for (const earlier of actual_evidence) { if (earlier === evidence_id) { evidence_duplicate = true; } }
+      check(!evidence_duplicate, "candidate_receipt_evidence_duplicate:", gate_id);
+      actual_evidence.push(evidence_id);
+    }
+    check(exact_values(expected_evidence, actual_evidence), "candidate_receipt_evidence_set:", gate_id);
+    actual.push(gate_id);
+  }
+  rh.require(exact_values(required, actual), "candidate_receipt_gate_set");
+}
+
+// Names of the six platform archives plus the chassis product, in the order
+// both scripts walk them. `preview_name` is "" where no unsigned preview
+// exists for the cell.
+export function platform_specs(version) {
+  return [
+    { os: "windows", arch: "x86_64",
+      release_name: "agenterm-" + version + "-windows-x86_64.zip", preview_name: "" },
+    { os: "windows", arch: "aarch64",
+      release_name: "agenterm-" + version + "-windows-aarch64.zip", preview_name: "" },
+    { os: "linux", arch: "x86_64",
+      release_name: "agenterm-" + version + "-linux-x86_64.tar.gz", preview_name: "" },
+    { os: "linux", arch: "aarch64",
+      release_name: "agenterm-" + version + "-linux-aarch64.tar.gz", preview_name: "" },
+    { os: "macos", arch: "aarch64",
+      release_name: "agenterm-" + version + "-macos-aarch64.zip",
+      preview_name: "agenterm-" + version + "-macos-aarch64-unsigned-preview.zip" },
+    { os: "macos", arch: "x86_64",
+      release_name: "agenterm-" + version + "-macos-x86_64.zip",
+      preview_name: "agenterm-" + version + "-macos-x86_64-unsigned-preview.zip" },
+    { os: "chassis", arch: "multi",
+      release_name: "agenterm-" + version + "-chassis-product.tgz", preview_name: "" }
+  ];
+}
+
+export const README_NAME = "MACOS_UNSIGNED_PREVIEW_README.md";
+export const README_NAME_ZH = "MACOS_UNSIGNED_PREVIEW_README.zh-Hant.md";
+
+function verify_readme(manifest, asset_root, readme_name) {
+  require_asset_name(readme_name);
+  const path = rh.join(asset_root, readme_name);
+  require_file(path, "candidate_preview_readme_missing");
+  const hash = rh.sha256_file(path);
+  let readme_sha256 = "";
+  let readme_size = 0;
+  let entry_found = false;
+  for (const candidate of list(manifest, "unsigned_macos_readmes")) {
+    if (candidate.name === readme_name) {
+      check(!entry_found, "candidate_preview_readme_duplicate:", readme_name);
+      entry_found = true;
+      readme_sha256 = text(candidate.sha256);
+      readme_size = candidate.size;
+    }
+  }
+  const readme_bytes = file_size(path, "candidate_preview_readme_missing");
+  check(
+    entry_found && readme_sha256 === hash && readme_size === readme_bytes,
+    "candidate_preview_readme_identity:", readme_name
+  );
+}
+
+export function validate_manifest(source_root_value, manifest_path_value, asset_root_value, now_ms) {
+  const manifest_path = rh.absolute(manifest_path_value);
+  const manifest = rh.parse_file(manifest_path);
+  const source_root = rh.absolute(source_root_value);
+  const asset_root = rh.absolute(asset_root_value);
+  const source_sha = text(manifest.source_sha);
+  const version = text(manifest.version);
+  const expected_tag = text(manifest.expected_tag);
+  const workflow = child(manifest, "workflow");
+  const run = child(manifest, "run");
+  const sbom = child(manifest, "sbom");
+  const qualification = child(manifest, "qualification");
+  const inputs = child(manifest, "inputs");
+  const workflow_path_rel = text(workflow.path);
+  const workflow_sha256 = text(workflow.sha256);
+  rh.require(manifest.schema_version === 1 && manifest.product === "AgenTerm", "candidate_schema");
+  rh.require(valid_source_sha(source_sha), "candidate_source_sha");
+  rh.require(valid_version(version), "candidate_version");
+  rh.require(expected_tag === "v" + version && expected_tag !== "v0.1.7", "candidate_expected_tag");
+  rh.require(
+    workflow_path_rel === ".github/workflows/candidate.yml" && valid_sha256(workflow_sha256),
+    "candidate_workflow_identity"
+  );
+  rh.require(run.id > 0 && run.attempt > 0 && run.event === "workflow_dispatch", "candidate_run_identity");
+  rh.require(
+    manifest.created_at_unix_ms > 0
+      && manifest.expires_at_unix_ms > manifest.created_at_unix_ms
+      && now_ms >= manifest.created_at_unix_ms
+      && now_ms <= manifest.expires_at_unix_ms,
+    "candidate_expired"
+  );
+
+  const workflow_path = rh.join(source_root, workflow_path_rel);
+  require_file(workflow_path, "candidate_workflow_missing");
+  rh.require(rh.sha256_file(workflow_path) === workflow_sha256, "candidate_workflow_hash");
+  const cargo_path = rh.join(source_root, "Cargo.lock");
+  const artifact_path = rh.join(source_root, "scripts/artifacts.json");
+  const gate_path = rh.join(source_root, "scripts/qualification-gates.json");
+  require_file(cargo_path, "candidate_cargo_lock_missing");
+  const cargo_hash = rh.sha256_file(cargo_path);
+  require_file(artifact_path, "candidate_artifact_manifest_missing");
+  const artifact_hash = rh.sha256_file(artifact_path);
+  require_file(gate_path, "candidate_gate_manifest_missing");
+  const gate_hash = rh.sha256_file(gate_path);
+  rh.require(
+    inputs.cargo_lock_sha256 === cargo_hash
+      && inputs.artifact_manifest_sha256 === artifact_hash
+      && inputs.gate_manifest_sha256 === gate_hash,
+    "candidate_source_input_hash"
+  );
+
+  const sbom_name = "agenterm-" + version + "-sbom.spdx.json";
+  rh.require(sbom.name === sbom_name, "candidate_sbom_name");
+  require_asset_name(sbom_name);
+  const sbom_path = rh.join(asset_root, sbom_name);
+  require_file(sbom_path, "candidate_sbom_missing");
+  const sbom_hash = rh.sha256_file(sbom_path);
+  const sbom_size = file_size(sbom_path, "candidate_sbom_missing");
+  rh.require(sbom.sha256 === sbom_hash && sbom.size === sbom_size, "candidate_sbom_identity");
+
+  const receipt_name = "qualification-receipt.json";
+  rh.require(qualification.name === receipt_name, "candidate_receipt_name");
+  require_asset_name(receipt_name);
+  const receipt_path = rh.join(asset_root, receipt_name);
+  require_file(receipt_path, "candidate_receipt_missing");
+  const receipt_hash = rh.sha256_file(receipt_path);
+  const receipt_size = file_size(receipt_path, "candidate_receipt_missing");
+  rh.require(
+    qualification.sha256 === receipt_hash && qualification.size === receipt_size,
+    "candidate_receipt_identity"
+  );
+  validate_receipt(receipt_path, source_sha, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path);
+
+  const assets = list(manifest, "assets");
+  rh.require(assets.length === 7, "candidate_asset_count");
+  const expected_files = [receipt_name, sbom_name];
+  let mac_channel = "";
+  for (const spec of platform_specs(version)) {
+    // rh read the aarch64 channel after that cell's check and compared the
+    // x86_64 channel after its own, both before the chassis cell; the same
+    // order, so a broken manifest fails with the same first message.
+    verify_platform(
+      manifest, asset_root, source_sha, version, expected_tag,
+      cargo_hash, artifact_hash, sbom_hash,
+      spec.os, spec.arch, spec.release_name, spec.preview_name
+    );
+    if (spec.os === "macos") {
+      for (const asset of assets) {
+        if (asset.os === "macos" && asset.arch === spec.arch) {
+          if (spec.arch === "aarch64") {
+            mac_channel = text(asset.channel);
+          } else if (mac_channel !== asset.channel) {
+            throw "candidate_macos_mixed_channels";
+          }
+        }
+      }
+    }
+  }
+  for (const asset of assets) {
+    const asset_name = text(asset.name);
+    expected_files.push(asset_name);
+    expected_files.push(asset_name + ".sha256");
+    expected_files.push(asset_name + ".provenance.json");
+  }
+
+  const readmes = list(manifest, "unsigned_macos_readmes");
+  if (mac_channel === "macos-unsigned-preview") {
+    verify_readme(manifest, asset_root, README_NAME);
+    expected_files.push(README_NAME);
+    verify_readme(manifest, asset_root, README_NAME_ZH);
+    expected_files.push(README_NAME_ZH);
+    rh.require(readmes.length === 2, "candidate_preview_readme_count");
+  } else {
+    rh.require(readmes.length === 0, "candidate_preview_readme_unexpected");
+  }
+  const payload_names = [];
+  check(rh.exists(asset_root) && rh.metadata(asset_root).is_dir, "candidate_asset_root:", asset_root);
+  for (const entry of rh.read_dir(asset_root)) {
+    check(entry.is_file, "candidate_asset_not_file:", entry.name);
+    payload_names.push(entry.name);
+  }
+  rh.require(exact_values(expected_files, payload_names), "candidate_payload_file_set");
+}
