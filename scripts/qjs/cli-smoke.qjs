@@ -5,11 +5,24 @@
 // or:
 //   REPO GUI_EXE CLI_EXE
 //
-// Ported from scripts/rh/cli-smoke.rh; runs under `--profile tool`. The
-// journey is Windows-shaped (cmd.exe, `for /L`, `agenterm.exe`), exactly as
-// the rh original was. The GUI is a long-lived door handle (process_spawn)
-// polled through the public CLI, waited with process_wait, and reaped by
-// the harness's `complete`.
+// Ported from scripts/rh/cli-smoke.rh; runs under `--profile tool`. The rh
+// original ran on the Windows lane only, and two of its facts are Windows
+// facts that this port makes host-aware (wave 3; on macOS the journey ran
+// through its first three steps before the engine's 100M step ceiling):
+//   - the first CLI call autostarted an independent server; the product
+//     does that on Windows alone (`src/platform/process.rs`), so on any
+//     other host this script spawns `GUI_EXE server --address` itself, as an
+//     owned child, before the first step -- the same split-server topology.
+//   - the shell idioms typed into the PTY (`cmd.exe /d /c exit 0`, `for /L`)
+//     have a `/bin/sh` spelling on Unix; what each proves (a tab whose
+//     process exits 0; 80 lines to scroll through) is unchanged.
+// `ui_bridge.target_server_executable` stays "agenterm.exe": that is a
+// constant of the bridge (`src/ui_bridge.rs`), not a host fact.
+//
+// The GUI is a long-lived door handle (process_spawn) polled through the
+// public CLI, waited with process_wait, and reaped by the harness's
+// `complete`; its pid is the door's `process_pid`, which is what rh's
+// `gui.id` was.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -30,7 +43,7 @@ function combined(output) {
 }
 
 function invoke(context, cli, args, expected_failure) {
-  return harness.invoke_cli_bounded(context, cli, args, expected_failure, []);
+  return harness.invoke_cli(context, cli, args, expected_failure, []);
 }
 
 function text(context, cli, args) {
@@ -80,7 +93,7 @@ function wait_sidebar_snapshot(context, cli, configured_width) {
 function direct(context, program, args, expected_failure) {
   const spec = harness.configured_cli_spec(context, program, args);
   const output = rh.command(spec.program, spec.args, { env: spec.env, timeout_ms: 15000 });
-  harness.append_command_record_bounded(context, args, output, expected_failure, []);
+  harness.append_command_record(context, args, output, expected_failure, []);
   if (expected_failure !== 0) {
     harness.require(!output.success, "cli_smoke_direct_unexpected_success");
   } else {
@@ -161,28 +174,26 @@ function require_file(path, minimum_bytes) {
   harness.require(rh.metadata(path).len >= minimum_bytes, "cli_smoke_file_too_small:" + path);
 }
 
-// rh compared the lease's `client_pid` against `gui.id`. The door has no pid
-// for a spawned handle, so the witness is the host's process table, asked
-// only once the lease reports an attached client (see test_harness).
-function wait_for_gui_lease(context, cli, gui, gui_exe, gui_args) {
+// rh compared the lease's `client_pid` against `gui.id`; the door's
+// `process_pid` is that pid (wave 3 -- the `pgrep -f` witness this carried
+// before was a route-around for a door without one).
+function wait_for_gui_lease(context, cli, gui) {
+  const gui_pid = harness.spawned_pid(gui);
   for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
-    const probe = harness.run_cli_bounded(
+    const probe = harness.run_cli(
       context, cli,
       ["wait-ui", "--window-state", "restored", "--timeout-ms", "100"],
       0, []
     );
     if (probe.success) {
-      const lease_probe = harness.run_cli_bounded(context, cli, ["ui-lease", "status"], 0, []);
+      const lease_probe = harness.run_cli(context, cli, ["ui-lease", "status"], 0, []);
       if (lease_probe.success) {
         const lease = JSON.parse(lease_probe.stdout);
         const client_pid = Number(lease.client_pid);
-        if (lease.attached) {
-          const gui_pid = harness.spawned_pid_witness(gui_exe, gui_args);
-          if (gui_pid > 0 && client_pid === gui_pid) {
-            const snapshot = JSON.parse(probe.stdout);
-            harness.require(snapshot.client_pid === gui_pid, "cli_smoke_gui_lease_owner");
-            return 0;
-          }
+        if (lease.attached && client_pid === gui_pid) {
+          const snapshot = JSON.parse(probe.stdout);
+          harness.require(snapshot.client_pid === gui_pid, "cli_smoke_gui_lease_owner");
+          return 0;
         }
       }
     }
@@ -207,7 +218,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   print("cli.ui-bridge-contracts");
   print("cli.ui-bootstrap");
   print("cli.ui-follow");
-  return 0;
+  return;
 }
 
 harness.require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");
@@ -238,7 +249,27 @@ const declared_evidence = [
   "cli.ui-follow"
 ];
 
+// The PTY idioms, by host (see the header). Each Unix spelling is one line
+// any Bourne-family shell the server spawns by default runs as is.
+const windows_host = harness.host_is_windows();
+const scroll_prefix = "AGENTERM_SCROLL_" + context.run_id;
+let scroll_command = "for /L %i in (1,1,80) do @echo " + scroll_prefix + "_%i";
+let disposable_command = ["cmd.exe", "/d", "/c", "exit", "0"];
+if (!windows_host) {
+  scroll_command = "for i in $(seq 1 80); do echo " + scroll_prefix + "_$i; done";
+  disposable_command = ["/bin/sh", "-c", "exit 0"];
+}
+
 try {
+  if (!windows_host) {
+    print("STEP start the independent server (the CLI autostarts one on Windows only)");
+    const server = harness.start(
+      harness.configured_spec(context, gui_exe, ["server", "--address", context.address])
+    );
+    owned_children.push(server);
+    harness.wait_for_spawned_server(context, cli, server);
+  }
+
   print("STEP create tab and prove request receipt replay");
   text(context, cli, ["new-window", "-d", "-n", name]);
 
@@ -611,7 +642,7 @@ try {
   const gui_args = ["--no-activate", "--address", context.address];
   const gui = harness.start(harness.configured_spec(context, gui_exe, gui_args));
   owned_children.push(gui);
-  wait_for_gui_lease(context, cli, gui, gui_exe, gui_args);
+  wait_for_gui_lease(context, cli, gui);
 
   print("STEP typed Tabs actions preserve layout and event attribution");
   const tabs_baseline = json(context, cli, ["ui-snapshot"]);
@@ -836,11 +867,7 @@ try {
   text(context, cli, ["delete-buffer", "-b", "empty"]);
   harness.emit_evidence(context, declared_evidence, "cli.named-buffer-paste");
 
-  const scroll_prefix = "AGENTERM_SCROLL_" + context.run_id;
-  text(
-    context, cli,
-    ["set-composer", "-t", name, "for /L %i in (1,1,80) do @echo " + scroll_prefix + "_%i"]
-  );
+  text(context, cli, ["set-composer", "-t", name, scroll_command]);
   text(context, cli, ["send-composer", "-t", name]);
   text(
     context, cli,
@@ -877,10 +904,9 @@ try {
     context, cli,
     ["new-window", "-d", "-n", stable_child_name, "--parent", stable_root, "-F", "#{window_id}"]
   );
-  const disposable = text(
-    context, cli,
-    ["new-window", "-d", "-n", disposable_name, "-F", "#{window_id}", "--", "cmd.exe", "/d", "/c", "exit", "0"]
-  );
+  const disposable_args = ["new-window", "-d", "-n", disposable_name, "-F", "#{window_id}", "--"];
+  for (const piece of disposable_command) { disposable_args.push(piece); }
+  const disposable = text(context, cli, disposable_args);
   text(context, cli, ["wait-ui", "-t", disposable, "--tab-state", "dead", "--timeout-ms", "30000"]);
   text(context, cli, ["kill-window", "-t", disposable]);
   text(context, cli, ["select-window", "-t", stable_child]);

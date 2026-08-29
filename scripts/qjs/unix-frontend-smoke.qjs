@@ -416,7 +416,7 @@ function evidence_directory_of(context) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
-  return 0;
+  return;
 }
 
 harness.require(
@@ -461,7 +461,7 @@ if (platform === "linux") {
   );
   skipped = true;
 }
-if (skipped) { return 0; }
+if (skipped) { return; }
 
 let clipboard_reader = "";
 let clipboard_writer = "";
@@ -477,7 +477,7 @@ if (platform === "linux") {
 }
 if (clipboard_reader === "" || clipboard_writer === "") {
   unsupported(platform, "unix_frontend_native_clipboard_unavailable", clipboard_message);
-  return 0;
+  return;
 }
 
 const repo = rh.absolute(args[0]);

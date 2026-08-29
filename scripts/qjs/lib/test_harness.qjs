@@ -956,5 +956,42 @@ export function bounded_record_text_no_slice(source, maximum_characters) {
   return "<agenterm-command-output-truncated>\n";
 }
 
+// ---- wave-3 gui-smokes ----
 
+// rh's `child.id` for a spawned handle, now that the door answers it
+// directly: `process_pid(handle)` is the child's OS pid. This replaces the
+// `pgrep -f` witness (`spawned_pid_witness` above) and the `sh -c 'echo $$'`
+// wrapper (`start_child`), both of which asked the host's process table for
+// a fact the door now carries. A non-positive answer is the door's refusal.
+export function spawned_pid(handle) {
+  const pid = process_pid(handle);
+  if (pid <= 0) { throw "process_pid:" + tool_result(); }
+  return pid;
+}
+
+// The host this script runs on, by rh_compat's own convention (`OS` is set
+// by Windows itself and by nothing else). The GUI smokes branch on it for
+// what the product only does on Windows: the CLI autostarting an independent
+// server (`src/platform/process.rs`), and the shell idioms a journey types
+// into a PTY (`cmd.exe`, `for /L`).
+export function host_is_windows() {
+  if (env_has("OS") !== 1) { return false; }
+  return door(env_get("OS"), "env_get OS") === "Windows_NT";
+}
+
+// Poll a headless server this script spawned itself until the CLI can talk
+// to it, failing early if the child leaves. The Windows lane never needed
+// this (the CLI autostarts there); every other host does.
+export function wait_for_spawned_server(context, cli, server) {
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    const probe = run_cli(context, cli, ["protocol-info", "--running"], 0, []);
+    if (probe.success) { return JSON.parse(probe.stdout); }
+    if (state(server) === "exited") {
+      const output = wait(server, 2000);
+      throw "test_harness_server_early_exit:" + output.stderr;
+    }
+    time_sleep_ms(25);
+  }
+  throw "test_harness_server_ready_timeout";
+}
 
