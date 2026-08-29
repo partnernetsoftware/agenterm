@@ -1,0 +1,19 @@
+// Produce the staged build provenance manifest from frozen or live inputs.
+//
+// Args: REPO OUTPUT_MANIFEST ARTIFACT_MANIFEST STAGED_DIRECTORY PROFILE [OS ARCH]
+// Runs under `--profile tool`.
+import * as build_metadata from "lib/build_metadata";
+
+const count = arg_count();
+if (count !== 5 && count !== 7) {
+  throw "expected: REPO OUTPUT_MANIFEST ARTIFACT_MANIFEST STAGED_DIRECTORY PROFILE [OS ARCH]";
+}
+const args = [];
+for (let i = 0; i < count; i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+if (count === 7) {
+  return build_metadata.write_platform(args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+}
+return build_metadata.write(args[0], args[1], args[2], args[3], args[4]);

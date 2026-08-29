@@ -231,3 +231,21 @@ export const DIGITS = ["0","1","2","3","4","5","6","7","8","9"];
 export const HEX = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
 export const LOWER = ["a","b","c","d","e","f","g","h","i","j","k","l","m",
                       "n","o","p","q","r","s","t","u","v","w","x","y","z"];
+
+// ---- fs, from the build libraries (wave-1 group 6) ---------------------
+
+export function rename(from, to) {
+  door(fs_rename(from, to), "fs_rename " + from + " -> " + to);
+}
+
+export function remove_dir_all(p) {
+  door(fs_remove_dir_all(p), "fs_remove_dir_all " + p);
+}
+
+export function try_rename(from, to) {
+  return fs_rename(from, to) === 0 ? 1 : 0;
+}
+
+export function try_copy(from, to) {
+  return fs_copy(from, to) === 0 ? 1 : 0;
+}

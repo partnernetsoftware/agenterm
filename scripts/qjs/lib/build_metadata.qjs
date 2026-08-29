@@ -1,0 +1,333 @@
+// build_metadata.qjs -- shared staged build provenance production (INT-only
+// native pack). Moved from rh on 2026-08-29; stage-build and
+// write-build-metadata import it.
+//
+// A tool library: git, rustc, the hashes, the staged files and the output
+// manifest all go through the `tool.*` door.
+//
+// Kept exactly from rh: the frozen-identity branch and its five gates, the
+// live branch, the rustc/Cargo.toml facts, the per-artifact records, the
+// manifest shape (schema 2) and the closing line.
+//
+// Changed, each on purpose:
+//   - rh parked command stdout in `<output>.stdout.tmp` and read it back; the
+//     door's `command` answers stdout directly, so the side file is gone.
+//   - `symlink_metadata(...).is_reparse_point` is Windows-only and the door
+//     has no such field; `is_symlink` covers the case the check exists for.
+//   - `build_time_utc`: rh rendered `SystemTime::now().rfc3339`, split on "."
+//     and kept the seconds part plus "Z". The door's only clock is
+//     `time.now_ms`, so the same `YYYY-MM-DDTHH:MM:SSZ` text is computed
+//     here from epoch milliseconds (civil-from-days, all integer).
+//   - `stringify_pretty` is `JSON.stringify`: every reader parses it back.
+
+import * as rh from "lib/rh_compat";
+import * as artifact_manifest from "lib/artifact_manifest";
+
+const HEX_DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7",
+                    "8", "9", "a", "b", "c", "d", "e", "f"];
+
+function is_lower_hex(value, expected_length) {
+  if (value.length !== expected_length) { return 0; }
+  // No character access in this engine: delete every hex digit and ask
+  // whether anything survives.
+  let rest = value;
+  for (const digit of HEX_DIGITS) { rest = rest.replaceAll(digit, ""); }
+  return rest === "" ? 1 : 0;
+}
+
+function is_git_commit(value) {
+  const n = value.length;
+  if (n === 40) { return is_lower_hex(value, 40); }
+  if (n === 64) { return is_lower_hex(value, 64); }
+  return 0;
+}
+
+// Integer division for non-negative operands; no `Math.floor` in this engine.
+function div(a, b) {
+  return (a - a % b) / b;
+}
+
+function two(n) {
+  const text = "" + n;
+  return text.length < 2 ? "0" + text : text;
+}
+
+// `YYYY-MM-DDTHH:MM:SSZ` for a UTC epoch-millisecond value (Howard Hinnant's
+// civil_from_days; every intermediate is non-negative after 1970).
+export function utc_seconds_text(epoch_ms) {
+  const seconds = div(epoch_ms, 1000);
+  const days = div(seconds, 86400);
+  const of_day = seconds - days * 86400;
+  const z = days + 719468;
+  const era = div(z, 146097);
+  const doe = z - era * 146097;
+  const yoe = div(doe - div(doe, 1460) + div(doe, 36524) - div(doe, 146096), 365);
+  const doy = doe - (365 * yoe + div(yoe, 4) - div(yoe, 100));
+  const mp = div(5 * doy + 2, 153);
+  const day = doy - div(153 * mp + 2, 5) + 1;
+  const month = mp < 10 ? mp + 3 : mp - 9;
+  let year = yoe + era * 400;
+  if (month <= 2) { year = year + 1; }
+  const hour = div(of_day, 3600);
+  const minute = div(of_day - hour * 3600, 60);
+  const second = of_day - hour * 3600 - minute * 60;
+  return "" + year + "-" + two(month) + "-" + two(day) + "T" +
+    two(hour) + ":" + two(minute) + ":" + two(second) + "Z";
+}
+
+function command_stdout(program, args, failure) {
+  const out = rh.command(program, args, { timeout_ms: 10000 });
+  rh.require(out.exit_code === 0, failure);
+  return out.stdout;
+}
+
+export function write_for_artifacts(
+  repo_value,
+  output_manifest_value,
+  artifact_manifest_value,
+  staged_directory_value,
+  profile,
+  artifacts
+) {
+  const repo = rh.absolute(repo_value);
+  const output_manifest = rh.absolute(output_manifest_value);
+  const artifact_manifest_path = rh.absolute(artifact_manifest_value);
+  const staged_directory = rh.absolute(staged_directory_value);
+  rh.require(
+    profile === "dev" || profile === "release-fast" || profile === "release",
+    "build_metadata_profile_invalid:" + profile
+  );
+
+  const prefix = command_stdout("git", ["-C", repo, "rev-parse", "--show-prefix"], "build-metadata-git-root").trim();
+  rh.require(prefix === "", "build_metadata_repo_not_exact_git_root:" + repo);
+
+  const staged_metadata = rh.symlink_metadata(staged_directory);
+  rh.require(
+    staged_metadata.is_dir && !staged_metadata.is_symlink,
+    "build_metadata_staged_directory_invalid:" + staged_directory
+  );
+
+  const cargo_lock = rh.join(repo, "Cargo.lock");
+  const cargo_lock_sha256 = rh.sha256_file(cargo_lock);
+  const artifact_manifest_sha256 = rh.sha256_file(artifact_manifest_path);
+
+  const identity_available = rh.env_or("AGENTERM_BUILD_IDENTITY_VERSION", "") === "1";
+  let commit = "";
+  let dirty = 0;
+  if (identity_available) {
+    const frozen_profile = rh.env_or("AGENTERM_BUILD_PROFILE", "");
+    rh.require(
+      frozen_profile === profile,
+      "build_metadata_frozen_profile_mismatch:" + frozen_profile + ":" + profile
+    );
+
+    commit = rh.env_or("AGENTERM_BUILD_GIT_COMMIT", "").toLowerCase();
+    rh.require(is_git_commit(commit) === 1, "build_metadata_frozen_commit_invalid");
+    const current_commit = command_stdout("git", ["-C", repo, "rev-parse", "--verify", "HEAD"], "build-metadata-git-head")
+      .trim()
+      .toLowerCase();
+    rh.require(current_commit === commit, "build_metadata_git_head_changed");
+
+    const worktree_diff = rh.command_status("git", ["-C", repo, "diff", "--quiet"], { timeout_ms: 10000 });
+    const index_diff = rh.command_status("git", ["-C", repo, "diff", "--cached", "--quiet"], { timeout_ms: 10000 });
+    rh.require(
+      (worktree_diff === 0 || worktree_diff === 1) && (index_diff === 0 || index_diff === 1),
+      "build_metadata_tracked_state_unavailable"
+    );
+
+    const dirty_text = rh.env_or("AGENTERM_BUILD_GIT_DIRTY", "");
+    rh.require(
+      dirty_text === "true" || dirty_text === "false",
+      "build_metadata_frozen_dirty_invalid:" + dirty_text
+    );
+    if (dirty_text === "true") { dirty = 1; }
+    rh.require(
+      dirty === 1 || (worktree_diff === 0 && index_diff === 0),
+      "build_metadata_clean_identity_changed"
+    );
+
+    rh.require(
+      rh.env_or("AGENTERM_BUILD_CARGO_LOCK_SHA256", "") === cargo_lock_sha256 &&
+        rh.env_or("AGENTERM_BUILD_ARTIFACT_MANIFEST_SHA256", "") === artifact_manifest_sha256,
+      "build_metadata_frozen_input_hash_changed"
+    );
+  } else {
+    commit = command_stdout("git", ["-C", repo, "rev-parse", "HEAD"], "build-metadata-git-commit")
+      .trim()
+      .toLowerCase();
+    rh.require(is_git_commit(commit) === 1, "build_metadata_git_commit_invalid");
+
+    const status = command_stdout("git", ["-C", repo, "status", "--porcelain"], "build-metadata-git-status").trim();
+    if (status !== "") { dirty = 1; }
+  }
+
+  const rust_metadata = command_stdout("rustc", ["-vV"], "build-metadata-rustc");
+  const rust_lines = rust_metadata.split("\n");
+  rh.require(rust_lines.length > 0, "build_metadata_rust_version_missing");
+  const rust_version = rust_lines[0].trim();
+  rh.require(rust_version !== "", "build_metadata_rust_version_missing");
+  let rust_target = "";
+  for (const source_line of rust_lines) {
+    const line = source_line.trim();
+    if (line.startsWith("host: ")) {
+      rust_target = line.replaceAll("host: ", "").trim();
+      break;
+    }
+  }
+  rh.require(rust_target !== "", "build_metadata_rust_target_missing");
+
+  let package_version = "";
+  const cargo_toml = rh.read_text(rh.join(repo, "Cargo.toml"));
+  let in_package = 0;
+  for (const source_line of cargo_toml.split("\n")) {
+    const line = source_line.trim();
+    if (line === "[package]") {
+      in_package = 1;
+      continue;
+    }
+    if (line.startsWith("[")) { in_package = 0; }
+    if (in_package === 1 && line.startsWith("version")) {
+      const parts = line.split("\"");
+      rh.require(parts.length >= 3 && parts[1] !== "", "build_metadata_package_version_invalid");
+      package_version = parts[1];
+      break;
+    }
+  }
+  rh.require(package_version !== "", "build_metadata_package_version_missing");
+
+  const executable_metadata = [];
+  for (const artifact of artifacts.executables) {
+    const path = rh.join(staged_directory, artifact.name);
+    const metadata = rh.symlink_metadata(path);
+    rh.require(
+      metadata.is_file && !metadata.is_symlink,
+      "build_metadata_executable_invalid:" + artifact.name
+    );
+    executable_metadata.push({
+      name: artifact.name,
+      role: artifact.role,
+      size: metadata.len,
+      sha256: rh.sha256_file(path)
+    });
+  }
+  const library_metadata = [];
+  for (const artifact of artifacts.libraries) {
+    const path = rh.join(staged_directory, artifact.name);
+    const metadata = rh.symlink_metadata(path);
+    rh.require(
+      metadata.is_file && !metadata.is_symlink,
+      "build_metadata_library_invalid:" + artifact.name
+    );
+    library_metadata.push({
+      name: artifact.name,
+      role: artifact.role,
+      kind: artifact.kind,
+      size: metadata.len,
+      sha256: rh.sha256_file(path)
+    });
+  }
+
+  const build_time_utc = utc_seconds_text(rh.now_ms());
+  rh.require(build_time_utc.length === 20, "build_metadata_time_render_invalid");
+
+  let git_dirty = false;
+  if (dirty === 1) { git_dirty = true; }
+  const manifest = {
+    schema_version: 2,
+    product: "AgenTerm",
+    version: package_version,
+    build_time_utc: build_time_utc,
+    git_commit: commit,
+    git_dirty: git_dirty,
+    profile: profile,
+    rust_target: rust_target,
+    rust_version: rust_version,
+    cargo_lock_sha256: cargo_lock_sha256,
+    artifact_manifest_sha256: artifact_manifest_sha256,
+    features: [
+      "codex-launcher",
+      "hierarchical-tabs",
+      "mux-frontend",
+      "persistent-workspace",
+      "safe-scripting",
+      "tab-environment"
+    ],
+    executables: executable_metadata,
+    libraries: library_metadata
+  };
+  rh.atomic_write(output_manifest, rh.stringify_pretty(manifest) + "\n");
+  let dirty_label = "0";
+  if (dirty === 1) { dirty_label = "1"; }
+  print(
+    "Wrote build metadata for " + commit +
+    " (" + profile + ", dirty=" + dirty_label + ")"
+  );
+  return 0;
+}
+
+export function write(
+  repo_value,
+  output_manifest_value,
+  artifact_manifest_value,
+  staged_directory_value,
+  profile
+) {
+  const artifact_manifest_path = rh.absolute(artifact_manifest_value);
+  artifact_manifest.validate(artifact_manifest_path);
+  const artifacts = rh.parse_file(artifact_manifest_path);
+  return write_for_artifacts(
+    repo_value,
+    output_manifest_value,
+    artifact_manifest_path,
+    staged_directory_value,
+    profile,
+    artifacts
+  );
+}
+
+export function write_platform(
+  repo_value,
+  output_manifest_value,
+  artifact_manifest_value,
+  staged_directory_value,
+  profile,
+  os_name,
+  arch
+) {
+  const artifact_manifest_path = rh.absolute(artifact_manifest_value);
+  const manifest = rh.parse_file(artifact_manifest_path);
+  // rh asked `type_of(platforms) == "array"`; there is no Array.isArray in
+  // this engine, so "an object with a numeric length" stands in for it.
+  rh.require(
+    manifest.schema_version === 2 &&
+      typeof manifest.platforms === "object" &&
+      manifest.platforms !== null &&
+      typeof manifest.platforms.length === "number",
+    "build_metadata_platform_manifest_invalid"
+  );
+  const executables = [];
+  const libraries = [];
+  let matches = 0;
+  for (const platform of manifest.platforms) {
+    if (platform.os === os_name && platform.arch === arch) {
+      matches = matches + 1;
+      for (const executable of platform.executables) { executables.push(executable); }
+      for (const library of platform.libraries) { libraries.push(library); }
+    }
+  }
+  rh.require(os_name !== "" && arch !== "", "build_metadata_platform_os_arch_empty");
+  rh.require(matches === 1, "build_metadata_platform_match:" + os_name + "-" + arch);
+  rh.require(
+    executables.length > 0,
+    "build_metadata_platform_executables_empty:" + os_name + "-" + arch
+  );
+  const artifacts = { executables: executables, libraries: libraries };
+  return write_for_artifacts(
+    repo_value,
+    output_manifest_value,
+    artifact_manifest_path,
+    staged_directory_value,
+    profile,
+    artifacts
+  );
+}

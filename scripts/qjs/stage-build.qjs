@@ -1,0 +1,124 @@
+// Stage the validated executable set and publish its provenance atomically.
+//
+// Args: REPO SOURCE_DIRECTORY DESTINATION_DIRECTORY PROFILE
+// Runs under `--profile tool`.
+//
+// stage returns INT 0/1 (direct copy / park-replace). Callers discard that INT.
+//
+// Changed from rh, on purpose: the git root probe parked its stdout in
+// `<destination>.stage-build.stdout.tmp`; the door answers stdout directly.
+
+import * as rh from "lib/rh_compat";
+import * as artifact_files from "lib/artifact_files";
+import * as build_metadata from "lib/build_metadata";
+
+if (arg_count() !== 4) {
+  throw "expected: REPO SOURCE_DIRECTORY DESTINATION_DIRECTORY PROFILE";
+}
+const args = [];
+for (let i = 0; i < 4; i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+
+const repo = rh.absolute(args[0]);
+const source_directory = rh.absolute(args[1]);
+const destination_directory = rh.absolute(args[2]);
+const profile = args[3];
+rh.require(
+  profile === "dev" || profile === "release-fast" || profile === "release",
+  "stage_build_profile_invalid:" + profile
+);
+
+// Reject non-root repos before any destination mutation (create_dir_all /
+// staging).
+const root_probe = rh.command("git", ["-C", repo, "rev-parse", "--show-prefix"], { timeout_ms: 10000 });
+rh.require(root_probe.exit_code === 0, "stage-build-git-root");
+const prefix = root_probe.stdout.trim();
+rh.require(prefix === "", "stage_build_repo_not_exact_git_root:" + repo);
+
+rh.create_dir_all(destination_directory);
+
+const artifact_manifest_path = rh.join(repo, "scripts/artifacts.json");
+const manifest = rh.parse_file(artifact_manifest_path);
+// rh asked `type_of(x) == "array"`; no Array.isArray here, so "an object
+// with a numeric length" stands in for it.
+function is_array(value) {
+  return typeof value === "object" && value !== null && typeof value.length === "number";
+}
+rh.require(
+  manifest.schema_version === 2 && is_array(manifest.executables) && is_array(manifest.libraries),
+  "stage_build_artifact_manifest_invalid"
+);
+
+const obsolete_names = [
+  "agentermctl.exe",
+  "agenterm-script.exe",
+  "agenterm-script",
+  "agenterm-cli.exe",
+  "agenterm-con-native.exe",
+  // The lightweight host left for the `minicon` repository; staged copies
+  // from earlier builds must be swept, not shipped.
+  "agenterm-con.exe",
+  "agenterm-con"
+];
+
+const _locked = artifact_files.clean_locked(destination_directory, artifact_manifest_path);
+for (const obsolete of obsolete_names) {
+  const _removed = artifact_files.remove_obsolete(destination_directory, obsolete);
+}
+
+for (const artifact of manifest.executables) {
+  const _staged = artifact_files.stage(source_directory, destination_directory, artifact.name);
+  // The CUI trampoline is deliberately runtime-free in every profile.
+  // Enforce its budget during staging, not only at the release gate, so
+  // a debug/runtime regression cannot silently return to dist/.
+  if (artifact.name === "agenterm.com") {
+    const staged_path = rh.join(destination_directory, artifact.name);
+    const staged_bytes = rh.metadata(staged_path).len;
+    const budget_bytes = 0 + artifact.release_budget_bytes;
+    rh.require(
+      staged_bytes <= budget_bytes,
+      "stage_build_agenterm_com_budget:actual=" + staged_bytes + ":budget=" + budget_bytes
+    );
+  }
+}
+for (const library of manifest.libraries) {
+  const _staged_library = artifact_files.stage(source_directory, destination_directory, library.name);
+}
+
+const output_manifest = rh.join(destination_directory, "agenterm.json");
+const _metadata = build_metadata.write(
+  repo,
+  output_manifest,
+  artifact_manifest_path,
+  destination_directory,
+  profile
+);
+
+// Size tracking: append one line per staging to dist/size-history.jsonl
+// (local, untracked -- a per-machine trend log) so per-artifact byte
+// growth is observable over time instead of anecdotal. Source of truth
+// is the metadata just written: it already records commit, profile, and
+// each staged executable's size.
+const metadata = rh.parse_file(output_manifest);
+const history_entry = {
+  build_time_utc: metadata.build_time_utc,
+  git_commit: metadata.git_commit,
+  git_dirty: metadata.git_dirty,
+  profile: metadata.profile,
+  executables: metadata.executables,
+  libraries: metadata.libraries
+};
+const history_path = rh.join(destination_directory, "size-history.jsonl");
+let history = "";
+if (rh.exists(history_path)) { history = rh.read_text(history_path); }
+rh.write_text(history_path, history + JSON.stringify(history_entry) + "\n");
+
+const _locked_again = artifact_files.clean_locked(destination_directory, artifact_manifest_path);
+for (const obsolete of obsolete_names) {
+  const _removed_again = artifact_files.remove_obsolete(destination_directory, obsolete);
+}
+
+print("PASS: staged build artifacts and metadata in " + destination_directory);
+return 0;

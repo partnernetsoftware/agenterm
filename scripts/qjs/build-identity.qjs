@@ -1,0 +1,14 @@
+// Freeze truthful source inputs into a batch-importable build environment.
+//
+// Args: REPO PROFILE OUTPUT_PATH
+// Runs under `--profile tool`: git, the input hashes and the output file all
+// go through the door, and so do its own arguments.
+import * as build_identity from "lib/build_identity";
+
+if (arg_count() !== 3) { throw "expected: REPO PROFILE OUTPUT_PATH"; }
+const args = [];
+for (let i = 0; i < 3; i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+return build_identity.write(args[0], args[1], args[2]);
