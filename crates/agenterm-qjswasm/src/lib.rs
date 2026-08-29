@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "1b4fdef";
+pub const UPSTREAM_TINYVM_REV: &str = "1707721";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -627,6 +627,11 @@ pub enum QjswasmError {
     /// call and the 1-based argument position before stopping. The script's
     /// own doing: `"" + x` is the spelling it wants.
     HostArgument(Option<(String, u32)>),
+    /// The script read a property of `undefined`, `null`, a Number or a
+    /// Boolean -- ECMA-262's TypeError, which this engine cannot throw yet
+    /// but can name: the key. The script's own doing; `=== undefined` first
+    /// is the guard.
+    PropertyOfNonObject(Option<String>),
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -687,6 +692,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
             Self::UnsupportedMethod(name) => f.debug_tuple("UnsupportedMethod").field(name).finish(),
             Self::HostArgument(at) => f.debug_tuple("HostArgument").field(at).finish(),
+            Self::PropertyOfNonObject(key) => f.debug_tuple("PropertyOfNonObject").field(key).finish(),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -709,6 +715,13 @@ impl std::fmt::Display for QjswasmError {
             Self::UncaughtThrow(None) => {
                 write!(f, "the script threw a value and nothing caught it")
             }
+            Self::PropertyOfNonObject(Some(key)) => write!(
+                f,
+                "the script read `{key}` off a value that has no properties (undefined, null, a Number or a Boolean); check it with `=== undefined` first"
+            ),
+            Self::PropertyOfNonObject(None) => f.write_str(
+                "the script read a property off a value that has no properties, and the guest could not say which"
+            ),
             Self::HostArgument(Some((host, position))) => write!(
                 f,
                 "host function `{host}` needs a String for argument {position}; the script passed something else (write `\"\" + x` to make it one)"

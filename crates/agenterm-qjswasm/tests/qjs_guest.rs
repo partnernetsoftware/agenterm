@@ -478,8 +478,7 @@ fn the_string_length_claim_in_this_crates_own_copy() {
 
     // "那是一条臂，不是原型链：其它属性仍然 trap，而且是故意不给 undefined"
     // -- and since tinyvm d2e66b3 a String receiver's trap names the
-    // property. A Number receiver still traps bare: `unbox_object` has no
-    // key in hand there.
+    // property; since 1707721 so does a Number receiver's.
     for (source, want) in [
         ("return \"ab\".trim;", Some("trim")),
         ("return \"ab\".toUpperCase;", Some("toUpperCase")),
@@ -494,9 +493,10 @@ fn the_string_length_claim_in_this_crates_own_copy() {
                 matches!(&err, QjswasmError::UnsupportedMethod(Some(n)) if n == name),
                 "{source:?}: want `{name}` named, got {err:?}"
             ),
+            // A Number receiver names its key too since tinyvm 1707721.
             None => assert!(
-                matches!(err, QjswasmError::Trap { .. }),
-                "{source:?}: want a trap, got {err:?}"
+                matches!(&err, QjswasmError::PropertyOfNonObject(Some(k)) if k == "toFixed"),
+                "{source:?}: want `toFixed` named off a Number, got {err:?}"
             ),
         }
     }
@@ -744,6 +744,22 @@ fn a_host_argument_of_the_wrong_type_is_named_at_the_engine_face() {
         "expected print#1 named, got {err:?}"
     );
     assert!(err.to_string().starts_with("host function `print` needs a String for argument 1"), "{err}");
+}
+
+/// `undefined.x` names the key since tinyvm 1707721; it was "guest trapped:
+/// unreachable executed", and every migrated script guards JSON fields with
+/// `=== undefined` because of it.
+#[test]
+fn a_property_read_off_undefined_is_named_at_the_engine_face() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(Guest::Qjs("let o = {}; let f = o.missing; return f.name;"), None, "main", &[])
+        .expect_err("reading off undefined stops the script");
+    assert!(
+        matches!(&err, QjswasmError::PropertyOfNonObject(Some(key)) if key == "name"),
+        "expected the key named, got {err:?}"
+    );
+    assert!(err.to_string().starts_with("the script read `name` off a value that has no properties"), "{err}");
 }
 
 /// `slice` itself answers since tinyvm 6b9464a: code-unit positions, negative

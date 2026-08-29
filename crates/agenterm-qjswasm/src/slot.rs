@@ -335,6 +335,14 @@ impl Slot {
                     };
                     return QjswasmError::HostArgument(at);
                 }
+                // The seventh: the key read off undefined/null/a primitive.
+                Some(tinyvm_qjs::GuestFault::PropertyOfNonObject) => {
+                    let key = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_property_of_non_object(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::PropertyOfNonObject(key);
+                }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
                 // record a *fifth* reason at the same word. Falling through to
                 // `classify` stays the right default -- a reason this build
