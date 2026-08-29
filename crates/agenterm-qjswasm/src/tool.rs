@@ -96,7 +96,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 26] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 28] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -121,6 +121,8 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 26] = [
     ("process.state", 1, 1),
     ("process.kill", 1, 1),
     ("process.wait", 2, 1),
+    ("fs.symlink_metadata", 2, 1),
+    ("process.status", 2, 1),
     ("result_len", 0, 1),
     ("result", 2, 1),
 ];
@@ -215,6 +217,13 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.state", vec![HostParam::I32], HostResult::I32),
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
         decl("process.wait", vec![HostParam::I32, HostParam::I32], HostResult::I32),
+        // `symlink_metadata` does not follow the link, so `is_symlink` is
+        // answerable -- rh's gates use it to refuse a manifest that is a link.
+        // `process.status` is `command` without capture: exit code only, for
+        // the 15 call sites that run a tool for its side effect and would
+        // otherwise pay to buffer output nobody reads.
+        decl("fs.symlink_metadata", vec![HostParam::StrPtrLen], HostResult::I32),
+        decl("process.status", vec![HostParam::StrPtrLen], HostResult::I32),
         HostFn {
             name: "tool_result".to_string(),
             module: DOOR.to_string(),
@@ -377,6 +386,52 @@ pub(crate) fn install(
             let (from, to) = (utf8(from)?, utf8(to)?);
             std::fs::copy(from, to).map_err(|e| format!("fs.copy `{from}` -> `{to}`: {e}"))?;
             Ok(String::new())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.symlink_metadata", move |args, memory| {
+        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        answer(&state, "fs.symlink_metadata", || {
+            let path = utf8(path)?;
+            let meta = std::fs::symlink_metadata(path)
+                .map_err(|e| format!("fs.symlink_metadata `{path}`: {e}"))?;
+            Ok(serde_json::json!({
+                "is_file": meta.is_file(),
+                "is_dir": meta.is_dir(),
+                "is_symlink": meta.file_type().is_symlink(),
+                "len": meta.len(),
+            })
+            .to_string())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.status", move |args, memory| {
+        let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        direct(&state, "process.status", || {
+            let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                .map_err(|e| format!("process.status: the spec is not valid: {e}"))?;
+            let timeout = spec.timeout_ms.map(Duration::from_millis);
+            let mut child = spawn_command(&spec)?;
+            // Not captured, so the pipes are closed at once rather than
+            // drained: a child that writes a lot to a pipe nobody reads would
+            // otherwise block on it.
+            drop(child.stdout.take());
+            drop(child.stderr.take());
+            let started = Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
+                    Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err("process.status: timed out".to_string());
+                    }
+                    Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                    Err(e) => return Err(format!("process.status: {e}")),
+                }
+            }
         })
     })?;
 

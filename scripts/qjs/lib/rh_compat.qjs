@@ -1,0 +1,156 @@
+// rh_compat.qjs -- the rh host idioms every migrated script leaned on,
+// written once over the tool door so 70 scripts share one mapping.
+//
+// Counted before writing (34 no-import scripts, uses / scripts):
+//   command_stdout_file 47/12   try_remove_file 38/19   parse_file 28/11
+//   stringify_pretty 22/19      atomic_write 20/15      command_status 15/5
+//   symlink_metadata 10/5       sleep 7/3               current_dir 5/4
+//
+// Each is a shim over a door op, not a door op: the door carries the eleven
+// primitives, this file carries the spellings. A tool library: import it
+// under `--profile tool`.
+
+function door(status, what) {
+  if (status !== 0) { throw what + ":" + tool_result(); }
+  return tool_result();
+}
+
+export function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+// ---- paths --------------------------------------------------------------
+
+export function cwd() {
+  return door(env_cwd(), "env_cwd");
+}
+
+export function absolute(p) {
+  if (p.startsWith("/")) { return p; }
+  const c = cwd();
+  return c.endsWith("/") ? c + p : c + "/" + p;
+}
+
+export function join(a, b) {
+  if (b.startsWith("/")) { return b; }
+  if (a === "") { return b; }
+  if (a.endsWith("/")) { return a + b; }
+  return a + "/" + b;
+}
+
+// ---- fs -----------------------------------------------------------------
+
+export function exists(p) {
+  return fs_exists(p) === 1;
+}
+
+export function read_text(p) {
+  return door(fs_read_to_string(p), "fs_read_to_string " + p);
+}
+
+export function write_text(p, text) {
+  door(fs_write(p, text), "fs_write " + p);
+}
+
+// rh's `atomic_write`: sibling temp, then rename over the target.
+export function atomic_write(p, text) {
+  const temp = p + ".qjs-tmp-" + process_id();
+  door(fs_write(temp, text), "fs_write " + temp);
+  door(fs_rename(temp, p), "fs_rename " + p);
+}
+
+// rh's `try_remove_file`: absent is not an error.
+export function try_remove_file(p) {
+  if (fs_exists(p) !== 1) { return false; }
+  return fs_remove_file(p) === 0;
+}
+
+export function try_remove_dir_all(p) {
+  if (fs_exists(p) !== 1) { return false; }
+  return fs_remove_dir_all(p) === 0;
+}
+
+export function metadata(p) {
+  return JSON.parse(door(fs_metadata(p), "fs_metadata " + p));
+}
+
+export function symlink_metadata(p) {
+  return JSON.parse(door(fs_symlink_metadata(p), "fs_symlink_metadata " + p));
+}
+
+export function read_dir(p) {
+  return JSON.parse(door(fs_read_dir(p), "fs_read_dir " + p));
+}
+
+export function create_dir_all(p) {
+  door(fs_create_dir_all(p), "fs_create_dir_all " + p);
+}
+
+// ---- json ---------------------------------------------------------------
+
+export function parse_file(p) {
+  return JSON.parse(read_text(p));
+}
+
+// rh wrote pretty JSON; every reader parses it back, so compact is the same
+// document. The engine has no `space` argument yet, and this is where that
+// would be spelled if it ever mattered.
+export function stringify_pretty(v) {
+  return JSON.stringify(v);
+}
+
+// ---- process ------------------------------------------------------------
+
+function spec(program, args, options) {
+  const s = { program: "" + program, args: args };
+  if (options !== undefined) {
+    if (options.cwd !== undefined) { s.current_dir = options.cwd; }
+    if (options.env !== undefined) { s.env = options.env; }
+    if (options.timeout_ms !== undefined) { s.timeout_ms = options.timeout_ms; }
+    if (options.stdin !== undefined) { s.stdin_text = options.stdin; }
+  }
+  return JSON.stringify(s);
+}
+
+// `command(...)`: run to completion, return {exit_code, success, stdout,
+// stderr, timed_out}. rh's `.output()`.
+export function command(program, args, options) {
+  return JSON.parse(door(process_command(spec(program, args, options)), "process_command " + program));
+}
+
+// rh's `command_status`: exit code only, nothing captured.
+export function command_status(program, args, options) {
+  const code = process_status(spec(program, args, options));
+  if (code < 0 && tool_result() !== "") { throw "process_status " + program + ":" + tool_result(); }
+  return code;
+}
+
+// rh's `command_stdout_file(path)`: run, write stdout to `path`, return the
+// exit code. The 47 call sites then `read_to_string` the file; that still
+// works, and a caller that wants the text directly has `command().stdout`.
+export function command_stdout_file(program, args, stdout_path, options) {
+  const out = command(program, args, options);
+  atomic_write(stdout_path, out.stdout);
+  return out.exit_code === null ? -1 : out.exit_code;
+}
+
+export function pid() {
+  return process_id();
+}
+
+// ---- time ---------------------------------------------------------------
+
+export function now_ms() {
+  return Number(door(time_now_ms(), "time_now_ms"));
+}
+
+export function sleep_ms(ms) {
+  time_sleep_ms(ms);
+}
+
+// ---- env ----------------------------------------------------------------
+
+export function env_or(name, fallback) {
+  if (env_has(name) !== 1) { return fallback; }
+  return door(env_get(name), "env_get " + name);
+}
