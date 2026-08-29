@@ -1098,6 +1098,15 @@ flowchart TD
 改到上游 `tinyvm` 去探就对了，那才是另一个 target。
 **并行拆分要按共享资源拆，不是按模块拆。**
 
+**第四课：一个 grep 模式会不会数到散文，是那个模式自己的性质。**
+第二次普查的尾部两行原写 spread「14 个脚本 20 次」、`switch`「2 个脚本 6 次」——
+剥掉字符串、模板与注释后**两者都是 0**。那些 `...` 在 `<args...>`、
+`` `require(...)` `` 里，`switch` 在英文句子里。
+头部行复查后**一个没变**（`.contains(` 58/721 等），**所以照表建的东西没建错**。
+区别很具体：`.contains(` 带前导 `.` 与尾随 `(`，进不了人话；`...` 是标点，
+`switch` 是裸词，都会。**裸词与标点的模式必须先剥离字符串与注释，
+带定界符的方法调用模式不必——这条可以事前判断，不必事后发现。**
+
 **一条待办，决定是对的而诊断是空的。** String 上读 `length` 以外的属性会 trap，
 理由写在 `runtime.rs` 里且成立：`"ab".toUpperCase` 在 ECMA-262 里**是个真函数**，
 返回 `undefined` 是「错答案穿着对答案的衣服」。但 trap 出来只有
@@ -1156,7 +1165,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ **`aca1589`**（break/continue + replace/replaceAll，当前 pin，2026-08-29）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ **`3a347be`**（`Number`，当前 pin，2026-08-29）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。
@@ -1256,6 +1265,9 @@ agenterm-qjswasm                                        [~]
 │   ├── replace（首个）/ replaceAll（全部）                   [x] rev aca1589，语料写前者意思是后者
 │   ├── `break` / `continue`（无标签）                        [x] rev aca1589
 │   │   └── 跨 `finally` 的                                   [ ] 具名拒绝，要 pending 机械
+│   ├── `Number(x)`：折成 `+x`，零运行时                      [x] rev 3a347be，缺的只是名字
+│   │   └── `parseInt`（前缀 + 基数，与 Number 不同）         [ ] 按名等需求，不做别名
+│   ├── 需求普查：**已无「有需求且未做」的行**                [x] 剩下的全是零使用
 │   └── String 上非 `length` 的属性读取                       [~] **决定对、诊断空**，见下
 │   ├── 循环里每轮是一个新绑定（14.3.1 / 13.7.4.7）          [x] rev 0afc88a
 │   ├── `for … of` 遍历数组（13.7.5）                        [x] rev 84f8161，需求第一
