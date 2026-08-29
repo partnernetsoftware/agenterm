@@ -1,7 +1,13 @@
 # PRD 02.36 — `agenterm-qjswasm`（自研脚本引擎：`.qjs` 编译到 `.wasm`，tinyvm 当核）
 
-Status: 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**153 passed / 0 ignored**，2026-08-28，上游 rev **`0afc88a`**）；**`.qjs` 已经够得着
+Status: **`[~]` 部分完成——见下面能力树的根，那个记号是本文件自己打的。**
+引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
+**152 passed / 0 failed**，2026-08-29，上游 rev **`ec67034`**）；
+
+> **这一行以前停在 2026-08-28 / rev `0afc88a` / 153 passed，而 pin 已经走到
+> `ec67034`。** 记在这里而不是悄悄改掉：**一份 PRD 的第一行落后，是它整体可信度的
+> 采样点**。之所以被发现，是因为有人问「真的做完了吗」——而不是因为有门在挡。
+> 版本号与测试数应当由发布口径带着走，这条目前没有门，是一笔明账。**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
