@@ -729,9 +729,8 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     }
 
     fn entry_extensions(&self) -> &'static [&'static str] {
-        // `.wasm` is listed because this engine can run it, but
-        // `ScriptBackend::from_entry_path` still routes `.wasm` to wasmcore by
-        // default; reaching this backend for wasm is an explicit env choice.
+        // `.wasm` is this engine's compiled artifact; since 2026-08-30
+        // `ScriptBackend::from_entry_path` routes it here by extension.
         &["qjs", "wasm"]
     }
 
@@ -1780,15 +1779,6 @@ mod tests {
             for ext in engine.entry_extensions() {
                 let path = format!("script.{ext}");
                 let routed = ScriptBackend::from_entry_path(&path);
-                #[cfg(feature = "script-qjswasm")]
-                if engine.backend_id() == ScriptBackend::Qjswasm && *ext == "wasm" {
-                    assert_ne!(
-                        routed,
-                        Some(ScriptBackend::Qjswasm),
-                        "`.wasm` is documented as NOT routing to qjswasm by default"
-                    );
-                    continue;
-                }
                 assert_eq!(
                     routed,
                     Some(engine.backend_id()),

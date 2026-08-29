@@ -1492,8 +1492,8 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
     // Chosen from the path, which is why it is read here and not above: these
     // verbs all take a file, so the extension answers "which engine" the same
     // way it does for `run`. `pack load` and `run-smoke` are handed an
-    // *artifact* rather than a source, and a `.wasm` routes nowhere, so they
-    // need an explicit `AGENTERM_SCRIPT_BACKEND` -- the refusal says so.
+    // *artifact* rather than a source; since 2026-08-30 a `.wasm` routes to
+    // qjswasm by extension, so no environment variable is needed.
     let backend = match resolved_backend_or_refuse(path) {
         Ok(backend) => backend,
         Err(code) => return code,
@@ -1788,6 +1788,50 @@ fn resolved_backend_or_refuse(label: &str) -> Result<crate::script_backend::Scri
     })
 }
 
+/// `script run x.wasm`: the artifact runs on the engine its extension names,
+/// through the tool door when the profile is `tool`, printing what a `run`
+/// prints. The same shape as `pack load`, which stays for scripts that
+/// spell it.
+fn run_wasm_artifact(path: &std::path::Path, tool_door: bool) -> i32 {
+    use crate::script_engine::ScriptEngineBackend as _;
+    let label = path.display().to_string();
+    let backend = match resolved_backend_or_refuse(&label) {
+        Ok(backend) => backend,
+        Err(code) => return code,
+    };
+    let engine = crate::script_engine::engine_for(backend);
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            cli_eprintln!("failed to read artifact {label}: {error}");
+            return 1;
+        }
+    };
+    let options = crate::script_engine::ScriptInvocationOptions {
+        tool_door,
+        ..crate::script_engine::ScriptInvocationOptions::default()
+    };
+    match engine.execute_artifact(&bytes, &options, None) {
+        Some(Ok(result)) => {
+            if !result.stdout.is_empty() {
+                print!("{}", result.stdout);
+            }
+            if let Some(value) = result.value {
+                cli_println!("{}", render_script_value(&value));
+            }
+            0
+        }
+        Some(Err(message)) => {
+            cli_eprintln!("{message}");
+            1
+        }
+        None => {
+            cli_eprintln!("{}", no_artifact_face(backend.as_str(), "run an artifact"));
+            2
+        }
+    }
+}
+
 fn run_script_command_direct(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "version") {
         return run_script_version();
@@ -1995,6 +2039,18 @@ fn run_script_command_with_context(
                         return 1;
                     }
                 };
+                // A compiled artifact is bytes, not a program to read as
+                // text: `script run x.wasm` is `pack load x.wasm` under the
+                // invocation's profile. Routed by the extension, so no
+                // environment variable is needed (A5, 2026-08-30).
+                if operation == ScriptOperation::Run
+                    && canonical.extension().is_some_and(|e| e == "wasm")
+                {
+                    return run_wasm_artifact(
+                        &canonical,
+                        profile == crate::script_protocol::ScriptProfile::Tool,
+                    );
+                }
                 if std::fs::metadata(&canonical)
                     .is_ok_and(|metadata| metadata.len() > budgets.source_bytes as u64)
                 {

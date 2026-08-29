@@ -271,6 +271,18 @@ fn pack_build_routes_by_extension() {
         "the compiler-backed engine's pack shape is one self-contained `.wasm`"
     );
 
+    // And the artifact runs by its extension, with no environment variable:
+    // `.wasm` is qjswasm's compiled form (A5, decided 2026-08-30).
+    let mut run = Command::new(AGENTERM_BIN);
+    run.args(["cli", "script", "run"]).arg(out_dir.join("t.wasm")).env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = run.output().expect("the CLI binary runs");
+    assert!(
+        out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "3",
+        "the packed artifact answers what the source answered; stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 

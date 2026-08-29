@@ -299,6 +299,14 @@ impl ScriptBackend {
         if path.ends_with(".qjs") {
             return Some(Self::Qjswasm);
         }
+        // A `.wasm` is qjswasm's compiled artifact -- what `pack build` and
+        // `qualify` write and `pack load` runs -- so the *extension* routes
+        // there (A5, decided 2026-08-30). The engine *name* `wasm` stays
+        // refused above: it selected the archived wasmcore.
+        #[cfg(feature = "script-qjswasm")]
+        if path.ends_with(".wasm") {
+            return Some(Self::Qjswasm);
+        }
         let _ = path;
         None
     }
@@ -441,7 +449,6 @@ mod tests {
             "test.rhai",
             "scripts/qjs/test.js",
             "t.mjs",
-            "m.wasm",
             "eval",
             "stdin",
         ] {
