@@ -2408,6 +2408,23 @@ String 上没有的属性都裸 trap，而且程序别处有没有 `.length` 还
   死了（助手少传一个参数），文件一字未动——第四次踩「编辑静默无效」。本段由紧随其后的
   提交补上；教训还是那条：提交前看 `git diff --cached --stat` 里有没有那个文件的行数。
 
+### 自验（2026-08-29 收尾，按「待办清单」A 区逐条）
+
+| 行 | 状态 | 证据 |
+|---|---|---|
+| A1.5 迁 71 个入口 + 11 个库 | **69/71 入口、14 个库**；两条**不迁**是决定不是欠账：`cu-windows-smoke`（仅 Windows）、`script-http-fixture`（要 TCP 门，B） | `ls scripts/qjs/*.qjs` = 69；`corpus-scan` 全 ok；三波每组各有一名核验者照命令重跑，全部「复现」 |
+| 证明（非移植） | **2 条旅程端到端 PASS**（server-smoke、wake-smoke），其余各停在一个具名的门/产品项（A1.10、A1.11） | 第三波报告；停点都带 STEP 行（stdout 不再丢） |
+| A1.8 预算/类别/throw 可读 | 已落地 | `2cde8b63` + 路由测试 13 条 |
+| A1.9 引擎缺口 (a)–(i) | (a)(b)(c)(d)(e)(f)(g)(h) 已处理；(i) 无 net 门 = B | 上游 pin 从 `ec67034` 走到 `1707721`（10 次），每次同一提交改版本链，门响过一次 |
+| A1.10 门缺口 (a)–(p) | (a)(b)(c)(d)(h)(j)(k)(l)(m) 已加；(e)(f)(n)(o) 开着；(g) 部分；(i)(p) = B | `tests/tool_door.rs` 27 条 |
+| A5 `.wasm` 归属 | **仍是决策点**，等政委 | — |
+| 验证 | 本次收尾时：`agenterm-qjswasm` 192/0；lib 720/2（平台对）；路由 13/0；全 workspace 118 行 1994/31，失败集与基线逐名相同 | `scratchpad/head11_names.txt` |
+
+**还没完的**（按值排）：(1) A1.10(o) 门答复的 JSON 信封让每个小答复都按字符计价——
+`stdout_path` 解了大文件，小的还在；(2) 步数价格第二层：`__jp_at` 每位一次、短键每串一次
+buffer、`s + "x"` 的二次拷贝；(3) `undefined.x` 可捕获（tinyvm A8，要 unwind 通道进运行时）；
+(4) 三个 B 决定：原生窗口/PNG/剪贴板门、TCP 门、`.wasm` 归属。
+
 ## Non-goals until 政委 orders otherwise
 
 - JS 覆盖面**不设人为上限**，按真实脚本需求长。本 PRD 不再声明任何 JS 语义层面的原理
