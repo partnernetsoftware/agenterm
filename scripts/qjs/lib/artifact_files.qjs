@@ -1,0 +1,164 @@
+// artifact_files.qjs -- shared filesystem operations for validated AgenTerm
+// build artifacts. Moved from rh on 2026-08-29; clean-locked-artifacts,
+// stage-artifact and stage-build import it.
+//
+// A tool library: every function touches the disk through the `tool.*`
+// door, so importers run under `--profile tool`.
+//
+// Differences from the rh original, each deliberate:
+//   - `symlink_metadata(...).is_reparse_point` is Windows-only and the door
+//     has no such field; `is_symlink` covers the case on every platform.
+//   - rh's `try_rename` / `try_copy` answered 1 on success; here they are
+//     the door's `fs_rename` / `fs_copy`, which answer 0 on success and park
+//     the diagnostic otherwise. Same best-effort shape, status read inline.
+//   - `std::time::SystemTime::now().unix_millis` is `rh.now_ms()`.
+
+import * as rh from "lib/rh_compat";
+
+function door(status, what) {
+  if (status !== 0) { throw what + ":" + tool_result(); }
+}
+
+export function clean_locked(directory_value, manifest_path_value) {
+  const directory = rh.absolute("" + directory_value);
+  const _manifest_path = "" + manifest_path_value;
+  if (!rh.exists(directory)) {
+    return 0;
+  }
+  rh.require(rh.metadata(directory).is_dir, "locked_artifact_directory_not_directory");
+  let removed = 0;
+  for (const entry of rh.read_dir(directory)) {
+    const name = "" + entry.name;
+    // Any parked AgenTerm executable/library: `<stem>.locked-<millis>.<ext>`.
+    const locked_artifact = name.startsWith("agenterm")
+      && name.includes(".locked-")
+      && (name.endsWith(".exe") || name.endsWith(".com") || name.endsWith(".dll"));
+    if (entry.is_file && locked_artifact) {
+      rh.try_remove_file(entry.path);
+      removed = removed + 1;
+    }
+  }
+  return removed;
+}
+
+export function remove_obsolete(directory_value, name_value) {
+  const directory = rh.absolute("" + directory_value);
+  const name = "" + name_value;
+  rh.require(
+    name !== "" && name !== "." && name !== ".." && !name.includes("/") && !name.includes("\\"),
+    "obsolete_artifact_name_invalid:" + name
+  );
+  const path = rh.join(directory, name);
+  if (!rh.exists(path)) {
+    return 0;
+  }
+  rh.require(rh.metadata(path).is_file, "obsolete_artifact_not_file:" + name);
+  door(fs_remove_file(path), "fs_remove_file " + path);
+  print("Removed obsolete artifact " + name + " from " + directory);
+  return 1;
+}
+
+export function unlock_output(directory_value, name_value) {
+  // Cargo cannot delete or overwrite the PE image of a live instance
+  // ("os error 5" at the final bin uplift), but Windows always allows a
+  // same-volume rename of a running image. Park the possibly-running
+  // output under the shared .locked- naming, restore identical bytes at
+  // the original path so an unchanged build does not relink, and drop the
+  // parked copy immediately when no process holds it. clean_locked reaps
+  // any parked copy that outlives its process.
+  const directory = rh.absolute("" + directory_value);
+  const name = "" + name_value;
+  // Any workspace bin can be the running image that blocks a rebuild
+  // (agenterm-con.exe held a workspace build hostage once), so accept every
+  // AgenTerm executable name rather than a shipped-artifact whitelist.
+  rh.require(
+    name.startsWith("agenterm")
+      && name.endsWith(".exe")
+      && !name.includes(".locked-")
+      && !name.includes("/")
+      && !name.includes("\\"),
+    "unlock_output_name_invalid:" + name
+  );
+  const path = rh.join(directory, name);
+  if (!rh.exists(path)) {
+    return 0;
+  }
+  const metadata = rh.symlink_metadata(path);
+  if (!metadata.is_file || metadata.is_symlink) {
+    return 0;
+  }
+  const stem = name.replaceAll(".exe", "");
+  const parked_name = stem + ".locked-" + rh.now_ms() + ".exe";
+  const parked = rh.join(directory, parked_name);
+  // Best-effort: a data handle without FILE_SHARE_DELETE (scanner, hasher,
+  // concurrent cargo) denies even the rename. Skip such a file rather than
+  // failing the build -- cargo will report it plainly if it still matters.
+  if (fs_rename(path, parked) !== 0) {
+    return 0;
+  }
+  if (fs_copy(parked, path) !== 0) {
+    fs_rename(parked, path);
+    return 0;
+  }
+  if (rh.try_remove_file(parked)) {
+    return 0;
+  }
+  print("Parked in-use build output; live image remains at " + parked);
+  return 1;
+}
+
+export function stage(source_directory_value, destination_directory_value, name_value) {
+  const source_directory = rh.absolute("" + source_directory_value);
+  const destination_directory = rh.absolute("" + destination_directory_value);
+  const name = "" + name_value;
+  rh.require(
+    name === "agenterm.exe"
+      || name === "agenterm.com"
+      || name === "agenterm-cc.exe"
+      || name === "agenterm-cu.exe"
+      || name === "agenterm.dll"
+      || name === "agenterm-rh.exe",
+    "stage_artifact_name_invalid:" + name
+  );
+  rh.require(
+    rh.exists(source_directory) && rh.metadata(source_directory).is_dir,
+    "stage_artifact_source_directory_invalid:" + source_directory
+  );
+  rh.create_dir_all(destination_directory);
+
+  let source_name = name;
+  if (name === "agenterm.com") {
+    source_name = "agenterm-com.exe";
+  }
+  const source = rh.join(source_directory, source_name);
+  const destination = rh.join(destination_directory, name);
+  rh.require(rh.exists(source), "stage_artifact_source_missing:" + source);
+  const source_metadata = rh.symlink_metadata(source);
+  rh.require(
+    source_metadata.is_file && !source_metadata.is_symlink,
+    "stage_artifact_source_invalid:" + source
+  );
+
+  let parked = "";
+  if (rh.exists(destination)) {
+    let stem = name.replaceAll(".exe", "");
+    let extension = ".exe";
+    if (name.endsWith(".com")) {
+      stem = stem.replaceAll(".com", "");
+      extension = ".com";
+    } else if (name.endsWith(".dll")) {
+      stem = stem.replaceAll(".dll", "");
+      extension = ".dll";
+    }
+    const parked_name = stem + ".locked-" + rh.now_ms() + extension;
+    parked = rh.join(destination_directory, parked_name);
+    door(fs_rename(destination, parked), "fs_rename " + destination);
+  }
+  door(fs_copy(source, destination), "fs_copy " + source);
+  if (parked !== "") {
+    print("Staged new artifact; previous copy remains at " + parked);
+    return 1;
+  }
+  print("Staged artifact: " + destination);
+  return 0;
+}

@@ -1,0 +1,22 @@
+// Remove stale staged executables left behind by an atomic replacement.
+//
+// Args:
+//   DIRECTORY ARTIFACT_MANIFEST [OBSOLETE_NAME...]
+// Runs under `--profile tool`: it touches the directory on disk and reads
+// its own arguments through the same door.
+import * as artifact_files from "lib/artifact_files";
+if (arg_count() < 2) { throw "expected: DIRECTORY ARTIFACT_MANIFEST [OBSOLETE_NAME...]"; }
+// Two-pass argv: `arg(i)` parks the string, `tool_result()` collects it.
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+const directory = args[0];
+const manifest_path = args[1];
+const _locked = artifact_files.clean_locked(directory, manifest_path);
+let obsolete_removed = 0;
+for (let index = 2; index < args.length; index = index + 1) {
+  obsolete_removed = obsolete_removed + artifact_files.remove_obsolete(directory, args[index]);
+}
+return obsolete_removed;
