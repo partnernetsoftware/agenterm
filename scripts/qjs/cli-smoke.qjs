@@ -1,0 +1,982 @@
+// Prove the public CLI, typed control, UI bridge, PTY, and lifecycle contract.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO GUI_EXE CLI_EXE
+//
+// Ported from scripts/rh/cli-smoke.rh; runs under `--profile tool`. The
+// journey is Windows-shaped (cmd.exe, `for /L`, `agenterm.exe`), exactly as
+// the rh original was. The GUI is a long-lived door handle (process_spawn)
+// polled through the public CLI, waited with process_wait, and reaped by
+// the harness's `complete`.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+// The null sentinel is the whole contract here: every lookup helper below
+// answers `null` when it finds nothing, and callers guard with
+// `json_is_present` before reading through it (a read through undefined or
+// null traps this engine uncatchably, much as a missing JSON path was a
+// fail-return in rh's native pack).
+function json_is_present(value) {
+  return value !== undefined && value !== null;
+}
+
+// stdout and stderr together. Concatenating costs steps per character in
+// this engine, so the common empty-stderr case hands stdout back as is.
+function combined(output) {
+  if (output.stderr === "") { return output.stdout; }
+  return output.stdout + output.stderr;
+}
+
+function invoke(context, cli, args, expected_failure) {
+  return harness.invoke_cli_bounded(context, cli, args, expected_failure, []);
+}
+
+function text(context, cli, args) {
+  const output = invoke(context, cli, args, 0);
+  return combined(output).trim();
+}
+
+function failure_text(context, cli, args) {
+  const output = invoke(context, cli, args, 1);
+  return combined(output);
+}
+
+// JSON.parse tolerates the surrounding whitespace rh trimmed first.
+function failure_json(context, cli, args) {
+  const output = invoke(context, cli, args, 1);
+  return JSON.parse(combined(output));
+}
+
+function json(context, cli, args) {
+  const output = invoke(context, cli, args, 0);
+  return JSON.parse(combined(output));
+}
+
+function sidebar_of(snapshot) {
+  if (!json_is_present(snapshot.layout)) { return null; }
+  const sidebar = snapshot.layout.sidebar;
+  return json_is_present(sidebar) ? sidebar : null;
+}
+
+function wait_sidebar_snapshot(context, cli, configured_width) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const snapshot = json(context, cli, ["ui-snapshot"]);
+    const sidebar = sidebar_of(snapshot);
+    if (json_is_present(sidebar)
+        && sidebar.configured_width === configured_width
+        && sidebar.visible) {
+      return snapshot;
+    }
+    harness.sleep_ms(25);
+  }
+  throw "cli_smoke_sidebar_width_timeout";
+}
+
+// Both call sites pass CLI arguments (`--address ... ui-action ...`), so this
+// must go through the `cli` verb (rh's `configured_cli_command`): the raw
+// launcher answers CLI arguments with entry-point guidance.
+function direct(context, program, args, expected_failure) {
+  const spec = harness.configured_cli_spec(context, program, args);
+  const output = rh.command(spec.program, spec.args, { env: spec.env, timeout_ms: 15000 });
+  harness.append_command_record_bounded(context, args, output, expected_failure, []);
+  if (expected_failure !== 0) {
+    harness.require(!output.success, "cli_smoke_direct_unexpected_success");
+  } else {
+    harness.require(output.success, "cli_smoke_direct_failure:" + output.stderr);
+  }
+  return output.stdout + output.stderr;
+}
+
+function tab_by_name(tab_entries, name) {
+  const wanted = "" + name;
+  for (const tab of tab_entries) {
+    if ("" + tab.name === wanted) { return tab; }
+    // rh asked the object for the key (`tab.contains("title")`) rather than
+    // reading through an absent path.
+    if (tab.title !== undefined) {
+      if ("" + tab.title === wanted) { return tab; }
+    }
+  }
+  return null;
+}
+
+function tab_by_id(tab_entries, id) {
+  const wanted = "" + id;
+  for (const tab of tab_entries) {
+    if ("" + tab.id === wanted) { return tab; }
+  }
+  return null;
+}
+
+function event_by_kind(events, kind) {
+  const kind_text = "" + kind;
+  for (const event of events) {
+    if ("" + event.kind === kind_text) { return event; }
+  }
+  return null;
+}
+
+function event_for_tab(events, kind, tab_id) {
+  const kind_text = "" + kind;
+  const tab_text = "" + tab_id;
+  for (const event of events) {
+    if ("" + event.kind === kind_text && "" + event.tab_id === tab_text) {
+      return event;
+    }
+  }
+  return null;
+}
+
+function operation_by_id(catalog_operations, id) {
+  const wanted = "" + id;
+  for (const operation of catalog_operations) {
+    if ("" + operation.id === wanted) { return operation; }
+  }
+  return null;
+}
+
+function first_window(windows) {
+  for (const window of windows) { return window; }
+  return null;
+}
+
+function first_parameter(parameters) {
+  for (const parameter of parameters) { return parameter; }
+  return null;
+}
+
+function stable_tab_id(value) {
+  const t = "" + value;
+  return t.startsWith("@") && t.length > 1;
+}
+
+function parse_integer(value) {
+  return Number(("" + value).trim());
+}
+
+function require_file(path, minimum_bytes) {
+  harness.require(rh.exists(path), "cli_smoke_file_missing:" + path);
+  harness.require(rh.metadata(path).len >= minimum_bytes, "cli_smoke_file_too_small:" + path);
+}
+
+// rh compared the lease's `client_pid` against `gui.id`. The door has no pid
+// for a spawned handle, so the witness is the host's process table, asked
+// only once the lease reports an attached client (see test_harness).
+function wait_for_gui_lease(context, cli, gui, gui_exe, gui_args) {
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    const probe = harness.run_cli_bounded(
+      context, cli,
+      ["wait-ui", "--window-state", "restored", "--timeout-ms", "100"],
+      0, []
+    );
+    if (probe.success) {
+      const lease_probe = harness.run_cli_bounded(context, cli, ["ui-lease", "status"], 0, []);
+      if (lease_probe.success) {
+        const lease = JSON.parse(lease_probe.stdout);
+        const client_pid = Number(lease.client_pid);
+        if (lease.attached) {
+          const gui_pid = harness.spawned_pid_witness(gui_exe, gui_args);
+          if (gui_pid > 0 && client_pid === gui_pid) {
+            const snapshot = JSON.parse(probe.stdout);
+            harness.require(snapshot.client_pid === gui_pid, "cli_smoke_gui_lease_owner");
+            return 0;
+          }
+        }
+      }
+    }
+    if (harness.state(gui) === "exited") {
+      const output = harness.wait(gui, 2000);
+      throw "cli_smoke_gui_early_exit:" + output.stderr;
+    }
+    harness.sleep_ms(25);
+  }
+  throw "cli_smoke_gui_ready_timeout";
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print("cli.backspace-del-one");
+  print("cli.named-buffer-paste");
+  print("cli.remain-on-exit");
+  print("cli.stable-create-id");
+  print("cli.observable-events");
+  print("cli.typed-tabs-operations");
+  print("cli.control-receipts");
+  print("cli.ui-bridge-contracts");
+  print("cli.ui-bootstrap");
+  print("cli.ui-follow");
+  return 0;
+}
+
+harness.require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");
+const repo = rh.absolute(args[0]);
+const gui_exe = rh.absolute(args[1]);
+const cli = rh.absolute(args[2]);
+harness.require(rh.exists(gui_exe), "cli_smoke_gui_missing");
+harness.require(rh.exists(cli), "cli_smoke_cli_missing");
+
+const context = harness.new_context(repo, "cli");
+const name = "agenterm-smoke-" + context.run_id;
+const token = "AGENTERM_SMOKE_" + context.run_id;
+const window_png = rh.join(context.run_directory, name + "-window.png");
+const pane_png = rh.join(context.run_directory, name + "-pane.png");
+let owned_children = [];
+let succeeded = 0;
+let failure = "";
+const declared_evidence = [
+  "cli.backspace-del-one",
+  "cli.named-buffer-paste",
+  "cli.remain-on-exit",
+  "cli.stable-create-id",
+  "cli.observable-events",
+  "cli.typed-tabs-operations",
+  "cli.control-receipts",
+  "cli.ui-bridge-contracts",
+  "cli.ui-bootstrap",
+  "cli.ui-follow"
+];
+
+try {
+  print("STEP create tab and prove request receipt replay");
+  text(context, cli, ["new-window", "-d", "-n", name]);
+
+  const request_id = "receipt-" + context.run_id;
+  const receipt_args = [
+    "--request-id", request_id, "--receipt-json",
+    "set-tab-note", "-t", name, "receipt-test"
+  ];
+  const first_receipt = json(context, cli, receipt_args);
+  const replayed_receipt = json(context, cli, receipt_args);
+  const resolved_tab_id = first_receipt.resolved.tab_id;
+  harness.require(
+    first_receipt.outcome === "committed"
+      && first_receipt.request_id === request_id
+      && json_is_present(resolved_tab_id)
+      && first_receipt.after_position.sequence === replayed_receipt.after_position.sequence,
+    "cli_smoke_receipt_replay"
+  );
+  const conflict_receipt = failure_json(
+    context, cli,
+    ["--request-id", request_id, "--receipt-json", "set-tab-note", "-t", name, "different-payload"]
+  );
+  harness.require(
+    conflict_receipt.outcome === "no_op"
+      && conflict_receipt.error.code === "request_id_conflict"
+      && conflict_receipt.error.category === "conflict",
+    "cli_smoke_receipt_conflict"
+  );
+
+  const retry_name = "receipt-window-" + context.run_id;
+  const create_request = "receipt-create-" + context.run_id;
+  const create_args = ["--request-id", create_request, "--receipt-json", "new-window", "-d", "-n", retry_name];
+  const created = json(context, cli, create_args);
+  const created_replay = json(context, cli, create_args);
+  const create_replay_snapshot = json(context, cli, ["ui-snapshot"]);
+  const retry_tab = tab_by_name(create_replay_snapshot.tabs, retry_name);
+  harness.require(
+    created.outcome === "committed"
+      && created.after_position.sequence === created_replay.after_position.sequence
+      && json_is_present(retry_tab)
+      && stable_tab_id("" + retry_tab.id),
+    "cli_smoke_create_replay"
+  );
+  const retry_tab_id = "" + retry_tab.id;
+  const kill_request = "receipt-kill-" + context.run_id;
+  const kill_args = ["--request-id", kill_request, "--receipt-json", "kill-window", "-t", retry_tab_id];
+  const killed = json(context, cli, kill_args);
+  const killed_replay = json(context, cli, kill_args);
+  const kill_replay_snapshot = json(context, cli, ["ui-snapshot"]);
+  const killed_tab = tab_by_id(kill_replay_snapshot.tabs, retry_tab_id);
+  harness.require(
+    killed.outcome === "committed"
+      && killed.after_position.sequence === killed_replay.after_position.sequence
+      && !json_is_present(killed_tab),
+    "cli_smoke_kill_replay"
+  );
+  harness.emit_evidence(context, declared_evidence, "cli.control-receipts");
+
+  print("STEP discover commands and typed operation contracts");
+  const commands = text(context, cli, ["list-commands"]);
+  const expected_commands = [
+    "new-window (neww)", "list-windows (lsw)", "send-keys (send)",
+    "set-buffer (setb)", "paste-buffer (pasteb)", "scroll-pane",
+    "read-events", "wait-events", "new-agent", "list-instances",
+    "wait-pane (expect-pane)", "set-composer", "ui-bootstrap",
+    "ui-deltas", "ui-hello", "ui-snapshot"
+  ];
+  for (const expected_command of expected_commands) {
+    harness.require(
+      commands.includes(expected_command),
+      "cli_smoke_command_missing:" + expected_command
+    );
+  }
+  const save_buffer_fail = failure_text(context, cli, ["save-buffer"]);
+  harness.require(
+    save_buffer_fail.includes("unsupported") || save_buffer_fail.includes("not implemented"),
+    "cli_smoke_save_buffer_explicit_unsupported"
+  );
+  const offline_unknown = direct(
+    context, cli, ["--address", "127.0.0.1:1", "ui-action", "tabs-teleport"], 1
+  );
+  const offline_width = direct(
+    context, cli, ["--address", "127.0.0.1:1", "ui-action", "tabs-set-width"], 1
+  );
+  harness.require(
+    offline_unknown.includes("operation_unknown[tabs-teleport]")
+      && !offline_unknown.includes("connect"),
+    "cli_smoke_offline_operation_validation"
+  );
+  harness.require(
+    offline_width.includes("operation_invalid_arguments[ui.tabs.set-width]")
+      && !offline_width.includes("connect"),
+    "cli_smoke_offline_width_validation"
+  );
+
+  const protocol = json(context, cli, ["protocol-info"]);
+  const operation_catalog = protocol.operation_catalog;
+  const ui_bridge = protocol.ui_bridge;
+  harness.require(
+    ui_bridge.schema_version === 7
+      && ui_bridge.ownership_mode === "split_server_client"
+      && ui_bridge.replaceable_ui
+      && ui_bridge.interactive_lease
+      && ui_bridge.target_server_executable === "agenterm.exe"
+      && ui_bridge.bootstrap_snapshot
+      && ui_bridge.ordered_deltas
+      && ui_bridge.reconnect
+      && ui_bridge.rollback_proven
+      && ui_bridge.contract_schemas.hello === 1
+      && ui_bridge.contract_schemas.bootstrap === 2
+      && ui_bridge.contract_schemas.screen === 2
+      && ui_bridge.contract_schemas.delta === 2
+      && ui_bridge.contract_schemas.lease === 2
+      && ui_bridge.contract_schemas.interaction === 1
+      && ui_bridge.hard_limits.bootstrap_bytes === 8388608
+      && ui_bridge.hard_limits.tabs === 1024
+      && ui_bridge.hard_limits.screen_rows === 512
+      && ui_bridge.hard_limits.screen_columns === 512
+      && ui_bridge.hard_limits.screen_runs === 262144
+      && ui_bridge.hard_limits.screen_text_bytes === 4194304
+      && ui_bridge.hard_limits.delta_bytes === 8388608
+      && ui_bridge.hard_limits.delta_events === 64
+      && ui_bridge.hard_limits.input_bytes === 262144
+      && operation_catalog.schema_version === 1
+      && operation_catalog.classification_only
+      && !operation_catalog.authorization_policy,
+    "cli_smoke_protocol_contract"
+  );
+  harness.emit_evidence(context, declared_evidence, "cli.ui-bridge-contracts");
+
+  print("STEP renderer-neutral bootstrap and causal UI follow");
+  const running_protocol = json(context, cli, ["protocol-info", "--running"]);
+  const bootstrap = json(context, cli, ["ui-bootstrap"]);
+  const inspect = json(context, cli, ["inspect"]);
+  const ui_snapshot = json(context, cli, ["ui-snapshot"]);
+  harness.require(
+    bootstrap.schema_version === 2
+      && running_protocol.identity_scope === "running_host"
+      && bootstrap.server_pid === running_protocol.pid
+      && bootstrap.server_epoch === bootstrap.position.server_epoch
+      && bootstrap.server_epoch === ui_snapshot.event_position.epoch
+      && bootstrap.position.sequence === ui_snapshot.event_position.sequence
+      && bootstrap.complete
+      && !bootstrap.truncated
+      && bootstrap.active_tab_id === inspect.active_window_id
+      && bootstrap.tabs.length === inspect.windows.length,
+    "cli_smoke_bootstrap_identity"
+  );
+  for (const tab of bootstrap.tabs) {
+    const tab_id = "" + tab.id;
+    const composer_text = tab.composer.text;
+    const window = tab_by_id(inspect.windows, tab_id);
+    harness.require(json_is_present(window), "cli_smoke_bootstrap_tab:" + tab_id);
+    const window_name = "" + window.name;
+    const window_note = "" + window.note;
+    const window_parent_id = "" + window.parent_id;
+    const tab_parent_id = "" + tab.parent_id;
+    const tab_title = "" + tab.title;
+    const tab_note = "" + tab.note;
+    harness.require(
+      tab_parent_id === window_parent_id
+        && tab_title === window_name
+        && tab_note === window_note
+        && tab.process_id === window.pid
+        && tab.dead === window.dead
+        && tab.exit_code === window.exit_code
+        && tab.screen.tab_id === tab_id
+        && tab.screen.rows === window.rows
+        && tab.screen.columns === window.cols
+        && tab.screen.scrollback_offset === window.scrollback_offset
+        && tab.screen.complete
+        && !tab.screen.truncated
+        && tab.screen.runs.length > 0,
+      "cli_smoke_bootstrap_tab:" + tab_id
+    );
+    if (tab.composer.sensitive) {
+      harness.require(composer_text === null, "cli_smoke_sensitive_composer_disclosed");
+    } else {
+      const composer_text_string = "" + composer_text;
+      harness.require(
+        tab.composer.byte_length === composer_text_string.length,
+        "cli_smoke_composer_byte_identity"
+      );
+    }
+    // The contract is "if the snapshot exposes a working context, it must
+    // not leak proxy values" -- so it applies only to tabs that carry the
+    // field; serialized so nested fields such as `working_context.cwd` are
+    // covered too.
+    if (tab.working_context !== undefined) {
+      const working_context = JSON.stringify(tab.working_context);
+      harness.require(
+        !working_context.includes("http_proxy") && !working_context.includes("https_proxy"),
+        "cli_smoke_proxy_value_disclosed"
+      );
+    }
+  }
+  harness.emit_evidence(context, declared_evidence, "cli.ui-bootstrap");
+
+  const hello_build = {
+    protocol_version: 1,
+    version: "cli-smoke",
+    git_commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    profile: "black-box",
+    cargo_lock_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    artifact_manifest_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  };
+  const hello_client_id = "cli-smoke-" + context.run_id;
+  const hello_build_json = JSON.stringify(hello_build);
+  const hello_args = [
+    "ui-hello", "--minimum", "1", "--maximum", "1",
+    "--client-id", hello_client_id,
+    "--client-build-json", hello_build_json
+  ];
+  const hello = json(context, cli, hello_args);
+  harness.require(
+    hello.schema_version === 1
+      && hello.accepted
+      && hello.compatibility === "compatible"
+      && hello.client_id === hello_client_id
+      && hello.protocol_version === 1
+      && hello.server_pid === running_protocol.pid
+      && hello.client_build.profile === "black-box"
+      && hello.client_build.git_commit === "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      && hello.server_build.protocol_version === 1
+      && hello.server_build.version !== ""
+      && hello.bootstrap_schema_version === 2
+      && hello.delta_schema_version === 2
+      && rh.array_has(hello.capabilities, "ordered_delta_poll"),
+    "cli_smoke_hello_contract"
+  );
+  const future_client_id = "future-renderer-" + context.run_id;
+  const too_new = json(
+    context, cli,
+    ["ui-hello", "--minimum", "2", "--maximum", "2", "--client-id", future_client_id]
+  );
+  harness.require(
+    !too_new.accepted && too_new.compatibility === "client_too_new",
+    "cli_smoke_future_renderer_contract"
+  );
+  const follow_tab = tab_by_name(bootstrap.tabs, name);
+  harness.require(json_is_present(follow_tab), "cli_smoke_follow_tab_missing");
+  const follow_tab_id = "" + follow_tab.id;
+  const follow_note = "ui-follow-" + context.run_id;
+  text(context, cli, ["set-tab-note", "-t", follow_tab_id, follow_note]);
+  const hello_after_sequence = "" + hello.position.sequence;
+  const deltas = json(
+    context, cli,
+    ["ui-deltas", "--epoch", hello.position.server_epoch, "--after", hello_after_sequence, "--limit", "64"]
+  );
+  let previous_sequence = Number(hello.position.sequence);
+  for (const event of deltas.events) {
+    harness.require(event.sequence > previous_sequence, "cli_smoke_delta_order");
+    previous_sequence = Number(event.sequence);
+  }
+  const follow_event = event_for_tab(deltas.events, "tab.note", follow_tab_id);
+  const follow_update = tab_by_id(deltas.tab_updates, follow_tab_id);
+  const post_bootstrap = json(context, cli, ["ui-bootstrap"]);
+  const post_tab = tab_by_id(post_bootstrap.tabs, follow_tab_id);
+  harness.require(
+    deltas.schema_version === 2
+      && deltas.server_epoch === hello.position.server_epoch
+      && deltas.after_sequence === hello.position.sequence
+      && deltas.through_sequence === deltas.current_sequence
+      && deltas.complete
+      && !deltas.truncated
+      && json_is_present(follow_event)
+      && json_is_present(follow_update)
+      && json_is_present(post_tab),
+    "cli_smoke_delta_post_state"
+  );
+  harness.require(
+    follow_update.note === follow_note
+      && follow_update.screen.generation === deltas.current_sequence
+      && post_bootstrap.position.sequence === deltas.current_sequence
+      && post_tab.note === follow_update.note
+      && post_tab.screen.generation === follow_update.screen.generation,
+    "cli_smoke_delta_post_state"
+  );
+  const restart_error = failure_text(
+    context, cli, ["ui-deltas", "--epoch", "definitely-stale-ui-epoch", "--after", "0"]
+  );
+  const future_after_sequence = "" + (deltas.current_sequence + 1);
+  const future_error = failure_text(
+    context, cli, ["ui-deltas", "--epoch", deltas.server_epoch, "--after", future_after_sequence]
+  );
+  harness.require(
+    restart_error.includes("\"code\":\"server_restart\"")
+      && restart_error.includes("\"current\"")
+      && future_error.includes("\"code\":\"future_sequence\"")
+      && future_error.includes("\"current\""),
+    "cli_smoke_delta_recovery"
+  );
+  harness.emit_evidence(context, declared_evidence, "cli.ui-follow");
+
+  const seen_operations = [];
+  const operation_fields = [
+    "id", "class", "command", "aliases", "parameters", "result_type",
+    "errors", "events", "destructive", "available", "since"
+  ];
+  for (const operation of operation_catalog.operations) {
+    const operation_id = "" + operation.id;
+    harness.require(
+      !rh.array_has(seen_operations, operation_id),
+      "cli_smoke_duplicate_operation:" + operation_id
+    );
+    seen_operations.push(operation_id);
+    for (const field of operation_fields) {
+      harness.require(
+        operation[field] !== undefined,
+        "cli_smoke_operation_field:" + operation_id + ":" + field
+      );
+    }
+    const operation_class = "" + operation["class"];
+    harness.require(
+      operation.available
+        && operation.result_type !== ""
+        && operation.since !== ""
+        && ((operation_class === "destructive") === operation.destructive),
+      "cli_smoke_operation_metadata:" + operation_id
+    );
+  }
+  const class_expectations = [
+    ["protocol.info", "observe"],
+    ["ui.hello", "observe"],
+    ["ui.bootstrap", "observe"],
+    ["ui.deltas", "observe"],
+    ["ui.tabs.show", "control"],
+    ["ui.tabs.hide", "control"],
+    ["ui.tabs.toggle", "control"],
+    ["ui.tabs.set-width", "control"],
+    ["tabs.set-note", "control"],
+    ["server.kill", "destructive"]
+  ];
+  for (const expectation of class_expectations) {
+    const operation = operation_by_id(operation_catalog.operations, expectation[0]);
+    harness.require(
+      json_is_present(operation) && operation["class"] === expectation[1],
+      "cli_smoke_operation_class:" + expectation[0]
+    );
+  }
+  const width_operation = operation_by_id(operation_catalog.operations, "ui.tabs.set-width");
+  const width_parameter = first_parameter(width_operation.parameters);
+  harness.require(json_is_present(width_parameter), "cli_smoke_width_discovery");
+  const width_parameter_name = "" + width_parameter.name;
+  harness.require(
+    width_parameter_name === "width"
+      && width_parameter.value_type === "integer"
+      && width_parameter.required
+      && width_parameter.minimum === 180
+      && width_parameter.maximum === 480
+      && width_operation.result_type === "ui_snapshot"
+      && rh.array_has(width_operation.events, "layout.tabs.width"),
+    "cli_smoke_width_discovery"
+  );
+  const toggle_operation = operation_by_id(operation_catalog.operations, "ui.tabs.toggle");
+  harness.require(rh.array_has(toggle_operation.aliases, "toggle-tabs"), "cli_smoke_toggle_alias");
+  const note_operation = operation_by_id(operation_catalog.operations, "tabs.set-note");
+  harness.require(
+    note_operation.script_surface === "fleet.tabs.set_note"
+      && note_operation.parameters.length === 2
+      && rh.array_has(note_operation.events, "tab.note"),
+    "cli_smoke_note_discovery"
+  );
+
+  const headless_error = failure_text(context, cli, ["ui-action", "tabs-hide"]);
+  harness.require(
+    headless_error.includes("no interactive GUI client is attached to this server"),
+    "cli_smoke_headless_ui_error"
+  );
+  const gui_args = ["--no-activate", "--address", context.address];
+  const gui = harness.start(harness.configured_spec(context, gui_exe, gui_args));
+  owned_children.push(gui);
+  wait_for_gui_lease(context, cli, gui, gui_exe, gui_args);
+
+  print("STEP typed Tabs actions preserve layout and event attribution");
+  const tabs_baseline = json(context, cli, ["ui-snapshot"]);
+  const configured_width = tabs_baseline.layout.sidebar.configured_width;
+  const hidden = json(context, cli, ["ui-action", "tabs-hide"]);
+  harness.require(
+    !hidden.layout.sidebar.visible
+      && hidden.layout.sidebar.effective_width === 0
+      && hidden.layout.sidebar.configured_width === configured_width,
+    "cli_smoke_tabs_hide"
+  );
+  const tabs_after_sequence = "" + tabs_baseline.event_position.sequence;
+  const visibility_events = json(
+    context, cli,
+    ["read-events", "--epoch", tabs_baseline.event_position.epoch, "--after", tabs_after_sequence]
+  );
+  const hide_event = event_by_kind(visibility_events.events, "layout.tabs.visibility");
+  harness.require(json_is_present(hide_event), "cli_smoke_tabs_hide_event");
+  const hide_operation_id = "" + hide_event.payload.operation_id;
+  harness.require(hide_operation_id === "ui.tabs.hide", "cli_smoke_tabs_hide_event");
+  const tabs_show = json(context, cli, ["ui-action", "tabs-show"]);
+  harness.require(tabs_show.layout.sidebar.visible, "cli_smoke_tabs_show");
+  const tabs_toggle = json(context, cli, ["ui-action", "tabs-toggle"]);
+  harness.require(!tabs_toggle.layout.sidebar.visible, "cli_smoke_tabs_toggle");
+  const tabs_legacy_toggle = json(context, cli, ["ui-action", "toggle-tabs"]);
+  harness.require(tabs_legacy_toggle.layout.sidebar.visible, "cli_smoke_tabs_legacy_toggle");
+  const width_baseline = json(context, cli, ["ui-snapshot"]);
+  for (const width of [180, 480]) {
+    const width_text = "" + width;
+    const sized = json(context, cli, ["ui-action", "tabs-set-width", "--width", width_text]);
+    harness.require(
+      sized.layout.sidebar.configured_width === width && sized.settings.tabs_width === width,
+      "cli_smoke_width_boundary:" + width_text
+    );
+  }
+  const width_after_sequence = "" + width_baseline.event_position.sequence;
+  const width_events = json(
+    context, cli,
+    ["read-events", "--epoch", width_baseline.event_position.epoch, "--after", width_after_sequence]
+  );
+  // Take the LAST width event, not the first: the loop above walks 250 (the
+  // default) -> 180 -> 480, so two `layout.tabs.width` events are committed.
+  let width_event = null;
+  for (const candidate of width_events.events) {
+    if ("" + candidate.kind === "layout.tabs.width") { width_event = candidate; }
+  }
+  harness.require(json_is_present(width_event), "cli_smoke_width_event");
+  const width_operation_id = "" + width_event.payload.operation_id;
+  harness.require(
+    width_operation_id === "ui.tabs.set-width" && width_event.payload.configured_width === 480,
+    "cli_smoke_width_event"
+  );
+  for (const width of [179, 481]) {
+    const invalid_width_text = "" + width;
+    const invalid_width_error = failure_text(
+      context, cli, ["ui-action", "tabs-set-width", "--width", invalid_width_text]
+    );
+    harness.require(
+      invalid_width_error.includes("operation_invalid_arguments[ui.tabs.set-width]"),
+      "cli_smoke_invalid_width:" + invalid_width_text
+    );
+  }
+  const unknown_tabs_error = failure_text(context, cli, ["ui-action", "tabs-teleport"]);
+  harness.require(
+    unknown_tabs_error.includes("operation_unknown[tabs-teleport]"),
+    "cli_smoke_unknown_tabs_action"
+  );
+  wait_sidebar_snapshot(context, cli, 480);
+  const restore_width_text = "" + configured_width;
+  text(context, cli, ["ui-action", "tabs-set-width", "--width", restore_width_text]);
+  harness.emit_evidence(context, declared_evidence, "cli.typed-tabs-operations");
+
+  print("STEP observable event read and bounded wait");
+  const event_baseline = json(context, cli, ["ui-snapshot"]);
+  const event_name = "event-" + context.run_id;
+  text(context, cli, ["new-window", "-d", "-n", event_name]);
+  const event_after_sequence = "" + event_baseline.event_position.sequence;
+  const event_batch = json(
+    context, cli,
+    ["read-events", "--epoch", event_baseline.event_position.epoch, "--after", event_after_sequence]
+  );
+  const created_event = event_by_kind(event_batch.events, "tab.created");
+  harness.require(json_is_present(created_event), "cli_smoke_created_event");
+  harness.require(
+    created_event.sequence > event_baseline.event_position.sequence
+      && created_event.payload.index >= 0,
+    "cli_smoke_created_event"
+  );
+  const created_tab_id = "" + created_event.tab_id;
+  const waited = json(
+    context, cli,
+    [
+      "wait-events",
+      "--epoch", event_baseline.event_position.epoch,
+      "--after", event_after_sequence,
+      "--kind", "tab.created",
+      "--tab", "@" + created_tab_id,
+      "--timeout-ms", "1000"
+    ]
+  );
+  harness.require(waited.sequence === created_event.sequence, "cli_smoke_waited_event");
+  const timeout_after_sequence = "" + event_batch.position.sequence;
+  const timeout_error = failure_text(
+    context, cli,
+    [
+      "wait-events",
+      "--epoch", event_batch.position.epoch,
+      "--after", timeout_after_sequence,
+      "--kind", "never.test-event",
+      "--timeout-ms", "20"
+    ]
+  );
+  harness.require(timeout_error.includes("event_wait_timeout"), "cli_smoke_event_timeout");
+  harness.emit_evidence(context, declared_evidence, "cli.observable-events");
+
+  print("STEP composer, PTY, Backspace, viewport, and screenshots");
+  const composer_command = "echo " + token;
+  text(context, cli, ["set-composer", "-t", name, composer_command]);
+  const before_submit = json(context, cli, ["inspect", "-t", name]);
+  const composer_roundtrip = text(context, cli, ["show-composer", "-t", name]);
+  harness.require(composer_roundtrip === "echo " + token, "cli_smoke_composer_roundtrip");
+  const submit_baseline = json(context, cli, ["ui-snapshot"]);
+  const submit_request = "submit-" + context.run_id;
+  const submit_args = ["--request-id", submit_request, "--receipt-json", "send-composer", "-t", name];
+  const accepted = json(context, cli, submit_args);
+  harness.require(
+    accepted.outcome === "accepted"
+      && accepted.wait.condition === "submission_complete"
+      && accepted.wait.event_kind === "composer.submission-finished",
+    "cli_smoke_submit_accepted"
+  );
+  const pending_input_error = failure_text(context, cli, ["send-keys", "-t", name, "SHOULD_NOT_MERGE"]);
+  harness.require(
+    pending_input_error.includes("composer submission is pending"),
+    "cli_smoke_pending_input"
+  );
+  text(
+    context, cli,
+    ["wait-pane", "-t", name, "--contains", token, "--submit-complete", "--timeout-ms", "30000"]
+  );
+  const committed = json(context, cli, submit_args);
+  harness.require(
+    committed.outcome === "committed"
+      && committed.after_position.sequence > accepted.after_position.sequence,
+    "cli_smoke_submit_committed"
+  );
+  const submit_after_sequence = "" + submit_baseline.event_position.sequence;
+  const submit_events = json(
+    context, cli,
+    ["read-events", "--epoch", submit_baseline.event_position.epoch, "--after", submit_after_sequence]
+  );
+  let submit_count = 0;
+  let submit_enter_written = 0;
+  const committed_operation_id = "" + committed.operation_id;
+  for (const event of submit_events.events) {
+    const event_kind = "" + event.kind;
+    const event_request = "" + event.request_id;
+    const event_operation = "" + event.operation_id;
+    if (event_kind === "composer.submission-finished"
+        && event_request === submit_request
+        && event_operation === committed_operation_id) {
+      submit_enter_written = Number(event.payload.enter_written);
+      submit_count = submit_count + 1;
+    }
+  }
+  harness.require(submit_count === 1 && submit_enter_written !== 0, "cli_smoke_submit_event");
+  const after_submit = json(context, cli, ["inspect", "-t", name]);
+  const before_window = first_window(before_submit.windows);
+  const after_window = first_window(after_submit.windows);
+  harness.require(
+    json_is_present(before_window) && json_is_present(after_window),
+    "cli_smoke_submit_pty_writes"
+  );
+  harness.require(
+    after_window.input_writes === before_window.input_writes + 2
+      && !after_window.submit_pending,
+    "cli_smoke_submit_pty_writes"
+  );
+  const capture_output = text(context, cli, ["capture-pane", "-p", "-t", name]);
+  harness.require(capture_output.includes(token), "cli_smoke_capture_token");
+
+  const backspace_prefix = "AGENTERM_BACKSPACE_" + context.run_id;
+  const backspace_command = "echo " + backspace_prefix + "X";
+  text(context, cli, ["send-keys", "-t", name, "-l", backspace_command]);
+  text(context, cli, ["send-keys", "-t", name, "Backspace"]);
+  text(context, cli, ["send-keys", "-t", name, "-l", "Y"]);
+  text(context, cli, ["send-keys", "-t", name, "Enter"]);
+  text(
+    context, cli,
+    ["wait-pane", "-t", name, "--contains", backspace_prefix + "Y", "--timeout-ms", "30000"]
+  );
+  const backspace_capture = text(context, cli, ["capture-pane", "-p", "-t", name]);
+  let exact_backspace = 0;
+  for (const line of backspace_capture.split("\n")) {
+    if (line.trim() === backspace_prefix + "Y") { exact_backspace = 1; }
+  }
+  harness.require(exact_backspace !== 0, "cli_smoke_backspace_contract");
+  harness.emit_evidence(context, declared_evidence, "cli.backspace-del-one");
+
+  print("STEP named buffer set/show/list/paste/delete journey");
+  const buffer_probe = "BUFFER_PROBE_OK_" + context.run_id;
+  text(context, cli, ["set-buffer", "-b", "probe", "--", buffer_probe]);
+  const show_probe_buffer = text(context, cli, ["show-buffer", "-b", "probe"]);
+  harness.require(show_probe_buffer.includes(buffer_probe), "cli_smoke_show_buffer_roundtrip");
+  const list_buffers = text(context, cli, ["list-buffers"]);
+  harness.require(list_buffers.includes("probe:"), "cli_smoke_list_buffers_named");
+  text(context, cli, ["send-keys", "-t", name, "-l", "echo "]);
+  text(context, cli, ["paste-buffer", "-b", "probe", "-t", name]);
+  text(context, cli, ["send-keys", "-t", name, "Enter"]);
+  text(context, cli, ["wait-pane", "-t", name, "--contains", buffer_probe, "--timeout-ms", "30000"]);
+  const paste_capture = text(context, cli, ["capture-pane", "-p", "-t", name]);
+  harness.require(paste_capture.includes(buffer_probe), "cli_smoke_paste_buffer_capture");
+  text(context, cli, ["delete-buffer", "-b", "probe"]);
+  const missing_buffer = failure_text(context, cli, ["show-buffer", "-b", "probe"]);
+  harness.require(
+    missing_buffer.includes("can't find buffer") || missing_buffer.includes("buffer"),
+    "cli_smoke_delete_buffer_missing"
+  );
+  text(context, cli, ["set-buffer", "-b", "empty", "--"]);
+  const empty_paste = failure_text(context, cli, ["paste-buffer", "-b", "empty", "-t", name]);
+  harness.require(empty_paste.includes("empty"), "cli_smoke_empty_buffer_paste_fails");
+  text(context, cli, ["delete-buffer", "-b", "empty"]);
+  harness.emit_evidence(context, declared_evidence, "cli.named-buffer-paste");
+
+  const scroll_prefix = "AGENTERM_SCROLL_" + context.run_id;
+  text(
+    context, cli,
+    ["set-composer", "-t", name, "for /L %i in (1,1,80) do @echo " + scroll_prefix + "_%i"]
+  );
+  text(context, cli, ["send-composer", "-t", name]);
+  text(
+    context, cli,
+    ["wait-pane", "-t", name, "--contains", scroll_prefix + "_80", "--submit-complete", "--timeout-ms", "30000"]
+  );
+  const top_offset = parse_integer(text(context, cli, ["scroll-pane", "-t", name, "top"]));
+  const scroll_top_capture = text(context, cli, ["capture-pane", "-p", "-t", name]);
+  harness.require(
+    top_offset > 0 && !scroll_top_capture.includes(scroll_prefix + "_80"),
+    "cli_smoke_scroll_top"
+  );
+  const lower_offset = parse_integer(text(context, cli, ["scroll-pane", "-t", name, "down", "5"]));
+  harness.require(lower_offset < top_offset, "cli_smoke_scroll_down");
+  const bottom_offset = parse_integer(text(context, cli, ["scroll-pane", "-t", name, "bottom"]));
+  const scroll_bottom_capture = text(context, cli, ["capture-pane", "-p", "-t", name]);
+  harness.require(
+    bottom_offset === 0 && scroll_bottom_capture.includes(scroll_prefix + "_80"),
+    "cli_smoke_scroll_bottom"
+  );
+  text(context, cli, ["screenshot", "-o", window_png]);
+  text(context, cli, ["screenshot-pane", "-t", name, "-o", pane_png]);
+  require_file(window_png, 1000);
+  require_file(pane_png, 1000);
+
+  print("STEP stable IDs, remain-on-exit, and explicit close");
+  const stable_root_name = "stable-root-" + context.run_id;
+  const stable_child_name = "stable-child-" + context.run_id;
+  const disposable_name = "disposable-" + context.run_id;
+  const stable_root = text(
+    context, cli, ["new-window", "-d", "-n", stable_root_name, "-F", "#{window_id}"]
+  );
+  harness.require(stable_tab_id(stable_root), "cli_smoke_stable_root_id");
+  const stable_child = text(
+    context, cli,
+    ["new-window", "-d", "-n", stable_child_name, "--parent", stable_root, "-F", "#{window_id}"]
+  );
+  const disposable = text(
+    context, cli,
+    ["new-window", "-d", "-n", disposable_name, "-F", "#{window_id}", "--", "cmd.exe", "/d", "/c", "exit", "0"]
+  );
+  text(context, cli, ["wait-ui", "-t", disposable, "--tab-state", "dead", "--timeout-ms", "30000"]);
+  text(context, cli, ["kill-window", "-t", disposable]);
+  text(context, cli, ["select-window", "-t", stable_child]);
+  text(context, cli, ["wait-ui", "--active", stable_child, "--timeout-ms", "30000"]);
+  text(context, cli, ["rename-window", "-t", stable_child, stable_child_name + "-renamed"]);
+  const stable_parent = text(context, cli, ["show-tab-parent", "-t", stable_child]);
+  harness.require(stable_parent === stable_root, "cli_smoke_stable_parent");
+  text(context, cli, ["kill-window", "-t", stable_child]);
+  text(context, cli, ["kill-window", "-t", stable_root]);
+  harness.emit_evidence(context, declared_evidence, "cli.stable-create-id");
+
+  text(context, cli, ["send-keys", "-t", name, "exit", "Enter"]);
+  text(context, cli, ["wait-pane", "-t", name, "--dead", "--timeout-ms", "30000"]);
+  text(context, cli, ["wait-pane", "-t", name, "--finalized", "--timeout-ms", "30000"]);
+  const finalized_first_inspect = json(context, cli, ["inspect", "-t", name]);
+  const finalized_first = first_window(finalized_first_inspect.windows);
+  const finalized_second_inspect = json(context, cli, ["inspect", "-t", name]);
+  const finalized_second = first_window(finalized_second_inspect.windows);
+  harness.require(
+    json_is_present(finalized_first) && json_is_present(finalized_second),
+    "cli_smoke_finalized_boundary"
+  );
+  harness.require(
+    finalized_first.reader_closed
+      && finalized_first.parser_drained
+      && finalized_first.finalized
+      && finalized_first.output_bytes === finalized_second.output_bytes,
+    "cli_smoke_finalized_boundary"
+  );
+  const dead_write = failure_json(
+    context, cli, ["--receipt-json", "send-keys", "-t", name, "-l", "late-input"]
+  );
+  harness.require(
+    dead_write.outcome === "no_op" && dead_write.error.code === "terminal_not_writable",
+    "cli_smoke_dead_write"
+  );
+  const remain_on_exit_message = text(
+    context, cli,
+    ["display-message", "-p", "-t", name, "#{window_id}:#{window_name}:#{pane_dead}"]
+  );
+  harness.require(
+    remain_on_exit_message.endsWith(":" + name + ":1"),
+    "cli_smoke_remain_on_exit"
+  );
+  harness.emit_evidence(context, declared_evidence, "cli.remain-on-exit");
+
+  const close_baseline = json(context, cli, ["ui-snapshot"]);
+  const closing_tab = tab_by_name(close_baseline.tabs, name);
+  harness.require(json_is_present(closing_tab), "cli_smoke_closing_tab_missing");
+  text(context, cli, ["kill-window", "-t", name]);
+  const close_after_sequence = "" + close_baseline.event_position.sequence;
+  const close_events = json(
+    context, cli,
+    ["read-events", "--epoch", close_baseline.event_position.epoch, "--after", close_after_sequence]
+  );
+  const closing_tab_id = "" + closing_tab.id;
+  // rh: `closing_tab_id.sub_string(1)`. No `slice`/`substring` in this
+  // engine; a stable id is "@" followed by digits, so drop the "@".
+  const closing_numeric = parse_integer(closing_tab_id.replaceAll("@", ""));
+  const closed_event = event_for_tab(close_events.events, "tab.closed", closing_numeric);
+  harness.require(json_is_present(closed_event), "cli_smoke_explicit_close");
+  harness.require(closed_event.payload.terminal_shutdown_complete, "cli_smoke_explicit_close");
+
+  const close_state = json(context, cli, ["ui-action", "close-window"]);
+  harness.require(
+    close_state.modal.kind === "confirm-window-close"
+      && rh.array_has(close_state.modal.actions, "stop-server-and-exit"),
+    "cli_smoke_window_close_contract"
+  );
+  text(context, cli, ["ui-action", "stop-server-and-exit"]);
+  // Liveness bound, not a latency assertion: the GUI must exit at all after
+  // stop-server-and-exit. rh's `wait_with_output(15s)` recorded a
+  // `process_timeout` failure on expiry; the door's wait kills on expiry and
+  // says `timed_out`, so that is the fact required here.
+  const gui_exit = harness.wait(gui, 15000);
+  owned_children = harness.forget_child(owned_children, gui);
+  harness.require(!gui_exit.timed_out, "cli_smoke_gui_exit_timeout");
+
+  print(
+    "PASS: typed control, UI bridge, PTY, screenshots, "
+      + "remain-on-exit, and explicit close"
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try {
+  harness.complete(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return 0;
