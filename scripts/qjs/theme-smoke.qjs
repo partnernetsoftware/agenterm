@@ -9,7 +9,12 @@
 // Ported from scripts/rh/theme-smoke.rh; runs under `--profile tool`. The
 // GUI is a long-lived door handle (process_spawn) polled through the public
 // CLI and reaped by process_wait; rh's `child.state` / `wait_with_output`
-// are `harness.state` / `harness.wait` here.
+// are `harness.state` / `harness.wait` here, and rh's `child.id` is
+// `process_pid(handle)`.
+//
+// Every CLI call goes through the harness's original `invoke_cli` /
+// `run_cli` (record bounded by `slice`, which works now); the `_bounded`
+// route-around cost ~1.4M more steps per 13 KB answer for nothing.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -49,18 +54,18 @@ function parent_dir(p) {
 // No `"" + output.stdout` copies here: in this engine a concat costs steps
 // per character, and a 13 KB snapshot copy is as dear as its parse.
 function json_cli(context, cli, args) {
-  const output = harness.invoke_cli_bounded(context, cli, args, 0, []);
+  const output = harness.invoke_cli(context, cli, args, 0, []);
   return JSON.parse(output.stdout);
 }
 
 function text_cli(context, cli, args) {
-  const output = harness.invoke_cli_bounded(context, cli, args, 0, []);
+  const output = harness.invoke_cli(context, cli, args, 0, []);
   return output.stdout;
 }
 
 function wait_for_server(context, cli, gui_child) {
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    const probe = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 0, []);
+    const probe = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);
     if (probe.success) { return 0; }
     if (harness.state(gui_child) === "exited") {
       const output = harness.wait(gui_child, 2000);
@@ -74,7 +79,7 @@ function wait_for_server(context, cli, gui_child) {
 
 function wait_for_server_stop(context, cli) {
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    const probe = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 1, []);
+    const probe = harness.run_cli(context, cli, ["ui-snapshot"], 1, []);
     const output_text = "" + probe.stdout + probe.stderr;
     const stopped = "AgenTerm server is not running";
     if (!probe.success && output_text.includes(stopped)) { return 0; }
@@ -107,11 +112,10 @@ function start_gui(context, gui, cli) {
     cli,
     ["wait-ui", "--window-state", "restored", "--timeout-ms", "30000"]
   );
-  // rh compared against `child.id`; the door has no pid for a handle, so the
-  // witness is the host's own process table (see test_harness).
-  const witness_pid = harness.spawned_pid_witness(gui, gui_args);
+  // rh compared against `child.id`: the door answers a handle's OS pid.
+  const child_pid = process_pid(child);
   harness.require(
-    witness_pid > 0 && snapshot.client_pid === witness_pid,
+    child_pid > 0 && snapshot.client_pid === child_pid,
     "theme_ui_lease_wrong_process"
   );
   return child;
@@ -221,7 +225,7 @@ function assert_theme_closed(snapshot, saved_preset) {
 
 function retain_failure_snapshot(context, cli) {
   rh.create_dir_all(context.failure_directory);
-  const output = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 0, []);
+  const output = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);
   rh.atomic_write(
     rh.join(context.failure_directory, "ui-snapshot.txt"),
     "exit_code=" + output.exit_code + "\n" + output.stdout + output.stderr
