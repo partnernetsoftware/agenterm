@@ -1,0 +1,967 @@
+// Prove v0.1.10/v0.1.11 control clients and servers remain
+// compatible with the exact staged HEAD bytes across the TCP-to-native IPC
+// migration. The unpublished Windows x86_64 baseline is an exact repository
+// fixture; published assets retain their public URL path. Every selected
+// archive is still constrained by its catalog size and SHA-256.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO [--head-server PATH] [--head-cli PATH] [--head-metadata PATH] [--catalog PATH]
+//
+// Platform split:
+// - Windows: v0.1.10 default TCP, v0.1.11 native IPC, and HEAD.
+// - Linux/macOS: v0.1.11 native IPC and HEAD. The published v0.1.10 Unix
+//   archives have no agenterm-server binary, so they cannot truthfully prove a
+//   server/client compatibility journey.
+//
+// Ported from scripts/rh/native-ipc-compat-smoke.rh; runs under `--profile
+// tool`. CI ran it as `.` on Windows (dist/ defaults) and with `--head-server
+// --head-cli --head-metadata` naming the debug build on Linux and macOS,
+// after write-build-metadata had produced the metadata file.
+//
+// The published and HEAD servers are door handles (`process_spawn`), polled
+// with `process_state` and reaped with `process_wait`; `complete_owned` reaps
+// whatever the journey left running.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+function catch_text(error) {
+  return "" + error;
+}
+
+function file_name(p) {
+  const parts = ("" + p).split("/");
+  return parts[parts.length - 1];
+}
+
+function record(context, arguments, output, expected_failure) {
+  harness.append_command_record_lines(context, arguments, output, expected_failure, []);
+}
+
+function command_output(context, program, arguments, expected_failure, seconds) {
+  const output = rh.command(program, arguments, { timeout_ms: seconds * 1000 });
+  record(context, arguments, output, expected_failure ? 1 : 0);
+  if (expected_failure) {
+    harness.require(output.success !== true, "native_ipc_compat_unexpected_success:" + program);
+  } else {
+    harness.require(
+      output.success === true,
+      "native_ipc_compat_command_failed:" + program + ":" + output.stderr
+    );
+  }
+  return {
+    success: output.success,
+    exit_code: output.exit_code,
+    stdout: output.stdout,
+    stderr: output.stderr
+  };
+}
+
+function host_facts(context) {
+  let os_name = "windows";
+  if (rh.has_env("AGENTERM_HOST_OS")) {
+    os_name = rh.env_or("AGENTERM_HOST_OS", "");
+  } else if (rh.exists("/System/Library/CoreServices")) {
+    os_name = "macos";
+  } else if (rh.exists("/proc")) {
+    os_name = "linux";
+  }
+  let arch = "x86_64";
+  if (rh.has_env("AGENTERM_HOST_ARCH")) {
+    arch = rh.env_or("AGENTERM_HOST_ARCH", "");
+  } else if (rh.has_env("PROCESSOR_ARCHITECTURE")) {
+    const value = rh.env_or("PROCESSOR_ARCHITECTURE", "").toLowerCase();
+    if (value.includes("arm64")) {
+      arch = "aarch64";
+    }
+  } else {
+    const output = command_output(context, "uname", ["-m"], false, 2);
+    const value = ("" + output.stdout).trim();
+    if (value === "arm64" || value === "aarch64") {
+      arch = "aarch64";
+    }
+  }
+  harness.require(
+    os_name === "windows" || os_name === "linux" || os_name === "macos",
+    "native_ipc_compat_host_os:" + os_name
+  );
+  harness.require(arch === "x86_64" || arch === "aarch64", "native_ipc_compat_host_arch:" + arch);
+  return { os: os_name, arch: arch };
+}
+
+function release_by_version(catalog, version) {
+  const matches = [];
+  for (const release of catalog.releases) {
+    if (release.version === version) {
+      matches.push(release);
+    }
+  }
+  harness.require(matches.length === 1, "native_ipc_compat_release_match:" + version);
+  return matches[0];
+}
+
+function platform_asset(release, facts) {
+  const matches = [];
+  for (const asset of release.assets) {
+    if (asset.os === facts.os && asset.arch === facts.arch) {
+      matches.push(asset);
+    }
+  }
+  harness.require(
+    matches.length === 1,
+    "native_ipc_compat_asset_match:" + release.version + ":" + facts.os + ":" + facts.arch
+  );
+  return matches[0];
+}
+
+function expected_asset_name(version, os_name, arch) {
+  harness.require(
+    version === "0.1.10" || version === "0.1.11",
+    "native_ipc_compat_release_path_version:" + version
+  );
+  harness.require(
+    os_name === "windows" || os_name === "linux" || os_name === "macos",
+    "native_ipc_compat_release_path_os:" + os_name
+  );
+  harness.require(arch === "x86_64" || arch === "aarch64", "native_ipc_compat_release_path_arch:" + arch);
+  let suffix = ".tar.gz";
+  if (os_name === "windows") {
+    suffix = ".zip";
+  } else if (os_name === "macos") {
+    suffix = "-unsigned-preview.zip";
+  }
+  return "agenterm-" + version + "-" + os_name + "-" + arch + suffix;
+}
+
+function acquisition_paths(context, release, asset) {
+  const version = "" + release.version;
+  const tag = "" + release.tag;
+  const os_name = "" + asset.os;
+  const arch = "" + asset.arch;
+  const asset_name = "" + asset.name;
+  const expected_name = expected_asset_name(version, os_name, arch);
+  harness.require(tag === "v" + version, "native_ipc_compat_release_path_tag:" + version);
+  harness.require(
+    asset_name === expected_name
+      && file_name(asset_name) === asset_name
+      && !asset_name.includes("/")
+      && !asset_name.includes("\\"),
+    "native_ipc_compat_release_path_asset:" + version
+  );
+  const owner = rh.join(context.run_directory, "published-" + version + "-" + asset_name);
+  return {
+    downloads: rh.join(owner, "downloads"),
+    extracted: rh.join(owner, "extracted")
+  };
+}
+
+function verify_download_file_set(downloads, release, asset) {
+  const downloaded_names = [];
+  for (const entry of rh.read_dir(downloads)) {
+    harness.require(entry.is_file === true, "native_ipc_compat_download_not_file:" + release.version);
+    downloaded_names.push("" + entry.name);
+  }
+  harness.require(
+    downloaded_names.length === 1 && downloaded_names[0] === asset.name,
+    "native_ipc_compat_download_file_set:" + release.version
+  );
+}
+
+function verify_archive(archive, release, asset) {
+  const archive_len = rh.metadata(archive).len;
+  const asset_size = rh.int_of(asset.size);
+  harness.require(archive_len === asset_size, "native_ipc_compat_archive_size:" + release.version);
+  harness.require(
+    rh.sha256_file(archive) === asset.sha256,
+    "native_ipc_compat_archive_hash:" + release.version
+  );
+}
+
+function acquire_release(context, repo, catalog, release, asset, facts) {
+  const paths = acquisition_paths(context, release, asset);
+  const downloads = "" + paths.downloads;
+  const extracted = "" + paths.extracted;
+  rh.create_dir_all(downloads);
+  rh.create_dir_all(extracted);
+  const archive = rh.join(downloads, asset.name);
+  const acquisition = "" + release.acquisition;
+  if (acquisition === "repository_fixture") {
+    // An asset without a `path` (the catalog's non-Windows 0.1.11 rows) is
+    // not a fixture; the requirement below names it.
+    const fixture_path = asset.path === undefined ? "" : "" + asset.path;
+    harness.require(
+      fixture_path === "fixtures/native-ipc-compat/" + asset.name,
+      "native_ipc_compat_fixture_path:" + release.version
+    );
+    const fixture = rh.join(repo, fixture_path);
+    harness.require(
+      rh.exists(fixture) && rh.metadata(fixture).is_file === true,
+      "native_ipc_compat_fixture_missing:" + release.version
+    );
+    rh.copy(fixture, archive);
+  } else if (acquisition === "public_url") {
+    const url = "https://github.com/" + catalog.repository + "/releases/download/" + release.tag + "/" + asset.name;
+    let curl = "curl";
+    if (facts.os === "windows") {
+      curl = "curl.exe";
+    }
+    command_output(
+      context,
+      curl,
+      [
+        "--fail", "--location", "--silent", "--show-error",
+        "--max-time", "120",
+        "--max-filesize", "" + asset.size,
+        "--output", "" + archive,
+        url
+      ],
+      false,
+      130
+    );
+  } else {
+    throw "native_ipc_compat_acquisition:" + acquisition;
+  }
+  verify_download_file_set(downloads, release, asset);
+  verify_archive(archive, release, asset);
+  let tar = "tar";
+  if (facts.os === "windows") {
+    tar = "tar.exe";
+  }
+  command_output(context, tar, ["-xf", archive, "-C", "" + extracted], false, 30);
+  let suffix = "";
+  if (facts.os === "windows") {
+    suffix = ".exe";
+  }
+  // Historical releases ship agenterm-server; HEAD consolidated to agenterm.
+  const legacy_server = rh.join(extracted, "agenterm-server" + suffix);
+  const consolidated_server = rh.join(extracted, "agenterm" + suffix);
+  let server = consolidated_server;
+  if (rh.exists(legacy_server)) {
+    server = legacy_server;
+  }
+  const cli = rh.join(extracted, "agenterm-cli" + suffix);
+  harness.require(rh.exists(server), "native_ipc_compat_published_server_missing:" + release.version);
+  harness.require(rh.exists(cli), "native_ipc_compat_published_cli_missing:" + release.version);
+  const version_output = command_output(context, cli, ["--version"], false, 5);
+  const version_text = "" + version_output.stdout + version_output.stderr;
+  const release_version = "" + release.version;
+  harness.require(
+    version_text.includes(release_version),
+    "native_ipc_compat_published_version:" + release_version
+  );
+  return { server: server, cli: cli };
+}
+
+// Kept from rh: a self-test of the acquisition isolation rules that the
+// entry never calls.
+function acquisition_isolation_selftest(root, mode) {
+  const context = { run_directory: rh.absolute(root) };
+  const release_110 = { version: "0.1.10", tag: "v0.1.10" };
+  const release_111 = { version: "0.1.11", tag: "v0.1.11" };
+  const asset_110 = {
+    os: "windows",
+    arch: "x86_64",
+    name: "agenterm-0.1.10-windows-x86_64.zip",
+    size: 4,
+    sha256: "770e607624d689265ca6c44884d0807d9b054d23c473c106c72be9de08b7376c"
+  };
+  const asset_111 = {
+    os: "windows",
+    arch: "x86_64",
+    name: "agenterm-0.1.11-windows-x86_64.zip",
+    size: 4,
+    sha256: "770e607624d689265ca6c44884d0807d9b054d23c473c106c72be9de08b7376c"
+  };
+  if (mode === "traversal") {
+    asset_110.name = "../agenterm-0.1.10-windows-x86_64.zip";
+  }
+  const paths_110 = acquisition_paths(context, release_110, asset_110);
+  const paths_111 = acquisition_paths(context, release_111, asset_111);
+  harness.require(
+    paths_110.downloads !== paths_111.downloads && paths_110.extracted !== paths_111.extracted,
+    "native_ipc_compat_acquisition_directory_isolation"
+  );
+  rh.create_dir_all(paths_110.downloads);
+  rh.create_dir_all(paths_111.downloads);
+  const archive_110 = rh.join(paths_110.downloads, asset_110.name);
+  const archive_111 = rh.join(paths_111.downloads, asset_111.name);
+  rh.write_text(archive_110, "good");
+  rh.write_text(archive_111, "good");
+  verify_download_file_set(paths_110.downloads, release_110, asset_110);
+  verify_download_file_set(paths_111.downloads, release_111, asset_111);
+  verify_archive(archive_110, release_110, asset_110);
+  verify_archive(archive_111, release_111, asset_111);
+
+  if (mode === "pollution") {
+    const pollution_path = rh.join(paths_110.downloads, "pollution.zip");
+    rh.write_text(pollution_path, "bad");
+    verify_download_file_set(paths_110.downloads, release_110, asset_110);
+  } else if (mode === "tamper") {
+    rh.write_text(archive_111, "evil");
+    verify_archive(archive_111, release_111, asset_111);
+  } else {
+    harness.require(mode === "clean", "native_ipc_compat_selftest_mode:" + mode);
+  }
+}
+
+function git_head(context, repo) {
+  const output = rh.command("git", ["rev-parse", "HEAD"], { cwd: "" + repo, timeout_ms: 5000 });
+  record(context, ["rev-parse", "HEAD"], output, output.success === true ? 0 : 1);
+  harness.require(output.success === true, "native_ipc_compat_git_head");
+  return output.stdout.trim();
+}
+
+function executable_hash(metadata, target) {
+  const name = file_name(target);
+  const matches = [];
+  for (const executable of metadata.executables) {
+    if (executable.name === name) {
+      matches.push(executable);
+    }
+  }
+  harness.require(matches.length === 1, "native_ipc_compat_head_metadata_entry:" + name);
+  return "" + matches[0].sha256;
+}
+
+function verify_head(context, repo, server, cli, metadata_path) {
+  harness.require(rh.exists(server) && rh.exists(cli), "native_ipc_compat_head_binaries_missing");
+  harness.require(rh.exists(metadata_path), "native_ipc_compat_head_metadata_missing");
+  const metadata = rh.parse_file(metadata_path);
+  harness.require(
+    metadata.schema_version === 2 && metadata.git_commit === git_head(context, repo),
+    "native_ipc_compat_head_source_identity"
+  );
+  harness.require(
+    rh.sha256_file(server) === executable_hash(metadata, server),
+    "native_ipc_compat_head_server_hash"
+  );
+  harness.require(
+    rh.sha256_file(cli) === executable_hash(metadata, cli),
+    "native_ipc_compat_head_cli_hash"
+  );
+}
+
+function authority_argv(program, arguments) {
+  const name = file_name(program);
+  const argv = [];
+  let cli_role = 0;
+  let selector_value = 0;
+  for (const argument of arguments) {
+    const argument_text = "" + argument;
+    if (selector_value !== 0) {
+      selector_value = 0;
+    } else if (argument_text === "--instance" || argument_text === "--address" || argument_text === "--endpoint") {
+      selector_value = 1;
+    } else if (!argument_text.startsWith("-")) {
+      cli_role = 1;
+    }
+  }
+  if (name === "agenterm" || name === "agenterm.exe") {
+    if (cli_role !== 0) {
+      argv.push("cli");
+    } else {
+      argv.push("server");
+    }
+  }
+  for (const argument of arguments) { argv.push("" + argument); }
+  return argv;
+}
+
+// rh's `command.env(name, value)` after an `env_remove(name)`: the door
+// applies `env` before `env_remove`, so the name must leave the remove list.
+function set_env(spec, name, value) {
+  spec.env[name] = "" + value;
+  const kept = [];
+  for (const removed of spec.env_remove) {
+    if (removed !== name) { kept.push(removed); }
+  }
+  spec.env_remove = kept;
+}
+
+function configured(context, program, arguments, runtime_directory, config_directory, workspace, legacy_address) {
+  const argv = authority_argv(program, arguments);
+  const spec = harness.configured_spec(context, program, argv);
+  const removed = ["AGENTERM_IPC_ENDPOINT", "AGENTERM_IPC_ADDRESS", "AGENTERM_INSTANCE"];
+  spec.env = rh.env_without(spec.env, removed);
+  spec.env_remove = removed;
+  if (legacy_address !== "") {
+    set_env(spec, "AGENTERM_IPC_ADDRESS", legacy_address);
+  }
+  set_env(spec, "AGENTERM_WORKSPACE_PATH", workspace);
+  set_env(spec, "AGENTERM_SETTINGS_PATH", workspace + ".settings.json");
+  set_env(spec, "AGENTERM_INSTANCE_DIR", context.instance_directory);
+  set_env(spec, "XDG_RUNTIME_DIR", "" + runtime_directory);
+  set_env(spec, "LOCALAPPDATA", "" + config_directory);
+  set_env(spec, "XDG_CONFIG_HOME", "" + config_directory);
+  set_env(spec, "AGENTERM_NO_ACTIVATE", "1");
+  return spec;
+}
+
+function invoke(context, program, arguments, expected_failure, runtime_directory, config_directory, workspace, legacy_address) {
+  const spec = configured(context, program, arguments, runtime_directory, config_directory, workspace, legacy_address);
+  spec.timeout_ms = 10000;
+  const output = rh.command_spec(spec);
+  record(context, arguments, output, expected_failure ? 1 : 0);
+  if (expected_failure) {
+    harness.require(output.success !== true, "native_ipc_compat_cli_unexpected_success:" + program);
+  } else {
+    harness.require(
+      output.success === true,
+      "native_ipc_compat_cli_failed:" + program + ":" + output.stderr
+    );
+  }
+  return {
+    success: output.success,
+    exit_code: output.exit_code,
+    stdout: output.stdout,
+    stderr: output.stderr
+  };
+}
+
+function invoke_json(context, program, arguments, runtime_directory, config_directory, workspace, legacy_address) {
+  const output = invoke(context, program, arguments, false, runtime_directory, config_directory, workspace, legacy_address);
+  return JSON.parse("" + output.stdout + output.stderr);
+}
+
+function wait_protocol(context, cli, selector, runtime_directory, config_directory, workspace, legacy_address, server) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const arguments = [];
+    for (const s of selector) { arguments.push("" + s); }
+    arguments.push("protocol-info");
+    arguments.push("--running");
+    const spec = configured(context, cli, arguments, runtime_directory, config_directory, workspace, legacy_address);
+    spec.timeout_ms = 2000;
+    const output = rh.command_spec(spec);
+    record(context, arguments, output, output.success === true ? 0 : 1);
+    if (output.success === true) {
+      return JSON.parse(output.stdout + output.stderr);
+    }
+    if (harness.state(server) === "exited") {
+      const ended = harness.wait(server, 2000);
+      throw "native_ipc_compat_server_early_exit:" + ended.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "native_ipc_compat_server_ready_timeout";
+}
+
+function wait_exit(child, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(child) === "exited") {
+      return harness.wait(child, 2000);
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+// rh compared `protocol.pid == child.id`. A door handle is a slot index, not
+// a PID, so the identity is asked of the host instead: the pid the server
+// reports must be a direct child of this script host (`ps -o ppid=`).
+function spawned_by_us(pid) {
+  return rh.process_parent_pid(rh.int_of(pid)) === process_id();
+}
+
+function shutdown(context, cli, selector, runtime_directory, config_directory, workspace, legacy_address, server, code) {
+  const arguments = [];
+  for (const s of selector) { arguments.push("" + s); }
+  arguments.push("shutdown");
+  invoke(context, cli, arguments, false, runtime_directory, config_directory, workspace, legacy_address);
+  const ended = wait_exit(server, code);
+  harness.require(ended.success === true, code + "_failure");
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print("control.native-ipc-published-compatibility");
+  return 0;
+}
+harness.require(args.length >= 1, "expected: REPO [OPTIONS]");
+const repo = rh.absolute(args[0]);
+let catalog_path = rh.join(repo, "scripts/native-ipc-compat-assets.json");
+let head_server = "";
+let head_cli = "";
+let head_metadata = "";
+let index = 1;
+while (index < args.length) {
+  const option = args[index];
+  harness.require(
+    option === "--head-server" || option === "--head-cli" || option === "--head-metadata" || option === "--catalog",
+    "native_ipc_compat_option:" + option
+  );
+  harness.require(index + 1 < args.length, "native_ipc_compat_option_value:" + option);
+  if (option === "--head-server") {
+    head_server = args[index + 1];
+  } else if (option === "--head-cli") {
+    head_cli = args[index + 1];
+  } else if (option === "--head-metadata") {
+    head_metadata = args[index + 1];
+  } else {
+    catalog_path = args[index + 1];
+  }
+  index = index + 2;
+}
+
+const context = harness.new_context(repo, "native-ipc-compat");
+const facts = host_facts(context);
+let suffix = "";
+if (facts.os === "windows") {
+  suffix = ".exe";
+}
+if (head_server === "") {
+  head_server = rh.join(repo, "dist/agenterm" + suffix);
+} else {
+  head_server = rh.absolute(head_server);
+}
+if (head_cli === "") {
+  let head_cli_name = "agenterm";
+  if (facts.os === "windows") {
+    head_cli_name = "agenterm.exe";
+  }
+  head_cli = rh.join(repo, "dist/" + head_cli_name);
+} else {
+  head_cli = rh.absolute(head_cli);
+}
+if (head_metadata === "") {
+  head_metadata = rh.join(repo, "dist/agenterm.json");
+} else {
+  head_metadata = rh.absolute(head_metadata);
+}
+const catalog = rh.parse_file(rh.absolute(catalog_path));
+harness.require(
+  catalog.schema_version === 1 && catalog.repository === "partnernetsoftware/agenterm",
+  "native_ipc_compat_catalog_identity"
+);
+const release_110 = release_by_version(catalog, "0.1.10");
+const release_111 = release_by_version(catalog, "0.1.11");
+const asset_111 = platform_asset(release_111, facts);
+let runtime_directory = rh.join(context.run_directory, "runtime");
+if (facts.os !== "windows") {
+  let root = "/tmp";
+  if (rh.exists("/private/tmp")) {
+    root = "/private/tmp";
+  }
+  runtime_directory = root + "/agt-compat-" + process_id() + "-" + rh.now_ms();
+}
+const config_directory = rh.join(context.run_directory, "config");
+rh.create_dir_all(runtime_directory);
+rh.create_dir_all(config_directory);
+const native_workspace = rh.join(context.run_directory, "workspace/native-compat.json");
+const tcp_workspace = rh.join(context.run_directory, "workspace/tcp-compat.json");
+const native_instance = "custom:published-compat-" + context.run_id;
+const tcp_endpoint = "tcp:" + context.address;
+const dead_address = "127.0.0.1:1";
+const owned_children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP verify exact staged HEAD artifact bytes");
+  verify_head(context, repo, head_server, head_cli, head_metadata);
+
+  const published_111 = acquire_release(context, repo, catalog, release_111, asset_111, facts);
+
+  if (facts.os === "windows") {
+    print("STEP published v0.1.10 default TCP accepts the HEAD client");
+    const asset_110 = platform_asset(release_110, facts);
+    const published_110 = acquire_release(context, repo, catalog, release_110, asset_110, facts);
+    const old_spec = configured(
+      context,
+      published_110.server,
+      [],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      context.address
+    );
+    const old_server = harness.start(old_spec);
+    owned_children.push(old_server);
+    const old_protocol = wait_protocol(
+      context,
+      published_110.cli,
+      [],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      context.address,
+      old_server
+    );
+    const head_to_old = wait_protocol(
+      context,
+      head_cli,
+      ["--endpoint", tcp_endpoint],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      "",
+      old_server
+    );
+    harness.require(
+      spawned_by_us(old_protocol.pid)
+        && rh.int_of(head_to_old.pid) === rh.int_of(old_protocol.pid),
+      "native_ipc_compat_110_tcp_identity"
+    );
+    shutdown(
+      context,
+      published_110.cli,
+      [],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      context.address,
+      old_server,
+      "native_ipc_compat_110_shutdown"
+    );
+
+    print("STEP published v0.1.10 client reaches explicit HEAD TCP");
+    const head_tcp_spec = configured(
+      context,
+      head_server,
+      ["--address", context.address],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      ""
+    );
+    const head_tcp_server = harness.start(head_tcp_spec);
+    owned_children.push(head_tcp_server);
+    const old_to_head = wait_protocol(
+      context,
+      published_110.cli,
+      [],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      context.address,
+      head_tcp_server
+    );
+    harness.require(spawned_by_us(old_to_head.pid), "native_ipc_compat_110_to_head_tcp_identity");
+
+    print("STEP legacy client fails safely beside native-only HEAD");
+    const head_native_spec = configured(
+      context,
+      head_server,
+      ["--instance", native_instance],
+      runtime_directory,
+      config_directory,
+      native_workspace,
+      ""
+    );
+    const head_native_server = harness.start(head_native_spec);
+    owned_children.push(head_native_server);
+    const native_protocol = wait_protocol(
+      context,
+      head_cli,
+      ["--instance", native_instance],
+      runtime_directory,
+      config_directory,
+      native_workspace,
+      "",
+      head_native_server
+    );
+    const failed_started = rh.now_ms();
+    invoke(
+      context,
+      published_110.cli,
+      ["protocol-info", "--running"],
+      true,
+      runtime_directory,
+      config_directory,
+      native_workspace,
+      dead_address
+    );
+    const native_after_failure = invoke_json(
+      context,
+      head_cli,
+      ["--instance", native_instance, "protocol-info", "--running"],
+      runtime_directory,
+      config_directory,
+      native_workspace,
+      ""
+    );
+    harness.require(
+      rh.now_ms() - failed_started < 10000
+        && rh.int_of(native_after_failure.pid) === rh.int_of(native_protocol.pid)
+        && harness.state(head_native_server) === "running",
+      "native_ipc_compat_legacy_native_fail_safe"
+    );
+    shutdown(
+      context,
+      head_cli,
+      ["--instance", native_instance],
+      runtime_directory,
+      config_directory,
+      native_workspace,
+      "",
+      head_native_server,
+      "native_ipc_compat_head_native_shutdown"
+    );
+    shutdown(
+      context,
+      head_cli,
+      ["--endpoint", tcp_endpoint],
+      runtime_directory,
+      config_directory,
+      tcp_workspace,
+      "",
+      head_tcp_server,
+      "native_ipc_compat_head_tcp_shutdown"
+    );
+  } else {
+    print("SKIP v0.1.10 Unix compatibility: published archive has no agenterm-server");
+  }
+
+  print("STEP published v0.1.11 native server accepts the HEAD client");
+  const old_native_spec = configured(
+    context,
+    published_111.server,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  const old_native_server = harness.start(old_native_spec);
+  owned_children.push(old_native_server);
+  const old_native_protocol = wait_protocol(
+    context,
+    published_111.cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    old_native_server
+  );
+  const head_to_old_native = wait_protocol(
+    context,
+    head_cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    old_native_server
+  );
+  harness.require(
+    spawned_by_us(old_native_protocol.pid)
+      && rh.int_of(head_to_old_native.pid) === rh.int_of(old_native_protocol.pid),
+    "native_ipc_compat_111_to_head_native_identity"
+  );
+  const snapshot = invoke_json(
+    context,
+    head_cli,
+    ["--instance", native_instance, "ui-snapshot"],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  const tab_id = "" + snapshot.active_tab_id;
+  const baseline_marker = "compat-baseline-" + context.run_id;
+  const head_marker = "compat-head-write-" + context.run_id;
+  invoke(
+    context,
+    head_cli,
+    ["--instance", native_instance, "rename-window", "-t", tab_id, baseline_marker],
+    false,
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  shutdown(
+    context,
+    published_111.cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    old_native_server,
+    "native_ipc_compat_111_first_shutdown"
+  );
+
+  print("STEP upgrade to HEAD preserves state for published v0.1.11 client");
+  const head_upgrade_spec = configured(
+    context,
+    head_server,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  const head_upgrade_server = harness.start(head_upgrade_spec);
+  owned_children.push(head_upgrade_server);
+  const old_to_head_native = wait_protocol(
+    context,
+    published_111.cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    head_upgrade_server
+  );
+  const upgraded_names = invoke(
+    context,
+    published_111.cli,
+    ["--instance", native_instance, "list-windows", "-F", "#{window_name}"],
+    false,
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  harness.require(
+    spawned_by_us(old_to_head_native.pid) && upgraded_names.stdout.includes(baseline_marker),
+    "native_ipc_compat_upgrade_state"
+  );
+
+  print("STEP HEAD server writes rollback-visible persistent state");
+  invoke(
+    context,
+    head_cli,
+    ["--instance", native_instance, "rename-window", "-t", tab_id, head_marker],
+    false,
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  const head_written_names = invoke(
+    context,
+    published_111.cli,
+    ["--instance", native_instance, "list-windows", "-F", "#{window_name}"],
+    false,
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  harness.require(
+    head_written_names.stdout.includes(head_marker) && !head_written_names.stdout.includes(baseline_marker),
+    "native_ipc_compat_head_write_state"
+  );
+  shutdown(
+    context,
+    published_111.cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    head_upgrade_server,
+    "native_ipc_compat_head_upgrade_shutdown"
+  );
+
+  print("STEP rollback lets both v0.1.11 and HEAD read HEAD-written state");
+  const rollback_spec = configured(
+    context,
+    published_111.server,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  const rollback_server = harness.start(rollback_spec);
+  owned_children.push(rollback_server);
+  const rollback_old_protocol = wait_protocol(
+    context,
+    published_111.cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    rollback_server
+  );
+  const rollback_head_protocol = wait_protocol(
+    context,
+    head_cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    rollback_server
+  );
+  const rollback_old_names = invoke(
+    context,
+    published_111.cli,
+    ["--instance", native_instance, "list-windows", "-F", "#{window_name}"],
+    false,
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  const rollback_head_names = invoke(
+    context,
+    head_cli,
+    ["--instance", native_instance, "list-windows", "-F", "#{window_name}"],
+    false,
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    ""
+  );
+  harness.require(
+    spawned_by_us(rollback_old_protocol.pid)
+      && rh.int_of(rollback_head_protocol.pid) === rh.int_of(rollback_old_protocol.pid)
+      && rollback_old_names.stdout.includes(head_marker)
+      && rollback_head_names.stdout.includes(head_marker)
+      && !rollback_old_names.stdout.includes(baseline_marker)
+      && !rollback_head_names.stdout.includes(baseline_marker),
+    "native_ipc_compat_rollback_state"
+  );
+  shutdown(
+    context,
+    published_111.cli,
+    ["--instance", native_instance],
+    runtime_directory,
+    config_directory,
+    native_workspace,
+    "",
+    rollback_server,
+    "native_ipc_compat_111_rollback_shutdown"
+  );
+
+  harness.emit_evidence(
+    context,
+    ["control.native-ipc-published-compatibility"],
+    "control.native-ipc-published-compatibility"
+  );
+  print(
+    "PASS: exact published IPC bytes interoperate with staged HEAD "
+      + "through TCP migration, native upgrade, and rollback"
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = catch_text(error);
+}
+
+let completion_failure = "";
+try {
+  harness.complete_owned(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = catch_text(error);
+}
+if (facts.os !== "windows" && rh.exists(runtime_directory)) {
+  rh.remove_dir_all(runtime_directory);
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") {
+  throw failure;
+}
+if (completion_failure !== "") {
+  throw completion_failure;
+}
+return 0;
