@@ -794,21 +794,6 @@ export function forget_child(owned_children, handle) {
   return kept;
 }
 
-// `bounded_record_text` above cuts with `String.prototype.slice`, which this
-// engine refuses at run time -- and every GUI smoke's first `ui-snapshot`
-// answer (13 KB) is longer than the 512-character record limit, so the
-// journeys could not take one step. Same contract (bounded, marked): an
-// answer within the limit is recorded whole; a longer one is recorded as
-// its size, not a prefix. Cutting a prefix without `slice` means a `split`
-// or a concat, and in this engine every operation that touches a string
-// costs steps per character (measured 2026-08-29 on a 13 KB ui-snapshot:
-// `"" + text` 0.5-2M steps, `split("\n")` >1M, `JSON.parse` 1-2M), so a
-// prefix of a big answer cost more than the answer's own parse.
-export function bounded_record_text_cheap(source, maximum_characters) {
-  const text = "" + source;
-  if (text.length <= maximum_characters) { return text; }
-  return "<agenterm-command-output-omitted:" + text.length + " chars>\n";
-}
 
 // lander note (wave-2 union): this section also defined
 // `append_command_record_bounded` (output over 512 characters recorded as
@@ -945,16 +930,6 @@ export function configured_spec_with_env(context, program, args, extra_env, remo
   return spec;
 }
 
-// The command record's `output` without `slice`: `bounded_record_text` keeps
-// the first 512 characters, which this engine cannot cut. A record within the
-// limit is kept whole; past it only the truncation marker survives, so a
-// smoke whose CLI answers exceed 512 characters (protocol-info, ui-bootstrap,
-// ui-snapshot all do) still journals every command.
-export function bounded_record_text_no_slice(source, maximum_characters) {
-  const text = "" + source;
-  if (text.length <= maximum_characters) { return text; }
-  return "<agenterm-command-output-truncated>\n";
-}
 
 
 
