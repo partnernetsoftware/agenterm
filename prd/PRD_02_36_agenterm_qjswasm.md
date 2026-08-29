@@ -2,12 +2,15 @@
 
 Status: **`[~]` 部分完成——见下面能力树的根，那个记号是本文件自己打的。**
 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
-**152 passed / 0 failed**，2026-08-29，上游 rev **`ec67034`**）；
+**152 passed / 0 failed** 在 main `9aef2995`；**176 passed / 0 failed** 在带 `tool.*` 门的
+`4a7f0ec3`（+7 lib、+17 `tests/tool_door.rs`）——两个数都是 2026-08-29 本次更新时跑出来的；
+上游 rev **`ec67034`**，即 `Cargo.lock` 里的 pin，未动）；
 
 > **这一行以前停在 2026-08-28 / rev `0afc88a` / 153 passed，而 pin 已经走到
 > `ec67034`。** 记在这里而不是悄悄改掉：**一份 PRD 的第一行落后，是它整体可信度的
 > 采样点**。之所以被发现，是因为有人问「真的做完了吗」——而不是因为有门在挡。
-> 版本号与测试数应当由发布口径带着走，这条目前没有门，是一笔明账。**`.qjs` 已经够得着
+> 版本号与测试数应当由发布口径带着走，这条目前没有门，是一笔明账。
+> **2026-08-29 又手改了一次**（152 → 176 是 `tool_door.rs` 进来了），门还是没有——A4 仍开着。**`.qjs` 已经够得着
 `agenterm.*` 门**，且**这条路走通了产品自己的 CLI**——
 `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script run FILE` 能编译、执行、`print`、
 打到真的 fleet broker（无 server 时拿到的是 broker 的传输层拒绝，不是引擎的错）。
@@ -16,7 +19,12 @@ feature 已摘除，**`rquickjs` 从依赖树里消失**（`Cargo.lock` 零条�
 rquickjs` 找不到包）。**`agenterm-wasmcore` 也已于 2026-08-28 归档**：crate、`script-wasmcore` feature、
 `WasmcoreEngineBackend` 适配层与 `ScriptBackend::Wasmcore` 变体全部摘除，`wasmtime`
 从依赖树里消失。它的归档是**政委重申的产品决定**，不是门判出来的——这条区别决定了
-哪些能力是**被放弃**的而不是**被替代**的，记在下面。「authorized, not
+哪些能力是**被放弃**的而不是**被替代**的，记在下面。**rh 已于 2026-08-29 移出**
+（`08c51b2e`；逐字节快照在 `partnernetsoftware/rh` 的 `archive/agenterm/`，`a22d224`）：
+`rhai` 从 `Cargo.lock` 消失，默认构建二进制 **−1 677 280 B（−24.3%）**，**再没有默认引擎**
+（`ScriptBackend::resolve` 只答具名拒绝）。同日 **`tool.*` 第二扇门进了 crate**（`4a7f0ec3`，
+opt-in，**CLI 未接**），**`path.qjs` 落地**（`db42c944`）。写下这几行时这三组提交各在自己的
+worktree 分支上，**main 仍是 `9aef2995`**——见 §待办清单 A1.7。「authorized, not
 implemented」是 2026-08-24 下单时的状态，已过期。本文件是产品真理；执行投影在
 [`plan/design-agenterm-qjswasm.md`](../plan/design-agenterm-qjswasm.md)。
 
@@ -1042,7 +1050,7 @@ flowchart TD
   end
 
   subgraph DOWN["下游 agenterm-qjswasm — 随业务变"]
-    R7["⑦ 槽 + 宿主门<br/>agenterm.* 四个 import<br/><i>两趟取回</i><br/><b>2026-08-28 起是唯一一扇门</b>"]
+    R7["⑦ 槽 + 宿主门<br/>agenterm.* 四个 import<br/><i>两趟取回</i><br/><b>2026-08-28 起是唯一一扇门</b><br/><b>2026-08-29 起有第二扇：tool.*</b><br/><i>开关在 Engine 上，不在编译器里；<br/>沙箱槽装载期按名拒</i>"]
   end
 
   SRC(["fleet.qjs<br/>29 个操作"]) --> R1
@@ -1052,17 +1060,34 @@ flowchart TD
   R6 --> OUT(["完成值<br/>ScriptInvocationResult"])
   FW["fault word<br/>堆耗尽 / 未捕获 throw"] -.->|"客人自己写下原因"| R7
 
-  GONE["🗄 已拆走的两间<br/>agenterm-qjs（rquickjs→QuickJS C）<br/>agenterm-wasmcore（wasmtime，<b>JIT</b>）<br/><i>2026-08-28 归档</i>"]
+  LIB(["path.qjs<br/>纯计算库，零宿主"]) --> R1
+  LIB -.->|"oracle 是 rh 宿主的 PathBuf::join / Path::parent，<br/>不是记忆里的 POSIX：草稿 parent('./a') 答 /"| R1
+  PANIC["桥 panic → Door<br/><i>只在 panic=unwind 下成立</i><br/>dev / release profile 是 abort"] -.->|"两扇门同一限制"| R7
+
+  GONE["🗄 已拆走的三间<br/>agenterm-qjs（rquickjs→QuickJS C）<br/>agenterm-wasmcore（wasmtime，<b>JIT</b>）<br/><i>2026-08-28 归档</i><br/>agenterm-rh（转译→rustc，<b>无沙箱</b>）<br/><i>2026-08-29 移到 partnernetsoftware/rh</i>"]
+  GONE -.->|"rh 带走的不是一个引擎，是整条流水线：<br/>事前数了 15 条测试、8 个脚本，<br/>暗掉的是 39 条门 + 4 条 + 71 个任务"| R7
   GONE -.->|"门的形状留下了<br/>四参 fleet_call + 两趟取回"| R7
   GONE -.->|"535× 那个实测留下了<br/>成为 tinyvm「原生降级」的输入"| R6
 
   style GONE fill:#eee,stroke:#999,stroke-dasharray: 5 5,color:#555
+  style PANIC fill:#fff3e0,stroke:#e65100,stroke-dasharray: 3 3,color:#333
 ```
 
 **归档在这张图上是怎么读的。** 拆走两间房不等于图变简单了——**它变成了一间房要
 同时承担原来三间房的问题**。第 ⑦ 间现在是唯一一扇宿主门，第 ⑥ 间现在是唯一一种执行
 方式（解释，无 JIT）。所以「东西该放哪间」这条判据在归档之后**更严**而不是更松：
 以前放错房间还有另一个引擎的测试当对照，现在没有了。
+
+**2026-08-29 第 ⑦ 间开了第二扇门，而图上没有新房间。** `tool.*` 与 `agenterm.*` 是同一种
+`HostFn` 声明、同一套状态 / 停放 / 封顶 / panic 收容；编译器只做它一直做的事——被提到的名字
+才成为 import。**两扇门的区别不在门上，在开门的人**：`Engine::with_tool_door` 是唯一的开关，
+沙箱槽在装载期按名拒绝并把开关名说出来。所以判「一个宿主函数该不该有」时，问的还是
+「它随什么变」；判「谁能调它」时，问的是**槽是谁开的**——这两个问题现在分住两处，
+以前合在一起是因为只有一扇门。
+
+同一天第 ⑦ 间也少了一位老住客：rh 的 `std::fs` 从来不是门，是转译成 Rust 的 `std::fs`，
+所以它的脚本**从来没进过这张图**。移出它不改任何房间——改的是 **`from_entry_path` 的兜底**：
+以前落到 rh，现在是一句具名拒绝。默认值是决策点不是环境，那行结论今天兑现了。
 
 这也是为什么 `.wasm` 这个扩展名**没有**被顺手指到第 ⑦ 间：它看起来该进这间房
 （只剩这里跑 wasm），但这道门收的是**脚本文本**，而 `.wasm` 是**已经编好的产物**——
@@ -1169,6 +1194,9 @@ flowchart TD
 | 方法门做在「整个集合」上 | 门装在第 ③ 间的**房门**上，而该装在**每件家具**上 | 只调 `trim()` 的程序为 `indexOf` 付 307 字节 |
 | 绑定闭包的臂挂在 `.length` 的分支里 | 长进了**别人的门后面** | `return "ab".length;` 白付 514 字节 |
 | **`map` 的循环内联在调用点** | **循环在第 ① 间，而它是第 ③ 间的家具** | **每调用点 162 而非 48 字节——差点判错整场实验** |
+| rh 移出前数的是「15 条测试、8 个门脚本」 | 数的单位是**文件**，暗掉的单位是**门**：39 条门 + 4 条 host-native + 71 个任务 | 一次移出，整条 build / qualify / release 流水线暗——有意，但事前的数字差一倍多 |
+| `path.qjs` 草稿 `parent("./a")` 答 `/` | 「路径语义」放在了**记忆**里，而它住在 rh 宿主的 `Path::parent` 里，可查 | 一条错答案；被走产品 CLI 的端到端测试抓住，再被 1 805 条穷举对 rustc 差分封死 |
+| 桥 panic → `Door` | 承诺写在第 ⑦ 间，兑现靠 **profile**（`panic=unwind`）；本仓 dev / release 都是 abort | 测试里成立、二进制里不成立的承诺；两扇门同病，已具名 |
 
 七条都不是「写错了」，是「放错了」。所以这张图和那棵树同等重要：**树防的是吹牛，
 图防的是把东西放进错误的房间。**
@@ -1193,6 +1221,12 @@ flowchart TD
 > `src/` 里 10 个文件引它、**15 个 Rust 测试与 CI 门在跑那些 `.rh`**，
 > 8 个脚本是 qualification 门本身（`check.rh`、`candidate-verify.rh`、
 > `remote-ui-smoke.rh`…）。**qjs 先接住，rh 再走**——顺序反了就是把门拆了。
+>
+> **2026-08-29 改序（`9aef2995`）：rh 先走。** 门于是真的被拆了——这是有意的，
+> 代价逐条点名在 [PRD 02.10 §What went dark](PRD_02_10_rhai_scripting.md#what-went-dark-on-2026-08-29)：
+> **39 条 qualification 门、4 条 host-native 门、71 个任务**，全暗到各自的 `.qjs` 版落地为止。
+> 上一段数的「15 条测试、8 个门脚本」是按**文件**数的，暗掉的单位是**门**——差了一倍多，
+> 记在记忆宫殿的表里。
 
 与上游 [`tinyvm/prd/PRD.md`「待办清单」](../../tinyvm/prd/PRD.md) 同一套写法：
 **每条带「做什么 / 为什么（实测数字）/ 做完算什么（可核对）」**。
@@ -1205,12 +1239,19 @@ flowchart TD
 
 | # | 事 | 为什么（实测） | 做完算什么 |
 |---|----|---------------|-----------|
-| A1 | **脚本体系转 `.qjs`：迁移语料 = 71 个 `.rh` + 11 个库** | 政委定方向；全仓真实 `.qjs` 今天只有一个库、零个任务脚本 | 分四步（见 A1.1–A1.4），每步可核对 |
+| A1 | **脚本体系转 `.qjs`：迁移语料 = 71 个 `.rh` + 11 个库** | 政委定方向；全仓真实 `.qjs` 今天只有一个库、零个任务脚本 | 分步见 A1.1–A1.7；**2026-08-29 做到 A1.4**，脚本本身**一个未迁** |
 | A1.1 | ~~先数迁移要跨的宿主面~~ **已数（2026-08-29）**，见下表 | 不数就会在第一个脚本上撞墙 | **答：缺口是 37 个宿主函数、4 个族；这是能力设计，不是特性** |
-| A1.2 | 迁一个**非门**脚本（最小的、不在 qualification 里的） | 先在不挡路的地方撞墙 | 该脚本 `.qjs` 版被产品真的跑，`.rh` 版删除 |
-| A1.3 | 迁 8 个 **qualification 门**脚本 | 它们是 CI 的骨架，迁错 CI 就瞎 | 每个门 `.qjs` 版通过原来那条 Rust 测试 |
-| A1.4 | 默认后端切到 qjswasm，`agenterm-rh` 移出本仓 | rh 现在是 `from_entry_path` 的兜底 | `cargo tree` 无 `agenterm-rh`；`scripts/rh/` 为空 |
+| ~~A1.2~~ | ~~`path.qjs` 库（925 次调用、零宿主、零决定）~~ **已落地（`db42c944`）** | 草稿两处错：`parent("./a")` 答 `/`（Rust 答 `.`）；用了 `.slice` 与下标，pin 住的子集没有这两样 | `tests/qjs_path_library.rs` 走产品 CLI（`cli script run --project-root scripts/qjs`）对 `std::path` 算 18 条 `parent` + 7 条 `join`：**2/0**；核验方另拿 1 805 条 `parent` + 80 条 `join` 对 rustc oracle 差分：**0 差**；带 feature 的二进制前后**字节相同**（56 107 048 B，同 sha256） |
+| ~~A1.3~~ | ~~开 `tool.fs/process/env` 门~~ **已进 crate（`4a7f0ec3`），CLI 未接** | 门是 opt-in：`Engine::with_tool_door(budget)` / `compile_qjs_tool`；沙箱编译器与沙箱槽都按名拒 `tool.*`，拒绝语指出开关 | 13 条声明 / 14 个 import（`fs.exists/read_to_string/write/create_dir_all/remove_file/read_dir/metadata`、`process.command/id`、`env.get/has/cwd`、两趟 `tool_result`）；`Outcome.tool_calls` 记收据；沙箱路径**逐字节不变**（`return 1;` 9 765 B，同 sha256）；crate 152 → 176 测试，0 失败；**没做**：二进制读写、`symlink_metadata`、锁句柄、`stringify_pretty`，以及 **CLI 接线**（A1.6） |
+| ~~A1.4~~ | ~~`agenterm-rh` 移出本仓~~ **已移出（`08c51b2e` + `7e2b61dd`；快照 `partnernetsoftware/rh` `a22d224`，182 文件 blob 逐一相同）** | 政委改序：rh 先走 | `Cargo.lock` 零 `rhai`、零 `agenterm-rh`；`scripts/rh/` 不存在；默认构建二进制 6 907 664 → 5 230 384 B（**−24.3%**）；workspace 失败集 52 → 31，**新失败 0**（comm 逐名比对） |
+| A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
+| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **0/71**；39 条门、4 条 host-native 门、bootstrap 与三条 CI 工作流都已指向**尚不存在**的 `cli script task run` 任务 | 每个门 `.qjs` 版通过原来那条 Rust 测试；`agenterm.tasks.json` 里的任务回到 71 |
+| A1.6 | `tool.*` 门接到 CLI | A1.3 只在 crate；`src/script_engine.rs` 仍只调 `compile_qjs` | qualification / CI 显式给开；沙箱脚本永远开不了 |
+| A1.7 | **三组提交合入 main** | 写下这行时 `08c51b2e`/`7e2b61dd`、`4a7f0ec3`、`db42c944` 各在 `worktree-wf_30ad7fb2-97a-{5,6,8}` 上，main 仍在 `9aef2995` | 三条都是 `9aef2995` 的直系后代；合完**删此行** |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |
+| A3 | 下游既有失败逐条归因 | main `9aef2995`：安静复跑 2571/50，整套并行 2569/52 或 2567/54（多出来的是 `script_process` 两条进程回收测试与 `performance_summary` 两条；后两条单跑即过，前两条 2026-08-29 在 `9aef2995` 的干净导出上单跑 2/2 仍红——「owned process N did not create a descendant」，随机器状态变，不随代码变）；rh 移出后 **1954/31**，31 条与之前逐名相同（executor ×11、boundary ×2、stdlib ×8、script_cli_verb_parity ×9、vnc-rs doctest） | 每条要么修好，要么归入「环境抖动」并写明复跑命令 |
+| A4 | Status 行上门 | 首行曾停在 rev `0afc88a`/153，实际 `ec67034`/152，靠人问才发现；**2026-08-29 又手改一次**（152 → 176），仍没有门 | 有检查在 Status 与实际 pin 不符时失败 |
+| A5 | `.wasm` 扩展名的归属 | wasmcore 归档后 `.wasm` **谁也不路由**，靠 `non_text_script_hint` 大声失败 | 要么给它一个入口，要么在 PRD 写明永久不给 |
 
 #### A1.1 的答案：迁移跨的不是语言，是宿主面
 
@@ -1258,10 +1299,13 @@ qjswasm 的门今天是 **3 个 import**（`print`、`fleet_call`、`fleet_resul
 **顺序因此定了**：A1.2 先写 **`path.qjs` 库**（925 次调用、零宿主、零决定）；
 A1.3 开 `tool.fs/process/env` 门（37 个具名 import）；然后才迁第一个脚本。
 
-复跑：`grep -rhoE '\b(std::[a-z_]+|json)::[a-z_]+' scripts/rh/lib/*.rh scripts/rh/*.rh | sort | uniq -c`
-| A3 | 下游 52 条既有失败逐条归因 | `cargo test --workspace` 2569/52，其中数条只在并行整套跑时抖 | 每条要么修好，要么归入「环境抖动」并写明复跑命令 |
-| A4 | Status 行上门 | 首行曾停在 rev `0afc88a`/153，实际 `ec67034`/152，靠人问才发现 | 有检查在 Status 与实际 pin 不符时失败 |
-| A5 | `.wasm` 扩展名的归属 | wasmcore 归档后 `.wasm` **谁也不路由**，靠 `non_text_script_hint` 大声失败 | 要么给它一个入口，要么在 PRD 写明永久不给 |
+复跑（语料已随 rh 走，路径现在是 rh 仓的 `archive/agenterm/scripts/rh/`）：
+`grep -rhoE '\b(std::[a-z_]+|json)::[a-z_]+' lib/*.rh *.rh | sort | uniq -c`
+
+**A1.2 / A1.3 落地后的一句实话（2026-08-29）**：路径库与工具门都在，但**它们之间还没有一条走廊**——
+`path.qjs` 只能被沙箱脚本 import，`tool.*` 只能被 crate 的测试打开。第一个真正迁过去的脚本
+要同时用到两者，而那要 A1.6 先接线。表里 A1.2 / A1.3 两行原先写的是「迁一个非门脚本」「迁 8 个
+门脚本」，与本节末尾定下的顺序不一致，已按实际发生的事重写；迁脚本本身现在是 A1.5。
 
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
@@ -1353,6 +1397,15 @@ agenterm-qjswasm                                        [~]
 │   │   ├── JS 字符串↔(ptr,len) 由编译器拆包，门不学 JS 值     [x] 手写 .wasm 九条测原样绿
 │   │   ├── 两趟字节结果包回 JS 字符串（长度不符即 trap）       [x]
 │   │   └── 未声明的名字 = 能力诊断（含 fleet_result_len）      [x]
+│   ├── `.qjs` 调 tool.* 门（工具脚本，opt-in）                [x] 4a7f0ec3，只在 crate
+│   │   ├── 13 条声明 / 14 个 import：fs·process·env + 两趟 tool_result [x] 与 fleet 门同一机制（HostFn）
+│   │   ├── 只有被提到的名字才成为 import                       [x] 提 fs.exists 只多一个 import
+│   │   ├── 沙箱编译器与沙箱槽都按名拒 tool.*，并指出开关          [x] `Engine::with_tool_door`
+│   │   ├── 不用它的程序逐字节不变                               [x] 四种程序 Δ 全 0
+│   │   ├── 记录（metadata / read_dir / command spec）以 JSON 过门 [x] spec 拒未知字段
+│   │   ├── process.command 有界：60 s 默认超时即杀、两管排干、捕获封顶 [x]
+│   │   ├── 二进制读写 / symlink_metadata / 锁句柄 / stringify_pretty [ ] 点名不在这扇门里
+│   │   └── 接到 CLI（谁能开：qualification / CI）              [ ] A1.6
 │   ├── 数字字面量：整个 DecimalLiteral 文法                  [x] rev ab29522
 │   │   ├── 1.5 · .5 · 1. · 1e3 · 2E2 · 1.5e-3                [x]
 │   │   ├── 超出 i32 / 超出 2^53 的整数                        [x] 取最近 double
@@ -1429,12 +1482,15 @@ agenterm-qjswasm                                        [~]
 │   │   （缺导出 / 参数个数 / 参数类型 / 结果类型装不下）
 │   ├── Guest::CompiledQjs（产物自报约定）                   [x] 2026-08-25
 │   ├── agenterm.* 之外的 import 装载期即拒并点名             [x] 2026-08-25
+│   │   └── tool.* 例外：只在 with_tool_door 的 Engine 上放行      [x] 4a7f0ec3，沙箱槽仍拒
+│   ├── Outcome.tool_calls：按序记每次工具调用的全名             [x] 沙箱槽恒空
 │   ├── 持久 Instance，逐调用新鲜 fuel                       [x]
 │   ├── trap 不回收槽（明确承诺，非意外）                     [x]
 │   ├── 预算耗尽自成一类（非 Trap）                           [x]
 │   ├── 运行期堆耗尽 = Budget("max_memory_pages")            [x] 2026-08-25（问客人，不猜）
 │   │   └── 撑爆后的槽不自愈，但每次都报同一句话                [x] 已写进 Engine::call 文档
 │   ├── 桥 panic 被门接住 → Door，不外泄、不伪装成 status      [x] 2026-08-25
+│   │   └── 只在 panic=unwind 下成立；dev/release profile 是 abort  [具名] 两扇门同一限制
 │   ├── 槽间隔离（内存、trap、预算、bridge）                 [x]
 │   ├── agenterm.print（有界捕获 + 截断可见）                 [x]
 │   ├── agenterm.fleet_call（status 0/1/2）                 [x]
@@ -1453,6 +1509,10 @@ agenterm-qjswasm                                        [~]
 │
 ├── 接线                                                  [x]
 │   ├── ScriptBackend::Qjswasm + from_entry_path(.qjs)      [x]
+│   ├── 没有默认引擎：resolve 只答具名拒绝                     [x] 08c51b2e：Unselected / Retired / CompiledOut / Unknown
+│   │   ├── AGENTERM_SCRIPT_BACKEND=rh|rhai → 说明去向，exit 2   [x] partnernetsoftware/rh
+│   │   └── 全部 engine feature 关掉时枚举为空（诚实形状）        [x] `match *self {}`
+│   ├── worker 路由不再以引擎命名                              [x] `__agenterm-internal-engine worker`
 │   ├── QjswasmEngineBackend : ScriptEngineBackend          [x]
 │   ├── check 与 execute 走同一个编译入口                     [x]
 │   ├── check 也过 execute 的装载闸门（check_qjs）             [x] 2026-08-25
@@ -1478,7 +1538,24 @@ agenterm-qjswasm                                        [~]
 │       ├── corpus-scan（共享 driver + 共享契约测试）          [x] 2026-08-26
 │       ├── pack build / load · run-smoke · qualify           [x] 2026-08-26 产物面
 │       │   └── 收据带 steps / peak_call_depth（超集）         [x] qjs 造不出来
-│       └── check-many                                        [具名拒绝] manifest 是 rh 的
+│       └── check-many                                        [–] 随 rh 走了（08c51b2e）；产品面按名拒绝
+│
+├── 脚本体系转 .qjs（待办 A1）                             [~] 2026-08-29
+│   ├── 宿主面数清：37 个函数 / 6 个族 / 2 640 次调用           [x] A1.1
+│   ├── path.qjs（std::path 的 join / parent，零宿主）         [x] db42c944，按 rh 宿主的 PathBuf 语义
+│   │   ├── 走产品 CLI 验：18 parent + 7 join                   [x] tests/qjs_path_library.rs
+│   │   ├── 1 805 + 80 条穷举输入对 rustc oracle                 [x] 0 差（核验方跑的）
+│   │   └── 不用 .slice / 下标：pin 住的子集没有                  [x] 用了就 trap
+│   ├── tool.* 门进 crate                                     [x] 见上「.qjs 调 tool.* 门」
+│   ├── rh 移出（crate、scripts/rh、fixtures、6+14 个 src 模块、19 个测试文件） [x] 08c51b2e
+│   │   ├── 快照在 partnernetsoftware/rh archive/agenterm/       [x] a22d224，182 文件 blob 相同
+│   │   ├── rhai / agenterm-rh 离开依赖树                        [x] Cargo.lock 零条目
+│   │   ├── 默认构建二进制 −1 677 280 B                          [x] −24.3%
+│   │   ├── workspace 失败集 52 → 31，新失败 0                    [x] comm 逐名
+│   │   └── 什么暗了：39 条门 + 4 条 host-native 门 + 71 个任务    [x] 点名在 PRD 02.10
+│   ├── 71 个 .rh 脚本 → .qjs                                  [ ] 0/71
+│   ├── 8 个 qualification 门 → .qjs，重新点亮 39 条门           [ ] bootstrap / CI 已指向不存在的任务
+│   └── tool.* 门接到 CLI                                      [ ] A1.6
 │
 └── 归档 agenterm-wasmcore                                [x] 2026-08-28
     ├── 能力差异诚实清单（3 要补 / 13 有意不补）              [x] 2026-08-25

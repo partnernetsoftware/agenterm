@@ -6,6 +6,22 @@ Runtime contract (historical Rhai): [AgenTerm Script Runtime specification](../d
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+> **2026-08-29: rh moved out.** `crates/agenterm-rh`, `scripts/rh/**`,
+> `fixtures/rh/**`, the six `src/script_rh_*.rs` modules and the fourteen
+> rhai-typed host modules (`script_stdlib`, `script_process`, `script_http`,
+> `script_net`, `script_stream`, `script_task`, `script_fleet`,
+> `script_image`, `script_clipboard`, `script_error`, `script_runtime`,
+> `script_api_validate`, and rh's half of `script_project`) left this tree.
+> A verbatim snapshot is `archive/agenterm/` in `partnernetsoftware/rh`
+> (commit `a22d224`); `rhai` is out of `Cargo.lock`. **There is no default
+> script engine any more.** `ScriptBackend::resolve` refuses by name --
+> `no engine for this entry`; `.qjs is the script language now` -- where it
+> used to fall to rh, and `AGENTERM_SCRIPT_BACKEND=rh|rhai` is refused with
+> where the engine went. The engine-neutral worker route moved from
+> `__agenterm-internal-engine rh` to `__agenterm-internal-engine worker`
+> (`src/script_worker_cli.rs`); `agenterm rh …` prints where the verbs went
+> and exits 2. See [§ What went dark on 2026-08-29](#what-went-dark-on-2026-08-29).
+
 > **2026-08-09 decision:** the standalone `agenterm-rh.exe` / `agenterm-lua.exe`
 > / `agenterm-qjs.exe` / `agenterm-sql.exe` binaries described throughout the
 > commit-by-commit history below (including the `[[bin]]`-in-root-package
@@ -32,7 +48,7 @@ records how each one got here and is deliberately left as history.
 | Engine | Crate / surface | Disposition | Owning document |
 |--------|-----------------|-------------|-----------------|
 | **qjswasm** | `crates/agenterm-qjswasm` — `.qjs` compiled to `.wasm`, tinyvm as the core | **The long-term line.** Self-developed, pure Rust, no JIT, no external language runtime linked in. It is the engine the other two below are being replaced *by*. | [PRD 02.36](PRD_02_36_agenterm_qjswasm.md) |
-| **rh** | `crates/agenterm-rh` | Bound for **its own repository** (`partnernetsoftware/rh`) — but not yet, and the gate is not a date. rh leaves only once it has **stopped being transpiled to Rust and compiled by `rustc`**: while `pack` / `qualify` / `task` still run through transpile→`rustc` AOT, the engine carries a toolchain dependency and a generated-pack host ABI that belong to this repo, and extracting it would export both. | [`plan/design-rh-standalone-product.md`](../plan/design-rh-standalone-product.md) |
+| **rh** | ~~`crates/agenterm-rh`~~ | **Moved out 2026-08-29** to `partnernetsoftware/rh` (`archive/agenterm/`, verbatim, unbuilt). The gate written here -- "leaves only once it has stopped being transpiled by `rustc`" -- was overtaken by the user's direction that rh goes first and `.qjs` replaces it (PRD 02.36, 2026-08-29). It went with the AOT pipeline and the pack ABI still inside it; nothing here depends on it. | [§ What went dark](#what-went-dark-on-2026-08-29) |
 | **lua** | `crates/agenterm-lua` | Shipped sibling, capability-aligned with rh. No disposition change. | this file |
 | **qjs** | `crates/agenterm-qjs` — rquickjs → QuickJS C | **To be archived**, behind three falsifiable gates. None of the three is green today, so the crate stays exactly as it is and is not allowed to rot in the meantime. | gates in [PRD 02.36](PRD_02_36_agenterm_qjswasm.md) (§ 归档门：`agenterm-qjs` 什么时候能下线) |
 | **wasmcore** | ~~`crates/agenterm-wasmcore` — wasmtime + WASI p1 (**JIT**)~~ | **Archived 2026-08-28.** The crate, the `script-wasmcore` feature, its engine adapter and its `ScriptBackend` variant are all gone, and `wasmtime` left the dependency tree. `.wasm` now routes nowhere rather than being handed to qjswasm — see PRD 02.36 for why that is the safer of the two. | recorded in [PRD 02.36](PRD_02_36_agenterm_qjswasm.md) |
@@ -44,6 +60,15 @@ each verdict. A second copy in this file would be a second source of truth,
 and it would drift the first time a gate moves. The division of labour: *this*
 file says what each engine's disposition is; *PRD 02.36* says what has to be
 true before `agenterm-qjs` or `agenterm-wasmcore` is touched at all.
+
+> **Where the rh removal lives (2026-08-29, at the time of writing).** The rh
+> repo side is on `partnernetsoftware/rh` main and pushed (`a22d224`). The
+> agenterm side is two commits -- `08c51b2e` (the removal) and `7e2b61dd`
+> (this file's rh row and the "What went dark" section below) -- on the
+> worktree branch `worktree-wf_30ad7fb2-97a-5`, a direct descendant of main's
+> `9aef2995`. Until they are fast-forwarded onto main, `crates/agenterm-rh`
+> is still in main's tree and this file describes the branch. PRD 02.36 A1.7
+> tracks the merge; delete this note when it lands.
 
 Six engines, in lineage order:
 
@@ -207,6 +232,61 @@ lua or qjs binding at all, and 9 of the 29 that do send a params object
   new unit tests include the original bug's exact repro scenario as a
   regression case, and an end-to-end smoke re-ran that precise scenario
   post-merge to confirm no regression.
+
+## What went dark on 2026-08-29
+
+rh ran the whole build/qualify/release pipeline, and nothing else did. Moving
+it out turned every one of those off. This is the list; each item stays dark
+until its `.qjs` port lands (PRD 02.36 A1.2/A1.3: `path.qjs`, then the
+`tool.fs/process/env` door, then the first script).
+
+- **All 39 remaining `scripts/qualification-gates.json` required gates**
+  (`rh-lint` was deleted as the fortieth, being about rh itself). Every gate
+  was executed by `scripts/rh/{id}.rh` through `scripts/rh/lib/qualification.rh`;
+  the driver `check.rh` is gone. The evidence ids inside the 16
+  evidence-carrying gates -- including `script.rh-runtime`, `script.rh-fleet`,
+  `script.rh-robustness-budget`, `script.rh-framed`, which are inherently rh --
+  and the 4 host-native gates in `scripts/host-native-evidence-gates.json`
+  are dark too. `prd/alignment-contract.json`'s `scripting.rhai-*` ids now
+  point at evidence nothing produces. The only automated check that gate
+  evidence matched the suites (`crates/agenterm-rh/tests/evidence_declarations.rs`)
+  left with the crate.
+- **`agenterm.tasks.json`**: 71 of 73 tasks (every `scripts/rh/*.rh` entry)
+  removed; `lua-build-identity` and `lua-check` remain. `provenance.producer`
+  is `agenterm`; the `rh.*` capability ids and `runtime.project.module-import`
+  are out of `requires`.
+- **Bootstrap**: `scripts/bootstrap.sh`/`.cmd` now run
+  `agenterm cli script task run <task>` with no `AGENTERM_SCRIPT_BACKEND`
+  forced; `check.sh`, `lint.sh`, `build.sh`, `release.sh` and the `.cmd`
+  siblings therefore fail at "unknown task" until `check`/`lint`/`build`/
+  `release` are re-registered as `.qjs`. The worker probe is `--version`.
+- **CI**: `candidate.yml`, `release.yml`, `performance-experiment.yml` were
+  re-pointed from `agenterm rh run scripts/rh/X.rh` / `rh task run X` to
+  `agenterm cli script task run X`; those tasks do not exist yet, so the
+  steps fail loudly rather than run a retired engine. Six-cell qualify
+  (`six-cell-qualify.rh` + its tracked dylib, `scripts/six-cell-runners.json`)
+  is dark. `scripts/powershell-migration.json` still names `scripts/rh/*.rh`
+  replacements; its only consumer (`migration-audit`) is dark.
+- **Tests deleted with the engine** (all were rh-only or ran `.rh` scripts):
+  `tests/rh_*.rs` (11 files), `rhai_migration.rs`, `linux_script_cli.rs`,
+  `script_check_many.rs`, `fresh_clone_rehearsal.rs`, `release_candidate.rs`,
+  `promotion_identity.rs`, `performance_summary.rs`, and the prune-task half
+  of `target_incremental_prune.rs`. `tests/script_framed_worker.rs` now
+  covers the engine-neutral worker route without any engine.
+- **Control Center** lost `agenterm-cc rh-pack` and the "rh pack" cc-lines
+  overlay; the observability JSON's `script` key now reports the compiled-in
+  engines instead of an rh pack.
+- **`script check-many`** on the product face is a named refusal (the verb's
+  manifest schema was rh's); `agenterm lua|sql check-many` are untouched.
+- **Docs**: `docs/agenterm-rh-runtime.md`, `docs/agenterm-rh-cheatsheet.md`,
+  `PRD.md`'s rh lines, `plan/*` and `skills/*` mentions are history, not
+  retargeted. `examples/script-daily-check/` (the rh "north-star" project)
+  is gone.
+
+What did **not** move: `script_catalog.rs` keeps the `rh.*` stable ids --
+they are the cross-engine capability names lua's stdlib serves by that
+spelling -- and `script_project.rs` keeps the task catalog. `scripts/lua/*`
+are the demonstrations they always were, not ports.
 
 ## Shipped baseline
 
