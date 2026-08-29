@@ -15,12 +15,23 @@
 // `startup_smoke_gap:*`):
 //   - `child.platform_facts` (top-level window presence, id, foreground):
 //     the first-window budget IS this script and cannot be measured without it.
+//     The door op that would unblock it: `process_platform_facts(handle)`
+//     answering {top_level_window_supported, top_level_window_present,
+//     top_level_window_id, foreground_window_id,
+//     top_level_window_is_foreground}. This is where the journey stops
+//     (measured 2026-08-29 on macOS: the GUI spawns, the first poll throws).
 //   - `child.stderr.read(...)` on a RUNNING child: the door drains a stream
-//     only at `process.wait`.
-//   - `child.id`: the launcher guidance names its own pid.
-//   - `std::process::list()`: the nested-worker check.
+//     only at `process.wait`. The door op: `process_read(handle, "stderr",
+//     max_bytes, timeout_ms)`.
+// Routed around, not gaps any more:
+//   - `child.id` is `process_pid(handle)`.
+//   - `std::process::list()` is asked of the host (`pgrep -x` on Unix,
+//     `tasklist` on Windows) for the one name the check cares about; the
+//     door op that would replace it is a `process_list()`.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
+
+const windows = rh.env_or("OS", "") === "Windows_NT";
 
 // gap: a door handle has no platform facts (see the header).
 function platform_facts(handle) {
@@ -32,14 +43,37 @@ function read_until(handle, needle, timeout_ms) {
   throw "startup_smoke_gap:door_has_no_live_stderr_read:" + needle + ":" + timeout_ms;
 }
 
-// gap: a door handle does not answer the child's OS pid (see the header).
+// rh's `child.id`.
 function child_pid(handle) {
-  throw "startup_smoke_gap:door_has_no_child_pid:" + handle;
+  const pid = process_pid(handle);
+  if (pid <= 0) { throw "process_pid:" + tool_result(); }
+  return pid;
 }
 
-// gap: the door has no process list (see the header).
+// rh's `std::process::list()` filtered to the script worker's executable
+// name, which is all this smoke reads from it: [{executable_name, id}].
+// `pgrep -x` exits 1 when nothing matches; that is an empty list, not an
+// error.
 function process_list() {
-  throw "startup_smoke_gap:door_has_no_process_list";
+  const found = [];
+  if (windows) {
+    const out = rh.command(
+      "tasklist", ["/FI", "IMAGENAME eq agenterm-rh.exe", "/NH", "/FO", "CSV"], { timeout_ms: 10000 }
+    );
+    for (const line of out.stdout.split("\n")) {
+      if (!line.startsWith("\"agenterm-rh.exe\"")) { continue; }
+      const pid_text = line.split(",")[1].replaceAll("\"", "").trim();
+      found.push({ executable_name: "agenterm-rh.exe", id: Number(pid_text) });
+    }
+    return found;
+  }
+  const out = rh.command("pgrep", ["-x", "agenterm-rh"], { timeout_ms: 5000 });
+  if (out.exit_code !== 0 && out.exit_code !== 1) { throw "pgrep:" + out.stderr; }
+  for (const line of out.stdout.split("\n")) {
+    const pid_text = line.trim();
+    if (pid_text !== "") { found.push({ executable_name: "agenterm-rh", id: Number(pid_text) }); }
+  }
+  return found;
 }
 
 function run_cli_output(context, cli, extra) {
