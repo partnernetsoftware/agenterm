@@ -1951,7 +1951,7 @@ function assert_audit(context, cli, audit_path, source_file, runtime_dir) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence_ids()) { print(id); }
-  return 0;
+  return;
 }
 
 harness.require(

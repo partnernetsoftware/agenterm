@@ -207,7 +207,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   print("cli.ui-bridge-contracts");
   print("cli.ui-bootstrap");
   print("cli.ui-follow");
-  return 0;
+  return;
 }
 
 harness.require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");

@@ -477,7 +477,7 @@ function shutdown(context, cli, selector, runtime_directory, config_directory, w
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("control.native-ipc-published-compatibility");
-  return 0;
+  return;
 }
 harness.require(args.length >= 1, "expected: REPO [OPTIONS]");
 const repo = rh.absolute(args[0]);

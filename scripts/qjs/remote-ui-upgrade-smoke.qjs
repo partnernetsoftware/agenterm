@@ -166,7 +166,7 @@ function find_tab_index(bootstrap, tab_id) {
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print("ui.same-server-upgrade-rollback");
-  return 0;
+  return;
 }
 
 harness.require(
