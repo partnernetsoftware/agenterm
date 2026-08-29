@@ -208,6 +208,36 @@ fn fs_read_over_the_result_cap_is_a_refusal_not_a_prefix() {
 /// SIGPIPE and the door answered `-1`. Wave-1 measured it on
 /// `agenterm-cc --help` (command: exit 0, status: -1). Null pipes now: a
 /// chatty child exits with its own status.
+/// `fs.metadata` carries a modification time. rh's `target-report` needs
+/// oldest/newest write and an age; without this field it was the one
+/// wave-1 script the door could not carry.
+#[test]
+fn fs_metadata_reports_a_modification_time() {
+    let dir = std::env::temp_dir().join(format!("agenterm-mtime-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let file = dir.join("touched.txt");
+    std::fs::write(&file, "x").expect("fixture");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    let source = format!(
+        r#"
+        if (fs_metadata("{}") !== 0) {{ return "metadata: " + tool_result(); }}
+        let m = JSON.parse(tool_result());
+        return "" + m.modified_ms;
+        "#,
+        file.display()
+    );
+    let out = run_tool(&source);
+    let got: u64 = string_of(&out).parse().unwrap_or_else(|_| panic!("not a number: {out:?}"));
+    assert!(
+        got.abs_diff(now_ms) < 60_000,
+        "modified_ms {got} should be within a minute of now {now_ms}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn process_status_of_a_chatty_child_is_its_own_exit_code() {

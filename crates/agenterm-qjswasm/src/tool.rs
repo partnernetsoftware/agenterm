@@ -401,6 +401,11 @@ pub(crate) fn install(
                 "is_dir": meta.is_dir(),
                 "is_symlink": meta.file_type().is_symlink(),
                 "len": meta.len(),
+                // Milliseconds since the Unix epoch, or null where the
+                // filesystem has no modification time. `target-report`
+                // (oldest/newest write, age) was the one rh script the door
+                // could not carry without it.
+                "modified_ms": modified_ms(&meta),
             })
             .to_string())
         })
@@ -449,6 +454,7 @@ pub(crate) fn install(
                 "is_file": meta.is_file(),
                 "is_dir": meta.is_dir(),
                 "len": meta.len(),
+                "modified_ms": modified_ms(&meta),
             })
             .to_string())
         })
@@ -789,6 +795,15 @@ fn run_command(spec: CommandSpec, max_capture: usize) -> Result<String, String> 
 /// answered `-1` for `agenterm-cc --help` (wave-1 measured it). A caller that
 /// does not read gets `Stdio::null()`: the child writes into nothing and
 /// exits with its own status.
+/// `fs.metadata`'s `modified_ms`: whole milliseconds since the Unix epoch,
+/// `None` when the platform or filesystem has no answer (the JSON says null).
+fn modified_ms(meta: &std::fs::Metadata) -> Option<u64> {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
 fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Child, String> {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
