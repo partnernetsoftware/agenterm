@@ -1,0 +1,44 @@
+// Internal-only version publication policy: v0.1.7 must never carry a local
+// tag, and the coordinator and tag workflow must both reject it.
+//
+// Args: REPO
+// Ported from scripts/rh/internal-version-policy.rh; runs under
+// `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length !== 1) { throw "expected: REPO"; }
+
+const repo = args[0];
+const cargo = rh.read_text(rh.join(repo, "Cargo.toml"));
+const governed = cargo.includes("version = \"0.1.7\"");
+if (!governed) {
+  return 0;
+}
+
+const tag_status = rh.command(
+  "git",
+  ["-C", repo, "show-ref", "--verify", "--quiet", "refs/tags/v0.1.7"],
+  { timeout_ms: 2000 }
+).exit_code;
+if (tag_status === 0) {
+  throw "Internal-only v0.1.7 must not have a local Git tag.";
+}
+if (tag_status !== 1) {
+  throw "internal-version-git-tags";
+}
+
+const release = rh.read_text(rh.join(repo, "scripts/rh/release.rh"));
+const workflow = rh.read_text(rh.join(repo, ".github/workflows/candidate.yml"));
+const release_rejects = release.includes("version != \"0.1.7\"");
+const workflow_rejects_ps = workflow.includes("expected -eq 'v0.1.7'");
+const workflow_rejects_sh = workflow.includes("expected == \"v0.1.7\"");
+if (!release_rejects) {
+  throw "The local coordinator and tag workflow must both reject v0.1.7.";
+}
+if (!workflow_rejects_ps) {
+  if (!workflow_rejects_sh) {
+    throw "The local coordinator and tag workflow must both reject v0.1.7.";
+  }
+}
+return 0;
