@@ -101,9 +101,9 @@ Every shipped leaf must state the user problem, governing invariant or
 authority boundary, observable success evidence, safe failure result, public
 black-box owner, and excluded scope.
 
-`agenterm-rh` is an unrestricted general-purpose local runtime. Never
+The script runtime is an unrestricted general-purpose local runtime. Never
 put Agent permission, approval, path, process, network, credential, or tool
-visibility policy into Rhai profiles, API registration, or the Script broker.
+visibility policy into script profiles, API registration, or the Script broker.
 Those policies belong to the future Agent harness that chooses how to invoke
 the runtime. Deadlines, memory/output/concurrency budgets, typed failures, and
 owned-resource cleanup are robustness controls, not permission boundaries.
@@ -200,30 +200,24 @@ The highest-yield rules are:
 
 ## Script engines — read the condensed manual before writing a script
 
-Scripts are written in **rh** (`scripts/rh/**.rh`, the AOT-transpiled Rust
-subset that all gates and tasks run on) or **qjs** (`scripts/qjs/**.js`,
-QuickJS-ng). Neither behaves the way general knowledge of Rust, Rhai, or Node
-would suggest, and the two fail in opposite ways: rh rejects constructs it
-cannot lower, while qjs accepts all of modern JavaScript and then has almost no
-capabilities. Read the relevant manual first — the failure modes below are
-recurring, not hypothetical.
+Scripts are written in **`.qjs`** (`scripts/qjs/**.qjs`, AgenTerm's own
+engine: a growing JavaScript subset compiled to wasm and run on tinyvm --
+[`crates/agenterm-qjswasm/README.md`](crates/agenterm-qjswasm/README.md)).
+**rh left this repository on 2026-08-29** for `partnernetsoftware/rh`; every
+`.rh` gate and task is dark until its `.qjs` port lands (see
+`prd/PRD_02_10_rhai_scripting.md` § What went dark). There is **no default
+engine**: the entry's extension picks one, `AGENTERM_SCRIPT_BACKEND`
+overrides it, and anything else is refused by name.
 
 | Manual | Use for |
 |--------|---------|
-| [`docs/agenterm-rh-cheatsheet.md`](docs/agenterm-rh-cheatsheet.md) | rh syntax subset, native-pack vs interpreter semantics, error model, shipped surface index, debug checklist |
+| [`docs/agenterm-rh-cheatsheet.md`](docs/agenterm-rh-cheatsheet.md) | **history** — rh moved out 2026-08-29; kept for reading the archived scripts |
 | [`docs/agenterm-qjs-cheatsheet.md`](docs/agenterm-qjs-cheatsheet.md) | **archived 2026-08-28** — the engine it documents was removed. Kept as history; for writing scripts today see [`crates/agenterm-qjswasm/README.md`](crates/agenterm-qjswasm/README.md) |
-| [`docs/agenterm-rh-runtime.md`](docs/agenterm-rh-runtime.md) | the full interface *specification* (reference, not a how-to) |
+| [`docs/agenterm-rh-runtime.md`](docs/agenterm-rh-runtime.md) | **history** — the rh-era interface specification; the `std.*`/`rh.*` catalog ids it names are still the cross-engine capability names |
 
-The two highest-yield rules, stated here so they are unmissable:
-
-- **After editing any `.rh`, run
-  `cargo run -p agenterm-rh --example mode_probe -- --root . <entry>` and require
-  `mode=native host_eval_int=0`.** A silent fallback to host evaluation changes
-  semantics — a missing JSON field becomes a hard failure rather than `()`, and
-  objects stop stringifying by concatenation.
-- **`rh_fail` records and continues, and `require` inside a helper only returns
-  from that helper.** A task can print `PASS: ...` and still fail. Always read
-  the *first* recorded failure.
+The highest-yield rule: a `.qjs` script that uses something outside the
+subset fails **at compile time with a named capability diagnostic**; read that
+diagnostic, do not work around it.
 
 ## Development loop
 
@@ -240,7 +234,7 @@ Use PowerShell from the repository root:
 .\check.cmd              # full public-interface regression
 .\check.cmd --release    # local release gate; skips event-journal load stress
 .\check.cmd --release --include-stress # exact qualification + receipt
-.\dist\agenterm-rh.exe task run package-qualified --manifest .\agenterm.tasks.json
+.\dist\agenterm.exe cli script task run package-qualified --manifest .\agenterm.tasks.json
 .\release.cmd --rehearse # read-only release validation/rehearsal
 ```
 
@@ -317,12 +311,12 @@ owned by a dedicated smoke or qualification gate. Do not hide GUI, network,
 stress, packaging, or release work inside a lane whose name says it skips that
 work.
 
-For repository-wide rh syntax validation, use the bounded `agenterm-rh
-check-many --manifest` path owned by `scripts/rh/lint.rh`, rather than
-spawning one Script process per file. It retains a fresh Engine and typed
-result for each input, while bounding the manifest, file count, source bytes,
-and aggregate deadline. Keep the direct single-file `check` command as the
-diagnostic and black-box parity baseline.
+For repository-wide script validation, use an engine's bounded `check-many
+--manifest` path (`agenterm lua check-many`, `agenterm sql check-many`)
+rather than spawning one Script process per file. It retains a fresh Engine
+and typed result for each input, while bounding the manifest, file count,
+source bytes, and aggregate deadline. Keep the direct single-file `check`
+command as the diagnostic and black-box parity baseline.
 
 `.cargo/config.toml` once forced `jobs = 1` and made clean builds much
 slower; that setting was removed. Do not restore a global job limit. The file
@@ -384,9 +378,9 @@ fixed sleeps. Rendering investigations should capture both structured state and
 PNG evidence.
 
 The GUI must expose its native window before starting the initial ConPTY.
-`scripts/rh/startup-smoke.rh` guards a one-second local first-window budget
-and then waits through public state until the asynchronous terminal becomes
-ready.
+The startup-smoke gate (dark since rh moved out; see PRD 02.10) guards a
+one-second local first-window budget and then waits through public state
+until the asynchronous terminal becomes ready.
 
 ## Terminal interaction engineering
 
@@ -524,7 +518,7 @@ needs rather than making ordinary host builds download the full matrix.
 
 CI covers all six architecture cells `{x86_64,aarch64} × {win,lnx,osx}`. Local
 build commands per cell. `src/bin/` currently holds **four** product binaries
-(`agenterm`, `agenterm`, `agenterm-rh`, `agenterm-cc`). Mux/MCP are
+(`agenterm`, `agenterm-com`, `agenterm-cc`). Mux/MCP are
 **`agenterm cli` subcommands**, not separate PEs. **Prefer building without
 `--bin` filters** so new binaries are covered automatically:
 
@@ -583,7 +577,7 @@ test target is linted. On Linux, `cargo fmt --check` runs natively.
 
 **Wine / ConPTY limits**: Wine cannot sustain an interactive ConPTY shell — a
 tab's `cmd.exe` starts and immediately exits `dead`, so live terminal I/O,
-`capture-pane` output, and the GUI smoke suites (`scripts/rh/*-smoke.rh`)
+`capture-pane` output, and the GUI smoke suites (dark since rh moved out)
 cannot pass on Linux.
 Interactive-terminal and rendering work must be validated on a real Windows host
 (that is what CI on `windows-latest` covers). Treat Linux Wine as a fast
@@ -591,5 +585,5 @@ Windows-target lint/build/unit-test and control-plane sanity loop; native Linux
 GUI/PTY smokes use a real display or CI Xvfb instead.
 
 Rhai REPL and `agenterm cli script repl` were removed with Phase C Wave 4.5 —
-invoke `agenterm-rh` for `.rh` check, eval, task, and run. Instance discovery uses
+use `agenterm cli script` for check, eval, task, and run. Instance discovery uses
 `~/.local/share/agenterm/instances/` (override with `AGENTERM_INSTANCE_DIR`).

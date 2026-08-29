@@ -56,13 +56,12 @@ client, and a deliberately bounded tmux/RMUX frontend.
   clipboard.
 - Snapshot-positioned bounded event reads and waits expose explicit restart,
   gap, and timeout results.
-- `agenterm rh` is the task and worker subcommand for repository automation
-  (`scripts/rh/*.rh`), observable Fleet tools, and versioned named tasks
-  without linking the scripting engine into the GUI. Archived Rhai sources
-  live under `scripts/archive/rhai/`; the former `agenterm-rhai` shim was
-  removed in Phase C Wave 4.5. The standalone `agenterm-rh`/`agenterm-lua`/
-  `agenterm-qjs`/`agenterm-sql` binaries were retired in favor of
-  `agenterm rh|lua|qjs|sql` subcommands (2026-08-09).
+- `agenterm cli script` is the task and worker face for repository
+  automation (`.qjs` under `scripts/qjs/`), observable Fleet tools, and
+  versioned named tasks. The rh engine and its `scripts/rh/*.rh` corpus moved
+  out to `partnernetsoftware/rh` on 2026-08-29; archived Rhai sources live
+  under `scripts/archive/rhai/`. `agenterm rh` and `agenterm qjs` answer
+  with where their verbs went.
 - `agenterm cli mcp` is the on-demand read-only MCP surface (no separate
   `agenterm-mcp` PE). Its first v0.1.10 slice serves four metadata-only Fleet
   resources and one bounded `agenterm_wait` tool over stdio; it exposes no
@@ -164,20 +163,19 @@ the ignored executable set, runtime library, and build metadata under `dist/`:
 
 The thin `build.bat` / `build.sh` stage-0 reuses a content-validated,
 last-known-good copy of the main `agenterm` outside Cargo output and runs the
-real build as `agenterm rh task run build`. A clean machine or CI runner seeds
+real build as `agenterm cli script task run build`. A clean machine or CI runner seeds
 that cache with `cargo build --bin agenterm`. When source identity changes,
 stage-0 attempts a compatible refresh but retains the prior verified copy if
 that seed fails, so broken product source cannot destroy the recovery runtime.
-There is no standalone `agenterm-rh` bootstrap or second shell-owned build
-policy.
+There is no second shell-owned build policy. The `build`/`check`/`lint`/
+`release` tasks themselves are dark since rh moved out (2026-08-29) until
+their `.qjs` ports land; see `prd/PRD_02_10_rhai_scripting.md`.
 
 - `dist/agenterm.exe` — GUI application and agenterm cli entry; `agenterm
-  server` starts the headless authority as a separate process of the same PE. `agenterm rh|lua|qjs|sql`
-  are argv-transparent subcommand aliases for the four script engines (native
-  `.rh` task/worker CLI: live automation under `scripts/rh/`; archived Rhai
-  under `scripts/archive/rhai/`) — the standalone `agenterm-rh.exe` /
-  `agenterm-lua.exe` / `agenterm-qjs.exe` / `agenterm-sql.exe` binaries were
-  retired in favor of these subcommands (2026-08-09).
+  server` starts the headless authority as a separate process of the same PE.
+  `agenterm cli script` is the script face; `agenterm lua|sql` are the
+  remaining engines' dev CLIs (the standalone per-engine binaries were
+  retired 2026-08-09, and rh moved out 2026-08-29).
 - `dist/agenterm-cc.exe` — isolated Control Center projection; informational
   commands include `--help`, `--version`, `capabilities --json`, and
   `snapshot --json`.
@@ -218,7 +216,7 @@ relabeled as available.
 ### Linux GUI
 
 Native Linux `agenterm` and `agenterm-cc` use winit. Control clients
-(`agenterm cli`, `agenterm rh`) do not need display libraries.
+(`agenterm cli`) do not need display libraries.
 
 **Release tarballs** ship a small `lib/` directory plus `agenterm` and
 `agenterm-cc` launchers that set `LD_LIBRARY_PATH` before starting their hidden
