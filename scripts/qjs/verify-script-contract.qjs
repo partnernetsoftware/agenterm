@@ -1,0 +1,98 @@
+// First repository dogfood for agenterm-rh, moved to .qjs (2026-08-29).
+//
+// This standalone verifier consumes explicit specification and catalog
+// fixtures. It is intentionally outside the ready named-task catalog until a
+// rh-owned catalog export supplies its second input.
+//
+// Args:
+//   RUNTIME_SPEC SCRIPT_CATALOG
+//
+// Runs under `--profile tool`: both inputs are read off disk through the door.
+import * as rh from "lib/rh_compat";
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+if (args.length !== 2) {
+  throw "expected: <runtime-spec.md> <script-catalog.json>";
+}
+
+const specification = rh.read_text(args[0]);
+rh.require(
+  specification.startsWith("# AgenTerm Script Runtime Specification"),
+  "runtime specification must be the English public specification"
+);
+rh.require(
+  specification.includes("## 1. Complete public object and interface tree"),
+  "runtime specification must open with the complete object tree"
+);
+rh.require(
+  specification.includes("The Script surface is the product contract."),
+  "runtime specification must declare the Script surface as the product contract"
+);
+
+const catalog = JSON.parse(rh.read_text(args[1]));
+rh.require(catalog.schema_version === 3, "unexpected script catalog schema");
+rh.require(catalog.api_version === 2, "unexpected Script API major");
+rh.require(catalog.entries.length > 0, "script catalog must not be empty");
+rh.require(
+  catalog.comparison.schema_version === 1,
+  "unexpected comparison schema"
+);
+rh.require(
+  catalog.comparison.reviewed_on === "2026-07-29",
+  "comparison review date drifted"
+);
+
+let stable_count = 0;
+let reserved_count = 0;
+let legacy_count = 0;
+
+for (const entry of catalog.entries) {
+  rh.require(entry.stable_id !== "", "catalog entry is missing stable_id");
+  rh.require(entry.surface_path !== "", "catalog entry is missing surface_path");
+  rh.require(entry.designed_on !== "", "catalog entry is missing designed_on");
+  rh.require(entry.since !== "", "catalog entry is missing since");
+  rh.require(
+    entry.comparisons.nodejs.reviewed_on === "2026-07-29",
+    "Node.js comparison is not reviewed: " + entry.stable_id
+  );
+  rh.require(
+    entry.comparisons.bun.reviewed_on === "2026-07-29",
+    "Bun comparison is not reviewed: " + entry.stable_id
+  );
+  rh.require(
+    entry.comparisons.nodejs.relationship === "similar"
+      || entry.comparisons.nodejs.relationship === "agenterm_specific",
+    "Node.js comparison is not classified: " + entry.stable_id
+  );
+  rh.require(
+    entry.comparisons.bun.relationship === "similar"
+      || entry.comparisons.bun.relationship === "agenterm_specific",
+    "Bun comparison is not classified: " + entry.stable_id
+  );
+
+  if (entry.stability === "stable") {
+    stable_count = stable_count + 1;
+  } else if (entry.stability === "reserved") {
+    reserved_count = reserved_count + 1;
+  } else if (entry.stability === "legacy") {
+    legacy_count = legacy_count + 1;
+  } else {
+    throw "catalog entry has unknown stability: " + entry.stable_id;
+  }
+}
+
+rh.require(stable_count > 0, "catalog must expose stable entries");
+rh.require(reserved_count > 0, "catalog must expose reserved entries");
+rh.require(legacy_count === 0, "Script API v2 must not retain legacy agent aliases");
+
+print(
+  "PASS: Script verified the Script API contract (" +
+  stable_count + " stable, " +
+  reserved_count + " reserved, " +
+  legacy_count + " legacy)"
+);
+return 0;
