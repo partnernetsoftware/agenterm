@@ -1,0 +1,361 @@
+// Prove qualification manifests, results, provenance, and retained diagnostics
+// fail closed before the production qualification caller switches engines.
+//
+// Args: REPO CLI_EXE
+//
+// Ported from scripts/rh/qualification-selftest.rh; runs under
+// `--profile tool`. The two inputs it reads that are not in this tree today
+// are kept as the original spelled them and are reported as gaps, not
+// re-pointed: `dist/agenterm.json` is what stage-build writes, and
+// `scripts/rh/check.rh` is the qualification driver whose gate order this
+// asserts -- the driver left with rh on 2026-08-29 (6a12d8f0) and the marker
+// set here has to move to its .qjs port when that lands.
+import * as rh from "lib/rh_compat";
+import * as path from "lib/path";
+import * as harness from "lib/test_harness";
+
+function assert_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function expect_rejection(expected, condition) {
+  assert_ok(condition !== 0, "qualification_selftest_expected_rejection:" + expected);
+  return 0;
+}
+
+function zeros(count) {
+  let value = "";
+  let index = 0;
+  while (index < count) {
+    value = value + "0";
+    index = index + 1;
+  }
+  return value;
+}
+
+// Insertion sort by text, as rh's; no `splice` here, so an insert rebuilds
+// the array around the slot.
+function sorted(values) {
+  let result = [];
+  for (const value of values) {
+    const text_value = "" + value;
+    let inserted = 0;
+    let index = 0;
+    while (index < result.length) {
+      const existing = "" + result[index];
+      if (text_value < existing) {
+        const rebuilt = [];
+        let i = 0;
+        while (i < index) { rebuilt.push(result[i]); i = i + 1; }
+        rebuilt.push(text_value);
+        while (i < result.length) { rebuilt.push(result[i]); i = i + 1; }
+        result = rebuilt;
+        inserted = 1;
+        break;
+      }
+      index = index + 1;
+    }
+    if (inserted === 0) { result.push(text_value); }
+  }
+  return result;
+}
+
+function exact_values(left, right) {
+  const first = sorted(left);
+  const second = sorted(right);
+  if (first.length !== second.length) { return 0; }
+  let index = 0;
+  while (index < first.length) {
+    if (first[index] !== second[index]) { return 0; }
+    index = index + 1;
+  }
+  return 1;
+}
+
+function selftest_sha256(p) {
+  assert_ok(
+    rh.exists(p) && rh.metadata(p).is_file,
+    "qualification_selftest_input_missing:" + p
+  );
+  return rh.sha256_file(p);
+}
+
+function selftest_git_head(repo) {
+  const stdout_path = path.join(repo, ".qualification-selftest-git.stdout.tmp");
+  const code = rh.command_stdout_file("git", ["rev-parse", "HEAD"], stdout_path, { cwd: repo, timeout_ms: 10000 });
+  assert_ok(code === 0, "qualification_selftest_git");
+  const head = rh.read_text(stdout_path).trim();
+  rh.try_remove_file(stdout_path);
+  return head;
+}
+
+function remove_owned_scratch(root, p) {
+  const owned = rh.absolute(root);
+  const resolved = rh.absolute(p);
+  assert_ok(
+    path.parent(resolved).toLowerCase() === owned.toLowerCase(),
+    "qualification_selftest_scratch_outside_owned_root:" + resolved
+  );
+  if (rh.exists(resolved)) { rh.remove_dir_all(resolved); }
+  return 0;
+}
+
+function selftest_new_context(manifest_path, stress_included) {
+  const p = rh.absolute(manifest_path);
+  const manifest = rh.parse_file(p);
+  return {
+    manifest: manifest,
+    manifest_path: p,
+    stress_included: stress_included,
+    results: {},
+    process_observation: {
+      owned_commands: 0,
+      process_samples: 0,
+      automation_processes: [],
+      terminal_compatibility_payloads: []
+    }
+  };
+}
+
+function selftest_evidence_from_output(output) {
+  const evidence = [];
+  for (const item of output) {
+    const line = ("" + item).trim();
+    if (line.startsWith("EVIDENCE ")) {
+      // `sub_string(9)`: no slice here; the prefix occurs once, so split.
+      const parts = line.split("EVIDENCE ");
+      evidence.push(parts[1]);
+    }
+  }
+  return evidence;
+}
+
+function selftest_build_results(manifest, rustfmt_status) {
+  const context = { results: {} };
+  for (const gate of manifest.required_gates) {
+    const gate_id = "" + gate.id;
+    let status = "passed";
+    if (gate_id === "rustfmt") { status = "" + rustfmt_status; }
+    const evidence_output = [];
+    for (const evidence_id of gate.evidence) {
+      evidence_output.push("EVIDENCE " + evidence_id);
+    }
+    context.results[gate_id] = {
+      id: gate_id,
+      status: status,
+      duration_ms: 0,
+      evidence: selftest_evidence_from_output(evidence_output)
+    };
+  }
+  return context;
+}
+
+function selftest_context_with_results(manifest_path, stress_included, rustfmt_status) {
+  const base = selftest_new_context(manifest_path, stress_included);
+  const built = selftest_build_results(base.manifest, rustfmt_status);
+  return {
+    manifest: base.manifest,
+    manifest_path: base.manifest_path,
+    stress_included: base.stress_included,
+    results: built.results,
+    process_observation: base.process_observation
+  };
+}
+
+function would_reject_assert_results(context) {
+  for (const gate of context.manifest.required_gates) {
+    const gate_id = "" + gate.id;
+    if (context.results[gate_id] === undefined) { return 1; }
+    const result = context.results[gate_id];
+    const result_status = "" + result.status;
+    if (result_status !== "passed") { return 1; }
+    if (exact_values(gate.evidence, result.evidence) === 0) { return 1; }
+  }
+  if (context.stress_included === 0) { return 1; }
+  return 0;
+}
+
+function would_reject_process_observation(context) {
+  const owned_commands = 0 + context.process_observation.owned_commands;
+  const process_samples = 0 + context.process_observation.process_samples;
+  if (owned_commands === 0) { return 1; }
+  if (process_samples === 0) { return 1; }
+  if (context.process_observation.automation_processes.length > 0) { return 1; }
+  return 0;
+}
+
+function would_reject_read_manifest(p) {
+  if (!rh.exists(p) || !rh.metadata(p).is_file) { return 1; }
+  return 0;
+}
+
+function would_reject_provenance_artifact_hash(metadata_path, artifact_manifest_path) {
+  const metadata = rh.parse_file(metadata_path);
+  const artifact_hash = selftest_sha256(artifact_manifest_path);
+  if (("" + metadata.artifact_manifest_sha256) !== artifact_hash) { return 1; }
+  return 0;
+}
+
+// "marker A precedes marker B": the text after the first A contains B.
+function ordered(source, first_marker, second_marker) {
+  let seen = 0;
+  for (const part of source.split(first_marker)) {
+    if (seen !== 0 && part.includes(second_marker)) { return true; }
+    seen = 1;
+  }
+  return false;
+}
+
+const args = rh.args();
+if (args.length !== 2) { throw "expected: REPO CLI_EXE"; }
+
+const repo = rh.absolute(args[0]);
+const cli = rh.absolute(args[1]);
+assert_ok(rh.exists(cli), "qualification_selftest_cli_missing");
+const manifest_path = path.join(repo, "scripts/qualification-gates.json");
+
+const missing_manifest = path.join(repo, "target/qualification/missing-gates.json");
+expect_rejection("qualification_manifest_missing", would_reject_read_manifest(missing_manifest));
+
+for (const rejected_status of ["skipped", "failed"]) {
+  const context = selftest_context_with_results(manifest_path, 1, rejected_status);
+  expect_rejection(
+    "qualification_gate_not_passed:rustfmt:" + rejected_status,
+    would_reject_assert_results(context)
+  );
+}
+
+const no_stress = selftest_context_with_results(manifest_path, 0, "passed");
+expect_rejection("qualification_stress_required", would_reject_assert_results(no_stress));
+
+const missing_process = selftest_new_context(manifest_path, 1);
+expect_rejection(
+  "qualification_process_observation_missing",
+  would_reject_process_observation(missing_process)
+);
+const observed_process = {
+  manifest: missing_process.manifest,
+  manifest_path: missing_process.manifest_path,
+  stress_included: missing_process.stress_included,
+  results: missing_process.results,
+  process_observation: {
+    owned_commands: 1,
+    process_samples: 1,
+    automation_processes: [],
+    terminal_compatibility_payloads: []
+  }
+};
+assert_ok(
+  would_reject_process_observation(observed_process) === 0,
+  "qualification_selftest_process_observation_pass"
+);
+const forbidden_process = {
+  manifest: observed_process.manifest,
+  manifest_path: observed_process.manifest_path,
+  stress_included: observed_process.stress_included,
+  results: observed_process.results,
+  process_observation: {
+    owned_commands: 2,
+    process_samples: 2,
+    automation_processes: ["pwsh.exe:123"],
+    terminal_compatibility_payloads: []
+  }
+};
+expect_rejection(
+  "qualification_process_observation_powershell",
+  would_reject_process_observation(forbidden_process)
+);
+
+// GAP: scripts/rh/check.rh left the tree with rh; re-point at the driver's
+// .qjs port (and its markers) when it lands.
+const check_source = rh.read_text(path.join(repo, "scripts/rh/check.rh"));
+// `run_gate_two(` since 6881c5e4 -- the gate and its position in the order
+// below are unchanged, only the helper it calls. Matched without the
+// trailing `(` so a future arity change does not silently break this
+// ordering assertion again.
+const lint_marker = "let lint_gate = run_gate";
+const decl_marker = "sequence = assert_declarations(";
+const rustfmt_marker = "let rustfmt_gate = run_gate(";
+const artifact_marker = "\"artifact-build\",";
+const smoke_marker = "let smoke_ids = [";
+let order_ok = 0;
+if (check_source.includes(lint_marker)
+    && check_source.includes(decl_marker)
+    && check_source.includes(rustfmt_marker)
+    && check_source.includes(artifact_marker)
+    && check_source.includes(smoke_marker)) {
+  if (ordered(check_source, lint_marker, decl_marker)
+      && ordered(check_source, decl_marker, rustfmt_marker)
+      && ordered(check_source, rustfmt_marker, artifact_marker)
+      && ordered(check_source, artifact_marker, smoke_marker)) {
+    order_ok = 1;
+  }
+}
+assert_ok(order_ok !== 0, "qualification_selftest_declaration_order");
+
+const scratch_root = path.join(repo, "target/qualification");
+rh.create_dir_all(scratch_root);
+const scratch = path.join(scratch_root, "selftest-" + rh.now_ms() + "-" + rh.pid());
+rh.create_dir_all(scratch);
+let harness_active = 0;
+let harness_context = { run_directory: "" };
+let failure = "";
+let cli_result = { success: false, stdout: "", stderr: "" };
+
+if (failure === "") {
+  const metadata = rh.parse_file(path.join(repo, "dist/agenterm.json"));
+  metadata.git_commit = selftest_git_head(repo).toLowerCase();
+  metadata.git_dirty = true;
+  metadata.cargo_lock_sha256 = selftest_sha256(path.join(repo, "Cargo.lock"));
+  metadata.artifact_manifest_sha256 = zeros(64);
+  const executables = [];
+  for (const item of metadata.executables) {
+    const entry_name = "" + item.name;
+    const entry_sha256 = selftest_sha256(path.join(path.join(repo, "dist"), entry_name));
+    executables.push({ name: entry_name, sha256: entry_sha256 });
+  }
+  metadata.executables = executables;
+  const metadata_path = path.join(scratch, "mismatched-agenterm.json");
+  rh.atomic_write(metadata_path, rh.stringify_pretty(metadata) + "\n");
+  expect_rejection(
+    "qualification_artifact_manifest_hash",
+    would_reject_provenance_artifact_hash(metadata_path, path.join(repo, "scripts/artifacts.json"))
+  );
+}
+
+if (failure === "") {
+  harness_context = harness.new_context(repo, "qualification-selftest");
+  harness_active = 1;
+  cli_result = harness.run_cli(harness_context, cli, ["__qualification_invalid_command__"], 1, []);
+  if (cli_result.success) { failure = "qualification_selftest_cli_failure_not_injected"; }
+}
+
+if (failure === "") {
+  harness.complete_quiet(
+    harness_context,
+    [],
+    false,
+    "qualification CLI failure injection\n" + cli_result.stdout + cli_result.stderr
+  );
+  if (!rh.exists(harness_context.manifest_path)) { failure = "qualification_selftest_manifest_missing"; }
+}
+
+if (failure === "") {
+  const bundle = rh.parse_file(harness_context.manifest_path);
+  const pane_capture = "" + bundle.privacy.pane_capture;
+  let has_capture = 0;
+  for (const diagnostic of bundle.diagnostics) {
+    if (("" + diagnostic) === "capture-pane.txt") { has_capture = 1; }
+  }
+  if (pane_capture !== "disabled for this suite"
+      || has_capture !== 0
+      || !rh.exists(harness_context.command_log_path)) {
+    failure = "qualification_selftest_diagnostics_contract";
+  }
+}
+
+if (harness_active !== 0) { harness.remove_run(harness_context); }
+remove_owned_scratch(scratch_root, scratch);
+if (failure !== "") { throw failure; }
+print("PASS: qualification fail-closed self-test");
+return 0;

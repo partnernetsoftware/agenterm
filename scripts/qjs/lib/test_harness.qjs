@@ -328,3 +328,55 @@ export function remove_run(context) {
     door(fs_remove_dir_all(context.run_directory), "fs_remove_dir_all");
   }
 }
+
+// ---- wave-2 script-smoke ----
+
+// `bounded_record_text` above cuts with `slice`, which this engine refuses on a
+// String, so a record longer than its limit trapped the whole run -- and a
+// smoke that reads `script api --json` (~384 KiB) or a 1000-line diagnostic
+// child produces one on its first command. This bound keeps whole lines and,
+// inside an over-long line, whole space-separated words, so it never needs to
+// cut inside a token; the marker rh wrote is kept verbatim. A single token
+// longer than the limit is dropped to the marker alone.
+export function bounded_record_text_words(source, maximum_characters) {
+  const text = "" + source;
+  if (text.length <= maximum_characters) { return text; }
+  let kept = "";
+  let dropped = false;
+  for (const line of text.split("\n")) {
+    if (dropped) { break; }
+    const candidate = kept === "" ? line : kept + "\n" + line;
+    if (candidate.length <= maximum_characters) { kept = candidate; continue; }
+    let partial = kept === "" ? "" : kept + "\n";
+    let first_word = true;
+    for (const word of line.split(" ")) {
+      const next = first_word ? partial + word : partial + " " + word;
+      if (next.length > maximum_characters) { dropped = true; break; }
+      partial = next;
+      first_word = false;
+    }
+    kept = partial;
+    dropped = true;
+  }
+  return kept + "\n<agenterm-command-output-truncated>\n";
+}
+
+// `append_command_record` with the word-bounded text: the same journal line
+// and the same folded log, for callers whose commands print more than 512
+// characters. Everything else is `append_command_record` verbatim.
+export function append_command_record_bounded(context, args, output, expected_failure, redactions) {
+  const safe_args = [];
+  for (const a of args) { safe_args.push(redact_text(a, redactions)); }
+  const combined = redact_text(output.stdout + output.stderr, redactions);
+  const record = {
+    recorded_at_ms: now_ms(),
+    arguments: safe_args,
+    expected_failure: expected_failure !== 0,
+    exit_code: output.exit_code,
+    output: bounded_record_text_words(combined, 512)
+  };
+  let journal = "";
+  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
+  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
+  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+}
