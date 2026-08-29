@@ -6,10 +6,23 @@
 // directory, which is the host's to give, so it belongs to the `tool.env`
 // door and not to a library.
 //
-// Semantics follow rh's, which follow Rust's `std::path` on Unix:
-//   join(a, b)  -- `b` absolute replaces `a`; otherwise one separator between.
-//   parent(p)   -- everything before the last separator; "" when there is none
-//                  and for "/"; a trailing separator does not count.
+// Semantics are rh's, which are Rust's `std::path` on Unix -- rh's host is
+// `PathBuf::join` and `Path::parent().unwrap_or("")` verbatim
+// (`crates/agenterm-rh/src/host_std.rs`, `std::path::join` / `std::path::parent`):
+//   join(a, b)  -- `b` absolute (starts with `/`) replaces `a`; otherwise one
+//                  separator goes between unless `a` is empty or already ends
+//                  with one. `join("a", "")` is `"a/"`, as in Rust.
+//   parent(p)   -- `p` minus its last component, as a slice of the original
+//                  text: internal `//` survives, a trailing `/` is not a
+//                  component, and a `.` component is normalised away except
+//                  a leading one. `""` for a lone component, for `/`, for `.`
+//                  and for `""` (Rust's `None` and `Some("")` both print as
+//                  nothing, and rh already folds them). A root or a leading
+//                  `.` is kept when it is all that is left: `parent("/a")` is
+//                  `"/"`, `parent("./a")` is `"."`.
+//
+// Written against the qjswasm subset: `split`, `startsWith`, `endsWith`,
+// array indexing and `.length` -- no `slice`, no string indexing.
 //
 // Windows separators are not handled. The corpus runs its gates on Unix and
 // the Windows scripts are `.ps1`, so a `\` here would be an assumption rather
@@ -22,14 +35,38 @@ export function join(base, tail) {
   return base + "/" + tail;
 }
 
+// A component Rust's `Components` skips: an empty one (from `//` or a
+// trailing `/`) or a `.` that is not the leading one.
+function skipped(part) {
+  return part === "" || part === ".";
+}
+
 export function parent(p) {
-  let end = p.length;
-  while (end > 0 && p[end - 1] === "/") { end = end - 1; }
-  let i = end;
-  while (i > 0 && p[i - 1] !== "/") { i = i - 1; }
-  if (i === 0) { return ""; }
-  let j = i;
-  while (j > 1 && p[j - 1] === "/") { j = j - 1; }
-  if (j === 1) { return "/"; }
-  return p.slice(0, j - 1);
+  const parts = p.split("/");
+  // Rust treats a leading `/` (root) or a leading `.` (cur-dir) as a prefix
+  // outside the component body; it is never dropped and never counts as
+  // the last component.
+  let prefix = 0;
+  if (p.startsWith("/")) {
+    prefix = 1;
+  } else if (parts[0] === ".") {
+    prefix = 1;
+  }
+  let last = parts.length - 1;
+  while (last >= prefix && skipped(parts[last])) { last = last - 1; }
+  if (last < prefix) { return ""; }
+  let keep = last - 1;
+  while (keep >= prefix && skipped(parts[keep])) { keep = keep - 1; }
+  if (keep < prefix) {
+    if (p.startsWith("/")) { return "/"; }
+    if (prefix === 1) { return "."; }
+    return "";
+  }
+  let out = parts[0];
+  let i = 1;
+  while (i <= keep) {
+    out = out + "/" + parts[i];
+    i = i + 1;
+  }
+  return out;
 }
