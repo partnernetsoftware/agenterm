@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "1012da1";
+pub const UPSTREAM_TINYVM_REV: &str = "83721d0";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -758,6 +758,8 @@ impl From<CompileError> for QjswasmError {
 /// `eval_wasm` sugar cannot express that, so this crate goes through
 /// `Module::from_bytes_with` + import binding + `instantiate` instead.
 pub struct Engine {
+    /// See [`Engine::take_failed_stdout`].
+    failed_stdout: String,
     budget: Budget,
     /// Whether slots here get the `tool.*` door. Set only by
     /// [`with_tool_door`](Self::with_tool_door), never by a guest.
@@ -797,6 +799,7 @@ impl Engine {
             tool_door: false,
             tool_args: Vec::new(),
             slots: Vec::new(),
+            failed_stdout: String::new(),
             id: NEXT_ENGINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             next_index: 0,
         }
@@ -928,7 +931,19 @@ impl Engine {
             .get_mut(slot.index as usize)
             .and_then(Option::as_mut)
             .ok_or(QjswasmError::NoSuchSlot(slot))?;
-        s.call(entry, args, &self.budget)
+        let outcome = s.call(entry, args, &self.budget);
+        if outcome.is_err() {
+            self.failed_stdout = s.take_failed_stdout();
+        }
+        outcome
+    }
+
+    /// What the most recent failed call printed before it failed, once. A
+    /// script that prints STEP lines and then throws used to lose them: the
+    /// error face has no room, and every wave-2 migration group asked. Empty
+    /// after a successful call or a second take.
+    pub fn take_failed_stdout(&mut self) -> String {
+        std::mem::take(&mut self.failed_stdout)
     }
 
     /// Spawn, call, and reclaim. The common path for a one-shot guest.

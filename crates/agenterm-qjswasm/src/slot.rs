@@ -42,9 +42,16 @@ pub(crate) struct Slot {
     /// state, so dropping it early would strand the guest's imports.
     door: HostState,
     convention: Convention,
+    /// What the last failed call printed before it failed. The `Result`
+    /// face has no room for it, so it waits here for [`Engine::take_failed_stdout`].
+    failed_stdout: String,
 }
 
 impl Slot {
+    pub(crate) fn take_failed_stdout(&mut self) -> String {
+        std::mem::take(&mut self.failed_stdout)
+    }
+
     pub(crate) fn load(
         bytes: &[u8],
         budget: &Budget,
@@ -64,6 +71,7 @@ impl Slot {
             instance,
             door,
             convention,
+            failed_stdout: String::new(),
         })
     }
 
@@ -115,7 +123,12 @@ impl Slot {
 
         let returned = match result {
             Ok(values) => values,
-            Err(fault) => return Err(self.explain(fault)),
+            Err(fault) => {
+                // The call failed after the guest printed: keep it for the
+                // engine to hand out, since the error face cannot carry it.
+                self.failed_stdout = stdout;
+                return Err(self.explain(fault));
+            }
         };
         let values = match self.convention {
             Convention::Wasm => returned

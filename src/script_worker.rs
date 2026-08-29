@@ -564,7 +564,10 @@ fn execute_with_cancellation_and_broker(
             result.stdout = stdout;
             result.value = value;
         }
-        Err(failure) => {
+        Err(mut failure) => {
+            // Printed before the failure: it belongs to this run's stdout,
+            // next to the failure, not lost with it.
+            result.stdout = std::mem::take(&mut failure.stdout);
             result.exit_class = match failure.category {
                 ScriptFailureCategory::Configuration => ScriptExitClass::Configuration,
                 ScriptFailureCategory::Limit => ScriptExitClass::Limit,
@@ -863,7 +866,9 @@ fn engine_execution_error(backend_code: &str, error: crate::script_engine::Scrip
     // 2026-08-29; the engines that remain say their class in the type, so
     // a step-budget exhaustion is `limit` and an uncaught throw is `script`
     // without this function knowing any engine's wording.
-    failure(backend_code, error.message, error.category)
+    let mut failed = failure(backend_code, error.message, error.category);
+    failed.stdout = error.stdout;
+    failed
 }
 
 fn limit_error(code: impl Into<String>, message: impl Into<String>) -> ScriptFailure {
@@ -890,6 +895,7 @@ fn failure(
         code: code.into(),
         message: message.into(),
         category,
+        stdout: String::new(),
     }
 }
 

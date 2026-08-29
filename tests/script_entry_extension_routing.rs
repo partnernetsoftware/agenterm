@@ -476,6 +476,31 @@ fn the_first_migrated_task_script_validates_the_real_manifest() {
 /// default whatever the CLI said. The loop below costs ~100 steps per
 /// iteration under the V1 boxed representation, so 1000 iterations need
 /// ~100k steps: a 1000-step budget must refuse it and the default must not.
+/// What a script printed before it failed reaches stdout, ahead of the
+/// failure on stderr. Until 2026-08-29 a throw or a budget limit discarded
+/// it, so a gate's STEP lines were lost on exactly the runs that mattered;
+/// every wave-2 migration group reported it.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn what_a_script_printed_before_it_failed_reaches_stdout() {
+    let _slot = cli_slot();
+    let dir = std::env::temp_dir().join(format!("agenterm-stdout-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let script = write(&dir, "steps.qjs", "print(\"STEP 1\");\nprint(\"STEP 2\");\nthrow \"boom\";\n");
+    let mut run = Command::new(AGENTERM_BIN);
+    run.args(["cli", "script", "run"]).arg(&script).env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = run.output().expect("the CLI binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "a throw fails the run");
+    assert_eq!(stdout, "STEP 1\nSTEP 2\n", "stdout={stdout} stderr={stderr}");
+    assert!(
+        stderr.contains("nothing caught it: boom") && !stderr.contains("STEP"),
+        "the failure is on stderr, the steps are not; stderr={stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit() {

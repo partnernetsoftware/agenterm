@@ -94,11 +94,15 @@ pub struct ScriptCost {
 pub struct ScriptEngineError {
     pub message: String,
     pub category: ScriptFailureCategory,
+    /// What the script printed before it failed, when the engine can say.
+    /// Reaches the caller as the result's `stdout` next to the failure, so a
+    /// gate script's STEP lines are not lost exactly on the runs that matter.
+    pub stdout: String,
 }
 
 impl From<String> for ScriptEngineError {
     fn from(message: String) -> Self {
-        Self { message, category: ScriptFailureCategory::Configuration }
+        Self { message, category: ScriptFailureCategory::Configuration, stdout: String::new() }
     }
 }
 
@@ -306,7 +310,7 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         E::UncaughtThrow(_) | E::Trap(_) | E::HostArgument(_) => ScriptFailureCategory::Script,
         _ => ScriptFailureCategory::Configuration,
     };
-    ScriptEngineError { message: error.to_string(), category }
+    ScriptEngineError { message: error.to_string(), category, stdout: String::new() }
 }
 
 #[cfg(feature = "script-qjswasm")]
@@ -906,7 +910,11 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 "main",
                 &[],
             )
-            .map_err(qjs_engine_error)?;
+            .map_err(|e| {
+                let mut error = qjs_engine_error(e);
+                error.stdout = engine.take_failed_stdout();
+                error
+            })?;
 
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,

@@ -4,7 +4,7 @@ Status: **`[~]` 部分完成——见下面能力树的根，那个记号是本�
 引擎脊柱已落地并有实测证据（`cargo test -p agenterm-qjswasm`
 **152 passed / 0 failed** 在 main `9aef2995`；**176 passed / 0 failed** 在带 `tool.*` 门的
 `4a7f0ec3`（+7 lib、+17 `tests/tool_door.rs`）——两个数都是 2026-08-29 本次更新时跑出来的；
-上游 rev **`1012da1`**，即 `Cargo.lock` 里的 pin）；
+上游 rev **`83721d0`**，即 `Cargo.lock` 里的 pin）；
 
 > **这一行以前停在 2026-08-28 / rev `0afc88a` / 153 passed，而 pin 已经走到
 > `ec67034`。** 记在这里而不是悄悄改掉：**一份 PRD 的第一行落后，是它整体可信度的
@@ -1422,7 +1422,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ `3a347be`（`Number`）→ `ec67034`（第四类 fault code）→ `94237cb`（未捕获 throw 的消息指针 `FAULT_THROWN` + `Object.keys` 折叠）→ `d2e66b3`（缺失的 String 属性报自己的名字：`FAULT_MISSING_STRING_METHOD`）→ `6b9464a`（`String.prototype.slice`，码元位置，两种元数共用一个核心）→ **`1012da1`**（宿主参数类型错在运行期报 `host#n`：`FAULT_HOST_ARGUMENT`，当前 pin，2026-08-29）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ `3a347be`（`Number`）→ `ec67034`（第四类 fault code）→ `94237cb`（未捕获 throw 的消息指针 `FAULT_THROWN` + `Object.keys` 折叠）→ `d2e66b3`（缺失的 String 属性报自己的名字：`FAULT_MISSING_STRING_METHOD`）→ `6b9464a`（`String.prototype.slice`，码元位置，两种元数共用一个核心）→ `1012da1`（宿主参数类型错在运行期报 `host#n`：`FAULT_HOST_ARGUMENT`）→ `d7a72ec`（Number 参数同样）→ **`83721d0`**（`slice` 懒长度：非负索引不数全串，`slice(0,10)` 于 1 000 字符 78 000 步 → <3 000，当前 pin，2026-08-29）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。

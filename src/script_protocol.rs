@@ -199,6 +199,11 @@ pub struct ScriptFailure {
     pub code: String,
     pub message: String,
     pub category: ScriptFailureCategory,
+    /// What the script printed before failing; moved into the result's
+    /// `stdout` by the worker and never serialised here -- the envelope
+    /// already has a place for stdout.
+    #[serde(skip)]
+    pub stdout: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

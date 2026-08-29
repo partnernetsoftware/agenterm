@@ -2347,6 +2347,16 @@ fn run_script_command_with_context(
         }
         Some(output)
     } else if let Some(failure) = &result.failure {
+        // What the script printed before it failed goes where its output
+        // always goes, ahead of the failure: a gate's STEP lines are worth
+        // most on exactly the run that failed. Every wave-2 migration group
+        // reported losing them.
+        if !result.stdout.is_empty() {
+            print!("{}", result.stdout);
+            if !result.stdout.ends_with('\n') {
+                print!("\n");
+            }
+        }
         cli_eprintln!(
             "{}",
             serde_json::json!({
