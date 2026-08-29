@@ -6,19 +6,49 @@ use sha2::Digest;
 
 use crate::compile::{compile_lua, hash_source};
 
-/// Cache directory for compiled Lua bytecode.
-fn cache_dir() -> PathBuf {
-    let base = dirs_fallback();
-    base.join("AgenTerm").join("lua-cache")
+/// Cache directory for compiled Lua bytecode: `<cache base>/AgenTerm/lua-cache`.
+pub fn cache_dir() -> PathBuf {
+    cache_base().join("AgenTerm").join("lua-cache")
 }
 
-fn dirs_fallback() -> PathBuf {
-    std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
-            PathBuf::from(home).join("AppData").join("Local")
-        })
+/// Where a cache belongs on this platform, and never a relative path.
+///
+/// The first version read `LOCALAPPDATA` and fell back to
+/// `$USERPROFILE/AppData/Local` -- both Windows names -- with `"."` when
+/// neither was set. On macOS and Linux that is every run, so `cargo test -p
+/// agenterm-lua` wrote `crates/agenterm-lua/AppData/Local/AgenTerm/lua-cache`
+/// into the repository (found 2026-08-30). Order now: an explicit
+/// `AGENTERM_LUA_CACHE_DIR`, the platform's cache directory, else the
+/// temporary directory. Every answer is absolute.
+fn cache_base() -> PathBuf {
+    if let Some(dir) = std::env::var_os("AGENTERM_LUA_CACHE_DIR") {
+        let dir = PathBuf::from(dir);
+        if dir.is_absolute() {
+            return dir;
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(local);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join("Library").join("Caches");
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
+            return PathBuf::from(xdg);
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(".cache");
+        }
+    }
+    std::env::temp_dir()
 }
 
 /// Result of cached compilation.
@@ -114,5 +144,21 @@ mod tests {
         assert!(!r1.cache_hit, "fresh source 1");
         assert!(!r2.cache_hit, "fresh source 2");
         assert_ne!(r1.bytecode_hash, r2.bytecode_hash);
+    }
+}
+
+#[cfg(test)]
+mod cache_dir_tests {
+    use super::cache_dir;
+
+    /// The one property that put a directory into the repository: the
+    /// answer must be absolute, and never under the working directory.
+    #[test]
+    fn the_cache_directory_is_absolute_and_not_under_the_working_directory() {
+        let dir = cache_dir();
+        assert!(dir.is_absolute(), "{}", dir.display());
+        let cwd = std::env::current_dir().expect("cwd");
+        assert!(!dir.starts_with(&cwd), "{} is under {}", dir.display(), cwd.display());
+        assert!(dir.ends_with("AgenTerm/lua-cache"), "{}", dir.display());
     }
 }
