@@ -1,0 +1,103 @@
+// Verify the bilingual docs site, preview safety guidance, and asset casing.
+// Moved from rh on 2026-08-29.
+//
+// Args: DOCS_ROOT
+//
+// Runs under `--profile tool`. rh's `cc_lines` hook (pack-qualification
+// metadata, not script behaviour) carried one line:
+//   "PASS: bilingual docs site, preview safety guidance, and asset casing agree"
+import * as rh from "lib/rh_compat";
+
+// rh's `std::fs::exists_case_exact`: the path exists, and the parent's own
+// listing carries the file name byte-for-byte -- which is how a
+// case-insensitive filesystem is made to answer the case-sensitive question.
+// The door has no such op, so it is the same two questions asked here.
+function exists_case_exact(directory, name) {
+  if (!rh.exists(rh.join(directory, name))) { return false; }
+  for (const entry of rh.read_dir(directory)) {
+    if (entry.name === name) { return true; }
+  }
+  return false;
+}
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+if (args.length !== 1) {
+  throw "expected: DOCS_ROOT";
+}
+
+const docs = args[0];
+const index_path = rh.join(docs, "index.html");
+const preview_path = rh.join(docs, "macos-unsigned-preview.md");
+const preview_zh_path = rh.join(docs, "macos-unsigned-preview.zh-Hant.md");
+const html = rh.read_text(index_path);
+const preview = rh.read_text(preview_path);
+const preview_zh = rh.read_text(preview_zh_path);
+
+const image_reference = html.includes("src=\"assets/agenterm-workspace.png\"");
+if (!image_reference) {
+  throw "docs index must use the case-exact workspace image reference";
+}
+const script_specification = html.includes("docs/agenterm-rh-runtime.md");
+if (!script_specification) {
+  throw "docs index must use the case-exact script specification path";
+}
+const copyright = html.includes("© 2026 PARTNERNET SOFTWARE PTY LTD");
+if (!copyright) {
+  throw "docs index must publish the product copyright owner";
+}
+const locale_en = html.includes("hreflang=\"en\"");
+const locale_zh = html.includes("hreflang=\"zh-Hant\"");
+const locale_choice = html.includes("data-locale-choice=\"zh-Hant\"");
+if (!locale_en) {
+  throw "docs index must publish English discovery";
+}
+if (!locale_zh) {
+  throw "docs index must publish Traditional Chinese discovery";
+}
+if (!locale_choice) {
+  throw "docs index must publish the Traditional Chinese locale choice";
+}
+const zh_product = html.includes("本機 Agent 艦隊工作 OS");
+const multiplatform_desktop = html.includes("全平台桌面");
+const preview_guidance = html.includes("macos-unsigned-preview.md");
+if (!zh_product) {
+  throw "docs index must include reviewed Traditional Chinese product copy";
+}
+if (!multiplatform_desktop) {
+  throw "docs index must include the multiplatform desktop statement";
+}
+if (!preview_guidance) {
+  throw "docs index must include preview guidance";
+}
+
+const preview_prd = preview.includes("../prd/PRD_02_17_delivery_quality.md");
+const preview_peer = preview.includes("macos-unsigned-preview.zh-Hant.md");
+if (!preview_prd) {
+  throw "English macOS preview guidance must link its owning PRD";
+}
+if (!preview_peer) {
+  throw "English macOS preview guidance must link its Traditional Chinese peer";
+}
+const preview_zh_prd = preview_zh.includes("../prd/PRD_02_17_delivery_quality.md");
+const preview_zh_peer = preview_zh.includes("macos-unsigned-preview.md");
+const preview_zh_safety = preview_zh.includes("請勿停用整個系統的保護");
+if (!preview_zh_prd) {
+  throw "Traditional Chinese preview guidance must link its owning PRD";
+}
+if (!preview_zh_peer) {
+  throw "Traditional Chinese preview guidance must link its English peer";
+}
+if (!preview_zh_safety) {
+  throw "Traditional Chinese preview guidance must preserve safety boundaries";
+}
+
+const assets = rh.join(docs, "assets");
+const image_exists = exists_case_exact(assets, "agenterm-workspace.png");
+if (!image_exists) {
+  throw "docs assets must contain the case-exact workspace image";
+}
+return 0;
