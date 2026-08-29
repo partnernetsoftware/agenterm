@@ -1,0 +1,481 @@
+// Cross-platform UX parity smoke orchestrator.
+// It chains the existing platform-specific smoke suites with a shared evidence
+// map and keeps a single launch contract in one place.
+//
+// Usage:
+//   --list-evidence
+// or:
+//   REPO GUI_EXE [SCRIPT_EXE] CLI_EXE PLATFORM [--emit-matrix]
+// platform: windows|linux|macos
+// SCRIPT_EXE is optional and defaults to dist/agenterm(.exe).
+//
+// Ported from scripts/rh/platform-ux-parity-smoke.rh; runs under
+// `--profile tool`. rh ran each phase as `SCRIPT_EXE rh task run TASK REPO
+// ...`; the task catalog left with the rh engine, so each phase is now the
+// task's .qjs port run as `SCRIPT_EXE cli script run --profile tool
+// scripts/qjs/TASK.qjs -- REPO ...` from the repository. The rh AOT
+// unrolling (one map literal per evidence id, one call per profile row) is
+// folded back into loops over `evidence_profiles`: same rows, same order.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+import * as path from "lib/path";
+
+const declared_evidence = [
+  "ux-parity.startup",
+  "ux-parity.startup-title",
+  "ux-parity.wake-coalescing",
+  "ux-parity.linux.unix-frontend.workbench",
+  "ux-parity.linux.unix-frontend.clipboard",
+  "ux-parity.macos.unix-frontend.workbench",
+  "ux-parity.macos.unix-frontend.clipboard",
+  "ux-parity.remote-ui.replaceable-client",
+  "ux-parity.remote-ui.selection",
+  "ux-parity.window-focus-contract"
+];
+
+const evidence_profiles = [
+  { id: "ux-parity.startup", branch: "startup", scenario: "first-window-startup", owner: "platform",
+    windows_supported: true, linux_supported: true, macos_supported: true, unsupported_root_cause: "" },
+  { id: "ux-parity.startup-title", branch: "startup", scenario: "startup-title", owner: "platform",
+    windows_supported: true, linux_supported: true, macos_supported: true, unsupported_root_cause: "" },
+  { id: "ux-parity.wake-coalescing", branch: "ux-startup", scenario: "gui-wake-contract", owner: "platform",
+    windows_supported: true, linux_supported: true, macos_supported: true, unsupported_root_cause: "" },
+  { id: "ux-parity.linux.unix-frontend.workbench", branch: "frontend-lx", scenario: "linux-workbench", owner: "ui",
+    windows_supported: false, linux_supported: true, macos_supported: false, unsupported_root_cause: "platform-gap" },
+  { id: "ux-parity.linux.unix-frontend.clipboard", branch: "frontend-lx", scenario: "linux-clipboard", owner: "platform",
+    windows_supported: false, linux_supported: true, macos_supported: false, unsupported_root_cause: "platform-gap" },
+  { id: "ux-parity.macos.unix-frontend.workbench", branch: "frontend-mx", scenario: "macos-workbench", owner: "ui",
+    windows_supported: false, linux_supported: false, macos_supported: true, unsupported_root_cause: "platform-gap" },
+  { id: "ux-parity.macos.unix-frontend.clipboard", branch: "frontend-mx", scenario: "macos-clipboard", owner: "platform",
+    windows_supported: false, linux_supported: false, macos_supported: true, unsupported_root_cause: "platform-gap" },
+  { id: "ux-parity.remote-ui.replaceable-client", branch: "remote-ui", scenario: "replaceable-client", owner: "ui",
+    windows_supported: true, linux_supported: false, macos_supported: false, unsupported_root_cause: "windows-only-contract" },
+  { id: "ux-parity.remote-ui.selection", branch: "remote-ui", scenario: "selection", owner: "ui",
+    windows_supported: true, linux_supported: false, macos_supported: false, unsupported_root_cause: "windows-only-contract" },
+  { id: "ux-parity.window-focus-contract", branch: "ux-startup", scenario: "window-focus-contract", owner: "ui",
+    windows_supported: true, linux_supported: true, macos_supported: true, unsupported_root_cause: "" }
+];
+
+function blank_profile_state() {
+  return { executed: false, failed: false, root_cause: "", observed: false };
+}
+
+function init_evidence_states() {
+  const states = { failed: false };
+  for (const profile of evidence_profiles) {
+    states[profile.id] = blank_profile_state();
+  }
+  return states;
+}
+
+function classify_failure_root(failure) {
+  const failure_text = "" + failure;
+  if (failure_text === "") { return ""; }
+  if (failure_text.includes("startup_gui_early_exit")) { return "infra/startup-gui-early-exit"; }
+  if (failure_text.includes("startup_window_discovery_timeout")) { return "infra/startup-no-window"; }
+  if (failure_text.includes("startup_stream_text_timeout")) { return "infra/startup-stream-timeout"; }
+  if (failure_text.includes("startup_first_window_budget")) { return "ux/startup-latency-budget"; }
+  if (failure_text.includes("wake_smoke") || failure_text.includes("ux-parity wake contract")) { return "ux/wake-contract"; }
+  if (failure_text.includes("runtime_error") || failure_text.includes("script_runtime")) { return "infra/script-runtime"; }
+  if (failure_text.includes("unsupported platform")) { return "infra/unsupported-platform"; }
+  if (failure_text.includes("remote_ui_control_missing")) { return "ui/control-missing"; }
+  if (failure_text.includes("platform_gui_missing")
+      || failure_text.includes("platform_cli_missing")
+      || failure_text.includes("platform_script_missing")) {
+    return "infra/platform-binary-missing";
+  }
+  if (failure_text.includes("script_not_found") || failure_text.includes("task_not_found")) { return "infra/script-task-mapping"; }
+  return "bug/unknown";
+}
+
+// rh rebuilt the whole map per id (native AOT); the result is the same map
+// with one entry replaced and `failed` folded in. Unknown ids are ignored.
+function set_evidence_state(states, evidence_id, failure_message) {
+  const evidence_key = "" + evidence_id;
+  const failure_text = "" + failure_message;
+  if (states[evidence_key] === undefined) { return states; }
+  let next_failed = false;
+  let next_root_cause = "";
+  if (failure_text !== "") {
+    next_failed = true;
+    next_root_cause = classify_failure_root(failure_text);
+  }
+  const next = { failed: states.failed };
+  if (failure_text !== "") { next.failed = true; }
+  for (const profile of evidence_profiles) {
+    if (profile.id === evidence_key) {
+      next[profile.id] = { executed: true, failed: next_failed, root_cause: next_root_cause, observed: true };
+    } else {
+      next[profile.id] = states[profile.id];
+    }
+  }
+  return next;
+}
+
+function mark_evidence_state(states, evidence_ids, failure_message) {
+  let next = states;
+  for (const id of evidence_ids) { next = set_evidence_state(next, id, failure_message); }
+  return next;
+}
+
+function aggregate_failure_message(failure_messages) {
+  let joined = "";
+  for (const message of failure_messages) {
+    if (joined !== "") { joined = joined + "\n"; }
+    joined = joined + message;
+  }
+  return joined;
+}
+
+function profile_supported_on(profile, platform_text) {
+  if (platform_text === "windows") { return profile.windows_supported; }
+  if (platform_text === "linux") { return profile.linux_supported; }
+  return profile.macos_supported;
+}
+
+function fail_supported_profiles_for_platform(evidence_states, platform, message) {
+  const platform_text = "" + platform;
+  const ids = [];
+  for (const profile of evidence_profiles) {
+    if (profile_supported_on(profile, platform_text)) { ids.push("" + profile.id); }
+  }
+  return mark_evidence_state(evidence_states, ids, message);
+}
+
+function list_contains(items, needle) {
+  const needle_text = "" + needle;
+  for (const item of items) { if ("" + item === needle_text) { return true; } }
+  return false;
+}
+
+function read_task_evidence(context) {
+  if (!rh.exists(context.evidence_path)) { return []; }
+  const observed = [];
+  for (const source_line of rh.read_text(context.evidence_path).split("\n")) {
+    const evidence_id = source_line.trim();
+    if (evidence_id !== "") { observed.push(evidence_id); }
+  }
+  return observed;
+}
+
+function profile_evidence_state(emitted, profile_id) {
+  const entry = emitted["" + profile_id];
+  if (entry === undefined) { return blank_profile_state(); }
+  return { executed: entry.executed, failed: entry.failed, root_cause: "" + entry.root_cause, observed: entry.observed };
+}
+
+function single_platform_state(platform_supported, run_platform, target_platform, executed, failed, pending_label) {
+  if (!platform_supported) { return "Unsupported"; }
+  if ("" + run_platform !== target_platform) { return pending_label; }
+  if (!executed) { return "not-executed-yet"; }
+  if (failed) { return "Failed"; }
+  return "Supported";
+}
+
+function single_platform_root(state_label, unsupported_root, failure_root) {
+  const label = "" + state_label;
+  if (label === "Unsupported") { return "" + unsupported_root; }
+  if (label === "Failed") { return "" + failure_root; }
+  return "";
+}
+
+function platform_state_for(profile, run_platform, emitted) {
+  const unsupported_root_text = "" + profile.unsupported_root_cause;
+  const state_value = profile_evidence_state(emitted, profile.id);
+  const pending = "not-executed-yet";
+  const executed = state_value.executed;
+  const failed = state_value.failed;
+  const failure_root_text = "" + state_value.root_cause;
+  const windows_state = single_platform_state(profile.windows_supported, run_platform, "windows", executed, failed, pending);
+  const linux_state = single_platform_state(profile.linux_supported, run_platform, "linux", executed, failed, pending);
+  const macos_state = single_platform_state(profile.macos_supported, run_platform, "macos", executed, failed, pending);
+  return {
+    windows: windows_state,
+    linux: linux_state,
+    macos: macos_state,
+    windows_root: single_platform_root(windows_state, unsupported_root_text, failure_root_text),
+    linux_root: single_platform_root(linux_state, unsupported_root_text, failure_root_text),
+    macos_root: single_platform_root(macos_state, unsupported_root_text, failure_root_text)
+  };
+}
+
+function current_platform_state(per_platform, platform) {
+  const platform_text = "" + platform;
+  if (platform_text === "windows") { return per_platform.windows; }
+  if (platform_text === "linux") { return per_platform.linux; }
+  return per_platform.macos;
+}
+
+function current_platform_root(per_platform, platform) {
+  const platform_text = "" + platform;
+  if (platform_text === "windows") { return per_platform.windows_root; }
+  if (platform_text === "linux") { return per_platform.linux_root; }
+  return per_platform.macos_root;
+}
+
+function write_matrix_reports(context, platform, evidence_states, emit_matrix) {
+  if (!emit_matrix) { return; }
+  const platform_text = "" + platform;
+  const suite = "platform-ux-parity-smoke";
+  const timestamp = rh.rfc3339_utc(rh.now_ms());
+  const report_path_json = path.join(context.run_directory, suite + "-matrix.json");
+  const report_path_csv = path.join(context.run_directory, suite + "-matrix.csv");
+
+  const matrix_result = [];
+  const csv_rows = ["run_id,timestamp_utc,suite,branch,scenario,evidence_id,platform,state,root_cause,owner"];
+  for (const profile of evidence_profiles) {
+    const per_platform = platform_state_for(profile, platform_text, evidence_states);
+    const row_state = current_platform_state(per_platform, platform_text);
+    const row_root = current_platform_root(per_platform, platform_text);
+    matrix_result.push({
+      branch: profile.branch,
+      scenario: profile.scenario,
+      evidence_id: profile.id,
+      windows: per_platform.windows,
+      linux: per_platform.linux,
+      macos: per_platform.macos,
+      state: row_state,
+      root_cause: row_root,
+      owner: profile.owner
+    });
+    csv_rows.push(
+      context.run_id + "," + timestamp + "," + suite + "," + profile.branch + "," + profile.scenario + ","
+        + profile.id + "," + platform_text + "," + row_state + "," + row_root + "," + profile.owner
+    );
+  }
+
+  const json_payload = {
+    run_id: context.run_id,
+    timestamp_utc: timestamp,
+    suite: suite,
+    platform: platform_text,
+    environment: { branch: "", commit: "", runner: "" },
+    result: matrix_result
+  };
+  rh.atomic_write(report_path_json, rh.stringify_pretty(json_payload) + "\n");
+
+  let csv_body = "";
+  for (const row of csv_rows) {
+    if (csv_body !== "") { csv_body = csv_body + "\n"; }
+    csv_body = csv_body + row;
+  }
+  rh.atomic_write(report_path_csv, csv_body + "\n");
+}
+
+function resolve_script_binary(script_exe, repository) {
+  const candidates = [
+    "" + script_exe,
+    path.join("" + repository, "dist/agenterm.exe"),
+    path.join("" + repository, "dist/agenterm")
+  ];
+  for (const candidate of candidates) {
+    if (candidate !== "" && rh.exists(candidate)) { return candidate; }
+  }
+  throw "no_available_script_runtime";
+}
+
+function parse_platform_args(positional_args) {
+  const args_len = positional_args.length;
+  harness.require(args_len >= 4, "expected: REPO GUI_EXE [SCRIPT_EXE] CLI_EXE PLATFORM");
+  const platform = positional_args[args_len - 1].toLowerCase();
+  const attempt_repo = rh.absolute(positional_args[args_len - 4]);
+  const attempt_gui = rh.absolute(positional_args[args_len - 3]);
+  const attempt_cli = rh.absolute(positional_args[args_len - 2]);
+  if (args_len >= 5) {
+    const maybe_repo = rh.absolute(positional_args[args_len - 5]);
+    const maybe_gui = rh.absolute(positional_args[args_len - 4]);
+    const maybe_script = rh.absolute(positional_args[args_len - 3]);
+    const maybe_cli = rh.absolute(positional_args[args_len - 2]);
+    if (rh.exists(maybe_script)) {
+      return { repository: maybe_repo, gui_exe: maybe_gui, script_exe: maybe_script, cli_exe: maybe_cli, platform: platform };
+    }
+  }
+  return { repository: attempt_repo, gui_exe: attempt_gui, script_exe: "", cli_exe: attempt_cli, platform: platform };
+}
+
+function emit_phase_evidence(context, evidence_id) {
+  const id_text = "" + evidence_id;
+  harness.require(rh.array_has(declared_evidence, id_text), "test_harness_undeclared_evidence:" + id_text);
+  let existing = "";
+  if (rh.exists(context.evidence_path)) { existing = rh.read_text(context.evidence_path); }
+  for (const line of existing.split("\n")) {
+    if (line.trim() === id_text) { return; }
+  }
+  rh.atomic_write(context.evidence_path, existing + id_text + "\n");
+  print("EVIDENCE " + id_text);
+}
+
+// One phase: the task's .qjs port in a child, to completion, its output
+// journaled, its evidence ids emitted on success or attributed on failure.
+// `task_args` are the arguments after REPO; rh spelled them as five
+// positional extras plus a count.
+function execute_phase(context, runtime_script, repository, task_name, task_label, evidence_ids, evidence_states, task_args) {
+  const repo_path = "" + repository;
+  const label_text = "" + task_label;
+  const native_evidence_ids = [];
+  for (const id of evidence_ids) { native_evidence_ids.push("" + id); }
+  const evidence_before = read_task_evidence(context);
+  let success = true;
+  let failure = "";
+  const arguments = [
+    "cli", "script", "run", "--profile", "tool",
+    "--timeout-ms", "300000", "--max-operations", "100000000",
+    "scripts/qjs/" + task_name + ".qjs", "--", repo_path
+  ];
+  for (const extra of task_args) { arguments.push("" + extra); }
+  const options = {
+    cwd: repo_path,
+    timeout_ms: 300000,
+    env: {
+      AGENTERM_IPC_ADDRESS: "" + context.address,
+      AGENTERM_WORKSPACE_PATH: "" + context.workspace_path,
+      AGENTERM_SETTINGS_PATH: "" + context.settings_path,
+      AGENTERM_INSTANCE_DIR: "" + context.instance_directory,
+      AGENTERM_TEST_EVIDENCE_PATH: "" + context.evidence_path,
+      AGENTERM_NO_ACTIVATE: "1"
+    }
+  };
+  try {
+    const output = rh.command("" + runtime_script, arguments, options);
+    harness.append_command_record(context, arguments, output, 0, []);
+    if (!output.success) { throw label_text + "_failed:" + output.stderr; }
+    print("TASK " + label_text + "_PASS");
+    const emitted_ids = [];
+    for (const id_text of native_evidence_ids) {
+      if (id_text !== "") {
+        emit_phase_evidence(context, id_text);
+        emitted_ids.push(id_text);
+      }
+    }
+    evidence_states = mark_evidence_state(evidence_states, emitted_ids, "");
+  } catch (error) {
+    success = false;
+    failure = "" + error;
+    const observed = read_task_evidence(context);
+    const phase_emitted = [];
+    for (const evidence_id of native_evidence_ids) {
+      if (!list_contains(evidence_before, evidence_id) && list_contains(observed, evidence_id)) {
+        phase_emitted.push(evidence_id);
+      }
+    }
+    if (phase_emitted.length === 0) {
+      for (const evidence_id of native_evidence_ids) {
+        evidence_states = set_evidence_state(evidence_states, evidence_id, failure);
+      }
+    } else {
+      for (const evidence_id of native_evidence_ids) {
+        if (rh.array_has(phase_emitted, evidence_id)) {
+          evidence_states = set_evidence_state(evidence_states, evidence_id, "");
+        } else {
+          evidence_states = set_evidence_state(evidence_states, evidence_id, failure);
+        }
+      }
+    }
+  }
+  return { success: success, error: failure, evidence_states: evidence_states };
+}
+
+let emit_matrix = false;
+let list_evidence = false;
+const positional_args = [];
+for (const argument of rh.args()) {
+  if (argument === "--emit-matrix") { emit_matrix = true; }
+  if (argument === "--list-evidence") { list_evidence = true; }
+  if (argument !== "--list-evidence" && argument !== "--emit-matrix") { positional_args.push(argument); }
+}
+
+if (list_evidence) {
+  for (const id of declared_evidence) { print(id); }
+  return 0;
+}
+
+const parsed = parse_platform_args(positional_args);
+const repository = "" + parsed.repository;
+const gui_exe = "" + parsed.gui_exe;
+const script_exe = "" + parsed.script_exe;
+const cli_exe = "" + parsed.cli_exe;
+const platform_text = "" + parsed.platform;
+
+let evidence_states = init_evidence_states();
+const failure_messages = [];
+let succeeded = true;
+const is_supported_platform = platform_text === "windows" || platform_text === "linux" || platform_text === "macos";
+let preflight_message = "";
+if (!is_supported_platform) {
+  preflight_message = "unsupported platform (windows|linux|macos)";
+} else if (!rh.exists(gui_exe)) {
+  preflight_message = "platform_gui_missing";
+} else if (!rh.exists(cli_exe)) {
+  preflight_message = "platform_cli_missing";
+} else {
+  let runtime_probe = "";
+  try {
+    runtime_probe = resolve_script_binary(script_exe, repository);
+  } catch (error) {
+    runtime_probe = "";
+  }
+  if (runtime_probe === "" || !rh.exists(runtime_probe)) { preflight_message = "platform_script_missing"; }
+}
+
+if (preflight_message !== "") {
+  evidence_states = fail_supported_profiles_for_platform(evidence_states, platform_text, preflight_message);
+  failure_messages.push(preflight_message);
+  succeeded = false;
+}
+
+let runtime_script = "";
+if (preflight_message === "") { runtime_script = resolve_script_binary(script_exe, repository); }
+
+const context = harness.new_context(repository, "platform-ux-parity");
+
+if (preflight_message === "") {
+  print("STEP startup contract and first-window behavior");
+  const startup_result = execute_phase(
+    context, runtime_script, repository, "startup-smoke", "startup",
+    ["ux-parity.startup", "ux-parity.startup-title"], evidence_states,
+    [gui_exe, cli_exe, "1000"]
+  );
+  if (!startup_result.success) { succeeded = false; failure_messages.push(startup_result.error); }
+  evidence_states = startup_result.evidence_states;
+
+  print("STEP wake contract");
+  const wake_result = execute_phase(
+    context, runtime_script, repository, "wake-smoke", "wake-contract",
+    ["ux-parity.wake-coalescing"], evidence_states,
+    [gui_exe, cli_exe]
+  );
+  if (!wake_result.success) { succeeded = false; failure_messages.push(wake_result.error); }
+  evidence_states = wake_result.evidence_states;
+
+  if (platform_text === "windows") {
+    print("STEP windows remote-ui behavior (replaceable client + selection + clipboard)");
+    const remote_result = execute_phase(
+      context, runtime_script, repository, "remote-ui-smoke", "remote-ui",
+      ["ux-parity.remote-ui.replaceable-client", "ux-parity.remote-ui.selection", "ux-parity.window-focus-contract"],
+      evidence_states,
+      [gui_exe, cli_exe]
+    );
+    if (!remote_result.success) { succeeded = false; failure_messages.push(remote_result.error); }
+    evidence_states = remote_result.evidence_states;
+  } else {
+    const workbench_evidence = "ux-parity." + platform_text + ".unix-frontend.workbench";
+    const clipboard_evidence = "ux-parity." + platform_text + ".unix-frontend.clipboard";
+    print("STEP unix frontend behavior by platform (workbench + focus contract)");
+    // rh passed `--` here to end `rh task run`'s own options; `cli script
+    // run` already has its `--` before REPO, so the script sees the same
+    // `REPO GUI CLI --platform PLATFORM` it always did.
+    const unix_result = execute_phase(
+      context, runtime_script, repository, "unix-frontend-smoke", "unix-frontend",
+      [workbench_evidence, clipboard_evidence, "ux-parity.window-focus-contract"],
+      evidence_states,
+      [gui_exe, cli_exe, "--platform", platform_text]
+    );
+    if (!unix_result.success) { succeeded = false; failure_messages.push(unix_result.error); }
+    evidence_states = unix_result.evidence_states;
+  }
+}
+
+const failure = aggregate_failure_message(failure_messages);
+write_matrix_reports(context, platform_text, evidence_states, emit_matrix);
+harness.complete(context, [], succeeded, failure);
+return 0;
