@@ -99,6 +99,13 @@ export function stringify_pretty(v) {
   return JSON.stringify(v);
 }
 
+// ---- crypto -------------------------------------------------------------
+
+// rh's `rh::crypto::sha256_file`: lowercase hex, 64 chars.
+export function sha256_file(p) {
+  return door(crypto_sha256_file(p), "crypto_sha256_file " + p);
+}
+
 // ---- process ------------------------------------------------------------
 
 function spec(program, args, options) {
