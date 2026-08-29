@@ -328,3 +328,198 @@ export function remove_run(context) {
     door(fs_remove_dir_all(context.run_directory), "fs_remove_dir_all");
   }
 }
+
+// ---- wave-2 control-center ----
+//
+// control-center-smoke and control-center-macos-smoke drive a server, a
+// Control Center renderer, a human GUI and an incompatible peer as children
+// and compare `child.id` (the OS pid) with the pid a protocol probe, a
+// registry file, a lease or a screenshot names -- 40 sites between them.
+// The door's handle is a slot index, not a pid, so `start_child` spawns
+// through `sh -c 'echo $$ > "$1"; shift; exec "$@"'`: the shell records its
+// own pid and then *becomes* the program, so the handle, the pid file and the
+// process are one process (kill on the handle kills the real program). Unix
+// only: Windows has no exec, and a `process.pid(handle)` door op is the gap.
+//
+// A child here is an object {handle, pid, waited, output}; `child_wait` is
+// idempotent (rh's `wait_with_output` could be called again after
+// `wait_for_exit`, and the door refuses a second `process.wait`), and
+// `complete_children` is rh's `complete_impl` over these objects, recording
+// pids the way rh did rather than handles.
+
+let wave2_child_counter = 0;
+
+export function start_child(context, spec, label) {
+  wave2_child_counter = wave2_child_counter + 1;
+  const pid_path = join(context.run_directory, "child-" + label + "-" + wave2_child_counter + ".pid");
+  if (exists(pid_path)) { door(fs_remove_file(pid_path), "fs_remove_file " + pid_path); }
+  const args = ["-c", "echo $$ > \"$1\"; shift; exec \"$@\"", "sh", pid_path, "" + spec.program];
+  for (const a of spec.args) { args.push("" + a); }
+  const wrapped = { program: "sh", args: args };
+  if (spec.env !== undefined) { wrapped.env = spec.env; }
+  if (spec.env_remove !== undefined) { wrapped.env_remove = spec.env_remove; }
+  if (spec.current_dir !== undefined) { wrapped.current_dir = spec.current_dir; }
+  const handle = start(wrapped);
+  let pid_text = "";
+  for (let attempt = 0; attempt < 500; attempt = attempt + 1) {
+    if (exists(pid_path)) {
+      pid_text = read_text(pid_path).trim();
+      if (pid_text !== "") { break; }
+    }
+    if (state(handle) === "exited") {
+      // The shell left before writing: the program itself failed to exec.
+      const output = wait(handle, 2000);
+      throw "test_harness_child_exec_failed:" + label + ":" + output.stderr;
+    }
+    time_sleep_ms(10);
+  }
+  require(pid_text !== "", "test_harness_child_pid_timeout:" + label);
+  return { handle: handle, pid: Number(pid_text), label: "" + label, waited: false, output: null };
+}
+
+export function child_state(child) {
+  if (child.waited) { return "exited"; }
+  return state(child.handle);
+}
+
+export function child_wait(child, timeout_ms) {
+  if (child.waited) { return child.output; }
+  child.output = wait(child.handle, timeout_ms);
+  child.waited = true;
+  return child.output;
+}
+
+export function child_kill(child) {
+  if (child.waited) { return; }
+  door(process_kill(child.handle), "process_kill");
+}
+
+// rh's `std::process::list()` membership test, as `ps -p PID`: exit 0 is
+// present (a reaped child is gone; a waited-for one never lingers as a
+// zombie). Unix only, like `start_child`.
+export function process_present(pid) {
+  const spec = { program: "ps", args: ["-p", "" + pid, "-o", "pid="], timeout_ms: 5000 };
+  const code = process_status(JSON.stringify(spec));
+  return code === 0 ? 1 : 0;
+}
+
+// Run a full spec (env_remove, timeout_ms) to completion: rh's
+// `command.output()` on a `configured_command` the script has adjusted.
+export function run_spec(spec) {
+  return JSON.parse(door(process_command(JSON.stringify(spec)), "process_command " + spec.program));
+}
+
+// `bounded_record_text` above uses String.slice, which this engine refuses at
+// run time (uncatchably) on any record longer than its limit -- and a
+// `ui-bootstrap` or `snapshot --json` answer is longer than 512 characters.
+// This bounds at line, then comma, boundaries instead; a record may be a
+// little shorter than the limit, never longer.
+export function bounded_record_text_safe(source, maximum_characters) {
+  const text = "" + source;
+  if (text.length <= maximum_characters) { return text; }
+  let kept = "";
+  let have_line = false;
+  for (const line of text.split("\n")) {
+    const candidate = have_line ? kept + "\n" + line : line;
+    if (candidate.length <= maximum_characters) {
+      kept = candidate;
+      have_line = true;
+      continue;
+    }
+    let partial = have_line ? kept + "\n" : "";
+    let have_piece = false;
+    for (const piece of line.split(",")) {
+      const next = have_piece ? partial + "," + piece : partial + piece;
+      if (next.length > maximum_characters) { break; }
+      partial = next;
+      have_piece = true;
+    }
+    kept = partial;
+    break;
+  }
+  return kept + "\n<agenterm-command-output-truncated>\n";
+}
+
+export function append_command_record_safe(context, args, output, expected_failure, redactions) {
+  const safe_args = [];
+  for (const a of args) { safe_args.push(redact_text(a, redactions)); }
+  const combined = redact_text(output.stdout + output.stderr, redactions);
+  const record = {
+    recorded_at_ms: now_ms(),
+    arguments: safe_args,
+    expected_failure: expected_failure !== 0,
+    exit_code: output.exit_code,
+    output: bounded_record_text_safe(combined, 512)
+  };
+  let journal = "";
+  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
+  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
+  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+}
+
+export function run_cli_safe(context, cli, args, expected_failure, redactions) {
+  const all = ["--address", "" + context.address];
+  for (const a of args) { all.push("" + a); }
+  const spec = configured_cli_spec(context, cli, all);
+  const output = JSON.parse(door(process_command(JSON.stringify(spec)), "process_command"));
+  append_command_record_safe(context, args, output, expected_failure, redactions);
+  return output;
+}
+
+export function invoke_cli_safe(context, cli, args, expected_failure, redactions) {
+  const output = run_cli_safe(context, cli, args, expected_failure, redactions);
+  if (expected_failure !== 0) {
+    require(!output.success, "test_harness_cli_unexpected_success");
+  } else {
+    require(output.success, "test_harness_cli_failed:" + redact_text(output.stderr, redactions));
+  }
+  return output;
+}
+
+export function complete_children(context, children, succeeded, failure) {
+  assert_owned_run(context);
+  const forced = [];
+  const completed = [];
+  for (const child of children) {
+    if (child_state(child) === "running") { child_kill(child); forced.push(child.pid); }
+    child_wait(child, 2000);
+    completed.push(child.pid);
+  }
+  const cleanup = {
+    schema_version: 1,
+    orphan_free: true,
+    owned_count: children.length,
+    completed_pids: completed,
+    forced_pids: forced,
+    remaining_pids: [],
+    remaining_windows: [],
+    remaining_registrations: []
+  };
+  finalize_command_log(context);
+  const diagnostics = [];
+  if (!succeeded) {
+    door(fs_create_dir_all(context.failure_directory), "fs_create_dir_all");
+    const entries = JSON.parse(door(fs_read_dir(context.failure_directory), "fs_read_dir"));
+    for (const e of entries) { if (e.is_file) { diagnostics.push("" + e.name); } }
+  }
+  const manifest = {
+    schema_version: 1,
+    suite: context.suite,
+    run_id: context.run_id,
+    result_class: succeeded ? "success" : "failure",
+    failure: "" + failure,
+    cleanup: cleanup,
+    command_log: file_name(context.command_log_path),
+    evidence: file_name(context.evidence_path),
+    diagnostics: diagnostics,
+    privacy: {
+      command_arguments: "known content-bearing arguments redacted",
+      output_limit_bytes: 65536,
+      pane_capture: "disabled for this suite"
+    }
+  };
+  write_atomic(context.cleanup_path, JSON.stringify(cleanup) + "\n");
+  write_atomic(context.manifest_path, JSON.stringify(manifest) + "\n");
+  if (!succeeded) { print("FAILURE BUNDLE " + context.run_directory); }
+  return { cleanup: cleanup, manifest: manifest };
+}

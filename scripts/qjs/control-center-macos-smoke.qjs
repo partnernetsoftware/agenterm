@@ -1,0 +1,788 @@
+// Prove the macOS Control Center against one isolated logical dev authority.
+// The renderer itself serves the structured snapshot and exact native frame.
+// A general runner may expose either a 1x or HiDPI backing scale; Retina is a
+// recorded display fact, not a CPU-architecture prerequisite.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO CONTROL_CENTER_EXE SERVER_EXE CLI_EXE
+//
+// Ported from scripts/rh/control-center-macos-smoke.rh; runs under
+// `--profile tool`. Children are door handles carried in the harness's
+// wave-2 child objects so their pids can be compared with what the server,
+// registry and renderer report. Three rh host facilities have no door op and
+// are typed gaps at their sites: `rh::image::inspect_png`,
+// `child.platform_facts` (foreground/top-level window facts) and
+// `child.window_key`.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+import * as path from "lib/path";
+
+const declared_evidence = [
+  "control-center.macos-caller-instance",
+  "control-center.macos-renderer-evidence",
+  "control-center.macos-native-input-contract",
+  "control-center.macos-no-activate-focus",
+  "control-center.macos-incompatible-sibling",
+  "control-center.macos-server-recovery",
+  "control-center.macos-process-isolation"
+];
+
+function catch_text(error) {
+  return "" + error;
+}
+
+function process_output_text(output) {
+  return output.stdout + output.stderr;
+}
+
+function json_from_output(output) {
+  const text = "" + output.stdout + output.stderr;
+  return JSON.parse(text);
+}
+
+function registry_owner_pid(registry) {
+  const record = rh.parse_file(registry);
+  return 0 + record.pid;
+}
+
+function find_tab_index(tabs, wanted_tab_id) {
+  const wanted = "" + wanted_tab_id;
+  let index = 0;
+  for (const tab of tabs) {
+    if (("" + tab.id) === wanted) { return index; }
+    index = index + 1;
+  }
+  return -1;
+}
+
+function tab_is_live(tabs, wanted_tab_id) {
+  const wanted = "" + wanted_tab_id;
+  for (const tab of tabs) {
+    if (("" + tab.id) === wanted) {
+      if (tab.dead) { return 0; }
+      return 1;
+    }
+  }
+  return 0;
+}
+
+function json_string(value) {
+  return JSON.stringify(value);
+}
+
+function emit_macos_evidence(context, id) {
+  harness.emit_evidence(context, declared_evidence, id);
+}
+
+// rh: `rh::image::inspect_png(path) -> {width, height, samples, luminance}`.
+// The tool door has no image op and a PNG cannot cross a text door, so the
+// renderer-PNG truth cannot be measured here. Typed gap, not an approximation.
+function inspect_png(png_path) {
+  throw "gap:rh_image_inspect_png_unavailable:" + png_path;
+}
+
+// rh: `child.platform_facts` answered {foreground_window_id,
+// top_level_window_present, top_level_window_is_foreground,
+// top_level_window_id} from the window server. No door op; typed gap.
+function platform_facts(child) {
+  throw "gap:process_platform_facts_unavailable:" + child.label;
+}
+
+// rh: `child.window_key("Home")` posted a key to the child's top-level
+// window. No door op exists for window input; typed gap.
+function window_key(child, key) {
+  throw "gap:process_window_key_unavailable:" + child.label + ":" + key;
+}
+
+function native_spec(context, program, registry, runtime, args) {
+  const spec = harness.configured_spec(context, "" + program, args);
+  spec.env_remove = ["AGENTERM_IPC_ADDRESS"];
+  spec.env.AGENTERM_INSTANCE = "dev";
+  spec.env.XDG_RUNTIME_DIR = "" + runtime;
+  spec.env.AGENTERM_CC_REGISTRY_PATH = "" + registry;
+  spec.timeout_ms = 15000;
+  return spec;
+}
+
+function invoke(context, program, registry, runtime, args, expected_failure) {
+  const output = harness.run_spec(native_spec(context, program, registry, runtime, args));
+  harness.append_command_record_safe(context, args, output, expected_failure, []);
+  if (expected_failure !== 0) {
+    harness.require(!output.success, "expected command failure");
+  } else {
+    harness.require(output.success, "command_failed:" + output.stdout + output.stderr);
+  }
+  return output;
+}
+
+function json_command(context, program, registry, runtime, args) {
+  const output = invoke(context, program, registry, runtime, args, 0);
+  return json_from_output(output);
+}
+
+function invoke_activate(context, program, registry, runtime, args) {
+  const spec = native_spec(context, program, registry, runtime, args);
+  spec.env_remove.push("AGENTERM_NO_ACTIVATE");
+  const output = harness.run_spec(spec);
+  harness.append_command_record_safe(context, args, output, 0, []);
+  harness.require(output.success, "activate_command_failed:" + output.stdout + output.stderr);
+}
+
+function wait_protocol(context, cli, registry, runtime, child, code) {
+  // Keep loaded runners bounded while retaining the immediate child-exit
+  // diagnostic below.
+  const probe_args = ["cli", "--instance", "dev", "protocol-info", "--running"];
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const output = harness.run_spec(native_spec(context, cli, registry, runtime, probe_args));
+    if (output.success) {
+      harness.append_command_record_safe(context, probe_args, output, 0, []);
+      return json_from_output(output);
+    }
+    if (harness.child_state(child) === "exited") {
+      const exited = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + exited.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  const diagnostic_output = harness.run_spec(native_spec(context, cli, registry, runtime, probe_args));
+  print("DIAGNOSTIC protocol readiness timeout: pid=" + child.pid
+    + " state=" + harness.child_state(child)
+    + " stdout=" + diagnostic_output.stdout
+    + " stderr=" + diagnostic_output.stderr);
+  throw code + "_timeout";
+}
+
+function wait_registry(registry_path, expected_pid, child, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (rh.exists(registry_path)) {
+      let candidate = {};
+      let parsed = 0;
+      try {
+        candidate = rh.parse_file(registry_path);
+        parsed = 1;
+      } catch (error) {
+        parsed = 0;
+      }
+      if (parsed !== 0) {
+        const identity = "" + candidate.process_start_identity;
+        if (candidate.schema_version === 2 && candidate.pid === expected_pid && identity !== "") {
+          return candidate;
+        }
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const exited = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + exited.stderr;
+    }
+    rh.sleep_ms(20);
+  }
+  throw code + "_timeout";
+}
+
+function wait_exit(child, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.child_state(child) === "exited") {
+      return harness.child_wait(child, 2000);
+    }
+    rh.sleep_ms(20);
+  }
+  throw code;
+}
+
+function process_present(pid) {
+  return harness.process_present(pid);
+}
+
+function wait_process_gone(pid, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (process_present(pid) === 0) { return 0; }
+    rh.sleep_ms(20);
+  }
+  throw code;
+}
+
+function foreground_window_id(child) {
+  const facts = platform_facts(child);
+  return 0 + facts.foreground_window_id;
+}
+
+function preserves_background(child, previous) {
+  const previous_id = 0 + previous;
+  const facts = platform_facts(child);
+  return facts.top_level_window_present !== 0
+    && (previous_id === 0
+        || (facts.top_level_window_is_foreground === 0
+            && facts.foreground_window_id === previous_id));
+}
+
+function wait_child_foreground(child, previous, code) {
+  const previous_id = 0 + previous;
+  const code_text = "" + code;
+  for (let attempt = 0; attempt < 100; attempt = attempt + 1) {
+    const facts = platform_facts(child);
+    if (facts.top_level_window_present !== 0
+        && facts.top_level_window_is_foreground !== 0
+        && facts.top_level_window_id !== previous_id
+        && facts.foreground_window_id === facts.top_level_window_id) {
+      return 0 + facts.foreground_window_id;
+    }
+    rh.sleep_ms(20);
+  }
+  throw code_text;
+}
+
+function wait_active_tab(context, control_center, registry, runtime, child, target_tab_id,
+                         expected_server_pid, expected_server_epoch, code) {
+  const target_text = "" + target_tab_id;
+  const code_text = "" + code;
+  let last = "";
+  const arguments_list = ["snapshot", "--json", "--instance", "dev"];
+  for (let attempt = 0; attempt < 160; attempt = attempt + 1) {
+    const output = harness.run_spec(native_spec(context, control_center, registry, runtime, arguments_list));
+    last = process_output_text(output);
+    if (output.success) {
+      const snapshot = json_from_output(output);
+      if (snapshot.server_state === "connected"
+          && snapshot.connected_server.pid === expected_server_pid
+          && snapshot.connected_server.epoch === expected_server_epoch
+          && snapshot.connected_server.active_tab_id === target_text) {
+        harness.append_command_record_safe(context, arguments_list, output, 0, []);
+        return snapshot;
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const exited = harness.child_wait(child, 2000);
+      throw code_text + "_renderer_exited:" + exited.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  const diagnostic_path = path.join("" + context.run_directory, "native-input-timeout.png");
+  const diagnostic_args = ["screenshot", "--output", diagnostic_path, "--json"];
+  const diagnostic_output = harness.run_spec(native_spec(context, control_center, registry, runtime, diagnostic_args));
+  const native_input_text = process_output_text(diagnostic_output);
+  let diagnostic_expected_failure = 0;
+  if (!diagnostic_output.success) { diagnostic_expected_failure = 1; }
+  harness.append_command_record_safe(context, diagnostic_args, diagnostic_output, diagnostic_expected_failure, []);
+  throw code_text + "_timeout:" + JSON.stringify({
+    server_snapshot: last,
+    last_native_input: native_input_text
+  });
+}
+
+function wait_capture(context, control_center, registry, runtime, child, output, required_state, code) {
+  const output_path = "" + output;
+  const required_state_text = "" + required_state;
+  const capture_args = ["screenshot", "--output", output_path, "--json"];
+  for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
+    const capture = harness.run_spec(native_spec(context, control_center, registry, runtime, capture_args));
+    if (capture.success) {
+      harness.append_command_record_safe(context, capture_args, capture, 0, []);
+      const document = json_from_output(capture);
+      if (document.rendered_snapshot.server_state === required_state_text) {
+        return document;
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const exited = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + exited.stderr;
+    }
+  }
+  throw code + "_timeout";
+}
+
+function wait_incompatible_capture(context, control_center, registry, runtime, child, output, code) {
+  const output_path = "" + output;
+  let last = "no_capture";
+  const deadline = rh.now_ms() + 10000;
+  const capture_args = ["screenshot", "--output", output_path, "--json"];
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    if (rh.now_ms() >= deadline) { break; }
+    const capture = harness.run_spec(native_spec(context, control_center, registry, runtime, capture_args));
+    last = process_output_text(capture);
+    if (capture.success) {
+      harness.append_command_record_safe(context, capture_args, capture, 0, []);
+      const document = json_from_output(capture);
+      last = json_string(document);
+      if (document.owner_pid === child.pid
+          && document.rendered_snapshot.server_state === "unavailable"
+          && document.rendered_snapshot.server_reason === "server_incompatible") {
+        return document;
+      }
+    }
+    if (harness.child_state(child) === "exited") {
+      const exited = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + exited.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  throw code + "_timeout:last_frame=" + last;
+}
+
+function build_incompatible_peer(context, repo, run_directory) {
+  const source = path.join(repo, "tests/fixtures/incompatible_ipc_peer.rs");
+  const executable = path.join(run_directory, "incompatible-ipc-peer");
+  const spec = harness.configured_spec(context, "rustc", [source, "-O", "-o", executable]);
+  spec.timeout_ms = 60000;
+  const output = harness.run_spec(spec);
+  harness.require(output.success, "control_center_macos_incompatible_peer_build:" + output.stderr);
+  return executable;
+}
+
+function incompatible_listener(context, probe_executable, address, ready_path, stop_path, code) {
+  const address_text = "" + address;
+  harness.require(address_text.includes(":"), "control_center_macos_incompatible_address");
+  if (rh.exists(ready_path)) { rh.remove_file(ready_path); }
+  if (rh.exists(stop_path)) { rh.remove_file(stop_path); }
+  const probe_args = [address_text, "" + ready_path, "" + stop_path];
+  const spec = harness.configured_spec(context, "" + probe_executable, probe_args);
+  spec.timeout_ms = 22000;
+  const child = harness.start_child(context, spec, "incompatible");
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    if (rh.exists(ready_path)) { return child; }
+    if (harness.child_state(child) === "exited") {
+      const output = harness.child_wait(child, 2000);
+      throw code + "_early_exit:" + output.stderr;
+    }
+    rh.sleep_ms(10);
+  }
+  harness.child_kill(child);
+  harness.child_wait(child, 2000);
+  throw code + "_ready_timeout";
+}
+
+function wait_incompatible_snapshot(context, control_center, registry, runtime, incompatible_endpoint) {
+  for (let attempt = 0; attempt < 100; attempt = attempt + 1) {
+    const endpoint = "" + incompatible_endpoint;
+    const snapshot_args = ["snapshot", "--json", "--endpoint"];
+    snapshot_args.push(endpoint);
+    const snapshot = json_command(context, control_center, registry, runtime, snapshot_args);
+    if (snapshot.server_state === "unavailable" && snapshot.server_reason === "server_incompatible") {
+      return snapshot;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "control_center_macos_incompatible_snapshot";
+}
+
+function prove_pty(context, cli, registry, runtime, label) {
+  const marker = "AGENTERM_CC_MACOS_" + label + "_" + context.run_id;
+  const created = invoke(context, cli, registry, runtime, [
+    "cli", "--instance", "dev",
+    "new-window", "-d", "-P", "-F", "#{window_id}",
+    "-n", "cc-" + label + "-" + context.run_id,
+    "--", "/bin/sh"
+  ], 0);
+  const tab_id = ("" + created.stdout).trim();
+  harness.require(tab_id.startsWith("@"), "control_center_macos_stable_tab_id");
+  invoke(context, cli, registry, runtime, [
+    "cli", "--instance", "dev", "send-keys", "-t", tab_id, "-l", "echo " + marker
+  ], 0);
+  invoke(context, cli, registry, runtime, [
+    "cli", "--instance", "dev", "send-keys", "-t", tab_id, "Enter"
+  ], 0);
+  invoke(context, cli, registry, runtime, [
+    "cli", "--instance", "dev",
+    "wait-pane", "-t", tab_id, "--contains", marker, "--timeout-ms", "5000"
+  ], 0);
+  const captured = invoke(context, cli, registry, runtime, [
+    "cli", "--instance", "dev",
+    "capture-pane", "-p", "-t", tab_id, "--max-bytes", "16384"
+  ], 0);
+  const captured_stdout = captured.stdout;
+  const marker_text = "" + marker;
+  harness.require(captured_stdout.includes(marker_text), "control_center_macos_pty_capture");
+  return tab_id;
+}
+
+function record_failure_text(context, text) {
+  try {
+    rh.create_dir_all(context.failure_directory);
+    rh.write_text(path.join(context.failure_directory, "error.txt"), text + "\n");
+  } catch (error) {
+    print("DIAGNOSTIC failure text not recorded: " + catch_text(error));
+  }
+}
+
+function remove_native_runtime(runtime) {
+  harness.require(runtime.startsWith("/private/tmp/agt-cc-"), "control_center_macos_runtime_not_owned");
+  if (rh.exists(runtime)) { rh.remove_dir_all(runtime); }
+  return 0;
+}
+
+// ---- entry ---------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return 0;
+}
+
+harness.require(args.length >= 4, "expected: REPO CONTROL_CENTER_EXE SERVER_EXE CLI_EXE");
+const repo = "" + rh.absolute(args[0]);
+let control_center_value = args[1];
+let server_executable_value = args[2];
+let cli_executable_value = args[3];
+let option = 4;
+while (option < args.length) {
+  harness.require(option + 1 < args.length, "control_center_macos_option_value");
+  const value = args[option + 1];
+  if (args[option] === "--control-center") {
+    control_center_value = value;
+  } else if (args[option] === "--server") {
+    server_executable_value = value;
+  } else if (args[option] === "--cli") {
+    cli_executable_value = value;
+  } else {
+    throw "control_center_macos_unknown_option:" + args[option];
+  }
+  option = option + 2;
+}
+const control_center = "" + rh.absolute(control_center_value);
+const server_executable = "" + rh.absolute(server_executable_value);
+const cli_executable = "" + rh.absolute(cli_executable_value);
+harness.require(rh.exists(control_center), "control_center_macos_executable_missing:" + control_center);
+harness.require(rh.exists(server_executable), "control_center_macos_executable_missing:" + server_executable);
+harness.require(rh.exists(cli_executable), "control_center_macos_executable_missing:" + cli_executable);
+harness.require(rh.exists("/System/Library/CoreServices"), "control_center_macos_host_required");
+
+const context = harness.new_context(repo, "control-center-macos");
+const run_directory = "" + context.run_directory;
+const incompatible_peer = build_incompatible_peer(context, repo, run_directory);
+const evidence_parent = "" + path.parent(context.evidence_path);
+const runtime = "/private/tmp/agt-cc-" + ("" + rh.pid()) + "-" + ("" + rh.now_ms());
+rh.create_dir_all(runtime);
+const registry = path.join(run_directory, "control-center-registry.json");
+const cockpit_png = path.join(evidence_parent, "control-center-live-cockpit-macos.png");
+const refresh_png = path.join(evidence_parent, "control-center-refresh-macos.png");
+const durable_directory = path.join(repo, "dist/evidence");
+const durable_png = path.join(durable_directory, "control-center-live-cockpit-macos.png");
+const owned_children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start isolated logical dev UDS authority and PTY");
+  const server_spec = native_spec(context, server_executable, registry, runtime, ["server", "--instance", "dev"]);
+  const server = harness.start_child(context, server_spec, "server");
+  owned_children.push(server);
+  const protocol = wait_protocol(context, cli_executable, registry, runtime, server, "control_center_macos_server");
+  harness.require(
+    protocol.pid === server.pid
+      && ("" + protocol.endpoint).startsWith("unix:/private/tmp/")
+      && protocol.instance === "dev",
+    "control_center_macos_dev_authority"
+  );
+  const baseline_tab = prove_pty(context, cli_executable, registry, runtime, "baseline");
+  const native_input_tab = prove_pty(context, cli_executable, registry, runtime, "native-input");
+
+  print("STEP caller-selected snapshot resolves the same dev authority");
+  const selected = json_command(context, control_center, registry, runtime, ["snapshot", "--json", "--instance", "dev"]);
+  const selected_epoch = "" + selected.connected_server.epoch;
+  harness.require(
+    selected.server_state === "connected"
+      && selected.connected_server.pid === protocol.pid
+      && selected.connected_server.endpoint === protocol.endpoint
+      && selected.connected_server.logical_instance === "dev",
+    "control_center_macos_caller_instance"
+  );
+  emit_macos_evidence(context, "control-center.macos-caller-instance");
+
+  print("STEP no-activate opens one native renderer without stealing focus");
+  const foreground_before = foreground_window_id(server);
+  const cc_spec = native_spec(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"]);
+  const cc = harness.start_child(context, cc_spec, "control-center");
+  owned_children.push(cc);
+  wait_registry(registry, cc.pid, cc, "control_center_macos_registry");
+  const capture = wait_capture(context, control_center, registry, runtime, cc, cockpit_png, "connected",
+    "control_center_macos_first_frame");
+  const rendered = inspect_png(cockpit_png);
+  const tab_count = 0 + selected.connected_server.tabs.length;
+  const expected_tabs = "" + tab_count + " tabs";
+  harness.require(
+    preserves_background(cc, foreground_before),
+    "control_center_macos_no_activate_stole_focus:" + JSON.stringify({
+      before: foreground_before,
+      after: foreground_window_id(cc),
+      owner_pid: capture.owner_pid,
+      control_center_pid: cc.pid
+    })
+  );
+  if (foreground_before === 0) {
+    print("NO_ACTIVATE_BASELINE_UNAVAILABLE: runner exposed no "
+      + "pre-existing foreground window; focus preservation "
+      + "is not claimed for this journey");
+  }
+  const png_sha256 = rh.sha256_file(cockpit_png);
+  harness.require(
+    capture.owner_pid === cc.pid
+      && capture.width === rendered.width
+      && capture.height === rendered.height
+      && capture.width === capture.rendered_snapshot.physical_width
+      && capture.height === capture.rendered_snapshot.physical_height
+      && capture.rendered_snapshot.scale_factor >= 1.0
+      && capture.rendered_snapshot.selected_view === "cockpit"
+      && capture.rendered_snapshot.server_endpoint === protocol.endpoint
+      && capture.rendered_snapshot.logical_instance === "dev"
+      && ("" + capture.rendered_snapshot.window_title).includes(expected_tabs)
+      && capture.sha256 === png_sha256
+      && capture.bytes >= 1000
+      && rendered.samples > 0
+      && rendered.luminance > 1.0
+      && rendered.luminance < 254.9,
+    "control_center_macos_renderer_evidence:" + JSON.stringify({
+      owner_pid: capture.owner_pid,
+      control_center_pid: cc.pid,
+      capture_width: capture.width,
+      capture_height: capture.height,
+      png_width: rendered.width,
+      png_height: rendered.height,
+      snapshot_width: capture.rendered_snapshot.physical_width,
+      snapshot_height: capture.rendered_snapshot.physical_height,
+      scale_factor: capture.rendered_snapshot.scale_factor,
+      selected_view: capture.rendered_snapshot.selected_view,
+      endpoint: capture.rendered_snapshot.server_endpoint,
+      expected_endpoint: protocol.endpoint,
+      logical_instance: capture.rendered_snapshot.logical_instance,
+      title: capture.rendered_snapshot.window_title,
+      expected_tabs: expected_tabs,
+      capture_sha256: capture.sha256,
+      png_sha256: png_sha256,
+      bytes: capture.bytes,
+      samples: rendered.samples,
+      luminance: rendered.luminance
+    })
+  );
+  rh.create_dir_all(durable_directory);
+  rh.copy(cockpit_png, durable_png);
+  emit_macos_evidence(context, "control-center.macos-renderer-evidence");
+
+  print("STEP native input either navigates in-place or reports TCC denial");
+  const baseline_index = find_tab_index(selected.connected_server.tabs, baseline_tab);
+  const native_input_index = find_tab_index(selected.connected_server.tabs, native_input_tab);
+  harness.require(
+    baseline_index !== -1
+      && native_input_index !== -1
+      && tab_is_live(selected.connected_server.tabs, baseline_tab) !== 0
+      && tab_is_live(selected.connected_server.tabs, native_input_tab) !== 0
+      && baseline_tab !== native_input_tab,
+    "control_center_macos_native_input_targets_not_live"
+  );
+  const input_baseline = json_command(context, control_center, registry, runtime, ["snapshot", "--json", "--instance", "dev"]);
+  const input_owner = registry_owner_pid(registry);
+  const initial_active_tab = input_baseline.connected_server.active_tab_id;
+  harness.require(
+    input_owner === cc.pid
+      && preserves_background(cc, foreground_before)
+      && input_baseline.connected_server.pid === server.pid
+      && input_baseline.connected_server.epoch === selected_epoch
+      && input_baseline.connected_server.endpoint === protocol.endpoint,
+    "control_center_macos_native_input_baseline_changed"
+  );
+  let input_failure = "";
+  try {
+    window_key(cc, "Home");
+  } catch (error) {
+    input_failure = catch_text(error);
+  }
+  if (input_failure === "") {
+    for (let step = 0; step < native_input_index; step = step + 1) { window_key(cc, "Down"); }
+    window_key(cc, "Enter");
+    const keyboard_selected = wait_active_tab(context, control_center, registry, runtime, cc,
+      native_input_tab, server.pid, selected_epoch, "control_center_macos_native_keyboard_navigation");
+    harness.require(
+      keyboard_selected.connected_server.active_tab_id === native_input_tab
+        && keyboard_selected.connected_server.pid === server.pid
+        && keyboard_selected.connected_server.epoch === selected_epoch
+        && keyboard_selected.connected_server.endpoint === protocol.endpoint
+        && harness.child_state(cc) === "running"
+        && registry_owner_pid(registry) === input_owner
+        && preserves_background(cc, foreground_before),
+      "control_center_macos_native_keyboard_navigation_truth"
+    );
+    print("NATIVE_INPUT_POSITIVE: keyboard navigation changed only "
+      + "active_tab on the same CC/server/epoch");
+  } else {
+    harness.require(
+      input_failure.includes("process_window_input_unsupported")
+        && input_failure.includes("permission_denied")
+        && !input_failure.includes("platform_error"),
+      "control_center_macos_native_input_unexpected_failure:" + input_failure
+    );
+    const unchanged = json_command(context, control_center, registry, runtime, ["snapshot", "--json", "--instance", "dev"]);
+    harness.require(
+      unchanged.connected_server.active_tab_id === initial_active_tab
+        && unchanged.connected_server.pid === server.pid
+        && unchanged.connected_server.epoch === selected_epoch
+        && unchanged.connected_server.endpoint === protocol.endpoint
+        && harness.child_state(cc) === "running"
+        && registry_owner_pid(registry) === input_owner
+        && preserves_background(cc, foreground_before),
+      "control_center_macos_tcc_denial_changed_state"
+    );
+    print("NATIVE_INPUT_UNAVAILABLE: TCC denied event posting; "
+      + "safe-failure contract passed without positive input claim");
+  }
+  emit_macos_evidence(context, "control-center.macos-native-input-contract");
+
+  print("STEP repeated open reuses PID; activate focuses the same window");
+  invoke(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"], 0);
+  const reused = json_command(context, control_center, registry, runtime, ["status", "--json"]);
+  harness.require(
+    reused.pid === cc.pid
+      && reused.context.logical_instance === "dev"
+      && reused.context.endpoint === protocol.endpoint,
+    "control_center_macos_pid_reuse"
+  );
+  invoke_activate(context, control_center, registry, runtime, ["open", "--instance", "dev"]);
+  wait_child_foreground(cc, foreground_before, "control_center_macos_focus_timeout");
+  emit_macos_evidence(context, "control-center.macos-no-activate-focus");
+
+  print("STEP server loss is explicit; replacement has a new epoch");
+  const prior_pid = server.pid;
+  const prior_epoch = selected_epoch;
+  harness.child_kill(server);
+  wait_exit(server, "control_center_macos_server_kill_timeout");
+  wait_process_gone(prior_pid, "control_center_macos_server_kill_orphan");
+  invoke(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"], 0);
+  const lost = wait_capture(context, control_center, registry, runtime, cc, refresh_png, "unavailable",
+    "control_center_macos_server_loss");
+  harness.require(
+    lost.rendered_snapshot.server_endpoint === "" && process_present(cc.pid) !== 0,
+    "control_center_macos_server_loss_truth"
+  );
+
+  print("STEP incompatible sibling is typed in the same projection PID");
+  const incompatible_probe_ready = path.join(run_directory, "incompatible-probe.ready");
+  const incompatible_probe_stop = path.join(run_directory, "incompatible-probe.stop");
+  const incompatible_probe = incompatible_listener(context, incompatible_peer, "" + context.address,
+    incompatible_probe_ready, incompatible_probe_stop, "control_center_macos_incompatible_probe");
+  owned_children.push(incompatible_probe);
+  const incompatible_endpoint = "tcp:" + ("" + context.address);
+  const incompatible = wait_incompatible_snapshot(context, control_center, registry, runtime, incompatible_endpoint);
+  const stop_marker = "stop";
+  rh.atomic_write(incompatible_probe_stop, stop_marker);
+  const incompatible_probe_output = wait_exit(incompatible_probe, "control_center_macos_incompatible_probe_timeout");
+  harness.require(incompatible_probe_output.success, "control_center_macos_incompatible_probe_exit");
+  rh.remove_file(incompatible_probe_ready);
+  rh.remove_file(incompatible_probe_stop);
+
+  const incompatible_renderer_ready = path.join(run_directory, "incompatible-renderer.ready");
+  const incompatible_renderer_stop = path.join(run_directory, "incompatible-renderer.stop");
+  const incompatible_renderer = incompatible_listener(context, incompatible_peer, "" + context.address,
+    incompatible_renderer_ready, incompatible_renderer_stop, "control_center_macos_incompatible_renderer");
+  owned_children.push(incompatible_renderer);
+  const incompatible_open_args = ["open", "--no-activate", "--endpoint"];
+  incompatible_open_args.push(incompatible_endpoint);
+  invoke(context, control_center, registry, runtime, incompatible_open_args, 0);
+  const incompatible_frame = wait_incompatible_capture(context, control_center, registry, runtime, cc,
+    refresh_png, "control_center_macos_incompatible_renderer");
+  harness.require(
+    incompatible_frame.owner_pid === cc.pid
+      && incompatible_frame.rendered_snapshot.server_reason === "server_incompatible"
+      && process_present(cc.pid) !== 0,
+    "control_center_macos_incompatible_renderer_truth"
+  );
+  rh.atomic_write(incompatible_renderer_stop, stop_marker);
+  const incompatible_renderer_output = wait_exit(incompatible_renderer,
+    "control_center_macos_incompatible_renderer_timeout");
+  harness.require(incompatible_renderer_output.success, "control_center_macos_incompatible_renderer_exit");
+  rh.remove_file(incompatible_renderer_ready);
+  rh.remove_file(incompatible_renderer_stop);
+  emit_macos_evidence(context, "control-center.macos-incompatible-sibling");
+
+  const replacement_server_spec = native_spec(context, server_executable, registry, runtime, ["server", "--instance", "dev"]);
+  const replacement_server = harness.start_child(context, replacement_server_spec, "replacement-server");
+  owned_children.push(replacement_server);
+  const replacement_protocol = wait_protocol(context, cli_executable, registry, runtime, replacement_server,
+    "control_center_macos_replacement_server");
+  harness.require(replacement_protocol.pid !== prior_pid, "control_center_macos_new_epoch");
+  invoke(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"], 0);
+  const refreshed = wait_capture(context, control_center, registry, runtime, cc, refresh_png, "connected",
+    "control_center_macos_server_recovery");
+  const replacement_selected = json_command(context, control_center, registry, runtime, ["snapshot", "--json", "--instance", "dev"]);
+  harness.require(
+    refreshed.owner_pid === cc.pid
+      && refreshed.rendered_snapshot.server_endpoint === replacement_protocol.endpoint
+      && replacement_selected.connected_server.pid === replacement_protocol.pid
+      && replacement_selected.connected_server.epoch !== prior_epoch
+      && process_present(cc.pid) !== 0,
+    "control_center_macos_recovery_identity"
+  );
+  prove_pty(context, cli_executable, registry, runtime, "after-restart");
+  emit_macos_evidence(context, "control-center.macos-server-recovery");
+
+  print("STEP typed close and renderer kill never own server or PTY");
+  const closed = json_command(context, control_center, registry, runtime, ["close", "--json"]);
+  harness.require(
+    (closed.state === "closed" || closed.state === "close_requested") && closed.pid === cc.pid,
+    "control_center_macos_typed_close"
+  );
+  const cc_output = wait_exit(cc, "control_center_macos_close_timeout");
+  harness.require(
+    cc_output.success && process_present(replacement_server.pid) !== 0,
+    "control_center_macos_close_affected_server"
+  );
+  prove_pty(context, cli_executable, registry, runtime, "after-close");
+
+  const killed_spec = native_spec(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"]);
+  const killed = harness.start_child(context, killed_spec, "killed");
+  owned_children.push(killed);
+  wait_registry(registry, killed.pid, killed, "control_center_macos_killed_registry");
+  wait_capture(context, control_center, registry, runtime, killed, refresh_png, "connected",
+    "control_center_macos_killed_first_frame");
+  const killed_pid = killed.pid;
+  harness.child_kill(killed);
+  wait_exit(killed, "control_center_macos_renderer_kill_timeout");
+  wait_process_gone(killed_pid, "control_center_macos_renderer_kill_orphan");
+  harness.require(process_present(replacement_server.pid) !== 0, "control_center_macos_renderer_kill_affected_server");
+  prove_pty(context, cli_executable, registry, runtime, "after-renderer-kill");
+
+  const recovered_spec = native_spec(context, control_center, registry, runtime, ["open", "--no-activate", "--instance", "dev"]);
+  const recovered = harness.start_child(context, recovered_spec, "recovered");
+  owned_children.push(recovered);
+  wait_registry(registry, recovered.pid, recovered, "control_center_macos_recovered_registry");
+  harness.require(recovered.pid !== killed_pid, "control_center_macos_renderer_not_replaced");
+  json_command(context, control_center, registry, runtime, ["close", "--json"]);
+  const recovered_output = wait_exit(recovered, "control_center_macos_recovered_close_timeout");
+  harness.require(
+    recovered_output.success && process_present(replacement_server.pid) !== 0,
+    "control_center_macos_recovered_close_affected_server"
+  );
+  emit_macos_evidence(context, "control-center.macos-process-isolation");
+
+  invoke(context, cli_executable, registry, runtime, ["cli", "--instance", "dev", "shutdown"], 0);
+  const server_output = wait_exit(replacement_server, "control_center_macos_final_server_shutdown");
+  harness.require(server_output.success, "control_center_macos_final_server_exit");
+  wait_process_gone(replacement_server.pid, "control_center_macos_final_server_orphan");
+  succeeded = 1;
+} catch (error) {
+  // rh kept only the code. The CLI drops every print when the script ends by
+  // throwing, so the text goes into the failure bundle (manifest.diagnostics
+  // lists it) as well as to stdout.
+  print("DIAGNOSTIC control_center_macos_smoke_failed: " + catch_text(error));
+  record_failure_text(context, catch_text(error));
+  failure = "control_center_macos_smoke_failed";
+}
+
+let completion_failure = "";
+try {
+  harness.complete_children(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  print("DIAGNOSTIC complete: " + catch_text(error));
+  completion_failure = "control_center_macos_smoke_failed";
+}
+try {
+  remove_native_runtime(runtime);
+} catch (error) {
+  if (completion_failure === "") {
+    completion_failure = "control_center_macos_smoke_failed";
+  }
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return 0;
