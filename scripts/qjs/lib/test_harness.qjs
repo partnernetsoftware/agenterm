@@ -187,13 +187,24 @@ export function sleep_ms(ms) {
 export function append_command_record(context, args, output, expected_failure, redactions) {
   const safe_args = [];
   for (const a of args) { safe_args.push(redact_text(a, redactions)); }
-  const combined = redact_text(output.stdout + output.stderr, redactions);
+  // Bound before redacting: the record keeps 512 characters, and redacting
+  // the whole output first cost the run about a million steps a command
+  // (the two smokes journal ~33 commands each and ran out of a 16M budget).
+  // The margin of the longest redaction keeps a value that straddles the
+  // cut from surviving in the kept part.
+  let margin = 0;
+  for (const value of redactions) {
+    const length = ("" + value).length;
+    if (length > margin) { margin = length; }
+  }
+  const combined = output.stdout + output.stderr;
+  const head = combined.length <= 512 + margin ? combined : combined.slice(0, 512 + margin);
   const record = {
     recorded_at_ms: now_ms(),
     arguments: safe_args,
     expected_failure: expected_failure !== 0,
     exit_code: output.exit_code,
-    output: bounded_record_text(combined, 512)
+    output: bounded_record_text(redact_text(head, redactions), 512)
   };
   let journal = "";
   if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }

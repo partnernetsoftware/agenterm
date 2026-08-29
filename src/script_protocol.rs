@@ -97,12 +97,17 @@ impl Default for ScriptBudgets {
             source_bytes: 256 * 1024,
             // One engine operation is the smallest step its core counts;
             // for qjswasm that is one wasm instruction, and no other engine
-            // enforces this field yet. 16M is the step ceiling the qjswasm
-            // engine has always run under; the 1M this used to say was
+            // enforces this field yet. 16M was the step ceiling the qjswasm
+            // engine had always run under; the 1M this used to say was
             // never enforced by anyone, and the first script to meet it
             // (`validate-artifact-manifest.qjs`, 1--2M steps for a 5-entry
-            // manifest) failed on a ceiling nobody had chosen.
-            operations: 16_000_000,
+            // manifest) failed on a ceiling nobody had chosen. 64M since
+            // 2026-08-30: the two end-to-end journeys (server-smoke,
+            // wake-smoke) measure 34M and 44M steps for ~3.5 s of work,
+            // ~1M a journaled CLI command, and a machine under load ran
+            // them past 16M. 64M is ~6 s of interpretation, still a
+            // runaway guard; the wall-clock timeout is the other one.
+            operations: 64_000_000,
             call_depth: 64,
             expression_depth: 64,
             collection_items: 10_000,

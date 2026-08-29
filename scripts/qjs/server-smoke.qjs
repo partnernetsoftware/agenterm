@@ -170,8 +170,13 @@ function count_tab_events(events, tab_id, kind) {
 // for the facts, and the second 61 KB answer is two more whole-answer passes.
 function wait_for_server(context, cli, server, waited) {
   for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
-    const probe = run(context, cli, ["protocol-info", "--running"], 0);
-    if (probe.success) { return probe; }
+    // A journal-free probe first: a journaled `run` costs about a million
+    // steps, and how many polls the server needs depends on the machine.
+    // Only the answer that succeeds is run again through the journal.
+    const probe = harness.configured_cli_spec(context, cli, ["--address", "" + context.address, "protocol-info", "--running"]);
+    if (process_status(JSON.stringify(probe)) === 0) {
+      return run(context, cli, ["protocol-info", "--running"], 0);
+    }
     if (harness.state(server) === "exited") {
       const output = harness.drain(server, 2000, waited);
       throw "server_smoke_early_exit:" + output.stderr;
