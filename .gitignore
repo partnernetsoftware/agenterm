@@ -19,3 +19,4 @@ target-click-release/
 
 # tauri-build regenerates these ACL schemas on every build
 crates/agenterm-vnc-app/gen/
+lau-cache
