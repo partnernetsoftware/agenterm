@@ -1,0 +1,59 @@
+// Mark one already accepted, signed macOS archive provenance as notarized.
+//
+// The caller owns Apple notarytool submission and may invoke this task only
+// after the exact archive receives an Accepted result.
+//
+// Args: ARCHIVE PROVENANCE_JSON
+// Ported from scripts/rh/finalize-macos-provenance.rh; runs under
+// `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length !== 2) { throw "expected: ARCHIVE PROVENANCE_JSON"; }
+
+const archive = rh.absolute(args[0]);
+const provenance_path = rh.absolute(args[1]);
+rh.require(
+  rh.exists(archive) && rh.symlink_metadata(archive).is_file,
+  "finalize_macos_provenance_archive"
+);
+rh.require(
+  rh.exists(provenance_path) && rh.symlink_metadata(provenance_path).is_file,
+  "finalize_macos_provenance_input"
+);
+const provenance = JSON.parse(rh.read_text(provenance_path));
+rh.require(
+  provenance.schema_version === 1
+    && provenance.product === "AgenTerm"
+    && provenance.os === "macos"
+    && provenance.channel === "release"
+    && provenance.signed
+    && !provenance.notarized,
+  "finalize_macos_provenance_state"
+);
+rh.require(
+  provenance.sha256 === rh.sha256_file(archive),
+  "finalize_macos_provenance_archive_hash"
+);
+const updated = {
+  schema_version: provenance.schema_version,
+  product: provenance.product,
+  version: provenance.version,
+  os: provenance.os,
+  arch: provenance.arch,
+  channel: provenance.channel,
+  signed: provenance.signed,
+  notarized: true,
+  artifact: provenance.artifact,
+  sha256: provenance.sha256,
+  source_commit: provenance.source_commit,
+  source_tag: provenance.source_tag,
+  artifact_manifest_sha256: provenance.artifact_manifest_sha256,
+  cargo_lock_sha256: provenance.cargo_lock_sha256,
+  sbom_sha256: provenance.sbom_sha256,
+  execution_evidence: provenance.execution_evidence,
+  build_log: provenance.build_log
+};
+rh.atomic_write(provenance_path, rh.stringify_pretty(updated) + "\n");
+print("NOTARIZED PROVENANCE " + provenance_path);
+return 0;
