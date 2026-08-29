@@ -1577,7 +1577,7 @@ agenterm-qjswasm                                        [~]
 │   ├── 持久 Instance，逐调用新鲜 fuel                       [x]
 │   ├── trap 不回收槽（明确承诺，非意外）                     [x]
 │   ├── 预算耗尽自成一类（非 Trap）                           [x]
-│   │   ├── `--max-operations` 到达客人（= `Limits.max_steps`）    [x] 2cde8b63；此前只验不用，默认 1M→16M
+│   │   ├── `--max-operations` 到达客人（= `Limits.max_steps`）    [x] 2cde8b63；此前只验不用，默认 1M→16M→64M（866cdfde，两条旅程 34M/44M）
 │   │   ├── 耗尽报 `exit_class=limit`，throw/trap 报 `script`     [x] 2cde8b63；此前一律 `configuration`
 │   │   └── 未捕获 throw 的 String 宿主可读并打印                 [x] 94237cb（上游指针）+ 2cde8b63（下游读）
 │   ├── 运行期堆耗尽 = Budget("max_memory_pages")            [x] 2026-08-25（问客人，不猜）
