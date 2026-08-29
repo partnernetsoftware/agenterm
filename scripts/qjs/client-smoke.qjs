@@ -1,0 +1,157 @@
+// Probe the public entry points declared for one platform.
+//
+// Args: REPO OS ARCH BINARY_DIRECTORY [--existence-only]
+// Ported from scripts/rh/client-smoke.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length !== 4) {
+  if (args.length !== 5) {
+    throw "expected: REPO OS ARCH BINARY_DIRECTORY [--existence-only]";
+  }
+  if (args[4] !== "--existence-only") {
+    throw "expected: REPO OS ARCH BINARY_DIRECTORY [--existence-only]";
+  }
+}
+
+const repo = rh.absolute(args[0]);
+const os_name = args[1];
+const arch = args[2];
+const binary_directory = rh.absolute(args[3]);
+const existence_only = args.length === 5;
+
+const manifest = rh.parse_file(rh.join(repo, "scripts/artifacts.json"));
+
+let platform_match_count = 0;
+let rh_dev_cli_count = 0;
+
+let package_version = "";
+const cargo_toml = rh.read_text(rh.join(repo, "Cargo.toml"));
+let in_package = false;
+for (const source_line of cargo_toml.split("\n")) {
+  const line = source_line.trim();
+  if (line.startsWith("[")) {
+    in_package = line === "[package]";
+    continue;
+  }
+  if (!in_package) { continue; }
+  if (!line.startsWith("version")) { continue; }
+  const parts = line.split("\"");
+  rh.require(parts.length >= 3 && parts[1] !== "", "client_smoke_package_version_invalid");
+  package_version = parts[1];
+  break;
+}
+rh.require(package_version !== "", "client_smoke_package_version");
+
+const repo_options = { cwd: repo, timeout_ms: 10000 };
+const stdout_path = rh.join(repo, ".client-smoke.stdout.tmp");
+
+for (const platform of manifest.platforms) {
+  const platform_os = "" + platform.os;
+  const platform_arch = "" + platform.arch;
+  if (platform_os !== os_name) { continue; }
+  if (platform_arch !== arch) { continue; }
+  platform_match_count = platform_match_count + 1;
+
+  for (const executable of platform.executables) {
+    const executable_name = "" + executable.name;
+    const executable_role = "" + executable.role;
+    let path = rh.join(binary_directory, executable_name);
+    // `agenterm.com` only exists after staging renames it; a raw
+    // cargo target dir (cross lanes probe it directly) carries the
+    // bin name `agenterm-com.exe` instead. Accept the source name
+    // exactly like artifact_files::stage maps it.
+    if (!rh.exists(path) && executable_name === "agenterm.com") {
+      const cargo_path = rh.join(binary_directory, "agenterm-com.exe");
+      if (rh.exists(cargo_path)) { path = cargo_path; }
+    }
+    rh.require(rh.exists(path), "client_smoke_missing:" + executable_name);
+    const metadata = rh.metadata(path);
+    rh.require(metadata.is_file && metadata.len > 0, "client_smoke_file_invalid:" + executable_name);
+
+    if (executable_role === "rh-dev-cli") {
+      rh_dev_cli_count = rh_dev_cli_count + 1;
+      rh.require(executable.offline_probe.length === 1, "client_smoke_rh_version_probe_missing");
+    }
+
+    if (!existence_only) {
+      if (executable_role === "control-center-gui") {
+        const help_code = rh.command_status(path, ["--help"], repo_options);
+        rh.require(help_code === 0, "client_smoke_probe:" + executable_name + ":--help");
+
+        const version_code = rh.command_status(path, ["--version"], repo_options);
+        rh.require(version_code === 0, "client_smoke_probe:" + executable_name + ":--version");
+
+        const cap_code = rh.command_stdout_file(path, ["capabilities", "--json"], stdout_path, repo_options);
+        rh.require(cap_code === 0, "client_smoke_probe:" + executable_name + ":capabilities");
+        const capability = rh.parse_file(stdout_path);
+
+        let expected_webview_backend = "";
+        if (os_name === "windows") { expected_webview_backend = "webview2"; }
+        if (os_name === "macos") { expected_webview_backend = "wkwebview"; }
+        if (os_name === "linux") { expected_webview_backend = "webkitgtk"; }
+        rh.require(expected_webview_backend !== "", "client_smoke_webview_platform:" + os_name);
+
+        const capability_executable = "" + capability.executable;
+        const capability_role = "" + capability.role;
+        const capability_renderer = "" + capability.renderer;
+        const webview_host = capability.webview_host;
+        const webview_backend = "" + webview_host.backend;
+        const webview_host_state = "" + webview_host.host_state;
+        const active_renderer = "" + webview_host.active_renderer;
+        const runtime_presence = "" + webview_host.runtime_presence;
+
+        rh.require(
+          capability.schema_version === 1
+            && capability_executable === "agenterm-cc"
+            && capability_role === "isolated_projection"
+            && !capability.owns_terminal_authority
+            && capability.process_reuse
+            && capability.no_activate
+            && capability.views.length === 4,
+          "client_smoke_control_center_capabilities"
+        );
+        rh.require(
+          capability_renderer === "native"
+            && webview_backend === expected_webview_backend
+            && webview_host_state === "unimplemented"
+            && active_renderer === "native"
+            && webview_host.bridge_version === 1,
+          "client_smoke_webview_host_contract"
+        );
+        rh.require(
+          runtime_presence === "detected" || runtime_presence === "missing" || runtime_presence === "failed",
+          "client_smoke_webview_host_contract"
+        );
+      }
+      if (executable_role === "rh-dev-cli") {
+        const probe_arg = "version";
+        const probe_code = rh.command_stdout_file(path, ["version"], stdout_path, repo_options);
+        rh.require(probe_code === 0, "client_smoke_probe:" + executable_name + ":" + probe_arg);
+        const banner = rh.read_text(stdout_path).trim();
+        rh.require(banner === "agenterm-rh " + package_version, "client_smoke_rh_version_banner:" + banner);
+      }
+    }
+  }
+  for (const library of platform.libraries) {
+    const library_name = "" + library.name;
+    const library_path = rh.join(binary_directory, library_name);
+    rh.require(rh.exists(library_path), "client_smoke_library_missing:" + library_name);
+    const library_metadata = rh.metadata(library_path);
+    rh.require(
+      library_metadata.is_file && library_metadata.len > 0,
+      "client_smoke_library_invalid:" + library_name
+    );
+  }
+}
+
+rh.require(platform_match_count === 1, "client_smoke_platform_match");
+// The standalone rh dev CLI retired into the main binary (`agenterm rh ...`);
+// no platform set carries the role anymore. Count must stay zero so a
+// reappearing role is a conscious manifest decision, not drift.
+rh.require(rh_dev_cli_count === 0, "client_smoke_rh_dev_cli_count");
+
+if (rh.exists(stdout_path)) { rh.try_remove_file(stdout_path); }
+
+print("PASS client entrypoints " + os_name + "-" + arch);
+return 0;
