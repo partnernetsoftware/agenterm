@@ -12,6 +12,16 @@
 // (process_spawn) polled through the public CLI and reaped by the
 // harness's `complete`; the native window input rh drove through
 // `Child.window_*` has no door operation (see the `gap` sites).
+//
+// Every CLI call goes through the harness's original `invoke_cli` /
+// `run_cli` (record bounded by `slice`, which works now); the `_bounded`
+// route-around cost ~1.4M more steps per 13 KB answer for nothing.
+//
+// Window readiness is `wait-ui --window-state restored`, as the theme
+// journey's rh original already had it: rh's `wait_for_window` asked
+// `Child.platform_facts`, which the door does not carry, and it sat in
+// front of that same `wait-ui` -- so the journey never reached its first
+// STEP on a host without it.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -54,12 +64,6 @@ function window_control(gui_child, id) {
   return null;
 }
 
-// rh's `Child.platform_facts` (top_level_window_present).
-function platform_facts(gui_child) {
-  gap("platform_facts: the door has no native window facts for spawned handle " + gui_child);
-  return null;
-}
-
 // rh's `x == json_null()`: a JSON null, or a path the answer does not carry.
 function is_null(value) {
   return value === null || value === undefined;
@@ -71,12 +75,12 @@ function trimmed(value) {
 
 // No `"" + response.stdout` copies: a concat costs steps per character here.
 function json_cli(context, cli, args) {
-  const response = harness.invoke_cli_bounded(context, cli, args, 0, []);
+  const response = harness.invoke_cli(context, cli, args, 0, []);
   return JSON.parse(response.stdout);
 }
 
 function text_cli(context, cli, args) {
-  const response = harness.invoke_cli_bounded(context, cli, args, 0, []);
+  const response = harness.invoke_cli(context, cli, args, 0, []);
   return response.stdout.trim();
 }
 
@@ -201,7 +205,7 @@ function active_tab_index(snapshot) {
 
 function wait_for_server(context, cli, gui_child) {
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    const probe = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 0, []);
+    const probe = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);
     if (probe.success) { return 0; }
     if (harness.state(gui_child) === "exited") {
       const output = harness.wait(gui_child, 2000);
@@ -210,16 +214,6 @@ function wait_for_server(context, cli, gui_child) {
     harness.sleep_ms(50);
   }
   throw "workbench_server_timeout";
-}
-
-function wait_for_window(gui_child) {
-  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    const facts = platform_facts(gui_child);
-    if (facts.top_level_window_present) { return 0; }
-    if (harness.state(gui_child) === "exited") { throw "workbench_window_early_exit"; }
-    harness.sleep_ms(25);
-  }
-  throw "workbench_window_timeout";
 }
 
 function wait_for_editor(context, cli, target, open) {
@@ -360,7 +354,7 @@ function assert_inside(outer, inner, label) {
 
 function retain_failure_snapshot(context, cli) {
   rh.create_dir_all(context.failure_directory);
-  const output = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 0, []);
+  const output = harness.run_cli(context, cli, ["ui-snapshot"], 0, []);
   rh.atomic_write(
     rh.join(context.failure_directory, "ui-snapshot.txt"),
     "exit_code=" + output.exit_code + "\n" + output.stdout + output.stderr
@@ -412,7 +406,6 @@ try {
   const gui_child = harness.start(spec);
   owned_children.push(gui_child);
   wait_for_server(context, cli, gui_child);
-  wait_for_window(gui_child);
   json_cli(context, cli, ["wait-ui", "--window-state", "restored", "--timeout-ms", "30000"]);
 
   const root_name = "workbench-" + rh.pid();
