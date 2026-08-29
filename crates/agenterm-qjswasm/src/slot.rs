@@ -311,6 +311,17 @@ impl Slot {
                     };
                     return QjswasmError::UnsupportedMethod(name);
                 }
+                // The sixth: `"<host>#<n>"` from the same detail word.
+                Some(tinyvm_qjs::GuestFault::HostArgument) => {
+                    let at = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_host_argument(&view).and_then(|d| {
+                            let (host, n) = d.rsplit_once('#')?;
+                            Some((host.to_string(), n.parse().ok()?))
+                        }),
+                        _ => None,
+                    };
+                    return QjswasmError::HostArgument(at);
+                }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
                 // record a *fifth* reason at the same word. Falling through to
                 // `classify` stays the right default -- a reason this build

@@ -175,29 +175,25 @@ fn a_statically_settled_wrong_type_is_refused_at_compile_time() {
 /// division by zero. Compare the message the same mistake gets one line
 /// earlier, in [`a_statically_settled_wrong_type_is_refused_at_compile_time`].
 ///
-/// The cause is upstream and deliberate: `tinyvm-qjs` `src/repr.rs:270`
-/// (`unbox_string` -> `require_tag`) emits an `unreachable`, and
-/// `src/emit.rs:1450` documents it as "the runtime half of the policy whose
-/// compile-time half is `static_type`". Closing it needs a trap code the core
-/// can carry, which is upstream's to give.
-///
-/// When it is fixed: assert on the new fault instead.
+/// The cause was upstream and deliberate: `unbox_string` -> `require_tag`
+/// emitted a bare `unreachable`, "the runtime half of the policy whose
+/// compile-time half is `static_type`". Fixed upstream in tinyvm 1012da1:
+/// the guest records `"<host>#<n>"` (the sixth fault code) before the trap,
+/// and this crate reads it back as [`QjswasmError::HostArgument`]. This is
+/// the assertion the old test said to write when that day came.
 #[test]
-fn finding_5_a_runtime_type_mismatch_traps_without_naming_the_door() {
-    for source in [
-        "let x = 1; print(x); return 0;",
-        "let x = null; print(x); return 0;",
-        "let x = 1; return fleet_call(x, \"p\");",
+fn finding_5_a_runtime_type_mismatch_names_the_door_and_the_argument() {
+    for (source, host) in [
+        ("let x = 1; print(x); return 0;", "print"),
+        ("let x = null; print(x); return 0;", "print"),
+        ("let x = 1; return fleet_call(x, \"p\");", "fleet_call"),
     ] {
         match run(source, Some(answering("never").call)) {
-            Err(QjswasmError::Trap(e)) => {
-                assert_eq!(e.message(), "unreachable executed", "{source:?}");
-                assert!(
-                    !e.message().contains("print") && !e.message().contains("fleet"),
-                    "FIXED: the trap now names the door -- update this test",
-                );
+            Err(QjswasmError::HostArgument(Some((named, position)))) => {
+                assert_eq!(named, host, "{source:?}");
+                assert_eq!(position, 1, "{source:?}");
             }
-            other => panic!("{source:?}: expected a trap, got {other:?}"),
+            other => panic!("{source:?}: expected the door and argument named, got {other:?}"),
         }
     }
 }
@@ -736,7 +732,7 @@ fn output_from_a_trapped_call_is_not_carried_into_the_next_one() {
 
     assert!(matches!(
         engine.call(slot, "main", &[]),
-        Err(QjswasmError::Trap(_))
+        Err(QjswasmError::HostArgument(_))
     ));
     let second = engine
         .call(slot, "main", &[])
@@ -851,8 +847,8 @@ fn a_broken_script_is_not_relabelled_as_a_budget() {
         .spawn(Guest::Qjs("let x = 1; print(x); return 0;"), None)
         .expect("spawns");
     match engine.call(broken, "main", &[]) {
-        Err(QjswasmError::Trap(e)) => assert_eq!(e.message(), "unreachable executed"),
-        other => panic!("expected a plain guest trap, got {other:?}"),
+        Err(QjswasmError::HostArgument(Some((host, 1)))) => assert_eq!(host, "print"),
+        other => panic!("expected the script's own fault (print#1), got {other:?}"),
     }
 }
 

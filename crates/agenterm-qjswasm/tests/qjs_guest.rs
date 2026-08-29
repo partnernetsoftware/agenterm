@@ -730,6 +730,22 @@ fn a_missing_string_method_is_named_at_the_engine_face() {
     );
 }
 
+/// `print(s.length)` names the call and the argument since tinyvm 1012da1;
+/// it was "guest trapped: unreachable executed", the first thing every
+/// script author saw.
+#[test]
+fn a_host_argument_of_the_wrong_type_is_named_at_the_engine_face() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(Guest::Qjs("let s = \"abc\"; print(s.length);"), None, "main", &[])
+        .expect_err("a Number where print wants a String stops the script");
+    assert!(
+        matches!(&err, QjswasmError::HostArgument(Some((host, 1))) if host == "print"),
+        "expected print#1 named, got {err:?}"
+    );
+    assert!(err.to_string().starts_with("host function `print` needs a String for argument 1"), "{err}");
+}
+
 /// `slice` itself answers since tinyvm 6b9464a: code-unit positions, negative
 /// indices, the harness's truncation shape.
 #[test]

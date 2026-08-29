@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "6b9464a";
+pub const UPSTREAM_TINYVM_REV: &str = "1012da1";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -621,6 +621,12 @@ pub enum QjswasmError {
     /// this one says which property. `None` only if the name could not be
     /// read back, which no build of tinyvm-qjs since d2e66b3 produces.
     UnsupportedMethod(Option<String>),
+    /// A host function was handed a value of the wrong type at run time --
+    /// `print(s.length)`, a Number where the door says String. Not knowable
+    /// at compile time (a literal is refused there), so the guest names the
+    /// call and the 1-based argument position before stopping. The script's
+    /// own doing: `"" + x` is the spelling it wants.
+    HostArgument(Option<(String, u32)>),
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -680,6 +686,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
             Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
             Self::UnsupportedMethod(name) => f.debug_tuple("UnsupportedMethod").field(name).finish(),
+            Self::HostArgument(at) => f.debug_tuple("HostArgument").field(at).finish(),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -702,6 +709,13 @@ impl std::fmt::Display for QjswasmError {
             Self::UncaughtThrow(None) => {
                 write!(f, "the script threw a value and nothing caught it")
             }
+            Self::HostArgument(Some((host, position))) => write!(
+                f,
+                "host function `{host}` needs a String for argument {position}; the script passed something else (write `\"\" + x` to make it one)"
+            ),
+            Self::HostArgument(None) => f.write_str(
+                "a host function was given an argument of the wrong type, and the guest could not say which"
+            ),
             Self::UnsupportedMethod(Some(name)) => write!(
                 f,
                 "this engine does not support `{name}` on a String yet; the script reached it at run time"
