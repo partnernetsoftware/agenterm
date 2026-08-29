@@ -1,0 +1,35 @@
+// path.qjs -- the pure half of rh's `std::path`, for scripts moving to .qjs.
+//
+// The migration corpus (71 `.rh` scripts + 11 libraries) calls `std::path`
+// 925 times: `join` 677, `absolute` 227, `parent` 21. Two of the three are
+// pure string computation and live here; `absolute` needs the current
+// directory, which is the host's to give, so it belongs to the `tool.env`
+// door and not to a library.
+//
+// Semantics follow rh's, which follow Rust's `std::path` on Unix:
+//   join(a, b)  -- `b` absolute replaces `a`; otherwise one separator between.
+//   parent(p)   -- everything before the last separator; "" when there is none
+//                  and for "/"; a trailing separator does not count.
+//
+// Windows separators are not handled. The corpus runs its gates on Unix and
+// the Windows scripts are `.ps1`, so a `\` here would be an assumption rather
+// than a requirement.
+
+export function join(base, tail) {
+  if (tail.startsWith("/")) { return tail; }
+  if (base === "") { return tail; }
+  if (base.endsWith("/")) { return base + tail; }
+  return base + "/" + tail;
+}
+
+export function parent(p) {
+  let end = p.length;
+  while (end > 0 && p[end - 1] === "/") { end = end - 1; }
+  let i = end;
+  while (i > 0 && p[i - 1] !== "/") { i = i - 1; }
+  if (i === 0) { return ""; }
+  let j = i;
+  while (j > 1 && p[j - 1] === "/") { j = j - 1; }
+  if (j === 1) { return "/"; }
+  return p.slice(0, j - 1);
+}
