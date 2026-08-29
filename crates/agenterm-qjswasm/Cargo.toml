@@ -29,8 +29,8 @@ agenterm-script-common = { path = "../agenterm-script-common" }
 # vocabulary, so the layering rule governs: generic engine capability upstream,
 # business here. This crate keeps the half that is business -- the `agenterm.*`
 # door, slots, budget policy -- and re-exports the compiler's face.
-tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "27d67b4" }
-tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "27d67b4" }
+tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "b7e757c" }
+tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "b7e757c" }
 # The `tool.*` door speaks JSON where the wasm vocabulary has no record type:
 # `process.command` takes its spec as one, and `fs.metadata` / `fs.read_dir`
 # answer with one. Same crates the rest of the workspace already carries.
