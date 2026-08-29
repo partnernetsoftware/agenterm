@@ -36,6 +36,18 @@ use std::process::Command;
 
 const AGENTERM_BIN: &str = env!("CARGO_BIN_EXE_agenterm");
 
+/// The supervisor caps live workers at `GLOBAL_CONCURRENCY_LIMIT` (8) for
+/// the whole machine, and cargo runs this file's tests on one thread per
+/// core. Past eight tests each spawning a CLI, the ninth is refused with
+/// `host_concurrency_limit` and fails for a reason that has nothing to do
+/// with routing -- which is what the eleventh test here did. One CLI at a
+/// time; the file still finishes in seconds.
+static CLI_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn cli_slot() -> std::sync::MutexGuard<'static, ()> {
+    CLI_SLOT.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Run the CLI with `AGENTERM_SCRIPT_BACKEND` either removed or set, and
 /// return `(stdout, stderr, exit code)`.
 fn run_script(path: &std::path::Path, backend: Option<&str>) -> (String, String, i32) {
@@ -68,6 +80,7 @@ fn write(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn a_qjs_entry_runs_on_qjswasm_without_being_told_to() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-route-qjs-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = write(
@@ -97,6 +110,7 @@ fn a_qjs_entry_runs_on_qjswasm_without_being_told_to() {
 /// the product's default.
 #[test]
 fn an_explicit_backend_beats_the_extension() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-route-explicit-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = write(
@@ -131,6 +145,7 @@ fn an_explicit_backend_beats_the_extension() {
 /// engine happens to be compiled in.
 #[test]
 fn an_unrouted_entry_is_refused_by_name() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-route-unrouted-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = write(&dir, "t.rh", "fn entry() { 42 }\n");
@@ -151,6 +166,7 @@ fn an_unrouted_entry_is_refused_by_name() {
 #[cfg(feature = "script-lua")]
 #[test]
 fn a_lua_entry_runs_on_lua_without_being_told_to() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-route-lua-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = write(&dir, "t.lua", "return 1+2\n");
@@ -182,6 +198,7 @@ fn a_lua_entry_runs_on_lua_without_being_told_to() {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn hash_routes_by_extension_and_still_yields_to_an_explicit_backend() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-route-hash-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = write(&dir, "t.qjs", "return 1 + 2;\n");
@@ -229,6 +246,7 @@ fn hash_routes_by_extension_and_still_yields_to_an_explicit_backend() {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn pack_build_routes_by_extension() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-route-pack-{}", std::process::id()));
     let out_dir = dir.join("out");
     std::fs::create_dir_all(&out_dir).expect("temp dir");
@@ -270,6 +288,7 @@ fn pack_build_routes_by_extension() {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn a_qjs_file_on_disk_can_import_the_library_beside_it() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-import-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("lib")).expect("temp dir");
     std::fs::write(
@@ -300,6 +319,7 @@ fn a_qjs_file_on_disk_can_import_the_library_beside_it() {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn a_specifier_that_escapes_the_project_root_is_refused() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-escape-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("inner")).expect("temp dir");
     std::fs::write(dir.join("outside.qjs"), "export const secret = 1;\n").expect("fixture");
@@ -332,6 +352,7 @@ fn a_specifier_that_escapes_the_project_root_is_refused() {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
+    let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-tool-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     std::fs::write(dir.join("in.txt"), "hello from disk").expect("fixture");
@@ -391,6 +412,7 @@ fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn the_first_migrated_task_script_validates_the_real_manifest() {
+    let _slot = cli_slot();
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let script = repo.join("scripts/qjs/validate-artifact-manifest.qjs");
     let manifest = repo.join("scripts/artifacts.json");
@@ -425,10 +447,68 @@ fn the_first_migrated_task_script_validates_the_real_manifest() {
         .arg(&bad_path)
         .env_remove("AGENTERM_SCRIPT_BACKEND");
     let out = refused.output().expect("the CLI binary runs");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The reason, not just the fact: since tinyvm 94237cb a thrown String is
+    // readable by the host, and this is the line every migrated gate script
+    // exists to print when it fails.
     assert!(
-        !out.status.success(),
-        "a digit in the role must be refused; stdout={}",
-        String::from_utf8_lossy(&out.stdout)
+        !out.status.success() && combined.contains("artifact_manifest_name_invalid:agenterm-x1.exe"),
+        "a digit in the role must be refused by name; got {combined}"
+    );
+    // And the class: the script threw, so the failure is the script's, not
+    // the invocation's. Before the engine error carried a category every
+    // backend failure said `configuration`.
+    assert!(
+        combined.contains("\"exit_class\":\"script\""),
+        "an uncaught throw is a script failure; got {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `--max-operations` reaches the guest as its step ceiling, and running out
+/// is a `limit`, not a `configuration` error. Until 2026-08-29 the flag was
+/// validated, audited and then ignored: the engine ran under its own 16M
+/// default whatever the CLI said. The loop below costs ~100 steps per
+/// iteration under the V1 boxed representation, so 1000 iterations need
+/// ~100k steps: a 1000-step budget must refuse it and the default must not.
+#[test]
+fn the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit() {
+    let _slot = cli_slot();
+    let dir = std::env::temp_dir().join(format!("agenterm-steps-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let script = write(
+        &dir,
+        "busy.qjs",
+        "let n = 0;\nfor (let i = 0; i < 1000; i = i + 1) { n = n + 1; }\nprint(\"done \" + n);\n",
+    );
+
+    let mut starved = Command::new(AGENTERM_BIN);
+    starved
+        .args(["cli", "script", "run", "--max-operations", "1000"])
+        .arg(&script)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = starved.output().expect("the CLI binary runs");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success()
+            && stderr.contains("budget exhausted: max_steps")
+            && stderr.contains("\"exit_class\":\"limit\""),
+        "1000 steps cannot run a 1000-iteration loop, and that is a limit; got {stderr}"
+    );
+
+    let mut fed = Command::new(AGENTERM_BIN);
+    fed.args(["cli", "script", "run"]).arg(&script).env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = fed.output().expect("the CLI binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.trim() == "done 1000",
+        "the default budget runs it; stdout={stdout} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
     );
 
     let _ = std::fs::remove_dir_all(&dir);

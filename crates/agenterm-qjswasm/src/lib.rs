@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "ec67034";
+pub const UPSTREAM_TINYVM_REV: &str = "94237cb";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -581,7 +581,11 @@ pub enum QjswasmError {
     /// so at `GuestFault::UncaughtThrow` and calls handing it out a decision
     /// about the host boundary rather than about throwing. A script that wants
     /// the host to see *what* went wrong must catch it and return or print it.
-    UncaughtThrow,
+    /// The message, when the thrown value was a String -- which is what
+    /// every gate script throws (`"gate_id:reason"`). `None` for a thrown
+    /// Number or object: upstream states that narrowing rather than hiding
+    /// it, and this carries it through unchanged.
+    UncaughtThrow(Option<String>),
     /// The script asked for something the engine does not have, and it was
     /// only knowable at run time.
     ///
@@ -653,7 +657,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::Compile(e) => f.debug_tuple("Compile").field(e).finish(),
             Self::Load(e) => f.debug_tuple("Load").field(&e.message()).finish(),
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
-            Self::UncaughtThrow => f.write_str("UncaughtThrow"),
+            Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
             Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
@@ -671,7 +675,10 @@ impl std::fmt::Display for QjswasmError {
             Self::Compile(e) => write!(f, "compiling .qjs: {e}"),
             Self::Load(e) => write!(f, "loading wasm: {}", e.message()),
             Self::Trap(e) => write!(f, "guest trapped: {}", e.message()),
-            Self::UncaughtThrow => {
+            Self::UncaughtThrow(Some(message)) => {
+                write!(f, "the script threw and nothing caught it: {message}")
+            }
+            Self::UncaughtThrow(None) => {
                 write!(f, "the script threw a value and nothing caught it")
             }
             Self::CapabilityBoundary => write!(

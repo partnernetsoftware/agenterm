@@ -304,11 +304,19 @@ impl ScriptBackend {
     }
 }
 
+/// The one lock for `AGENTERM_SCRIPT_BACKEND` in the whole lib test binary.
+/// `resolve` lets that variable beat the file extension, and every `#[test]`
+/// in this crate runs in one process, so a test that sets it races every
+/// test that resolves a label -- not only its neighbours in the same module.
+/// Two module-local mutexes used to guard the writers and nothing guarded
+/// the readers; `unit.rh` then resolved to `lua` under a parallel run and a
+/// refusal test saw a success.
+#[cfg(test)]
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
-    use super::{BackendRefusal, RH_WHERE_NOW, SCRIPT_LANGUAGE_HINT, ScriptBackend};
-
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use super::{BackendRefusal, ENV_LOCK, RH_WHERE_NOW, SCRIPT_LANGUAGE_HINT, ScriptBackend};
 
     fn with_backend_env<T>(value: Option<&str>, run: impl FnOnce() -> T) -> T {
         let _guard = ENV_LOCK.lock().expect("lock");

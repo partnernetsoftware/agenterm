@@ -703,12 +703,12 @@ fn an_uncaught_throw_is_reported_as_a_throw_and_not_as_a_trap() {
         .run_once(Guest::Qjs("throw \"boom\";"), None, "main", &[])
         .expect_err("a script whose exception reaches the top does not complete");
     assert!(
-        matches!(err, QjswasmError::UncaughtThrow),
+        matches!(err, QjswasmError::UncaughtThrow(_)),
         "expected the throw to be named, got {err:?}"
     );
     assert_eq!(
         err.to_string(),
-        "the script threw a value and nothing caught it"
+        "the script threw and nothing caught it: boom"
     );
 }
 
@@ -732,7 +732,7 @@ fn a_fault_word_from_an_earlier_call_does_not_taint_the_next_one() {
         .call(slot, "main", &[Value::Js(JsValue::Bool(true))])
         .expect_err("the first call throws");
     assert!(
-        matches!(err, QjswasmError::UncaughtThrow),
+        matches!(err, QjswasmError::UncaughtThrow(_)),
         "expected the throw to be named, got {err:?}"
     );
 

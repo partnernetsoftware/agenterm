@@ -857,11 +857,13 @@ fn configuration_error(code: impl Into<String>, message: impl Into<String>) -> S
     )),
     allow(dead_code)
 )]
-fn engine_execution_error(backend_code: &str, message: String) -> ScriptFailure {
+fn engine_execution_error(backend_code: &str, error: crate::script_engine::ScriptEngineError) -> ScriptFailure {
     // rh's `rh_fail: process_*` / `child_*` codes used to be reclassified as
-    // `Child` failures here. That engine left on 2026-08-29; the engines
-    // that remain surface typed failures directly.
-    configuration_error(backend_code, message)
+    // `Child` failures here by sniffing the message. That engine left on
+    // 2026-08-29; the engines that remain say their class in the type, so
+    // a step-budget exhaustion is `limit` and an uncaught throw is `script`
+    // without this function knowing any engine's wording.
+    failure(backend_code, error.message, error.category)
 }
 
 fn limit_error(code: impl Into<String>, message: impl Into<String>) -> ScriptFailure {
@@ -1092,6 +1094,13 @@ mod tests {
     /// happens to be linked, which is what it did until 2026-08-29.
     #[test]
     fn an_unrouted_entry_is_refused_by_name_rather_than_run_on_a_default() {
+        // Hold the env lock while resolving: `AGENTERM_SCRIPT_BACKEND=lua`
+        // set by a neighbouring test would route `unit.rh` to lua and this
+        // refusal would become a success. `into_inner` because a poisoned
+        // lock from another test's panic is not this test's finding.
+        let _env = crate::script_backend::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut unrouted = invocation(ScriptOperation::Eval, "40 + 2");
         unrouted.source_label = "unit.rh".to_owned();
         let result = execute(unrouted);

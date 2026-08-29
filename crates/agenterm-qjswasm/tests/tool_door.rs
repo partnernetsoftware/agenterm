@@ -702,3 +702,27 @@ fn an_unwaited_child_is_killed_with_the_slot() {
         survivors.trim()
     );
 }
+
+/// `env_remove` strips an inherited variable, which is not what setting it
+/// to "" does: a child that tests `env_has` sees the difference.
+#[test]
+fn a_command_spec_can_remove_an_inherited_variable() {
+    // SAFETY: test-local; the door's child inherits it and nothing else reads it.
+    unsafe { std::env::set_var("QJSWASM_DOOR_PROBE", "present") };
+    let source = r#"
+        const keep = JSON.parse(tool_result_after(process_command(JSON.stringify({ program: "sh", args: ["-c", "echo ${QJSWASM_DOOR_PROBE:-unset}"] }))));
+        const gone = JSON.parse(tool_result_after(process_command(JSON.stringify({ program: "sh", args: ["-c", "echo ${QJSWASM_DOOR_PROBE:-unset}"], env_remove: ["QJSWASM_DOOR_PROBE"] }))));
+        return keep.stdout.trim() + "|" + gone.stdout.trim();
+        function tool_result_after(status) { if (status !== 0) { throw tool_result(); } return tool_result(); }
+    "#;
+    let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
+    let wasm = agenterm_qjswasm::compile_qjs_tool(source).expect("compiles");
+    let out = engine
+        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .expect("runs");
+    let got = match out.values.first() {
+        Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
+        other => panic!("expected a string, got {other:?}"),
+    };
+    assert_eq!(got, "present|unset");
+}

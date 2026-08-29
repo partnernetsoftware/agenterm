@@ -285,7 +285,13 @@ impl Slot {
                     return QjswasmError::Budget("max_memory_pages");
                 }
                 Some(tinyvm_qjs::GuestFault::UncaughtThrow) => {
-                    return QjswasmError::UncaughtThrow;
+                    // Since tinyvm 94237cb the epilogue records where the
+                    // thrown String is; read it here, where the memory is.
+                    let message = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_thrown_message(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::UncaughtThrow(message);
                 }
                 // The fourth reason the comment here anticipated, which
                 // arrived at tinyvm `ec67034`. Reported as its own thing and

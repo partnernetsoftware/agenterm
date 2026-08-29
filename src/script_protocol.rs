@@ -95,7 +95,14 @@ impl Default for ScriptBudgets {
     fn default() -> Self {
         Self {
             source_bytes: 256 * 1024,
-            operations: 1_000_000,
+            // One engine operation is the smallest step its core counts;
+            // for qjswasm that is one wasm instruction, and no other engine
+            // enforces this field yet. 16M is the step ceiling the qjswasm
+            // engine has always run under; the 1M this used to say was
+            // never enforced by anyone, and the first script to meet it
+            // (`validate-artifact-manifest.qjs`, 1--2M steps for a 5-entry
+            // manifest) failed on a ceiling nobody had chosen.
+            operations: 16_000_000,
             call_depth: 64,
             expression_depth: 64,
             collection_items: 10_000,
@@ -115,7 +122,7 @@ impl ScriptBudgets {
     pub fn hard_limits() -> Self {
         Self {
             // Every other field here keeps real headroom above its
-            // `Default` (operations: 100x, string_bytes: 32x, output_bytes:
+            // `Default` (operations: 6x, string_bytes: 32x, output_bytes:
             // 16x, wall_time_ms: 1800x, ...) so an opt-in CLI override can
             // actually raise the budget. `source_bytes` used to be pinned
             // at exactly the default (256 KiB == 256 KiB), which is why

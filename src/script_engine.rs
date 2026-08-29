@@ -28,6 +28,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::script_backend::ScriptBackend;
+use crate::script_protocol::ScriptFailureCategory;
 use crate::script_protocol::ScriptBudgets;
 
 // ---------------------------------------------------------------------
@@ -79,11 +80,39 @@ pub struct ScriptCost {
     pub peak_activation_slots: usize,
 }
 
-/// Unified error type. Every engine's typed error collapses to `String` here
-/// -- see design §2.2 "哪里不吸收" for the rationale (lossy but not a new
-/// loss: callers already flatten them into
-/// `ScriptFailureCategory::Configuration`).
-pub type ScriptEngineError = String;
+/// Unified error type. Every engine's typed error used to collapse to a bare
+/// `String` here -- design §2.2 "哪里不吸收" called that lossy but not a new
+/// loss, because callers flattened everything into
+/// `ScriptFailureCategory::Configuration` anyway. That premise ended the day
+/// a budget was actually enforced: a script that ran out of steps is a
+/// `Limit`, one that threw is a `Script`, and reporting either as
+/// `configuration` sends the operator to the wrong fix. The text still
+/// travels as text; only the category is kept alongside it. `From<String>`
+/// keeps every `.map_err(|e| e.to_string())?` site meaning what it did
+/// (configuration), so an engine opts into a finer class one seam at a time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptEngineError {
+    pub message: String,
+    pub category: ScriptFailureCategory,
+}
+
+impl From<String> for ScriptEngineError {
+    fn from(message: String) -> Self {
+        Self { message, category: ScriptFailureCategory::Configuration }
+    }
+}
+
+impl From<ScriptEngineError> for String {
+    fn from(error: ScriptEngineError) -> Self {
+        error.message
+    }
+}
+
+impl std::fmt::Display for ScriptEngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
 
 /// Fleet bridge callback shared by every engine: (operation_id,
 /// params_json) -> result_json.
@@ -257,6 +286,56 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 // §4 Trait-M2 — per-engine thin adapters
 // ---------------------------------------------------------------------
 
+
+#[cfg(feature = "script-qjswasm")]
+/// The engine budget for one invocation. `--max-operations` is the only CLI
+/// budget the core enforces itself (as the step ceiling per top-level call);
+/// `--timeout-ms` is the worker's deadline and never reaches the guest.
+/// Without this the CLI accepted the flag and the guest ran under the
+/// 16M default anyway.
+/// The one seam where a qjswasm failure keeps its class. `Budget` is the
+/// engine refusing to spend more (steps, pages, depth): a `Limit`, and the
+/// fix is a `--max-*` flag. An uncaught `throw` or a guest trap is the
+/// script's own doing: a `Script`. Everything else (compile, load, door,
+/// signature) is the invocation being set up wrong: `Configuration`, which is
+/// what every one of these used to say.
+fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError {
+    use agenterm_qjswasm::QjswasmError as E;
+    let category = match &error {
+        E::Budget(_) => ScriptFailureCategory::Limit,
+        E::UncaughtThrow(_) | E::Trap(_) => ScriptFailureCategory::Script,
+        _ => ScriptFailureCategory::Configuration,
+    };
+    ScriptEngineError { message: error.to_string(), category }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
+    let mut budget = agenterm_qjswasm::Budget::default();
+    if let Some(budgets) = options.budgets.as_ref() {
+        budget.limits.max_steps = budgets.operations;
+    }
+    budget
+}
+
+#[cfg(feature = "script-qjswasm")]
+/// Compile through whichever door this invocation is allowed: the tool door
+/// when the profile says so, the sandbox otherwise. One function so `check`
+/// and `execute` cannot disagree about which language a script is checked
+/// against and run in -- the mismatch the door comment in
+/// `agenterm-qjswasm` already records as the worst shape a gate can have.
+fn compile_qjs_for(
+    options: &ScriptInvocationOptions,
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, agenterm_qjswasm::CompileError> {
+    if options.tool_door {
+        agenterm_qjswasm::compile_qjs_tool_with_modules(source, resolve)
+    } else {
+        agenterm_qjswasm::compile_qjs_with_modules(source, resolve)
+    }
+}
+
 /// What a `.qjs` module specifier points at, for this product.
 ///
 /// The compiler never touches a filesystem, so somebody has to say what a
@@ -284,42 +363,6 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 ///   absolute path alike. The check is on the **canonical** path, because a
 ///   textual one is defeated by any of the three;
 /// * a file that is not there or is not UTF-8.
-#[cfg(feature = "script-qjswasm")]
-#[cfg(feature = "script-qjswasm")]
-/// The invocation's `-- ARGS...` as text, in order. Every CLI argument is
-/// text; a script that wants a number writes `Number(tool_result())` after
-/// `arg(n)`, which is the conversion ECMA-262 would apply and the one the
-/// `Number` fold exists for.
-fn qjs_arguments(arguments: Option<&Value>) -> Vec<String> {
-    arguments
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| item.as_str().map(str::to_owned).unwrap_or_else(|| item.to_string()))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-#[cfg(feature = "script-qjswasm")]
-/// Compile through whichever door this invocation is allowed: the tool door
-/// when the profile says so, the sandbox otherwise. One function so `check`
-/// and `execute` cannot disagree about which language a script is checked
-/// against and run in -- the mismatch the door comment in
-/// `agenterm-qjswasm` already records as the worst shape a gate can have.
-fn compile_qjs_for(
-    options: &ScriptInvocationOptions,
-    source: &str,
-    resolve: &dyn Fn(&str) -> Option<String>,
-) -> Result<Vec<u8>, agenterm_qjswasm::CompileError> {
-    if options.tool_door {
-        agenterm_qjswasm::compile_qjs_tool_with_modules(source, resolve)
-    } else {
-        agenterm_qjswasm::compile_qjs_with_modules(source, resolve)
-    }
-}
-
 fn qjs_module_resolver(
     project_root: Option<&std::path::Path>,
 ) -> impl Fn(&str) -> Option<String> + use<> {
@@ -336,6 +379,23 @@ fn qjs_module_resolver(
         }
         std::fs::read_to_string(resolved).ok()
     }
+}
+
+#[cfg(feature = "script-qjswasm")]
+/// The invocation's `-- ARGS...` as text, in order. Every CLI argument is
+/// text; a script that wants a number writes `Number(tool_result())` after
+/// `arg(n)`, which is the conversion ECMA-262 would apply and the one the
+/// `Number` fold exists for.
+fn qjs_arguments(arguments: Option<&Value>) -> Vec<String> {
+    arguments
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned).unwrap_or_else(|| item.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Build the `args_len`/`arg` host-function closures shared by the lua and
@@ -700,7 +760,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                         peak_activation_slots: outcome.peak_activation_slots,
                     }),
                 })
-                .map_err(|e| e.to_string()),
+                .map_err(|e| ScriptEngineError::from(e.to_string())),
         )
     }
 
@@ -769,7 +829,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // The validator has to know the door too, or `check` refuses bytes
         // `execute` would run: a tool script's `tool.*` imports are exactly
         // what a sandbox validator exists to reject.
-        let budget = agenterm_qjswasm::Budget::default();
+        let budget = qjs_budget(_options);
         if _options.tool_door {
             agenterm_qjswasm::validate_wasm_tool_with(&wasm, &budget)
         } else {
@@ -818,9 +878,9 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // Built after the door is known: a sandbox engine refuses tool bytes
         // at load time, so this is the one place the two have to agree.
         let mut engine = if options.tool_door {
-            agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default())
+            agenterm_qjswasm::Engine::with_tool_door(qjs_budget(options))
         } else {
-            agenterm_qjswasm::Engine::new()
+            agenterm_qjswasm::Engine::with_budget(qjs_budget(options))
         };
         // The CLI's `-- ARGS...` arrive as `options.arguments` (a JSON array
         // of strings) and become the script's `$0`, `$1`, ... -- the only way
@@ -843,7 +903,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 "main",
                 &[],
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(qjs_engine_error)?;
 
         Ok(ScriptInvocationResult {
             stdout: outcome.stdout,
@@ -1210,16 +1270,11 @@ impl ScriptEngineBackend for ScriptEngine {
 mod tests {
     use super::*;
 
-    // Mirrors script_backend.rs's ENV_LOCK pattern (serialize env-var
-    // manipulation across tests in this module — this is a *different*
-    // mutex instance than script_backend.rs's, but since `cargo test`
-    // runs all `#[test]` functions in one process across all `mod`s
-    // sharing the same env var, tests in this module also risk racing
-    // against script_backend.rs's own env-mutating tests. Each guard here
-    // still gives serialization *within* this file, and both files restore
-    // the prior value before releasing the lock, minimizing cross-file
-    // interference to a narrow window.)
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // One process, one variable, one lock: the writers here and in
+    // script_backend.rs, and the readers in script_worker.rs, all hold
+    // `script_backend::ENV_LOCK`. Two module-local mutexes used to leave a
+    // window in which a label resolved by extension saw another test's env.
+    use crate::script_backend::ENV_LOCK;
 
     // `gate_two_trait_equivalence` lived here: four assertions that the
     // rquickjs engine and this one agreed on stdout and on values, refused the
@@ -1475,7 +1530,7 @@ mod tests {
             .check(source, &options)
             .expect_err("`switch` is not lowered");
         assert!(
-            checked.contains("this engine does not support"),
+            checked.message.contains("this engine does not support"),
             "{checked}"
         );
         assert!(
@@ -1620,7 +1675,7 @@ mod tests {
         let error = engine
             .execute("SELECT * FROM does_not_exist;", &options, None)
             .expect_err("querying a nonexistent table should error, not panic");
-        assert!(!error.is_empty());
+        assert!(!error.message.is_empty());
     }
 
     #[test]

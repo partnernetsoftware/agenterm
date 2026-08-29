@@ -759,6 +759,12 @@ struct CommandSpec {
     current_dir: Option<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// Variables to strip from the inherited environment. rh's
+    /// `command.env_remove("HTTP_PROXY")`; the gate scripts use it to prove a
+    /// launch ignores an ambient proxy, and setting the variable to "" is not
+    /// the same test.
+    #[serde(default)]
+    env_remove: Vec<String>,
     timeout_ms: Option<u64>,
     stdin_text: Option<String>,
 }
@@ -791,6 +797,9 @@ fn spawn_command(spec: &CommandSpec) -> Result<std::process::Child, String> {
     for (key, value) in &spec.env {
         command.env(key, value);
     }
+    for key in &spec.env_remove {
+        command.env_remove(key);
+    }
     command
         .stdin(if spec.stdin_text.is_some() {
             Stdio::piped()
@@ -803,13 +812,11 @@ fn spawn_command(spec: &CommandSpec) -> Result<std::process::Child, String> {
     let mut child = command
         .spawn()
         .map_err(|e| format!("process.command: spawning `{}`: {e}", spec.program))?;
-    if let Some(text) = &spec.stdin_text {
-        if let Some(mut stdin) = child.stdin.take() {
-            let text = text.clone();
-            std::thread::spawn(move || {
-                let _ = stdin.write_all(text.as_bytes());
-            });
-        }
+    if let (Some(text), Some(mut stdin)) = (&spec.stdin_text, child.stdin.take()) {
+        let text = text.clone();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(text.as_bytes());
+        });
     }
     Ok(child)
 }
@@ -975,6 +982,7 @@ mod tests {
             args: vec!["-c".into(), "sleep 30".into()],
             current_dir: None,
             env: BTreeMap::new(),
+            env_remove: Vec::new(),
             timeout_ms: Some(50),
             stdin_text: None,
         };
