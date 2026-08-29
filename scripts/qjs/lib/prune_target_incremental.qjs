@@ -1,0 +1,830 @@
+// Shared incremental target prune helpers.
+//
+// Ported from scripts/rh/lib/prune_target_incremental.rh (archived in the rh
+// repo). A tool library: import it under `--profile tool`.
+//
+// Two rh host surfaces have no door op yet, and this file routes around both
+// by name so the gap is visible at the call site:
+//
+//   * `std::fs::try_lock_exclusive` -- the tool door has no advisory-lock op
+//     (gap: `fs_try_lock_exclusive(path) -> handle` held until the handle is
+//     released). The pre-flight "is anyone holding this?" probe and the
+//     "hold every session lock while the tree goes" removal both run in a
+//     `perl -e` child (`flock(2)`, the same syscall Rust's `File::try_lock`
+//     and cargo use on Unix); the child holds the locks for the whole
+//     `remove_tree`, exactly as the rh frames did. `lock_available`,
+//     `lock_and_remove` and `remove_session_tree` are the three callers.
+//   * `rh::crypto::tree_metadata_digest` -- the door has `crypto_sha256_file`
+//     but not the tree digest (gap: `crypto_tree_metadata_digest(root)`,
+//     which `src/incremental_wrapper.rs::tree_metadata_digest_json` keeps
+//     ready to bind). `metadata_identity` re-derives `full-tree-metadata-v1`
+//     from `fs_read_dir` + `fs_symlink_metadata` (`len`, `modified_ms`) and
+//     hashes the serialized record list through `crypto_sha256_file`. Any
+//     drift fails safe: a mismatch skips the root (`skipped_root_identity`),
+//     never removes it.
+//
+// Also changed on purpose:
+//   - rh passed counters between functions through `.tmp` stats files
+//     (`write_session_stats` / `read_session_stat`); here they are returned
+//     as objects, and a tree is `{files, bytes}` instead of the packed
+//     `files * 10^12 + bytes` integer.
+//   - `is_reparse_point` (Windows) has no door field; `is_symlink` is the
+//     case every check exists for on the hosts this runs on.
+//   - a `dry_run` flag threads through every remover: the lock probes still
+//     run (acquire-and-release is not a write), the trees are inspected, and
+//     nothing is removed. The summary then counts what WOULD go.
+//   - the per-file walks are priced out of the guest: one `fs_symlink_metadata`
+//     costs ~15k engine steps and a 224-entry `fs_read_dir` ~1M (measured
+//     2026-08-29 against the 100M step ceiling the CLI enforces), so
+//     `inspect_tree` (every obsolete session) runs in the perl child too, and
+//     the generation sweep removes in batches of roots per child.
+//     `metadata_identity` stays in the guest because the digest needs the
+//     exact `modified_ms` the door reports (perl's float mtime would round
+//     the millisecond); it is byte-identical to the Rust producer (6/6 roots
+//     measured) but one 224-entry root costs 30M-50M steps, so the manifest
+//     path reaches two such digests per run and a real crate root does not
+//     fit -- that is the `crypto_tree_metadata_digest` gap, not a route.
+//   - measured reach at the ceiling: a 14-generation target sweeps in one
+//     run; a 1280-generation target exhausts 100M steps in ~6 s before the
+//     enumeration finishes (~80k steps per generation for the listing and
+//     one metadata call each).
+import * as rh from "lib/rh_compat";
+
+export const require = rh.require;
+
+// Alphabets are arrays: `only_chars` walks its alphabet with for-of, and the
+// engine refuses for-of over a string.
+function concat_all(lists) {
+  const out = [];
+  for (const list of lists) { for (const item of list) { out.push(item); } }
+  return out;
+}
+const UPPER = ["A","B","C","D","E","F","G","H","I","J","K","L","M",
+               "N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
+const BASE36 = concat_all([rh.DIGITS, rh.LOWER]);
+const INVOCATION_ALPHABET = concat_all([rh.LOWER, UPPER, rh.DIGITS, [".", "_", "-"]]);
+
+const LOCK_TIMEOUT_MS = 10000;
+const REMOVE_TIMEOUT_MS = 600000;
+
+// ---- perl lock helpers (route-around for fs_try_lock_exclusive) ----------
+
+// exit 0: acquired (and released again), 1: held elsewhere, 3: unopenable.
+const PERL_PROBE =
+  "use Fcntl qw(:flock);" +
+  "open(my $f, '<', $ARGV[0]) or exit 3;" +
+  "exit(flock($f, LOCK_EX | LOCK_NB) ? 0 : 1);";
+
+// For each ROOT after DRY: take every direct `*.lock` under it, hold them
+// all, remove ROOT, release. One line per root: 0 removed (or, with DRY=1,
+// every lock was free), 2 contention, 3 remove failure.
+const PERL_LOCK_AND_REMOVE =
+  "use Fcntl qw(:flock); use File::Path qw(remove_tree);" +
+  "my $dry = shift @ARGV;" +
+  "for my $root (@ARGV) { print one($root), \"\\n\"; }" +
+  "sub one {" +
+  "  my ($root) = @_;" +
+  "  opendir(my $d, $root) or return 3;" +
+  "  my @locks = sort grep { /\\.lock$/ && !-d \"$root/$_\" } readdir($d);" +
+  "  closedir($d);" +
+  "  my @held;" +
+  "  for my $name (@locks) {" +
+  "    open(my $f, '<', \"$root/$name\") or return 2;" +
+  "    flock($f, LOCK_EX | LOCK_NB) or return 2;" +
+  "    push @held, $f;" +
+  "  }" +
+  "  return 0 if $dry;" +
+  "  remove_tree($root, { error => \\my $errors });" +
+  "  return 3 if @$errors;" +
+  "  return ((-e $root || -l $root) ? 3 : 0);" +
+  "}";
+
+// rh's inspect_tree_walk: count files and sum their sizes, refusing a link,
+// a special entry or a depth past 64. Prints "FILES BYTES"; exit 1 invalid.
+const PERL_INSPECT =
+  "my ($root) = @ARGV; my ($files, $bytes) = (0, 0);" +
+  "sub walk {" +
+  "  my ($dir, $depth) = @_;" +
+  "  return 0 if $depth > 64;" +
+  "  opendir(my $d, $dir) or return 0;" +
+  "  my @names = grep { $_ ne '.' && $_ ne '..' } readdir($d);" +
+  "  closedir($d);" +
+  "  for my $name (@names) {" +
+  "    my $path = \"$dir/$name\";" +
+  "    my @st = lstat($path) or return 0;" +
+  "    return 0 if -l _;" +
+  "    if (-d _) { walk($path, $depth + 1) or return 0; }" +
+  "    elsif (-f _) { $files++; $bytes += $st[7]; }" +
+  "    else { return 0; }" +
+  "  }" +
+  "  return 1;" +
+  "}" +
+  "walk($root, 0) or exit 1;" +
+  "print \"$files $bytes\\n\"; exit 0;";
+
+// Stat SESSION, take LOCK, stat SESSION again; remove only if the mtime did
+// not move in between (a live cargo bumps it). exit 0: removed (or DRY=1 and
+// it would have been), 2: raced, 4: lock held / absent, 3: remove failure.
+const PERL_SESSION_REMOVE =
+  "use Fcntl qw(:flock); use File::Path qw(remove_tree); use Time::HiRes ();" +
+  "my ($lock, $session, $dry) = @ARGV;" +
+  "my @before = Time::HiRes::lstat($session) or exit 4;" +
+  "open(my $f, '<', $lock) or exit 4;" +
+  "flock($f, LOCK_EX | LOCK_NB) or exit 4;" +
+  "my @after = Time::HiRes::lstat($session) or exit 4;" +
+  "exit 2 if $before[9] != $after[9];" +
+  "exit 0 if $dry;" +
+  "remove_tree($session, { error => \\my $errors });" +
+  "exit 3 if @$errors;" +
+  "exit((-e $session || -l $session) ? 3 : 0);";
+
+function perl_output(script, args, timeout_ms) {
+  const argv = ["-e", script];
+  for (const item of args) { argv.push(item); }
+  return rh.command("perl", argv, { timeout_ms: timeout_ms });
+}
+
+function perl(script, args, timeout_ms) {
+  const out = perl_output(script, args, timeout_ms);
+  if (out.exit_code === null) { return -1; }
+  return out.exit_code;
+}
+
+// ---- shape checks ---------------------------------------------------------
+
+export function exact_repo_root(repo) {
+  require(repo !== "", "incremental-prune-git-root");
+  const out = rh.command("git", ["-C", repo, "rev-parse", "--show-prefix"], { timeout_ms: 10000 });
+  require(out.exit_code === 0, "incremental-prune-git-root");
+  const prefix = out.stdout.trim();
+  require(prefix === "", "incremental_prune_repo_not_exact_git_root:" + repo);
+}
+
+export function direct_directory(path, code) {
+  require(path !== "", code + "_empty");
+  require(rh.exists(path), code + "_missing:" + path);
+  const metadata = rh.symlink_metadata(path);
+  require(metadata.is_dir, code + "_not_directory:" + path);
+  require(!metadata.is_symlink, code + "_indirect:" + path);
+}
+
+export function direct_file(path) {
+  require(path !== "", "direct_file_empty");
+  if (!rh.exists(path)) { return 0; }
+  const metadata = rh.symlink_metadata(path);
+  if (metadata.is_file && !metadata.is_symlink) { return 1; }
+  return 0;
+}
+
+export function is_direct_directory(path) {
+  if (!rh.exists(path)) { return 0; }
+  const metadata = rh.symlink_metadata(path);
+  if (metadata.is_dir && !metadata.is_symlink) { return 1; }
+  return 0;
+}
+
+// A lock that is acquired and released again only answers "was anyone holding
+// this just now?" -- exactly the pre-flight question this asks.
+export function lock_available(path) {
+  require(path !== "", "lock_available_empty");
+  return perl(PERL_PROBE, [path], LOCK_TIMEOUT_MS) === 0 ? 1 : 0;
+}
+
+export function has_working_directory(root) {
+  require(root !== "", "has_working_directory_empty");
+  for (const entry of rh.read_dir(root)) {
+    if (entry.is_dir && entry.name.endsWith("-working")) { return 1; }
+  }
+  return 0;
+}
+
+// Every direct .lock under each root is held while that whole
+// compilation-unit root goes. One code per root: 1 removed, 2 lock
+// contention, 3 remove failure.
+export function lock_and_remove_many(roots, dry_run) {
+  const codes = [];
+  if (roots.length === 0) { return codes; }
+  for (const root of roots) { require(root !== "", "lock_and_remove_empty"); }
+  const argv = [dry_run ? "1" : "0"];
+  for (const root of roots) { argv.push(root); }
+  const out = perl_output(PERL_LOCK_AND_REMOVE, argv, REMOVE_TIMEOUT_MS);
+  const lines = out.stdout.split("\n");
+  for (let i = 0; i < roots.length; i = i + 1) {
+    const line = i < lines.length ? lines[i].trim() : "";
+    if (out.exit_code === 0 && line === "0") { codes.push(1); }
+    else if (out.exit_code === 0 && line === "2") { codes.push(2); }
+    else { codes.push(3); }
+  }
+  return codes;
+}
+
+export function lock_and_remove(root, dry_run) {
+  return lock_and_remove_many([root], dry_run)[0];
+}
+
+// Returns 1 removed, 2 lock/working contention, 3 remove failure.
+export function remove_incremental_root(crate_path, dry_run) {
+  require(crate_path !== "", "remove_incremental_root_empty");
+  if (has_working_directory(crate_path) !== 0) { return 2; }
+  return lock_and_remove(crate_path, dry_run);
+}
+
+// ---- text helpers ---------------------------------------------------------
+
+// rh's decimal_parse: optional leading "-", then digits only; -1 otherwise.
+export function decimal_parse(text) {
+  if (text === "") { return -1; }
+  let body = text;
+  let negative = false;
+  if (body.startsWith("-")) { negative = true; body = body.slice(1); }
+  if (body === "" || !rh.only_chars(body, rh.DIGITS)) { return -1; }
+  const value = Number(body);
+  return negative ? 0 - value : value;
+}
+
+// Numeric base36 of a 1..12 character name piece, -1 when it is not one.
+export function base36(value) {
+  if (value.length === 0 || value.length > 12) { return -1; }
+  let result = 0;
+  let rest = value;
+  while (rest !== "") {
+    let digit = -1;
+    for (let i = 0; i < BASE36.length; i = i + 1) {
+      if (rest.startsWith(BASE36[i])) { digit = i; break; }
+    }
+    if (digit < 0) { return -1; }
+    result = result * 36 + digit;
+    rest = rest.slice(1);
+  }
+  return result;
+}
+
+// rustc fingerprint hashes are base36 and can exceed the 12-character bound
+// of the numeric `base36()` helper, so validate the alphabet instead.
+export function is_base36_text(value) {
+  if (value === "" || value.length > 32) { return 0; }
+  return rh.only_chars(value, BASE36) ? 1 : 0;
+}
+
+export function safe_root_name(value) {
+  if (value === "" || value === "." || value === "..") { return 0; }
+  if (value.length > 255) { return 0; }
+  if (value.includes("/") || value.includes("\\")) { return 0; }
+  return 1;
+}
+
+export function lowercase_sha256(value) {
+  if (typeof value !== "string" || value.length !== 64) { return 0; }
+  return rh.only_chars(value, rh.HEX) ? 1 : 0;
+}
+
+export function safe_invocation_id(value) {
+  if (typeof value !== "string") { return 0; }
+  if (value.length < 16 || value.length > 128) { return 0; }
+  return rh.only_chars(value, INVOCATION_ALPHABET) ? 1 : 0;
+}
+
+// ---- tree inspection ------------------------------------------------------
+
+// {ok: false} for an invalid tree (a link, a special file, too deep), else
+// {ok: true, files, bytes}. The walk is the perl child's (see the header).
+export function inspect_tree(root) {
+  require(root !== "", "inspect_tree_empty");
+  const out = perl_output(PERL_INSPECT, [root], REMOVE_TIMEOUT_MS);
+  if (out.exit_code !== 0) { return { ok: false }; }
+  const parts = out.stdout.trim().split(" ");
+  if (parts.length !== 2) { return { ok: false }; }
+  const files = decimal_parse(parts[0]);
+  const bytes = decimal_parse(parts[1]);
+  if (files < 0 || bytes < 0) { return { ok: false }; }
+  return { ok: true, files: files, bytes: bytes };
+}
+
+// A live session marks its compilation-unit root with a `*-working` directory
+// at some depth. Identity is only meaningful for a quiet root, so the walk
+// stops at the first one it sees.
+export function has_working_tree(root, depth) {
+  if (depth > 64) { return 0; }
+  for (const entry of rh.read_dir(root)) {
+    if (entry.is_dir) {
+      if (entry.name.endsWith("-working")) { return 1; }
+      if (has_working_tree(entry.path, depth + 1) !== 0) { return 1; }
+    }
+  }
+  return 0;
+}
+
+// Merge sort by `<` over index ranges: the engine has no `sort` (and no
+// array `slice`), and a root can hold up to 100000 records, which insertion
+// sort would not finish in budget.
+function sort_range(values, start, end) {
+  if (end - start <= 1) {
+    const one = [];
+    if (end - start === 1) { one.push(values[start]); }
+    return one;
+  }
+  const middle = start + rh.int_div(end - start, 2);
+  const left = sort_range(values, start, middle);
+  const right = sort_range(values, middle, end);
+  const merged = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length) {
+    if (right[j] < left[i]) { merged.push(right[j]); j = j + 1; }
+    else { merged.push(left[i]); i = i + 1; }
+  }
+  while (i < left.length) { merged.push(left[i]); i = i + 1; }
+  while (j < right.length) { merged.push(right[j]); j = j + 1; }
+  return merged;
+}
+
+function sort_records(values) {
+  return sort_range(values, 0, values.length);
+}
+
+// `full-tree-metadata-v1`, as src/incremental_wrapper.rs derives it: one
+// record per entry, `kind|relative|len|modified_ms` (the root is `d|.|..`),
+// byte-sorted, serialized as a JSON string array, sha256 in lower hex.
+// Returns "" when the tree is not digestible (a link, a special entry, too
+// many entries, too deep, no mtime).
+function tree_metadata_digest(root, maximum_entries, scratch_path) {
+  const root_metadata = rh.symlink_metadata(root);
+  if (!root_metadata.is_dir || root_metadata.is_symlink) { return ""; }
+  if (root_metadata.modified_ms === null) { return ""; }
+  const records = ["d|.|" + root_metadata.len + "|" + root_metadata.modified_ms];
+  const pending = [{ path: root, depth: 0 }];
+  const prefix = root.endsWith("/") ? root : root + "/";
+  while (pending.length > 0) {
+    const item = pending.pop();
+    if (item.depth >= 64) { return ""; }
+    for (const entry of rh.read_dir(item.path)) {
+      if (records.length >= maximum_entries) { return ""; }
+      const metadata = rh.symlink_metadata(entry.path);
+      if (metadata.is_symlink) { return ""; }
+      if (!entry.path.startsWith(prefix)) { return ""; }
+      const relative = entry.path.slice(prefix.length);
+      if (relative.length > 4096) { return ""; }
+      if (metadata.modified_ms === null) { return ""; }
+      let kind = "";
+      if (metadata.is_dir) {
+        pending.push({ path: entry.path, depth: item.depth + 1 });
+        kind = "d";
+      } else if (metadata.is_file) {
+        kind = "f";
+      } else {
+        return "";
+      }
+      records.push(kind + "|" + relative + "|" + metadata.len + "|" + metadata.modified_ms);
+    }
+  }
+  const serialized = JSON.stringify(sort_records(records));
+  rh.write_text(scratch_path, serialized);
+  const digest = rh.sha256_file(scratch_path);
+  rh.try_remove_file(scratch_path);
+  return digest;
+}
+
+// Returns {status, identity}: status 0 invalid, 1 working, 2 ok.
+export function metadata_identity(root, maximum_entries, scratch_path) {
+  require(root !== "", "metadata_identity_empty_root");
+  require(scratch_path !== "", "metadata_identity_empty_scratch");
+  if (maximum_entries <= 0) { return { status: 0, identity: "" }; }
+  if (direct_file(root) !== 0) { return { status: 0, identity: "" }; }
+  if (!rh.exists(root)) { return { status: 0, identity: "" }; }
+  const root_metadata = rh.symlink_metadata(root);
+  if (!root_metadata.is_dir || root_metadata.is_symlink) { return { status: 0, identity: "" }; }
+  if (has_working_tree(root, 0) !== 0) { return { status: 1, identity: "" }; }
+  const identity = tree_metadata_digest(root, maximum_entries, scratch_path);
+  if (identity === "") { return { status: 0, identity: "" }; }
+  return { status: 2, identity: identity };
+}
+
+// ---- manifest -------------------------------------------------------------
+
+export function manifest_text_looks_valid(text) {
+  return text.startsWith("{")
+    && text.includes("\"kind\":\"agenterm-incremental-touch-manifest\"")
+    && text.includes("\"schema_version\":1")
+    && text.includes("\"snapshot_complete\":true")
+    && text.includes("\"identity_algorithm\":\"full-tree-metadata-v1\"");
+}
+
+export function validate_root_manifest(path, invocation, target, incremental) {
+  require(target !== "", "validate_root_manifest_target");
+  require(incremental !== "", "validate_root_manifest_incremental");
+  if (safe_invocation_id(invocation) === 0) { return 0; }
+  if (direct_file(path) === 0) { return 0; }
+  const metadata = rh.symlink_metadata(path);
+  if (metadata.len <= 0 || metadata.len > 2097152) { return 0; }
+  const text = rh.read_text(path);
+  if (!manifest_text_looks_valid(text)) { return 0; }
+  const document = JSON.parse(text);
+  if (!rh.is_map(document)) { return 0; }
+  const roots = rh.field(document, "roots");
+  if (!rh.is_array(roots)) { return 0; }
+  const rustc_invocations = rh.field(document, "rustc_invocations");
+  if (typeof rustc_invocations !== "number") { return 0; }
+  if (rh.field(document, "kind") !== "agenterm-incremental-touch-manifest"
+      || rh.field(document, "schema_version") !== 1
+      || rh.field(document, "invocation_id") !== invocation
+      || rh.field(document, "target") !== target
+      || rh.field(document, "incremental_root") !== incremental
+      || rustc_invocations <= 0
+      || rustc_invocations > 100000
+      || rh.field(document, "identity_algorithm") !== "full-tree-metadata-v1"
+      || roots.length > 8192) {
+    return 0;
+  }
+  const seen_names = {};
+  for (const entry of roots) {
+    if (!rh.is_map(entry)) { return 0; }
+    const root_name = rh.field(entry, "name");
+    if (typeof root_name !== "string" || safe_root_name(root_name) === 0) { return 0; }
+    if (seen_names[root_name] === true) { return 0; }
+    if (typeof rh.field(entry, "touched") !== "boolean") { return 0; }
+    if (lowercase_sha256(rh.field(entry, "before_identity")) === 0) { return 0; }
+    if (lowercase_sha256(rh.field(entry, "after_identity")) === 0) { return 0; }
+    seen_names[root_name] = true;
+  }
+  return 1;
+}
+
+// ---- sessions -------------------------------------------------------------
+
+export function session_timestamp_micros(name) {
+  require(name !== "", "session_timestamp_empty");
+  if (!name.startsWith("s-")) { return -1; }
+  const parts = name.split("-");
+  if (parts.length !== 4) { return -1; }
+  if (parts[1] === "" || parts[2] === "" || parts[3] === "" || parts[3] === "working") {
+    return -1;
+  }
+  return base36(parts[1]);
+}
+
+export function session_is_valid(name) {
+  return session_timestamp_micros(name) < 0 ? 0 : 1;
+}
+
+// `s-<base36>-<id>-<suffix>` names its own lock file `s-<base36>-<id>.lock`.
+// Returns "" for any name this helper will not vouch for.
+export function session_lock_path(crate_path, session_name) {
+  require(crate_path !== "", "session_lock_path_empty_crate");
+  require(session_name !== "", "session_lock_path_empty_name");
+  if (session_timestamp_micros(session_name) < 0) { return ""; }
+  const parts = session_name.split("-");
+  return rh.join(crate_path, "s-" + parts[1] + "-" + parts[2] + ".lock");
+}
+
+export function session_lock_present(crate_path, session_name) {
+  const lock_path = session_lock_path(crate_path, session_name);
+  if (lock_path === "") { return 0; }
+  return direct_file(lock_path);
+}
+
+// modified_ms of the path itself (not followed); 0 when the host has none.
+export function session_modified_millis(path) {
+  const metadata = rh.symlink_metadata(path);
+  if (metadata.modified_ms === null) { return 0; }
+  return metadata.modified_ms;
+}
+
+// Removes a finalized session tree while HOLDING its session lock, and only
+// if the tree was not touched between the two stats. Returns 1 removed,
+// 2 raced (mtime moved), 0 otherwise.
+export function remove_session_tree(crate_path, session_name, session_path, dry_run) {
+  require(crate_path !== "", "remove_session_tree_empty_crate");
+  require(session_name !== "", "remove_session_tree_empty_name");
+  require(session_path !== "", "remove_session_tree_empty_path");
+  const lock_path = session_lock_path(crate_path, session_name);
+  if (lock_path === "") { return 0; }
+  if (!rh.exists(session_path)) { return 0; }
+  const code = perl(PERL_SESSION_REMOVE, [lock_path, session_path, dry_run ? "1" : "0"], REMOVE_TIMEOUT_MS);
+  if (code === 0) { return 1; }
+  if (code === 2) { return 2; }
+  return 0;
+}
+
+// The direct session directories of one crate root, each {name, path,
+// timestamp}: read once per crate, where rh re-read the directory for every
+// session it judged. `fs_read_dir`'s `is_dir` comes from the entry's own
+// file type (no follow), so a directory entry is a direct directory.
+export function finalized_sessions(crate_path) {
+  const sessions = [];
+  for (const entry of rh.read_dir(crate_path)) {
+    if (!entry.is_dir || entry.is_symlink) { continue; }
+    const timestamp = session_timestamp_micros(entry.name);
+    if (timestamp < 0) { continue; }
+    sessions.push({ name: entry.name, path: entry.path, timestamp: timestamp });
+  }
+  return sessions;
+}
+
+export function session_is_newest(sessions, session_name, timestamp_micros) {
+  require(session_name !== "", "session_is_newest_empty_name");
+  for (const other of sessions) {
+    if (other.timestamp > timestamp_micros) { return 0; }
+    if (other.timestamp === timestamp_micros && other.name > session_name) { return 0; }
+  }
+  return 1;
+}
+
+// ---- manifest roots -------------------------------------------------------
+
+// Manifest root action: {code, tree}. code 0 none, 1 touched, 2 identity,
+// 3 working/lock, 4 shape, 5 remove failure, 6 removed (tree filled).
+export function try_prune_manifest_root(crate_path, root_entry, scratch_path, dry_run) {
+  require(crate_path !== "", "try_prune_manifest_root_empty_path");
+  if (root_entry.touched) { return { code: 1 }; }
+  const before_id = "" + root_entry.before_identity;
+  const after_id = "" + root_entry.after_identity;
+  if (before_id !== after_id) { return { code: 2 }; }
+  const first = metadata_identity(crate_path, 100000, scratch_path);
+  if (first.status !== 2) { return { code: 2 }; }
+  if (first.identity !== after_id) { return { code: 2 }; }
+  const second = metadata_identity(crate_path, 100000, scratch_path);
+  if (second.status !== 2) { return { code: 2 }; }
+  if (second.identity !== first.identity) { return { code: 2 }; }
+  if (second.identity !== after_id) { return { code: 2 }; }
+  const tree = inspect_tree(crate_path);
+  if (!tree.ok) { return { code: 4 }; }
+  const remove_code = remove_incremental_root(crate_path, dry_run);
+  if (remove_code === 1) { return { code: 6, tree: tree }; }
+  if (remove_code === 2) { return { code: 3 }; }
+  return { code: 5 };
+}
+
+export function empty_root_stats() {
+  return {
+    removed_roots: 0,
+    removed_root_files: 0,
+    removed_root_logical_bytes: 0,
+    skipped_root_touched: 0,
+    skipped_root_identity: 0,
+    skipped_root_working_or_lock: 0,
+    skipped_root_shape: 0,
+    skipped_root_remove_failure: 0
+  };
+}
+
+export function prune_manifest_roots(incremental, document, dry_run) {
+  require(incremental !== "", "prune_manifest_roots_empty");
+  const stats = empty_root_stats();
+  const roots = rh.field(document, "roots");
+  if (!rh.is_array(roots)) { return stats; }
+  const scratch_path = rh.join(incremental, ".prune-identity-" + rh.pid() + ".tmp");
+  for (const crate_entry of rh.read_dir(incremental)) {
+    if (!crate_entry.is_dir) { continue; }
+    const crate_name = crate_entry.name;
+    const crate_path = rh.join(incremental, crate_name);
+    for (const root_entry of roots) {
+      if (rh.field(root_entry, "name") !== crate_name) { continue; }
+      const action = try_prune_manifest_root(crate_path, root_entry, scratch_path, dry_run);
+      if (action.code === 1) { stats.skipped_root_touched = stats.skipped_root_touched + 1; }
+      if (action.code === 2) { stats.skipped_root_identity = stats.skipped_root_identity + 1; }
+      if (action.code === 3) { stats.skipped_root_working_or_lock = stats.skipped_root_working_or_lock + 1; }
+      if (action.code === 4) { stats.skipped_root_shape = stats.skipped_root_shape + 1; }
+      if (action.code === 5) { stats.skipped_root_remove_failure = stats.skipped_root_remove_failure + 1; }
+      if (action.code === 6) {
+        stats.removed_roots = stats.removed_roots + 1;
+        stats.removed_root_files = stats.removed_root_files + action.tree.files;
+        stats.removed_root_logical_bytes = stats.removed_root_logical_bytes + action.tree.bytes;
+      }
+    }
+  }
+  return stats;
+}
+
+// ---- finalized sessions ---------------------------------------------------
+
+// Session action: {code, tree}. code 0 keep, 1 young, 2 missing lock,
+// 3 remove failure, 4 indirect, 5 active lock, 6 removed (tree filled).
+export function try_prune_obsolete_session(crate_path, sessions, session_name, session_path, now_micros, minimum_age_micros, dry_run) {
+  require(crate_path !== "", "try_prune_obsolete_session_empty_crate");
+  require(session_name !== "", "try_prune_obsolete_session_empty_name");
+  require(session_path !== "", "try_prune_obsolete_session_empty_path");
+  const timestamp_micros = session_timestamp_micros(session_name);
+  if (timestamp_micros < 0) { return { code: 0 }; }
+  if (session_is_newest(sessions, session_name, timestamp_micros) !== 0) { return { code: 0 }; }
+  if (now_micros - timestamp_micros < minimum_age_micros) { return { code: 1 }; }
+  if (session_lock_present(crate_path, session_name) === 0) { return { code: 2 }; }
+  if (!rh.exists(session_path)) { return { code: 3 }; }
+  const tree = inspect_tree(session_path);
+  if (!tree.ok) { return { code: 4 }; }
+  const remove_code = remove_session_tree(crate_path, session_name, session_path, dry_run);
+  if (remove_code === 2) { return { code: 4 }; }
+  if (remove_code === 0) { return { code: 5 }; }
+  return { code: 6, tree: tree };
+}
+
+// -1 when the crate root is a link (rh also refused a session that was not
+// a direct directory; a `read_dir` entry with `is_dir` cannot be one).
+export function count_finalized_sessions(crate_entry, sessions) {
+  if (crate_entry.is_symlink) { return -1; }
+  return sessions.length;
+}
+
+export function prune_finalized_sessions(incremental, now_micros, minimum_age_micros, dry_run) {
+  require(incremental !== "", "prune_finalized_sessions_empty");
+  const stats = {
+    compilation_units: 0,
+    finalized_sessions: 0,
+    removed_sessions: 0,
+    removed_files: 0,
+    removed_logical_bytes: 0,
+    skipped_indirect: 0,
+    skipped_missing_lock: 0,
+    skipped_active_lock: 0,
+    skipped_young: 0,
+    skipped_remove_failure: 0
+  };
+  for (const crate_entry of rh.read_dir(incremental)) {
+    if (!crate_entry.is_dir) { continue; }
+    const crate_path = rh.join(incremental, crate_entry.name);
+    const sessions = finalized_sessions(crate_path);
+    const session_count = count_finalized_sessions(crate_entry, sessions);
+    if (session_count < 0) { stats.skipped_indirect = stats.skipped_indirect + 1; }
+    if (session_count <= 0) { continue; }
+    stats.compilation_units = stats.compilation_units + 1;
+    stats.finalized_sessions = stats.finalized_sessions + session_count;
+    for (const session of sessions) {
+      const session_name = session.name;
+      const action = try_prune_obsolete_session(crate_path, sessions, session_name, session.path, now_micros, minimum_age_micros, dry_run);
+      if (action.code === 1) { stats.skipped_young = stats.skipped_young + 1; }
+      if (action.code === 2) { stats.skipped_missing_lock = stats.skipped_missing_lock + 1; }
+      if (action.code === 3) { stats.skipped_remove_failure = stats.skipped_remove_failure + 1; }
+      if (action.code === 4) { stats.skipped_indirect = stats.skipped_indirect + 1; }
+      if (action.code === 5) { stats.skipped_active_lock = stats.skipped_active_lock + 1; }
+      if (action.code === 6) {
+        stats.removed_sessions = stats.removed_sessions + 1;
+        stats.removed_files = stats.removed_files + action.tree.files;
+        stats.removed_logical_bytes = stats.removed_logical_bytes + action.tree.bytes;
+      }
+    }
+  }
+  return stats;
+}
+
+// ---- summary --------------------------------------------------------------
+
+export function summary_line(root_manifest_state, roots, sessions, dry_run) {
+  require(root_manifest_state !== "", "emit_summary_state");
+  let line =
+    "Cargo incremental prune: scope=obsolete-finalized-sessions" +
+    ", root_manifest=" + root_manifest_state +
+    ", removed_roots=" + roots.removed_roots +
+    ", removed_root_files=" + roots.removed_root_files +
+    ", removed_root_logical_bytes=" + roots.removed_root_logical_bytes +
+    ", skipped_root_touched=" + roots.skipped_root_touched +
+    ", skipped_root_identity=" + roots.skipped_root_identity +
+    ", skipped_root_working_or_lock=" + roots.skipped_root_working_or_lock +
+    ", skipped_root_shape=" + roots.skipped_root_shape +
+    ", skipped_root_remove_failure=" + roots.skipped_root_remove_failure +
+    ", units=" + sessions.compilation_units +
+    ", finalized=" + sessions.finalized_sessions +
+    ", removed_sessions=" + sessions.removed_sessions +
+    ", removed_files=" + sessions.removed_files +
+    ", removed_logical_bytes=" + sessions.removed_logical_bytes +
+    ", skipped_indirect=" + sessions.skipped_indirect +
+    ", skipped_missing_lock=" + sessions.skipped_missing_lock +
+    ", skipped_active_lock=" + sessions.skipped_active_lock +
+    ", skipped_young=" + sessions.skipped_young +
+    ", skipped_remove_failure=" + sessions.skipped_remove_failure;
+  if (dry_run) { line = line + ", dry_run=1"; }
+  return line;
+}
+
+export function run_after_lock(incremental, target, has_manifest, manifest_path, invocation, manifest_document, dry_run) {
+  require(incremental !== "", "run_after_lock_incremental");
+  require(target !== "", "run_after_lock_target");
+  const now_micros = rh.now_ms() * 1000;
+  const minimum_age_micros = 60000000;
+  let root_manifest_state = "absent";
+  let roots = empty_root_stats();
+  if (has_manifest !== 0) {
+    if (validate_root_manifest(manifest_path, invocation, target, incremental) !== 0) {
+      root_manifest_state = "valid";
+      roots = prune_manifest_roots(incremental, manifest_document, dry_run);
+    } else {
+      root_manifest_state = "invalid";
+    }
+  }
+  const sessions = prune_finalized_sessions(incremental, now_micros, minimum_age_micros, dry_run);
+  print(summary_line(root_manifest_state, roots, sessions, dry_run));
+}
+
+// ---------------------------------------------------------------------------
+// Fingerprint-generation retention sweep.
+//
+// The session-level sweep above only trims inside a single live
+// `<crate>-<hash>` fingerprint root. The real hoard is stale generations
+// themselves: every build shape (profile, feature set, `--bin` selection,
+// extra RUSTFLAGS) mints a fresh `<crate>-<hash>` directory that Cargo never
+// removes. Keep the `KEEP` most recently modified generations per crate and
+// drop the rest, exactly like scripts/prune-incremental.sh. Guessing wrong is
+// safe: the only cost is that one crate unit recompiles from scratch.
+
+export function fingerprint_retention_keep() {
+  let keep = 2;
+  if (rh.has_env("AGENTERM_INCREMENTAL_KEEP")) {
+    const parsed = decimal_parse(rh.env_or("AGENTERM_INCREMENTAL_KEEP", ""));
+    if (parsed >= 1) { keep = parsed; }
+  }
+  return keep;
+}
+
+// Strip the trailing `-<base36 hash>` from a fingerprint generation name,
+// returning the crate name, or "" when the name is not a fingerprint root.
+export function fingerprint_generation_crate(name) {
+  const parts = name.split("-");
+  if (parts.length < 2) { return ""; }
+  const hash_part = parts[parts.length - 1];
+  if (hash_part === "" || is_base36_text(hash_part) === 0) { return ""; }
+  let crate_name = "";
+  for (let i = 0; i < parts.length - 1; i = i + 1) {
+    crate_name = i === 0 ? parts[i] : crate_name + "-" + parts[i];
+  }
+  if (crate_name === "") { return ""; }
+  return crate_name;
+}
+
+export function collect_generations(incremental) {
+  const generations = [];
+  for (const entry of rh.read_dir(incremental)) {
+    if (!entry.is_dir) { continue; }
+    const crate_key = fingerprint_generation_crate(entry.name);
+    if (crate_key === "") { continue; }
+    const path = rh.join(incremental, entry.name);
+    if (!rh.exists(path)) { continue; }
+    const mtime = session_modified_millis(path);
+    if (mtime === 0) { continue; }
+    generations.push({ crate_key: crate_key, name: entry.name, path: path, mtime: mtime });
+  }
+  return generations;
+}
+
+const REMOVE_BATCH = 200;
+
+// Returns the number of generations removed from one incremental root. The
+// "how many newer siblings" count is per crate key (a 1280-generation root
+// priced the all-pairs form out of budget), and the removals go to the perl
+// child in batches of REMOVE_BATCH roots.
+export function prune_generations(incremental, keep, dry_run) {
+  require(incremental !== "", "prune_generations_empty");
+  const generations = collect_generations(incremental);
+  const by_crate = {};
+  for (const generation of generations) {
+    const key = "k:" + generation.crate_key;
+    if (by_crate[key] === undefined) { by_crate[key] = []; }
+    by_crate[key].push(generation.mtime);
+  }
+  const doomed = [];
+  for (const generation of generations) {
+    let newer = 0;
+    for (const mtime of by_crate["k:" + generation.crate_key]) {
+      if (mtime > generation.mtime) { newer = newer + 1; }
+    }
+    if (newer >= keep && has_working_directory(generation.path) === 0) {
+      doomed.push(generation.path);
+    }
+  }
+  let removed = 0;
+  let batch = [];
+  for (let i = 0; i <= doomed.length; i = i + 1) {
+    if (i < doomed.length) { batch.push(doomed[i]); }
+    if (batch.length === REMOVE_BATCH || (i === doomed.length && batch.length > 0)) {
+      for (const code of lock_and_remove_many(batch, dry_run)) {
+        if (code === 1) { removed = removed + 1; }
+      }
+      batch = [];
+    }
+  }
+  return removed;
+}
+
+// Sweep every profile incremental root under TARGET at both depths
+// (`<profile>/incremental` and cross `triple/<profile>/incremental`). A
+// profile whose `.cargo-lock` is missing or actively held is skipped, so a
+// concurrent cargo build can never lose its live cache. Returns the total
+// number of removed generations.
+export function prune_target_generations(target, keep, dry_run) {
+  require(target !== "", "prune_target_generations_empty");
+  let removed = 0;
+  for (const depth_1 of rh.read_dir(target)) {
+    if (!depth_1.is_dir) { continue; }
+    const depth_1_path = rh.join(target, depth_1.name);
+    const profile_roots = [depth_1_path];
+    for (const depth_2 of rh.read_dir(depth_1_path)) {
+      if (depth_2.is_dir) { profile_roots.push(rh.join(depth_1_path, depth_2.name)); }
+    }
+    for (const profile_root of profile_roots) {
+      const cargo_lock_path = rh.join(profile_root, ".cargo-lock");
+      if (direct_file(cargo_lock_path) === 0) { continue; }
+      if (lock_available(cargo_lock_path) === 0) { continue; }
+      const incremental = rh.join(profile_root, "incremental");
+      if (is_direct_directory(incremental) === 0) { continue; }
+      removed = removed + prune_generations(incremental, keep, dry_run);
+    }
+  }
+  return removed;
+}
