@@ -280,12 +280,20 @@ impl Slot {
                 Some(tinyvm_qjs::GuestFault::UncaughtThrow) => {
                     return QjswasmError::UncaughtThrow;
                 }
+                // The fourth reason the comment here anticipated, which
+                // arrived at tinyvm `ec67034`. Reported as its own thing and
+                // not as a trap: a trap says "the guest stopped and the core
+                // does not know why", which for a capability boundary sends
+                // the reader looking for a defect that is not there.
+                Some(tinyvm_qjs::GuestFault::CapabilityBoundary) => {
+                    return QjswasmError::CapabilityBoundary;
+                }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
-                // record a fourth reason at the same word. Falling through to
-                // `classify` is the right default -- a reason this build does
-                // not understand is reported as the trap the core saw, which
-                // is true if unhelpful, rather than mapped onto whichever
-                // known arm happens to be nearest.
+                // record a *fifth* reason at the same word. Falling through to
+                // `classify` stays the right default -- a reason this build
+                // does not understand is reported as the trap the core saw,
+                // which is true if unhelpful, rather than mapped onto
+                // whichever known arm happens to be nearest.
                 _ => {}
             }
         }

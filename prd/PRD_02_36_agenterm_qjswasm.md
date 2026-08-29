@@ -1107,6 +1107,15 @@ flowchart TD
 `switch` 是裸词，都会。**裸词与标点的模式必须先剥离字符串与注释，
 带定界符的方法调用模式不必——这条可以事前判断，不必事后发现。**
 
+**第五课：一条注释预言了自己的未来，而那正是它该做的事。**
+`slot.rs` 里那条兜底臂写着「`GuestFault` 是 `#[non_exhaustive]`，
+将来的上游可能在同一个字上记第四种原因」——2026-08-29 它真的来了，
+而下游**一行都不用改结构**，只要把预留的位置填上。
+**一个「我不认识的将来」写进代码里，比一个 `match` 穷举更耐久**：
+穷举会在上游加变体时**编译失败**，兜底臂会在那之前**继续给出真话**
+（「引擎报了个我不懂的原因，这是核看到的 trap」），
+然后由人决定要不要把它升级成一句更好的话。
+
 **一条待办，决定是对的而诊断是空的。** String 上读 `length` 以外的属性会 trap，
 理由写在 `runtime.rs` 里且成立：`"ab".toUpperCase` 在 ECMA-262 里**是个真函数**，
 返回 `undefined` 是「错答案穿着对答案的衣服」。但 trap 出来只有
@@ -1165,7 +1174,7 @@ Legend: `[x]` 已有可执行证据 · `[~]` 部分 · `[ ]` 规划 · `[–]` �
 `f8adef8`（客人自报堆耗尽）→ `f21f0f2`（对象 / 函数值 / try / JSON / `?:` / 三个转换）→
 `048bcf2`（数组，含 JSON 收发）→ `577af37`（Array 出脸时具名）→ `68afb35`（捕获闭包）→
 `ab29522`（整个 DecimalLiteral）→ `653cebe`（模板字面量）→ `ee3842b`（箭头函数，位置测试补在 `9e02e37`）→
-`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ **`3a347be`**（`Number`，当前 pin，2026-08-29）。
+`548fbbe`（`"ab".length`）→ `21d8d9a`（五个方法）→ `0afc88a`（每轮新绑定）→ `e32efcb`（`for … of`）→ `8bbdf2d`（模块）→ `c357b56`（includes/startsWith/endsWith）→ `4753719`（`split`）→ `e6a58b0`（`toLowerCase`）→ `aca1589`（break/continue + replace/replaceAll）→ `3a347be`（`Number`）→ **`ec67034`**（第四类 fault code，当前 pin，2026-08-29）。
 
 每一次抬 pin 都带**同一组三样东西**：上游一份 design note、一条对**改动前那个提交**
 测出的代价数字、以及本仓拒绝语料里那一行按预写规则搬家。少任何一样都不算落地。
@@ -1268,7 +1277,9 @@ agenterm-qjswasm                                        [~]
 │   ├── `Number(x)`：折成 `+x`，零运行时                      [x] rev 3a347be，缺的只是名字
 │   │   └── `parseInt`（前缀 + 基数，与 Number 不同）         [ ] 按名等需求，不做别名
 │   ├── 需求普查：**已无「有需求且未做」的行**                [x] 剩下的全是零使用
-│   └── String 上非 `length` 的属性读取                       [~] **决定对、诊断空**，见下
+│   └── String 上非 `length` 的属性读取                       [x] **决定对，诊断补上了**
+│       ├── 第四类 fault code + 宿主面一句人话                 [x] rev ec67034，上游 7 字节
+│       └── 跨 `finally` 的 break / continue                   [–] 数完决定不做：语料 1 处
 │   ├── 循环里每轮是一个新绑定（14.3.1 / 13.7.4.7）          [x] rev 0afc88a
 │   ├── `for … of` 遍历数组（13.7.5）                        [x] rev 84f8161，需求第一
 │   ├── 模块：`import * as` + `export`（16.2）               [x] rev 8bbdf2d，需求第二

@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "3a347be";
+pub const UPSTREAM_TINYVM_REV: &str = "ec67034";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -497,6 +497,21 @@ pub enum QjswasmError {
     /// about the host boundary rather than about throwing. A script that wants
     /// the host to see *what* went wrong must catch it and return or print it.
     UncaughtThrow,
+    /// The script asked for something the engine does not have, and it was
+    /// only knowable at run time.
+    ///
+    /// Distinct from [`QjswasmError::Trap`] on purpose: a trap is "the guest
+    /// stopped and the core does not know why", which for an engine boundary
+    /// sends the reader to look for a bug that is not there. This one names a
+    /// capability, so the answer to it is "write it differently, or ask for
+    /// the capability" rather than "file a defect".
+    ///
+    /// One producer upstream today: reading a property other than `length`
+    /// from a String. `"ab".toUpperCase` is a real function in ECMA-262, so
+    /// answering `undefined` would be a wrong answer wearing a right answer's
+    /// clothes -- the engine refuses instead, and this is that refusal
+    /// arriving with a name.
+    CapabilityBoundary,
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -554,6 +569,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::Load(e) => f.debug_tuple("Load").field(&e.message()).finish(),
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
             Self::UncaughtThrow => f.write_str("UncaughtThrow"),
+            Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -573,6 +589,11 @@ impl std::fmt::Display for QjswasmError {
             Self::UncaughtThrow => {
                 write!(f, "the script threw a value and nothing caught it")
             }
+            Self::CapabilityBoundary => write!(
+                f,
+                "the script reached something this engine does not have yet; \
+                 the only String property it answers is `length`"
+            ),
             Self::Budget(what) => write!(f, "budget exhausted: {what}"),
             Self::Door(what) => write!(f, "host door: {what}"),
             Self::NoSuchSlot(SlotId { engine, index }) => {
