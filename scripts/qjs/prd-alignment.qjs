@@ -1,0 +1,511 @@
+// Keep the PRD modules, shipped evidence contract, and public catalogs aligned.
+//
+// Args:
+//   REPO [CLI_EXE]
+// Ported from scripts/rh/prd-alignment.rh; runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+function well_formed_name(name, code) {
+  rh.require(name !== "", code + ":" + name);
+  rh.require(!name.startsWith("."), code + ":" + name);
+  rh.require(!name.startsWith("-"), code + ":" + name);
+  rh.require(!name.endsWith("."), code + ":" + name);
+  rh.require(!name.endsWith("-"), code + ":" + name);
+}
+
+const args = rh.args();
+if (args.length !== 1) {
+  if (args.length !== 2) { throw "expected: REPO [CLI_EXE]"; }
+}
+
+const repo = rh.absolute(args[0]);
+const use_arg_cli = args.length === 2 ? 1 : 0;
+// The CLI to interrogate: the argument (or its `.exe` sibling), else
+// dist/agenterm (or dist/agenterm.com). rh re-derived this at every call
+// site; it is one value.
+let cli = "";
+if (use_arg_cli === 1) {
+  const cli_arg = rh.absolute(args[1]);
+  const cli_arg_exe = cli_arg + ".exe";
+  rh.require(
+    rh.exists(cli_arg) || rh.exists(cli_arg_exe),
+    "prd_alignment_input_missing:" + cli_arg
+  );
+  cli = rh.exists(cli_arg) ? cli_arg : cli_arg_exe;
+} else {
+  const cli_default = rh.join(repo, "dist/agenterm");
+  const cli_default_exe = rh.join(repo, "dist/agenterm.com");
+  rh.require(
+    rh.exists(cli_default) || rh.exists(cli_default_exe),
+    "prd_alignment_input_missing:" + cli_default
+  );
+  cli = rh.exists(cli_default) ? cli_default : cli_default_exe;
+}
+
+const prd_path = rh.join(repo, "PRD.md");
+const detail_directory = rh.join(repo, "prd");
+const contract_path = rh.join(detail_directory, "alignment-contract.json");
+rh.require(rh.exists(repo), "prd_alignment_input_missing");
+rh.require(rh.exists(prd_path), "prd_alignment_input_missing");
+rh.require(rh.exists(detail_directory), "prd_alignment_input_missing");
+rh.require(rh.exists(contract_path), "prd_alignment_input_missing");
+
+const stdout_path = rh.join(repo, ".prd-alignment.stdout.tmp");
+
+const prd_index = rh.read_text(prd_path);
+const linked = [];
+let linked_first = 1;
+for (const part of prd_index.split("(prd/")) {
+  if (linked_first === 0) {
+    const closing = part.split(")");
+    rh.require(closing.length >= 2, "prd_alignment_link_unclosed");
+    const link_name = closing[0];
+    if (link_name.startsWith("PRD_")) {
+      if (link_name.endsWith(".md")) {
+        linked.push(link_name);
+      }
+    }
+  }
+  if (linked_first === 1) {
+    linked_first = 0;
+  }
+}
+
+const actual = [];
+for (const dir_entry of rh.read_dir(detail_directory)) {
+  const file_name = "" + dir_entry.name;
+  if (dir_entry.is_file) {
+    if (file_name.startsWith("PRD_")) {
+      if (file_name.endsWith(".md")) {
+        actual.push(file_name);
+      }
+    }
+  }
+}
+rh.require(
+  actual.length === linked.length,
+  "prd_alignment_list_count:prd_modules:expected=" + linked.length + ":actual=" + actual.length
+);
+const linked_seen = {};
+for (const name of linked) {
+  const linked_name = "" + name;
+  rh.require(
+    linked_seen[linked_name] !== true,
+    "prd_alignment_list_duplicate:prd_modules:" + linked_name
+  );
+  linked_seen[linked_name] = true;
+}
+for (const name of actual) {
+  const actual_name = "" + name;
+  rh.require(
+    linked_seen[actual_name] === true,
+    "prd_alignment_list_mismatch:prd_modules:missing=" + actual_name
+  );
+}
+
+// The PRD text, lowercased: the root document and every linked module, in
+// link order. rh re-read these per capability and per public name; the
+// bytes are the same and the search below is the same.
+const root_document = rh.read_text(prd_path).toLowerCase();
+const detail_documents = [];
+for (const linked_name of linked) {
+  detail_documents.push(rh.read_text(rh.join(detail_directory, "" + linked_name)).toLowerCase());
+}
+
+function mentioned_anywhere(needle) {
+  if (root_document.includes(needle)) { return true; }
+  for (const detail_document of detail_documents) {
+    if (detail_document.includes(needle)) { return true; }
+  }
+  return false;
+}
+
+function status_line_found(document, declaration, partial) {
+  for (const source_line of document.split("\n")) {
+    const line = source_line.trim();
+    if (line.includes(declaration)) {
+      if (partial) {
+        if (line.startsWith("- [~]")) { return true; }
+      } else {
+        if (line.startsWith("- [x]")) { return true; }
+      }
+    }
+  }
+  return false;
+}
+
+const contract = rh.parse_file(contract_path);
+rh.require(contract.schema_version === 3, "prd_alignment_contract_schema");
+const capabilities = contract.capabilities;
+rh.require(capabilities.length > 0, "prd_alignment_capabilities_empty");
+
+const capability_ids = {};
+let capability_count = 0;
+const allowed_kinds = { "architecture": true, "behavior": true, "decision": true, "visual": true };
+const allowed_modes = {
+  "black-box": true, "black-box-partial": true, "decision": true, "unit-source-partial": true
+};
+for (const capability of capabilities) {
+  const cap_id = "" + capability.id;
+  rh.require(cap_id !== "", "prd_alignment_capability_id");
+  rh.require(!cap_id.startsWith("."), "prd_alignment_capability_id");
+  rh.require(!cap_id.startsWith("-"), "prd_alignment_capability_id");
+  rh.require(!cap_id.endsWith("."), "prd_alignment_capability_id");
+  rh.require(!cap_id.endsWith("-"), "prd_alignment_capability_id");
+  rh.require(capability_ids[cap_id] !== true, "prd_alignment_capability_duplicate:" + cap_id);
+  capability_ids[cap_id] = true;
+  capability_count = capability_count + 1;
+  const cap_kind = "" + capability.kind;
+  rh.require(allowed_kinds[cap_kind] === true, "prd_alignment_capability_kind:" + capability.id);
+  const cap_evidence_mode = "" + capability.evidence_mode;
+  rh.require(allowed_modes[cap_evidence_mode] === true, "prd_alignment_evidence_mode:" + capability.id);
+  if (capability.kind === "decision") {
+    rh.require(
+      capability.status === "accepted"
+        && capability.evidence_mode === "decision"
+        && capability.evidence_ids.length === 0,
+      "prd_alignment_decision_contract:" + capability.id
+    );
+  } else if (capability.status === "shipped") {
+    rh.require(
+      capability.evidence_mode === "black-box" && capability.evidence_ids.length > 0,
+      "prd_alignment_shipped_contract:" + capability.id
+    );
+  } else {
+    rh.require(
+      capability.status === "partial"
+        && (capability.evidence_mode === "black-box-partial"
+          || capability.evidence_mode === "unit-source-partial")
+        && capability.evidence_ids.length > 0,
+      "prd_alignment_partial_contract:" + capability.id
+    );
+  }
+  const declaration = ("" + capability.prd).toLowerCase();
+  const partial = capability.status === "partial";
+  let status_found = status_line_found(root_document, declaration, partial);
+  for (const detail_document of detail_documents) {
+    if (!status_found) {
+      status_found = status_line_found(detail_document, declaration, partial);
+    }
+  }
+  rh.require(status_found, "prd_alignment_status_line:" + capability.id);
+}
+
+const gate_manifest = rh.parse_file(rh.join(repo, "scripts/qualification-gates.json"));
+const registered_evidence = {};
+let registered_count = 0;
+const evidence_suites = {
+  "cli-smoke": true,
+  "control-center-smoke": true,
+  "control-center-linux-smoke": true,
+  "control-center-macos-smoke": true,
+  "cu-windows-smoke": true,
+  "unix-frontend-linux-smoke": true,
+  "unix-frontend-macos-smoke": true,
+  "server-smoke": true,
+  "native-ipc-smoke": true,
+  "native-ipc-compat-smoke": true,
+  "remote-ui-smoke": true,
+  "remote-ui-upgrade-smoke": true,
+  "fleet-smoke": true,
+  "script-smoke": true,
+  "startup-smoke": true,
+  "theme-smoke": true,
+  "wake-smoke": true,
+  "working-context-smoke": true,
+  "workbench-smoke": true
+};
+const evidence_gates = [];
+for (const gate of gate_manifest.required_gates) {
+  const gate_id = "" + gate.id;
+  if (evidence_suites[gate_id] === true) {
+    evidence_gates.push(gate);
+  }
+}
+const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
+rh.require(host_native_manifest.schema_version === 1, "prd_alignment_host_native_schema");
+for (const gate of host_native_manifest.gates) {
+  const host_gate_id = "" + gate.id;
+  rh.require(
+    evidence_suites[host_gate_id] === true
+      && (gate.platform === "linux" || gate.platform === "macos"),
+    "prd_alignment_host_native_gate:" + gate.id
+  );
+  evidence_gates.push(gate);
+}
+const rh_dir = rh.join(repo, "scripts/rh");
+for (const gate of evidence_gates) {
+  const suite_name = "" + gate.id;
+  let effective_suite = suite_name;
+  if (typeof gate.suite === "string") {
+    const suite_override = "" + gate.suite;
+    if (suite_override !== "") {
+      effective_suite = suite_override;
+    }
+  }
+  const rh_path = rh.join(rh_dir, effective_suite + ".rh");
+  rh.require(rh.exists(rh_path), "prd_alignment_evidence_suite_missing:" + gate.id);
+  const suite_source = rh.read_text(rh_path);
+  for (const evidence_id of gate.evidence) {
+    const evidence_key = "" + evidence_id;
+    well_formed_name(evidence_key, "prd_alignment_evidence_id");
+    rh.require(
+      registered_evidence[evidence_key] !== true,
+      "prd_alignment_evidence_duplicate:" + evidence_key
+    );
+    rh.require(
+      suite_source.includes("EVIDENCE " + evidence_key)
+        || suite_source.includes("Write-Evidence '" + evidence_key + "'")
+        || suite_source.includes("'" + evidence_key + "'")
+        || suite_source.includes("\"" + evidence_key + "\""),
+      "prd_alignment_evidence_not_emitted:" + evidence_key
+    );
+    registered_evidence[evidence_key] = true;
+    registered_count = registered_count + 1;
+  }
+}
+
+// No `Object.keys` in this engine yet: the distinct expected evidence ids
+// are kept as an array alongside the map.
+const expected_evidence_map = {};
+const expected_evidence_keys = [];
+for (const capability of capabilities) {
+  if (capability.kind !== "decision") {
+    for (const evidence_id of capability.evidence_ids) {
+      const evidence_key = "" + evidence_id;
+      if (expected_evidence_map[evidence_key] !== true) {
+        expected_evidence_keys.push(evidence_key);
+      }
+      expected_evidence_map[evidence_key] = true;
+    }
+  }
+}
+rh.require(
+  expected_evidence_keys.length === registered_count,
+  "prd_alignment_list_count:capability_evidence:expected=" +
+    expected_evidence_keys.length + ":actual=" + registered_count
+);
+for (const expected_key of expected_evidence_keys) {
+  rh.require(
+    registered_evidence[expected_key] === true,
+    "prd_alignment_list_mismatch:capability_evidence:missing=" + expected_key
+  );
+}
+
+const cli_options = { cwd: repo, timeout_ms: 10000 };
+const catalog_code = rh.command_stdout_file(cli, ["cli", "list-commands"], stdout_path, cli_options);
+rh.require(catalog_code === 0, "prd_alignment_cli_catalog");
+const catalog_text = rh.read_text(stdout_path);
+let catalog_count = 0;
+const public_names = {};
+const public_name_keys = [];
+function register_public_name(name) {
+  if (public_names[name] !== true) { public_name_keys.push(name); }
+  public_names[name] = true;
+}
+for (const source_line of catalog_text.split("\n")) {
+  const line = source_line.trim();
+  if (line !== "") {
+    catalog_count = catalog_count + 1;
+    const pieces = line.split(" (");
+    rh.require(pieces.length <= 2, "prd_alignment_catalog_line:" + line);
+    const public_name = "" + pieces[0];
+    well_formed_name(public_name, "prd_alignment_command_name");
+    register_public_name(public_name);
+    if (pieces.length === 2) {
+      const aliases = pieces[1];
+      rh.require(aliases.endsWith(")"), "prd_alignment_catalog_aliases");
+      const alias_body = aliases.split(")")[0];
+      for (const source_alias of alias_body.split(",")) {
+        const alias_name = "" + source_alias.trim();
+        well_formed_name(alias_name, "prd_alignment_command_alias");
+        register_public_name(alias_name);
+      }
+    }
+  }
+}
+for (const name of public_name_keys) {
+  rh.require(mentioned_anywhere(name), "prd_alignment_public_command_missing:" + name);
+}
+for (const root_name of contract.planned_command_roots) {
+  const planned_root = "" + root_name;
+  rh.require(
+    public_names[planned_root] !== true,
+    "prd_alignment_planned_command_public:" + planned_root
+  );
+}
+
+const protocol_code = rh.command_stdout_file(cli, ["cli", "protocol-info"], stdout_path, cli_options);
+rh.require(protocol_code === 0, "prd_alignment_protocol");
+const protocol = JSON.parse(rh.read_text(stdout_path));
+rh.require(protocol.command_catalog.schema_version === 1, "prd_alignment_command_catalog_schema");
+const catalog_lines = [];
+for (const source_line of catalog_text.split("\n")) {
+  const catalog_line = source_line.trim();
+  if (catalog_line !== "") {
+    catalog_lines.push("" + catalog_line);
+  }
+}
+rh.require(
+  catalog_lines.length === catalog_count,
+  "prd_alignment_list_count:protocol_command_catalog:expected=" +
+    catalog_count + ":actual=" + catalog_lines.length
+);
+let catalog_pos = 0;
+for (const command of protocol.command_catalog.commands) {
+  const command_id = "" + command.id;
+  if (catalog_pos < catalog_lines.length) {
+    const catalog_line = "" + catalog_lines[catalog_pos];
+    const mismatch =
+      "prd_alignment_list_mismatch:protocol_command_catalog:index=" +
+      catalog_pos + ":expected=" + catalog_line + ":actual=" + command_id;
+    if (command.aliases.length > 0) {
+      const paren_parts = catalog_line.split(" (");
+      rh.require(paren_parts.length === 2, mismatch);
+      rh.require(paren_parts[0] === command_id, mismatch);
+      const alias_tail = paren_parts[1];
+      rh.require(alias_tail.endsWith(")"), "prd_alignment_catalog_aliases");
+      const alias_parts = alias_tail.split(")")[0].split(",");
+      rh.require(alias_parts.length === command.aliases.length, mismatch);
+      let alias_pos = 0;
+      for (const alias of command.aliases) {
+        const expected_alias = "" + alias;
+        rh.require(("" + alias_parts[alias_pos].trim()) === expected_alias, mismatch);
+        alias_pos = alias_pos + 1;
+      }
+    } else {
+      rh.require(catalog_line === command_id, mismatch);
+    }
+  }
+  catalog_pos = catalog_pos + 1;
+}
+rh.require(
+  catalog_pos === catalog_count,
+  "prd_alignment_list_count:protocol_command_catalog:expected=" +
+    catalog_count + ":actual=" + catalog_pos
+);
+
+const protocol_capabilities = {};
+const protocol_capability_keys = [];
+for (const capability of capabilities) {
+  if (typeof capability.protocol_feature === "string") {
+    const feature = "" + capability.protocol_feature;
+    if (feature !== "") {
+      rh.require(
+        protocol_capabilities[feature] !== true,
+        "prd_alignment_protocol_feature_duplicate:" + feature
+      );
+      protocol_capabilities[feature] = true;
+      protocol_capability_keys.push(feature);
+    }
+  }
+}
+const protocol_features = protocol.features;
+// protocol-info `features` is a flat JSON object of booleans. Its key count
+// is what rh compared; with no `Object.keys` here yet, the count is read off
+// the compact serialization: one `":` per key, none inside a boolean value.
+const protocol_features_text = JSON.stringify(protocol_features);
+const protocol_feature_count = protocol_features_text.split("\":").length - 1;
+rh.require(
+  protocol_capability_keys.length === protocol_feature_count,
+  "prd_alignment_list_count:protocol_features:expected=" +
+    protocol_capability_keys.length + ":actual=" + protocol_feature_count
+);
+for (const feature_key of protocol_capability_keys) {
+  const needle_spaced = "\"" + feature_key + "\": true";
+  const needle_compact = "\"" + feature_key + "\":true";
+  rh.require(
+    protocol_features_text.includes(needle_spaced) || protocol_features_text.includes(needle_compact),
+    "prd_alignment_protocol_feature_false:" + feature_key
+  );
+}
+for (const extension of protocol.extensions) {
+  const ext_name = "" + extension;
+  rh.require(public_names[ext_name] === true, "prd_alignment_extension_missing:" + ext_name);
+}
+for (const command of protocol.compatibility.tmux_rmux) {
+  const tmux_cmd = "" + command;
+  rh.require(public_names[tmux_cmd] === true, "prd_alignment_compatibility_missing:" + tmux_cmd);
+}
+for (const command of protocol.compatibility.partial) {
+  const partial_cmd = "" + command;
+  rh.require(public_names[partial_cmd] === true, "prd_alignment_compatibility_missing:" + partial_cmd);
+}
+
+const mux_code = rh.command_stdout_file(cli, ["cli", "mux", "compatibility", "--json"], stdout_path, cli_options);
+rh.require(mux_code === 0, "prd_alignment_mux_compatibility");
+const mux_compatibility = JSON.parse(rh.read_text(stdout_path));
+const mux_list_code = rh.command_stdout_file(cli, ["cli", "mux", "list-commands"], stdout_path, cli_options);
+rh.require(mux_list_code === 0, "prd_alignment_mux_catalog");
+const mux_text = rh.read_text(stdout_path);
+let mux_line_count = 0;
+const supported_mux = [];
+const unsupported_mux = [];
+for (const source_line of mux_text.split("\n")) {
+  const line = source_line.trim();
+  if (line !== "") {
+    mux_line_count = mux_line_count + 1;
+    if (line.includes(" (unsupported:")) {
+      unsupported_mux.push(line.split(" ")[0]);
+    } else {
+      supported_mux.push(line);
+    }
+  }
+}
+const expected_supported_mux = [];
+for (const name of mux_compatibility.supported) {
+  expected_supported_mux.push("" + name);
+}
+rh.require(
+  expected_supported_mux.length === supported_mux.length,
+  "prd_alignment_list_count:mux_supported:expected=" +
+    expected_supported_mux.length + ":actual=" + supported_mux.length
+);
+let supported_pos = 0;
+for (const expected_item of expected_supported_mux) {
+  const actual_mux = "" + supported_mux[supported_pos];
+  rh.require(
+    expected_item === actual_mux,
+    "prd_alignment_list_mismatch:mux_supported:index=" +
+      supported_pos + ":expected=" + expected_item + ":actual=" + actual_mux
+  );
+  supported_pos = supported_pos + 1;
+}
+const expected_unsupported = [];
+for (const command of mux_compatibility.explicitly_unsupported) {
+  expected_unsupported.push("" + command.name);
+}
+rh.require(
+  expected_unsupported.length === unsupported_mux.length,
+  "prd_alignment_list_count:mux_unsupported:expected=" +
+    expected_unsupported.length + ":actual=" + unsupported_mux.length
+);
+let unsupported_pos = 0;
+for (const expected_item of expected_unsupported) {
+  const actual_mux = "" + unsupported_mux[unsupported_pos];
+  rh.require(
+    expected_item === actual_mux,
+    "prd_alignment_list_mismatch:mux_unsupported:index=" +
+      unsupported_pos + ":expected=" + expected_item + ":actual=" + actual_mux
+  );
+  unsupported_pos = unsupported_pos + 1;
+}
+for (const name of supported_mux) {
+  const mux_name = "" + name;
+  rh.require(mentioned_anywhere(mux_name), "prd_alignment_mux_command_missing:" + mux_name);
+}
+for (const name of unsupported_mux) {
+  const mux_name = "" + name;
+  rh.require(mentioned_anywhere(mux_name), "prd_alignment_mux_command_missing:" + mux_name);
+}
+
+rh.try_remove_file(stdout_path);
+
+print(
+  "PASS: PRD aligns with " + catalog_count +
+  " catalog entries, " + public_name_keys.length + " public names, " +
+  protocol_feature_count + " protocol features, " + mux_line_count +
+  " mux commands, " + capability_count + " capability IDs, and " +
+  registered_count + " executable evidence IDs"
+);
+return 0;
