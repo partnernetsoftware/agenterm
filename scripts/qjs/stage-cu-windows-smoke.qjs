@@ -1,0 +1,74 @@
+// Stage the exact Windows agenterm-cu smoke delivery pair without shell policy.
+// Moved from rh on 2026-08-29.
+//
+// Args: AGENTERM_CU_EXE AGENTERM_DLL DESTINATION_DIRECTORY
+//
+// Runs under `--profile tool`. rh's `cc_lines` hook (pack-qualification
+// metadata, not script behaviour) carried:
+//   "agenterm-cu.exe and agenterm.dll sources are nonempty regular files"
+//   "staged pair preserves formal names and exact byte sizes"
+import * as rh from "lib/rh_compat";
+
+// rh's `PathBuf::file_name`: the last `/`-separated piece. The door speaks
+// `/` only (see lib/path.qjs), so a `\` path is not split here.
+function file_name(p) {
+  const parts = p.split("/");
+  return parts[parts.length - 1];
+}
+
+// rh's `std::fs::copy`; rh_compat has no spelling for `fs_copy` yet.
+function copy(source, destination) {
+  if (fs_copy(source, destination) !== 0) {
+    throw "fs_copy " + source + ":" + tool_result();
+  }
+}
+
+function require_nonempty_file(path, code) {
+  rh.require(rh.exists(path), code + "_missing:" + path);
+  const metadata = rh.metadata(path);
+  rh.require(metadata.is_file, code + "_not_file:" + path);
+  rh.require(metadata.len > 0, code + "_empty:" + path);
+}
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+rh.require(
+  args.length === 3,
+  "expected: AGENTERM_CU_EXE AGENTERM_DLL DESTINATION_DIRECTORY"
+);
+const executable = rh.absolute(args[0]);
+const library = rh.absolute(args[1]);
+const destination = rh.absolute(args[2]);
+
+require_nonempty_file(executable, "cu_smoke_stage_executable");
+require_nonempty_file(library, "cu_smoke_stage_library");
+rh.require(
+  file_name(executable) === "agenterm-cu.exe",
+  "cu_smoke_stage_executable_name"
+);
+rh.require(
+  file_name(library) === "agenterm.dll",
+  "cu_smoke_stage_library_name"
+);
+
+rh.create_dir_all(destination);
+const staged_executable = rh.join(destination, "agenterm-cu.exe");
+const staged_library = rh.join(destination, "agenterm.dll");
+copy(executable, staged_executable);
+copy(library, staged_library);
+require_nonempty_file(staged_executable, "cu_smoke_staged_executable");
+require_nonempty_file(staged_library, "cu_smoke_staged_library");
+rh.require(
+  rh.metadata(executable).len === rh.metadata(staged_executable).len,
+  "cu_smoke_staged_executable_size"
+);
+rh.require(
+  rh.metadata(library).len === rh.metadata(staged_library).len,
+  "cu_smoke_staged_library_size"
+);
+
+print("PASS: staged Windows agenterm-cu smoke delivery pair");
+return 0;
