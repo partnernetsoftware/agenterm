@@ -1,0 +1,70 @@
+// Run one ordered cold-to-warm Windows Quick experiment. The workflow owns
+// runner selection and sccache setup; this native script owns sample semantics.
+//
+// Args: CACHE_STRATEGY EVIDENCE_DIRECTORY
+// Ported from scripts/rh/performance-samples.rh; runs under `--profile tool`.
+// Windows-only by construction (it drives `check.cmd` through `cmd.exe`).
+import * as rh from "lib/rh_compat";
+
+const args = rh.args();
+if (args.length !== 2) { throw "performance_samples_arguments"; }
+
+const cache = args[0];
+rh.require(
+  cache === "target" || cache === "sccache" || cache === "none",
+  "performance_samples_cache"
+);
+const evidence = rh.absolute(args[1]);
+rh.create_dir_all(evidence);
+
+for (let sample = 1; sample < 4; sample = sample + 1) {
+  const sample_tag = "" + sample;
+
+  if (sample === 1 || cache !== "target") {
+    const clean_code = rh.command("cargo", ["clean"], { timeout_ms: 300000 }).exit_code;
+    rh.require(clean_code === 0, "performance_samples_clean:" + sample_tag);
+  }
+  if (cache === "sccache") {
+    const reset_code = rh.command("sccache", ["--zero-stats"], { timeout_ms: 30000 }).exit_code;
+    rh.require(reset_code === 0, "performance_samples_sccache_reset:" + sample_tag);
+  }
+
+  const timing = rh.join(evidence, "performance-" + sample_tag + ".json");
+  const quick_cmdline = "check.cmd --quick --timing \"" + timing + "\"";
+  const quick_code = rh.command(
+    "cmd.exe",
+    ["/d", "/s", "/c", quick_cmdline],
+    { timeout_ms: 900000 }
+  ).exit_code;
+  rh.require(quick_code === 0, "performance_samples_quick:" + sample_tag);
+
+  if (cache === "sccache") {
+    const stats_path = rh.absolute("sccache-" + sample_tag + ".json");
+    const stderr_path = rh.absolute("sccache-" + sample_tag + ".stderr");
+    const stats_code = rh.command_stdout_file(
+      "sccache",
+      ["--show-stats", "--stats-format", "json"],
+      stats_path,
+      { timeout_ms: 30000 }
+    );
+    if (rh.exists(stderr_path)) {
+      const stderr = rh.read_text(stderr_path);
+      if (stderr !== "") {
+        print(stderr);
+      }
+      rh.try_remove_file(stderr_path);
+    }
+    rh.require(
+      stats_code === 0 && rh.exists(stats_path),
+      "performance_samples_sccache_stats:" + sample_tag
+    );
+  }
+}
+
+const report = {
+  cache_strategy: cache,
+  samples: 3,
+  evidence_directory: evidence
+};
+print(rh.stringify_pretty(report));
+return 0;
