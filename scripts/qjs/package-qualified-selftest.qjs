@@ -1,0 +1,313 @@
+// Prove the offline packager accepts only the exact qualified byte set.
+//
+// Args: REPO
+// Runs under `--profile tool`. Every packager leg -- the two that must pass
+// and the four that must be refused -- runs the real entry in a CHILD
+// process (see `run_packager`); the worker is $AGENTERM_BOOTSTRAP_WORKER when
+// set, else the staged console forwarder `dist/agenterm.com` the rh original
+// used.
+//
+// Changed from rh, on purpose: rh built the two accepting packages in-process
+// and only the rejecting legs in children. Here the accepting legs are
+// children too: the engine caps one run at 16M steps, and the fixture, two
+// in-process builds, four child legs, and the source scan together measured
+// past it (the run died in the third rejection leg, wherever it was cut).
+// A child gets its own budget, and the legs then exercise the shipped
+// entries rather than the library they wrap.
+import * as rh from "lib/rh_compat";
+import * as package_qualified from "lib/package_qualified";
+
+function assert_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function file_size(path, code) {
+  assert_ok(rh.exists(path) && rh.metadata(path).is_file, code + ":" + path);
+  return rh.metadata(path).len;
+}
+
+function cleanup_fixture(fixture, owned_root) {
+  const resolved = rh.absolute(fixture);
+  const owned_absolute = rh.absolute(owned_root);
+  assert_ok(resolved.startsWith(owned_absolute), "package_selftest_fixture_outside_owned_root");
+  if (rh.exists(resolved)) {
+    rh.try_remove_dir_all(resolved);
+    assert_ok(!rh.exists(resolved), "package_selftest_fixture_cleanup");
+  }
+}
+
+// One packager entry, run to completion in a child with the fixture as REPO.
+function run_packager(worker, repo, entry, fixture, receipt, output_relative) {
+  return rh.command(
+    worker,
+    [
+      "cli", "script", "run", "--profile", "tool",
+      "scripts/qjs/" + entry + ".qjs", "--",
+      fixture,
+      receipt,
+      output_relative
+    ],
+    { cwd: repo, timeout_ms: 180000 }
+  );
+}
+
+function expect_package_success(worker, repo, entry, fixture, receipt, output_relative, code) {
+  const out = run_packager(worker, repo, entry, fixture, receipt, output_relative);
+  assert_ok(out.exit_code === 0, code + ":" + out.stdout + out.stderr);
+}
+
+function expect_package_rejection(worker, repo, fixture, output_relative, code) {
+  // A rejection is a throw the packager does not catch, observed as the
+  // child's non-zero exit rather than ending this self-test. The CLI reports
+  // an uncaught throw with a fixed sentence; requiring it separates "the
+  // packager refused" from "the child crashed or ran out of budget", which
+  // exit alone cannot.
+  const reject = run_packager(worker, repo, "package-qualified", fixture, "target/qualification/receipt.json", output_relative);
+  assert_ok(
+    reject.exit_code !== 0 && reject.stderr.includes("the script threw a value"),
+    "package_selftest_expected_rejection:" + code + ":" + reject.stdout + reject.stderr
+  );
+}
+
+function git_in(fixture, args, code) {
+  const out = rh.command("git", args, { cwd: fixture, timeout_ms: 30000 });
+  if (out.exit_code !== 0) { assert_ok(false, code + ":" + out.stdout + out.stderr); }
+  return out.stdout;
+}
+
+if (arg_count() !== 1) { throw "expected: REPO"; }
+if (arg(0) !== 0) { throw "arg: " + tool_result(); }
+const repo = rh.absolute(tool_result());
+const worker = rh.env_or("AGENTERM_BOOTSTRAP_WORKER", rh.join(repo, "dist/agenterm.com"));
+const owned_root = rh.join(repo, "target/qualification");
+rh.create_dir_all(owned_root);
+const fixture_token = "" + rh.now_ms();
+const fixture_name = "package-selftest-" + fixture_token;
+const fixture = rh.join(owned_root, fixture_name);
+rh.create_dir_all(fixture);
+
+const repo_scripts = rh.join(repo, "scripts");
+const fixture_scripts = rh.join(fixture, "scripts");
+const fixture_dist = rh.join(fixture, "dist");
+const fixture_qualification = rh.join(fixture, "target/qualification");
+rh.create_dir_all(fixture_dist);
+rh.create_dir_all(fixture_scripts);
+rh.create_dir_all(fixture_qualification);
+rh.atomic_write(rh.join(fixture, ".gitignore"), "/dist/\n/target/\n");
+const cargo_path = rh.join(fixture, "Cargo.lock");
+rh.atomic_write(cargo_path, "fixture lock\n");
+rh.atomic_write(rh.join(fixture, "LICENSE-APACHE"), "fixture LICENSE-APACHE\n");
+rh.atomic_write(rh.join(fixture, "LICENSE-MIT"), "fixture LICENSE-MIT\n");
+rh.atomic_write(rh.join(fixture, "THIRD_PARTY_NOTICES.md"), "fixture THIRD_PARTY_NOTICES.md\n");
+const artifacts_source = rh.join(repo_scripts, "artifacts.json");
+const artifacts_destination = rh.join(fixture_scripts, "artifacts.json");
+rh.copy(artifacts_source, artifacts_destination);
+const gates_source = rh.join(repo_scripts, "qualification-gates.json");
+const gates_destination = rh.join(fixture_scripts, "qualification-gates.json");
+rh.copy(gates_source, gates_destination);
+
+git_in(fixture, ["init", "--quiet"], "package_fixture_init");
+git_in(fixture, ["add", "."], "package_fixture_add");
+git_in(
+  fixture,
+  [
+    "-c", "user.name=qualification-selftest",
+    "-c", "user.email=qualification-selftest.invalid",
+    "commit", "--quiet", "-m", "fixture"
+  ],
+  "package_fixture_commit"
+);
+const head = git_in(fixture, ["rev-parse", "HEAD"], "package_fixture_head").trim().toLowerCase();
+
+const artifact_path = artifacts_destination;
+const artifact_spec = rh.parse_file(artifact_path);
+const executable_records = [];
+let first_executable_name = "";
+for (const artifact of artifact_spec.executables) {
+  const artifact_name = "" + artifact.name;
+  if (first_executable_name === "") { first_executable_name = "" + artifact.name; }
+  const path = rh.join(fixture_dist, artifact_name);
+  rh.atomic_write(path, "fixture " + artifact_name + "\n");
+  const size = file_size(path, "package_selftest_executable");
+  const file_hash = rh.sha256_file(path);
+  executable_records.push({ name: artifact_name, role: artifact.role, size: size, sha256: file_hash });
+}
+const library_records = [];
+for (const library of artifact_spec.libraries) {
+  const library_name = "" + library.name;
+  const path = rh.join(fixture_dist, library_name);
+  rh.atomic_write(path, "fixture " + library_name + "\n");
+  library_records.push({
+    name: library_name,
+    role: library.role,
+    kind: library.kind,
+    size: file_size(path, "package_selftest_library"),
+    sha256: rh.sha256_file(path)
+  });
+}
+const cargo_hash = rh.sha256_file(cargo_path);
+const artifact_hash = rh.sha256_file(artifact_path);
+const sbom_path = rh.join(fixture_dist, "agenterm-sbom.spdx.json");
+rh.atomic_write(sbom_path, "fixture deterministic SPDX inventory\n");
+const sbom_hash = rh.sha256_file(sbom_path);
+const gate_path = gates_destination;
+const gate_hash = rh.sha256_file(gate_path);
+const gate_spec = rh.parse_file(gate_path);
+const agenterm_json_path = rh.join(fixture_dist, "agenterm.json");
+const metadata = {
+  schema_version: 2,
+  product: "AgenTerm",
+  version: "0.1.7",
+  git_commit: head,
+  git_dirty: false,
+  cargo_lock_sha256: cargo_hash,
+  artifact_manifest_sha256: artifact_hash,
+  executables: executable_records,
+  libraries: library_records
+};
+rh.atomic_write(agenterm_json_path, rh.stringify_pretty(metadata) + "\n");
+const receipt_executables = [];
+for (const record of executable_records) {
+  receipt_executables.push({ name: record.name, sha256: record.sha256 });
+}
+const receipt_libraries = [];
+for (const record of library_records) {
+  receipt_libraries.push({ name: record.name, kind: record.kind, sha256: record.sha256 });
+}
+const gates = [];
+for (const gate of gate_spec.required_gates) {
+  gates.push({ id: gate.id, status: "passed" });
+}
+
+// One receipt shape, four provenance variants: the good one and three that
+// each corrupt one field the packager must refuse.
+function make_receipt(git_head, cargo_lock_sha256, artifact_manifest_sha256) {
+  return {
+    schema_version: 1,
+    product: "AgenTerm",
+    release: true,
+    stress_included: true,
+    gate_manifest: { sha256: gate_hash },
+    provenance: {
+      git_head: git_head,
+      source_dirty: false,
+      cargo_lock_sha256: cargo_lock_sha256,
+      artifact_manifest_sha256: artifact_manifest_sha256,
+      sbom_sha256: sbom_hash,
+      executables: receipt_executables,
+      libraries: receipt_libraries
+    },
+    gates: gates
+  };
+}
+const receipt = make_receipt(head, cargo_hash, artifact_hash);
+const receipt_path = rh.join(fixture_qualification, "receipt.json");
+rh.atomic_write(receipt_path, rh.stringify_pretty(receipt) + "\n");
+
+const output_relative = "target/qualification/package-dry-run";
+const output_root = rh.join(fixture, output_relative);
+expect_package_success(worker, repo, "package-qualified", fixture, "target/qualification/receipt.json", output_relative, "package_selftest_dry_run");
+const sidecar_path = output_root + "/.latest-package-run";
+const run_directory = rh.read_text(sidecar_path).trim();
+const result_path = run_directory + "/dry-run-result.json";
+const result = rh.parse_file(result_path);
+const archive_name = "" + result.archive;
+const archive = run_directory + "/" + archive_name;
+const archive_exists = rh.exists(archive);
+const archive_hash = rh.sha256_file(archive);
+const result_hash = "" + result.archive_sha256;
+assert_ok(
+  result.dry_run === true && archive_exists && result_hash === archive_hash,
+  "package_selftest_result_incomplete"
+);
+const tar = package_qualified.archive_command(["-tf", archive], fixture);
+if (tar.exit_code !== 0) {
+  assert_ok(false, "package_selftest_archive_list:" + tar.stdout + tar.stderr);
+}
+const listing = tar.stdout.trim();
+const archive_names = [];
+for (const line of listing.split("\n")) {
+  // The archive is built with `tar -C <staging> .`, so members are listed
+  // as `./<name>` and the staging root shows up as a bare `./` entry. Strip
+  // that prefix and drop the root entry so this compares the plain member
+  // names the expectation below uses.
+  const name = line.trim().replaceAll("./", "");
+  if (name !== "" && name !== "." && name !== "/") { archive_names.push(name); }
+}
+const expected_names = [];
+for (const artifact of artifact_spec.executables) { expected_names.push("" + artifact.name); }
+for (const library of artifact_spec.libraries) { expected_names.push("" + library.name); }
+expected_names.push("agenterm.json");
+expected_names.push("artifacts.json");
+expected_names.push("qualification-receipt.json");
+expected_names.push("agenterm-sbom.spdx.json");
+expected_names.push("LICENSE-APACHE");
+expected_names.push("LICENSE-MIT");
+expected_names.push("THIRD_PARTY_NOTICES.md");
+expected_names.push("package-manifest.json");
+// Carries both lists: a bare pass/fail here costs a full CI round trip to
+// learn *which* member differs, which is exactly what happened.
+let expected_joined = "";
+for (const name of expected_names) { expected_joined = expected_joined + "," + name; }
+let archive_joined = "";
+for (const name of archive_names) { archive_joined = archive_joined + "," + name; }
+assert_ok(
+  package_qualified.exact_values(expected_names, archive_names),
+  "package_selftest_archive_members: expected[" + expected_joined + "] archive[" + archive_joined + "]"
+);
+
+const release_output = "target/qualification/package-release";
+const release_root = rh.join(fixture, release_output);
+// `package-release-qualified` builds under exactly `release_output` and then
+// stages the public assets into its OUTPUT_DIRECTORY, which here is a
+// sibling inside the fixture. It reads RECEIPT_PATH from its own cwd (the
+// repo), so the fixture's receipt goes in absolute.
+expect_package_success(worker, repo, "package-release-qualified", fixture, receipt_path, "target/qualification/release-assets", "package_selftest_release");
+const release_sidecar = release_root + "/.latest-package-run";
+const release_directory = rh.read_text(release_sidecar).trim();
+const release_result = rh.parse_file(release_directory + "/release-result.json");
+const release_archive_name = "" + release_result.archive;
+const release_archive = release_directory + "/" + release_archive_name;
+const release_manifest = rh.parse_file(release_directory + "/package-manifest.json");
+const release_archive_exists = rh.exists(release_archive);
+const release_archive_hash = rh.sha256_file(release_archive);
+const release_result_hash = "" + release_result.archive_sha256;
+assert_ok(
+  release_result.dry_run === false
+    && release_manifest.dry_run === false
+    && !release_archive_name.includes("dry-run")
+    && release_archive_exists
+    && release_result_hash === release_archive_hash,
+  "package_selftest_release_result_incomplete"
+);
+
+const bad_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+rh.atomic_write(receipt_path, rh.stringify_pretty(make_receipt(head, bad_hash, artifact_hash)) + "\n");
+expect_package_rejection(worker, repo, fixture, "target/qualification/rejected-cargo", "package_receipt_cargo_lock_hash");
+rh.atomic_write(receipt_path, rh.stringify_pretty(make_receipt(head, cargo_hash, bad_hash)) + "\n");
+expect_package_rejection(worker, repo, fixture, "target/qualification/rejected-manifest", "package_receipt_artifact_manifest_hash");
+rh.atomic_write(receipt_path, rh.stringify_pretty(receipt) + "\n");
+
+const first_path = rh.join(fixture_dist, first_executable_name);
+const first_bytes = rh.read_text(first_path);
+rh.atomic_write(first_path, first_bytes + "tampered\n");
+expect_package_rejection(worker, repo, fixture, "target/qualification/rejected-output", "package_executable_hash");
+const bad_head = "0000000000000000000000000000000000000000";
+rh.atomic_write(receipt_path, rh.stringify_pretty(make_receipt(bad_head, cargo_hash, artifact_hash)) + "\n");
+expect_package_rejection(worker, repo, fixture, "target/qualification/rejected-head", "package_receipt_head_mismatch");
+
+const lib_source = rh.read_text(rh.join(repo, "scripts/qjs/lib/package_qualified.qjs"));
+const qualified_source = rh.read_text(rh.join(repo, "scripts/qjs/package-qualified.qjs"));
+const release_qualified_source = rh.read_text(rh.join(repo, "scripts/qjs/package-release-qualified.qjs"));
+const source = lib_source + qualified_source + release_qualified_source;
+assert_ok(!source.includes("build.bat"), "package_selftest_forbidden_action:build.bat");
+assert_ok(!source.includes("cargo build"), "package_selftest_forbidden_action:cargo build");
+assert_ok(!source.includes("git tag"), "package_selftest_forbidden_action:git tag");
+assert_ok(!source.includes("git push"), "package_selftest_forbidden_action:git push");
+assert_ok(!source.includes("gh release"), "package_selftest_forbidden_action:gh release");
+assert_ok(!source.includes("release.cmd"), "package_selftest_forbidden_action:release.cmd");
+assert_ok(!source.includes("scripts/qjs/release.qjs"), "package_selftest_forbidden_action:scripts/qjs/release.qjs");
+
+cleanup_fixture(fixture, owned_root);
+print("PASS: qualified dry-run and public package self-test");
+return 0;
