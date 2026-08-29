@@ -1,0 +1,749 @@
+// Prove physical inline tab editing, archived Proxy chrome, and compact deep
+// tree geometry through public AgenTerm interfaces.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO GUI_EXE CLI_EXE
+//
+// Ported from scripts/rh/workbench-smoke.rh; runs under `--profile tool`.
+// The journey is Windows-shaped (WM_LBUTTONDBLCLK, control ids, cmd.exe),
+// exactly as the rh original was. The GUI is a long-lived door handle
+// (process_spawn) polled through the public CLI and reaped by the
+// harness's `complete`; the native window input rh drove through
+// `Child.window_*` has no door operation (see the `gap` sites).
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const workbench_declared_evidence = [
+  "ux.workbench-inline-edit",
+  "ux.workbench-compact-tree",
+  "ux.workbench-proxy-archived"
+];
+
+// A door wall this port cannot route around without changing what is
+// proven. The site throws with the rh spelling so the run fails closed.
+function gap(what) {
+  throw "qjs_gap:" + what;
+}
+
+// rh's `Child.window_pointer(action, x, y)`: a native pointer event into the
+// spawned GUI's top-level window. No door operation carries it.
+function window_pointer(gui_child, action, x, y) {
+  gap("window_pointer(" + action + "," + x + "," + y + "): the door has no native window input for spawned handle " + gui_child);
+}
+
+// rh's `Child.window_message(message, wparam, lparam)`: a raw Win32 message.
+function window_message(gui_child, message, wparam, lparam) {
+  gap("window_message(" + message + "," + wparam + "," + lparam + "): the door has no native window input for spawned handle " + gui_child);
+}
+
+// rh's `Child.window_key(key)`.
+function window_key(gui_child, key) {
+  gap("window_key(" + key + "): the door has no native window input for spawned handle " + gui_child);
+}
+
+// rh's `Child.window_resize(width, height)`.
+function window_resize(gui_child, width, height) {
+  gap("window_resize(" + width + "," + height + "): the door has no native window control for spawned handle " + gui_child);
+}
+
+// rh's `Child.window_control(id)` -> {visible, set_text(text)}.
+function window_control(gui_child, id) {
+  gap("window_control(" + id + "): the door has no native window control for spawned handle " + gui_child);
+  return null;
+}
+
+// rh's `Child.platform_facts` (top_level_window_present).
+function platform_facts(gui_child) {
+  gap("platform_facts: the door has no native window facts for spawned handle " + gui_child);
+  return null;
+}
+
+// rh's `x == json_null()`: a JSON null, or a path the answer does not carry.
+function is_null(value) {
+  return value === null || value === undefined;
+}
+
+function trimmed(value) {
+  return ("" + value).trim();
+}
+
+// No `"" + response.stdout` copies: a concat costs steps per character here.
+function json_cli(context, cli, args) {
+  const response = harness.invoke_cli_bounded(context, cli, args, 0, []);
+  return JSON.parse(response.stdout);
+}
+
+function text_cli(context, cli, args) {
+  const response = harness.invoke_cli_bounded(context, cli, args, 0, []);
+  return response.stdout.trim();
+}
+
+function tab_by_id(snapshot, target) {
+  for (const tab of snapshot.tabs) {
+    if (tab.id === target) { return tab; }
+  }
+  return null;
+}
+
+function tab_index(snapshot, target) {
+  let index = 0;
+  for (const tab of snapshot.tabs) {
+    if (tab.id === target) { return index; }
+    index = index + 1;
+  }
+  throw "workbench_tab_missing:" + target;
+}
+
+function require_matching_editor_actions(left, left_id, right, right_id, label) {
+  let left_actions = null;
+  let right_actions = null;
+  for (const tab of left.tabs) {
+    if (tab.id === left_id) { left_actions = tab.actions; }
+  }
+  for (const tab of right.tabs) {
+    if (tab.id === right_id) { right_actions = tab.actions; }
+  }
+  harness.require(!is_null(left_actions) && !is_null(right_actions), label);
+  harness.require(
+    left_actions.mode === right_actions.mode
+      && left_actions.density === right_actions.density
+      && left_actions.save.id === right_actions.save.id
+      && left_actions.cancel.id === right_actions.cancel.id,
+    label
+  );
+  return 0;
+}
+
+function text_bounds_of(tab) {
+  const render = tab.render;
+  harness.require(!is_null(render), "workbench_tab_render_missing:" + tab.id);
+  return render["text"];
+}
+
+function click_tab_text(gui_child, snapshot, target) {
+  for (const tab of snapshot.tabs) {
+    if (tab.id === target) {
+      click_bounds(gui_child, text_bounds_of(tab));
+      return 0;
+    }
+  }
+  throw "workbench_tab_missing:" + target;
+}
+
+function double_click_tab_text(gui_child, snapshot, target) {
+  for (const tab of snapshot.tabs) {
+    if (tab.id === target) {
+      double_click_text(gui_child, text_bounds_of(tab));
+      return 0;
+    }
+  }
+  throw "workbench_tab_missing:" + target;
+}
+
+function double_click_tab_message(gui_child, snapshot, target) {
+  for (const tab of snapshot.tabs) {
+    if (tab.id === target) {
+      double_click_message(gui_child, text_bounds_of(tab));
+      return 0;
+    }
+  }
+  throw "workbench_tab_missing:" + target;
+}
+
+function wait_tab_render(context, cli, target) {
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    for (const tab of snapshot.tabs) {
+      if (tab.id === target) {
+        const render = tab.render;
+        if (!is_null(render) && !is_null(render["text"]) && render["text"].width > 0) {
+          return 0;
+        }
+      }
+    }
+    harness.sleep_ms(50);
+  }
+  throw "workbench_tab_render_timeout:" + target;
+}
+
+function wait_tab_label_render(context, cli, target) {
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    for (const tab of snapshot.tabs) {
+      if (tab.id === target) {
+        const tab_render = tab.render;
+        const tab_actions = tab.actions;
+        if (!is_null(tab_render) && !is_null(tab_actions)
+            && tab_render.name.width > 0
+            && tab_render.note.width > 0
+            && tab_render.node.width > 0
+            && tab_actions.close.bounds.width > 0
+            && tab_actions.new_child.bounds.width > 0) {
+          return 0;
+        }
+      }
+    }
+    harness.sleep_ms(50);
+  }
+  throw "workbench_tab_label_render_timeout:" + target;
+}
+
+function active_tab_index(snapshot) {
+  let index = 0;
+  for (const tab of snapshot.tabs) {
+    if (tab.active) { return index; }
+    index = index + 1;
+  }
+  throw "workbench_active_tab_missing";
+}
+
+function wait_for_server(context, cli, gui_child) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const probe = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 0, []);
+    if (probe.success) { return 0; }
+    if (harness.state(gui_child) === "exited") {
+      const output = harness.wait(gui_child, 2000);
+      throw "workbench_gui_early_exit:" + output.stderr;
+    }
+    harness.sleep_ms(50);
+  }
+  throw "workbench_server_timeout";
+}
+
+function wait_for_window(gui_child) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const facts = platform_facts(gui_child);
+    if (facts.top_level_window_present) { return 0; }
+    if (harness.state(gui_child) === "exited") { throw "workbench_window_early_exit"; }
+    harness.sleep_ms(25);
+  }
+  throw "workbench_window_timeout";
+}
+
+function wait_for_editor(context, cli, target, open) {
+  let editor_state = "closed";
+  if (open !== 0) { editor_state = "open"; }
+  return json_cli(
+    context, cli,
+    ["wait-ui", "-t", target, "--tab-editor-state", editor_state, "--timeout-ms", "30000"]
+  );
+}
+
+function wait_for_editor_draft(context, cli, target, name_len, note_len) {
+  let last = null;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const tab_editor = snapshot.tab_editor;
+    if (!is_null(tab_editor)
+        && tab_editor.target === target
+        && tab_editor.name_length === name_len
+        && tab_editor.note_length === note_len) {
+      return snapshot;
+    }
+    last = snapshot;
+    harness.sleep_ms(10);
+  }
+  throw "workbench_editor_draft_timeout:" + target + ":" + JSON.stringify(last);
+}
+
+function click_bounds(gui_child, bounds) {
+  let x_offset = rh.int_div(bounds.width, 2);
+  let y_offset = rh.int_div(bounds.height, 2);
+  if (x_offset < 1) { x_offset = 1; }
+  if (y_offset < 1) { y_offset = 1; }
+  window_pointer(gui_child, "click", bounds.left + x_offset, bounds.top + y_offset);
+  return 0;
+}
+
+// WM_LBUTTONDBLCLK is 0x0203; spelled in decimal for this engine.
+const WM_LBUTTONDBLCLK = 515;
+
+function double_click_text(gui_child, bounds) {
+  const x = bounds.left + rh.int_div(bounds.width, 2);
+  const y = bounds.top + rh.int_div(bounds.height, 2);
+  window_pointer(gui_child, "click", x, y);
+  window_message(gui_child, WM_LBUTTONDBLCLK, 0, y * 65536 + x);
+  return 0;
+}
+
+function double_click_message(gui_child, bounds) {
+  const x = bounds.left + rh.int_div(bounds.width, 2);
+  const y = bounds.top + rh.int_div(bounds.height, 2);
+  window_message(gui_child, WM_LBUTTONDBLCLK, 0, y * 65536 + x);
+  return 0;
+}
+
+function double_click_point(gui_child, x, y) {
+  window_message(gui_child, WM_LBUTTONDBLCLK, 0, y * 65536 + x);
+  return 0;
+}
+
+function resize_gui(gui_child, width, height) {
+  window_resize(gui_child, width, height);
+  return 0;
+}
+
+function set_tab_editor_text(gui_child, name, note) {
+  const title_editor = window_control(gui_child, 2105);
+  const note_editor = window_control(gui_child, 2106);
+  harness.require(
+    title_editor.visible && note_editor.visible,
+    "workbench_tab_editor_controls_hidden"
+  );
+  title_editor.set_text(name);
+  note_editor.set_text(note);
+  return 0;
+}
+
+function assert_editor_closed(snapshot, target, label) {
+  const tab = tab_by_id(snapshot, target);
+  harness.require(!is_null(tab), "workbench_tab_missing:" + target);
+  const tab_actions = tab.actions;
+  const tab_render = tab.render;
+  const snapshot_tab_editor = snapshot.tab_editor;
+  const actions_closed = is_null(tab_actions)
+    || (tab_actions.mode === "normal"
+      && is_null(tab_actions.edit)
+      && is_null(tab_actions.save)
+      && is_null(tab_actions.cancel));
+  const render_closed = is_null(tab_render) || tab_render.mode === "normal";
+  harness.require(
+    is_null(snapshot_tab_editor) && render_closed && actions_closed,
+    "workbench_editor_should_be_closed:" + label + ":" + JSON.stringify(tab)
+  );
+}
+
+function assert_editor_open(snapshot, target, label) {
+  const tab = tab_by_id(snapshot, target);
+  harness.require(!is_null(tab), "workbench_tab_missing:" + target);
+  const tab_render = tab.render;
+  const tab_actions = tab.actions;
+  const snapshot_tab_editor = snapshot.tab_editor;
+  harness.require(
+    !is_null(snapshot_tab_editor) && !is_null(tab_render) && !is_null(tab_actions),
+    "workbench_editor_should_be_open:" + label + ":" + JSON.stringify(tab)
+  );
+  harness.require(
+    snapshot_tab_editor.target === target
+      && tab_render.mode === "editing"
+      && !is_null(tab_render.editors)
+      && tab_actions.mode === "editing"
+      && is_null(tab_actions.edit)
+      && tab_actions.save.id === "tab-editor-save"
+      && tab_actions.cancel.id === "tab-editor-cancel"
+      && tab_actions.save.bounds.width > 0
+      && tab_actions.cancel.bounds.width > 0,
+    "workbench_editor_should_be_open:" + label + ":" + JSON.stringify(tab)
+  );
+}
+
+function retain_png_evidence(context, cli, name) {
+  const path = rh.join(context.run_directory, "evidence/" + name + ".png");
+  text_cli(context, cli, ["screenshot", "-o", path]);
+  harness.require(rh.metadata(path).len >= 1000, "workbench_screenshot_too_small:" + name);
+  return path;
+}
+
+function assert_inside(outer, inner, label) {
+  harness.require(
+    inner.left >= outer.left
+      && inner.top >= outer.top
+      && inner.right <= outer.right
+      && inner.bottom <= outer.bottom
+      && inner.width >= 0
+      && inner.height >= 0,
+    "workbench_geometry_escape:" + label + ":" + JSON.stringify(inner)
+  );
+}
+
+function retain_failure_snapshot(context, cli) {
+  rh.create_dir_all(context.failure_directory);
+  const output = harness.run_cli_bounded(context, cli, ["ui-snapshot"], 0, []);
+  rh.atomic_write(
+    rh.join(context.failure_directory, "ui-snapshot.txt"),
+    "exit_code=" + output.exit_code + "\n" + output.stdout + output.stderr
+  );
+}
+
+function proxy_surface_of(snapshot) {
+  const layout = snapshot.layout;
+  if (is_null(layout)) { return null; }
+  const status_bar = layout.status_bar;
+  if (is_null(status_bar)) { return null; }
+  const proxy_surface = status_bar.proxy;
+  if (is_null(proxy_surface)) { return null; }
+  return proxy_surface;
+}
+
+function scrollbar_of(snapshot) {
+  const layout = snapshot.layout;
+  if (is_null(layout)) { return null; }
+  const sidebar = layout.sidebar;
+  if (is_null(sidebar)) { return null; }
+  const scrollbar = sidebar.scrollbar;
+  if (is_null(scrollbar)) { return null; }
+  return scrollbar;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of workbench_declared_evidence) { print(id); }
+  return 0;
+}
+
+harness.require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");
+const repo = rh.absolute(args[0]);
+const gui = rh.absolute(args[1]);
+const cli = rh.absolute(args[2]);
+harness.require(rh.exists(gui), "workbench_gui_missing");
+harness.require(rh.exists(cli), "workbench_cli_missing");
+
+const context = harness.new_context(repo, "workbench");
+const owned_children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  const spec = harness.configured_spec(context, gui, ["--no-activate", "--address", context.address]);
+  // rh's `command.env_remove(...)`: the launch must ignore an ambient proxy.
+  spec.env_remove = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"];
+  const gui_child = harness.start(spec);
+  owned_children.push(gui_child);
+  wait_for_server(context, cli, gui_child);
+  wait_for_window(gui_child);
+  json_cli(context, cli, ["wait-ui", "--window-state", "restored", "--timeout-ms", "30000"]);
+
+  const root_name = "workbench-" + rh.pid();
+  const root = text_cli(context, cli, ["new-window", "-d", "-n", root_name, "-F", "#{window_id}"]);
+  text_cli(context, cli, ["select-window", "-t", root]);
+  json_cli(
+    context, cli,
+    ["wait-ui", "--active", root, "--window-state", "restored", "--timeout-ms", "30000"]
+  );
+  json_cli(context, cli, ["wait-ui", "-t", root, "--tab-state", "running", "--timeout-ms", "30000"]);
+
+  const peer_name = "workbench-peer-" + rh.pid();
+  const peer = text_cli(context, cli, ["new-window", "-d", "-n", peer_name, "-F", "#{window_id}"]);
+  text_cli(context, cli, ["select-window", "-t", root]);
+  let snapshot = json_cli(
+    context, cli,
+    ["wait-ui", "--active", root, "--window-state", "restored", "--timeout-ms", "30000"]
+  );
+  let root_tab = tab_by_id(snapshot, root);
+  const peer_tab = tab_by_id(snapshot, peer);
+  assert_editor_closed(snapshot, root, "initial-normal");
+
+  print("STEP a single text click selects without entering edit mode");
+  wait_tab_render(context, cli, peer);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  click_tab_text(gui_child, snapshot, peer);
+  snapshot = json_cli(
+    context, cli, ["wait-ui", "--active", peer, "--focus", "tabs", "--timeout-ms", "30000"]
+  );
+  assert_editor_closed(snapshot, peer, "single-click-peer");
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  click_tab_text(gui_child, snapshot, root);
+  snapshot = json_cli(
+    context, cli, ["wait-ui", "--active", root, "--focus", "tabs", "--timeout-ms", "30000"]
+  );
+  assert_editor_closed(snapshot, root, "single-click-root");
+
+  print("STEP non-text double clicks never enter tab editing");
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  root_tab = tab_by_id(snapshot, root);
+  harness.require(!is_null(root_tab), "workbench_tab_missing:" + root);
+  const root_render = root_tab.render;
+  const root_actions = root_tab.actions;
+  double_click_message(gui_child, root_render.disclosure_hit);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "non-text-zone");
+  double_click_message(gui_child, root_render.status);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "non-text-zone");
+  double_click_message(gui_child, root_actions.new_child.bounds);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "non-text-zone");
+  double_click_message(gui_child, root_actions.close.bounds);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "non-text-zone");
+  const row = root_render.row;
+  double_click_point(gui_child, row.left + 1, row.top + rh.int_div(row.height, 2));
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "tree-indent");
+
+  print("STEP double-clicking tab text opens independent controls and Save restores normal mode");
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  double_click_tab_text(gui_child, snapshot, root);
+  snapshot = wait_for_editor(context, cli, root, 1);
+  assert_editor_open(snapshot, root, "mouse-double-click");
+  const composer_before = text_cli(context, cli, ["show-composer", "-t", root]);
+  const saved_name = "工作台-" + rh.pid();
+  const saved_note = "inline note";
+  set_tab_editor_text(gui_child, saved_name, saved_note);
+  wait_for_editor_draft(context, cli, root, saved_name.length, saved_note.length);
+  retain_png_evidence(context, cli, "tab-editor-open");
+  root_tab = tab_by_id(snapshot, root);
+  click_bounds(gui_child, root_tab.actions.save.bounds);
+  snapshot = wait_for_editor(context, cli, root, 0);
+  root_tab = tab_by_id(snapshot, root);
+  assert_editor_closed(snapshot, root, "mouse-save");
+  retain_png_evidence(context, cli, "tab-editor-normal");
+  const composer_after = text_cli(context, cli, ["show-composer", "-t", root]);
+  root_tab = tab_by_id(snapshot, root);
+  const root_tab_actions = root_tab.actions;
+  harness.require(
+    root_tab.name === saved_name
+      && root_tab.note === saved_note
+      && is_null(root_tab_actions.edit)
+      && composer_after === composer_before,
+    "workbench_save_contract:" + JSON.stringify(root_tab)
+  );
+
+  print("STEP mouse Cancel discards both independent drafts");
+  double_click_tab_text(gui_child, snapshot, root);
+  snapshot = wait_for_editor(context, cli, root, 1);
+  const discarded_name = "discarded name";
+  const discarded_note = "discarded note";
+  set_tab_editor_text(gui_child, discarded_name, discarded_note);
+  wait_for_editor_draft(context, cli, root, discarded_name.length, discarded_note.length);
+  root_tab = tab_by_id(snapshot, root);
+  click_bounds(gui_child, root_tab.actions.cancel.bounds);
+  snapshot = wait_for_editor(context, cli, root, 0);
+  root_tab = tab_by_id(snapshot, root);
+  harness.require(
+    root_tab.name === saved_name && root_tab.note === saved_note,
+    "workbench_cancel_persisted_draft"
+  );
+
+  print("STEP F2 and public edit-tab expose the same inline editor contract");
+  json_cli(context, cli, ["focus", "tabs", "-t", root]);
+  window_key(gui_child, "F2");
+  const f2_snapshot = wait_for_editor(context, cli, root, 1);
+  assert_editor_open(f2_snapshot, root, "f2");
+  window_key(gui_child, "Escape");
+  assert_editor_closed(wait_for_editor(context, cli, root, 0), root, "f2-escape");
+  json_cli(context, cli, ["ui-action", "edit-tab", "-t", root]);
+  const public_snapshot = wait_for_editor(context, cli, root, 1);
+  assert_editor_open(public_snapshot, root, "public-edit-tab");
+  require_matching_editor_actions(
+    f2_snapshot, root, public_snapshot, root, "workbench_f2_public_editor_mismatch"
+  );
+  window_key(gui_child, "Escape");
+  wait_for_editor(context, cli, root, 0);
+
+  print("STEP tab switch and Tabs hide cancel unsaved inline drafts");
+  json_cli(context, cli, ["ui-action", "edit-tab", "-t", root]);
+  wait_for_editor(context, cli, root, 1);
+  const switch_draft = "switch draft";
+  const switch_note = "switch note";
+  set_tab_editor_text(gui_child, switch_draft, switch_note);
+  wait_for_editor_draft(context, cli, root, switch_draft.length, switch_note.length);
+  json_cli(context, cli, ["ui-action", "select-tab", "-t", peer]);
+  assert_editor_closed(wait_for_editor(context, cli, root, 0), root, "tab-switch");
+  const switch_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  root_tab = tab_by_id(switch_snapshot, root);
+  harness.require(
+    root_tab.name === saved_name && root_tab.note === saved_note,
+    "workbench_tab_switch_persisted_draft"
+  );
+  json_cli(context, cli, ["ui-action", "select-tab", "-t", root]);
+  json_cli(context, cli, ["ui-action", "edit-tab", "-t", root]);
+  wait_for_editor(context, cli, root, 1);
+  const hide_draft = "hide draft";
+  const hide_note = "hide note";
+  set_tab_editor_text(gui_child, hide_draft, hide_note);
+  wait_for_editor_draft(context, cli, root, hide_draft.length, hide_note.length);
+  json_cli(context, cli, ["ui-action", "tabs-hide"]);
+  assert_editor_closed(wait_for_editor(context, cli, root, 0), root, "tabs-hide");
+  json_cli(context, cli, ["ui-action", "tabs-show"]);
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  root_tab = tab_by_id(snapshot, root);
+  harness.require(
+    root_tab.name === saved_name && root_tab.note === saved_note,
+    "workbench_tabs_hide_persisted_draft"
+  );
+
+  print("STEP layout changes invalidate an unfinished double-click candidate");
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  click_tab_text(gui_child, snapshot, root);
+  json_cli(context, cli, ["ui-action", "select-tab", "-t", peer]);
+  double_click_tab_message(gui_child, snapshot, root);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "candidate-tab-switch");
+  json_cli(context, cli, ["ui-action", "select-tab", "-t", root]);
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  click_tab_text(gui_child, snapshot, root);
+  json_cli(context, cli, ["ui-action", "tabs-hide"]);
+  json_cli(context, cli, ["ui-action", "tabs-show"]);
+  wait_tab_render(context, cli, root);
+  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  double_click_tab_message(gui_child, snapshot, root);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "candidate-tabs-hide");
+  const pre_resize_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  let pre_resize_text = null;
+  for (const tab of pre_resize_snapshot.tabs) {
+    if (tab.id === root) { pre_resize_text = text_bounds_of(tab); }
+  }
+  harness.require(!is_null(pre_resize_text), "workbench_tab_missing:" + root);
+  click_bounds(gui_child, pre_resize_text);
+  resize_gui(gui_child, 1000, 680);
+  double_click_message(gui_child, pre_resize_text);
+  assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "candidate-window-resize");
+
+  print("STEP archived Proxy status surface releases its layout and actions");
+  let proxy = null;
+  for (let attempt = 0; attempt < 600; attempt = attempt + 1) {
+    const proxy_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const proxy_surface = proxy_surface_of(proxy_snapshot);
+    if (!is_null(proxy_surface)) {
+      proxy = proxy_surface;
+      break;
+    }
+    harness.sleep_ms(50);
+  }
+  harness.require(!is_null(proxy), "workbench_proxy_surface_unavailable");
+  harness.require(
+    proxy.archived
+      && !proxy.available
+      && proxy.bounds.width === 0
+      && is_null(proxy.action)
+      && is_null(proxy.eye_action),
+    "workbench_proxy_surface_not_archived"
+  );
+  harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-proxy-archived");
+
+  print("STEP compact and full geometry stay bounded for a deep CJK row");
+  let target = "" + root;
+  for (let depth = 1; depth < 5; depth = depth + 1) {
+    const child_snapshot = json_cli(context, cli, ["ui-action", "new-child", "-t", target]);
+    let child = null;
+    for (const tab of child_snapshot.tabs) {
+      if (tab.active) { child = tab; }
+    }
+    harness.require(!is_null(child), "workbench_active_tab_missing");
+    const child_name = "层级-" + depth + "-工作";
+    const child_note = "备注-" + depth;
+    set_tab_editor_text(gui_child, child_name, child_note);
+    wait_for_editor_draft(context, cli, child.id, child_name.length, child_note.length);
+    click_bounds(gui_child, child.actions.save.bounds);
+    wait_for_editor(context, cli, child.id, 0);
+    target = "" + child.id;
+  }
+
+  print("STEP sidebar scrolling clears a pending text double-click candidate");
+  for (let index = 1; index < 7; index = index + 1) {
+    text_cli(
+      context, cli,
+      ["new-window", "-d", "-P", "-n", "candidate-scroll-" + index, "--", "cmd.exe", "/c", "exit"]
+    );
+  }
+  resize_gui(gui_child, 900, 320);
+  let scroll_snapshot = null;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const candidate = json_cli(context, cli, ["ui-snapshot"]);
+    const scrollbar = scrollbar_of(candidate);
+    if (candidate.projection === "replaceable_ui_client"
+        && !is_null(scrollbar)
+        && scrollbar.max_offset > 0) {
+      scroll_snapshot = candidate;
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  harness.require(!is_null(scroll_snapshot), "workbench_sidebar_scrollbar_timeout");
+  let first_visible = null;
+  for (const tab of scroll_snapshot.tabs) {
+    const render = tab.render;
+    if (is_null(first_visible) && tab.visible && !is_null(render)
+        && !is_null(render["text"]) && render["text"].width > 0) {
+      first_visible = tab;
+    }
+  }
+  harness.require(!is_null(first_visible), "workbench_visible_scroll_tab_missing");
+  const first_text = first_visible.render["text"];
+  click_bounds(gui_child, first_text);
+  const scrollbar_before = scroll_snapshot.layout.sidebar.scrollbar;
+  const thumb_before = scrollbar_before.thumb;
+  const track_before = scrollbar_before.track;
+  const thumb_x_before = thumb_before.left + rh.int_div(thumb_before.width, 2);
+  const thumb_y_before = thumb_before.top + rh.int_div(thumb_before.height, 2);
+  const bottom_y = track_before.top + track_before.height - 2;
+  window_pointer(gui_child, "down", thumb_x_before, thumb_y_before);
+  window_pointer(gui_child, "move-held", thumb_x_before, bottom_y);
+  window_pointer(gui_child, "up", thumb_x_before, bottom_y);
+  let scrolled = null;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const candidate = json_cli(context, cli, ["ui-snapshot"]);
+    const scrollbar = scrollbar_of(candidate);
+    if (candidate.projection === "replaceable_ui_client"
+        && !is_null(scrollbar)
+        && scrollbar.offset > 0) {
+      scrolled = candidate;
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  harness.require(!is_null(scrolled), "workbench_sidebar_scroll_did_not_move");
+  double_click_message(gui_child, first_text);
+  const editor_closed = wait_for_editor(context, cli, first_visible.id, 0);
+  harness.require(is_null(editor_closed.tab_editor), "workbench_scroll_retained_double_click_candidate");
+  resize_gui(gui_child, 1000, 680);
+  const scrollbar_after = scrolled.layout.sidebar.scrollbar;
+  const thumb_after = scrollbar_after.thumb;
+  const track_after = scrollbar_after.track;
+  const top_y = track_after.top + 2;
+  const thumb_x_after = thumb_after.left + rh.int_div(thumb_after.width, 2);
+  const thumb_y_after = thumb_after.top + rh.int_div(thumb_after.height, 2);
+  window_pointer(gui_child, "down", thumb_x_after, thumb_y_after);
+  window_pointer(gui_child, "move-held", thumb_x_after, top_y);
+  window_pointer(gui_child, "up", thumb_x_after, top_y);
+  json_cli(context, cli, ["ui-action", "select-tab", "-t", target]);
+  json_cli(
+    context, cli,
+    ["wait-ui", "--active", target, "--focus", "terminal", "--timeout-ms", "30000"]
+  );
+  harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-inline-edit");
+
+  for (const width of [180, 250, 480]) {
+    json_cli(context, cli, ["ui-action", "tabs-set-width", "--width", "" + width]);
+    wait_tab_label_render(context, cli, target);
+    const width_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const tab = tab_by_id(width_snapshot, target);
+    harness.require(!is_null(tab), "workbench_tab_missing:" + target);
+    const tab_actions = tab.actions;
+    const tab_render = tab.render;
+    assert_inside(tab.bounds, tab_render.name, "name:" + width);
+    assert_inside(tab.bounds, tab_render.note, "note:" + width);
+    assert_inside(tab.bounds, tab_actions.close.bounds, "close:" + width);
+    let density = "full";
+    if (width < 300) { density = "compact"; }
+    harness.require(
+      tab_actions.density === density
+        && is_null(tab_actions.edit)
+        && tab_render.node.x >= tab.bounds.left
+        && tab_render.name.left < tab_actions.new_child.bounds.left,
+      "workbench_tree_geometry:" + width + ":" + JSON.stringify(tab)
+    );
+  }
+  harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-compact-tree");
+  print("PASS: inline Tabs editing and compact tree geometry");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+  retain_failure_snapshot(context, cli);
+}
+
+let completion_failure = "";
+try {
+  harness.complete(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return 0;

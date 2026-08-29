@@ -328,3 +328,97 @@ export function remove_run(context) {
     door(fs_remove_dir_all(context.run_directory), "fs_remove_dir_all");
   }
 }
+
+// ---- wave-2 gui-smokes ----
+
+// rh's `child.id` for a spawned GUI. The door hands back a slot handle, not
+// a pid, so ask the host for the process whose full command line is exactly
+// the program and arguments we spawned; the per-run `--address` inside
+// `args` makes that line unique to this run. `pgrep -f` matches an extended
+// regex against the whole command line, so the program path is anchored
+// and taken literally apart from `.` (which matches itself). Unix only:
+// on Windows the spawn of `pgrep` itself fails and the door says so.
+// Answers -1 when no process carries that line.
+export function spawned_pid_witness(program, args) {
+  let line = "^" + program;
+  for (const a of args) { line = line + " " + a; }
+  line = line + "$";
+  const spec = { program: "pgrep", args: ["-f", line], timeout_ms: 5000 };
+  const out = JSON.parse(door(process_command(JSON.stringify(spec)), "process_command pgrep"));
+  if (!out.success) { return -1; }
+  const first = out.stdout.trim().split("\n")[0].trim();
+  if (first === "") { return -1; }
+  return Number(first);
+}
+
+// The handle-owned children that a script waited on itself (rh's
+// `child.wait_with_output`) must not be waited again by `complete`: the door
+// answers a second `process_wait` on the same handle with an error. Drop the
+// handle from the owned list; the child is already reaped.
+export function forget_child(owned_children, handle) {
+  const kept = [];
+  for (const h of owned_children) { if (h !== handle) { kept.push(h); } }
+  return kept;
+}
+
+// `bounded_record_text` above cuts with `String.prototype.slice`, which this
+// engine refuses at run time -- and every GUI smoke's first `ui-snapshot`
+// answer (13 KB) is longer than the 512-character record limit, so the
+// journeys could not take one step. Same contract (bounded, marked): an
+// answer within the limit is recorded whole; a longer one is recorded as
+// its size, not a prefix. Cutting a prefix without `slice` means a `split`
+// or a concat, and in this engine every operation that touches a string
+// costs steps per character (measured 2026-08-29 on a 13 KB ui-snapshot:
+// `"" + text` 0.5-2M steps, `split("\n")` >1M, `JSON.parse` 1-2M), so a
+// prefix of a big answer cost more than the answer's own parse.
+export function bounded_record_text_cheap(source, maximum_characters) {
+  const text = "" + source;
+  if (text.length <= maximum_characters) { return text; }
+  return "<agenterm-command-output-omitted:" + text.length + " chars>\n";
+}
+
+// `append_command_record` / `run_cli` / `invoke_cli` with the cheap bound;
+// otherwise identical to the originals above. The combined output is only
+// concatenated (and redacted) when it will be kept -- the concat of a big
+// answer is what costs.
+export function append_command_record_bounded(context, args, output, expected_failure, redactions) {
+  const safe_args = [];
+  for (const a of args) { safe_args.push(redact_text(a, redactions)); }
+  let record_output = "";
+  if (output.stdout.length + output.stderr.length <= 512) {
+    record_output = redact_text(output.stdout + output.stderr, redactions);
+  } else {
+    record_output = "<agenterm-command-output-omitted:"
+      + (output.stdout.length + output.stderr.length) + " chars>\n";
+  }
+  const record = {
+    recorded_at_ms: now_ms(),
+    arguments: safe_args,
+    expected_failure: expected_failure !== 0,
+    exit_code: output.exit_code,
+    output: record_output
+  };
+  let journal = "";
+  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
+  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
+  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+}
+
+export function run_cli_bounded(context, cli, args, expected_failure, redactions) {
+  const all = ["--address", "" + context.address];
+  for (const a of args) { all.push("" + a); }
+  const spec = configured_cli_spec(context, cli, all);
+  const output = JSON.parse(door(process_command(JSON.stringify(spec)), "process_command"));
+  append_command_record_bounded(context, args, output, expected_failure, redactions);
+  return output;
+}
+
+export function invoke_cli_bounded(context, cli, args, expected_failure, redactions) {
+  const output = run_cli_bounded(context, cli, args, expected_failure, redactions);
+  if (expected_failure !== 0) {
+    require(!output.success, "test_harness_cli_unexpected_success");
+  } else {
+    require(output.success, "test_harness_cli_failed:" + redact_text(output.stderr, redactions));
+  }
+  return output;
+}
