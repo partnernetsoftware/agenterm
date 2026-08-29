@@ -1138,6 +1138,13 @@ flowchart TD
 `switch` 是裸词，都会。**裸词与标点的模式必须先剥离字符串与注释，
 带定界符的方法调用模式不必——这条可以事前判断，不必事后发现。**
 
+**第十一课：`kill` 杀的是进程不是树，而测试里的 `sh -c` 让我以为 reap 坏了。**
+子进程句柄的「无孤儿」测试先红：`process_kill` 之后 `pgrep -P` 仍看到子进程。
+不是 `Drop` 没跑（加一行 trace 证明它跑了），是 `sh -c "sleep 30"` 里被杀的是 `sh`，
+`sleep` 成了孤儿——而 rh 的 `kill` 本来就是这个语义（它另有 `kill_tree`）。
+把测试改成直接 spawn `sleep`，绿。**一个测试红了，先分清是「机制坏了」还是
+「测试里的间接层把语义换了」——这次两个候选各一半，trace 一行就定了。**
+
 **第十课：第一个真脚本撞上的两堵墙，一堵是引擎面的，一堵是我自己砌的。**
 迁 `validate-artifact-manifest` 时：（1）引擎面**不能把字符串参数送进 guest**
 （「no door onto the guest allocator」），`$0` 拿路径不可能——解法不是开那扇门，
@@ -1277,7 +1284,7 @@ flowchart TD
 | ~~A1.3~~ | ~~开 `tool.fs/process/env` 门~~ **已进 crate（`4a7f0ec3`），CLI 未接** | 门是 opt-in：`Engine::with_tool_door(budget)` / `compile_qjs_tool`；沙箱编译器与沙箱槽都按名拒 `tool.*`，拒绝语指出开关 | 13 条声明 / 14 个 import（`fs.exists/read_to_string/write/create_dir_all/remove_file/read_dir/metadata`、`process.command/id`、`env.get/has/cwd`、两趟 `tool_result`）；`Outcome.tool_calls` 记收据；沙箱路径**逐字节不变**（`return 1;` 9 765 B，同 sha256）；crate 152 → 176 测试，0 失败；**没做**：二进制读写、`symlink_metadata`、锁句柄、`stringify_pretty`，以及 **CLI 接线**（A1.6） |
 | ~~A1.4~~ | ~~`agenterm-rh` 移出本仓~~ **已移出（`08c51b2e` + `7e2b61dd`；快照 `partnernetsoftware/rh` `a22d224`，182 文件 blob 逐一相同）** | 政委改序：rh 先走 | `Cargo.lock` 零 `rhai`、零 `agenterm-rh`；`scripts/rh/` 不存在；默认构建二进制 6 907 664 → 5 230 384 B（**−24.3%**）；workspace 失败集 52 → 31，**新失败 0**（comm 逐名比对） |
 | A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
-| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **1/71**（2026-08-29）：`validate-artifact-manifest.qjs` + `lib/artifact_manifest.qjs`（rh 里 13 个脚本 import 它）对真实 `scripts/artifacts.json` 答 **5**，坏名字按名抛；走 CLI 的 Rust 测试断言两面 | 每个门 `.qjs` 版通过原来那条 Rust 测试；**下一个**：`build-identity`（3 个宿主调用，全在门里） |
+| A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **入口 1/71，库 2/11**（2026-08-29）：`artifact_manifest`（13 个脚本 import）与 **`test_harness`（22 个脚本 import，16 个函数）**都已是可 import 的 `.qjs` 库，后者经 CLI 冒烟：`new_context → invoke_cli → emit_evidence → start/complete（强杀 1 子进程）→ remove_run` 全通。**门为此长了两截**：`fs.remove_dir_all/rename/copy` + `crypto.sha256_file` + `time.now_ms`；以及**子进程句柄** `process.spawn/state/kill/wait` + `time.sleep_ms`——先数了：**29/71 脚本需要长生命周期子进程，125 次 sleep**，`process.command` 一次性跑完的形状表达不了 | 每个门 `.qjs` 版通过原来那条 Rust 测试。**下一批可并行**：50/71 脚本不用句柄，按 import 的库分组互不冲突 |
 | ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |

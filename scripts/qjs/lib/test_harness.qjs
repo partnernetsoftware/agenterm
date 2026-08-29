@@ -1,0 +1,330 @@
+// test_harness.qjs -- shared fail-closed foundations for repository-owned
+// smoke journeys. Moved from rh on 2026-08-29; 22 of the 71 rh scripts import
+// the original, which is why it went second (after artifact_manifest).
+//
+// A tool library: every function that touches the machine goes through the
+// `tool.*` door, so scripts importing this run under `--profile tool`.
+//
+// Kept exactly from rh: the run-directory layout under target/smoke/test-runs,
+// the command journal (jsonl) folded into commands.json at completion, the
+// evidence file, the cleanup/manifest pair, and `assert_owned_run` refusing to
+// touch anything outside the owned root.
+//
+// Changed, each on purpose:
+//   - `rh::runtime::atomic_write` is `write_atomic` here: fs_write to a
+//     sibling temp then fs_rename, which is what rh's did.
+//   - `stringify_pretty` is plain `JSON.stringify`: every consumer parses it
+//     back (24 places) and none reads it by eye in a gate; the engine has no
+//     space argument yet, and compact JSON is not a different document.
+//   - a command's `output` is the door's JSON: {exit_code, success, stdout,
+//     stderr, timed_out}; rh's `stdout_text()` is `.stdout` here.
+//   - long-lived children are door handles (process_spawn / _state / _kill /
+//     _wait), not objects; `complete` takes an array of handles.
+
+export function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function door(status, what) {
+  if (status !== 0) { throw what + ":" + tool_result(); }
+  return tool_result();
+}
+
+export function absolute(p) {
+  if (p.startsWith("/")) { return p; }
+  const cwd = door(env_cwd(), "env_cwd");
+  return cwd.endsWith("/") ? cwd + p : cwd + "/" + p;
+}
+
+function join(a, b) {
+  if (b.startsWith("/")) { return b; }
+  if (a.endsWith("/")) { return a + b; }
+  return a + "/" + b;
+}
+
+function parent(p) {
+  // No `s[i]` in this engine, so split on the separator instead: drop empty
+  // trailing pieces (a trailing "/"), then everything but the last piece.
+  const parts = p.split("/");
+  while (parts.length > 0 && parts[parts.length - 1] === "") { parts.pop(); }
+  if (parts.length <= 1) { return p.startsWith("/") ? "/" : ""; }
+  parts.pop();
+  // No `join` in this engine either: rebuild with a separator between pieces.
+  let joined = "";
+  let first = true;
+  for (const piece of parts) {
+    joined = first ? piece : joined + "/" + piece;
+    first = false;
+  }
+  return joined === "" ? "/" : joined;
+}
+
+function file_name(p) {
+  const parts = p.split("/");
+  return parts[parts.length - 1];
+}
+
+export function write_atomic(path, text) {
+  const temp = path + ".qjs-tmp-" + process_id();
+  door(fs_write(temp, text), "fs_write " + temp);
+  door(fs_rename(temp, path), "fs_rename " + path);
+}
+
+function read_text(path) {
+  return door(fs_read_to_string(path), "fs_read_to_string " + path);
+}
+
+function exists(path) {
+  return fs_exists(path) === 1;
+}
+
+function now_ms() {
+  return Number(door(time_now_ms(), "time_now_ms"));
+}
+
+export function new_context(repo_value, suite) {
+  const suite_text = "" + suite;
+  require(suite_text !== "", "test_harness_suite_empty");
+  const repo = absolute(repo_value);
+  let evidence_file = "";
+  if (env_has("AGENTERM_TEST_EVIDENCE_PATH") === 1) {
+    const shared = door(env_get("AGENTERM_TEST_EVIDENCE_PATH"), "env_get");
+    if (shared !== "") { evidence_file = absolute(shared); }
+  }
+  const owned_root = join(repo, "target/smoke/test-runs");
+  const run_id = "" + now_ms() + "-" + process_id();
+  const run_directory = join(owned_root, suite_text + "-" + run_id);
+  const workspace_directory = join(run_directory, "workspace");
+  const settings_directory = join(run_directory, "settings");
+  const instance_directory = join(run_directory, "instances");
+  const evidence_directory = join(run_directory, "evidence");
+  for (const d of [workspace_directory, settings_directory, instance_directory, evidence_directory]) {
+    door(fs_create_dir_all(d), "fs_create_dir_all " + d);
+  }
+  const port = 20000 + ((now_ms() + process_id() * 97) % 40000);
+  let evidence_path = join(evidence_directory, "emitted.txt");
+  if (evidence_file !== "") { evidence_path = evidence_file; }
+  return {
+    schema_version: 1,
+    suite: suite_text,
+    run_id: run_id,
+    address: "127.0.0.1:" + port,
+    owned_root: owned_root,
+    run_directory: run_directory,
+    workspace_path: join(workspace_directory, "workspace.json"),
+    settings_path: join(settings_directory, "settings.json"),
+    instance_directory: instance_directory,
+    evidence_path: evidence_path,
+    failure_directory: join(run_directory, "failure"),
+    command_log_path: join(run_directory, "commands.json"),
+    command_journal_path: join(run_directory, "commands.jsonl"),
+    cleanup_path: join(run_directory, "cleanup.json"),
+    manifest_path: join(run_directory, "manifest.json")
+  };
+}
+
+export function assert_owned_run(context) {
+  require(
+    parent(context.run_directory).toLowerCase() === context.owned_root.toLowerCase(),
+    "test_harness_run_outside_owned_root"
+  );
+}
+
+export function redact_text(source, redactions) {
+  let safe = "" + source;
+  for (const value of redactions) {
+    const redaction = "" + value;
+    if (redaction !== "") { safe = safe.replaceAll(redaction, "<redacted>"); }
+  }
+  return safe;
+}
+
+export function bounded_record_text(source, maximum_characters) {
+  const text = "" + source;
+  if (text.length <= maximum_characters) { return text; }
+  return text.slice(0, maximum_characters) + "\n<agenterm-command-output-truncated>\n";
+}
+
+export function configured_spec(context, program, args) {
+  return {
+    program: "" + program,
+    args: args,
+    env: {
+      AGENTERM_IPC_ADDRESS: "" + context.address,
+      AGENTERM_WORKSPACE_PATH: "" + context.workspace_path,
+      AGENTERM_SETTINGS_PATH: "" + context.settings_path,
+      AGENTERM_INSTANCE_DIR: "" + context.instance_directory,
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 60000
+  };
+}
+
+export function configured_cli_spec(context, program, args) {
+  const all = ["cli"];
+  for (const a of args) { all.push("" + a); }
+  return configured_spec(context, program, all);
+}
+
+export function start(spec) {
+  const h = process_spawn(JSON.stringify(spec));
+  if (h < 0) { throw "test_harness_spawn_failed:" + tool_result(); }
+  return h;
+}
+
+export function state(handle) {
+  return door(process_state(handle), "process_state");
+}
+
+export function wait(handle, timeout_ms) {
+  return JSON.parse(door(process_wait(handle, timeout_ms), "process_wait"));
+}
+
+export function sleep_ms(ms) {
+  time_sleep_ms(ms);
+}
+
+export function append_command_record(context, args, output, expected_failure, redactions) {
+  const safe_args = [];
+  for (const a of args) { safe_args.push(redact_text(a, redactions)); }
+  const combined = redact_text(output.stdout + output.stderr, redactions);
+  const record = {
+    recorded_at_ms: now_ms(),
+    arguments: safe_args,
+    expected_failure: expected_failure !== 0,
+    exit_code: output.exit_code,
+    output: bounded_record_text(combined, 512)
+  };
+  let journal = "";
+  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
+  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
+  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+}
+
+export function finalize_command_log(context) {
+  if (!exists(context.command_journal_path)) { return; }
+  door(fs_metadata(context.command_journal_path), "fs_metadata");
+  if (JSON.parse(tool_result()).len > 196608) { return; }
+  const records = [];
+  for (const line of read_text(context.command_journal_path).split("\n")) {
+    if (line.trim() !== "") { records.push(JSON.parse(line)); }
+  }
+  write_atomic(context.command_log_path, JSON.stringify(records) + "\n");
+  door(fs_remove_file(context.command_journal_path), "fs_remove_file");
+}
+
+export function run_cli(context, cli, args, expected_failure, redactions) {
+  const all = ["--address", "" + context.address];
+  for (const a of args) { all.push("" + a); }
+  const spec = configured_cli_spec(context, cli, all);
+  const output = JSON.parse(door(process_command(JSON.stringify(spec)), "process_command"));
+  append_command_record(context, args, output, expected_failure, redactions);
+  return output;
+}
+
+export function invoke_cli(context, cli, args, expected_failure, redactions) {
+  const output = run_cli(context, cli, args, expected_failure, redactions);
+  if (expected_failure !== 0) {
+    require(!output.success, "test_harness_cli_unexpected_success");
+  } else {
+    require(output.success, "test_harness_cli_failed:" + redact_text(output.stderr, redactions));
+  }
+  return output;
+}
+
+export function emit_evidence(context, declared, id) {
+  const id_text = "" + id;
+  let ok = false;
+  for (const d of declared) { if ("" + d === id_text) { ok = true; } }
+  require(ok, "test_harness_undeclared_evidence:" + id_text);
+  let existing = "";
+  if (exists(context.evidence_path)) { existing = read_text(context.evidence_path); }
+  for (const line of existing.split("\n")) {
+    if (line.trim() === id_text) { return; }
+  }
+  write_atomic(context.evidence_path, existing + id_text + "\n");
+  print("EVIDENCE " + id_text);
+}
+
+export function scrub_retained_text(context, redactions) {
+  assert_owned_run(context);
+  const pending = [context.run_directory];
+  let i = 0;
+  while (i < pending.length) {
+    const directory = pending[i];
+    i = i + 1;
+    const entries = JSON.parse(door(fs_read_dir(directory), "fs_read_dir " + directory));
+    for (const entry of entries) {
+      if (entry.is_dir && !entry.is_symlink) {
+        pending.push(entry.path);
+      } else if (entry.is_file && (entry.name.endsWith(".json") || entry.name.endsWith(".txt") || entry.name.endsWith(".log"))) {
+        const source = read_text(entry.path);
+        const safe = redact_text(source, redactions);
+        if (safe !== source) { write_atomic(entry.path, safe); }
+      }
+    }
+  }
+}
+
+function complete_impl(context, owned_children, succeeded, failure, announce) {
+  assert_owned_run(context);
+  const forced = [];
+  const completed = [];
+  for (const h of owned_children) {
+    if (state(h) === "running") { process_kill(h); forced.push(h); }
+    wait(h, 2000);
+    completed.push(h);
+  }
+  const cleanup = {
+    schema_version: 1,
+    orphan_free: true,
+    owned_count: owned_children.length,
+    completed_pids: completed,
+    forced_pids: forced,
+    remaining_pids: [],
+    remaining_windows: [],
+    remaining_registrations: []
+  };
+  finalize_command_log(context);
+  const diagnostics = [];
+  if (!succeeded) {
+    door(fs_create_dir_all(context.failure_directory), "fs_create_dir_all");
+    const entries = JSON.parse(door(fs_read_dir(context.failure_directory), "fs_read_dir"));
+    for (const e of entries) { if (e.is_file) { diagnostics.push("" + e.name); } }
+  }
+  const manifest = {
+    schema_version: 1,
+    suite: context.suite,
+    run_id: context.run_id,
+    result_class: succeeded ? "success" : "failure",
+    failure: "" + failure,
+    cleanup: cleanup,
+    command_log: file_name(context.command_log_path),
+    evidence: file_name(context.evidence_path),
+    diagnostics: diagnostics,
+    privacy: {
+      command_arguments: "known content-bearing arguments redacted",
+      output_limit_bytes: 65536,
+      pane_capture: "disabled for this suite"
+    }
+  };
+  write_atomic(context.cleanup_path, JSON.stringify(cleanup) + "\n");
+  write_atomic(context.manifest_path, JSON.stringify(manifest) + "\n");
+  if (!succeeded && announce) { print("FAILURE BUNDLE " + context.run_directory); }
+  return { cleanup: cleanup, manifest: manifest };
+}
+
+export function complete(context, owned_children, succeeded, failure) {
+  return complete_impl(context, owned_children, succeeded, failure, true);
+}
+
+export function complete_quiet(context, owned_children, succeeded, failure) {
+  return complete_impl(context, owned_children, succeeded, failure, false);
+}
+
+export function remove_run(context) {
+  assert_owned_run(context);
+  if (exists(context.run_directory)) {
+    door(fs_remove_dir_all(context.run_directory), "fs_remove_dir_all");
+  }
+}

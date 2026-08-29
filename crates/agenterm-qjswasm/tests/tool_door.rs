@@ -626,3 +626,79 @@ fn sha256_file_fingerprints_the_bytes_on_disk() {
     assert_eq!(got, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A long-lived child: spawn, observe it running, kill it, wait, and read
+/// what it wrote -- the shape 29 of the 71 rh scripts have, and the one
+/// `process.command` cannot express.
+#[test]
+fn a_spawned_child_can_be_watched_killed_and_waited() {
+    let source = r#"
+        const spec = JSON.stringify({ program: "sh", args: ["-c", "echo started; sleep 30"] });
+        const h = process_spawn(spec);
+        if (h < 0) { return "spawn:" + tool_result(); }
+        time_sleep_ms(200);
+        if (process_state(h) !== 0) { return "state:" + tool_result(); }
+        const before = tool_result();
+        process_kill(h);
+        if (process_wait(h, 5000) !== 0) { return "wait:" + tool_result(); }
+        const out = JSON.parse(tool_result());
+        return before + "|" + out.stdout.trim() + "|" + out.success;
+    "#;
+    let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
+    let wasm = agenterm_qjswasm::compile_qjs_tool(source).expect("compiles");
+    let out = engine
+        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .expect("runs");
+    let got = match out.values.first() {
+        Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
+        other => panic!("expected a string, got {other:?}"),
+    };
+    assert_eq!(got, "running|started|false");
+}
+
+/// A child the script never waited for does not outlive the slot.
+///
+/// `run_once` drops its slot before returning, so the reap has already
+/// happened by the time control is back here -- which is the property.
+///
+/// The child is found by its own command line, not by `pgrep -P <us>`: under
+/// the workspace run every test in this binary shares one parent PID, and
+/// counting children of it counts *other tests'* processes too. The first
+/// cut of this test did that and failed only under the parallel run, which
+/// read as a reap bug and was a test-isolation bug.
+#[test]
+fn an_unwaited_child_is_killed_with_the_slot() {
+    let marker = format!("30.{}", std::process::id() % 1000 + 100);
+    let source = format!(
+        r#"
+        const spec = JSON.stringify({{ program: "sleep", args: ["{marker}"] }});
+        const h = process_spawn(spec);
+        if (h < 0) {{ return "spawn:" + tool_result(); }}
+        time_sleep_ms(100);
+        if (process_state(h) !== 0) {{ return "state:" + tool_result(); }}
+        return tool_result();
+    "#
+    );
+    let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
+    let wasm = agenterm_qjswasm::compile_qjs_tool(&source).expect("compiles");
+    let out = engine
+        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .expect("runs");
+    let got = match out.values.first() {
+        Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
+        other => panic!("expected a string, got {other:?}"),
+    };
+    assert_eq!(got, "running", "the child was alive while the script ran");
+    drop(engine);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let survivors = std::process::Command::new("pgrep")
+        .args(["-f", &format!("^sleep {marker}$")])
+        .output()
+        .expect("pgrep");
+    let survivors = String::from_utf8_lossy(&survivors.stdout);
+    assert!(
+        survivors.trim().is_empty(),
+        "the unwaited child must be reaped with the slot; still running: {}",
+        survivors.trim()
+    );
+}

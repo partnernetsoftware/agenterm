@@ -790,7 +790,6 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // shape, so this is a rebind, not a wrapper.
         let bridge: Option<agenterm_qjswasm::FleetBridgeFn> = fleet_bridge;
 
-        let mut engine = agenterm_qjswasm::Engine::new();
         // `"main"` with no arguments is still the entry convention after the
         // `df8decd` bump, re-checked rather than assumed: the compiler exports
         // exactly one function, still named `main`, and its parameters are the
