@@ -1,0 +1,357 @@
+// Public-process and binary-protocol helpers for the Script Runtime journey.
+// Ported from scripts/rh/lib/script_smoke_helpers.rh on 2026-08-29.
+//
+// A tool library: import it under `--profile tool`. Long-lived children are
+// door handles (`harness.start` / `state` / `wait`), not command objects.
+//
+// The rh library was stale against the copy inlined into script-smoke.rh
+// ("do not edit lib copy"): the inlined copy prefixed every CLI invocation
+// with `cli` and every direct invocation with `rh`, and it was the copy CI
+// ran. This port follows the inlined copy where the two disagree, so the
+// entry can import this file instead of carrying its own.
+//
+// Changed, each on purpose (and each the door's shape, not a choice here):
+//   - `capture_limit(262144)`: the door caps each captured stream at the
+//     slot's max_bridge_result_bytes (1 MiB); there is no per-command knob.
+//   - `output.complete` is `!timed_out`; the door has no truncation signal,
+//     so `truncated` is always false here.
+//   - `std::process::list()` / `std::process::kill(pid)`: the door has no
+//     process table. They are `ps -axo pid=,comm=` and `kill -9` here, run
+//     as ordinary commands (the rh originals were Windows-only anyway).
+//   - `stdin_bytes`, `bytes.get`, `bytes.slice`, `to_text`: the door carries
+//     text, and this engine cannot turn a string into its bytes (no
+//     `charCodeAt`, no `s[i]`). The binary framing helpers that need that
+//     are gaps: they throw a named `script_smoke_gap:` rather than pretend.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+export function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function file_name(p) {
+  const parts = ("" + p).split("/");
+  return parts[parts.length - 1];
+}
+
+export function configured_program(context, program, args, audit_path, environment) {
+  const spec = harness.configured_spec(context, program, args);
+  spec.timeout_ms = 60000;
+  // capture_limit(2097152): the door caps at max_bridge_result_bytes (1 MiB).
+  spec.env_remove = [];
+  if (audit_path === "") {
+    spec.env_remove.push("AGENTERM_SCRIPT_AUDIT_PATH");
+    spec.env_remove.push("AGENTERM_AUDIT_ENV_SECRET");
+  } else {
+    spec.env.AGENTERM_SCRIPT_AUDIT_PATH = "" + audit_path;
+    spec.env.AGENTERM_AUDIT_ENV_SECRET = "AUDIT_ENV_SECRET";
+  }
+  for (const name of Object.keys(environment)) {
+    const value = environment[name];
+    // rh's `()` (unit) meant "remove"; here that is null or undefined.
+    if (value === undefined || value === null) {
+      spec.env_remove.push(name);
+    } else {
+      spec.env[name] = "" + value;
+    }
+  }
+  return spec;
+}
+
+export function safe_command_arguments(program, args) {
+  const safe = [program];
+  for (const a of args) { safe.push(a); }
+  let script_index = -1;
+  let index = 0;
+  while (index < safe.length) {
+    if (script_index < 0 && safe[index] === "script") { script_index = index; }
+    index = index + 1;
+  }
+  let operation_index = -1;
+  if (script_index >= 0) {
+    operation_index = script_index + 1;
+  } else if (safe.length > 1 && (safe[1] === "eval" || safe[1] === "run" || safe[1] === "check")) {
+    operation_index = 1;
+  }
+  if (operation_index >= 0
+      && operation_index + 1 < safe.length
+      && (safe[operation_index] === "eval" || safe[operation_index] === "run" || safe[operation_index] === "check")) {
+    safe[operation_index + 1] = "<content>";
+    let scan_index = operation_index + 2;
+    while (scan_index < safe.length) {
+      if (safe[scan_index] === "--") {
+        let content_index = scan_index + 1;
+        while (content_index < safe.length) {
+          safe[content_index] = "<content>";
+          content_index = content_index + 1;
+        }
+        break;
+      }
+      scan_index = scan_index + 1;
+    }
+  }
+  return safe;
+}
+
+export function run_program(context, program, args, expected_exit, audit_path, environment, redactions) {
+  const spec = configured_program(context, program, args, audit_path, environment);
+  const output = JSON.parse(run_spec(spec));
+  let expected_failure = 0;
+  if (expected_exit !== 0) { expected_failure = 1; }
+  harness.append_command_record_bounded(
+    context,
+    safe_command_arguments(program, args),
+    output,
+    expected_failure,
+    redactions
+  );
+  require(
+    output.exit_code === expected_exit,
+    "script_smoke_process_exit:" + program + ":" + output.exit_code + ":expected:" + expected_exit
+      + ":args:" + harness.redact_text(JSON.stringify(args), redactions)
+      + ":" + harness.redact_text(output.stdout + output.stderr, redactions)
+  );
+  return {
+    success: output.success,
+    exit_code: output.exit_code,
+    stdout: output.stdout,
+    stderr: output.stderr,
+    bytes: output.stdout,
+    complete: !output.timed_out,
+    truncated: false
+  };
+}
+
+// rh's `command.output()` on a configured spec: the door's JSON
+// {exit_code, success, stdout, stderr, timed_out}, unrecorded.
+export function run_spec(spec) {
+  const status = process_command(JSON.stringify(spec));
+  if (status !== 0) { throw "process_command " + spec.program + ":" + tool_result(); }
+  return tool_result();
+}
+
+export function cli_arguments(context, args) {
+  const all = ["cli", "--address", "" + context.address];
+  for (const a of args) { all.push(a); }
+  return all;
+}
+
+export function run_cli(context, cli, args, expected_exit, audit_path, environment, redactions) {
+  return run_program(context, cli, cli_arguments(context, args), expected_exit, audit_path, environment, redactions);
+}
+
+export function cli_text(context, cli, args, audit_path) {
+  return run_cli(context, cli, args, 0, audit_path, {}, []).stdout.trim();
+}
+
+export function cli_json(context, cli, args, audit_path) {
+  return JSON.parse(run_cli(context, cli, args, 0, audit_path, {}, []).stdout);
+}
+
+// rh's `command.stdout_file(spool)`: the door has no spool, so the text is
+// captured (1 MiB cap) and written to `spool_path` for the same readers.
+export function cli_json_spooled(context, cli, args, audit_path, spool_path) {
+  const spec = configured_program(context, cli, cli_arguments(context, args), audit_path, {});
+  const output = JSON.parse(run_spec(spec));
+  require(output.success, "script_smoke_spooled_cli_failed:" + output.stderr);
+  rh.atomic_write(spool_path, output.stdout);
+  return JSON.parse(rh.read_text(spool_path));
+}
+
+export function direct_text(context, script, args, audit_path) {
+  const all = ["rh"];
+  for (const a of args) { all.push(a); }
+  return run_program(context, script, all, 0, audit_path, {}, []).stdout.trim();
+}
+
+export function direct_json(context, script, args, audit_path) {
+  const all = ["rh"];
+  for (const a of args) { all.push(a); }
+  return JSON.parse(run_program(context, script, all, 0, audit_path, {}, []).stdout);
+}
+
+export function failure_text(context, cli, args, expected_exit, audit_path) {
+  const result = run_cli(context, cli, args, expected_exit, audit_path, {}, []);
+  return "" + result.stdout + result.stderr;
+}
+
+// ---- process table ------------------------------------------------------
+//
+// rh's `std::process::list()` was a host call. The door has none, so the
+// table is `ps -axo pid=,comm=`: one "pid path" line per process.
+
+function process_table() {
+  const out = rh.command("ps", ["-axo", "pid=,comm="], { timeout_ms: 5000 });
+  const rows = [];
+  if (out.exit_code !== 0) { return rows; }
+  for (const line of out.stdout.split("\n")) {
+    const tokens = [];
+    for (const token of line.trim().split(" ")) {
+      if (token !== "") { tokens.push(token); }
+    }
+    if (tokens.length < 2) { continue; }
+    let command = tokens[1];
+    let i = 2;
+    while (i < tokens.length) { command = command + " " + tokens[i]; i = i + 1; }
+    rows.push({ id: Number(tokens[0]), executable_name: file_name(command) });
+  }
+  return rows;
+}
+
+export function process_ids(executable_name) {
+  const ids = [];
+  const wanted = ("" + executable_name).toLowerCase();
+  for (const process of process_table()) {
+    if (process.executable_name.toLowerCase() === wanted) { ids.push("" + process.id); }
+  }
+  return ids;
+}
+
+export function process_exists(pid) {
+  const wanted = Number(pid);
+  for (const process of process_table()) {
+    if (process.id === wanted) { return true; }
+  }
+  return false;
+}
+
+// rh's `std::process::kill(pid)`: `kill -9` as a command; absent is not
+// an error, exactly like the host call.
+export function kill_pid(pid) {
+  rh.command_status("kill", ["-9", "" + pid], { timeout_ms: 5000 });
+}
+
+export function wait_new_process(executable_name, existing, timeout_ms) {
+  const attempts = rh.int_div(timeout_ms, 5);
+  let attempt = 0;
+  while (attempt < attempts) {
+    for (const pid of process_ids(executable_name)) {
+      if (!rh.array_has(existing, "" + pid)) { return Number(pid); }
+    }
+    rh.sleep_ms(5);
+    attempt = attempt + 1;
+  }
+  throw "script_smoke_new_process_timeout:" + executable_name;
+}
+
+export function wait_process_gone(pid, timeout_ms) {
+  const attempts = rh.int_div(timeout_ms, 10);
+  let attempt = 0;
+  while (attempt < attempts) {
+    if (!process_exists(pid)) { return ""; }
+    rh.sleep_ms(10);
+    attempt = attempt + 1;
+  }
+  throw "script_smoke_process_remained:" + pid;
+}
+
+// ---- long-lived children ------------------------------------------------
+
+export function start_script_client(context, cli, args, audit_path) {
+  return harness.start(configured_program(context, cli, cli_arguments(context, args), audit_path, {}));
+}
+
+export function start_http_fixture(context, script, fixture_path, repo, ready_path, log_path, stop_path) {
+  // `rh run` compiles a native pack before writing READY; 180 s covers a
+  // debug compile. Isolated from the parent task pack: an inherited
+  // `AGENTERM_RH_PACK` makes `resolve_rh_pack` ignore the fixture source.
+  const spec = configured_program(
+    context,
+    script,
+    [
+      "rh", "run", fixture_path,
+      "--profile", "local",
+      "--project-root", repo,
+      "--timeout-ms", "180000",
+      "--max-operations", "10000000",
+      "--",
+      ready_path, log_path, stop_path, "9", "10000"
+    ],
+    "",
+    {}
+  );
+  spec.env_remove.push("AGENTERM_RH_PACK");
+  spec.timeout_ms = 180000;
+  return harness.start(spec);
+}
+
+export function wait_http_ready(child, ready_path, timeout_ms) {
+  const attempts = rh.int_div(timeout_ms, 50);
+  if (attempts < 1) { throw "script_smoke_http_fixture_ready_timeout"; }
+  let attempt = 0;
+  while (attempt < attempts) {
+    if (rh.exists(ready_path)) { return rh.parse_file(ready_path); }
+    rh.sleep_ms(50);
+    attempt = attempt + 1;
+  }
+  if (rh.exists(ready_path)) { return rh.parse_file(ready_path); }
+  // `process.wait` consumes the handle, so the child's state afterwards is
+  // read off the wait itself: a wait that timed out found it still running.
+  const output = harness.wait(child, 2000);
+  const detail = "" + output.stderr + ":" + output.stdout;
+  if (!output.timed_out) { throw "script_smoke_http_fixture_early_exit:" + detail; }
+  throw "script_smoke_http_fixture_ready_timeout:" + detail;
+}
+
+// ---- binary framing -----------------------------------------------------
+//
+// Byte arrays are arrays of numbers 0..255 here.
+
+export function u32_header(length) {
+  return [
+    rh.int_div(length, 16777216) % 256,
+    rh.int_div(length, 65536) % 256,
+    rh.int_div(length, 256) % 256,
+    length % 256
+  ];
+}
+
+export function payload_frame(payload) {
+  const stream = u32_header(payload.length);
+  for (const b of payload) { stream.push(b); }
+  return stream;
+}
+
+// GAP: text -> bytes needs a per-character read this engine does not have.
+export function json_frame(frame) {
+  throw "script_smoke_gap:json_frame:no text-to-bytes in this engine:" + JSON.stringify(frame).length;
+}
+
+export function framed_invocation(frame_id, invocation_id, source, version) {
+  return {
+    frame_version: version,
+    frame_id: frame_id,
+    kind: "invoke",
+    payload: {
+      envelope_version: 2,
+      invocation_id: invocation_id,
+      api_version: 2,
+      operation: "eval",
+      profile: "pure",
+      source_label: "smoke",
+      source: source,
+      arguments: [],
+      budgets: {
+        source_bytes: 262144,
+        operations: 1000000,
+        call_depth: 64,
+        expression_depth: 64,
+        collection_items: 10000,
+        string_bytes: 262144,
+        output_bytes: 65536,
+        wall_time_ms: 2000
+      }
+    }
+  };
+}
+
+// GAP: bytes -> text needs a byte-to-character read this engine does not have.
+export function parse_frames(bytes) {
+  throw "script_smoke_gap:parse_frames:no bytes-to-text in this engine:" + bytes.length;
+}
+
+// GAP: the door feeds a child text (`stdin_text`), never bytes, and answers
+// text; a length-prefixed binary stream cannot cross it in either direction.
+export function invoke_framed_worker(context, script, input_bytes) {
+  throw "script_smoke_gap:invoke_framed_worker:" + file_name(script) + ":" + input_bytes.length;
+}

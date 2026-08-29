@@ -1,0 +1,110 @@
+// Prove exact child ownership, cleanup evidence, and original-failure retention.
+//
+// Args:
+//   REPO
+//
+// Ported from scripts/rh/harness-cleanup-selftest.rh; runs under
+// `--profile tool`. The children are door handles: `complete_quiet` must
+// force-kill the owned one, leave the unowned one running, and record which
+// was which. The harness records handles where rh recorded pids, so the
+// identity asserted below is the handle -- the same child, the door's name
+// for it.
+//
+// The rh original was Windows-only (`cmd.exe /c ping -n 60`, a `for /L`
+// echo loop). On a Unix host the same two fixtures are `sleep 60` and an
+// `sh -c` echo loop; the proof -- a 60 s sleeper killed by the harness, a
+// 1000-line chatty child bounded in the record -- is unchanged.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const args = rh.args();
+if (args.length !== 1) { throw "expected: REPO"; }
+
+const windows = rh.env_or("OS", "") === "Windows_NT";
+
+function sleeper_spec() {
+  if (windows) {
+    return { program: "cmd.exe", args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"], timeout_ms: 60000 };
+  }
+  return { program: "sleep", args: ["60"], timeout_ms: 60000 };
+}
+
+function verbose_spec() {
+  if (windows) {
+    return {
+      program: "cmd.exe",
+      args: ["/d", "/s", "/c", "for /L %i in (1,1,1000) do @echo diagnostic-line-%i-abcdefghijklmnopqrstuvwxyz"],
+      timeout_ms: 60000
+    };
+  }
+  return {
+    program: "sh",
+    args: ["-c", "i=1; while [ $i -le 1000 ]; do echo diagnostic-line-$i-abcdefghijklmnopqrstuvwxyz; i=$((i+1)); done"],
+    timeout_ms: 60000
+  };
+}
+
+const context = harness.new_context(args[0], "harness-cleanup-selftest");
+const owned = harness.start(sleeper_spec());
+const unowned = harness.start(sleeper_spec());
+const owned_pid = owned;
+const unowned_pid = unowned;
+const marker = "original-fixture-failure-must-survive-cleanup";
+let succeeded = 0;
+let failure = "";
+
+if (failure === "") {
+  const spec = verbose_spec();
+  const status = process_command(JSON.stringify(spec));
+  if (status !== 0) { throw "process_command:" + tool_result(); }
+  const verbose = JSON.parse(tool_result());
+  if (!verbose.success) {
+    failure = "harness_verbose_fixture";
+  } else {
+    // The harness's own `append_command_record` bounds with `slice`, which
+    // this engine refuses; the word-bounded sibling writes the same record.
+    harness.append_command_record_bounded(context, ["verbose-diagnostic-fixture"], verbose, 0, []);
+    const command_log = rh.read_text(context.command_log_path);
+    if (command_log.includes("<agenterm-command-output-truncated>")
+        && rh.metadata(context.command_log_path).len < 8192) {
+      const proof = harness.complete_quiet(context, [owned], 0, marker);
+      if (harness.state(owned) !== "exited") {
+        failure = "harness_owned_child_survived";
+      } else if (harness.state(unowned) !== "running") {
+        failure = "harness_killed_unowned_child";
+      } else if (!proof.cleanup.orphan_free
+          || !rh.array_has(proof.cleanup.forced_pids, owned_pid)
+          || rh.array_has(proof.cleanup.forced_pids, unowned_pid)
+          || !proof.manifest.failure.includes(marker)) {
+        failure = "harness_cleanup_proof_incomplete";
+      } else {
+        const cleanup = rh.parse_file(context.cleanup_path);
+        const manifest = rh.parse_file(context.manifest_path);
+        if (!cleanup.orphan_free
+            || !rh.array_has(cleanup.forced_pids, owned_pid)
+            || rh.array_has(cleanup.forced_pids, unowned_pid)
+            || !manifest.cleanup.orphan_free
+            || !manifest.failure.includes(marker)) {
+          failure = "harness_persisted_proof_incomplete";
+        } else {
+          succeeded = 1;
+        }
+      }
+    } else {
+      failure = "harness_command_record_not_bounded";
+    }
+  }
+}
+
+if (harness.state(unowned) === "running") {
+  process_kill(unowned);
+  harness.wait(unowned, 2000);
+}
+if (harness.state(owned) === "running") {
+  process_kill(owned);
+  harness.wait(owned, 2000);
+}
+harness.remove_run(context);
+if (succeeded === 0) { throw failure; }
+print("PASS: harness cleanup ownership and orphan proof");
+return 0;

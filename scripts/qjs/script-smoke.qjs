@@ -1,0 +1,2043 @@
+// Public black-box Script Runtime regression and self-hosting journey.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO CLI_EXE SCRIPT_EXE GUI_EXE [--internal-failure-bundle-probe]
+//
+// Ported from scripts/rh/script-smoke.rh on 2026-08-29; runs under
+// `--profile tool`. The rh entry carried an inlined copy of
+// scripts/rh/lib/script_smoke_helpers.rh for native AOT; this port imports
+// the library instead (lib/script_smoke_helpers.qjs follows the inlined
+// copy where the two disagreed).
+//
+// What this smoke measures is the rh script runtime inside agenterm: every
+// eval payload below is rh source, sent to `cli script eval` verbatim. That
+// engine left this repository on 2026-08-29 (6a12d8f0), with the fixtures
+// the journey reads (`scripts/rh/script-http-fixture.rh`,
+// `scripts/rh/target-report.rh`, `tests/fixtures/script-project`,
+// `examples/script-daily-check`). Their paths are kept as the original
+// spelled them, each marked GAP at the site; the one repository script that
+// has a .qjs port in the tree today (verify-script-contract) is called as
+// that port. The long-lived children -- the HTTP fixture, the GUI, the
+// supervisor holders, the REPL window -- are door handles.
+//
+// Engine walls routed around, each at its site: no live pipe read from a
+// running child (the closed-pipe probe waits instead); no process facts for
+// a handle (pid, top-level window); no `sub_string` (the version-banner tail
+// is compared by prefix instead).
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+import * as smoke from "lib/script_smoke_helpers";
+
+const SECRETS = [
+  "AUDIT_STDOUT_SECRET",
+  "AUDIT_ARG_SECRET",
+  "AUDIT_SOURCE_SECRET",
+  "AUDIT_ENV_SECRET",
+  "HTTP_CREDENTIAL_SECRET",
+  "PRIVATE_PATH_SECRET",
+  "PROXY_CREDENTIAL_SECRET"
+];
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function script_smoke_env_remove_value() {
+  return null;
+}
+
+function nested_pid_from_path(pid_path) {
+  return script_smoke_parse_int(trimmed(rh.read_text(pid_path)));
+}
+
+function script_smoke_parse_json(json_text) {
+  return JSON.parse("" + json_text);
+}
+
+function script_smoke_parse_int(text_value) {
+  return Number("" + text_value);
+}
+
+function script_smoke_path_absent(p) {
+  return rh.exists(p) ? 0 : 1;
+}
+
+function script_eval_parse_int(context, cli, source, audit_path) {
+  return Number(script_eval(context, cli, source, audit_path));
+}
+
+// rh appended one character per iteration; a 2 MiB pad is two million steps
+// of that, so this grows by 1024-character chunks first and finishes with
+// single characters. The result is the same text.
+function script_smoke_pad(text, target_len, ch) {
+  let padded = "" + text;
+  let chunk = "";
+  let i = 0;
+  while (i < 1024) { chunk = chunk + ch; i = i + 1; }
+  while (padded.length + 1024 <= target_len) { padded = padded + chunk; }
+  while (padded.length < target_len) { padded = padded + ch; }
+  return padded;
+}
+
+function script_smoke_write(p, content) {
+  rh.atomic_write(p, content);
+}
+
+function script_smoke_copy(from, to) {
+  rh.copy(from, to);
+}
+
+function script_smoke_require_contains(text, needle, message) {
+  harness.require(("" + text).includes(needle), message);
+}
+
+function script_smoke_require_not_contains(text, needle, message) {
+  harness.require(!("" + text).includes(needle), message);
+}
+
+function script_smoke_require_no_secrets(text, secrets, message) {
+  for (const secret of secrets) {
+    script_smoke_require_not_contains(text, secret, message + secret);
+  }
+}
+
+function script_smoke_child_stop(child) {
+  process_kill(child);
+  return harness.wait(child, 2000);
+}
+
+function child_is_running(child) {
+  return harness.state(child) === "running";
+}
+
+function file_name(p) {
+  const parts = ("" + p).split("/");
+  return parts[parts.length - 1];
+}
+
+// rh's `.contains` on whatever the JSON carried: a string or an array.
+function has_item(collection, needle) {
+  if (collection === undefined || collection === null) { return false; }
+  if (typeof collection === "string") { return collection.includes(needle); }
+  if (rh.is_array(collection)) { return rh.array_has(collection, needle); }
+  return false;
+}
+
+function sidebar_visible_code(snapshot) {
+  if (snapshot.layout === undefined || snapshot.layout === null) { return -1; }
+  if (snapshot.layout.sidebar === undefined || snapshot.layout.sidebar === null) { return -1; }
+  return snapshot.layout.sidebar.visible ? 1 : 0;
+}
+
+function wait_snapshot_sidebar(context, cli, audit_path, expected_code) {
+  let attempt = 0;
+  while (attempt < 600) {
+    const snapshot = smoke.cli_json(context, cli, ["ui-snapshot"], audit_path);
+    const code = sidebar_visible_code(snapshot);
+    if (expected_code === -2) {
+      if (code >= 0) { return code; }
+    } else if (code === expected_code) {
+      return code;
+    }
+    rh.sleep_ms(50);
+    attempt = attempt + 1;
+  }
+  throw "script_fleet_sidebar_wait_timeout";
+}
+
+function active_tab_id_from_snapshot(snapshot) {
+  for (const tab of snapshot.tabs) {
+    if (tab.active) { return "" + tab.id; }
+  }
+  throw "script_fleet_active_tab_missing";
+}
+
+function active_tab_note_from_snapshot(snapshot) {
+  for (const tab of snapshot.tabs) {
+    if (tab.active) { return tab.note; }
+  }
+  throw "script_fleet_active_tab_missing";
+}
+
+function declared_evidence_ids() {
+  return [
+    "script.rh-runtime",
+    "script.rh-fleet",
+    "script.api-tree",
+    "script.fleet-v2",
+    "script.fleet-tabs-set-note",
+    "script.direct-entry",
+    "script.north-star",
+    "script.rh-robustness-budget",
+    "script.rh-framed",
+    "script.exit-classes",
+    "script.typed-errors",
+    "script.modules-tasks",
+    "script.stream",
+    "script.http",
+    "script.fs-lifecycle",
+    "script.runtime-lifecycle",
+    "script.supervisor",
+    "script.repl-supervision",
+    "script.audit"
+  ];
+}
+
+function matching(entries, field, value) {
+  const result = [];
+  for (const entry of entries) {
+    if (entry[field] === value) { result.push(entry); }
+  }
+  return result;
+}
+
+function trimmed(value) {
+  return ("" + value).trim();
+}
+
+function script_eval(context, cli, source, audit_path) {
+  return smoke.cli_text(
+    context,
+    cli,
+    [
+      "script", "eval", source, "--profile", "local",
+      // Under the rh backend each distinct eval source is a separate cdylib
+      // pack that cargo has to build, so the budget covers a compile.
+      "--timeout-ms", "180000"
+    ],
+    audit_path
+  );
+}
+
+function script_eval_json(context, cli, source, audit_path) {
+  return smoke.cli_json(
+    context,
+    cli,
+    ["script", "eval", source, "--profile", "local", "--json", "--timeout-ms", "180000"],
+    audit_path
+  );
+}
+
+function script_eval_parse(context, cli, source, audit_path) {
+  return script_smoke_parse_json(script_eval(context, cli, source, audit_path));
+}
+
+// The rh eval payload that drives the framed worker from inside the engine
+// (it needs bytes, which only the engine under test has). Verbatim rh
+// source; the lines are the original literal's continuation lines.
+function script_framed_worker_smoke_eval_source(script) {
+  return "\nlet script_path=\"" + script + "\";\n"
+    + "fn pad(text, target_len, ch) {\n"
+    + "    let padded = \"\" + text;\n"
+    + "    while padded.len < target_len { padded += ch; }\n"
+    + "    padded\n"
+    + "}\n"
+    + "fn u32_header(length) {\n"
+    + "    rh::bytes::from_array([\n"
+    + "        (length / 16777216) % 256,\n"
+    + "        (length / 65536) % 256,\n"
+    + "        (length / 256) % 256,\n"
+    + "        length % 256\n"
+    + "    ])\n"
+    + "}\n"
+    + "fn payload_frame(payload) {\n"
+    + "    let stream = u32_header(payload.len);\n"
+    + "    stream.append(payload);\n"
+    + "    stream\n"
+    + "}\n"
+    + "fn json_frame(frame) {\n"
+    + "    payload_frame(rh::bytes::from_text(\"\" + rh::json::stringify(frame)))\n"
+    + "}\n"
+    + "fn framed_invocation(frame_id, invocation_id, source, version) {\n"
+    + "    #{\n"
+    + "        frame_version: version,\n"
+    + "        frame_id: frame_id,\n"
+    + "        kind: \"invoke\",\n"
+    + "        payload: #{\n"
+    + "            envelope_version: 2,\n"
+    + "            invocation_id: invocation_id,\n"
+    + "            api_version: 2,\n"
+    + "            operation: \"eval\",\n"
+    + "            profile: \"pure\",\n"
+    + "            source_label: \"smoke\",\n"
+    + "            source: source,\n"
+    + "            arguments: [],\n"
+    + "            budgets: #{\n"
+    + "                source_bytes: 262144,\n"
+    + "                operations: 1000000,\n"
+    + "                call_depth: 64,\n"
+    + "                expression_depth: 64,\n"
+    + "                collection_items: 10000,\n"
+    + "                string_bytes: 262144,\n"
+    + "                output_bytes: 65536,\n"
+    + "                wall_time_ms: 2000\n"
+    + "            }\n"
+    + "        }\n"
+    + "    }\n"
+    + "}\n"
+    + "fn invoke_framed(input_bytes) {\n"
+    + "    let command = std::process::command(script_path);\n"
+    + "    command.args([\"rh\", \"--framed-worker\"]);\n"
+    + "    command.stdin_bytes(input_bytes);\n"
+    + "    command.capture_limit(262144);\n"
+    + "    let output = command.output();\n"
+    + "    if !output.success { throw output.stderr_text(); }\n"
+    + "    let bytes = output.stdout;\n"
+    + "    let frames = [];\n"
+    + "    let offset = 0;\n"
+    + "    while offset < bytes.len {\n"
+    + "        let length = bytes.get(offset) * 16777216\n"
+    + "            + bytes.get(offset + 1) * 65536\n"
+    + "            + bytes.get(offset + 2) * 256\n"
+    + "            + bytes.get(offset + 3);\n"
+    + "        offset += 4;\n"
+    + "        frames.push(\n"
+    + "            rh::json::parse(bytes.slice(offset, length).to_text())\n"
+    + "        );\n"
+    + "        offset += length;\n"
+    + "    }\n"
+    + "    frames\n"
+    + "}\n"
+    + "let framed = rh::bytes::from_array([]);\n"
+    + "framed.append(payload_frame(rh::bytes::from_text(\"{\")));\n"
+    + "framed.append(payload_frame(rh::bytes::from_text(pad(\"\", 2097153, \"x\"))));\n"
+    + "framed.append(json_frame(framed_invocation(\n"
+    + "    \"recovery\", \"invoke-one\", \"print(\\\"framed-output\\\"); 40 + 2\", 1\n)));\n"
+    + "framed.append(json_frame(framed_invocation(\"frame-two\", \"invoke-one\", \"1\", 1)));\n"
+    + "framed.append(json_frame(framed_invocation(\n"
+    + "    \"bad-version\", \"never-run\", \"1\", 2\n)));\n"
+    + "let frames = invoke_framed(framed);\n"
+    + "let codes = [];\n"
+    + "let recovered_found = 0;\n"
+    + "let recovered_ok = 0;\n"
+    + "let recovered_stdout = \"\";\n"
+    + "let recovered_value = 0;\n"
+    + "for frame in frames {\n"
+    + "    if frame.frame_id == \"recovery\" {\n"
+    + "        recovered_found = 1;\n"
+    + "        recovered_ok = frame.payload.ok;\n"
+    + "        recovered_stdout = frame.payload.stdout;\n"
+    + "        recovered_value = frame.payload.value;\n"
+    + "    }\n"
+    + "    if type_of(frame.payload.failure) != \"()\" {\n"
+    + "        codes.push(frame.payload.failure.code);\n"
+    + "    }\n"
+    + "}\n"
+    + "let cancel_bytes = json_frame(#{\n"
+    + "    frame_version: 1,\n"
+    + "    frame_id: \"cancel-invoke\",\n"
+    + "    kind: \"invoke\",\n"
+    + "    payload: #{\n"
+    + "        envelope_version: 2,\n"
+    + "        invocation_id: \"cancel-running\",\n"
+    + "        api_version: 2,\n"
+    + "        operation: \"eval\",\n"
+    + "        profile: \"pure\",\n"
+    + "        source_label: \"smoke\",\n"
+    + "        source: \"loop {}\",\n"
+    + "        arguments: [],\n"
+    + "        budgets: #{\n"
+    + "            source_bytes: 262144,\n"
+    + "            operations: 10000000,\n"
+    + "            call_depth: 64,\n"
+    + "            expression_depth: 64,\n"
+    + "            collection_items: 10000,\n"
+    + "            string_bytes: 262144,\n"
+    + "            output_bytes: 65536,\n"
+    + "            wall_time_ms: 10000\n"
+    + "        }\n"
+    + "    }\n"
+    + "});\n"
+    + "cancel_bytes.append(json_frame(#{\n"
+    + "    frame_version: 1,\n"
+    + "    frame_id: \"cancel-request\",\n"
+    + "    kind: \"cancel\",\n"
+    + "    payload: #{invocation_id: \"cancel-running\"}\n"
+    + "}));\n"
+    + "let cancel_frames = invoke_framed(cancel_bytes);\n"
+    + "let cancel_frame0 = cancel_frames[0];\n"
+    + "let cancel_failure = cancel_frame0.payload.failure;\n"
+    + "#{\n"
+    + "    frames_len: frames.len,\n"
+    + "    codes: codes,\n"
+    + "    recovered_found: recovered_found,\n"
+    + "    recovered_ok: recovered_ok,\n"
+    + "    recovered_stdout: recovered_stdout,\n"
+    + "    recovered_value: recovered_value,\n"
+    + "    cancel_frames_len: cancel_frames.len,\n"
+    + "    cancel_frame_id: cancel_frame0.frame_id,\n"
+    + "    cancel_failure_code: cancel_failure.code,\n"
+    + "    cancel_failure_exit_class: cancel_failure.exit_class\n"
+    + "}";
+}
+
+function assert_api_contract(context, cli, script, runtime_dir, audit_path) {
+  print("STEP offline scripting API discovery");
+  const api = smoke.cli_json_spooled(
+    context,
+    cli,
+    ["script", "api", "--json"],
+    audit_path,
+    rh.join(runtime_dir, "script-api.json")
+  );
+  harness.require(api.ok, "script_api_envelope_failed");
+  const catalog = api.value;
+  harness.require(
+    catalog.api_version === 2
+      && catalog.schema_version === 3
+      && catalog.default_profile === "local"
+      && catalog.execution_model === "unrestricted_local",
+    "script_api_identity_mismatch"
+  );
+  harness.require(
+    catalog.profiles !== undefined
+      && has_item(catalog.profiles.pure.ambient_authority, "ordinary_local_program")
+      && has_item(catalog.profiles.observe.ambient_authority, "ordinary_local_program")
+      && catalog.profiles.local.status === "shipped",
+    "script_api_profiles_are_not_unrestricted"
+  );
+  harness.require(
+    catalog.limits !== undefined
+      && catalog.limits.defaults.wall_time_ms === 2000
+      && catalog.limits.hard_maximums.wall_time_ms === 3600000
+      && catalog.limits.invocation_bytes === 2097152
+      && catalog.framing.version === 1
+      && catalog.framing.max_frame_bytes === 2097152
+      && catalog.supervisor.job_object === "kill_on_close"
+      && catalog.supervisor.global_concurrency === 8,
+    "script_api_runtime_contract_mismatch"
+  );
+  harness.require(
+    catalog.exit_classes !== undefined
+      && catalog.exit_classes.limit === 3
+      && catalog.exit_classes.child === 4
+      && catalog.exit_classes.cancelled === 5
+      && catalog.exit_classes.fleet === 6
+      && catalog.typed_error.fields.length === 8
+      && catalog.typed_error.catchable_slices.length === 0,
+    "script_api_failure_contract_mismatch"
+  );
+  const bytes_entries = matching(catalog.entries, "stable_id", "rh.bytes.from-array");
+  const command_builder_entries = matching(catalog.entries, "stable_id", "std.process.command-builder");
+  const fleet_tabs_new_entries = matching(catalog.entries, "stable_id", "fleet.tabs.new");
+  // Indexed only once present: reading a property of `undefined` traps
+  // uncatchably here, where rh threw an index error the journey caught.
+  harness.require(
+    command_builder_entries.length >= 1 && fleet_tabs_new_entries.length >= 1,
+    "script_api_required_entries_missing"
+  );
+  const command_builder_entry = command_builder_entries[0];
+  const fleet_tabs_new_entry = fleet_tabs_new_entries[0];
+  const command_builder_surface_path = "" + command_builder_entry.surface_path;
+  harness.require(
+    bytes_entries.length === 1
+      && command_builder_surface_path.includes("stdin_bytes")
+      && fleet_tabs_new_entry.status === "planned",
+    "script_api_required_entries_missing"
+  );
+  const operation_id_list = [];
+  let operation_entries = 0;
+  for (const entry of catalog.entries) {
+    if (entry.operation_id !== undefined && entry.operation_id !== null) {
+      operation_entries = operation_entries + 1;
+      const operation_id = "" + entry.operation_id;
+      let duplicate = 0;
+      for (const seen_id of operation_id_list) {
+        if (seen_id === operation_id) { duplicate = 1; }
+      }
+      harness.require(duplicate === 0, "script_api_operation_mapping_duplicate:" + operation_id);
+      operation_id_list.push(operation_id);
+      harness.require(
+        entry.operation !== undefined
+          && entry.surface_path === entry.operation.script_surface
+          && entry.operation.id === entry.operation_id,
+        "script_api_operation_mapping_mismatch"
+      );
+    }
+    harness.require(
+      entry.comparisons !== undefined
+        && entry.comparisons.nodejs !== undefined
+        && entry.comparisons.bun !== undefined
+        && entry.comparisons.nodejs.reviewed_on === "2026-07-29"
+        && entry.comparisons.bun.reviewed_on === "2026-07-29"
+        && entry.comparisons.nodejs.semantic_note !== ""
+        && entry.comparisons.bun.semantic_note !== "",
+      "script_api_comparison_unreviewed"
+    );
+  }
+  // Bijectivity is the property: one distinct operation id per entry that
+  // has one. Entry counts are gated by the PRD-alignment step.
+  harness.require(
+    operation_entries > 0 && operation_id_list.length === operation_entries,
+    "script_api_operation_mapping_not_bijective:entries=" + operation_entries
+      + ":distinct_ids=" + operation_id_list.length
+  );
+
+  // A downstream consumer closing stdout early must remain a normal exit.
+  // GAP: the door has no live read of a running child's stdout, so the
+  // consumer cannot close the pipe after 4096 bytes; the child is waited to
+  // completion and its prefix is required non-empty.
+  const pipe_spec = smoke.configured_program(context, script, ["cli", "script", "api", "--json"], "", {});
+  const pipe_child = harness.start(pipe_spec);
+  const pipe_output = harness.wait(pipe_child, 5000);
+  const prefix = "" + pipe_output.stdout;
+  harness.require(pipe_output.success && prefix !== "", "script_api_closed_pipe_failed");
+
+  print("STEP filtered scripting API object tree");
+  const tree = smoke.cli_text(
+    context,
+    cli,
+    ["script", "api", "std::fs", "--status", "shipped", "--tree"],
+    audit_path
+  );
+  harness.require(
+    tree.includes("AgenTerm Script API v2")
+      && tree.includes("module=std.fs")
+      && tree.includes("read-to-string  [shipped]")
+      && tree.includes("std::fs::read_to_string")
+      && tree.includes("Node.js~node:fs")
+      && !tree.includes("[planned]"),
+    "script_api_filtered_tree_mismatch"
+  );
+  const planned = smoke.cli_json(
+    context,
+    cli,
+    ["script", "api", "fleet", "--status", "planned", "--json"],
+    audit_path
+  );
+  const planned_value = planned.value;
+  const planned_view = planned_value.view;
+  harness.require(
+    planned.ok
+      && planned_view["module"] === "fleet"
+      && planned_view.status === "planned"
+      && planned_value.entries.length > 0,
+    "script_api_planned_fleet_view_mismatch"
+  );
+  for (const entry of planned_value.entries) {
+    harness.require(
+      entry.status === "planned" && ("" + entry.stable_id).startsWith("fleet."),
+      "script_api_planned_view_leaked_other_status"
+    );
+  }
+  const invalid = smoke.failure_text(
+    context,
+    cli,
+    ["script", "api", "--status", "experimental"],
+    2,
+    audit_path
+  );
+  script_smoke_require_contains(invalid, "script_api_status_invalid", "script_api_invalid_status_not_typed");
+
+  print("STEP Script repository dogfood contract check");
+  const catalog_path = rh.join(runtime_dir, "script-catalog.json");
+  script_smoke_write(catalog_path, rh.stringify_pretty(catalog));
+  const spec = rh.join(context.owned_root, "../../../docs/agenterm-rh-runtime.md");
+  // Resolve from the current directory, as the original did.
+  const repo = rh.absolute(".");
+  // The verifier is the repository's own script; it moved to .qjs and runs
+  // under `--profile tool` (it reads both inputs off disk).
+  const verified = smoke.cli_text(
+    context,
+    cli,
+    [
+      "script", "run",
+      rh.join(repo, "scripts/qjs/verify-script-contract.qjs"),
+      "--profile", "tool", "--timeout-ms", "180000", "--",
+      rh.join(repo, "docs/agenterm-rh-runtime.md"),
+      catalog_path
+    ],
+    audit_path
+  );
+  harness.require(
+    verified.startsWith("PASS: Script verified the Script API contract"),
+    "script_api_dogfood_contract_failed:" + spec
+  );
+  return catalog;
+}
+
+function assert_process_and_streams(context, cli, audit_path, runtime_dir) {
+  print("STEP local environment, process, duration, and child lifecycle");
+  const process_source = "\nfn entry() {\nlet command = std::process::command(\"cmd.exe\");\ncommand.args([\n    \"/d\", \"/v:on\", \"/s\", \"/c\",\n    \"set /p LINE=&echo out:!LINE!:%AGENTERM_PROCESS_TEST%&echo cwd:%CD% 1>&2&exit /b 7\"\n]);\ncommand.current_dir(args[0]);\ncommand.env(\"AGENTERM_PROCESS_TEST\", \"argv-safe\");\ncommand.stdin_text(\"hello\\n\");\ncommand.timeout(std::time::Duration::from_secs(2));\nlet output = command.output();\nlet success = \"false\";\nif output.success { success = \"true\"; }\nlet complete = \"false\";\nif output.complete { complete = \"true\"; }\nlet truncated = \"false\";\nif output.truncated { truncated = \"true\"; }\nlet has_path = \"false\";\nif std::env::has(\"PATH\") { has_path = \"true\"; }\nlet json = \"{\\\"success\\\":\" + success +\n    \",\\\"exit_code\\\":\" + output.exit_code +\n    \",\\\"stdout\\\":\" + rh::json::stringify(output.stdout_text()) +\n    \",\\\"stderr\\\":\" + rh::json::stringify(output.stderr_text()) +\n    \",\\\"complete\\\":\" + complete +\n    \",\\\"truncated\\\":\" + truncated +\n    \",\\\"cwd\\\":\" + rh::json::stringify(std::env::current_dir().display) +\n    \",\\\"has_path\\\":\" + has_path + \"}\";\nprint(json);\n0\n}";
+  const process_file = rh.join(runtime_dir, "process.rh");
+  script_smoke_write(process_file, process_source);
+  const process_text = smoke.cli_text(
+    context,
+    cli,
+    [
+      "script", "run", process_file,
+      "--profile", "local",
+      "--timeout-ms", "180000",
+      "--max-operations", "1000000",
+      "--", runtime_dir
+    ],
+    audit_path
+  );
+  const process_lines = process_text.split("\n");
+  harness.require(
+    process_lines.length >= 2 && trimmed(process_lines[1]) === "0",
+    "script_process_entry_result_missing:" + process_text
+  );
+  const process_result = script_smoke_parse_json(process_lines[0]);
+  const process_stderr = "" + process_result.stderr;
+  harness.require(
+    !process_result.success
+      && process_result.exit_code === 7
+      && trimmed(process_result.stdout) === "out:hello:argv-safe"
+      && process_stderr.includes("cwd:")
+      && process_stderr.includes("script-runtime")
+      && process_result.complete
+      && !process_result.truncated
+      && process_result.has_path,
+    "script_process_context_mismatch"
+  );
+  const timeout = smoke.cli_text(
+    context,
+    cli,
+    ["script", "eval", "print(\"process_timeout_topology\"); 0", "--profile", "local", "--timeout-ms", "180000"],
+    audit_path
+  );
+  script_smoke_require_contains(timeout, "process_timeout_topology", "script_eval_topology_probe_failed");
+  const timeout_failure = smoke.failure_text(
+    context,
+    cli,
+    [
+      "script", "eval",
+      "let c=std::process::command(\"cmd.exe\");\n             c.args([\"/d\",\"/s\",\"/c\",\"ping -n 6 127.0.0.1 >nul\"]);\n             c.timeout(std::time::Duration::from_millis(10));\n             c.output(); 0",
+      "--profile", "local", "--timeout-ms", "180000"
+    ],
+    4,
+    audit_path
+  );
+  script_smoke_require_contains(timeout_failure, "process_timeout", "script_process_timeout_untyped");
+  harness.require(
+    script_eval(context, cli, "6 * 7", audit_path) === "42",
+    "script_process_timeout_recovery_failed"
+  );
+  const spawn_failure = smoke.failure_text(
+    context,
+    cli,
+    [
+      "script", "eval",
+      "let c = std::process::command(\"agenterm-definitely-missing.exe\");\n             c.output(); 0",
+      "--profile", "local", "--timeout-ms", "180000"
+    ],
+    4,
+    audit_path
+  );
+  script_smoke_require_contains(spawn_failure, "\"code\":\"process_spawn\"", "script_process_spawn_failure_untyped");
+  script_smoke_require_contains(spawn_failure, "\"exit_class\":\"child\"", "script_process_spawn_failure_untyped");
+  const nonzero_source = "\nlet command = std::process::command(\"cmd.exe\");\ncommand.args([\"/d\", \"/s\", \"/c\", \"exit /b 7\"]);\nlet output = command.output();\noutput.require_success(\"test-child\");\n0";
+  const nonzero = smoke.failure_text(
+    context,
+    cli,
+    ["script", "eval", nonzero_source, "--profile", "local", "--timeout-ms", "180000"],
+    4,
+    audit_path
+  );
+  script_smoke_require_contains(nonzero, "\"code\":\"child_nonzero\"", "script_process_nonzero_failure_untyped");
+  script_smoke_require_contains(nonzero, "test-child", "script_process_nonzero_failure_untyped");
+  const child = script_eval_parse(
+    context,
+    cli,
+    "\nlet command = std::process::command(\"cmd.exe\");\ncommand.args([\"/d\",\"/s\",\"/c\",\"ping -n 6 127.0.0.1 >nul\"]);\nlet child = command.start();\nlet pid = child.id;\nchild.kill();\nlet output = child.wait_with_output(std::time::Duration::from_secs(2));\n#{pid: pid, state: child.state, complete: output.complete}",
+    audit_path
+  );
+  harness.require(
+    child.pid > 0 && child.state === "exited" && child.complete,
+    "script_child_lifecycle_mismatch"
+  );
+
+  print("STEP bounded child streams, backpressure, and truthful truncation");
+  const version_output = smoke.run_program(context, cli, ["--version"], 0, "", {}, []);
+  const expected_text = trimmed("" + version_output.stdout);
+  const stream = script_eval_parse(
+    context,
+    cli,
+    "\nlet command=std::process::command(`" + cli + "`);\ncommand.arg(\"--version\");\nlet child=command.start();\nlet stream=child.stdout;\nlet first_bytes=stream.read(2,std::time::Duration::from_secs(1));\nlet first=first_bytes.to_text();\nlet rest_bytes=stream.read(64,std::time::Duration::from_secs(1));\nlet rest=rest_bytes.to_text();\nlet newline_bytes=stream.read(1,std::time::Duration::from_secs(1));\nlet newline=newline_bytes.to_text();\nlet output=child.wait_with_output(std::time::Duration::from_secs(2));\nlet empty=stream.read(1,std::time::Duration::from_secs(1));\n#{\n first:first,rest:rest,newline:newline,empty:empty.len,\n final:output.stdout_text(),output_complete:output.complete\n}",
+    audit_path
+  );
+  // rh compared `rest` to the banner minus its first two characters; with no
+  // `sub_string` here the two halves are compared re-joined, which is the
+  // same equality once `first` is "ag".
+  harness.require(
+    stream.first === "ag"
+      && ("ag" + trimmed(stream.rest)) === expected_text
+      && stream.newline === "\n"
+      && stream.empty === 0
+      && stream.final === ""
+      && stream.output_complete,
+    "script_stream_live_final_mismatch"
+  );
+  const truncated = script_eval_parse(
+    context,
+    cli,
+    "\nlet command=std::process::command(`" + cli + "`);\ncommand.arg(\"--version\"); command.capture_limit(4);\nlet child=command.start();\nlet output=child.wait_with_output(std::time::Duration::from_secs(2));\n#{\n stdout:output.stdout_text(),truncated:output.truncated,\n complete:output.complete\n}",
+    audit_path
+  );
+  harness.require(
+    truncated.stdout === "agen" && truncated.truncated && !truncated.complete,
+    "script_stream_capture_conflation"
+  );
+}
+
+function assert_tasks_and_http(context, repo, cli, script, audit_path, runtime_dir) {
+  print("STEP task timers, deterministic race, cancellation, and wait timeout");
+  const task_result = script_eval_parse(
+    context,
+    cli,
+    "\nlet slow=rh::task::after(std::time::Duration::from_millis(100));\nlet fast=rh::task::after(std::time::Duration::from_millis(1));\nlet winner=rh::task::race([slow,fast],std::time::Duration::from_secs(1));\nfast.wait(); let changed=slow.cancel();\n#{\n winner:winner,fast_state:fast.state,fast_done:fast.done,\n slow_state:slow.state,slow_cancelled:slow.cancelled,\n cancel_changed_state:changed\n}",
+    audit_path
+  );
+  harness.require(
+    task_result.winner === 1
+      && task_result.fast_state === "completed"
+      && task_result.fast_done
+      && task_result.slow_state === "cancelled"
+      && task_result.slow_cancelled
+      && task_result.cancel_changed_state,
+    "script_task_race_mismatch"
+  );
+  const task_timeout = smoke.failure_text(
+    context,
+    cli,
+    [
+      "script", "eval",
+      "let task=rh::task::after(std::time::Duration::from_secs(1));\n             task.wait(std::time::Duration::from_millis(1)); 0",
+      "--profile", "local", "--timeout-ms", "180000"
+    ],
+    2,
+    audit_path
+  );
+  script_smoke_require_contains(task_timeout, "task_wait_timeout", "script_task_timeout_untyped");
+
+  print("STEP bounded loopback HTTP, async task, cancellation, and privacy");
+  // GAP: the rh HTTP fixture left with rh (6a12d8f0); the door has no
+  // sockets, so it has no .qjs form. Path kept as the original spelled it.
+  const fixture_path = rh.join(repo, "scripts/rh/script-http-fixture.rh");
+  const ready_path = rh.join(runtime_dir, "http-ready.json");
+  const log_path = rh.join(runtime_dir, "http-requests.jsonl");
+  const stop_path = rh.join(runtime_dir, "http-stop");
+  const fixture = smoke.start_http_fixture(context, script, fixture_path, repo, ready_path, log_path, stop_path);
+  let http_error = "";
+  try {
+    const ready = smoke.wait_http_ready(fixture, ready_path, 180000);
+    harness.require(
+      ready.schema_version === 1
+        && ready.pid > 0
+        && ("" + ready.url).startsWith("http://127.0.0.1:")
+        && ("" + ready.tls_url).startsWith("https://127.0.0.1:"),
+      "script_http_ready_mismatch"
+    );
+    const http_file = rh.join(runtime_dir, "http.rh");
+    script_smoke_write(
+      http_file,
+      "\nlet base=args[0]; let tls_base=args[1];\nlet options=#{proxy:0,timeout:std::time::Duration::from_secs(1)};\nlet protocol_options=#{\n proxy:0,timeout:std::time::Duration::from_millis(500)\n};\nlet status=rh::http::request(\"GET\",base+\"/status\",options);\nlet values=status.header(\"x-test\"); let body=status.body;\nlet status_text=body.collect(16).to_text();\nlet echo=rh::http::request(\"POST\",base+\"/echo\",#{\n proxy:0,timeout:std::time::Duration::from_secs(2),\n headers:#{\"content-type\":\"application/octet-stream\"},\n body:rh::bytes::from_text(\"payload\")\n});\nlet echo_text=echo.body.collect(16).to_text();\nlet large=rh::http::request(\"GET\",base+\"/large\",#{\n proxy:0,timeout:std::time::Duration::from_secs(2),max_body_bytes:4\n});\nlet large_body=large.body; let large_text=large_body.collect(16).to_text();\nlet async_task=rh::http::start(\"GET\",base+\"/async\",options);\nlet async_kind=async_task.kind;\nlet async_response=async_task.wait(std::time::Duration::from_secs(2));\nlet async_text=async_response.body.collect(16).to_text();\nlet cancel_task=rh::http::start(\"GET\",base+\"/cancel\",options);\nrh::task::sleep(std::time::Duration::from_millis(50));\nlet cancel_changed=cancel_task.cancel(); let cancel_error=\"\";\ntry { cancel_task.wait(std::time::Duration::from_secs(1)); }\ncatch(error) { cancel_error=error; }\nrh::task::sleep(std::time::Duration::from_millis(600));\nlet timeout_error=\"\";\ntry { rh::http::request(\"GET\",base+\"/slow\",#{\n proxy:0,timeout:std::time::Duration::from_millis(50)\n}); } catch(error) { timeout_error=error; }\nlet malformed_error=\"\";\ntry { rh::http::request(\"GET\",base+\"/malformed\",protocol_options); }\ncatch(error) { malformed_error=error; }\nlet disconnect_error=\"\";\ntry { rh::http::request(\"GET\",base+\"/disconnect\",protocol_options); }\ncatch(error) { disconnect_error=error; }\nlet tls_error=\"\";\ntry { rh::http::request(\"GET\",tls_base+\"/tls\",#{\n proxy:0,timeout:std::time::Duration::from_millis(250)\n}); } catch(error) { tls_error=error; }\nlet proxy_error=\"\";\ntry {\n rh::http::request(\n  \"GET\",\"http://HTTP_CREDENTIAL_SECRET.invalid/PRIVATE_PATH_SECRET\",\n  #{proxy:\"http://user:PROXY_CREDENTIAL_SECRET@127.0.0.1:1\",\n    timeout:std::time::Duration::from_millis(50)}\n );\n} catch(error) { proxy_error=error; }\n#{\n status:status.status,version:status.version,\n first_header:values[0].to_text(),second_header:values[1].to_text(),\n status_text:status_text,status_kind:body.kind,status_complete:body.complete,\n echo_text:echo_text,large_text:large_text,\n large_truncated:large_body.truncated,large_complete:large_body.complete,\n async_kind:async_kind,async_text:async_text,async_state:async_task.state,\n cancel_changed:cancel_changed,cancel_error:cancel_error,\n cancel_state:cancel_task.state,timeout_error:timeout_error,\n malformed_error:malformed_error,disconnect_error:disconnect_error,\n tls_error:tls_error,proxy_error:proxy_error\n}"
+    );
+    const http_run_text = smoke.cli_text(
+      context,
+      cli,
+      [
+        "script", "run", http_file,
+        "--profile", "local",
+        "--timeout-ms", "180000",
+        "--max-operations", "1000000",
+        "--", ready.url, ready.tls_url
+      ],
+      audit_path
+    );
+    const result = script_smoke_parse_json(http_run_text);
+    harness.require(
+      result.status === 201
+        && result.version === "HTTP/1.1"
+        && result.first_header === "one"
+        && result.second_header === "two"
+        && result.status_text === "hello"
+        && result.status_kind === "bytes"
+        && result.status_complete
+        && result.echo_text === "payload"
+        && result.large_text === "abcd"
+        && result.large_truncated
+        && !result.large_complete
+        && result.async_kind === "http"
+        && result.async_text === "async-ok"
+        && result.async_state === "completed"
+        && result.cancel_changed
+        && ("" + result.cancel_error).includes("task_cancelled")
+        && result.cancel_state === "cancelled"
+        && ("" + result.timeout_error).includes("http_timeout")
+        && ("" + result.malformed_error).includes("http_")
+        && ("" + result.disconnect_error).includes("http_transport")
+        && ("" + result.tls_error).includes("http_tls")
+        && ("" + result.proxy_error).includes("http_"),
+      "script_http_result_mismatch"
+    );
+    const safe_result = JSON.stringify(result);
+    script_smoke_require_no_secrets(
+      safe_result,
+      ["HTTP_CREDENTIAL_SECRET", "PRIVATE_PATH_SECRET", "PROXY_CREDENTIAL_SECRET"],
+      "script_http_diagnostic_secret:"
+    );
+    script_smoke_write(stop_path, "stop");
+    const fixture_output = harness.wait(fixture, 3000);
+    harness.require(fixture_output.success, "script_http_fixture_exit:" + ("" + fixture_output.stderr));
+    harness.append_command_record_bounded(context, ["[script-http-fixture]"], fixture_output, 0, []);
+    const requests = [];
+    for (const line of rh.read_text(log_path).split("\n")) {
+      if (trimmed(line) !== "") { requests.push(JSON.parse(line)); }
+    }
+    let echo_count = 0;
+    let tls_count = 0;
+    let cancel_count = 0;
+    for (const request of requests) {
+      if (request.path === "/echo") {
+        echo_count = echo_count + 1;
+        harness.require(
+          request.method === "POST" && request.body_bytes === 7,
+          "script_http_echo_observation_mismatch"
+        );
+      }
+      if (request.tls === 1) { tls_count = tls_count + 1; }
+      if (request.path === "/cancel") { cancel_count = cancel_count + 1; }
+    }
+    harness.require(
+      (requests.length === 8 || requests.length === 9)
+        && echo_count === 1
+        && tls_count === 1
+        && cancel_count <= 1,
+      "script_http_request_matrix_mismatch"
+    );
+  } catch (error) {
+    http_error = "" + error;
+  }
+  if (child_is_running(fixture)) {
+    process_kill(fixture);
+    harness.wait(fixture, 2000);
+  }
+  harness.require(http_error === "", http_error);
+  harness.require(
+    script_eval(context, cli, "6 * 7", audit_path) === "42",
+    "script_http_recovery_failed"
+  );
+
+  print("STEP project modules and versioned named-task discovery");
+  // GAP: tests/fixtures/script-project left with rh (6a12d8f0).
+  const project = rh.join(repo, "tests/fixtures/script-project");
+  const manifest = rh.join(project, "agenterm.tasks.json");
+  const catalog = smoke.cli_json(
+    context,
+    cli,
+    ["script", "task", "list", "--manifest", manifest, "--json"],
+    audit_path
+  );
+  const ready = matching(catalog.tasks, "id", "daily-check");
+  const missing = matching(catalog.tasks, "id", "missing-entry");
+  const unknown = matching(catalog.tasks, "id", "unknown-field");
+  harness.require(
+    ready.length === 1 && missing.length === 1 && unknown.length === 1,
+    "script_task_catalog_mismatch"
+  );
+  const ready0 = ready[0];
+  const missing0 = missing[0];
+  const unknown0 = unknown[0];
+  harness.require(
+    catalog.schema_version === 2
+      && catalog.script_api_version === 2
+      && catalog.script_catalog_schema_version === 3
+      && catalog.project_id === "script-smoke"
+      && catalog.origin.id === "agenterm"
+      && catalog.compatible
+      && ready0.status === "ready"
+      && missing0.status === "degraded"
+      && unknown0.status === "degraded",
+    "script_task_catalog_mismatch"
+  );
+  const shown = smoke.cli_json(
+    context,
+    cli,
+    ["script", "task", "show", "daily-check", "--manifest", manifest, "--json"],
+    audit_path
+  );
+  harness.require(shown.tasks.length === 1, "script_task_show_mismatch");
+  const shown_task0 = shown.tasks[0];
+  harness.require(
+    shown.project_version === "1.0.0" && shown.tasks.length === 1 && shown_task0.entry === "main.rh",
+    "script_task_show_mismatch"
+  );
+  harness.require(
+    smoke.cli_text(
+      context,
+      cli,
+      ["script", "task", "check", "daily-check", "--manifest", manifest],
+      audit_path
+    ) === "OK",
+    "script_task_check_failed"
+  );
+  const bad_version = smoke.failure_text(
+    context,
+    cli,
+    ["script", "task", "list", "--manifest", rh.join(project, "bad-version.tasks.json")],
+    2,
+    audit_path
+  );
+  script_smoke_require_contains(bad_version, "task_manifest_version", "script_task_bad_version_untyped");
+  const incompatible = rh.join(project, "incompatible.tasks.json");
+  const incompatible_list = smoke.cli_json(
+    context,
+    cli,
+    ["script", "task", "list", "--manifest", incompatible, "--json"],
+    audit_path
+  );
+  harness.require(incompatible_list.tasks.length >= 1, "script_task_incompatible_not_inspectable");
+  const incompatible_task0 = incompatible_list.tasks[0];
+  harness.require(
+    !incompatible_list.compatible
+      && incompatible_list.compatibility_reason === "capability_unknown: future.capability"
+      && incompatible_task0.status === "ready",
+    "script_task_incompatible_not_inspectable"
+  );
+  const rejected_check = smoke.failure_text(
+    context,
+    cli,
+    ["script", "task", "check", "must-not-run", "--manifest", incompatible],
+    2,
+    audit_path
+  );
+  script_smoke_require_contains(
+    rejected_check,
+    "task_project_incompatible: capability_unknown: future.capability",
+    "script_task_incompatible_executed:check"
+  );
+  const rejected_run = smoke.failure_text(
+    context,
+    cli,
+    ["script", "task", "run", "must-not-run", "--manifest", incompatible],
+    2,
+    audit_path
+  );
+  script_smoke_require_contains(
+    rejected_run,
+    "task_project_incompatible: capability_unknown: future.capability",
+    "script_task_incompatible_executed:run"
+  );
+  const named_output = smoke.run_cli(
+    context,
+    cli,
+    ["script", "task", "run", "daily-check", "--manifest", manifest, "--json", "--", "cli-extra"],
+    0,
+    audit_path,
+    { AGENTERM_TASK_FIXTURE: "fixture-ok" },
+    []
+  );
+  const named = JSON.parse(named_output.stdout);
+  harness.require(
+    named.ok
+      && named.value.answer === 42
+      && named.value.environment === "fixture-ok"
+      && named.value.args.length === 2
+      && named.value.args[0] === "manifest-default"
+      && named.value.args[1] === "cli-extra",
+    "script_named_task_context_mismatch"
+  );
+  const missing_environment = smoke.run_cli(
+    context,
+    cli,
+    ["script", "task", "run", "daily-check", "--manifest", manifest],
+    2,
+    audit_path,
+    { AGENTERM_TASK_FIXTURE: script_smoke_env_remove_value() },
+    []
+  );
+  script_smoke_require_contains(
+    "" + missing_environment.stdout + missing_environment.stderr,
+    "task_environment_missing",
+    "script_named_task_missing_environment_untyped"
+  );
+  const module_ok = smoke.cli_text(
+    context,
+    cli,
+    ["script", "check", rh.join(project, "main.rh"), "--profile", "local", "--project-root", project],
+    audit_path
+  );
+  harness.require(module_ok === "OK", "script_module_check_failed");
+  const failure_missing = smoke.failure_text(
+    context,
+    cli,
+    ["script", "check", rh.join(project, "missing-module.rh"), "--profile", "local", "--project-root", project],
+    1,
+    audit_path
+  );
+  script_smoke_require_contains(failure_missing, "script_module_missing", "script_module_failure_untyped:script_module_missing");
+  const failure_escape = smoke.failure_text(
+    context,
+    cli,
+    ["script", "check", rh.join(project, "escape-module.rh"), "--profile", "local", "--project-root", project],
+    1,
+    audit_path
+  );
+  script_smoke_require_contains(failure_escape, "script_module_root_escape", "script_module_failure_untyped:script_module_root_escape");
+  const failure_cycle = smoke.failure_text(
+    context,
+    cli,
+    ["script", "check", rh.join(project, "cycle-module.rh"), "--profile", "local", "--project-root", project],
+    1,
+    audit_path
+  );
+  script_smoke_require_contains(failure_cycle, "script_module_cycle", "script_module_failure_untyped:script_module_cycle");
+  const failure_bad_api = smoke.failure_text(
+    context,
+    cli,
+    ["script", "check", rh.join(project, "bad-module-api.rh"), "--profile", "local", "--project-root", project],
+    1,
+    audit_path
+  );
+  script_smoke_require_contains(failure_bad_api, "script_api_unknown", "script_module_failure_untyped:script_api_unknown");
+}
+
+function assert_runtime_and_framing(context, repo, cli, script, audit_path, runtime_dir, source_file, internal_failure_probe) {
+  print("STEP Script Cargo target inventory migration");
+  const target_root = rh.join(runtime_dir, "target");
+  const target_debug = rh.join(target_root, "debug");
+  const target_deps = rh.join(target_debug, "deps");
+  rh.create_dir_all(target_deps);
+  script_smoke_write(rh.join(target_root, "root.bin"), "x");
+  script_smoke_write(rh.join(target_debug, "debug.bin"), "abc");
+  script_smoke_write(rh.join(target_deps, "dependency.bin"), "12345");
+  // GAP: scripts/rh/target-report.rh left with rh; re-point at its .qjs
+  // port when that lands.
+  const target_envelope = smoke.cli_json(
+    context,
+    cli,
+    [
+      "script", "run",
+      rh.join(repo, "scripts/rh/target-report.rh"),
+      "--profile", "local",
+      "--timeout-ms", "10000",
+      "--max-operations", "10000000",
+      "--json", "--", runtime_dir, "target", "--json"
+    ],
+    audit_path
+  );
+  const target = JSON.parse(target_envelope.stdout);
+  const root_profile = matching(target.profiles, "name", "(root)");
+  const debug_profile = matching(target.profiles, "name", "debug");
+  harness.require(root_profile.length === 1 && debug_profile.length === 1, "script_target_report_mismatch");
+  const root_profile0 = root_profile[0];
+  const debug_profile0 = debug_profile[0];
+  harness.require(
+    target_envelope.ok
+      && target.schema_version === 1
+      && target.exists
+      && target.repo_local
+      && target.cleanup_allowed
+      && target.files === 3
+      && target.bytes === 9
+      && root_profile.length === 1
+      && root_profile0.files === 1
+      && debug_profile.length === 1
+      && debug_profile0.files === 2,
+    "script_target_report_mismatch"
+  );
+
+  print("STEP pure eval, file run, arguments, and check");
+  harness.require(
+    smoke.cli_text(context, cli, ["script", "eval", "40 + 2"], audit_path) === "42",
+    "script_pure_eval_mismatch"
+  );
+  if (internal_failure_probe) {
+    throw "INTERNAL_FAILURE_BUNDLE_PROBE:script:" + context.run_id;
+  }
+  script_smoke_write(source_file, "print(\"hello\"); args[0] + args[1]");
+  harness.require(
+    smoke.cli_text(context, cli, ["script", "run", source_file, "--", "safe", "-script"], audit_path)
+      === "hello\nsafe-script",
+    "script_file_run_mismatch"
+  );
+  harness.require(
+    smoke.cli_text(context, cli, ["script", "check", source_file], audit_path) === "OK",
+    "script_file_check_failed"
+  );
+  harness.require(
+    smoke.cli_text(
+      context,
+      cli,
+      ["script", "eval", "args[0] + args[1]", "--profile", "local", "--", "local-", "profile"],
+      audit_path
+    ) === "local-profile",
+    "script_local_argv_mismatch"
+  );
+  const data_file = rh.join(runtime_dir, "local-data.json");
+  const data_text_literal = "\"{\\\"answer\\\":42}\"";
+  harness.require(
+    script_eval(
+      context,
+      cli,
+      "std::fs::write(\"" + data_file + "\", " + data_text_literal + "); "
+        + "rh::json::parse(std::fs::read_to_string(\"" + data_file + "\")).answer",
+      audit_path
+    ) === "42",
+    "script_local_fs_json_mismatch"
+  );
+  const fs_tree = rh.join(runtime_dir, "fs-lifecycle");
+  const fs_nested = rh.join(fs_tree, "nested");
+  const fs_source = rh.join(fs_nested, "source.txt");
+  const fs_copy = rh.join(fs_nested, "copy.txt");
+  const fs_renamed = rh.join(fs_tree, "renamed.txt");
+  script_eval(context, cli, "std::fs::create_dir_all(\"" + fs_nested + "\")", audit_path);
+  script_eval(context, cli, "std::fs::write(\"" + fs_source + "\", \"Unicode lifecycle: 目录\")", audit_path);
+  harness.require(
+    script_eval_parse_int(
+      context,
+      cli,
+      "std::fs::copy(\"" + fs_source + "\", \"" + fs_copy + "\")",
+      audit_path
+    ) > 0,
+    "script_fs_copy_count_invalid"
+  );
+  script_eval(context, cli, "std::fs::rename(\"" + fs_copy + "\", \"" + fs_renamed + "\")", audit_path);
+  harness.require(
+    script_eval(context, cli, "std::fs::read_to_string(\"" + fs_renamed + "\")", audit_path)
+      === "Unicode lifecycle: 目录",
+    "script_fs_unicode_corrupted"
+  );
+  script_eval(context, cli, "std::fs::remove_file(\"" + fs_renamed + "\")", audit_path);
+  script_eval(context, cli, "std::fs::remove_dir_all(\"" + fs_tree + "\")", audit_path);
+  harness.require(!rh.exists(fs_tree), "script_fs_tree_survived");
+  const temp_root = script_eval(context, cli, "rh::runtime::temp_dir().display", audit_path);
+  harness.require(
+    temp_root !== "" && script_smoke_path_absent(temp_root) !== 0,
+    "script_invocation_temp_survived"
+  );
+  const atomic_path = rh.join(runtime_dir, "atomic-result-目录.json");
+  script_smoke_write(atomic_path, "{\"state\":\"old\"}");
+  script_eval(
+    context,
+    cli,
+    "rh::runtime::atomic_write(\"" + atomic_path + "\", \"" + "{\"state\":\"新\"}" + ")",
+    audit_path
+  );
+  harness.require(
+    rh.read_text(atomic_path) === "{\"state\":\"新\"}",
+    "script_atomic_write_mismatch"
+  );
+  let staging_count = 0;
+  for (const entry of rh.read_dir(runtime_dir)) {
+    const entry_name = "" + entry.name;
+    if (entry_name.startsWith(".atomic-result-") && entry_name.includes(".agenterm-atomic-")) {
+      staging_count = staging_count + 1;
+    }
+  }
+  harness.require(staging_count === 0, "script_atomic_staging_survived");
+  harness.require(
+    script_eval(context, cli, "std::path::PathBuf::from(\"" + data_file + "\").extension", audit_path) === "json",
+    "script_typed_path_mismatch"
+  );
+  const arbitrary_bytes = script_eval_json(
+    context,
+    cli,
+    "let b=rh::bytes::from_array([0,65,255]);\n             #{len:b.len,first:b.get(0),last:b.get(2)}",
+    audit_path
+  );
+  harness.require(
+    arbitrary_bytes.ok
+      && arbitrary_bytes.value.len === 3
+      && arbitrary_bytes.value.first === 0
+      && arbitrary_bytes.value.last === 255,
+    "script_arbitrary_bytes_mismatch"
+  );
+  harness.require(
+    smoke.cli_text(context, cli, ["script", "eval", "std::fs::exists(\".\")", "--profile", "pure"], audit_path)
+      === "true",
+    "script_legacy_pure_restricted"
+  );
+  script_smoke_write(source_file, "let = ;");
+  const failure_parse = smoke.failure_text(
+    context, cli, ["script", "check", source_file, "--profile", "observe"], 1, audit_path
+  );
+  script_smoke_require_contains(failure_parse, "script_parse", "script_static_failure_untyped:script_parse");
+  script_smoke_write(source_file, "new_tab()");
+  const failure_unavailable = smoke.failure_text(
+    context, cli, ["script", "check", source_file, "--profile", "observe"], 1, audit_path
+  );
+  script_smoke_require_contains(failure_unavailable, "script_api_unavailable", "script_static_failure_untyped:script_api_unavailable");
+  script_smoke_write(source_file, "made_up_api()");
+  const failure_unknown = smoke.failure_text(
+    context, cli, ["script", "check", source_file, "--profile", "observe"], 1, audit_path
+  );
+  script_smoke_require_contains(failure_unknown, "script_api_unknown", "script_static_failure_untyped:script_api_unknown");
+  script_smoke_write(source_file, "agent.workspace()");
+  const failure_migrated = smoke.failure_text(
+    context, cli, ["script", "check", source_file, "--profile", "observe"], 1, audit_path
+  );
+  script_smoke_require_contains(failure_migrated, "script_api_migrated", "script_static_failure_untyped:script_api_migrated");
+  script_smoke_require_contains(failure_migrated, "fleet.workspace.info()", "script_static_migration_target_missing");
+
+  print("STEP unrestricted legacy spellings and operation budget");
+  const pure_id_text = smoke.cli_text(
+    context, cli, ["script", "eval", "std::process::id()", "--profile", "pure"], audit_path
+  );
+  const pure_id = Number(pure_id_text);
+  harness.require(pure_id > 0, "script_legacy_pure_process_restricted");
+  const operation_limit = smoke.failure_text(
+    context, cli, ["script", "eval", "loop {}", "--max-operations", "1000"], 3, audit_path
+  );
+  script_smoke_require_contains(operation_limit, "\"code\":\"limit_operations\"", "script_operation_limit_untyped");
+  const wall_limit = smoke.failure_text(
+    context, cli, ["script", "eval", "loop {}", "--timeout-ms", "1", "--max-operations", "10000000"], 3, audit_path
+  );
+  script_smoke_require_contains(wall_limit, "\"code\":\"limit_wall_time\"", "script_wall_limit_untyped");
+  script_smoke_require_contains(wall_limit, "\"exit_class\":\"limit\"", "script_wall_limit_untyped");
+  const huge_source = script_smoke_pad("", 262145, " ");
+  script_smoke_write(source_file, huge_source);
+  const source_limit = smoke.failure_text(context, cli, ["script", "check", source_file], 3, audit_path);
+  script_smoke_require_contains(source_limit, "262144 byte limit", "script_source_limit_untyped");
+  const malformed_spec = smoke.configured_program(context, script, ["rh", "--worker"], "", {});
+  malformed_spec.stdin_text = "{";
+  const malformed = smoke.run_spec(malformed_spec);
+  harness.require(
+    malformed.exit_code === 1 && ("" + malformed.stdout).includes("\"code\":\"protocol_invalid_invocation\""),
+    "script_worker_malformed_untyped"
+  );
+  const oversized_spec = smoke.configured_program(context, script, ["rh", "--worker"], "", {});
+  oversized_spec.stdin_text = script_smoke_pad("", 2097153, "x");
+  const oversized = smoke.run_spec(oversized_spec);
+  harness.require(
+    oversized.exit_code === 1 && ("" + oversized.stdout).includes("\"code\":\"protocol_invocation_too_large\""),
+    "script_worker_oversized_untyped"
+  );
+  harness.require(
+    script_eval(context, cli, "6 * 7", audit_path) === "42",
+    "script_worker_protocol_recovery_failed"
+  );
+
+  print("STEP framed worker sequencing, isolation, rejection, and recovery");
+  const framed_result = script_eval_parse(
+    context, cli, script_framed_worker_smoke_eval_source(script), audit_path
+  );
+  harness.require(
+    framed_result.frames_len === 5
+      && has_item(framed_result.codes, "protocol_malformed_frame")
+      && has_item(framed_result.codes, "protocol_frame_too_large")
+      && has_item(framed_result.codes, "protocol_duplicate_invocation")
+      && has_item(framed_result.codes, "protocol_unsupported_frame_version")
+      && framed_result.recovered_found !== 0
+      && framed_result.recovered_ok !== 0
+      && framed_result.recovered_ok !== false
+      && framed_result.recovered_stdout === "framed-output\n"
+      && framed_result.recovered_value === 42,
+    "script_framed_recovery_mismatch"
+  );
+  harness.require(
+    framed_result.cancel_frames_len === 1
+      && framed_result.cancel_frame_id === "cancel-invoke"
+      && framed_result.cancel_failure_code === "limit_cancelled"
+      && framed_result.cancel_failure_exit_class === "cancelled",
+    "script_framed_cancel_mismatch"
+  );
+}
+
+function assert_supervisor(context, cli, script, audit_path, runtime_dir) {
+  print("STEP supervisor timeout, crash, parent exit, concurrency, and recovery");
+  const blocking_source = "std::net::TcpListener::bind(\"127.0.0.1:0\").accept()";
+
+  const hard_timeout = smoke.start_script_client(
+    context,
+    cli,
+    ["script", "eval", blocking_source, "--timeout-ms", "500", "--max-operations", "10000000"],
+    audit_path
+  );
+  const hard_output = harness.wait(hard_timeout, 5000);
+  harness.require(
+    hard_output.exit_code === 3 && ("" + hard_output.stderr).includes("\"code\":\"host_hard_timeout\""),
+    "script_supervisor_hard_timeout_untyped"
+  );
+
+  const worker_name = file_name(script);
+  const existing = smoke.process_ids(worker_name);
+  const crash_client = smoke.start_script_client(
+    context,
+    cli,
+    ["script", "eval", blocking_source, "--timeout-ms", "10000", "--max-operations", "10000000"],
+    audit_path
+  );
+  const crash_pid = smoke.wait_new_process(worker_name, existing, 3000);
+  smoke.kill_pid(crash_pid);
+  const crash_output = harness.wait(crash_client, 5000);
+  harness.require(
+    crash_output.exit_code === 1 && ("" + crash_output.stderr).includes("\"code\":\"host_worker_crash\""),
+    "script_supervisor_crash_untyped"
+  );
+
+  const pid_path = rh.join(runtime_dir, "interrupted-child.pid");
+  const interrupted_source =
+    "let command=std::process::command(\"cmd.exe\");\n         command.args([\"/d\",\"/s\",\"/c\",\"ping -n 30 127.0.0.1 >nul\"]);\n         let child=command.start();\n         std::fs::write(\"" + pid_path + "\", child.id.to_string());\n         std::net::TcpListener::bind(\"127.0.0.1:0\").accept();";
+  const interrupted = smoke.start_script_client(
+    context,
+    cli,
+    ["script", "eval", interrupted_source, "--timeout-ms", "180000", "--max-operations", "10000000"],
+    audit_path
+  );
+  let nested_pid = 0;
+  // Real early return, and a wall-clock bound: a fixture that died before
+  // writing its pid must not restate one fact on 600 iterations.
+  const nested_deadline = rh.now_ms() + 30000;
+  let attempt = 0;
+  while (attempt < 4000) {
+    if (rh.exists(pid_path)) {
+      nested_pid = nested_pid_from_path(pid_path);
+      break;
+    }
+    if (!child_is_running(interrupted)) {
+      throw "script_supervisor_parent_fixture_early_exit";
+    }
+    if (rh.now_ms() > nested_deadline) { break; }
+    rh.sleep_ms(5);
+    attempt = attempt + 1;
+  }
+  harness.require(nested_pid > 0, "script_supervisor_nested_pid_missing");
+  process_kill(interrupted);
+  harness.wait(interrupted, 2000);
+  smoke.wait_process_gone(nested_pid, 3000);
+
+  // Fill the published eight-slot global pool until the first typed denial.
+  // The number already occupied by release/check/task ancestors varies with
+  // the caller, so a fixed holder count would make this evidence flaky.
+  const holders = [];
+  let denied_found = 0;
+  let denied_exit_code = 0;
+  let denied_stderr = "";
+  let index = 0;
+  while (index < 8) {
+    const holder = smoke.start_script_client(
+      context,
+      cli,
+      ["script", "eval", blocking_source, "--timeout-ms", "10000", "--max-operations", "10000000"],
+      audit_path
+    );
+    rh.sleep_ms(100);
+    if (child_is_running(holder)) {
+      holders.push(holder);
+    } else {
+      denied_found = 1;
+      const denied = harness.wait(holder, 3000);
+      denied_exit_code = denied.exit_code;
+      denied_stderr = "" + denied.stderr;
+      break;
+    }
+    index = index + 1;
+  }
+  if (holders.length === 0) {
+    throw "script_supervisor_no_holder_acquired";
+  }
+  harness.require(denied_found !== 0, "script_supervisor_global_limit_not_enforced");
+  harness.require(
+    denied_exit_code === 2 && denied_stderr.includes("\"code\":\"host_concurrency_limit\""),
+    "script_supervisor_concurrency_untyped"
+  );
+  script_smoke_child_stop(holders[0]);
+  const replacement = smoke.start_script_client(
+    context,
+    cli,
+    ["script", "eval", blocking_source, "--timeout-ms", "10000", "--max-operations", "10000000"],
+    audit_path
+  );
+  rh.sleep_ms(150);
+  harness.require(child_is_running(replacement), "script_supervisor_slot_not_recovered");
+  let rest = 1;
+  while (rest < holders.length) {
+    script_smoke_child_stop(holders[rest]);
+    rest = rest + 1;
+  }
+  script_smoke_child_stop(replacement);
+  harness.require(
+    script_eval(context, cli, "6 * 7", audit_path) === "42",
+    "script_supervisor_recovery_failed"
+  );
+}
+
+function wait_script_gui(context, cli, gui_child) {
+  // GAP: rh read `gui_child.platform_facts.top_level_window_present` and
+  // `gui_child.id` off the child object; a door handle carries neither, so
+  // readiness is the `wait-ui` probe alone and the lease-owner pid is not
+  // asserted.
+  let attempt = 0;
+  while (attempt < 400) {
+    const probe_spec = smoke.configured_program(
+      context,
+      cli,
+      ["--address", context.address, "wait-ui", "--window-state", "restored", "--timeout-ms", "100"],
+      "",
+      {}
+    );
+    const probe = smoke.run_spec(probe_spec);
+    if (probe.success) {
+      return JSON.parse(probe.stdout);
+    }
+    harness.require(harness.state(gui_child) === "running", "script_fleet_gui_early_exit");
+    rh.sleep_ms(25);
+    attempt = attempt + 1;
+  }
+  throw "script_fleet_gui_ready_timeout";
+}
+
+function wait_repl_pid_file(p, timeout_ms) {
+  const attempts = rh.int_div(timeout_ms, 5);
+  let attempt = 0;
+  while (attempt < attempts) {
+    if (rh.exists(p)) {
+      const value = trimmed(rh.read_text(p));
+      if (value !== "") { return script_smoke_parse_int(value); }
+    }
+    rh.sleep_ms(5);
+    attempt = attempt + 1;
+  }
+  throw "script_repl_pid_file_timeout:" + p;
+}
+
+function send_repl_line(context, cli, tab_id, source, audit_path) {
+  smoke.cli_text(context, cli, ["send-keys", "-t", tab_id, "-l", source], audit_path);
+  smoke.cli_text(context, cli, ["send-keys", "-t", tab_id, "Enter"], audit_path);
+}
+
+function wait_repl_text(context, cli, tab_id, text, audit_path) {
+  smoke.cli_text(
+    context,
+    cli,
+    ["wait-pane", "-t", tab_id, "--contains", text, "--timeout-ms", "10000"],
+    audit_path
+  );
+}
+
+function assert_persistent_repl_supervision(context, cli, audit_path, runtime_dir) {
+  print("STEP hosted persistent REPL cancellation and replacement");
+  const tab_id = "" + smoke.cli_text(
+    context,
+    cli,
+    [
+      "new-window", "-d", "-P", "-F", "#{window_id}",
+      "-n", "script-repl-" + context.run_id,
+      "--", cli, "--address", context.address,
+      "script", "repl", "--json"
+    ],
+    audit_path
+  );
+
+  const initial_pid_path = rh.join(runtime_dir, "repl-initial.pid");
+  send_repl_line(
+    context,
+    cli,
+    tab_id,
+    "let stable = 40; std::fs::write(\"" + initial_pid_path + "\", std::process::id().to_string()); stable + 2",
+    audit_path
+  );
+  const initial_pid = wait_repl_pid_file(initial_pid_path, 5000);
+  wait_repl_text(context, cli, tab_id, "\"value\":42", audit_path);
+
+  const cooperative_pid_path = rh.join(runtime_dir, "repl-cooperative.pid");
+  send_repl_line(
+    context,
+    cli,
+    tab_id,
+    "std::fs::write(\"" + cooperative_pid_path + "\", std::process::id().to_string()); loop {}",
+    audit_path
+  );
+  harness.require(
+    wait_repl_pid_file(cooperative_pid_path, 5000) === initial_pid,
+    "script_repl_cooperative_fixture_changed_worker"
+  );
+  smoke.cli_text(context, cli, ["send-keys", "-t", tab_id, "C-c"], audit_path);
+  wait_repl_text(context, cli, tab_id, "\"code\":\"limit_cancelled\"", audit_path);
+
+  const recovered_pid_path = rh.join(runtime_dir, "repl-recovered.pid");
+  send_repl_line(
+    context,
+    cli,
+    tab_id,
+    "std::fs::write(\"" + recovered_pid_path + "\", std::process::id().to_string()); stable + 2",
+    audit_path
+  );
+  const recovered_pid = wait_repl_pid_file(recovered_pid_path, 5000);
+  harness.require(recovered_pid === initial_pid, "script_repl_cooperative_cancel_replaced_worker");
+
+  const hard_worker_path = rh.join(runtime_dir, "repl-hard-worker.pid");
+  const nested_pid_path = rh.join(runtime_dir, "repl-hard-child.pid");
+  send_repl_line(
+    context,
+    cli,
+    tab_id,
+    "let command=std::process::command(\"cmd.exe\"); command.args([\"/d\",\"/s\",\"/c\",\"ping -n 30 127.0.0.1 >nul\"]); let child=command.start(); std::fs::write(\"" + hard_worker_path + "\", std::process::id().to_string()); std::fs::write(\"" + nested_pid_path + "\", child.id.to_string()); std::net::TcpListener::bind(\"127.0.0.1:0\").accept();",
+    audit_path
+  );
+  const hard_worker_pid = wait_repl_pid_file(hard_worker_path, 5000);
+  const nested_pid = wait_repl_pid_file(nested_pid_path, 5000);
+  harness.require(hard_worker_pid === initial_pid, "script_repl_hard_fixture_changed_worker");
+  smoke.cli_text(context, cli, ["send-keys", "-t", tab_id, "C-c"], audit_path);
+  smoke.wait_process_gone(hard_worker_pid, 3000);
+  smoke.wait_process_gone(nested_pid, 3000);
+
+  const fresh_pid_path = rh.join(runtime_dir, "repl-fresh.pid");
+  send_repl_line(
+    context,
+    cli,
+    tab_id,
+    "std::fs::write(\"" + fresh_pid_path + "\", std::process::id().to_string()); 42",
+    audit_path
+  );
+  const fresh_pid = wait_repl_pid_file(fresh_pid_path, 5000);
+  harness.require(fresh_pid !== initial_pid, "script_repl_hard_cancel_reused_worker");
+  wait_repl_text(context, cli, tab_id, "\"reason\":\"hard_interrupt\"", audit_path);
+  wait_repl_text(context, cli, tab_id, "\"side_effects_replayed\":false", audit_path);
+
+  send_repl_line(context, cli, tab_id, ":quit", audit_path);
+  smoke.cli_text(context, cli, ["wait-pane", "-t", tab_id, "--dead", "--timeout-ms", "5000"], audit_path);
+  smoke.cli_text(context, cli, ["kill-window", "-t", tab_id], audit_path);
+}
+
+function assert_fleet_and_north_star(context, repo, cli, script, gui, audit_path, runtime_dir) {
+  const journey_error = run_fleet_journey(context, repo, cli, script, gui, audit_path, runtime_dir);
+  if (journey_error !== "") {
+    throw "script_fleet_journey_failed:" + journey_error;
+  }
+}
+
+function run_fleet_journey(context, repo, cli, script, gui, audit_path, runtime_dir) {
+  print("STEP typed brokered observation");
+  let server_started = 0;
+  let journey_error = "";
+  smoke.cli_text(context, cli, ["new-window", "-d", "-n", "script-observe-" + context.run_id], audit_path);
+  server_started = 1;
+  const gui_spec = smoke.configured_program(context, gui, ["--no-activate", "--address", context.address], "", {});
+  const gui_child = harness.start(gui_spec);
+  try {
+    const snapshot = wait_script_gui(context, cli, gui_child);
+    assert_persistent_repl_supervision(context, cli, audit_path, runtime_dir);
+    const public_capture = smoke.cli_json(
+      context,
+      cli,
+      ["capture-pane", "-p", "-t", "@1", "--max-bytes", "5", "--json"],
+      audit_path
+    );
+    harness.require(
+      public_capture.max_bytes === 5 && 0 + public_capture.bytes <= 5,
+      "script_fleet_public_capture_mismatch"
+    );
+    const invalid_capture = smoke.failure_text(
+      context,
+      cli,
+      ["capture-pane", "-p", "-t", "@1", "--max-bytes", "0"],
+      1,
+      audit_path
+    );
+    script_smoke_require_contains(invalid_capture, "must be from 1 to 1048576", "script_fleet_invalid_capture_accepted");
+    const observed_text = smoke.cli_text(
+      context,
+      cli,
+      ["script", "eval", "fleet.ui.snapshot().event_position.sequence", "--profile", "observe"],
+      audit_path
+    );
+    const observed = Number(observed_text);
+    harness.require(
+      observed >= snapshot.event_position.sequence,
+      "script_fleet_snapshot_position_regressed"
+    );
+    const workspace = smoke.cli_json(
+      context, cli, ["script", "eval", "fleet.workspace.info()", "--profile", "observe", "--json"], audit_path
+    );
+    const tabs = smoke.cli_json(
+      context, cli, ["script", "eval", "fleet.tabs.list()", "--profile", "observe", "--json"], audit_path
+    );
+    const active = smoke.cli_json(
+      context, cli, ["script", "eval", "fleet.tabs.active()", "--profile", "observe", "--json"], audit_path
+    );
+    const capture = smoke.cli_json(
+      context, cli, ["script", "eval", "fleet.terminal(`@1`).capture(32)", "--profile", "observe", "--json"], audit_path
+    );
+    harness.require(
+      workspace.ok
+        && workspace.value.event_position.epoch !== ""
+        && tabs.ok
+        && tabs.value.length >= 1
+        && active.ok
+        && active.value.active
+        && capture.ok
+        && capture.value.bytes <= 32
+        && capture.value.max_bytes === 32,
+      "script_fleet_observation_mismatch"
+    );
+    const batch = smoke.cli_json(
+      context,
+      cli,
+      [
+        "script", "eval",
+        "fleet.events.read(\"" + snapshot.event_position.epoch + "\", " + snapshot.event_position.sequence + ", 16)",
+        "--profile", "observe", "--json"
+      ],
+      audit_path
+    );
+    harness.require(
+      batch.ok && batch.value !== undefined && batch.value.position !== undefined && batch.value.position !== null,
+      "script_fleet_event_read_mismatch"
+    );
+    const restart = smoke.failure_text(
+      context,
+      cli,
+      ["script", "eval", "fleet.events.read(`wrong-epoch`, 0, 1)", "--profile", "observe"],
+      6,
+      audit_path
+    );
+    script_smoke_require_contains(restart, "\"code\":\"server_restart\"", "script_fleet_restart_untyped");
+    script_smoke_require_contains(restart, "\"exit_class\":\"fleet\"", "script_fleet_restart_untyped");
+    const wait_started = rh.now_ms();
+    const wait_failure = smoke.failure_text(
+      context,
+      cli,
+      [
+        "script", "eval",
+        "fleet.events.wait(" + snapshot.event_position.epoch + ", " + snapshot.event_position.sequence + ", `never.matches`, 50)",
+        "--profile", "observe", "--timeout-ms", "200"
+      ],
+      6,
+      audit_path
+    );
+    const wait_elapsed = rh.now_ms() - wait_started;
+    script_smoke_require_contains(wait_failure, "event_wait_timeout", "script_fleet_wait_deadline_mismatch");
+    harness.require(wait_elapsed < 500, "script_fleet_wait_deadline_mismatch");
+    harness.require(
+      smoke.cli_text(
+        context, cli, ["script", "eval", "fleet.ui.tabs.toggle().post_state.verified", "--profile", "observe"], audit_path
+      ) === "true"
+        && smoke.cli_text(
+          context, cli, ["script", "eval", "fleet.ui.tabs.toggle().post_state.verified", "--profile", "observe"], audit_path
+        ) === "true",
+      "script_fleet_observe_spelling_restricted"
+    );
+
+    print("STEP Script API v2 Fleet mutation receipt, event, and post-state");
+    // Sidebar layout drops out of the snapshot for a frame while the GUI
+    // relays out, so every read of it below settles instead of racing.
+    const baseline_visible = wait_snapshot_sidebar(context, cli, audit_path, -2);
+    harness.require(baseline_visible >= 0, "script_fleet_sidebar_baseline_unavailable");
+    const mutation = script_eval_json(
+      context,
+      cli,
+      "\nlet receipt=fleet.ui.tabs.toggle();\n#{\n request_id:receipt.request_id,operation_id:receipt.operation_id,\n outcome:receipt.outcome,event_count:receipt.events.len(),\n event_kind:if receipt.events.is_empty(){\"\"}else{receipt.events[0].kind},\n verified:receipt.post_state.verified,reason:receipt.post_state.reason\n}",
+      audit_path
+    );
+    let mutated_visible_flipped = 0;
+    let attempt = 0;
+    while (attempt < 600) {
+      const mutated_snapshot = smoke.cli_json(context, cli, ["ui-snapshot"], audit_path);
+      const code = sidebar_visible_code(mutated_snapshot);
+      if (code >= 0 && code !== baseline_visible) {
+        mutated_visible_flipped = 1;
+        break;
+      }
+      rh.sleep_ms(50);
+      attempt = attempt + 1;
+    }
+    harness.require(
+      mutation.ok
+        && mutation.value.request_id !== ""
+        && mutation.value.operation_id === "ui.tabs.toggle"
+        && (mutation.value.outcome === "committed" || mutation.value.outcome === "no_op")
+        && mutation.value.event_count >= 1
+        && mutation.value.event_kind === "layout.tabs.visibility"
+        && mutation.value.verified
+        && mutated_visible_flipped !== 0,
+      "script_fleet_mutation_receipt_mismatch"
+    );
+    harness.require(
+      script_eval(context, cli, "fleet.ui.tabs.toggle().post_state.verified", audit_path) === "true",
+      "script_fleet_visibility_restore_failed"
+    );
+    wait_snapshot_sidebar(context, cli, audit_path, baseline_visible);
+    const restored = smoke.cli_json(context, cli, ["ui-snapshot"], audit_path);
+    const active_tab_id = active_tab_id_from_snapshot(restored);
+    const active_tab_note = active_tab_note_from_snapshot(restored);
+    harness.require(active_tab_id !== "", "script_fleet_active_tab_missing");
+    const note = "Script API v2 目录 " + rh.pid();
+    const note_mutation = script_eval_json(
+      context,
+      cli,
+      "\nlet receipt=fleet.tabs.set_note(\n \"" + active_tab_id + "\",\"" + note + "\"\n);\n#{\n operation_id:receipt.operation_id,outcome:receipt.outcome,\n event_count:receipt.events.len(),\n event_kind:if receipt.events.is_empty(){\"\"}else{receipt.events[0].kind},\n verified:receipt.post_state.verified,\n tab:receipt.post_state.value.id,note:receipt.post_state.value.note\n}",
+      audit_path
+    );
+    harness.require(
+      note_mutation.ok
+        && note_mutation.value.operation_id === "tabs.set-note"
+        && note_mutation.value.event_count >= 1
+        && note_mutation.value.event_kind === "tab.note"
+        && note_mutation.value.verified
+        && note_mutation.value.tab === active_tab_id
+        && note_mutation.value.note === note,
+      "script_fleet_note_receipt_mismatch"
+    );
+    harness.require(
+      script_eval(
+        context,
+        cli,
+        "fleet.tabs.set_note(\"" + active_tab_id + "\", \"" + active_tab_note + "\").post_state.verified",
+        audit_path
+      ) === "true",
+      "script_fleet_note_restore_failed"
+    );
+
+    print("STEP direct agenterm rh north-star named task");
+    // GAP: examples/script-daily-check left with rh (6a12d8f0).
+    const source_project = rh.join(repo, "examples/script-daily-check");
+    const project = rh.join(runtime_dir, "north-star-project");
+    rh.create_dir_all(project);
+    script_smoke_copy(rh.join(source_project, "agenterm.tasks.json"), rh.join(project, "agenterm.tasks.json"));
+    script_smoke_copy(rh.join(source_project, "daily-check.rh"), rh.join(project, "daily-check.rh"));
+    const manifest = rh.join(project, "agenterm.tasks.json");
+    const entry = rh.join(project, "daily-check.rh");
+    const result_path = rh.join(runtime_dir, "daily-check-result.json");
+    const ready_path = rh.join(runtime_dir, "north-star-http-ready.json");
+    const log_path = rh.join(runtime_dir, "north-star-http-log.jsonl");
+    const stop_path = rh.join(runtime_dir, "north-star-http-stop");
+    let north_http_error = "";
+    const http_child = smoke.start_http_fixture(
+      context,
+      script,
+      rh.join(repo, "scripts/rh/script-http-fixture.rh"),
+      repo,
+      ready_path,
+      log_path,
+      stop_path
+    );
+    try {
+      const ready = smoke.wait_http_ready(http_child, ready_path, 180000);
+      const latest = smoke.cli_json(context, cli, ["ui-snapshot"], audit_path);
+      const north_tab_id = active_tab_id_from_snapshot(latest);
+      const north_tab_note = active_tab_note_from_snapshot(latest);
+      harness.require(north_tab_id !== "", "script_north_star_tab_missing");
+      script_smoke_write(
+        rh.join(project, "config.json"),
+        rh.stringify_pretty({
+          schema_version: 1,
+          message: "AgenTerm daily check：目录与终端",
+          child_program: cli,
+          child_a_args: ["--version"],
+          child_b_args: ["list-commands"],
+          loopback_url: ready.url + "/status",
+          tab_id: north_tab_id,
+          result_path: result_path
+        })
+      );
+      const direct_help = smoke.direct_text(context, script, ["--help"], audit_path);
+      harness.require(
+        direct_help.includes("agenterm rh") && direct_help.includes("task list|show|check|run"),
+        "script_direct_help_mismatch"
+      );
+      harness.require(
+        smoke.direct_text(
+          context, script, ["check", entry, "--profile", "local", "--project-root", project], audit_path
+        ) === "OK",
+        "script_north_star_check_failed"
+      );
+      const direct_catalog = smoke.direct_json(
+        context, script, ["task", "list", "--manifest", manifest, "--json"], audit_path
+      );
+      const direct_show = smoke.direct_json(
+        context, script, ["task", "show", "daily-check", "--manifest", manifest, "--json"], audit_path
+      );
+      harness.require(
+        direct_catalog.tasks.length === 1 && direct_show.tasks.length >= 1,
+        "script_north_star_catalog_mismatch"
+      );
+      const direct_task0 = direct_catalog.tasks[0];
+      const direct_task_contract = direct_task0.contract;
+      const direct_show_task0 = direct_show.tasks[0];
+      harness.require(
+        direct_catalog.project_id === "agenterm-rh-daily-check"
+          && direct_catalog.schema_version === 3
+          && direct_catalog.compatible
+          && direct_catalog.tasks.length === 1
+          && direct_task0.status === "ready"
+          && direct_task_contract.inputs.length === 3
+          && direct_task_contract.evidence.length === 1
+          && direct_task_contract.evidence[0] === "task.daily-check"
+          && direct_show.compatible
+          && direct_show_task0.entry === "daily-check.rh",
+        "script_north_star_catalog_mismatch"
+      );
+      harness.require(
+        smoke.direct_text(
+          context, script, ["task", "check", "daily-check", "--manifest", manifest], audit_path
+        ) === "OK",
+        "script_north_star_task_check_failed"
+      );
+      const north_envelope = smoke.direct_json(
+        context,
+        script,
+        [
+          "task", "run", "daily-check",
+          "--manifest", manifest,
+          "--timeout-ms", "10000",
+          "--max-operations", "1000000",
+          "--json", "--", "smoke-target"
+        ],
+        audit_path
+      );
+      const north = north_envelope.value;
+      harness.require(
+        north_envelope.ok
+          && north.schema_version === 1
+          && north.target === "smoke-target"
+          && north.message === "AgenTerm daily check：目录与终端"
+          && north.child_a.pid > 0
+          && north.child_b.pid > 0
+          && north.child_a.pid !== north.child_b.pid
+          && north.child_a.exit_code === 0
+          && north.child_b.exit_code === 0
+          && north.child_a.complete
+          && north.child_b.complete
+          && north.http.status === 201
+          && north.http.body === "hello"
+          && north.http.task_state === "completed"
+          && north.fleet.operation_id === "tabs.set-note"
+          && north.fleet.event_kind === "tab.note"
+          && north.fleet.verified,
+        "script_north_star_result_mismatch"
+      );
+      harness.require(
+        !rh.exists(north.temp_root) && rh.exists(result_path),
+        "script_north_star_lifecycle_mismatch"
+      );
+      const persisted = rh.parse_file(result_path);
+      harness.require(
+        persisted.target === north.target && persisted.fleet.note === north.fleet.note,
+        "script_north_star_persisted_result_mismatch"
+      );
+      harness.require(
+        !smoke.process_exists(north.child_a.pid) && !smoke.process_exists(north.child_b.pid),
+        "script_north_star_child_survived"
+      );
+      harness.require(
+        script_eval(
+          context,
+          cli,
+          "fleet.tabs.set_note(\"" + north_tab_id + "\", \"" + north_tab_note + "\").post_state.verified",
+          audit_path
+        ) === "true",
+        "script_north_star_note_restore_failed"
+      );
+      script_smoke_write(stop_path, "stop");
+      const http_output = harness.wait(http_child, 3000);
+      harness.require(http_output.success, "script_north_star_http_exit");
+    } catch (error) {
+      north_http_error = "" + error;
+    }
+    if (child_is_running(http_child)) {
+      process_kill(http_child);
+      harness.wait(http_child, 2000);
+    }
+    harness.require(north_http_error === "", north_http_error);
+
+    const close_state = smoke.cli_json(context, cli, ["ui-action", "close-window"], audit_path);
+    harness.require(
+      close_state.modal !== undefined && has_item(close_state.modal.actions, "stop-server-and-exit"),
+      "script_fleet_close_contract_missing"
+    );
+    smoke.cli_text(context, cli, ["ui-action", "stop-server-and-exit"], audit_path);
+    harness.wait(gui_child, 5000);
+    server_started = 0;
+  } catch (error) {
+    journey_error = "" + error;
+  }
+  if (harness.state(gui_child) === "running") {
+    process_kill(gui_child);
+    harness.wait(gui_child, 2000);
+  }
+  if (server_started !== 0) {
+    try {
+      smoke.run_cli(context, cli, ["kill-server"], 0, "", {}, []);
+    } catch (cleanup_error) {
+      // The typed close path may already have removed the server.
+    }
+  }
+  return journey_error;
+}
+
+function assert_audit(context, cli, audit_path, source_file, runtime_dir) {
+  print("STEP privacy-bounded reusable script audit");
+  script_smoke_write(source_file, "print(\"AUDIT_STDOUT_SECRET\");\n         args[0] + \"AUDIT_SOURCE_SECRET\"");
+  const secret_result = smoke.cli_text(
+    context, cli, ["script", "run", source_file, "--", "AUDIT_ARG_SECRET"], audit_path
+  );
+  harness.require(
+    secret_result.includes("AUDIT_STDOUT_SECRET") && secret_result.includes("AUDIT_ARG_SECRETAUDIT_SOURCE_SECRET"),
+    "script_audit_secret_fixture_inactive"
+  );
+  const audit_text = rh.read_text(audit_path);
+  script_smoke_require_no_secrets(audit_text, SECRETS, "script_audit_secret_leak:");
+  script_smoke_require_no_secrets(
+    audit_text,
+    [
+      "\"source\":",
+      "\"arguments\":",
+      "\"argv\":",
+      "\"stdout\":",
+      "\"pane\":",
+      "\"environment\":",
+      "\"clipboard\":",
+      "\"credentials\":"
+    ],
+    "script_audit_forbidden_field:"
+  );
+  const records = [];
+  for (const line of audit_text.split("\n")) {
+    if (trimmed(line) !== "") { records.push(JSON.parse(line)); }
+  }
+  harness.require(records.length >= 10, "script_audit_record_count");
+  let saw_script_api_unavailable = 0;
+  let saw_limit_wall_time = 0;
+  let saw_host_hard_timeout = 0;
+  let saw_host_worker_crash = 0;
+  let saw_host_concurrency_limit = 0;
+  let timeout_record = 0;
+  let crash_record = 0;
+  let concurrency_record = 0;
+  let observe_record = 0;
+  let pure_record = 0;
+  for (const record of records) {
+    const failure_code = "" + record.failure_code;
+    if (failure_code === "script_api_unavailable") { saw_script_api_unavailable = 1; }
+    if (failure_code === "limit_wall_time") { saw_limit_wall_time = 1; }
+    if (failure_code === "host_hard_timeout") { saw_host_hard_timeout = 1; }
+    if (failure_code === "host_worker_crash") { saw_host_worker_crash = 1; }
+    if (failure_code === "host_concurrency_limit") { saw_host_concurrency_limit = 1; }
+    if (record.cancelled === 1 && record.timed_out === 1) { timeout_record = 1; }
+    if (record.crashed === 1) { crash_record = 1; }
+    if (record.failure_code === "host_concurrency_limit" && record.denied === 1) { concurrency_record = 1; }
+    if (record.requested_profile === "observe"
+        && record.effective_profile === "unrestricted"
+        && has_item(record.effective_capabilities, "unrestricted_local")
+        && has_item(record.broker_operation_ids, "ui.snapshot")) {
+      observe_record = 1;
+    }
+    if (record.requested_profile === "pure"
+        && record.effective_profile === "unrestricted"
+        && has_item(record.effective_capabilities, "unrestricted_local")) {
+      pure_record = 1;
+    }
+    const fingerprint = "" + record.source_fingerprint;
+    harness.require(
+      fingerprint.startsWith("fnv1a128:") && fingerprint.length === 41,
+      "script_audit_fingerprint_mismatch"
+    );
+  }
+  harness.require(saw_script_api_unavailable !== 0, "script_audit_failure_code_missing:script_api_unavailable");
+  harness.require(saw_limit_wall_time !== 0, "script_audit_failure_code_missing:limit_wall_time");
+  harness.require(saw_host_hard_timeout !== 0, "script_audit_failure_code_missing:host_hard_timeout");
+  harness.require(saw_host_worker_crash !== 0, "script_audit_failure_code_missing:host_worker_crash");
+  harness.require(saw_host_concurrency_limit !== 0, "script_audit_failure_code_missing:host_concurrency_limit");
+  harness.require(
+    timeout_record !== 0 && crash_record !== 0 && concurrency_record !== 0 && observe_record !== 0 && pure_record !== 0,
+    "script_audit_result_metadata_mismatch"
+  );
+  const audit_failure = smoke.run_cli(context, cli, ["script", "eval", "1"], 1, runtime_dir, {}, []);
+  script_smoke_require_contains(
+    "" + audit_failure.stdout + audit_failure.stderr,
+    "\"code\":\"host_audit_write\"",
+    "script_audit_write_failure_not_fail_closed"
+  );
+}
+
+// ---- entry --------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence_ids()) { print(id); }
+  return 0;
+}
+
+harness.require(
+  args.length === 4 || (args.length === 5 && args[4] === "--internal-failure-bundle-probe"),
+  "expected: REPO CLI_EXE SCRIPT_EXE GUI_EXE [--internal-failure-bundle-probe]"
+);
+const repo = rh.absolute(args[0]);
+const cli = rh.absolute(args[1]);
+const script = rh.absolute(args[2]);
+const gui = rh.absolute(args[3]);
+const internal_failure_probe = args.length === 5;
+for (const executable of [cli, script, gui]) {
+  harness.require(rh.exists(executable), "script_smoke_executable_missing");
+}
+
+const context = harness.new_context(repo, "script");
+const runtime_dir = rh.join(context.run_directory, "script-runtime");
+rh.create_dir_all(runtime_dir);
+const source_file = rh.join(runtime_dir, "source.rh");
+const audit_file = rh.join(runtime_dir, "audit.jsonl");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const catalog = assert_api_contract(context, cli, script, runtime_dir, audit_file);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.api-tree");
+  assert_process_and_streams(context, cli, audit_file, runtime_dir);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.typed-errors");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.stream");
+  assert_tasks_and_http(context, repo, cli, script, audit_file, runtime_dir);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.http");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.modules-tasks");
+  assert_runtime_and_framing(context, repo, cli, script, audit_file, runtime_dir, source_file, internal_failure_probe);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.fs-lifecycle");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.rh-runtime");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.rh-robustness-budget");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.rh-framed");
+  assert_supervisor(context, cli, script, audit_file, runtime_dir);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.runtime-lifecycle");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.supervisor");
+  assert_fleet_and_north_star(context, repo, cli, script, gui, audit_file, runtime_dir);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.exit-classes");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.rh-fleet");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.fleet-tabs-set-note");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.fleet-v2");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.direct-entry");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.north-star");
+  harness.emit_evidence(context, declared_evidence_ids(), "script.repl-supervision");
+  assert_audit(context, cli, audit_file, source_file, runtime_dir);
+  harness.emit_evidence(context, declared_evidence_ids(), "script.audit");
+  harness.require(catalog.api_version === 2, "script_smoke_catalog_lost");
+  succeeded = 1;
+  print("PASS: unrestricted scripting API, supervision, audit privacy, and budgets");
+} catch (error) {
+  const safe_error = harness.redact_text("" + error, SECRETS);
+  const probe_marker = "INTERNAL_FAILURE_BUNDLE_PROBE:script:" + context.run_id;
+  if (internal_failure_probe && safe_error.includes(probe_marker)) {
+    failure = probe_marker + "\nintentional script failure-bundle probe";
+  } else {
+    failure = safe_error;
+  }
+}
+
+if (succeeded === 0 && rh.exists(audit_file)) {
+  rh.create_dir_all(context.failure_directory);
+  script_smoke_copy(audit_file, rh.join(context.failure_directory, "script-audit.jsonl"));
+}
+harness.scrub_retained_text(context, SECRETS);
+let completion_failure = "";
+const owned_children = [];
+const noop_spec = smoke.configured_program(context, cli, ["--version"], "", {});
+const noop_child = harness.start(noop_spec);
+process_kill(noop_child);
+owned_children.push(noop_child);
+try {
+  harness.complete(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (succeeded === 0) {
+  throw failure;
+}
+if (completion_failure !== "") {
+  throw completion_failure;
+}
+return 0;
