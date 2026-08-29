@@ -1895,7 +1895,7 @@ fn run_script_command_with_context(
                 budgets.operations = value;
             }
             _ => {
-                cli_eprintln!("script --max-operations must be from 1 to 100000000");
+                cli_eprintln!("script --max-operations must be from 1 to 1000000000");
                 return 2;
             }
         }

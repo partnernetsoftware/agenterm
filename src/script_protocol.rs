@@ -122,7 +122,7 @@ impl ScriptBudgets {
     pub fn hard_limits() -> Self {
         Self {
             // Every other field here keeps real headroom above its
-            // `Default` (operations: 6x, string_bytes: 32x, output_bytes:
+            // `Default` (operations: 62x, string_bytes: 32x, output_bytes:
             // 16x, wall_time_ms: 1800x, ...) so an opt-in CLI override can
             // actually raise the budget. `source_bytes` used to be pinned
             // at exactly the default (256 KiB == 256 KiB), which is why
@@ -135,7 +135,10 @@ impl ScriptBudgets {
             // script invocation that omits the override keeps the exact
             // 256 KiB behavior it always had.
             source_bytes: 16 * 1024 * 1024,
-            operations: 100_000_000,
+            // 1G, not 100M: a ~150-command GUI journey and a lint over a
+            // 1 070-file tree both exhausted 100M on 2026-08-29 (wave 3),
+            // at ~17M steps/s that is a minute, and the flag is opt-in.
+            operations: 1_000_000_000,
             call_depth: 128,
             expression_depth: 128,
             collection_items: 100_000,

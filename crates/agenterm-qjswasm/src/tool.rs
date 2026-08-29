@@ -97,10 +97,11 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 30] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 31] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
+    ("fs.append", 4, 1),
     ("fs.create_dir_all", 2, 1),
     ("fs.remove_file", 2, 1),
     ("fs.read_dir", 2, 1),
@@ -159,6 +160,11 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("fs.read_to_string", s(), HostResult::I32),
         decl(
             "fs.write",
+            vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "fs.append",
             vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
             HostResult::I32,
         ),
@@ -415,6 +421,26 @@ pub(crate) fn install(
                 return Err(RESULT_TOO_LARGE.to_string());
             }
             std::fs::read_to_string(path).map_err(|e| format!("fs.read_to_string `{path}`: {e}"))
+        })
+    })?;
+
+    // `fs.append(path, text)`: the journal case. test_harness re-read and
+    // rewrote its commands.jsonl on every record -- O(n^2) in string copies,
+    // 15-20M steps of a journey's budget by the 35th record (wave 3).
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.append", move |args, memory| {
+        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        let text = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+        answer(&state, "fs.append", || {
+            use std::io::Write as _;
+            let path = utf8(path)?;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .map_err(|e| format!("fs.append `{path}`: {e}"))?;
+            file.write_all(text).map_err(|e| format!("fs.append `{path}`: {e}"))?;
+            Ok(String::new())
         })
     })?;
 
@@ -961,6 +987,14 @@ struct CommandSpec {
     env_remove: Vec<String>,
     timeout_ms: Option<u64>,
     stdin_text: Option<String>,
+    /// Send the stream to this file instead of capturing it. The capture is
+    /// bounded by `max_bridge_result_bytes` (1 MiB) and a 6 MB cargo log
+    /// was a thrown refusal (wave 3); rh had `stdout_file`/`stderr_file`.
+    /// The answer's `stdout`/`stderr` are empty for a redirected stream.
+    #[serde(default)]
+    stdout_path: Option<String>,
+    #[serde(default)]
+    stderr_path: Option<String>,
 }
 
 /// Spawn, feed stdin, capture both streams, wait bounded, answer as JSON:
@@ -1015,8 +1049,20 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Chil
         } else {
             Stdio::null()
         })
-        .stdout(if capture { Stdio::piped() } else { Stdio::null() })
-        .stderr(if capture { Stdio::piped() } else { Stdio::null() });
+        .stdout(match &spec.stdout_path {
+            Some(path) => Stdio::from(
+                std::fs::File::create(path).map_err(|e| format!("process: creating stdout_path `{path}`: {e}"))?,
+            ),
+            None if capture => Stdio::piped(),
+            None => Stdio::null(),
+        })
+        .stderr(match &spec.stderr_path {
+            Some(path) => Stdio::from(
+                std::fs::File::create(path).map_err(|e| format!("process: creating stderr_path `{path}`: {e}"))?,
+            ),
+            None if capture => Stdio::piped(),
+            None => Stdio::null(),
+        });
 
     let mut child = command
         .spawn()
@@ -1183,6 +1229,8 @@ mod tests {
             env_remove: Vec::new(),
             timeout_ms: Some(50),
             stdin_text: None,
+            stdout_path: None,
+            stderr_path: None,
         };
         let started = Instant::now();
         let json = run_command(spec, 1 << 20).expect("the command ran");

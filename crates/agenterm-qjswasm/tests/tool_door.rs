@@ -305,6 +305,60 @@ fn a_spawned_child_past_its_timeout_is_killed_and_the_wait_says_so() {
     assert_eq!(string_of(&out), "exited|true|null", "{out:?}");
 }
 
+/// `stdout_path` / `stderr_path` send a stream to a file instead of the
+/// bounded capture: a 6 MB cargo log was a thrown refusal at the 1 MiB
+/// bridge cap (wave 3). rh had `stdout_file`/`stderr_file`.
+/// `fs.append` writes at the end without reading the file back: the harness
+/// journal was read whole, concatenated and rewritten per record.
+#[test]
+fn fs_append_adds_to_the_end_and_creates_the_file() {
+    let dir = std::env::temp_dir().join(format!("agenterm-append-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let file = dir.join("journal.jsonl");
+    let source = format!(
+        r#"
+        if (fs_append("{0}", "one\n") !== 0) {{ return "append: " + tool_result(); }}
+        if (fs_append("{0}", "two\n") !== 0) {{ return "append: " + tool_result(); }}
+        if (fs_read_to_string("{0}") !== 0) {{ return "read: " + tool_result(); }}
+        return tool_result();
+        "#,
+        file.display()
+    );
+    let out = run_tool(&source);
+    assert_eq!(string_of(&out), "one\ntwo\n", "{out:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn process_command_can_send_its_streams_to_files() {
+    let dir = std::env::temp_dir().join(format!("agenterm-redirect-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let out_path = dir.join("out.txt");
+    let err_path = dir.join("err.txt");
+    let source = format!(
+        r#"
+        let spec = JSON.stringify({{
+            program: "sh",
+            args: ["-c", "printf out; printf err 1>&2; exit 0"],
+            stdout_path: "{}",
+            stderr_path: "{}",
+            timeout_ms: 10000
+        }});
+        if (process_command(spec) !== 0) {{ return "command: " + tool_result(); }}
+        let r = JSON.parse(tool_result());
+        return r.exit_code + "|" + r.stdout + "|" + r.stderr;
+        "#,
+        out_path.display(),
+        err_path.display()
+    );
+    let out = run_tool(&source);
+    assert_eq!(string_of(&out), "0||", "{out:?}");
+    assert_eq!(std::fs::read_to_string(&out_path).expect("stdout file"), "out");
+    assert_eq!(std::fs::read_to_string(&err_path).expect("stderr file"), "err");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn process_status_of_a_chatty_child_is_its_own_exit_code() {

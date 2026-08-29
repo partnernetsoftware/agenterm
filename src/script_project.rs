@@ -461,7 +461,7 @@ fn validate_task_contract(contract: &ScriptTaskContract) -> Result<(), String> {
     if contract.budget.max_operations == 0
         || contract.budget.max_operations > hard_limits.operations
     {
-        return Err("task_contract_budget_max_operations: expected 1..100000000".to_owned());
+        return Err("task_contract_budget_max_operations: expected 1..1000000000".to_owned());
     }
     if contract.budget.max_output_bytes == 0
         || contract.budget.max_output_bytes > hard_limits.output_bytes as u64
@@ -1004,8 +1004,8 @@ mod tests {
             ),
             (
                 "max_operations",
-                100_000_001,
-                "task_contract_budget_max_operations: expected 1..100000000",
+                1_000_000_001,
+                "task_contract_budget_max_operations: expected 1..1000000000",
             ),
             (
                 "max_output_bytes",
