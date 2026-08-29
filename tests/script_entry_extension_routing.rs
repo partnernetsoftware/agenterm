@@ -501,6 +501,34 @@ fn what_a_script_printed_before_it_failed_reaches_stdout() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `--project-root DIR` widens where imports may reach; it must not replace
+/// the entry's own directory. Wave 2 found every entry beside a `lib/` lost
+/// its imports the moment a root was named.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn a_project_root_widens_resolution_and_does_not_replace_the_entry_directory() {
+    let _slot = cli_slot();
+    let dir = std::env::temp_dir().join(format!("agenterm-root-{}", std::process::id()));
+    let other = dir.join("elsewhere");
+    std::fs::create_dir_all(dir.join("lib")).expect("temp dir");
+    std::fs::create_dir_all(&other).expect("temp dir");
+    write(&dir.join("lib"), "x.qjs", "export function answer() { return 41 + 1; }\n");
+    let entry = write(&dir, "entry.qjs", "import * as x from \"lib/x\";\nprint(\"\" + x.answer());\n");
+    let mut run = Command::new(AGENTERM_BIN);
+    run.args(["cli", "script", "run", "--project-root"])
+        .arg(&other)
+        .arg(&entry)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = run.output().expect("the CLI binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.trim() == "42",
+        "the entry's own lib/ must resolve under a foreign root; stdout={stdout} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit() {

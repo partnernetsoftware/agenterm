@@ -632,6 +632,13 @@ fn execute_inner(
             .project_root
             .as_ref()
             .map(std::path::PathBuf::from),
+        // The label is the entry's path when the entry is a file ("stdin"
+        // and the eval spellings are not); its directory is where `lib/x`
+        // resolves first.
+        entry_dir: {
+            let label = std::path::Path::new(&invocation.source_label);
+            label.is_file().then(|| label.parent().map(std::path::Path::to_path_buf)).flatten()
+        },
         arguments: serde_json::to_value(&invocation.arguments).ok(),
         budgets: Some(invocation.budgets.clone()),
         tool_door: invocation.profile == crate::script_protocol::ScriptProfile::Tool,

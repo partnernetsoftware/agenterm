@@ -40,6 +40,11 @@ use crate::script_protocol::ScriptBudgets;
 #[derive(Clone, Debug, Default)]
 pub struct ScriptInvocationOptions {
     pub project_root: Option<PathBuf>,
+    /// The entry file's own directory, when the entry is a file. A `lib/x`
+    /// import resolves here first and under `project_root` second: with
+    /// `--project-root DIR` the root used to *replace* the entry's directory,
+    /// and every entry beside a `lib/` lost its imports (wave 2, group 7).
+    pub entry_dir: Option<PathBuf>,
     pub arguments: Option<Value>,
     pub budgets: Option<ScriptBudgets>,
     /// Whether this invocation may open the `tool.*` door. Set from
@@ -367,22 +372,38 @@ fn compile_qjs_for(
 ///   absolute path alike. The check is on the **canonical** path, because a
 ///   textual one is defeated by any of the three;
 /// * a file that is not there or is not UTF-8.
-fn qjs_module_resolver(
-    project_root: Option<&std::path::Path>,
-) -> impl Fn(&str) -> Option<String> + use<> {
-    let root = project_root.and_then(|p| p.canonicalize().ok());
-    move |specifier: &str| {
-        let root = root.as_ref()?;
-        let mut candidate = root.join(specifier);
-        if candidate.extension().is_none() {
-            candidate.set_extension("qjs");
+fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
+    // Roots in order of preference, each confined to itself; the first that
+    // has the file answers. Duplicates (the usual case: the entry's directory
+    // *is* the project root) collapse.
+    let mut canonical: Vec<PathBuf> = Vec::new();
+    for root in roots {
+        if let Ok(c) = root.canonicalize()
+            && !canonical.contains(&c)
+        {
+            canonical.push(c);
         }
-        let resolved = candidate.canonicalize().ok()?;
-        if !resolved.starts_with(root) {
-            return None;
-        }
-        std::fs::read_to_string(resolved).ok()
     }
+    move |specifier: &str| {
+        canonical.iter().find_map(|root| {
+            let mut candidate = root.join(specifier);
+            if candidate.extension().is_none() {
+                candidate.set_extension("qjs");
+            }
+            let resolved = candidate.canonicalize().ok()?;
+            if !resolved.starts_with(root) {
+                return None;
+            }
+            std::fs::read_to_string(resolved).ok()
+        })
+    }
+}
+
+/// The resolver roots an invocation gets: the entry's directory, then the
+/// project root.
+#[cfg(feature = "script-qjswasm")]
+fn qjs_roots(options: &ScriptInvocationOptions) -> Vec<PathBuf> {
+    [options.entry_dir.clone(), options.project_root.clone()].into_iter().flatten().collect()
 }
 
 #[cfg(feature = "script-qjswasm")]
@@ -804,7 +825,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
         // Rooted at the corpus directory, so `import "lib/x"` resolves the
         // way `run` resolves it for an entry in that directory.
-        let resolve = qjs_module_resolver(Some(dir));
+        let resolve = qjs_module_resolver(&[dir.to_path_buf()]);
         Some(agenterm_qjswasm::corpus_scan::scan_directory_with(dir, &resolve))
     }
 
@@ -831,7 +852,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // The same resolver `execute` uses. A `check` that could not follow an
         // `import` would refuse working scripts, which is the failure the door
         // declaration comment above this impl already records for host names.
-        let resolve = qjs_module_resolver(_options.project_root.as_deref());
+        let resolve = qjs_module_resolver(&qjs_roots(_options));
         let wasm = compile_qjs_for(_options, source, &resolve).map_err(|e| e.to_string())?;
         // The validator has to know the door too, or `check` refuses bytes
         // `execute` would run: a tool script's `tool.*` imports are exactly
@@ -880,7 +901,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `import` and the resolver is this product's policy rather than the
         // engine's. A script with no `import` never calls it and compiles to
         // the same bytes either way.
-        let resolve = qjs_module_resolver(options.project_root.as_deref());
+        let resolve = qjs_module_resolver(&qjs_roots(options));
         let wasm = compile_qjs_for(options, source, &resolve).map_err(|e| e.to_string())?;
         // Built after the door is known: a sandbox engine refuses tool bytes
         // at load time, so this is the one place the two have to agree.
