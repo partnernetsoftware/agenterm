@@ -1138,6 +1138,14 @@ flowchart TD
 `switch` 是裸词，都会。**裸词与标点的模式必须先剥离字符串与注释，
 带定界符的方法调用模式不必——这条可以事前判断，不必事后发现。**
 
+**第七课：并行的正确形状是「四条独立 worktree + 一次合并」，不是「四个人改同一棵树」。**
+2026-08-29 把 rh 移出、`tool.*` 门、`path.qjs`、双向金丝雀交给一个 workflow 四路并行。
+每路先只读普查、再在**自己的 worktree 分支**上建、再被一个对抗代理复跑试图推翻。
+三路 agenterm 分支合到 main 时**零冲突**——因为拆分是按**共享文件**拆的
+（只有 `Cargo.lock` 重叠），不是按「相关不相关」的感觉拆的。
+合并后整套 1978/31，31 条全在基线里。**并行省下的不是时间，是「四个改动互相踩」那种
+只有串行才能避免的错——它被 worktree 隔离顶替掉了。**
+
 **第六课：同一份数据，三种前提，三个结论——前提是什么，要问出来，不要猜。**
 两次需求普查拿 82 个 `.rh` 脚本当语料。我先默认「那是本产品的脚本」（按它排了八个里程碑），
 政委说「rh 是另一个仓的」时我改判「那是别人的语料，排序依据不成立」，
@@ -1247,7 +1255,7 @@ flowchart TD
 | A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
 | A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **0/71**；39 条门、4 条 host-native 门、bootstrap 与三条 CI 工作流都已指向**尚不存在**的 `cli script task run` 任务 | 每个门 `.qjs` 版通过原来那条 Rust 测试；`agenterm.tasks.json` 里的任务回到 71 |
 | A1.6 | `tool.*` 门接到 CLI | A1.3 只在 crate；`src/script_engine.rs` 仍只调 `compile_qjs` | qualification / CI 显式给开；沙箱脚本永远开不了 |
-| A1.7 | **三组提交合入 main** | 写下这行时 `08c51b2e`/`7e2b61dd`、`4a7f0ec3`、`db42c944` 各在 `worktree-wf_30ad7fb2-97a-{5,6,8}` 上，main 仍在 `9aef2995` | 三条都是 `9aef2995` 的直系后代；合完**删此行** |
+| ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |
 | A3 | 下游既有失败逐条归因 | main `9aef2995`：安静复跑 2571/50，整套并行 2569/52 或 2567/54（多出来的是 `script_process` 两条进程回收测试与 `performance_summary` 两条；后两条单跑即过，前两条 2026-08-29 在 `9aef2995` 的干净导出上单跑 2/2 仍红——「owned process N did not create a descendant」，随机器状态变，不随代码变）；rh 移出后 **1954/31**，31 条与之前逐名相同（executor ×11、boundary ×2、stdlib ×8、script_cli_verb_parity ×9、vnc-rs doctest） | 每条要么修好，要么归入「环境抖动」并写明复跑命令 |
 | A4 | Status 行上门 | 首行曾停在 rev `0afc88a`/153，实际 `ec67034`/152，靠人问才发现；**2026-08-29 又手改一次**（152 → 176），仍没有门 | 有检查在 Status 与实际 pin 不符时失败 |
