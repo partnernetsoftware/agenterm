@@ -1,0 +1,324 @@
+// One entry point for the whole six-cell matrix: build all six, then run each
+// cell's runtime smoke wherever that cell can actually execute.
+// Moved from rh on 2026-08-29.
+//
+// Args: REPO [release-fast|release|dev] [--runners PATH] [--build|--no-build]
+//
+// Building is host-only; running is not. `scripts/six-cell-runners.json` is the
+// seam: it says, per cell, whether the artifact runs here, over ssh in a VM, or
+// nowhere yet. A cell with no runner is reported BLOCKED with its reason
+// reproduced verbatim -- never skipped. A skipped cell reads as a passing cell
+// to anyone scanning a receipt, which is the specific failure this task exists
+// to prevent (goal §3).
+//
+// The task succeeds when nothing FAILED. BLOCKED is not failure: it is the
+// honest state of a cell whose runner a person still has to provide, and the
+// receipt carries the count so it can never be mistaken for coverage.
+//
+// Runs under `--profile tool`. Every child here runs to completion
+// (`rh.command`); nothing is spawned and left running.
+import * as rh from "lib/rh_compat";
+
+function artifact_dir(repo, target, profile) {
+  let leaf = "debug";
+  if (profile === "release" || profile === "release-fast") {
+    leaf = "release";
+  }
+  return rh.join(rh.join(rh.join(repo, "target"), target), leaf);
+}
+
+function binary_name(target) {
+  if (target.includes("windows")) {
+    return "agenterm.exe";
+  }
+  return "agenterm";
+}
+
+// The identity is named relative to the home directory rather than with a `~/`
+// prefix that would need stripping, so no absolute host path lands in the
+// repository.
+function identity_path(cell) {
+  rh.require(env_has("HOME") === 1, "qualify_home_missing");
+  return rh.join(rh.env_or("HOME", ""), "" + cell.identity_from_home);
+}
+
+// rh's `stdout_file` / `stderr_file` redirected the child's streams straight
+// to disk; the door captures both (bounded by the slot's result cap) and this
+// writes them out after the child exits. Same files, same contents, and the
+// caller still reads `.success` off the output.
+function run(program, arguments, timeout_ms, stdout_path, stderr_path) {
+  const output = rh.command(program, arguments, { timeout_ms: timeout_ms });
+  rh.atomic_write(stdout_path, output.stdout);
+  rh.atomic_write(stderr_path, output.stderr);
+  return output;
+}
+
+function ssh_base(cell) {
+  return [
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "ConnectTimeout=15",
+    "-i", identity_path(cell)
+  ];
+}
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+rh.require(args.length >= 1, "expected: REPO [PROFILE] [--runners PATH] [--build|--no-build]");
+const repo = rh.absolute(args[0]);
+
+let profile = "dev";
+let runners_path = rh.join(repo, "scripts/six-cell-runners.json");
+let do_build = 1;
+let index = 1;
+while (index < args.length) {
+  const value = "" + args[index];
+  if (value === "release" || value === "release-fast" || value === "dev") {
+    profile = value;
+  } else if (value === "--runners") {
+    rh.require(index + 1 < args.length, "qualify_option_value_missing:" + value);
+    runners_path = rh.absolute(args[index + 1]);
+    index = index + 1;
+  } else if (value === "--build") {
+    do_build = 1;
+  } else if (value === "--no-build") {
+    do_build = 0;
+  } else {
+    throw "qualify_unknown_argument:" + value;
+  }
+  index = index + 1;
+}
+
+rh.require(
+  env_has("AGENTERM_BOOTSTRAP_WORKER") === 1,
+  "qualify_bootstrap_worker_missing"
+);
+const worker = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
+const task_manifest = rh.join(repo, "agenterm.tasks.json");
+
+const work_root = rh.join(repo, "target/qualification/six-cell");
+rh.create_dir_all(work_root);
+
+// Build first. Its own receipt already carries the per-artifact hashes, so
+// this task reads that file rather than re-hashing anything.
+let build_state = "SKIPPED";
+if (do_build !== 0) {
+  print("qualify: building six cells [" + profile + "]");
+  const build_out = rh.join(work_root, "qualify-build.stdout");
+  const build_err = rh.join(work_root, "qualify-build.stderr");
+  const built = run(
+    worker,
+    [
+      "rh", "task", "run", "client-build-all",
+      "--manifest", task_manifest,
+      "--", profile
+    ],
+    3540000,
+    build_out,
+    build_err
+  );
+  if (!built.success) {
+    build_state = "FAIL";
+    print("qualify: BUILD FAILED -- see " + build_err);
+  } else {
+    build_state = "PASS";
+  }
+  rh.require(build_state !== "FAIL", "qualify_build_failed");
+}
+
+const runners = rh.parse_file(runners_path);
+const results = [];
+let counted = 0;
+let failed = 0;
+let blocked = 0;
+
+for (const cell of runners.cells) {
+  counted = counted + 1;
+  const target = "" + cell.target;
+  const kind = "" + cell.kind;
+  const level = "" + cell.level;
+  const binary = binary_name(target);
+  const local_dir = artifact_dir(repo, target, profile);
+  const local_binary = rh.join(local_dir, binary);
+
+  if (!rh.exists(local_binary)) {
+    failed = failed + 1;
+    print("qualify: FAIL " + target + " -- artifact missing: " + local_binary);
+    results.push({
+      target: target,
+      level: level,
+      static_check: "MISSING",
+      state: "FAIL",
+      detail: "artifact missing: " + local_binary
+    });
+    continue;
+  }
+
+  // Static verification: what the artifact *is*, independent of whether
+  // anything can execute it. It runs for every cell, blocked ones
+  // included -- a cell with no runner still has an artifact that can be
+  // built wrong, and "we could not run it" is a poor reason to check
+  // nothing at all. A cross build silently emitting the host's
+  // architecture is exactly the failure this catches.
+  //
+  // Both the description and the verdict come out of one `sh`: `tee`
+  // keeps the text for the receipt while `grep -qF` sets the exit status.
+  const described_path = rh.join(work_root, target + ".file.txt");
+  const expected = "" + cell.expect_file;
+  const matched = rh.command(
+    "sh",
+    [
+      "-c",
+      "file -b \"$1\" | tee \"$3\" | grep -qF \"$2\"",
+      "_",
+      local_binary,
+      expected,
+      described_path
+    ],
+    { timeout_ms: 60000 }
+  );
+  let described = "";
+  if (rh.exists(described_path)) {
+    described = rh.read_text(described_path).replaceAll("\n", " ");
+  }
+  let static_check = "FAIL";
+  if (matched.success) {
+    static_check = "PASS";
+  }
+  if (static_check === "FAIL") {
+    failed = failed + 1;
+    print("qualify: FAIL " + target + " -- static: expected \"" + expected
+      + "\", got \"" + described + "\"");
+    results.push({
+      target: target,
+      level: level,
+      static_check: static_check,
+      state: "FAIL",
+      detail: "file(1) says \"" + described + "\", expected \"" + expected + "\""
+    });
+    continue;
+  }
+
+  if (kind === "blocked") {
+    blocked = blocked + 1;
+    print("qualify: BLOCKED " + target + " (static PASS) -- " + cell.reason);
+    results.push({
+      target: target,
+      level: level,
+      static_check: static_check,
+      state: "BLOCKED",
+      detail: "" + cell.reason
+    });
+    continue;
+  }
+
+  const stdout_path = rh.join(work_root, target + ".smoke.stdout");
+  const stderr_path = rh.join(work_root, target + ".smoke.stderr");
+  let smoke_ok = false;
+
+  if (kind === "host") {
+    const hosted = run(local_binary, ["cli", "--help"], 120000, stdout_path, stderr_path);
+    smoke_ok = hosted.success;
+  } else if (kind === "ssh") {
+    const destination = "" + cell.user + "@" + cell.host;
+    const remote_dir = "" + cell.remote_dir;
+    const port = "" + cell.port;
+
+    const push_args = ssh_base(cell);
+    push_args.push("-P");
+    push_args.push(port);
+    // Land on a side name, then rename into place below. Overwriting a
+    // binary that is currently executing fails with ETXTBSY on Linux --
+    // which is exactly the state a VM is in after a GUI smoke -- while
+    // rename(2) over it succeeds and leaves the running process on the
+    // old inode.
+    push_args.push(local_binary);
+    push_args.push(destination + ":" + remote_dir + "/" + binary + ".new");
+    const pushed = run(
+      "scp", push_args, 900000,
+      rh.join(work_root, target + ".scp.stdout"),
+      rh.join(work_root, target + ".scp.stderr")
+    );
+    if (!pushed.success) {
+      failed = failed + 1;
+      print("qualify: FAIL " + target + " -- artifact transfer failed");
+      results.push({
+        target: target,
+        level: level,
+        static_check: static_check,
+        state: "FAIL",
+        detail: "scp to " + destination + ":" + port + " failed"
+      });
+      continue;
+    }
+
+    const smoke_args = ssh_base(cell);
+    smoke_args.push("-p");
+    smoke_args.push(port);
+    smoke_args.push(destination);
+    smoke_args.push(
+      "cd " + remote_dir
+        + " && mv -f " + binary + ".new " + binary
+        + " && chmod +x " + binary
+        + " && ./" + binary + " cli --help"
+    );
+    const remote = run("ssh", smoke_args, 600000, stdout_path, stderr_path);
+    smoke_ok = remote.success;
+  } else {
+    throw "qualify_runner_kind:" + kind;
+  }
+
+  if (!smoke_ok) {
+    failed = failed + 1;
+    print("qualify: FAIL " + target);
+    results.push({
+      target: target,
+      level: level,
+      static_check: static_check,
+      state: "FAIL",
+      detail: "cli --help did not succeed; see " + stderr_path
+    });
+  } else {
+    print("qualify: PASS " + target + "  [" + level + "]");
+    results.push({
+      target: target,
+      level: level,
+      static_check: static_check,
+      state: "PASS",
+      detail: "cli --help exit 0"
+    });
+  }
+}
+
+// No timestamp field, as in rh: the receipt file's own mtime is what dates a
+// run, same as `build-all`.
+const receipt = {
+  kind: "agenterm-six-cell-qualify",
+  schema_version: 1,
+  profile: profile,
+  build: build_state,
+  runners: runners_path,
+  cells: results,
+  totals: {
+    cells: counted,
+    failed: failed,
+    blocked: blocked
+  }
+};
+const receipt_path = rh.join(work_root, "qualify.json");
+rh.atomic_write(receipt_path, rh.stringify_pretty(receipt));
+
+print("");
+print("Six-cell qualification [" + profile + "] build=" + build_state);
+for (const result of results) {
+  print("  " + result.state + "  " + result.target + "  [" + result.level
+    + "]  static=" + result.static_check);
+}
+print("  " + counted + " cells, " + failed + " failed, " + blocked + " blocked");
+print("  receipt: " + receipt_path);
+
+rh.require(failed === 0, "qualify_failed_cells:" + failed);
+return 0;
