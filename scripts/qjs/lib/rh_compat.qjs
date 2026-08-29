@@ -249,3 +249,80 @@ export function try_rename(from, to) {
 export function try_copy(from, to) {
   return fs_copy(from, to) === 0 ? 1 : 0;
 }
+
+// ---- wave-2 long-lived-children (fleet-smoke, native-ipc-smoke, native-ipc-compat-smoke) ----
+
+// rh's `command.env_remove(...)` + `.output()`: the spec is the full door
+// JSON (env, env_remove, current_dir, timeout_ms), not `command()`'s
+// options. The door applies `env` before `env_remove`, so a caller that
+// removes and then sets the same name must drop it from `env_remove`
+// itself; `env_without` is the helper for that.
+export function command_spec(spec) {
+  return JSON.parse(door(process_command(JSON.stringify(spec)), "process_command " + spec.program));
+}
+
+// A copy of `env` minus `names`. No `delete` in the corpus so far; a fresh
+// object is the safe spelling.
+export function env_without(env, names) {
+  const out = {};
+  for (const key of Object.keys(env)) {
+    if (!array_has(names, key)) { out[key] = env[key]; }
+  }
+  return out;
+}
+
+// Null-safe property read: reading a property of `null` or `undefined`
+// traps uncatchably in this engine, and server JSON carries nulls
+// (`cleanup_receipt` without `--prune`, `modal_kind` without a modal).
+export function field(value, name) {
+  if (value === null || value === undefined) { return undefined; }
+  return value[name];
+}
+
+// rh's `.contains(x)` where the receiver may be a string or an array.
+export function has_item(value, needle) {
+  if (typeof value === "string") { return value.includes(needle); }
+  if (is_array(value)) { return array_has(value, needle); }
+  return false;
+}
+
+// rh's `0 + value` (an int coercion): JSON numbers pass through; a
+// numeric string is parsed; anything else is 0 so a comparison fails
+// rather than concatenates.
+export function int_of(value) {
+  if (typeof value === "number") { return value; }
+  if (typeof value === "string" && value !== "") { return Number(value); }
+  return 0;
+}
+
+// The door has no `process.list` and a spawn handle is a slot index, not
+// a PID, so "is this pid alive" and "who is its parent" are asked of the
+// host directly: `kill -0` / `ps -o ppid=` on Unix, `tasklist` /
+// `Get-CimInstance` on Windows.
+function ipc_host_is_windows() {
+  return env_or("OS", "") === "Windows_NT";
+}
+
+export function process_alive(pid) {
+  const pid_text = "" + pid;
+  if (ipc_host_is_windows()) {
+    const out = command("tasklist", ["/FI", "PID eq " + pid_text, "/NH", "/FO", "CSV"], { timeout_ms: 5000 });
+    return out.success && out.stdout.includes("\"" + pid_text + "\"");
+  }
+  return command_status("kill", ["-0", pid_text], { timeout_ms: 2000 }) === 0;
+}
+
+export function process_parent_pid(pid) {
+  const pid_text = "" + pid;
+  let out;
+  if (ipc_host_is_windows()) {
+    out = command("powershell", ["-NoProfile", "-Command",
+      "(Get-CimInstance Win32_Process -Filter \"ProcessId=" + pid_text + "\").ParentProcessId"], { timeout_ms: 10000 });
+  } else {
+    out = command("ps", ["-o", "ppid=", "-p", pid_text], { timeout_ms: 2000 });
+  }
+  if (!out.success) { return -1; }
+  const text = out.stdout.trim();
+  if (text === "") { return -1; }
+  return Number(text);
+}
