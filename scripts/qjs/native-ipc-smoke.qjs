@@ -1,0 +1,1226 @@
+// Prove native local IPC selection, schema-v1/v2 discovery, and the explicit
+// loopback TCP migration path through public AgenTerm executables only.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO SERVER_EXE CLI_EXE
+// Optional task-run overrides appended after the manifest defaults:
+//   --server PATH --cli PATH [--ci-main-dev]
+//
+// Ported from scripts/rh/native-ipc-smoke.rh; runs under `--profile tool`.
+// CI ran it as `. dist/agenterm.exe dist/agenterm.exe --ci-main-dev` on
+// Windows and `--server target/.../agenterm --cli target/.../agenterm
+// --ci-main-dev` on Linux and macOS.
+//
+// Every server here is a door handle (`process_spawn`), polled through
+// `process_state` and reaped through `process_wait` -- rh's `command.start()`
+// / `.state` / `wait_with_output` -- and `complete_owned` reaps whatever the
+// journey left running.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+import * as path from "lib/path";
+
+// rh cut diagnostics at 512 characters; no `slice` here, so the value is
+// carried whole.
+function bounded_diagnostic(value) {
+  return value;
+}
+
+function catch_text(error) {
+  return "" + error;
+}
+
+function protocol_text(value) {
+  return "" + value;
+}
+
+function file_name(p) {
+  const parts = ("" + p).split("/");
+  return parts[parts.length - 1];
+}
+
+function scoped_settings_path(settings_base, scope_id, is_main) {
+  if (is_main !== 0) {
+    return rh.join(settings_base, "settings.json");
+  }
+  return rh.join(rh.join(settings_base, "settings"), scope_id + ".json");
+}
+
+function macos_settings_root(home_directory) {
+  return rh.join(rh.join(home_directory, "Library"), "Application Support");
+}
+
+// No `slice`: the socket path is what follows the "unix:" scheme.
+function unix_socket_path(endpoint) {
+  return ("" + endpoint).split("unix:")[1];
+}
+
+function native_endpoint_shape_ok(transport, endpoint) {
+  if (transport === "named_pipe") {
+    return endpoint.startsWith("pipe:\\\\.\\pipe\\agenterm-agt-v1-") ? 1 : 0;
+  }
+  if (transport === "unix") {
+    return endpoint.startsWith("unix:/") && endpoint.endsWith(".sock") ? 1 : 0;
+  }
+  return 0;
+}
+
+function authority_argv(program, arguments) {
+  const name_text = file_name(program);
+  const argv = [];
+  let cli_role = 0;
+  let selector_value = 0;
+  for (const argument of arguments) {
+    const argument_text = "" + argument;
+    if (selector_value !== 0) {
+      selector_value = 0;
+    } else if (argument_text === "--instance" || argument_text === "--address" || argument_text === "--endpoint") {
+      selector_value = 1;
+    } else if (!argument_text.startsWith("-")) {
+      cli_role = 1;
+    }
+  }
+  if (name_text === "agenterm" || name_text === "agenterm.exe") {
+    if (cli_role !== 0) {
+      argv.push("cli");
+    } else {
+      argv.push("server");
+    }
+  } else if (name_text === "agenterm.exe") {
+    argv.push("cli");
+  }
+  for (const argument of arguments) { argv.push("" + argument); }
+  return argv;
+}
+
+// rh's `command.env(name, value)` after an `env_remove(name)`: the door
+// applies `env` before `env_remove`, so the name must leave the remove list.
+function set_env(spec, name, value) {
+  spec.env[name] = "" + value;
+  const kept = [];
+  for (const removed of spec.env_remove) {
+    if (removed !== name) { kept.push(removed); }
+  }
+  spec.env_remove = kept;
+}
+
+function configured(context, program, arguments, endpoint, address, instance, workspace) {
+  const argv = authority_argv(program, arguments);
+  const spec = harness.configured_spec(context, program, argv);
+  const removed = ["AGENTERM_IPC_ENDPOINT", "AGENTERM_IPC_ADDRESS", "AGENTERM_INSTANCE", "AGENTERM_SETTINGS_PATH"];
+  spec.env = rh.env_without(spec.env, removed);
+  spec.env_remove = removed;
+  if (endpoint !== "") {
+    set_env(spec, "AGENTERM_IPC_ENDPOINT", endpoint);
+  }
+  if (address !== "") {
+    set_env(spec, "AGENTERM_IPC_ADDRESS", address);
+  }
+  if (instance !== "") {
+    set_env(spec, "AGENTERM_INSTANCE", instance);
+  }
+  if (workspace !== "") {
+    set_env(spec, "AGENTERM_WORKSPACE_PATH", workspace);
+  }
+  set_env(spec, "XDG_RUNTIME_DIR", context.native_runtime_directory);
+  set_env(spec, "LOCALAPPDATA", context.config_directory);
+  set_env(spec, "XDG_CONFIG_HOME", context.config_directory);
+  set_env(spec, "HOME", context.home_directory);
+  return spec;
+}
+
+function spawn_configured(context, program, arguments, endpoint, address, instance, workspace) {
+  const spec = configured(context, program, arguments, endpoint, address, instance, workspace);
+  return harness.start(spec);
+}
+
+function record(context, arguments, output, expected_failure) {
+  harness.append_command_record_lines(context, arguments, output, expected_failure, []);
+}
+
+function invoke(context, program, arguments, expected_failure, endpoint, address, instance, workspace) {
+  const spec = configured(context, program, arguments, endpoint, address, instance, workspace);
+  spec.timeout_ms = 15000;
+  const output = rh.command_spec(spec);
+  record(context, arguments, output, expected_failure);
+  if (expected_failure !== 0) {
+    harness.require(
+      output.success !== true,
+      "native_ipc_command_unexpected_success:" + JSON.stringify(arguments)
+    );
+  } else {
+    harness.require(
+      output.success === true,
+      "native_ipc_command_failed:" + JSON.stringify(arguments) + ":" + output.stderr
+    );
+  }
+  return {
+    success: output.success === true ? 1 : 0,
+    exit_code: output.exit_code,
+    stdout: output.stdout,
+    stderr: output.stderr
+  };
+}
+
+function invoke_json(context, cli, arguments, endpoint, address, instance, workspace) {
+  const output = invoke(context, cli, arguments, 0, endpoint, address, instance, workspace);
+  return JSON.parse(("" + output.stdout + output.stderr).trim());
+}
+
+function probe(context, program, arguments, endpoint, address, instance, workspace) {
+  const spec = configured(context, program, arguments, endpoint, address, instance, workspace);
+  spec.timeout_ms = 2000;
+  const output = rh.command_spec(spec);
+  record(context, arguments, output, output.success === true ? 0 : 1);
+  return {
+    success: output.success === true ? 1 : 0,
+    exit_code: output.exit_code,
+    stdout: output.stdout,
+    stderr: output.stderr
+  };
+}
+
+function wait_protocol(context, cli, selector_arguments, endpoint, address, instance, workspace, server_child) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const arguments = [];
+    for (const a of selector_arguments) { arguments.push("" + a); }
+    arguments.push("protocol-info");
+    arguments.push("--running");
+    const output = probe(context, cli, arguments, endpoint, address, instance, workspace);
+    if (output.success !== 0) {
+      const parsed = JSON.parse(("" + output.stdout + output.stderr).trim());
+      return {
+        transport: "" + parsed.transport,
+        endpoint: "" + parsed.endpoint,
+        server_scope_id: "" + parsed.server_scope_id,
+        settings_path: "" + parsed.settings_path,
+        instance: "" + parsed.instance,
+        pid: rh.int_of(parsed.pid),
+        agenterm_version: "" + parsed.agenterm_version
+      };
+    }
+    if (harness.state(server_child) === "exited") {
+      const ended = harness.wait(server_child, 2000);
+      throw "native_ipc_server_early_exit:" + ended.stderr;
+    }
+    rh.sleep_ms(25);
+  }
+  throw "native_ipc_server_ready_timeout";
+}
+
+function wait_exit(child, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(child) === "exited") {
+      return harness.wait(child, 2000);
+    }
+    rh.sleep_ms(25);
+  }
+  throw code;
+}
+
+// rh compared `protocol.pid == child.id`. A door handle is a slot index, not
+// a PID, so the identity is asked of the host instead: the pid the server
+// reports must be a direct child of this script host (`ps -o ppid=`).
+function spawned_by_us(pid) {
+  return rh.process_parent_pid(pid) === process_id();
+}
+
+function normalize_row(row) {
+  const receipt = rh.field(row, "cleanup_receipt");
+  return {
+    endpoint: "" + row.endpoint,
+    schema_version: rh.int_of(row.schema_version),
+    registration_schema_version: rh.int_of(row.registration_schema_version),
+    instance: "" + row.instance,
+    transport: "" + row.transport,
+    server_scope_id: "" + row.server_scope_id,
+    status: "" + row.status,
+    classification: "" + row.classification,
+    owner_state: "" + row.owner_state,
+    process_start_identity: "" + row.process_start_identity,
+    lease_nonce: "" + row.lease_nonce,
+    server_epoch: "" + row.server_epoch,
+    event_epoch: "" + row.event_epoch,
+    observed_protocol_pid: rh.int_of(row.observed_protocol_pid),
+    observed_protocol_endpoint: "" + row.observed_protocol_endpoint,
+    observed_protocol_server_scope_id: "" + row.observed_protocol_server_scope_id,
+    legacy_client_compatibility: "" + row.legacy_client_compatibility,
+    cleanup_eligible: row.cleanup_eligible,
+    cleanup_receipt_schema_version: rh.int_of(rh.field(receipt, "schema_version")),
+    cleanup_receipt_operation: "" + rh.field(receipt, "operation"),
+    cleanup_receipt_result: "" + rh.field(receipt, "result"),
+    cleanup_receipt_expected_lease_nonce: "" + rh.field(receipt, "expected_lease_nonce")
+  };
+}
+
+function find_by_endpoint(rows, wanted_endpoint, code) {
+  const wanted = "" + wanted_endpoint;
+  for (const row of rows) {
+    if (("" + row.endpoint) === wanted) {
+      return normalize_row(row);
+    }
+  }
+  // Dump what server-list actually returned: a bare code left the
+  // missing-row shape undiagnosable from CI logs.
+  throw code + ":rows=" + JSON.stringify(rows);
+}
+
+function find_by_nonce(rows, wanted_nonce, code) {
+  const wanted = "" + wanted_nonce;
+  for (const row of rows) {
+    if (("" + row.lease_nonce) === wanted) {
+      return normalize_row(row);
+    }
+  }
+  throw code + ":rows=" + JSON.stringify(rows);
+}
+
+function registration_by_endpoint(directory, wanted_endpoint, code) {
+  const wanted = "" + wanted_endpoint;
+  for (const entry of rh.read_dir(directory)) {
+    if (entry.is_file && entry.name.endsWith(".json")) {
+      const entry_path = entry.path;
+      const record_value = rh.parse_file(entry_path);
+      if (record_value.schema_version === 2 && ("" + record_value.endpoint) === wanted) {
+        return {
+          path: entry_path,
+          record_pid: rh.int_of(record_value.pid),
+          record_address: "" + record_value.address,
+          record_endpoint: "" + record_value.endpoint,
+          record_logical_instance: "" + record_value.logical_instance,
+          record_server_scope_id: "" + record_value.server_scope_id,
+          record_version: "" + record_value.version,
+          record_session: "" + record_value.session,
+          record_workspace_path: "" + record_value.workspace_path,
+          record_started_at_unix_ms: rh.int_of(record_value.started_at_unix_ms),
+          record_process_start_identity: "" + record_value.process_start_identity,
+          record_lease_nonce: "" + record_value.lease_nonce,
+          record_server_epoch: "" + record_value.server_epoch
+        };
+      }
+    }
+  }
+  throw code;
+}
+
+function registration_schema_counts(directory) {
+  let v1 = 0;
+  let v2 = 0;
+  for (const entry of rh.read_dir(directory)) {
+    if (entry.is_file && entry.name.endsWith(".json")) {
+      const value = rh.parse_file(entry.path);
+      if (value.schema_version === 1) {
+        v1 = v1 + 1;
+      } else if (value.schema_version === 2) {
+        v2 = v2 + 1;
+      }
+    }
+  }
+  return { v1: v1, v2: v2 };
+}
+
+function registration_count(directory) {
+  let count = 0;
+  for (const entry of rh.read_dir(directory)) {
+    if (entry.is_file && entry.name.endsWith(".json")) {
+      count = count + 1;
+    }
+  }
+  return count;
+}
+
+function unix_mode(context, target) {
+  const path_text = "" + target;
+  const output = rh.command("stat", ["-c", "%a", path_text], { timeout_ms: 2000 });
+  record(context, ["-c", "%a", path_text], output, output.success === true ? 0 : 1);
+  if (output.success === true) {
+    return output.stdout.trim();
+  }
+  const fallback_output = rh.command("stat", ["-f", "%Lp", path_text], { timeout_ms: 2000 });
+  record(context, ["-f", "%Lp", path_text], fallback_output, fallback_output.success === true ? 0 : 1);
+  if (fallback_output.success === true) {
+    return fallback_output.stdout.trim();
+  }
+  throw "native_ipc_unix_stat_unavailable";
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print("control.native-local-ipc");
+  return 0;
+}
+
+harness.require(args.length >= 3, "expected: REPO SERVER_EXE CLI_EXE");
+const repo = rh.absolute(args[0]);
+let server_exe = args[1];
+let cli = args[2];
+let ci_main_dev = 0;
+let option_index = 3;
+while (option_index < args.length) {
+  const option = args[option_index];
+  if (option === "--server" || option === "--cli") {
+    harness.require(option_index + 1 < args.length, "native_ipc_option_value_missing:" + option);
+    if (option === "--server") {
+      server_exe = args[option_index + 1];
+    } else {
+      cli = args[option_index + 1];
+    }
+    option_index = option_index + 1;
+  } else if (option === "--ci-main-dev") {
+    ci_main_dev = 1;
+  } else {
+    throw "native_ipc_unknown_option:" + option;
+  }
+  option_index = option_index + 1;
+}
+server_exe = rh.absolute(server_exe);
+cli = rh.absolute(cli);
+harness.require(rh.exists(server_exe), "native_ipc_server_missing");
+harness.require(rh.exists(cli), "native_ipc_cli_missing");
+
+const context = harness.new_context(repo, "native-ipc");
+const config_directory = rh.join(context.run_directory, "config");
+context.config_directory = config_directory;
+rh.create_dir_all(config_directory);
+const home_directory = rh.join(context.run_directory, "home");
+context.home_directory = home_directory;
+rh.create_dir_all(home_directory);
+const unix_bootstrap = rh.env_or("AGENTERM_BOOTSTRAP_PLATFORM", "") === "unix" ? 1 : 0;
+const macos_host =
+  (rh.env_or("AGENTERM_HOST_OS", "") === "macos" || rh.exists("/System/Library/CoreServices")) ? 1 : 0;
+let direct_unix_root = "";
+if (rh.exists("/private/tmp")) {
+  direct_unix_root = "/private/tmp";
+} else if (rh.exists("/tmp")) {
+  direct_unix_root = "/tmp";
+}
+const windows_host =
+  (unix_bootstrap === 0 && (rh.env_or("AGENTERM_HOST_OS", "") === "windows" || rh.env_or("OS", "") === "Windows_NT")) ? 1 : 0;
+const unix_host = (unix_bootstrap !== 0 || (windows_host === 0 && direct_unix_root !== "")) ? 1 : 0;
+const pid = process_id();
+const runtime_suffix = "/agt-" + pid + "-" + rh.now_ms();
+let native_runtime_directory = "";
+if (unix_bootstrap !== 0) {
+  let temporary_root = "/tmp";
+  if (rh.env_or("AGENTERM_HOST_OS", "") === "macos") {
+    temporary_root = "/private/tmp";
+  }
+  native_runtime_directory = temporary_root + runtime_suffix;
+} else if (unix_host !== 0) {
+  native_runtime_directory = direct_unix_root + runtime_suffix;
+} else {
+  native_runtime_directory = rh.join(context.run_directory, "runtime");
+}
+context.native_runtime_directory = native_runtime_directory;
+context.native_runtime_external = unix_host;
+rh.create_dir_all(native_runtime_directory);
+const native_workspace = rh.join(context.run_directory, "workspace/native-workspace.json");
+const tcp_workspace = rh.join(context.run_directory, "workspace/tcp-workspace.json");
+let custom_instance = "custom:smoke-" + pid + "-" + rh.now_ms();
+if (ci_main_dev !== 0) {
+  custom_instance = "main";
+}
+const dead_endpoint = "tcp:127.0.0.1:1";
+const tcp_endpoint = "tcp:" + context.address;
+let succeeded = 0;
+let failure = "";
+let dev_row_ok = 1;
+// rh re-declared `owned_children` inside the try block, which left the
+// outer list (what `complete` saw) with at most the symlink server. One list
+// here: the evident intent, and `complete_owned` tolerates already-reaped
+// handles.
+const owned_children = [];
+
+try {
+  print("STEP CLI selector conflicts fail fast and typed");
+  // --endpoint may pair with --instance for attach identity; the real
+  // conflict is --endpoint with legacy --address.
+  const conflict_started = rh.now_ms();
+  const conflict = invoke(
+    context,
+    cli,
+    ["--endpoint", dead_endpoint, "--address", "127.0.0.1:9", "protocol-info", "--running"],
+    1,
+    "",
+    "",
+    "",
+    native_workspace
+  );
+  const conflict_text = "" + conflict.stdout + conflict.stderr;
+  const conflict_elapsed = rh.now_ms() - conflict_started;
+  harness.require(
+    conflict.exit_code === 2
+      && conflict_text.includes("mutually exclusive")
+      && conflict_text.includes("ConflictingCliSelectors")
+      && conflict_elapsed < 2000,
+    "native_ipc_selector_conflict_not_typed_or_bounded"
+  );
+
+  if (unix_host !== 0) {
+    print("STEP overlong Unix endpoint fails typed and bounded");
+    const long_endpoint =
+      "unix:/this-path-is-intentionally-longer-than-the-portable-"
+      + "sockaddr-un-limit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/server.sock";
+    const long_path_started = rh.now_ms();
+    const long_path = invoke(
+      context,
+      cli,
+      ["--endpoint", long_endpoint, "protocol-info", "--running"],
+      1,
+      "",
+      "",
+      "",
+      native_workspace
+    );
+    const long_path_text = "" + long_path.stdout + long_path.stderr;
+    const long_path_elapsed = rh.now_ms() - long_path_started;
+    harness.require(
+      long_path_text.includes("InvalidEndpoint")
+        && long_path_text.includes("invalid Unix socket path")
+        && long_path_elapsed < 2000,
+      "native_ipc_unix_long_path_not_typed_or_bounded"
+    );
+
+    print("STEP symlink Unix runtime ancestry fails closed");
+    const symlink_target = context.native_runtime_directory + "-symlink-target";
+    const symlink_runtime = context.native_runtime_directory + "-symlink";
+    rh.create_dir_all(symlink_target);
+    const link_output = rh.command("ln", ["-s", symlink_target, symlink_runtime], { timeout_ms: 2000 });
+    record(context, ["-s", symlink_target, symlink_runtime], link_output, link_output.success === true ? 0 : 1);
+    harness.require(
+      link_output.success === true && rh.symlink_metadata(symlink_runtime).is_symlink === true,
+      "native_ipc_unix_symlink_fixture"
+    );
+    const symlink_endpoint = "unix:" + symlink_runtime + "/server.sock";
+    const symlink_server = spawn_configured(context, server_exe, [], symlink_endpoint, "", "", native_workspace);
+    owned_children.push(symlink_server);
+    const symlink_exit = wait_exit(symlink_server, "native_ipc_unix_symlink_rejection_timeout");
+    const symlink_stderr = symlink_exit.stderr;
+    harness.require(
+      symlink_exit.success !== true
+        && symlink_stderr.includes("UnsafeEndpoint")
+        && symlink_stderr.includes("symlink"),
+      "native_ipc_unix_symlink_not_rejected"
+    );
+    rh.remove_file(symlink_runtime);
+    rh.remove_dir_all(symlink_target);
+  }
+
+  print("STEP isolated logical instance derives its native endpoint");
+  const native_server = spawn_configured(
+    context,
+    server_exe,
+    ["--instance", custom_instance],
+    dead_endpoint,
+    context.address,
+    "main",
+    native_workspace
+  );
+  owned_children.push(native_server);
+  const native_protocol = wait_protocol(
+    context,
+    cli,
+    ["--instance", custom_instance],
+    dead_endpoint,
+    context.address,
+    "main",
+    native_workspace,
+    native_server
+  );
+  const native_transport = native_protocol.transport;
+  const native_endpoint = native_protocol.endpoint;
+  const native_scope_id = native_protocol.server_scope_id;
+  const native_settings_path = native_protocol.settings_path;
+  const native_instance_name = native_protocol.instance;
+  const native_pid = native_protocol.pid;
+  const native_version = native_protocol.agenterm_version;
+  const native_endpoint_shape = native_endpoint_shape_ok(native_transport, native_endpoint);
+  let settings_root = "" + context.config_directory;
+  if (macos_host !== 0 && native_transport !== "named_pipe") {
+    settings_root = macos_settings_root(context.home_directory);
+  }
+  let settings_dir_name = "agenterm";
+  if (native_transport === "named_pipe") {
+    settings_dir_name = "AgenTerm";
+  }
+  const settings_base = rh.join(settings_root, settings_dir_name);
+  const expected_native_settings = scoped_settings_path(
+    settings_base,
+    native_scope_id,
+    custom_instance === "main" ? 1 : 0
+  );
+  const expected_native_settings_suffix = rh.join("settings", native_scope_id + ".json");
+  harness.require(
+    spawned_by_us(native_pid)
+      && native_instance_name === custom_instance
+      && native_endpoint_shape !== 0
+      && native_scope_id.startsWith("agt-v1-")
+      && native_scope_id.length === 39
+      && !native_endpoint.includes(custom_instance),
+    "native_ipc_custom_native_contract"
+  );
+  const native_settings_match =
+    native_settings_path === expected_native_settings
+      || (custom_instance !== "main" && native_settings_path.endsWith(expected_native_settings_suffix));
+  harness.require(
+    native_settings_match,
+    "native_ipc_custom_native_settings_path:expected="
+      + bounded_diagnostic(expected_native_settings)
+      + ":actual="
+      + bounded_diagnostic(native_settings_path)
+  );
+  if (native_transport === "unix") {
+    const socket_path = unix_socket_path(native_endpoint);
+    const socket_parent = path.parent(socket_path);
+    harness.require(
+      unix_mode(context, socket_path) === "600" && unix_mode(context, socket_parent) === "700",
+      "native_ipc_unix_permissions"
+    );
+    if (native_runtime_directory.startsWith("/private/tmp/")) {
+      print("STEP /tmp and /private/tmp resolve one macOS authority");
+      const alias_runtime = "/tmp" + runtime_suffix;
+      const alias_arguments = ["--instance", custom_instance, "protocol-info", "--running"];
+      const alias_spec = configured(
+        context,
+        cli,
+        alias_arguments,
+        dead_endpoint,
+        context.address,
+        "main",
+        native_workspace
+      );
+      set_env(alias_spec, "XDG_RUNTIME_DIR", alias_runtime);
+      alias_spec.timeout_ms = 2000;
+      const alias_output = rh.command_spec(alias_spec);
+      record(context, alias_arguments, alias_output, alias_output.success === true ? 0 : 1);
+      harness.require(
+        alias_output.success === true,
+        "native_ipc_macos_tmp_alias_unreachable:" + alias_output.stderr
+      );
+      const alias_parsed = JSON.parse((alias_output.stdout + alias_output.stderr).trim());
+      harness.require(
+        rh.int_of(alias_parsed.pid) === native_pid
+          && alias_parsed.endpoint === native_endpoint
+          && alias_parsed.server_scope_id === native_scope_id,
+        "native_ipc_macos_tmp_alias_split_authority"
+      );
+    }
+  }
+
+  let dev_endpoint = "";
+  let dev_transport = "";
+  let dev_server_scope_id = "";
+  if (ci_main_dev !== 0) {
+    print("STEP main and dev are distinct native authorities");
+    const dev_workspace = rh.join(context.run_directory, "workspace/dev-workspace.json");
+    const dev_server = spawn_configured(
+      context,
+      server_exe,
+      ["--instance", "dev"],
+      dead_endpoint,
+      context.address,
+      "main",
+      dev_workspace
+    );
+    owned_children.push(dev_server);
+    const dev_protocol = wait_protocol(
+      context,
+      cli,
+      ["--instance", "dev"],
+      dead_endpoint,
+      context.address,
+      "main",
+      dev_workspace,
+      dev_server
+    );
+    dev_endpoint = "" + dev_protocol.endpoint;
+    dev_transport = "" + dev_protocol.transport;
+    dev_server_scope_id = "" + dev_protocol.server_scope_id;
+    const dev_settings_path = dev_protocol.settings_path;
+    const dev_expected_settings = rh.join(rh.join(settings_base, "settings"), dev_server_scope_id + ".json");
+    harness.require(
+      dev_protocol.instance === "dev"
+        && dev_transport === native_transport
+        && dev_endpoint !== native_endpoint
+        && dev_server_scope_id !== native_scope_id
+        && dev_settings_path === dev_expected_settings
+        && dev_settings_path !== native_settings_path,
+      "native_ipc_main_dev_authority_separation"
+    );
+
+    print("STEP duplicate instance authority fails closed and bounded");
+    const duplicate_started = rh.now_ms();
+    const duplicate = spawn_configured(
+      context,
+      server_exe,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    owned_children.push(duplicate);
+    const duplicate_exit = wait_exit(duplicate, "native_ipc_duplicate_authority_timeout");
+    harness.require(
+      duplicate_exit.success !== true && rh.now_ms() - duplicate_started < 5000,
+      "native_ipc_duplicate_authority_not_rejected"
+    );
+  }
+
+  print("STEP explicit settings path overrides role-scoped default");
+  const override_instance = "custom:settings-override-" + pid + "-" + rh.now_ms();
+  const override_workspace = rh.join(context.run_directory, "workspace/settings-override-workspace.json");
+  const override_spec = configured(
+    context,
+    server_exe,
+    ["--instance", override_instance],
+    dead_endpoint,
+    context.address,
+    "main",
+    override_workspace
+  );
+  set_env(override_spec, "AGENTERM_SETTINGS_PATH", context.settings_path);
+  const override_server = harness.start(override_spec);
+  owned_children.push(override_server);
+  const override_protocol = wait_protocol(
+    context,
+    cli,
+    ["--instance", override_instance],
+    dead_endpoint,
+    context.address,
+    "main",
+    override_workspace,
+    override_server
+  );
+  harness.require(
+    override_protocol.settings_path === context.settings_path,
+    "native_ipc_explicit_settings_override_lost"
+  );
+  invoke(
+    context,
+    cli,
+    ["--instance", override_instance, "shutdown"],
+    0,
+    dead_endpoint,
+    context.address,
+    "main",
+    override_workspace
+  );
+  const override_shutdown = wait_exit(override_server, "native_ipc_settings_override_shutdown_timeout");
+  harness.require(override_shutdown.success === true, "native_ipc_settings_override_shutdown_failed");
+
+  print("STEP explicit loopback TCP remains a live compatibility route");
+  const tcp_server = spawn_configured(
+    context,
+    server_exe,
+    ["--address", context.address],
+    dead_endpoint,
+    "127.0.0.1:1",
+    custom_instance,
+    tcp_workspace
+  );
+  owned_children.push(tcp_server);
+  const tcp_protocol = wait_protocol(
+    context,
+    cli,
+    ["--endpoint", tcp_endpoint],
+    dead_endpoint,
+    "127.0.0.1:1",
+    custom_instance,
+    tcp_workspace,
+    tcp_server
+  );
+  harness.require(
+    spawned_by_us(tcp_protocol.pid)
+      && tcp_protocol.endpoint === tcp_endpoint
+      && tcp_protocol.transport === "tcp",
+    "native_ipc_explicit_endpoint_precedence"
+  );
+  const legacy_protocol = invoke_json(
+    context,
+    cli,
+    ["--address", context.address, "protocol-info", "--running"],
+    dead_endpoint,
+    "127.0.0.1:1",
+    custom_instance,
+    tcp_workspace
+  );
+  harness.require(
+    rh.int_of(legacy_protocol.pid) === tcp_protocol.pid
+      && ("" + legacy_protocol.endpoint) === tcp_endpoint
+      && ("" + legacy_protocol.transport) === "tcp",
+    "native_ipc_legacy_address_compatibility"
+  );
+
+  print("STEP environment endpoint priority never falls through to address");
+  const priority = invoke(
+    context,
+    cli,
+    ["protocol-info", "--running"],
+    1,
+    dead_endpoint,
+    context.address,
+    custom_instance,
+    tcp_workspace
+  );
+  harness.require(priority.success === 0, "native_ipc_environment_endpoint_fell_through");
+
+  print("STEP mixed schema discovery emits typed v2 rows deterministically");
+  const schemas = registration_schema_counts(context.instance_directory);
+  let expected_v2 = 2;
+  let expected_rows = 2;
+  if (ci_main_dev !== 0) {
+    expected_v2 = 3;
+    expected_rows = 3;
+  }
+  harness.require(schemas.v1 === 1 && schemas.v2 === expected_v2, "native_ipc_mixed_registration_fixture");
+  const rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+  harness.require(rows.length === expected_rows, "native_ipc_discovery_not_deduplicated");
+  if (ci_main_dev !== 0) {
+    const dev_row = find_by_endpoint(rows, dev_endpoint, "native_ipc_dev_row_missing");
+    if (dev_row.schema_version !== 2
+        || dev_row.registration_schema_version !== 2
+        || dev_row.instance !== "dev"
+        || dev_row.transport !== dev_transport
+        || dev_row.server_scope_id !== dev_server_scope_id
+        || dev_row.status !== "running"
+        || dev_row.classification !== "live"
+        || dev_row.process_start_identity === ""
+        || dev_row.lease_nonce === ""
+        || dev_row.server_epoch !== dev_row.event_epoch) {
+      dev_row_ok = 0;
+    }
+  }
+  const native_row = find_by_endpoint(rows, native_endpoint, "native_ipc_native_row_missing");
+  const tcp_row = find_by_endpoint(rows, tcp_endpoint, "native_ipc_tcp_row_missing");
+  const typed_schema_ok =
+    native_row.schema_version === 2
+      && native_row.registration_schema_version === 2
+      && native_row.instance === custom_instance
+      && native_row.transport === native_transport
+      && native_row.server_scope_id === native_scope_id
+      && native_row.status === "running"
+      && native_row.classification === "live"
+      && native_row.owner_state === "confirmed_live"
+      && native_row.process_start_identity !== ""
+      && native_row.lease_nonce !== ""
+      && native_row.server_epoch === native_row.event_epoch
+      && native_row.observed_protocol_pid === native_pid
+      && native_row.observed_protocol_endpoint === native_endpoint
+      && native_row.observed_protocol_server_scope_id === native_scope_id
+      && native_row.legacy_client_compatibility === "unsupported_no_legacy_listener"
+      && tcp_row.schema_version === 2
+      && tcp_row.registration_schema_version === 2
+      && tcp_row.transport === "tcp"
+      && tcp_row.endpoint === tcp_endpoint
+      && tcp_row.status === "running"
+      && tcp_row.classification === "live"
+      && tcp_row.process_start_identity !== ""
+      && tcp_row.lease_nonce !== ""
+      && tcp_row.server_epoch === tcp_row.event_epoch
+      && tcp_row.legacy_client_compatibility === "same_tcp_endpoint"
+      && dev_row_ok !== 0;
+
+  print("STEP stale test fixture remains visible until confirmed cleanup");
+  const stale_fixture_path = rh.join(context.instance_directory, "4294967295-stale-fixture.json");
+  const stale_fixture_endpoint = "tcp:127.0.0.1:59998";
+  const stale_fixture_nonce = "native-ipc-stale-fixture";
+  const stale_fixture_pid = 2147483647;
+  rh.atomic_write(
+    stale_fixture_path,
+    rh.stringify_pretty({
+      schema_version: 2,
+      pid: stale_fixture_pid,
+      address: "127.0.0.1:59998",
+      endpoint: stale_fixture_endpoint,
+      logical_instance: "custom:stale-fixture",
+      server_scope_id: native_scope_id,
+      version: native_version,
+      session: "stale-fixture",
+      workspace_path: "stale-fixture-workspace.json",
+      started_at_unix_ms: 1,
+      process_start_identity: "fixture-process-start",
+      lease_nonce: stale_fixture_nonce,
+      server_epoch: "fixture-server-epoch",
+      test_fixture: true
+    }) + "\n"
+  );
+  const stale_rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+  const stale_row = find_by_nonce(stale_rows, stale_fixture_nonce, "native_ipc_stale_fixture_row_missing");
+  harness.require(
+    stale_row.classification === "stale-test-fixture"
+      && stale_row.cleanup_eligible === true
+      && rh.exists(stale_fixture_path),
+    "native_ipc_stale_fixture_implicitly_removed"
+  );
+  const pruned_stale_rows = invoke_json(context, cli, ["server-list", "--json", "--prune"], "", "", "", native_workspace);
+  const pruned_stale = find_by_nonce(
+    pruned_stale_rows,
+    stale_fixture_nonce,
+    "native_ipc_stale_fixture_cleanup_receipt_missing"
+  );
+  harness.require(
+    pruned_stale.cleanup_receipt_schema_version === 1
+      && pruned_stale.cleanup_receipt_operation === "registration.cleanup"
+      && pruned_stale.cleanup_receipt_result === "deleted"
+      && pruned_stale.cleanup_receipt_expected_lease_nonce === stale_fixture_nonce
+      && !rh.exists(stale_fixture_path),
+    "native_ipc_stale_fixture_cleanup_not_confirmed"
+  );
+
+  print("STEP legacy live-PID ownership remains unknown and ineligible");
+  const unknown_owner_path = rh.join(context.instance_directory, native_pid + "-owner-unknown.json");
+  const unknown_owner_endpoint = "tcp:127.0.0.1:59997";
+  rh.atomic_write(
+    unknown_owner_path,
+    rh.stringify_pretty({
+      schema_version: 1,
+      pid: native_pid,
+      address: "127.0.0.1:59997",
+      version: native_version,
+      session: "owner-unknown",
+      workspace_path: "owner-unknown-workspace.json",
+      started_at_unix_ms: 2
+    }) + "\n"
+  );
+  const unknown_owner_rows = invoke_json(context, cli, ["server-list", "--json", "--prune"], "", "", "", native_workspace);
+  const unknown_owner = find_by_endpoint(unknown_owner_rows, unknown_owner_endpoint, "native_ipc_owner_unknown_row_missing");
+  harness.require(
+    unknown_owner.classification === "owner-unknown"
+      && unknown_owner.cleanup_eligible !== true
+      && unknown_owner.cleanup_receipt_result === "not_eligible"
+      && rh.exists(unknown_owner_path),
+    "native_ipc_owner_unknown_was_removed"
+  );
+  rh.remove_file(unknown_owner_path);
+
+  print("STEP PID-reuse cleanup cannot remove the live generation");
+  const native_registration = registration_by_endpoint(
+    context.instance_directory,
+    native_endpoint,
+    "native_ipc_live_registration_missing"
+  );
+  const pid_reuse_nonce = "native-ipc-pid-reuse-fixture";
+  const pid_reuse_path = rh.join(context.instance_directory, native_pid + "-" + pid_reuse_nonce + ".json");
+  // `address` is a REQUIRED InstanceRecord field (no serde default); a
+  // fixture without it fails deserialization and discovery silently
+  // drops the record.
+  rh.atomic_write(
+    pid_reuse_path,
+    rh.stringify_pretty({
+      schema_version: 2,
+      pid: native_registration.record_pid,
+      address: native_registration.record_address,
+      endpoint: native_registration.record_endpoint,
+      logical_instance: native_registration.record_logical_instance,
+      server_scope_id: native_registration.record_server_scope_id,
+      version: native_registration.record_version,
+      session: native_registration.record_session,
+      workspace_path: native_registration.record_workspace_path,
+      started_at_unix_ms: native_registration.record_started_at_unix_ms,
+      process_start_identity: "foreign-process-start",
+      lease_nonce: pid_reuse_nonce,
+      server_epoch: native_registration.record_server_epoch,
+      test_fixture: false
+    }) + "\n"
+  );
+  const pid_reuse_rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+  const pid_reuse = find_by_nonce(pid_reuse_rows, pid_reuse_nonce, "native_ipc_pid_reuse_row_missing");
+  harness.require(
+    pid_reuse.classification === "stale"
+      && pid_reuse.owner_state === "pid_reused"
+      && rh.exists(native_registration.path),
+    "native_ipc_pid_reuse_not_classified"
+  );
+  const pid_reuse_pruned_rows = invoke_json(context, cli, ["server-list", "--json", "--prune"], "", "", "", native_workspace);
+  const pid_reuse_pruned = find_by_nonce(pid_reuse_pruned_rows, pid_reuse_nonce, "native_ipc_pid_reuse_receipt_missing");
+  harness.require(
+    pid_reuse_pruned.cleanup_receipt_result === "deleted"
+      && rh.exists(native_registration.path)
+      && !rh.exists(pid_reuse_path)
+      && harness.state(native_server) === "running",
+    "native_ipc_pid_reuse_cleanup_crossed_generation"
+  );
+
+  print("STEP each authority shuts down through its selected endpoint");
+  invoke(
+    context,
+    cli,
+    ["--instance", custom_instance, "shutdown"],
+    0,
+    dead_endpoint,
+    context.address,
+    "main",
+    native_workspace
+  );
+  if (ci_main_dev !== 0) {
+    invoke(context, cli, ["--instance", "dev", "shutdown"], 0, dead_endpoint, context.address, "main", native_workspace);
+  }
+  invoke(
+    context,
+    cli,
+    ["--address", context.address, "shutdown"],
+    0,
+    dead_endpoint,
+    "127.0.0.1:1",
+    custom_instance,
+    tcp_workspace
+  );
+  const native_exit = wait_exit(native_server, "native_ipc_native_shutdown_timeout");
+  const tcp_exit = wait_exit(tcp_server, "native_ipc_tcp_shutdown_timeout");
+  harness.require(native_exit.success === true && tcp_exit.success === true, "native_ipc_server_shutdown_failure");
+  if (ci_main_dev !== 0) {
+    const dev_stopped = probe(
+      context,
+      cli,
+      ["--instance", "dev", "protocol-info", "--running"],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    harness.require(dev_stopped.success === 0, "native_ipc_dev_shutdown_failure");
+  }
+  harness.require(registration_count(context.instance_directory) === 0, "native_ipc_registration_leak");
+  if (native_transport === "named_pipe") {
+    print("STEP killed Windows authority recovers its exact stale registration");
+    const stale_server = spawn_configured(
+      context,
+      server_exe,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    owned_children.push(stale_server);
+    const stale_protocol = wait_protocol(
+      context,
+      cli,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace,
+      stale_server
+    );
+    const stale_registration = registration_by_endpoint(
+      context.instance_directory,
+      stale_protocol.endpoint,
+      "native_ipc_windows_live_registration_missing"
+    );
+    const stale_nonce = stale_registration.record_lease_nonce;
+    const stale_epoch = stale_registration.record_server_epoch;
+    harness.require(
+      stale_registration.record_pid === stale_protocol.pid
+        && stale_nonce !== ""
+        && stale_epoch !== ""
+        && rh.exists(stale_registration.path),
+      "native_ipc_windows_live_registration_identity"
+    );
+
+    process_kill(stale_server);
+    const stale_exit = wait_exit(stale_server, "native_ipc_windows_authority_kill_timeout");
+    const dead_rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+    const dead_row = find_by_nonce(dead_rows, stale_nonce, "native_ipc_windows_stale_registration_missing");
+    harness.require(
+      stale_exit.success !== true
+        && dead_row.classification === "stale"
+        && dead_row.cleanup_eligible === true
+        && dead_row.server_epoch === stale_epoch
+        && rh.exists(stale_registration.path)
+        && registration_count(context.instance_directory) === 1,
+      "native_ipc_windows_real_stale_registration"
+    );
+
+    const replacement = spawn_configured(
+      context,
+      server_exe,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    owned_children.push(replacement);
+    const replacement_protocol = wait_protocol(
+      context,
+      cli,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace,
+      replacement
+    );
+    const replacement_registration = registration_by_endpoint(
+      context.instance_directory,
+      replacement_protocol.endpoint,
+      "native_ipc_windows_replacement_registration_missing"
+    );
+    const replacement_rows = invoke_json(context, cli, ["server-list", "--json"], "", "", "", native_workspace);
+    const replacement_row = find_by_nonce(
+      replacement_rows,
+      replacement_registration.record_lease_nonce,
+      "native_ipc_windows_replacement_row_missing"
+    );
+    harness.require(
+      replacement_protocol.endpoint === stale_protocol.endpoint
+        && replacement_protocol.server_scope_id === stale_protocol.server_scope_id
+        && replacement_protocol.pid !== stale_protocol.pid
+        && replacement_registration.record_pid === replacement_protocol.pid
+        && replacement_registration.record_lease_nonce !== stale_nonce
+        && replacement_registration.record_server_epoch !== stale_epoch
+        && replacement_row.classification === "live"
+        && replacement_row.server_epoch === replacement_row.event_epoch
+        && !rh.exists(stale_registration.path)
+        && registration_count(context.instance_directory) === 1,
+      "native_ipc_windows_stale_authority_not_recovered"
+    );
+    invoke(
+      context,
+      cli,
+      ["--instance", custom_instance, "shutdown"],
+      0,
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    const replacement_exit = wait_exit(replacement, "native_ipc_windows_replacement_shutdown_timeout");
+    const stopped = probe(
+      context,
+      cli,
+      ["--instance", custom_instance, "protocol-info", "--running"],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    harness.require(
+      replacement_exit.success === true
+        && stopped.success === 0
+        && registration_count(context.instance_directory) === 0,
+      "native_ipc_windows_stale_recovery_cleanup"
+    );
+  }
+  if (native_transport === "unix") {
+    const native_socket = unix_socket_path(native_endpoint);
+    const native_lock_path = native_socket + ".lock";
+    harness.require(
+      !rh.exists(native_socket) && !rh.exists(native_lock_path),
+      "native_ipc_unix_native_endpoint_leak"
+    );
+    if (ci_main_dev !== 0) {
+      const dev_socket = unix_socket_path(dev_endpoint);
+      const dev_lock_path = dev_socket + ".lock";
+      harness.require(
+        !rh.exists(dev_socket) && !rh.exists(dev_lock_path),
+        "native_ipc_unix_dev_endpoint_leak"
+      );
+    }
+
+    print("STEP killed Unix authority recovers stale endpoint and registration");
+    const stale_server = spawn_configured(
+      context,
+      server_exe,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    owned_children.push(stale_server);
+    const stale_protocol = wait_protocol(
+      context,
+      cli,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace,
+      stale_server
+    );
+    process_kill(stale_server);
+    const stale_exit = wait_exit(stale_server, "native_ipc_stale_authority_kill_timeout");
+    const stale_lock_path = native_socket + ".lock";
+    const stale_registration_count = registration_count(context.instance_directory);
+    harness.require(
+      stale_exit.success !== true
+        && rh.exists(native_socket)
+        && rh.exists(stale_lock_path)
+        && stale_registration_count === 1,
+      "native_ipc_stale_authority_fixture"
+    );
+
+    const replacement = spawn_configured(
+      context,
+      server_exe,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    owned_children.push(replacement);
+    const replacement_protocol = wait_protocol(
+      context,
+      cli,
+      ["--instance", custom_instance],
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace,
+      replacement
+    );
+    harness.require(
+      replacement_protocol.endpoint === stale_protocol.endpoint
+        && replacement_protocol.server_scope_id === stale_protocol.server_scope_id
+        && replacement_protocol.pid !== stale_protocol.pid,
+      "native_ipc_stale_authority_not_recovered"
+    );
+    invoke(
+      context,
+      cli,
+      ["--instance", custom_instance, "shutdown"],
+      0,
+      dead_endpoint,
+      context.address,
+      "main",
+      native_workspace
+    );
+    const replacement_exit = wait_exit(replacement, "native_ipc_stale_replacement_shutdown_timeout");
+    const final_registration_count = registration_count(context.instance_directory);
+    const final_lock_path = native_socket + ".lock";
+    harness.require(
+      replacement_exit.success === true
+        && final_registration_count === 0
+        && !rh.exists(native_socket)
+        && !rh.exists(final_lock_path),
+      "native_ipc_stale_recovery_cleanup"
+    );
+  }
+  harness.require(typed_schema_ok, "native_ipc_server_list_typed_schema");
+
+  harness.emit_evidence(context, ["control.native-local-ipc"], "control.native-local-ipc");
+  succeeded = 1;
+} catch (error) {
+  failure = catch_text(error);
+}
+
+const result = harness.complete_owned(context, owned_children, succeeded !== 0, failure);
+if (context.native_runtime_external !== 0 && rh.exists(context.native_runtime_directory)) {
+  rh.remove_dir_all(context.native_runtime_directory);
+}
+if (succeeded !== 0) {
+  harness.require(result.cleanup.orphan_free === true, "native_ipc_orphan_cleanup");
+  harness.remove_run(context);
+  print("PASS: native IPC selection and migration contract");
+} else {
+  throw failure;
+}
+return 0;
