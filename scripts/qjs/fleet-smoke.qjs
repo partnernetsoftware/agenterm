@@ -1,0 +1,1087 @@
+// Prove Fleet discovery, event causality, scoped launch context, Mux safety,
+// restart truth, and the bounded journal under concurrent typed mutations.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO CLI_EXE [--skip-event-load|--event-load]
+//
+// Mux surface is `agenterm cli mux ...` (no separate agenterm-mux PE).
+//
+// Ported from scripts/rh/fleet-smoke.rh; runs under `--profile tool`. The
+// journey is Windows-shaped (cmd.exe children, named-pipe error text), which
+// is where CI ran it (`. dist/agenterm.com --skip-event-load`).
+//
+// Long-lived children are door handles: the event waiters and the 16-way gap
+// clients are `process_spawn`ed and `process_wait`ed, exactly the shape rh's
+// `command.start()` / `wait_with_output` had.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+function catch_text(error) {
+  return "" + error;
+}
+
+// The null sentinel is the whole contract here: a missing JSON path answers
+// `undefined` in this engine and the server writes `null` for an absent
+// value; both are "absent".
+function json_is_present(value) {
+  if (value === undefined || value === null) { return 0; }
+  return 1;
+}
+
+function json_is_absent(value) {
+  if (value === undefined || value === null) { return 1; }
+  return 0;
+}
+
+function event_for_tab_note(events, tab_id, note_text) {
+  const tab_text = "" + tab_id;
+  const note = "" + note_text;
+  for (const event of events) {
+    const event_kind = "" + event.kind;
+    const event_tab = "" + event.tab_id;
+    const event_note = "" + rh.field(event.payload, "note");
+    if (event_kind === "tab.note" && event_tab === tab_text && event_note === note) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+function active_tab_id(snapshot) {
+  for (const tab of snapshot.tabs) {
+    if (tab.active === true) {
+      return "" + tab.id;
+    }
+  }
+  throw "fleet_gap_target_missing";
+}
+
+function parse_json_text(text) {
+  return JSON.parse(("" + text).trim());
+}
+
+function record(ctx, arguments, output, expected_failure) {
+  harness.append_command_record_lines(ctx, arguments, output, expected_failure, []);
+}
+
+function start_gap_client(ctx, cli, gap_target, worker, iteration) {
+  const gap_note = "gap-" + worker + "-" + iteration;
+  const spec = harness.configured_cli_spec(ctx, cli, ["set-tab-note", "-t", "" + gap_target, gap_note]);
+  spec.timeout_ms = 15000;
+  return harness.start(spec);
+}
+
+function require_child_output(child, code) {
+  const output = harness.wait(child, 15000);
+  harness.require(output.success === true, code + ":" + output.stderr);
+}
+
+// 16 simultaneous clients per round, started before any is waited: the
+// barrier bounds active processes while retaining concurrent IPC pressure.
+function require_gap_clients(ctx, cli, gap_target, iteration) {
+  const clients = [];
+  for (let worker = 0; worker < 16; worker = worker + 1) {
+    clients.push(start_gap_client(ctx, cli, gap_target, worker, iteration));
+  }
+  for (let worker = 0; worker < 16; worker = worker + 1) {
+    require_child_output(clients[worker], "fleet_event_load_client:" + worker + ":" + iteration);
+  }
+}
+
+function text_contains_address(text, address) {
+  return text.includes(address);
+}
+
+// Build argv for the mux frontend: agenterm cli mux <args...>
+function mux_argv(parts) {
+  const argv = ["mux"];
+  for (const part of parts) { argv.push("" + part); }
+  return argv;
+}
+
+function merge_output(output) {
+  return output.stdout + output.stderr;
+}
+
+function child_is_running(child) {
+  return harness.state(child) === "running";
+}
+
+// rh's `test_harness::invoke_cli`: `--address` first, the 60 s configured
+// timeout, the record, then the success/failure requirement.
+function invoke(ctx, cli, arguments, expected_failure) {
+  const all = ["--address", "" + ctx.address];
+  for (const a of arguments) { all.push("" + a); }
+  const spec = harness.configured_cli_spec(ctx, cli, all);
+  const output = rh.command_spec(spec);
+  record(ctx, arguments, output, expected_failure);
+  if (expected_failure !== 0) {
+    harness.require(output.success !== true, "test_harness_cli_unexpected_success");
+  } else {
+    harness.require(output.success === true, "test_harness_cli_failed:" + output.stderr);
+  }
+  return output;
+}
+
+function run_program(ctx, program, arguments, expected_failure, remove_address, workspace) {
+  const spec = harness.configured_cli_spec(ctx, program, arguments);
+  if (remove_address !== 0) {
+    // The door applies `env` before `env_remove`: drop the name from both.
+    spec.env = rh.env_without(spec.env, ["AGENTERM_IPC_ADDRESS"]);
+    spec.env_remove = ["AGENTERM_IPC_ADDRESS"];
+  }
+  if (workspace !== "") {
+    spec.env.AGENTERM_WORKSPACE_PATH = workspace;
+  }
+  spec.timeout_ms = 15000;
+  const output = rh.command_spec(spec);
+  record(ctx, arguments, output, expected_failure);
+  const merged_output = merge_output(output);
+  const output_success = output.success === true ? 1 : 0;
+  if (expected_failure !== 0) {
+    harness.require(output_success === 0, "fleet_command_unexpected_success:" + program);
+  } else {
+    harness.require(output_success !== 0, "fleet_command_failed:" + program + ":" + merged_output);
+  }
+  return {
+    success: output_success,
+    exit_code: output.exit_code,
+    stdout: merged_output,
+    stderr: merged_output
+  };
+}
+
+function run_default(ctx, program, arguments) {
+  return run_program(ctx, program, arguments, 0, 0, "");
+}
+
+function run_failure(ctx, program, arguments) {
+  return run_program(ctx, program, arguments, 1, 0, "");
+}
+
+function run_without_address(ctx, program, arguments) {
+  return run_program(ctx, program, arguments, 0, 1, "");
+}
+
+function fail_without_address(ctx, program, arguments) {
+  return run_program(ctx, program, arguments, 1, 1, "");
+}
+
+function text(ctx, cli, arguments) {
+  const output = invoke(ctx, cli, arguments, 0);
+  return ("" + output.stdout + output.stderr).trim();
+}
+
+function json(ctx, cli, arguments) {
+  const output = invoke(ctx, cli, arguments, 0);
+  return JSON.parse(("" + output.stdout + output.stderr).trim());
+}
+
+function json_without_address(ctx, cli, arguments) {
+  const spec = harness.configured_cli_spec(ctx, cli, arguments);
+  spec.env = rh.env_without(spec.env, ["AGENTERM_IPC_ADDRESS"]);
+  spec.env_remove = ["AGENTERM_IPC_ADDRESS"];
+  spec.timeout_ms = 15000;
+  const output = rh.command_spec(spec);
+  record(ctx, arguments, output, 0);
+  return JSON.parse(merge_output(output).trim());
+}
+
+function find_address_index(values, address) {
+  const wanted = "" + address;
+  let index = 0;
+  for (const row of values) {
+    if (("" + row.address) === wanted) {
+      return index;
+    }
+    index = index + 1;
+  }
+  throw "fleet_address_missing:" + address;
+}
+
+function tab_note_by_id(snapshot, id) {
+  const wanted = "" + id;
+  for (const tab of snapshot.tabs) {
+    if (("" + tab.id) === wanted) {
+      return "" + tab.note;
+    }
+  }
+  throw "fleet_tab_id_missing:" + id;
+}
+
+function tab_id_by_name(snapshot, name) {
+  const wanted = "" + name;
+  for (const tab of snapshot.tabs) {
+    if (("" + tab.name) === wanted) {
+      return "" + tab.id;
+    }
+  }
+  throw "fleet_tab_name_missing:" + name;
+}
+
+function tab_id_by_id(snapshot, id) {
+  const wanted = "" + id;
+  for (const tab of snapshot.tabs) {
+    if (("" + tab.id) === wanted) {
+      return "" + tab.id;
+    }
+  }
+  throw "fleet_tab_id_missing:" + id;
+}
+
+function tab_name_by_id(snapshot, id) {
+  const wanted = "" + id;
+  for (const tab of snapshot.tabs) {
+    if (("" + tab.id) === wanted) {
+      return "" + tab.name;
+    }
+  }
+  throw "fleet_tab_id_missing:" + id;
+}
+
+function tab_index_by_id(snapshot, id) {
+  const wanted = "" + id;
+  for (const tab of snapshot.tabs) {
+    if (("" + tab.id) === wanted) {
+      return rh.int_of(tab.index);
+    }
+  }
+  throw "fleet_tab_id_missing:" + id;
+}
+
+// rh's `std::process::list()` has no door op; the host is asked directly
+// (`kill -0` / `tasklist`), see rh_compat.process_alive.
+function process_present(pid) {
+  return rh.process_alive(pid) ? 1 : 0;
+}
+
+function wait_process_gone(pid, code) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (process_present(pid) === 0) {
+      return 0;
+    }
+    rh.sleep_ms(50);
+  }
+  throw code + ":" + pid;
+}
+
+function registration_count(directory) {
+  let count = 0;
+  for (const entry of rh.read_dir(directory)) {
+    if (entry.is_file && entry.name.endsWith(".json")) {
+      count = count + 1;
+    }
+  }
+  return count;
+}
+
+function start_waiter(ctx, cli, epoch, after, kind, timeout_ms) {
+  const timeout_value = rh.int_of(timeout_ms);
+  const arguments = [
+    "wait-events",
+    "--epoch", "" + epoch,
+    "--after", "" + after,
+    "--kind", "" + kind,
+    "--timeout-ms", "" + timeout_value
+  ];
+  const spec = harness.configured_cli_spec(ctx, cli, arguments);
+  let process_timeout = timeout_value + 5000;
+  if (timeout_value >= 55000) {
+    process_timeout = 60000;
+  }
+  spec.timeout_ms = process_timeout;
+  return harness.start(spec);
+}
+
+function complete_waiter_child(child) {
+  const output = harness.wait(child, 15000);
+  const merged_output = merge_output(output);
+  harness.require(output.success === true, "fleet_event_waiter_failed:" + merged_output);
+  return JSON.parse(merged_output.trim());
+}
+
+function cleanup_server(ctx, cli, server_address) {
+  const kill_arguments = ["--address", "" + server_address, "kill-server"];
+  const spec = harness.configured_cli_spec(ctx, cli, kill_arguments);
+  spec.timeout_ms = 15000;
+  const output = rh.command_spec(spec);
+  record(ctx, kill_arguments, output, output.success === true ? 0 : 1);
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print("fleet.codex-launcher");
+  print("fleet.event-transition-catalog");
+  print("fleet.instance-discovery");
+  print("fleet.mux-frontend");
+  print("fleet.tab-environment");
+  print("fleet.upgrade-truth");
+  return 0;
+}
+
+harness.require(
+  args.length >= 2 && args.length <= 4,
+  "expected: REPO CLI_EXE [--skip-event-load|--event-load]"
+);
+const repo = rh.absolute(args[0]);
+const cli = rh.absolute(args[1]);
+harness.require(rh.exists(cli), "fleet_executable_missing:" + cli);
+let run_event_load = true;
+for (let index = 2; index < args.length; index = index + 1) {
+  harness.require(
+    args[index] === "--skip-event-load" || args[index] === "--event-load",
+    "fleet_unknown_mode:" + args[index]
+  );
+  if (args[index] === "--skip-event-load") {
+    run_event_load = false;
+  } else {
+    run_event_load = true;
+  }
+}
+
+const ctx = harness.new_context(repo, "fleet");
+const pid = process_id();
+const port_base = 47000 + pid % 1000;
+const explicit_address = "127.0.0.1:" + port_base;
+const second_address = "127.0.0.1:" + (port_base + 1);
+harness.require(
+  explicit_address !== second_address && explicit_address !== ("" + ctx.address),
+  "fleet_reserved_address_collision"
+);
+const environment_name = "env-" + pid;
+const agent_name = "codex-" + pid;
+const role = "reviewer-" + pid;
+const proxy = "http://127.0.0.1:" + (30000 + pid % 1000);
+const main_address = "" + ctx.address;
+const main_instance_directory = "" + ctx.instance_directory;
+const main_workspace_path = "" + ctx.workspace_path;
+const declared_evidence = [
+  "fleet.codex-launcher",
+  "fleet.event-transition-catalog",
+  "fleet.instance-discovery",
+  "fleet.mux-frontend",
+  "fleet.tab-environment",
+  "fleet.upgrade-truth"
+];
+let succeeded = 0;
+let failure = "";
+
+try {
+  const smoke_run_root = rh.join(repo, "target/smoke/fleet-runs");
+  const explicit_workspace = rh.join(smoke_run_root, "explicit-" + pid + ".json");
+  const second_workspace = rh.join(smoke_run_root, "second-" + pid + ".json");
+
+  const version_output = text(ctx, cli, ["--version"]);
+  const version_fields = version_output.split(" ");
+  const expected_version = version_fields[version_fields.length - 1];
+
+  print("STEP control help and option errors are offline and fail fast");
+  const top_help = text(ctx, cli, ["--help"]);
+  harness.require(top_help.includes("AgenTerm CLI"), "fleet_top_help_missing");
+  const catalog = text(ctx, cli, ["list-commands"]);
+  for (const source_line of catalog.split("\n")) {
+    const line = source_line.trim();
+    if (line !== "") {
+      const pieces = line.split(" (");
+      harness.require(pieces.length === 1 || pieces.length === 2, "fleet_command_catalog_line:" + line);
+      const primary_name = pieces[0];
+      const primary_help = text(ctx, cli, [primary_name, "--help"]);
+      harness.require(primary_help.startsWith("Usage: agenterm cli "), "fleet_command_help:" + primary_name);
+      if (pieces.length === 2) {
+        const alias_raw = pieces[1];
+        harness.require(alias_raw.endsWith(")"), "fleet_catalog_alias:" + line);
+        // No `slice`: the alias is everything before the closing paren.
+        const alias = alias_raw.split(")")[0];
+        const alias_help = text(ctx, cli, [alias, "--help"]);
+        harness.require(alias_help.startsWith("Usage: agenterm cli "), "fleet_command_help:" + alias);
+      }
+    }
+  }
+  const option_started = rh.now_ms();
+  const option_error = run_failure(ctx, cli, ["-a", "127.0.0.1:1", "list-windows"]);
+  const option_error_text = "" + option_error.stdout + option_error.stderr;
+  const option_has_unknown = option_error_text.includes("unknown global option");
+  const option_has_address = option_error_text.includes("--address HOST:PORT");
+  harness.require(
+    option_has_unknown && option_has_address && rh.now_ms() - option_started <= 2000,
+    "fleet_option_error_not_fast_or_actionable"
+  );
+
+  print("STEP zero-instance discovery retains stale rows until confirmed cleanup");
+  const dead_record = rh.join(main_instance_directory, "2147483647.json");
+  const dead_pid = 2147483647;
+  rh.atomic_write(
+    dead_record,
+    rh.stringify_pretty({
+      schema_version: 1,
+      pid: dead_pid,
+      address: "127.0.0.1:59999",
+      version: expected_version,
+      session: "stale",
+      workspace_path: "stale-workspace.json",
+      started_at_unix_ms: 1
+    }) + "\n"
+  );
+  const empty_servers = json_without_address(ctx, cli, ["server-list", "--json"]);
+  const empty_server = empty_servers[0];
+  harness.require(
+    empty_servers.length === 1
+      && rh.field(empty_server, "classification") === "stale"
+      && rh.field(empty_server, "cleanup_eligible") === true
+      && rh.exists(dead_record),
+    "fleet_dead_registration_not_retained"
+  );
+  const cleaned_servers = json_without_address(ctx, cli, ["server-list", "--json", "--prune"]);
+  const cleaned_server = cleaned_servers[0];
+  const cleaned_receipt = rh.field(cleaned_server, "cleanup_receipt");
+  harness.require(
+    cleaned_servers.length === 1
+      && rh.field(cleaned_receipt, "schema_version") === 1
+      && rh.field(cleaned_receipt, "operation") === "registration.cleanup"
+      && rh.field(cleaned_receipt, "result") === "deleted"
+      && !rh.exists(dead_record),
+    "fleet_dead_registration_cleanup_not_confirmed"
+  );
+  const empty_error = fail_without_address(ctx, cli, ["list-windows"]);
+  const empty_text = "" + empty_error.stdout + empty_error.stderr;
+  harness.require(
+    empty_text.includes("AgenTerm server is not running")
+      && empty_text.includes("IPC transport")
+      && empty_text.includes("pipe:")
+      && !empty_text.includes("tcp:127.0.0.1"),
+    "fleet_zero_instance_error"
+  );
+
+  print("STEP mux compatibility is discoverable without a server");
+  const compatibility_output = run_without_address(ctx, cli, mux_argv(["compatibility", "--json"]));
+  const compatibility = JSON.parse(compatibility_output.stdout);
+  let split_unsupported = 0;
+  for (const item of compatibility.explicitly_unsupported) {
+    if (item.name === "split-window") {
+      split_unsupported = 1;
+    }
+  }
+  const compatibility_model = compatibility.model;
+  harness.require(
+    compatibility.frontend === "agenterm-mux"
+      && rh.field(compatibility_model, "window") === "tab"
+      && split_unsupported !== 0
+      && !rh.has_item(compatibility.supported, "split-window"),
+    "fleet_mux_compatibility_model"
+  );
+  const mux_commands_result = run_without_address(ctx, cli, mux_argv(["list-commands"]));
+  const mux_commands = mux_commands_result.stdout;
+  harness.require(
+    mux_commands.includes("split-window (unsupported:") && !mux_commands.includes("\nsplit-window\n"),
+    "fleet_mux_command_registry"
+  );
+  const compatibility_text_result = run_without_address(ctx, cli, mux_argv(["compatibility"]));
+  harness.require(
+    compatibility_text_result.stdout.includes("unsupported: split-window"),
+    "fleet_mux_text_compatibility"
+  );
+  const split_failure = fail_without_address(ctx, cli, mux_argv(["split-window"]));
+  const split_failure_text = "" + split_failure.stdout + split_failure.stderr;
+  harness.require(split_failure_text.includes("unsupported"), "fleet_mux_split_not_explicit");
+  run_program(ctx, cli, mux_argv(["--address", "0.0.0.0:42000", "compatibility"]), 1, 1, "");
+  harness.emit_evidence(ctx, declared_evidence, "fleet.mux-frontend");
+
+  print("STEP explicit CLI address autostarts the requested server");
+  run_program(
+    ctx,
+    cli,
+    [
+      "--address", explicit_address,
+      "new-window", "-d", "-n", "explicit-" + pid,
+      "--", "cmd.exe", "/d", "/c", "echo explicit"
+    ],
+    0,
+    1,
+    explicit_workspace
+  );
+  const explicit_instances = json_without_address(ctx, cli, ["list-instances", "--json"]);
+  let explicit_instance_ok = 0;
+  for (const explicit_row of explicit_instances) {
+    if (("" + explicit_row.address) === explicit_address) {
+      harness.require(
+        ("" + explicit_row.status) === "running"
+          && ("" + explicit_row.workspace_path) === explicit_workspace,
+        "fleet_explicit_autostart_identity"
+      );
+      explicit_instance_ok = 1;
+    }
+  }
+  harness.require(explicit_instance_ok !== 0, "fleet_explicit_autostart_identity");
+  print("STEP server-kill aliases the existing destructive operation");
+  run_program(ctx, cli, ["--address", explicit_address, "server-kill"], 0, 1, explicit_workspace);
+
+  print("STEP tab-scoped environment and reserved AgenTerm harness");
+  text(
+    ctx,
+    cli,
+    [
+      "new-window", "-d", "-n", environment_name,
+      "-e", "FLEET_ROLE=" + role,
+      "--", "cmd.exe", "/d", "/c",
+      "set FLEET_ROLE&set AGENTERM_TAB_ID&set AGENTERM_SESSION&ping -n 4 127.0.0.1 >nul"
+    ]
+  );
+  // Read the evidence while the child is still alive, then let it die. The
+  // three `set` lines are printed immediately; the trailing ping keeps the
+  // pane from being reclaimed before this step has looked at it.
+  const capture = text(ctx, cli, ["capture-pane", "-p", "-t", environment_name]);
+  text(ctx, cli, ["wait-pane", "-t", environment_name, "--dead", "--timeout-ms", "30000"]);
+
+  print("STEP live servers are discoverable and explicitly targetable");
+  const instances = json_without_address(ctx, cli, ["list-instances", "--json"]);
+  const servers = json_without_address(ctx, cli, ["server-list", "--json"]);
+  const instance = instances[find_address_index(instances, main_address)];
+  const server = servers[find_address_index(servers, main_address)];
+  const server_upgrade = server.upgrade;
+  const upgrade_status = "" + rh.field(server_upgrade, "status");
+  const complete_identity = upgrade_status === "same";
+  const running_identity = server.running_identity;
+  const staged_identity = server.staged_identity;
+  if (complete_identity) {
+    harness.require(
+      rh.field(running_identity, "git_commit") === rh.field(staged_identity, "git_commit"),
+      "fleet_complete_identity_commit_mismatch"
+    );
+  } else {
+    const upgrade_reasons = rh.field(server_upgrade, "reasons");
+    const first_reason = upgrade_reasons[0];
+    const reason_kind = "" + rh.field(first_reason, "kind");
+    const reason_running = rh.field(first_reason, "running");
+    const reason_staged = rh.field(first_reason, "staged");
+    harness.require(
+      upgrade_status === "unknown"
+        && upgrade_reasons.length === 1
+        && reason_kind === "missing_fields"
+        && reason_running.length === 4
+        && reason_staged.length === 4
+        && rh.field(running_identity, "version") === rh.field(staged_identity, "version")
+        && rh.field(running_identity, "protocol_version") === rh.field(staged_identity, "protocol_version"),
+      "fleet_incomplete_identity_not_truthful"
+    );
+    harness.require(
+      rh.has_item(reason_running, "git_commit")
+        && rh.has_item(reason_running, "profile")
+        && rh.has_item(reason_running, "cargo_lock_sha256")
+        && rh.has_item(reason_running, "artifact_manifest_sha256")
+        && rh.has_item(reason_staged, "git_commit")
+        && rh.has_item(reason_staged, "profile")
+        && rh.has_item(reason_staged, "cargo_lock_sha256")
+        && rh.has_item(reason_staged, "artifact_manifest_sha256"),
+      "fleet_incomplete_identity_missing_reason_fields"
+    );
+  }
+  const server_pid = rh.int_of(server.pid);
+  const instance_pid = rh.int_of(instance.pid);
+  harness.require(
+    ("" + instance.status) === "running"
+      && ("" + server.status) === ("" + instance.status)
+      && server_pid === instance_pid
+      && ("" + server.workspace_path) === ("" + instance.workspace_path)
+      && server.window_visible === false
+      && server.window_detached === true
+      && ("" + server.window_state) === "detached"
+      && json_is_absent(server.modal_kind) !== 0
+      && ("" + server.event_epoch) !== ""
+      && json_is_present(server.event_sequence) !== 0
+      && ("" + instance.version) === expected_version
+      && ("" + instance.workspace_path) === main_workspace_path,
+    "fleet_instance_server_truth"
+  );
+  const protocol = json(ctx, cli, ["protocol-info", "--running"]);
+  const protocol_features = protocol.features;
+  const protocol_build_identity = protocol.build_identity;
+  const build_identity_commit = rh.field(protocol_build_identity, "git_commit");
+  const running_identity_commit = rh.field(running_identity, "git_commit");
+  const running_identity_version = rh.field(running_identity, "version");
+  const protocol_pid = rh.int_of(protocol.pid);
+  harness.require(
+    rh.field(protocol_features, "instance_discovery") === true
+      && protocol.identity_scope === "running_host"
+      && protocol_pid === server_pid
+      && (
+        (
+          complete_identity
+            && protocol.build_identity_complete === true
+            && build_identity_commit === running_identity_commit
+        )
+        || (
+          !complete_identity
+            && protocol.build_identity_complete !== true
+            && protocol.agenterm_version === running_identity_version
+        )
+      ),
+    "fleet_running_protocol_identity"
+  );
+  const event_catalog = protocol.event_catalog;
+  const event_catalog_events = rh.field(event_catalog, "events");
+  harness.require(
+    rh.field(event_catalog, "schema_version") === 2
+      && rh.field(protocol_features, "typed_events") === true
+      && event_catalog_events.length === 29,
+    "fleet_event_catalog_shape"
+  );
+  for (const event of event_catalog_events) {
+    const event_scope = "" + event.scope;
+    harness.require(
+      ("" + event.kind) !== ""
+        && ("" + event.state_path) !== ""
+        && ("" + event.payload) !== ""
+        && (event_scope === "server" || event_scope === "tab")
+        && ("" + event.since) !== "",
+      "fleet_event_catalog_entry:" + event.kind
+    );
+  }
+  harness.emit_evidence(ctx, declared_evidence, "fleet.upgrade-truth");
+
+  print("STEP server-scoped event transition matches its post-state");
+  const note_baseline = json(ctx, cli, ["ui-snapshot"]);
+  const note_event_position = note_baseline.event_position;
+  const note_epoch = "" + rh.field(note_event_position, "epoch");
+  const note_sequence = rh.field(note_event_position, "sequence");
+  const note_after_sequence = "" + note_sequence;
+  const note_tab_id = tab_id_by_name(note_baseline, environment_name);
+  harness.require(note_tab_id.startsWith("@"), "fleet_note_stable_id");
+  const next_note = "fleet-event-" + pid;
+  // No `slice`: the numeric id is what follows the leading "@".
+  const numeric_tab_id = JSON.parse(note_tab_id.split("@")[1]);
+  text(ctx, cli, ["set-tab-note", "-t", note_tab_id, next_note]);
+  const note_after = json(ctx, cli, ["ui-snapshot"]);
+  const note_batch = json(
+    ctx,
+    cli,
+    ["read-events", "--epoch", note_epoch, "--after", note_after_sequence, "--limit", "32"]
+  );
+  const committed_note = tab_note_by_id(note_after, note_tab_id);
+  harness.require(
+    event_for_tab_note(note_batch.events, numeric_tab_id, next_note) !== 0
+      && committed_note === next_note,
+    "fleet_note_event_post_state"
+  );
+  harness.emit_evidence(ctx, declared_evidence, "fleet.instance-discovery");
+
+  // `capture` was read in the tab-environment step while that child was still
+  // alive; re-reading here would race the pane's reclamation.
+  const snapshot = json(ctx, cli, ["ui-snapshot"]);
+  const environment_tab_id = tab_id_by_name(snapshot, environment_name);
+  const tab_inspect = json(ctx, cli, ["inspect", "-t", environment_tab_id]);
+  const tab_inspect_window = tab_inspect.windows[0];
+  const tab_inspect_env = rh.field(tab_inspect_window, "environment_names");
+  const tab_inspect_has_role = rh.has_item(tab_inspect_env, "FLEET_ROLE") ? 1 : 0;
+  const capture_has_role = capture.includes("FLEET_ROLE=" + role) ? 1 : 0;
+  const capture_has_tab_id = capture.includes("AGENTERM_TAB_ID=" + environment_tab_id) ? 1 : 0;
+  const capture_has_session = capture.includes("AGENTERM_SESSION=agenterm") ? 1 : 0;
+  // Four independent facts behind one tag: name the observations here rather
+  // than paying another round trip to learn them. (rh cut the capture at 384
+  // characters; no `slice` here, so the whole capture is carried.)
+  harness.require(
+    capture_has_role !== 0
+      && capture_has_tab_id !== 0
+      && capture_has_session !== 0
+      && tab_inspect_has_role !== 0,
+    "fleet_tab_environment:role_in_capture=" + capture_has_role
+      + ":tab_id_in_capture=" + capture_has_tab_id
+      + ":session_in_capture=" + capture_has_session
+      + ":role_in_inspect=" + tab_inspect_has_role
+      + ":want_tab_id=" + environment_tab_id
+      + ":capture=" + capture
+      + ":inspect_env=" + JSON.stringify(tab_inspect_env)
+  );
+  harness.emit_evidence(ctx, declared_evidence, "fleet.tab-environment");
+
+  print("STEP snapshot-to-follow handoff is ordered for concurrent readers");
+  const follow_baseline = json(ctx, cli, ["ui-snapshot"]);
+  const follow_event_position = follow_baseline.event_position;
+  const follow_epoch = "" + rh.field(follow_event_position, "epoch");
+  const follow_sequence = rh.int_of(rh.field(follow_event_position, "sequence"));
+  const follow_after_sequence = "" + follow_sequence;
+  const reader_a_child = start_waiter(ctx, cli, follow_epoch, follow_sequence, "tab.created", 10000);
+  const reader_b_child = start_waiter(ctx, cli, follow_epoch, follow_sequence, "tab.created", 10000);
+  harness.require(child_is_running(reader_a_child), "fleet_reader_a_early_exit");
+  harness.require(child_is_running(reader_b_child), "fleet_reader_b_early_exit");
+  const follow_name = "follow-" + pid;
+  text(ctx, cli, ["new-window", "-d", "-n", follow_name, "--", "cmd.exe", "/d", "/c", "echo follow"]);
+  const follow_a = complete_waiter_child(reader_a_child);
+  const follow_b = complete_waiter_child(reader_b_child);
+  const follow_a_sequence = rh.int_of(follow_a.sequence);
+  const follow_b_sequence = rh.int_of(follow_b.sequence);
+  const follow_a_tab_id = follow_a.tab_id;
+  const follow_a_payload_index = rh.field(follow_a.payload, "index");
+  const follow_b_payload_index = rh.field(follow_b.payload, "index");
+  harness.require(
+    follow_a.kind === "tab.created"
+      && follow_a_sequence > follow_sequence
+      && follow_a.epoch === follow_epoch
+      && follow_a_sequence === follow_b_sequence
+      && follow_a_tab_id === follow_b.tab_id
+      && follow_a_payload_index === follow_b_payload_index,
+    "fleet_concurrent_waiter_causality"
+  );
+  const follow_batch = json(
+    ctx,
+    cli,
+    ["read-events", "--epoch", follow_epoch, "--after", follow_after_sequence, "--limit", "1024"]
+  );
+  let previous = follow_sequence;
+  let found_follow = false;
+  for (const event of follow_batch.events) {
+    const event_sequence = rh.int_of(event.sequence);
+    harness.require(event_sequence > previous, "fleet_follow_batch_order");
+    previous = event_sequence;
+    if (event_sequence === follow_a_sequence) {
+      found_follow = true;
+    }
+  }
+  harness.require(found_follow, "fleet_follow_event_omitted");
+  const follow_snapshot = json(ctx, cli, ["ui-snapshot"]);
+  const follow_tab_id = "@" + follow_a_tab_id;
+  const follow_tab_name = tab_name_by_id(follow_snapshot, follow_tab_id);
+  const follow_tab_index = tab_index_by_id(follow_snapshot, follow_tab_id);
+  harness.require(
+    follow_tab_name === follow_name
+      && follow_tab_index === follow_a_payload_index
+      && json_is_present(follow_a_tab_id) !== 0,
+    "fleet_follow_event_post_state"
+  );
+  harness.emit_evidence(ctx, declared_evidence, "fleet.event-transition-catalog");
+
+  print("STEP timed out and cancelled waiters leave no client or server residue");
+  const timeout_baseline = json(ctx, cli, ["ui-snapshot"]);
+  const timeout_event_position = timeout_baseline.event_position;
+  const timeout_epoch = "" + rh.field(timeout_event_position, "epoch");
+  const timeout_sequence = rh.int_of(rh.field(timeout_event_position, "sequence"));
+  const timeout_after_sequence = "" + timeout_sequence;
+  const timeout_failure = run_failure(
+    ctx,
+    cli,
+    [
+      "wait-events",
+      "--epoch", timeout_epoch,
+      "--after", timeout_after_sequence,
+      "--kind", "never.fleet-timeout",
+      "--timeout-ms", "25"
+    ]
+  );
+  const timeout_failure_text = "" + timeout_failure.stdout + timeout_failure.stderr;
+  harness.require(timeout_failure_text.includes("\"code\":\"event_wait_timeout\""), "fleet_wait_timeout_class");
+  const cancel_server_list = json_without_address(ctx, cli, ["server-list", "--json"]);
+  const server_before_cancel_index = find_address_index(cancel_server_list, main_address);
+  const cancel_waiter_child = start_waiter(ctx, cli, timeout_epoch, timeout_sequence, "never.fleet-cancel", 60000);
+  harness.require(child_is_running(cancel_waiter_child), "fleet_cancel_waiter_early_exit");
+  process_kill(cancel_waiter_child);
+  harness.wait(cancel_waiter_child, 5000);
+  const cancel_server_list_after = json_without_address(ctx, cli, ["server-list", "--json"]);
+  const server_after_cancel_index = find_address_index(cancel_server_list_after, main_address);
+  const after_cancel = json(ctx, cli, ["read-events", "--epoch", timeout_epoch, "--after", timeout_after_sequence]);
+  const server_before_cancel_pid = rh.int_of(cancel_server_list[server_before_cancel_index].pid);
+  const server_after_cancel_pid = rh.int_of(cancel_server_list_after[server_after_cancel_index].pid);
+  harness.require(
+    server_after_cancel_pid === server_before_cancel_pid
+      && rh.field(after_cancel.position, "epoch") === timeout_epoch,
+    "fleet_cancel_disturbed_server"
+  );
+
+  print("STEP a legacy TCP registration never hijacks native main");
+  const implicit_failure = fail_without_address(ctx, cli, ["list-windows", "-F", "#{window_name}"]);
+  const implicit_text = "" + implicit_failure.stdout + implicit_failure.stderr;
+  harness.require(
+    implicit_text.includes("pipe:") && !text_contains_address(implicit_text, main_address),
+    "fleet_legacy_tcp_hijacked_native_main"
+  );
+
+  print("STEP multiple legacy TCP servers still require explicit targeting");
+  run_program(
+    ctx,
+    cli,
+    ["--address", second_address, "new-window", "-d", "-n", "second-" + pid],
+    0,
+    1,
+    second_workspace
+  );
+  const native_default = fail_without_address(ctx, cli, ["list-windows"]);
+  const native_default_text = "" + native_default.stdout + native_default.stderr;
+  harness.require(
+    native_default_text.includes("pipe:")
+      && !text_contains_address(native_default_text, main_address)
+      && !native_default_text.includes(second_address),
+    "fleet_legacy_tcp_changed_native_default"
+  );
+  const explicit_windows = text(ctx, cli, ["list-windows", "-F", "#{window_name}"]);
+  // Report both expectations and the observed listing, plus which server
+  // answered and the instance table. (rh cut these at 512/384/768 characters;
+  // no `slice` here, so they are carried whole.)
+  const second_window_name = "second-" + pid;
+  const priority_who = text(ctx, cli, ["protocol-info", "--running"]);
+  const priority_instances = text(ctx, cli, ["list-instances", "--json"]);
+  const priority_detail =
+    ":want=" + environment_name
+      + ":reject=" + second_window_name
+      + ":saw=" + explicit_windows
+      + ":answered_by=" + priority_who
+      + ":instances=" + priority_instances;
+  harness.require(
+    explicit_windows.includes(environment_name) && !explicit_windows.includes(second_window_name),
+    "fleet_environment_address_priority" + priority_detail
+  );
+  run_program(ctx, cli, ["--address", second_address, "shutdown"], 0, 0, second_workspace);
+
+  text(ctx, cli, ["new-session", "--", "cmd.exe", "/d", "/c", "echo child", "-s", "hijack"]);
+  const list_sessions = text(ctx, cli, ["list-sessions"]);
+  harness.require(list_sessions.startsWith("agenterm:"), "fleet_child_delimiter_changed_session");
+
+  print("STEP supported Codex launcher proxy workflow");
+  // --proxy is still parsed and validated, but 7338a93 paused HTTPS_PROXY
+  // injection on every create path (see PRD_02_06), so the child only sees
+  // whatever proxy variables the caller already exported. Assert the paused
+  // contract directly against the tab environment below. Trailing ping for
+  // the same reason as the tab-environment step.
+  const agent_command = "set NO_PROXY&set AGENTERM_TAB_ID&ping -n 4 127.0.0.1 >nul";
+  text(
+    ctx,
+    cli,
+    [
+      "new-agent", "-d", "-n", agent_name,
+      "--program", "cmd.exe",
+      "--proxy", proxy,
+      "--no-proxy", "localhost,127.0.0.1",
+      "--", "/d", "/c", agent_command
+    ]
+  );
+  // Read while alive, then wait for death -- see the tab-environment step.
+  const agent_capture = text(ctx, cli, ["capture-pane", "-p", "-t", agent_name]);
+  text(ctx, cli, ["wait-pane", "-t", agent_name, "--dead", "--timeout-ms", "30000"]);
+  const agent_snapshot = json(ctx, cli, ["ui-snapshot"]);
+  const agent_tab_id = tab_id_by_name(agent_snapshot, agent_name);
+  const agent_inspect = json(ctx, cli, ["inspect", "-t", agent_tab_id]);
+  const agent_inspect_env = rh.field(agent_inspect.windows[0], "environment_names");
+  const agent_capture_has_no_proxy = agent_capture.includes("NO_PROXY=localhost,127.0.0.1") ? 1 : 0;
+  const agent_capture_has_tab_id = agent_capture.includes("AGENTERM_TAB_ID=" + agent_tab_id) ? 1 : 0;
+  const agent_capture_has_yolo = agent_capture.includes("--dangerously-bypass-approvals-and-sandbox") ? 1 : 0;
+  const agent_inspect_has_https = rh.has_item(agent_inspect_env, "HTTPS_PROXY") ? 1 : 0;
+  const agent_inspect_has_http = rh.has_item(agent_inspect_env, "HTTP_PROXY") ? 1 : 0;
+  const agent_inspect_has_no_proxy_env = rh.has_item(agent_inspect_env, "NO_PROXY") ? 1 : 0;
+  // Six facts behind one tag; same reasoning as `fleet_tab_environment`.
+  harness.require(
+    agent_capture_has_no_proxy !== 0
+      && agent_capture_has_tab_id !== 0
+      && agent_capture_has_yolo === 0
+      && agent_inspect_has_https === 0
+      && agent_inspect_has_http === 0
+      && agent_inspect_has_no_proxy_env !== 0,
+    "fleet_codex_proxy_context:no_proxy_in_capture=" + agent_capture_has_no_proxy
+      + ":tab_id_in_capture=" + agent_capture_has_tab_id
+      + ":yolo_leaked=" + agent_capture_has_yolo
+      + ":https_leaked=" + agent_inspect_has_https
+      + ":http_leaked=" + agent_inspect_has_http
+      + ":no_proxy_in_inspect=" + agent_inspect_has_no_proxy_env
+      + ":want_tab_id=" + agent_tab_id
+      + ":capture=" + agent_capture
+      + ":inspect_env=" + JSON.stringify(agent_inspect_env)
+  );
+  harness.emit_evidence(ctx, declared_evidence, "fleet.codex-launcher");
+
+  print("STEP child arguments cannot escape -- and --yolo is explicit");
+  const delimiter_name = "delimiter-" + pid;
+  text(
+    ctx,
+    cli,
+    [
+      "new-agent", "-d", "-n", delimiter_name,
+      "--program", "cmd.exe", "--yolo", "--",
+      "/d", "/c", "echo %cmdcmdline%&ping -n 4 127.0.0.1 >nul",
+      "--parent", "@999999",
+      "--program", "missing-agent.exe",
+      "--proxy", "http://should-not-be-an-environment"
+    ]
+  );
+  // Read while alive, then wait for death -- same pane-reclamation race as the
+  // tab-environment and codex-proxy steps.
+  const delimiter_capture = text(ctx, cli, ["capture-pane", "-p", "-t", delimiter_name]);
+  text(ctx, cli, ["wait-pane", "-t", delimiter_name, "--dead", "--timeout-ms", "30000"]);
+  const delimiter_inspect = json(ctx, cli, ["inspect", "-t", delimiter_name]);
+  const delimiter_inspect_window = delimiter_inspect.windows[0];
+  const delimiter_parent_id = rh.field(delimiter_inspect_window, "parent_id");
+  const delimiter_env = rh.field(delimiter_inspect_window, "environment_names");
+  harness.require(
+    delimiter_capture.includes("--dangerously-bypass-approvals-and-sandbox")
+      && json_is_absent(delimiter_parent_id) !== 0
+      && !rh.has_item(delimiter_env, "HTTPS_PROXY"),
+    "fleet_delimiter_or_yolo_mapping"
+  );
+  text(ctx, cli, ["save-workspace"]);
+  harness.require(rh.exists(main_workspace_path), "fleet_workspace_missing_after_save");
+
+  if (run_event_load) {
+    print("STEP bounded event history reports an explicit gap");
+    const gap_baseline = json(ctx, cli, ["ui-snapshot"]);
+    const gap_event_position = gap_baseline.event_position;
+    const gap_epoch = "" + rh.field(gap_event_position, "epoch");
+    const gap_after_sequence = "" + rh.field(gap_event_position, "sequence");
+    const gap_target = active_tab_id(gap_baseline);
+    harness.require(gap_target.startsWith("@"), "fleet_gap_target_missing");
+    // Preserve the original 16 logical workers x 258 real CLI mutations.
+    for (let iteration = 0; iteration < 258; iteration = iteration + 1) {
+      require_gap_clients(ctx, cli, gap_target, iteration);
+    }
+    print("LOAD workers=16 events_per_worker=258 status=completed");
+    const gap_failure = run_failure(ctx, cli, ["read-events", "--epoch", gap_epoch, "--after", gap_after_sequence]);
+    const ui_gap_failure = run_failure(ctx, cli, ["ui-deltas", "--epoch", gap_epoch, "--after", gap_after_sequence]);
+    const gap_text = "" + gap_failure.stdout + gap_failure.stderr;
+    const ui_gap_text = "" + ui_gap_failure.stdout + ui_gap_failure.stderr;
+    harness.require(
+      gap_text.includes("\"code\":\"journal_gap\"")
+        && gap_text.includes("\"earliest_available\"")
+        && gap_text.includes("\"current\"")
+        && ui_gap_text.includes("\"code\":\"journal_gap\"")
+        && ui_gap_text.includes("\"earliest_available\"")
+        && ui_gap_text.includes("\"current\""),
+      "fleet_journal_gap_not_typed"
+    );
+  } else {
+    print("SKIP bounded event journal concurrent load");
+  }
+
+  print("STEP a restarted server rejects positions from the previous epoch");
+  const restart_before = json(ctx, cli, ["ui-snapshot"]);
+  const restart_before_event_position = restart_before.event_position;
+  const restart_before_epoch = "" + rh.field(restart_before_event_position, "epoch");
+  const restart_before_after_sequence = "" + rh.field(restart_before_event_position, "sequence");
+  const restart_server_list_before = json_without_address(ctx, cli, ["server-list", "--json"]);
+  const server_before_restart_index = find_address_index(restart_server_list_before, main_address);
+  const restart_pid = rh.int_of(restart_server_list_before[server_before_restart_index].pid);
+  text(ctx, cli, ["shutdown"]);
+  wait_process_gone(restart_pid, "fleet_old_server_exit_timeout");
+  text(ctx, cli, ["start-server"]);
+  const restart_name = "restart-" + pid;
+  text(ctx, cli, ["new-window", "-d", "-n", restart_name, "--", "cmd.exe", "/d", "/c", "echo restarted"]);
+  const restart_after = json(ctx, cli, ["ui-snapshot"]);
+  const restart_server_list_after = json_without_address(ctx, cli, ["server-list", "--json"]);
+  const server_after_restart_index = find_address_index(restart_server_list_after, main_address);
+  const restart_failure = run_failure(
+    ctx,
+    cli,
+    ["read-events", "--epoch", restart_before_epoch, "--after", restart_before_after_sequence]
+  );
+  const ui_restart_failure = run_failure(
+    ctx,
+    cli,
+    ["ui-deltas", "--epoch", restart_before_epoch, "--after", restart_before_after_sequence]
+  );
+  const restart_text = "" + restart_failure.stdout + restart_failure.stderr;
+  const ui_restart_text = "" + ui_restart_failure.stdout + ui_restart_failure.stderr;
+  const restart_after_epoch = "" + rh.field(restart_after.event_position, "epoch");
+  const server_after_restart_pid = rh.int_of(restart_server_list_after[server_after_restart_index].pid);
+  harness.require(
+    restart_after_epoch !== restart_before_epoch
+      && ("" + restart_after.projection) === "headless_server"
+      && ("" + rh.field(restart_after.window, "state")) === "detached"
+      && server_after_restart_pid !== restart_pid
+      && restart_text.includes("\"code\":\"server_restart\"")
+      && restart_text.includes("\"requested_epoch\"")
+      && restart_text.includes("\"current\"")
+      && ui_restart_text.includes("\"code\":\"server_restart\"")
+      && ui_restart_text.includes("\"requested_epoch\"")
+      && ui_restart_text.includes("\"current\""),
+    "fleet_restart_epoch_truth"
+  );
+
+  print("STEP mux uses shared IPC, address override, and native namespace");
+  const mux_list_result = run_program(
+    ctx,
+    cli,
+    mux_argv(["--address", main_address, "list-windows", "-F", "#{window_name}"]),
+    0,
+    1,
+    ""
+  );
+  harness.require(mux_list_result.stdout.includes(agent_name), "fleet_mux_shared_ipc");
+  const mux_protocol_result = run_program(
+    ctx,
+    cli,
+    mux_argv(["--address", main_address, "agenterm", "protocol-info", "--running"]),
+    0,
+    1,
+    ""
+  );
+  const mux_protocol = parse_json_text(mux_protocol_result.stdout);
+  harness.require(rh.field(mux_protocol.features, "mux_frontend") === true, "fleet_mux_protocol_feature");
+
+  print("STEP destructive mux failures preserve the live session and tabs");
+  const before_destructive_result = run_program(
+    ctx,
+    cli,
+    mux_argv(["--address", main_address, "list-windows", "-F", "#{window_id}:#{window_name}"]),
+    0,
+    1,
+    ""
+  );
+  const before_destructive = before_destructive_result.stdout;
+  run_program(ctx, cli, mux_argv(["--address", main_address, "--session", "wrong-session", "attach"]), 1, 1, "");
+  run_program(ctx, cli, mux_argv(["--address", main_address, "kill-session", "-t", "wrong-session"]), 1, 1, "");
+  run_program(ctx, cli, mux_argv(["--address", main_address, "kill-window", "-t", "@999999"]), 1, 1, "");
+  const after_failures_result = run_program(
+    ctx,
+    cli,
+    mux_argv(["--address", main_address, "list-windows", "-F", "#{window_id}:#{window_name}"]),
+    0,
+    1,
+    ""
+  );
+  harness.require(after_failures_result.stdout === before_destructive, "fleet_mux_failure_mutated_state");
+
+  const victim_name = "victim-" + pid;
+  run_program(ctx, cli, mux_argv(["--address", main_address, "new-window", "-d", "-n", victim_name]), 0, 1, "");
+  run_program(ctx, cli, mux_argv(["--address", main_address, "kill-window", "-t", victim_name]), 0, 1, "");
+  const after_kill_result = run_program(
+    ctx,
+    cli,
+    mux_argv(["--address", main_address, "list-windows", "-F", "#{window_name}"]),
+    0,
+    1,
+    ""
+  );
+  const after_kill = after_kill_result.stdout;
+  harness.require(
+    !after_kill.includes(victim_name) && after_kill.includes(agent_name),
+    "fleet_mux_targeted_kill"
+  );
+  run_program(ctx, cli, mux_argv(["ui-snapshot"]), 1, 1, "");
+
+  print("STEP matching kill-session performs the requested destructive action");
+  run_program(ctx, cli, mux_argv(["--address", main_address, "kill-session", "-t", "agenterm"]), 0, 1, "");
+
+  print("PASS: fleet launch, delimiter safety, loopback IPC, and destructive mux behavior");
+  succeeded = 1;
+} catch (error) {
+  failure = catch_text(error);
+}
+
+cleanup_server(ctx, cli, explicit_address);
+cleanup_server(ctx, cli, second_address);
+cleanup_server(ctx, cli, main_address);
+
+let completion_failure = "";
+try {
+  harness.complete_owned_quiet(ctx, [], succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = catch_text(error);
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.require(registration_count(main_instance_directory) === 0, "fleet_cleanup_stale_registrations");
+  harness.remove_run(ctx);
+}
+if (failure !== "") {
+  throw failure;
+}
+if (completion_failure !== "") {
+  throw completion_failure;
+}
+return 0;
