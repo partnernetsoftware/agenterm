@@ -1,0 +1,818 @@
+// Prove the public release rehearsal from an owned, artifact-free clone while
+// observing every discoverable descendant process.
+//
+// Args:
+//   [REPO]
+//   --self-test
+//
+// This task is intentionally not part of the qualification manifest: invoking
+// it from release qualification would recurse. It is a final, clean-checkout
+// delivery proof owned by the caller.
+//
+// Ported from scripts/rh/fresh-clone-rehearsal.rh; runs under `--profile
+// tool`. The release child is a door handle, polled every 500 ms against the
+// deadline, killed if it outlives it, and drained once. Windows-shaped like
+// the original (`cmd.exe /d /c release.cmd --rehearse`).
+//
+// Gaps, each a door op the script cannot do without, each failing closed at
+// its site rather than approximated (the helpers at the top throw a typed
+// `fresh_clone_gap:*`):
+//   - `std::process::list()`: the descendant observation this proof is named
+//     for, the stale-clone sweep's pid liveness, and the cleanup check.
+//   - `std::process::kill(pid)`: the door kills handles, not pids.
+//   - `child.id`: the observation root.
+//
+// Changed on purpose: rh redirected the release child's stdout/stderr to
+// files as it ran (`stdout_file` / `stderr_file`); the door captures both
+// streams and hands them over at `process.wait`, so the same two files are
+// written then, capped at the door's 1 MiB per stream.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+// gap: the door has no process list (see the header).
+function process_list() {
+  throw "fresh_clone_gap:door_has_no_process_list";
+}
+
+// gap: the door kills handles, not pids (see the header).
+function kill_pid(pid) {
+  throw "fresh_clone_gap:door_kills_handles_not_pids:" + pid;
+}
+
+// gap: a door handle does not answer the child's OS pid (see the header).
+function child_pid(handle) {
+  throw "fresh_clone_gap:door_has_no_child_pid:" + handle;
+}
+
+function assert_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function trimmed(value) {
+  return ("" + value).trim();
+}
+
+// The last `maximum` characters of a diagnostic. No `slice`: keep whole
+// trailing lines while they fit, which cuts at a line rather than mid-line.
+function tail(value, maximum) {
+  const text = "" + value;
+  if (text.length <= maximum) { return text; }
+  const lines = text.split("\n");
+  let kept = "";
+  let i = lines.length - 1;
+  let first = true;
+  while (i >= 0) {
+    const candidate = first ? lines[i] : lines[i] + "\n" + kept;
+    if (candidate.length > maximum) { break; }
+    kept = candidate;
+    first = false;
+    i = i - 1;
+  }
+  return kept;
+}
+
+function git_output(arguments, cwd, timeout_ms, code) {
+  const output = rh.command("git", arguments, {
+    cwd: cwd,
+    env: { GCM_INTERACTIVE: "Never", GIT_TERMINAL_PROMPT: "0" },
+    timeout_ms: timeout_ms
+  });
+  assert_ok(output.success, code + ":exit=" + output.exit_code);
+  return trimmed(output.stdout);
+}
+
+function package_version(repo) {
+  const cargo = rh.read_text(rh.join(repo, "Cargo.toml"));
+  let in_package = false;
+  for (const source_line of cargo.split("\n")) {
+    const line = trimmed(source_line);
+    if (line.startsWith("[")) {
+      in_package = line === "[package]";
+    } else if (in_package && line.startsWith("version")) {
+      const pieces = line.split("\"");
+      assert_ok(pieces.length >= 2, "fresh_clone_version_parse");
+      return pieces[1];
+    }
+  }
+  throw "fresh_clone_version_missing";
+}
+
+function process_key(process) {
+  const executable = ("" + process.executable_name).toLowerCase();
+  return "" + process.id + ":" + process.parent_id + ":" + executable;
+}
+
+function powershell_token(process) {
+  const executable = ("" + process.executable_name).toLowerCase();
+  return executable + ":" + ("" + process.id);
+}
+
+function terminal_compatibility_executable() {
+  return "powershell.exe";
+}
+
+function alternate_powershell_executable() {
+  return "pwsh.exe";
+}
+
+function is_powershell(process) {
+  const name = ("" + process.executable_name).toLowerCase();
+  return name === terminal_compatibility_executable() || name === alternate_powershell_executable();
+}
+
+function map_has_key(map, key) {
+  return map[key] !== undefined ? 1 : 0;
+}
+
+function observe_descendants(root_id, owned_ids, identities) {
+  const snapshot = process_list();
+  const included = {};
+  const owned_map = owned_ids;
+  included["" + root_id] = true;
+  for (const id of Object.keys(owned_map)) {
+    included[id] = true;
+  }
+  for (let depth = 0; depth < 64; depth = depth + 1) {
+    let changed = false;
+    for (const process of snapshot) {
+      const id = "" + process.id;
+      const parent = "" + process.parent_id;
+      if (map_has_key(included, id) === 0 && map_has_key(included, parent) !== 0) {
+        included[id] = true;
+        changed = true;
+      }
+    }
+    if (!changed) { break; }
+  }
+
+  const current = [];
+  const new_owned = [];
+  const new_identities = [];
+  for (const process of snapshot) {
+    const id = "" + process.id;
+    if (map_has_key(included, id) === 0) { continue; }
+    const identity = process_key(process);
+    if (map_has_key(identities, id) !== 0) {
+      assert_ok(identities[id] === identity, "fresh_clone_process_id_reused:" + id);
+    } else {
+      new_identities.push({ id: id, identity: identity });
+    }
+    if (map_has_key(owned_map, id) === 0) {
+      new_owned.push(id);
+    }
+    current.push({
+      id: process.id,
+      parent_id: process.parent_id,
+      executable_name: process.executable_name
+    });
+  }
+  return { current: current, new_owned: new_owned, new_identities: new_identities };
+}
+
+function int_text(value) {
+  return "" + (0 + value);
+}
+
+function joined(values) {
+  let text = "";
+  for (const value of values) {
+    if (text !== "") { text = text + ","; }
+    text = text + ("" + value);
+  }
+  return text;
+}
+
+function unique_names(processes) {
+  const names = [];
+  for (const process of processes) {
+    const name = ("" + process.executable_name).toLowerCase();
+    if (rh.list_has_value(names, name) === 0) {
+      names.push(name);
+    }
+  }
+  return rh.sort_strings(names);
+}
+
+function terminal_payload_shape_is_valid(first_len, second_len) {
+  return first_len === second_len && first_len <= 1;
+}
+
+function terminal_payload_values_match(first, second) {
+  return ("" + first) === ("" + second);
+}
+
+function exact_terminal_payload(observed, typed) {
+  const first = rh.sort_strings(observed);
+  const second = rh.sort_strings(typed);
+  const first_len = 0 + first.length;
+  const second_len = 0 + second.length;
+  assert_ok(
+    terminal_payload_shape_is_valid(first_len, second_len),
+    "fresh_clone_terminal_payload_not_unique:" + int_text(first_len) + ":" + int_text(second_len)
+  );
+  if (first_len === 1) {
+    assert_ok(
+      terminal_payload_values_match(first[0], second[0]),
+      "fresh_clone_untyped_powershell:" + joined(first) + ":" + joined(second)
+    );
+  }
+  return {
+    policy: "exact_remote_ui_terminal_compatibility_payload",
+    observed: first,
+    typed: second
+  };
+}
+
+function release_archive_name_is_local(archive) {
+  return rh.file_name(archive) === archive;
+}
+
+function release_archive_path(report) {
+  const archive_name = rh.file_name(report.archive);
+  assert_ok(release_archive_name_is_local(report.archive), "fresh_clone_package_archive_name");
+  return rh.join(report.package_directory, archive_name);
+}
+
+function remove_owned_clone(qualification_root, clone) {
+  const owner = rh.absolute(qualification_root);
+  const target = rh.absolute(clone);
+  const target_name = rh.file_name(target);
+  assert_ok(
+    rh.parent(target).toLowerCase() === owner.toLowerCase()
+      && target_name.startsWith("fresh-clone-owned-"),
+    "fresh_clone_cleanup_outside_owned_root:" + target
+  );
+  if (rh.exists(target)) {
+    rh.remove_dir_all(target);
+  }
+  assert_ok(!rh.exists(target), "fresh_clone_cleanup_failed:" + target);
+}
+
+// "fresh-clone-owned-<pid>-<millis>": the prefix is at index 0, so the first
+// `replace` removes exactly it (no `sub_string` in this engine). Compared as
+// text on purpose, so an oddly named sibling never turns a best-effort sweep
+// into a red rehearsal.
+function owned_clone_owner_text(name) {
+  const rest = name.replace("fresh-clone-owned-", "");
+  const parts = rest.split("-");
+  return parts[0];
+}
+
+function process_text_is_live(owner_text, live_ids) {
+  for (const candidate of live_ids) {
+    if (candidate === owner_text) { return 1; }
+  }
+  return 0;
+}
+
+// A run killed by the host deadline never reaches `remove_owned_clone`, so
+// its clone directory leaks (nine had piled up at ~740 MB each). Sweep
+// siblings whose owning process is gone before creating a new one: pid
+// liveness, not an age heuristic, so a concurrent rehearsal's clone is never
+// touched; a directory we cannot delete is left for the next sweep.
+function sweep_stale_owned_clones(clone_owner) {
+  const live_ids = [];
+  for (const process of process_list()) {
+    live_ids.push("" + process.id);
+  }
+  let swept = 0;
+  for (const entry of rh.read_dir(clone_owner)) {
+    const name = "" + entry.name;
+    if (!name.startsWith("fresh-clone-owned-")) { continue; }
+    if (!entry.is_dir) { continue; }
+    const owner_text = owned_clone_owner_text(name);
+    if (owner_text !== "" && process_text_is_live(owner_text, live_ids) !== 0) { continue; }
+    rh.try_remove_dir_all("" + entry.path);
+    swept = swept + 1;
+  }
+  return swept;
+}
+
+function child_is_running(child) {
+  return harness.state(child) === "running";
+}
+
+function terminate_observed_processes(identities) {
+  for (let attempt = 0; attempt < 4; attempt = attempt + 1) {
+    let terminated = false;
+    for (const process of process_list()) {
+      const id = "" + process.id;
+      if (process.id !== rh.pid()
+          && map_has_key(identities, id) !== 0
+          && identities[id] === process_key(process)) {
+        try {
+          kill_pid(process.id);
+          terminated = true;
+        } catch (error) {
+          // A process may exit between the snapshot and kill.
+        }
+      }
+    }
+    if (!terminated) { break; }
+    rh.sleep_ms(100);
+  }
+}
+
+function live_observed_processes(identities) {
+  const live = [];
+  for (const process of process_list()) {
+    const id = "" + process.id;
+    if (process.id !== rh.pid()
+        && map_has_key(identities, id) !== 0
+        && identities[id] === process_key(process)) {
+      live.push({
+        id: process.id,
+        parent_id: process.parent_id,
+        executable_name: process.executable_name
+      });
+    }
+  }
+  return live;
+}
+
+function bump_scan_count(evidence) {
+  evidence.process_observation.scan_count = evidence.process_observation.scan_count + 1;
+}
+
+function run_self_test() {
+  const accepted = exact_terminal_payload(
+    [terminal_compatibility_executable() + ":101"],
+    [terminal_compatibility_executable() + ":101"]
+  );
+  assert_ok(accepted.observed.length === 1, "fresh_clone_selftest_accept");
+  const absent = exact_terminal_payload([], []);
+  assert_ok(absent.observed.length === 0, "fresh_clone_selftest_absent");
+  assert_ok(
+    !terminal_payload_values_match(
+      terminal_compatibility_executable() + ":101",
+      terminal_compatibility_executable() + ":202"
+    ),
+    "fresh_clone_selftest_expected_rejection:fresh_clone_untyped_powershell"
+  );
+  assert_ok(
+    !terminal_payload_shape_is_valid(2, 1),
+    "fresh_clone_selftest_expected_rejection:fresh_clone_terminal_payload_not_unique"
+  );
+  const self_test_directory = rh.cwd();
+  const archive = release_archive_path({
+    archive: "candidate.zip",
+    package_directory: self_test_directory
+  });
+  assert_ok(rh.file_name(archive) === "candidate.zip", "fresh_clone_selftest_archive");
+  assert_ok(
+    !release_archive_name_is_local("../candidate.zip"),
+    "fresh_clone_selftest_expected_rejection:fresh_clone_package_archive_name"
+  );
+  print("PASS: fresh-clone process policy fails closed");
+}
+
+function append_final_scan(root_id, owned_ids, identities, unique, unique_list, evidence) {
+  const scan_result = observe_descendants(root_id, owned_ids, identities);
+  for (const item of scan_result.new_identities) {
+    identities["" + item.id] = item.identity;
+  }
+  for (const id of scan_result.new_owned) {
+    owned_ids["" + id] = 1;
+  }
+  bump_scan_count(evidence);
+  for (const process of scan_result.current) {
+    const identity = process_key(process);
+    if (map_has_key(unique, identity) === 0) {
+      unique[identity] = process;
+      unique_list.push(process);
+    }
+  }
+}
+
+const args = rh.args();
+// Contract: args.length == 2 && args[0] == "." && args[1] == "--self-test"
+let self_test = false;
+if (args.length === 1) {
+  if (args[0] === "--self-test") {
+    self_test = true;
+  }
+}
+if (args.length === 2) {
+  if (args[0] === ".") {
+    if (args[1] === "--self-test") {
+      self_test = true;
+    }
+  }
+}
+if (self_test) {
+  run_self_test();
+  return 0;
+}
+
+assert_ok(args.length <= 1, "expected: [REPO]");
+assert_ok(!rh.has_env("AGENTERM_FRESH_CLONE_REHEARSAL_ACTIVE"), "fresh_clone_recursive_invocation");
+const child_deadline_ms = 3300000;
+
+let source_input = rh.cwd();
+if (args.length === 1) {
+  source_input = "" + args[0];
+}
+const source = rh.absolute(source_input);
+assert_ok(
+  git_output(["-C", source, "branch", "--show-current"], source, 120000, "fresh_clone_source_branch") === "main",
+  "fresh_clone_source_not_main"
+);
+assert_ok(
+  git_output(["-C", source, "status", "--porcelain", "--untracked-files=all"], source, 120000, "fresh_clone_source_status") === "",
+  "fresh_clone_source_dirty"
+);
+const head = git_output(["-C", source, "rev-parse", "HEAD"], source, 120000, "fresh_clone_source_head");
+const origin = git_output(["-C", source, "remote", "get-url", "origin"], source, 120000, "fresh_clone_origin");
+const push_origin = git_output(["-C", source, "remote", "get-url", "--push", "origin"], source, 120000, "fresh_clone_push_origin");
+const version = package_version(source);
+const tag = "v" + version;
+const qualification_contract = rh.parse_file(rh.join(source, "scripts/qualification-gates.json"));
+const expected_gate_count = 0 + qualification_contract.required_gates.length;
+assert_ok(expected_gate_count > 0, "fresh_clone_qualification_contract_empty");
+
+const qualification_root = rh.join(source, "target/qualification");
+rh.create_dir_all(qualification_root);
+const clone_owner = rh.join(qualification_root, "fresh-clone-workspace");
+rh.create_dir_all(clone_owner);
+const swept_clones = sweep_stale_owned_clones(clone_owner);
+if (swept_clones > 0) {
+  print("fresh-clone rehearsal: reclaimed abandoned clone directories");
+}
+const nonce = rh.pid() + "-" + rh.now_ms();
+const clone = rh.join(clone_owner, "fresh-clone-owned-" + nonce);
+const evidence_path = rh.join(qualification_root, "fresh-clone-rehearsal.json");
+const stdout_path = rh.join(qualification_root, "fresh-clone-rehearsal.stdout");
+const stderr_path = rh.join(qualification_root, "fresh-clone-rehearsal.stderr");
+
+const pending_value = null;
+const evidence = {
+  schema_version: 1,
+  started_at_utc: rh.rfc3339_from_ms(rh.now_ms()),
+  completed_at_utc: pending_value,
+  source_commit: head,
+  source_branch: "main",
+  source_clean: 1,
+  delivery_sequence: [],
+  origin_urls_redacted: 1,
+  origin_restored: 0,
+  origin_redacted_before_cleanup: 0,
+  initial_artifacts: {
+    target_absent: 0,
+    dist_absent: 0
+  },
+  stage0: {
+    target_observed_at_ms: pending_value,
+    worker_observed_at_ms: pending_value,
+    cargo_observed: 0,
+    rustc_observed: 0,
+    script_worker_observed: 0
+  },
+  process_observation: {
+    root_id: pending_value,
+    scan_interval_ms: 500,
+    child_deadline_ms: child_deadline_ms,
+    scan_count: 0,
+    unique_processes: [],
+    timeline: [],
+    remaining_before_cleanup: [],
+    remaining_after_cleanup: [],
+    powershell_policy: pending_value
+  },
+  qualification: {
+    expected_gate_count: expected_gate_count,
+    gate_count: 0,
+    all_passed: 0,
+    stress_included: 0,
+    receipt_source_commit: pending_value,
+    receipt_source_dirty: pending_value
+  },
+  packaging: {
+    ready_to_publish: 0,
+    mode: pending_value,
+    archive_name: pending_value,
+    archive_sha256: pending_value
+  },
+  mutation_proof: {
+    local_tags_unchanged: 0,
+    remote_refs_unchanged: 0,
+    local_candidate_tag_absent_before: 0,
+    local_candidate_tag_absent_after: 0,
+    candidate_tag_absent_before: 0,
+    candidate_tag_absent_after: 0
+  },
+  clone_clean_after_rehearsal: 0,
+  clone_removed: 0,
+  success: 0,
+  failure: pending_value
+};
+
+let failure = "";
+let root_id = 0;
+const owned_ids = {};
+const identities = {};
+const unique = {};
+const unique_list = [];
+const clone_git = rh.join(clone, ".git");
+try {
+  git_output(
+    ["-C", source, "clone", "--no-hardlinks", "--no-checkout", "--", source, clone],
+    source, 300000, "fresh_clone_create"
+  );
+  git_output(["-C", clone, "checkout", "-B", "main", head], clone, 120000, "fresh_clone_checkout");
+  git_output(["-C", clone, "remote", "set-url", "origin", origin], clone, 120000, "fresh_clone_restore_origin");
+  git_output(["-C", clone, "remote", "set-url", "--push", "origin", push_origin], clone, 120000, "fresh_clone_restore_push_origin");
+  assert_ok(
+    git_output(["-C", clone, "remote", "get-url", "origin"], clone, 120000, "fresh_clone_origin_check") === origin
+      && git_output(["-C", clone, "remote", "get-url", "--push", "origin"], clone, 120000, "fresh_clone_push_origin_check") === push_origin,
+    "fresh_clone_origin_not_restored"
+  );
+  evidence.origin_restored = 1;
+  assert_ok(
+    git_output(["-C", clone, "rev-parse", "HEAD"], clone, 120000, "fresh_clone_head") === head
+      && git_output(["-C", clone, "branch", "--show-current"], clone, 120000, "fresh_clone_branch") === "main"
+      && git_output(["-C", clone, "status", "--porcelain", "--untracked-files=all"], clone, 120000, "fresh_clone_status") === "",
+    "fresh_clone_not_exact_clean_main"
+  );
+
+  const clone_target = rh.join(clone, "target");
+  const clone_dist = rh.join(clone, "dist");
+  if (!rh.exists(clone_target)) {
+    evidence.initial_artifacts.target_absent = 1;
+  }
+  if (!rh.exists(clone_dist)) {
+    evidence.initial_artifacts.dist_absent = 1;
+  }
+  assert_ok(
+    evidence.initial_artifacts.target_absent !== 0 && evidence.initial_artifacts.dist_absent !== 0,
+    "fresh_clone_preexisting_artifacts"
+  );
+  evidence.delivery_sequence.push("fresh_clone_artifact_free");
+
+  const local_tags_before = git_output(["-C", clone, "tag", "--list"], clone, 120000, "fresh_clone_local_tags_before");
+  const local_candidate_before = git_output(["-C", clone, "tag", "--list", tag], clone, 120000, "fresh_clone_local_candidate_before");
+  if (local_candidate_before === "") {
+    evidence.mutation_proof.local_candidate_tag_absent_before = 1;
+  }
+  const remote_before = git_output(["-C", clone, "ls-remote", "--refs", "origin", "refs/heads/main", "refs/tags/" + tag], clone, 120000, "fresh_clone_remote_before");
+  if (!remote_before.includes("refs/tags/" + tag)) {
+    evidence.mutation_proof.candidate_tag_absent_before = 1;
+  }
+
+  const release_spec = {
+    program: "cmd.exe",
+    args: ["/d", "/c", "release.cmd", "--rehearse"],
+    current_dir: clone,
+    env: {
+      AGENTERM_NO_ACTIVATE: "1",
+      AGENTERM_FRESH_CLONE_REHEARSAL_ACTIVE: "1",
+      GCM_INTERACTIVE: "Never",
+      GIT_TERMINAL_PROMPT: "0"
+    }
+  };
+  const child = harness.start(release_spec);
+  root_id = child_pid(child);
+  evidence.process_observation.root_id = root_id;
+
+  const powershell = [];
+  const started = rh.now_ms();
+  let next_timeline = started;
+  let target_observed = false;
+  let worker_observed = false;
+  let keep_waiting = false;
+  if (child_is_running(child)) {
+    if (rh.now_ms() - started < child_deadline_ms) {
+      keep_waiting = true;
+    }
+  }
+  while (keep_waiting) {
+    const now = rh.now_ms();
+    const scan = observe_descendants(root_id, owned_ids, identities);
+    for (const item of scan.new_identities) {
+      identities["" + item.id] = item.identity;
+    }
+    for (const id of scan.new_owned) {
+      owned_ids["" + id] = 1;
+    }
+    const current = scan.current;
+    bump_scan_count(evidence);
+    for (const process of current) {
+      const identity = process_key(process);
+      if (map_has_key(unique, identity) === 0) {
+        unique[identity] = process;
+        unique_list.push(process);
+      }
+      if (is_powershell(process)) {
+        const token = powershell_token(process);
+        if (rh.list_has_value(powershell, token) === 0) {
+          powershell.push(token);
+        }
+      }
+    }
+    if (!target_observed && rh.exists(clone_target)) {
+      evidence.stage0.target_observed_at_ms = now - started;
+      target_observed = true;
+    }
+    const bootstrap_worker = rh.join(clone_target, "debug/agenterm.exe");
+    if (!worker_observed && rh.exists(bootstrap_worker)) {
+      evidence.stage0.worker_observed_at_ms = now - started;
+      worker_observed = true;
+    }
+    const names = unique_names(current);
+    if (rh.list_has_value(names, "cargo.exe") !== 0) {
+      evidence.stage0.cargo_observed = 1;
+    }
+    if (rh.list_has_value(names, "rustc.exe") !== 0) {
+      evidence.stage0.rustc_observed = 1;
+    }
+    if (rh.list_has_value(names, "agenterm.exe") !== 0) {
+      evidence.stage0.script_worker_observed = 1;
+    }
+    if (now >= next_timeline) {
+      evidence.process_observation.timeline.push({
+        elapsed_ms: now - started,
+        descendant_count: current.length,
+        executable_names: names
+      });
+      next_timeline = now + 1000;
+    }
+    rh.sleep_ms(500);
+    keep_waiting = false;
+    if (child_is_running(child)) {
+      if (rh.now_ms() - started < child_deadline_ms) {
+        keep_waiting = true;
+      }
+    }
+  }
+  if (child_is_running(child)) {
+    process_kill(child);
+    assert_ok(false, "fresh_clone_release_deadline");
+  }
+  const result = harness.wait(child, 10000);
+  rh.atomic_write(stdout_path, "" + result.stdout);
+  rh.atomic_write(stderr_path, "" + result.stderr);
+  let release_diagnostic = "";
+  if (rh.exists(stderr_path)) {
+    release_diagnostic = tail(rh.read_text(stderr_path), 16384);
+  }
+  assert_ok(result.success, "fresh_clone_release_failed:" + release_diagnostic);
+
+  assert_ok(
+    evidence.process_observation.scan_count > 0
+      && unique_list.length > 2
+      && target_observed
+      && worker_observed
+      && evidence.stage0.cargo_observed !== 0
+      && evidence.stage0.rustc_observed !== 0
+      && evidence.stage0.script_worker_observed !== 0,
+    "fresh_clone_stage0_not_observed"
+  );
+  evidence.delivery_sequence.push("stage0_worker");
+
+  const receipt_path = rh.join(clone_target, "qualification/receipt.json");
+  const release_path = rh.join(clone_target, "qualification/release-rehearsal.json");
+  assert_ok(
+    rh.exists(receipt_path) && rh.exists(release_path),
+    "fresh_clone_delivery_evidence_missing"
+  );
+  const receipt = rh.parse_file(receipt_path);
+  const release_report = rh.parse_file(release_path);
+  evidence.qualification.gate_count = receipt.gates.length;
+  evidence.qualification.stress_included = receipt.stress_included;
+  evidence.qualification.receipt_source_commit = receipt.provenance.git_head;
+  evidence.qualification.receipt_source_dirty = receipt.provenance.source_dirty;
+  evidence.qualification.all_passed = 1;
+  for (const gate of receipt.gates) {
+    if (gate.status !== "passed") {
+      evidence.qualification.all_passed = 0;
+    }
+  }
+  assert_ok(
+    receipt.gates.length === expected_gate_count
+      && evidence.qualification.all_passed !== 0
+      && receipt.release
+      && receipt.stress_included
+      && receipt.provenance.git_head === head
+      && !receipt.provenance.source_dirty,
+    "fresh_clone_qualification_invalid"
+  );
+  evidence.delivery_sequence.push("qualification_all_required");
+  assert_ok(
+    receipt.process_observation.automation_processes.length === 0,
+    "fresh_clone_inner_automation_powershell"
+  );
+  const powershell_policy = exact_terminal_payload(
+    powershell,
+    receipt.process_observation.terminal_compatibility_payloads
+  );
+  evidence.process_observation.powershell_policy = powershell_policy;
+
+  assert_ok(
+    release_report.mode === "rehearse"
+      && release_report.source_commit === head
+      && release_report.ready_to_publish,
+    "fresh_clone_release_report_invalid"
+  );
+  const release_archive = release_archive_path(release_report);
+  assert_ok(rh.exists(release_archive), "fresh_clone_package_archive_missing");
+  evidence.packaging.ready_to_publish = 1;
+  evidence.packaging.mode = release_report.mode;
+  evidence.packaging.archive_name = rh.file_name(release_archive);
+  evidence.packaging.archive_sha256 = rh.sha256_file(release_archive);
+  assert_ok(
+    evidence.packaging.archive_sha256 === release_report.archive_sha256,
+    "fresh_clone_package_hash_mismatch"
+  );
+  evidence.delivery_sequence.push("package_rehearsal");
+
+  const local_tags_after = git_output(["-C", clone, "tag", "--list"], clone, 120000, "fresh_clone_local_tags_after");
+  const local_candidate_after = git_output(["-C", clone, "tag", "--list", tag], clone, 120000, "fresh_clone_local_candidate_after");
+  if (local_candidate_after === "") {
+    evidence.mutation_proof.local_candidate_tag_absent_after = 1;
+  }
+  const remote_after = git_output(["-C", clone, "ls-remote", "--refs", "origin", "refs/heads/main", "refs/tags/" + tag], clone, 120000, "fresh_clone_remote_after");
+  if (local_tags_before === local_tags_after) {
+    evidence.mutation_proof.local_tags_unchanged = 1;
+  }
+  if (remote_before === remote_after) {
+    evidence.mutation_proof.remote_refs_unchanged = 1;
+  }
+  if (!remote_after.includes("refs/tags/" + tag)) {
+    evidence.mutation_proof.candidate_tag_absent_after = 1;
+  }
+  assert_ok(
+    evidence.mutation_proof.local_tags_unchanged !== 0
+      && evidence.mutation_proof.remote_refs_unchanged !== 0
+      && evidence.mutation_proof.local_candidate_tag_absent_before !== 0
+      && evidence.mutation_proof.local_candidate_tag_absent_after !== 0
+      && evidence.mutation_proof.candidate_tag_absent_before !== 0
+      && evidence.mutation_proof.candidate_tag_absent_after !== 0,
+    "fresh_clone_mutation_detected"
+  );
+  const final_status = git_output(["-C", clone, "status", "--porcelain", "--untracked-files=all"], clone, 120000, "fresh_clone_final_status");
+  if (final_status === "") {
+    evidence.clone_clean_after_rehearsal = 1;
+  }
+  assert_ok(evidence.clone_clean_after_rehearsal !== 0, "fresh_clone_worktree_mutated");
+  evidence.success = 1;
+} catch (error) {
+  failure = "" + error;
+  evidence.failure = failure;
+}
+
+let remaining_before = [];
+try {
+  remaining_before = live_observed_processes(identities);
+} catch (error) {
+  // gap: the process list; the failure above already names it.
+  if (failure === "") { failure = "" + error; evidence.failure = failure; }
+}
+evidence.process_observation.remaining_before_cleanup = remaining_before;
+if (failure === "" && remaining_before.length > 0) {
+  failure = "fresh_clone_owned_processes_remained";
+  evidence.failure = failure;
+  evidence.success = 0;
+}
+
+try {
+  if (root_id > 0) {
+    append_final_scan(root_id, owned_ids, identities, unique, unique_list, evidence);
+  }
+  terminate_observed_processes(identities);
+  const remaining_after = live_observed_processes(identities);
+  evidence.process_observation.remaining_after_cleanup = remaining_after;
+  assert_ok(remaining_after.length === 0, "fresh_clone_owned_process_cleanup_failed");
+  if (rh.exists(clone_git)) {
+    try {
+      git_output(["-C", clone, "remote", "set-url", "origin", "redacted://fresh-clone-removed"], clone, 120000, "fresh_clone_redact_origin");
+      git_output(["-C", clone, "remote", "set-url", "--push", "origin", "redacted://fresh-clone-removed"], clone, 120000, "fresh_clone_redact_push_origin");
+      evidence.origin_redacted_before_cleanup = 1;
+    } catch (redaction_error) {
+      // Removal below is still authoritative. A retained clone must never be
+      // accepted when its real origin could remain in config.
+    }
+  }
+  remove_owned_clone(clone_owner, clone);
+  evidence.clone_removed = 1;
+  assert_ok(
+    evidence.origin_redacted_before_cleanup !== 0 || !rh.exists(clone),
+    "fresh_clone_origin_retained"
+  );
+} catch (cleanup_error) {
+  evidence.clone_removed = 0;
+  if (failure === "") {
+    failure = "" + cleanup_error;
+    evidence.failure = failure;
+  } else {
+    evidence.failure = evidence.failure + "\n" + ("" + cleanup_error);
+  }
+  evidence.success = 0;
+}
+
+evidence.process_observation.unique_processes = unique_list;
+evidence.completed_at_utc = rh.rfc3339_from_ms(rh.now_ms());
+rh.atomic_write(evidence_path, rh.stringify_pretty(evidence) + "\n");
+if (failure !== "") {
+  throw failure;
+}
+print("PASS: fresh clone qualified, packaged, observed, and removed");
+return 0;

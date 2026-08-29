@@ -1,0 +1,304 @@
+// Prove the native first-window budget and asynchronous terminal startup.
+//
+// Args:
+//   --list-evidence
+// or:
+//   REPO GUI_EXE CLI_EXE [MAX_WINDOW_MS]
+//
+// Ported from scripts/rh/startup-smoke.rh; runs under `--profile tool`. The
+// GUI launcher, the second launcher, and the two guidance probes are door
+// handles; `complete` covers whatever a failure leaves running. Needs a GUI,
+// exactly as the original did.
+//
+// Gaps, each a door op the handle does not carry, each failing closed at its
+// site rather than approximated (the helpers at the top throw a typed
+// `startup_smoke_gap:*`):
+//   - `child.platform_facts` (top-level window presence, id, foreground):
+//     the first-window budget IS this script and cannot be measured without it.
+//   - `child.stderr.read(...)` on a RUNNING child: the door drains a stream
+//     only at `process.wait`.
+//   - `child.id`: the launcher guidance names its own pid.
+//   - `std::process::list()`: the nested-worker check.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+// gap: a door handle has no platform facts (see the header).
+function platform_facts(handle) {
+  throw "startup_smoke_gap:process_handle_has_no_platform_facts:" + handle;
+}
+
+// gap: the door has no live read of a running child's stderr (see the header).
+function read_until(handle, needle, timeout_ms) {
+  throw "startup_smoke_gap:door_has_no_live_stderr_read:" + needle + ":" + timeout_ms;
+}
+
+// gap: a door handle does not answer the child's OS pid (see the header).
+function child_pid(handle) {
+  throw "startup_smoke_gap:door_has_no_child_pid:" + handle;
+}
+
+// gap: the door has no process list (see the header).
+function process_list() {
+  throw "startup_smoke_gap:door_has_no_process_list";
+}
+
+function run_cli_output(context, cli, extra) {
+  // `cli` is mandatory: this binary is the GUI launcher, and
+  // `agenterm --address ... wait-ui` only prints GUI entry-point guidance.
+  const command_arguments = ["--address", "" + context.address];
+  for (const value of extra) {
+    if (value !== "") { command_arguments.push("" + value); }
+  }
+  const spec = harness.configured_cli_spec(context, cli, command_arguments);
+  const status = process_command(JSON.stringify(spec));
+  if (status !== 0) { throw "process_command:" + tool_result(); }
+  return JSON.parse(tool_result());
+}
+
+function expected_guidance(pid, address) {
+  const configured_address = "" + address;
+  return "Launcher PID: " + pid
+    + "\nConfigured server address: " + configured_address
+    + "\n\nList running server PID and port: agenterm cli server-list"
+    + "\nMore CLI commands: agenterm cli -h";
+}
+
+// true when the child exited inside the budget, false when it is still running.
+function exited_within(child, timeout_ms) {
+  const started = rh.now_ms();
+  while (true) {
+    if (harness.state(child) === "exited") { return true; }
+    if (rh.now_ms() - started >= timeout_ms) { return false; }
+    harness.sleep_ms(5);
+  }
+}
+
+function wait_for_exit(child, timeout_ms, code, waited) {
+  const code_text = "" + code;
+  const started = rh.now_ms();
+  while (true) {
+    if (harness.state(child) === "exited") {
+      return harness.drain(child, timeout_ms, waited);
+    }
+    if (rh.now_ms() - started >= timeout_ms) { break; }
+    harness.sleep_ms(5);
+  }
+  // Report the budget and how long was waited, not just "timeout".
+  const waited_ms = rh.now_ms() - started;
+  throw code_text + ":timeout:waited=" + waited_ms + "ms>" + timeout_ms + "ms";
+}
+
+function normalized_guidance(text) {
+  return ("" + text).replaceAll("\r\n", "\n").trim();
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print("startup.first-window-async-ready");
+  print("ux.no-activate-launch");
+  return 0;
+}
+
+harness.require(
+  args.length === 3 || args.length === 4,
+  "expected: REPO GUI_EXE CLI_EXE [MAX_WINDOW_MS]"
+);
+const repo = rh.absolute(args[0]);
+const gui_exe = rh.absolute(args[1]);
+const cli_exe = rh.absolute(args[2]);
+let maximum_window_ms = 1000;
+if (args.length === 4) {
+  maximum_window_ms = rh.parse_int(args[3]);
+}
+harness.require(rh.exists(gui_exe), "startup_gui_missing");
+harness.require(rh.exists(cli_exe), "startup_cli_missing");
+harness.require(maximum_window_ms > 0, "startup_window_budget_invalid");
+
+const context = harness.new_context(repo, "startup");
+const smoke_address = "" + context.address;
+const owned_children = [];
+const waited = [];
+const worker_ids_before = [];
+const processes_before = process_list();
+for (const process of processes_before) {
+  const executable = ("" + process.executable_name).toLowerCase();
+  if (executable === "agenterm-rh" || executable === "agenterm-rh.exe") {
+    worker_ids_before.push(process.id);
+  }
+}
+let succeeded = false;
+let failure = "";
+
+try {
+  print("STEP native window precedes asynchronous terminal startup");
+  const launch_started = rh.now_ms();
+  const gui = harness.start(harness.configured_spec(context, gui_exe, []));
+  owned_children.push(gui);
+  let window_ms = 0;
+  for (let attempt = 0; attempt < 1000; attempt = attempt + 1) {
+    const facts = platform_facts(gui);
+    if (facts.top_level_window_supported
+        && facts.top_level_window_present
+        && facts.top_level_window_id !== 0) {
+      window_ms = rh.now_ms() - launch_started;
+      break;
+    }
+    if (harness.state(gui) === "exited") {
+      const output = harness.drain(gui, 2000, waited);
+      harness.require(false, "startup_gui_early_exit:" + output.stderr);
+    }
+    if (rh.now_ms() - launch_started >= 5000) { break; }
+    harness.sleep_ms(5);
+  }
+  if (window_ms === 0) {
+    harness.require(false, "startup_window_discovery_timeout");
+  }
+  harness.require(
+    window_ms <= maximum_window_ms,
+    "startup_first_window_budget:" + window_ms + "ms>" + maximum_window_ms + "ms"
+  );
+  const launch_window_facts = platform_facts(gui);
+  harness.require(
+    launch_window_facts.foreground_window_id === 0
+      || !launch_window_facts.top_level_window_is_foreground,
+    "startup_no_activate_stole_foreground"
+  );
+
+  const initial_guidance = read_until(gui, "More CLI commands: agenterm cli -h", 5000);
+  harness.require(
+    normalized_guidance(initial_guidance) === expected_guidance(child_pid(gui), smoke_address),
+    "startup_inherited_stderr_guidance:" + initial_guidance
+  );
+
+  // Assert the window precondition where it is checked: a window that never
+  // became visible must not surface one layer away as a handoff timeout.
+  const window_wait = run_cli_output(
+    context, cli_exe,
+    ["wait-ui", "--window-state", "restored", "--timeout-ms", "30000"]
+  );
+  harness.require(
+    window_wait.success,
+    "startup_window_restored_wait:" + window_wait.stderr + window_wait.stdout
+  );
+  const tab_wait = run_cli_output(
+    context, cli_exe,
+    ["wait-ui", "-t", "0", "--tab-state", "running", "--timeout-ms", "30000"]
+  );
+  harness.require(
+    tab_wait.success,
+    "startup_tab_running_wait:" + tab_wait.stderr + tab_wait.stdout
+  );
+
+  print("STEP repeated GUI launch hands off without blocking");
+  const second = harness.start(harness.configured_spec(context, gui_exe, []));
+  owned_children.push(second);
+  // A launcher that is refused the handoff opens its own window instead,
+  // i.e. it never exits. Report what it printed rather than a bare timeout.
+  const handed_off = exited_within(second, 1000);
+  if (!handed_off) {
+    const declined = read_until(second, "More CLI commands", 1500);
+    harness.require(false, "startup_second_gui_handoff_timeout:" + declined);
+  }
+  const second_output = harness.drain(second, 2000, waited);
+  harness.require(second_output.success, "startup_second_gui_exit");
+  const second_guidance = second_output.stderr;
+  harness.require(
+    normalized_guidance(second_guidance) === expected_guidance(child_pid(second), smoke_address),
+    "startup_second_gui_guidance:" + second_guidance
+  );
+
+  print("STEP GUI-style CLI arguments return nonblocking guidance");
+  const guidance = harness.start(harness.configured_spec(context, gui_exe, ["list-windows"]));
+  owned_children.push(guidance);
+  const guidance_output = wait_for_exit(guidance, 1000, "startup_cli_guidance_timeout", waited);
+  const guidance_stderr = "" + guidance_output.stderr;
+  harness.require(
+    !guidance_output.success
+      && guidance_output.stdout === ""
+      && guidance_stderr.includes("No CLI command was executed")
+      && guidance_stderr.includes("agenterm cli list-windows")
+      && guidance_stderr.includes("agenterm cli server-list")
+      && guidance_stderr.includes("agenterm cli -h"),
+    "startup_cli_guidance:" + guidance_stderr
+  );
+
+  const argument_error = harness.start(harness.configured_spec(context, gui_exe, ["--address"]));
+  owned_children.push(argument_error);
+  const argument_output = wait_for_exit(argument_error, 1000, "startup_argument_error_timeout", waited);
+  const argument_stderr = "" + argument_output.stderr;
+  harness.require(
+    !argument_output.success
+      && argument_output.stdout === ""
+      && argument_stderr.includes("AgenTerm GUI argument error")
+      && argument_stderr.includes("agenterm.exe --address requires HOST:PORT")
+      && argument_stderr.includes("agenterm cli -h"),
+    "startup_argument_error:" + argument_stderr
+  );
+
+  const processes_after = process_list();
+  for (const process of processes_after) {
+    const executable = ("" + process.executable_name).toLowerCase();
+    if (executable === "agenterm-rh" || executable === "agenterm-rh.exe") {
+      harness.require(
+        rh.array_has(worker_ids_before, process.id),
+        "startup_nested_script_worker:" + process.id
+      );
+    }
+  }
+
+  const close_output = run_cli_output(context, cli_exe, ["ui-action", "close-window"]);
+  harness.require(
+    close_output.success,
+    "startup_close_snapshot_failed:" + close_output.stderr
+  );
+  const close_state = JSON.parse(close_output.stdout);
+  const close_modal_kind = "" + close_state.modal.kind;
+  const close_modal_default = "" + close_state.modal.default_action;
+  harness.require(
+    close_modal_kind === "confirm-window-close"
+      && close_modal_default === "keep-server-running"
+      && rh.array_has(close_state.modal.actions, "stop-server-and-exit"),
+    "startup_close_contract"
+  );
+  const stop_output = run_cli_output(context, cli_exe, ["ui-action", "stop-server-and-exit"]);
+  harness.require(
+    stop_output.success,
+    "startup_stop_server_failed:" + stop_output.stderr
+  );
+  // 15s, not 5s: a liveness bound (the GUI must exit at all after
+  // stop-server-and-exit), not a latency assertion; a shared CI runner
+  // missed the old bound by exactly 1ms.
+  wait_for_exit(gui, 15000, "startup_gui_shutdown_timeout", waited);
+
+  harness.emit_evidence(
+    context,
+    ["startup.first-window-async-ready", "ux.no-activate-launch"],
+    "startup.first-window-async-ready"
+  );
+  harness.emit_evidence(
+    context,
+    ["startup.first-window-async-ready", "ux.no-activate-launch"],
+    "ux.no-activate-launch"
+  );
+  print("PASS: first window in " + window_ms + " ms; terminal loaded asynchronously");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try {
+  harness.complete_unwaited(context, owned_children, waited, succeeded, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded && completion_failure === "") {
+  harness.remove_run(context);
+}
+if (failure !== "") {
+  throw failure;
+}
+if (completion_failure !== "") {
+  throw completion_failure;
+}
+return 0;

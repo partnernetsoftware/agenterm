@@ -906,3 +906,55 @@ export function complete_waited(context, owned_children, succeeded, failure) {
   if (!succeeded) { print("FAILURE BUNDLE " + context.run_directory); }
   return { cleanup: cleanup, manifest: manifest };
 }
+
+// ---- wave-2 long-lived-children ----
+//
+// Appended by the group porting server-smoke, startup-smoke, wake-smoke and
+// working-context-smoke.
+
+// rh's `child.wait_with_output(...)`, recorded in `waited` so
+// `complete_unwaited` can skip the handle: the door refuses a second wait
+// ("process.wait: handle N was already waited"), and `complete` waits every
+// handle it is given.
+export function drain(handle, timeout_ms, waited) {
+  const output = wait(handle, timeout_ms);
+  waited.push(handle);
+  return output;
+}
+
+// `complete` for a script that drained some of its owned children itself:
+// those are skipped, the rest are killed-if-running and waited exactly as
+// `complete` does. The manifest's completed list then names only the
+// handles this call waited.
+export function complete_unwaited(context, owned_children, waited, succeeded, failure) {
+  const pending = [];
+  for (const h of owned_children) {
+    let done = false;
+    for (const w of waited) { if (w === h) { done = true; } }
+    if (!done) { pending.push(h); }
+  }
+  return complete(context, pending, succeeded, failure);
+}
+
+// rh's `configured_command(...)` plus `command.env(...)` / `env_remove(...)`
+// calls: the door spec's `env` map and `env_remove` list.
+export function configured_spec_with_env(context, program, args, extra_env, removed) {
+  const spec = configured_spec(context, program, args);
+  for (const name of Object.keys(extra_env)) { spec.env[name] = "" + extra_env[name]; }
+  if (removed.length > 0) { spec.env_remove = removed; }
+  return spec;
+}
+
+// The command record's `output` without `slice`: `bounded_record_text` keeps
+// the first 512 characters, which this engine cannot cut. A record within the
+// limit is kept whole; past it only the truncation marker survives, so a
+// smoke whose CLI answers exceed 512 characters (protocol-info, ui-bootstrap,
+// ui-snapshot all do) still journals every command.
+export function bounded_record_text_no_slice(source, maximum_characters) {
+  const text = "" + source;
+  if (text.length <= maximum_characters) { return text; }
+  return "<agenterm-command-output-truncated>\n";
+}
+
+
+

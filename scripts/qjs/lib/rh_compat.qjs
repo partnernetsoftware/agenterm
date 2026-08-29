@@ -363,3 +363,198 @@ export function rfc3339_utc(ms) {
   if (month <= 2) { year = year + 1; }
   return "" + year + "-" + pad2(month) + "-" + pad2(day) + "T" + pad2(hour) + ":" + pad2(minute) + ":" + pad2(second) + "Z";
 }
+
+// ---- wave-2 long-lived-children ----
+//
+// Appended by the group porting server-smoke, startup-smoke, wake-smoke,
+// working-context-smoke, fresh-clone-rehearsal and target-report.
+
+// rh's `std::path::PathBuf::from(p).file_name`: the last non-empty piece.
+// "/" only: the door reports paths with the host separator and this wave
+// measured on a Unix host.
+export function file_name(p) {
+  const parts = ("" + p).split("/");
+  let last = "";
+  for (const piece of parts) { if (piece !== "") { last = piece; } }
+  return last;
+}
+
+// rh's `std::path::parent(p).display`.
+export function parent(p) {
+  const parts = ("" + p).split("/");
+  while (parts.length > 0 && parts[parts.length - 1] === "") { parts.pop(); }
+  if (parts.length <= 1) { return ("" + p).startsWith("/") ? "/" : ""; }
+  parts.pop();
+  let joined = "";
+  let first = true;
+  for (const piece of parts) {
+    joined = first ? piece : joined + "/" + piece;
+    first = false;
+  }
+  return joined === "" ? "/" : joined;
+}
+
+// rh's `text.parse_int()`: trim, one optional sign, digits only, else a
+// runtime error. No character access: strip and see what survives.
+export function parse_int(text) {
+  const trimmed = ("" + text).trim();
+  let rest = trimmed;
+  if (rest.startsWith("-")) { rest = rest.replace("-", ""); }
+  const body = rest;
+  for (const digit of DIGITS) { rest = rest.replaceAll(digit, ""); }
+  if (body === "" || rest !== "") { throw "`" + trimmed + "` is not an int"; }
+  return Number(trimmed);
+}
+
+// Floor division for the calendar arithmetic below (int_div truncates).
+export function floor_div(a, b) {
+  const q = int_div(a, b);
+  if (a - q * b < 0) { return q - 1; }
+  return q;
+}
+
+export function pad_left(value, width) {
+  let text = "" + value;
+  while (text.length < width) { text = "0" + text; }
+  return text;
+}
+
+// rh's `SystemTime.rfc3339`: "YYYY-MM-DDTHH:MM:SSZ", whole seconds, UTC,
+// through Hinnant's civil_from_days exactly as rh's host did. The engine has
+// no Date.
+export function rfc3339_from_ms(ms) {
+  const seconds = floor_div(ms, 1000);
+  const days = floor_div(seconds, 86400);
+  const secs_of_day = seconds - days * 86400;
+  const z = days + 719468;
+  const era = floor_div(z, 146097);
+  const doe = z - era * 146097;
+  const yoe = int_div(doe - int_div(doe, 1460) + int_div(doe, 36524) - int_div(doe, 146096), 365);
+  const y = yoe + era * 400;
+  const doy = doe - (365 * yoe + int_div(yoe, 4) - int_div(yoe, 100));
+  const mp = int_div(5 * doy + 2, 153);
+  const d = doy - int_div(153 * mp + 2, 5) + 1;
+  const m = mp < 10 ? mp + 3 : mp - 9;
+  const year = m <= 2 ? y + 1 : y;
+  return pad_left(year, 4) + "-" + pad_left(m, 2) + "-" + pad_left(d, 2) + "T"
+    + pad_left(int_div(secs_of_day, 3600), 2) + ":"
+    + pad_left(int_div(secs_of_day % 3600, 60), 2) + ":"
+    + pad_left(secs_of_day % 60, 2) + "Z";
+}
+
+// Printable ASCII in code order (32..126), so a byte value can be found by
+// `startsWith` without character access: the engine has no charCodeAt, no
+// `s[i]`, and no for-of over a string.
+export const ASCII_PRINTABLE = [
+  " ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
+  "@", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
+  "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\", "]", "^", "_",
+  "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
+  "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "{", "|", "}", "~"
+];
+
+// rh's `rh::bytes::from_text` for printable-ASCII text: peel the first
+// character by `startsWith` + first-occurrence `replace` (which is at index
+// 0 exactly when startsWith held). Anything else is refused, not guessed.
+export function ascii_bytes(text) {
+  const bytes = [];
+  let rest = "" + text;
+  while (rest !== "") {
+    let found = false;
+    for (let i = 0; i < ASCII_PRINTABLE.length; i = i + 1) {
+      const c = ASCII_PRINTABLE[i];
+      if (rest.startsWith(c)) {
+        bytes.push(32 + i);
+        rest = rest.replace(c, "");
+        found = true;
+        break;
+      }
+    }
+    if (!found) { throw "ascii_bytes: text has a character outside printable ASCII"; }
+  }
+  return bytes;
+}
+
+// XOR of two non-negative ints below 2^16, by bits: the engine has no
+// bitwise operators.
+export function xor16(a, b) {
+  let result = 0;
+  let bit = 1;
+  let x = a;
+  let y = b;
+  for (let i = 0; i < 16; i = i + 1) {
+    if (x % 2 !== y % 2) { result = result + bit; }
+    x = int_div(x, 2);
+    y = int_div(y, 2);
+    bit = bit * 2;
+  }
+  return result;
+}
+
+// One FNV-1a 64 step's multiply, on four 16-bit limbs (low first) so no
+// intermediate leaves the exactly-representable range. The prime
+// 0x00000100000001b3 is [435, 0, 256, 0].
+export function fnv_mul_prime(h) {
+  const p = [435, 0, 256, 0];
+  const r = [0, 0, 0, 0];
+  for (let i = 0; i < 4; i = i + 1) {
+    for (let j = 0; i + j < 4; j = j + 1) {
+      r[i + j] = r[i + j] + h[i] * p[j];
+    }
+  }
+  const out = [];
+  let carry = 0;
+  for (let k = 0; k < 4; k = k + 1) {
+    const v = r[k] + carry;
+    out.push(v % 65536);
+    carry = int_div(v, 65536);
+  }
+  return out;
+}
+
+export function hex4(value) {
+  let text = "";
+  let x = value;
+  for (let i = 0; i < 4; i = i + 1) {
+    text = HEX[x % 16] + text;
+    x = int_div(x, 16);
+  }
+  return text;
+}
+
+// FNV-1a 64 of printable-ASCII text as 16 lower-hex digits: the product's
+// `PayloadFingerprint::from_bytes` spelling minus its "fnv1a64:" prefix
+// (rh's `rh::hash::fnv1a64` answered the same hash as a signed int).
+// Offset basis 0xcbf29ce484222325 is [8997, 33826, 40164, 52210].
+export function fnv1a64_hex(text) {
+  let h = [8997, 33826, 40164, 52210];
+  for (const byte of ascii_bytes(text)) {
+    h[0] = xor16(h[0], byte);
+    h = fnv_mul_prime(h);
+  }
+  return hex4(h[3]) + hex4(h[2]) + hex4(h[1]) + hex4(h[0]);
+}
+
+// Insertion sort of strings by `<`, rebuilding the array: the engine has no
+// `sort` and no `splice`.
+export function sort_strings(values) {
+  let ordered = [];
+  for (const value of values) {
+    const next = [];
+    let inserted = false;
+    for (const existing of ordered) {
+      if (!inserted && value < existing) { next.push(value); inserted = true; }
+      next.push(existing);
+    }
+    if (!inserted) { next.push(value); }
+    ordered = next;
+  }
+  return ordered;
+}
+
+// rh's `list.contains(v)` spelled for the scripts that kept a 0/1 result.
+export function list_has_value(list, value) {
+  for (const item of list) { if (item === value) { return 1; } }
+  return 0;
+}
