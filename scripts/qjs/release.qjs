@@ -1,0 +1,268 @@
+// Qualify, package, rehearse, and explicitly publish one exact candidate.
+//
+// Args: [REPO] [validate|rehearse|publish|--rehearse]
+// Runs under `--profile tool`.
+//
+// Changed from rh, each on purpose:
+//   - the quality gate child is the worker's `cli script task run check`
+//     (the shape `scripts/bootstrap.cmd` uses), run to completion through
+//     `rh.command`; its stdout and stderr are then written to the same two
+//     files rh streamed them into.
+//   - rh used the packager's return value as the run directory; the packager
+//     returns 0 and records the run directory in `.latest-package-run`, which
+//     is what the other two importers read, so this reads the sidecar too.
+//   - tail truncation of the gate's output is line-granular (see `tail_text`):
+//     this engine has no `slice`/`substring` on strings.
+import * as rh from "lib/rh_compat";
+import * as package_qualified from "lib/package_qualified";
+
+function require_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+// "Every character is in `alphabet`", written without character access: this
+// engine has neither `s[i]` nor `split("")`. Deleting each allowed character
+// in turn and checking nothing survives asks the same question.
+function only_chars(value, alphabet) {
+  let rest = value;
+  for (const ch of alphabet) { rest = rest.replaceAll(ch, ""); }
+  return rest === "";
+}
+
+const IDENTIFIER_CHARS = [
+  "0","1","2","3","4","5","6","7","8","9",
+  "A","B","C","D","E","F","G","H","I","J","K","L","M",
+  "N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+  "a","b","c","d","e","f","g","h","i","j","k","l","m",
+  "n","o","p","q","r","s","t","u","v","w","x","y","z",
+  ".","-"
+];
+const DIGIT_CHARS = ["0","1","2","3","4","5","6","7","8","9"];
+
+function valid_identifier(value) {
+  if (value === "") { return false; }
+  return only_chars(value, IDENTIFIER_CHARS);
+}
+
+function valid_numeric(value) {
+  if (value === "" || (value.length > 1 && value.startsWith("0"))) { return false; }
+  return only_chars(value, DIGIT_CHARS);
+}
+
+function valid_version(value) {
+  if (value === "" || value.includes("/") || value.includes("\\")) { return false; }
+  const build_parts = value.split("+");
+  if (build_parts.length > 2) { return false; }
+  if (build_parts.length === 2) {
+    if (!valid_identifier(build_parts[1])) { return false; }
+  }
+  const public_version = build_parts[0];
+  const prerelease_parts = public_version.split("-");
+  if (prerelease_parts.length > 2) { return false; }
+  if (prerelease_parts.length === 2) {
+    if (!valid_identifier(prerelease_parts[1])) { return false; }
+  }
+  const core = prerelease_parts[0];
+  const parts = core.split(".");
+  if (parts.length !== 3) { return false; }
+  if (!valid_numeric(parts[0]) || !valid_numeric(parts[1]) || !valid_numeric(parts[2])) { return false; }
+  return true;
+}
+
+// The last `limit` characters of `text`, rounded down to whole lines: no
+// `slice` in this engine, so trailing lines are kept while they fit. A last
+// line that alone exceeds the limit is kept whole rather than dropped.
+function tail_text(text, limit) {
+  if (text.length <= limit) { return text; }
+  const lines = text.split("\n");
+  let tail = "";
+  let i = lines.length - 1;
+  while (i >= 0) {
+    const candidate = i === lines.length - 1 ? lines[i] : lines[i] + "\n" + tail;
+    if (candidate.length > limit) { break; }
+    tail = candidate;
+    i = i - 1;
+  }
+  if (tail === "") { return lines[lines.length - 1]; }
+  return tail;
+}
+
+function git_stdout(repo, args, code) {
+  const out = rh.command("git", args, { cwd: repo, timeout_ms: 30000 });
+  require_ok(out.exit_code === 0, code);
+  return out.stdout.trim();
+}
+
+function run_quality(repo) {
+  const output_root = rh.join(repo, "target/qualification");
+  rh.create_dir_all(output_root);
+  const stdout_path = rh.join(output_root, "release-check.stdout");
+  const stderr_path = rh.join(output_root, "release-check.stderr");
+  require_ok(env_has("AGENTERM_BOOTSTRAP_WORKER") === 1, "release_bootstrap_worker_missing");
+  const worker = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
+  const task_manifest = rh.join(repo, "agenterm.tasks.json");
+  // The `check` task through the worker's task runner -- the same door
+  // `scripts/bootstrap.cmd` opens -- so this release driver runs the gate it
+  // claims to run.
+  const output = rh.command(
+    worker,
+    [
+      "cli", "script", "task", "run", "check",
+      "--manifest", task_manifest,
+      "--", "--release", "--include-stress"
+    ],
+    { cwd: repo, timeout_ms: 3600000 }
+  );
+  rh.atomic_write(stdout_path, output.stdout);
+  rh.atomic_write(stderr_path, output.stderr);
+  if (!output.success) {
+    let diagnostic = output.stderr + output.stdout;
+    diagnostic = diagnostic.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+    throw "release_quality_gate:" + tail_text(diagnostic, 16384);
+  }
+  const success_tail = output.stdout.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  print(tail_text(success_tail, 4096));
+}
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+require_ok(args.length <= 2, "expected: [REPO] [--rehearse]");
+let repo = rh.cwd();
+let mode = "publish";
+if (args.length === 1) {
+  if (args[0] === "--rehearse") {
+    mode = "rehearse";
+  } else if (args[0] === "validate" || args[0] === "rehearse" || args[0] === "publish") {
+    mode = args[0];
+  } else {
+    repo = rh.absolute(args[0]);
+  }
+} else if (args.length === 2) {
+  repo = rh.absolute(args[0]);
+  if (args[1] === "--rehearse") {
+    mode = "rehearse";
+  } else {
+    mode = args[1];
+  }
+}
+let unix_bootstrap = false;
+if (rh.env_or("AGENTERM_BOOTSTRAP_PLATFORM", "") === "unix") { unix_bootstrap = true; }
+if (unix_bootstrap && args.length === 0) { mode = "validate"; }
+require_ok(!unix_bootstrap || mode === "validate", "release_package_requires_windows");
+require_ok(mode === "validate" || mode === "rehearse" || mode === "publish", "release_mode:" + mode);
+
+let branch = git_stdout(repo, ["branch", "--show-current"], "release_git_branch");
+require_ok(branch === "main", "release_branch_not_main");
+let status = git_stdout(repo, ["status", "--porcelain", "--untracked-files=normal"], "release_git_status");
+require_ok(status === "", "release_worktree_not_clean");
+
+const cargo = rh.read_text(rh.join(repo, "Cargo.toml"));
+let in_package = false;
+let version = "";
+for (const source_line of cargo.split("\n")) {
+  const line = source_line.trim();
+  if (line.startsWith("[")) {
+    in_package = line === "[package]";
+    continue;
+  }
+  if (in_package && line.startsWith("version")) {
+    const parts = line.split("\"");
+    if (parts.length >= 2) {
+      version = parts[1];
+      break;
+    }
+  }
+}
+require_ok(valid_version(version), "release_version_invalid:" + version);
+require_ok(version !== "0.1.7", "release_internal_version_0.1.7");
+const tag = "v" + version;
+const existing_tag = git_stdout(repo, ["tag", "--list", tag], "release_git_tags");
+require_ok(existing_tag === "", "release_tag_exists:" + tag);
+
+const promotion_path = rh.join(repo, ".github/workflows/release.yml");
+const candidate_path = rh.join(repo, ".github/workflows/candidate.yml");
+const promotion = rh.read_text(promotion_path);
+const candidate = rh.read_text(candidate_path);
+require_ok(
+  candidate.includes("workflow_dispatch:")
+    && candidate.includes("source_sha:")
+    && candidate.includes("check.cmd --release --include-stress")
+    && candidate.includes("expected == \"v0.1.7\"")
+    && candidate.includes("release-candidate-${{ github.run_id }}"),
+  "release_candidate_workflow_contract"
+);
+require_ok(
+  promotion.includes("workflow_dispatch:")
+    && promotion.includes("candidate_run_id:")
+    && promotion.includes("confirmation:")
+    && promotion.includes("environment: release")
+    && promotion.includes("contents: write")
+    && !promotion.includes("--clobber")
+    && !promotion.includes("cargo build")
+    && !promotion.includes("check.cmd --release"),
+  "release_workflow_contract"
+);
+
+const head = git_stdout(repo, ["rev-parse", "HEAD"], "release_git_head");
+
+if (mode === "validate") {
+  print(
+    "VALID RELEASE PLAN " + JSON.stringify({
+      version: version,
+      tag: tag,
+      source_commit: head,
+      candidate_workflow_sha256: rh.sha256_file(candidate_path),
+      promotion_workflow_sha256: rh.sha256_file(promotion_path),
+      mutation: false
+    })
+  );
+  return 0;
+}
+if (mode === "publish") {
+  throw "release_promotion_requires_github_workflow:"
+    + "run Release Candidate for " + head
+    + ", review it, then run Release with candidate_run_id and publish-" + tag;
+}
+
+print("QUALIFY AgenTerm " + version + " from main@" + head);
+run_quality(repo);
+
+branch = git_stdout(repo, ["branch", "--show-current"], "release_git_branch");
+require_ok(branch === "main", "release_branch_not_main");
+status = git_stdout(repo, ["status", "--porcelain", "--untracked-files=normal"], "release_git_status");
+require_ok(status === "", "release_worktree_not_clean");
+const head_after = git_stdout(repo, ["rev-parse", "HEAD"], "release_git_head_after_check");
+require_ok(head_after === head, "release_head_changed_during_quality");
+
+const receipt_path = rh.join(repo, "target/qualification/receipt.json");
+const package_root = rh.join(repo, "target/qualification/package-rehearsal");
+package_qualified.build_release_package(repo, receipt_path, package_root);
+const package_directory = rh.read_text(package_root + "/.latest-package-run").trim();
+const package_manifest = rh.join(package_directory, "package-manifest.json");
+const package_result = rh.join(package_directory, "release-result.json");
+const result = rh.parse_file(package_result);
+const report = {
+  schema_version: 1,
+  mode: mode,
+  version: version,
+  tag: tag,
+  source_commit: head,
+  candidate_workflow_sha256: rh.sha256_file(candidate_path),
+  promotion_workflow_sha256: rh.sha256_file(promotion_path),
+  qualification_receipt: receipt_path,
+  qualification_receipt_sha256: rh.sha256_file(receipt_path),
+  package_directory: package_directory,
+  package_manifest_sha256: rh.sha256_file(package_manifest),
+  archive: result.archive,
+  archive_sha256: result.archive_sha256,
+  ready_to_publish: true
+};
+const report_path = rh.join(repo, "target/qualification/release-rehearsal.json");
+rh.atomic_write(report_path, rh.stringify_pretty(report) + "\n");
+print("RELEASE REHEARSAL " + report_path);
+
+print("PASS: local rehearsal completed; no tag, push, or Release occurred");
+return 0;

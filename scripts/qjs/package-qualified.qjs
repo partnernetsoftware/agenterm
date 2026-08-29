@@ -1,0 +1,21 @@
+// Create one byte-qualified offline Windows package dry run.
+//
+// Args: REPO RECEIPT_PATH OUTPUT_DIRECTORY
+// Runs under `--profile tool`: the packager reads and hashes files, runs git
+// and the archiver, and reads its own arguments through the same door.
+import * as rh from "lib/rh_compat";
+import * as package_qualified from "lib/package_qualified";
+
+if (arg_count() !== 3) { throw "expected: REPO RECEIPT_PATH OUTPUT_DIRECTORY"; }
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+const repo = rh.absolute(args[0]);
+const run_root = rh.join(repo, args[2]);
+package_qualified.build_package(repo, args[1], args[2]);
+const sidecar_path = run_root + "/.latest-package-run";
+const qualified_run = rh.read_text(sidecar_path).trim();
+print("PACKAGE DRY-RUN " + qualified_run);
+return 0;
