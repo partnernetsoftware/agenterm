@@ -7,19 +7,41 @@
 //
 // Ported from scripts/rh/wake-smoke.rh; runs under `--profile tool`. The
 // server and the 24 concurrent `ui-snapshot` clients are door handles;
-// every client is drained through `process_wait` (its stdout is the
-// snapshot), and `complete_unwaited` covers whatever the server leg left.
-// Windows-shaped like the original (`cmd.exe` in the PTY, `powershell` for
-// the raw newline-delimited IPC leg).
+// every client is drained through `process_wait` (its snapshot read after
+// the wait), and `complete_unwaited` covers whatever the server leg left.
+// The server's identity is `process_pid(handle)` against `protocol.pid`,
+// the original's `server_child.id` check.
 //
-// Gap: a door handle carries no child pid, so the original's
-// `protocol.pid == server_child.id` identity check is not made here.
+// Host-shaped: on Windows the PTY runs `cmd.exe` and the raw
+// newline-delimited IPC leg shells out to `powershell`, exactly as the
+// original did; elsewhere the PTY runs `sh` with the same 80-line loop and
+// the IPC leg is `bash` over `/dev/tcp` (the door has no TCP surface,
+// exactly as rh had none). The journey itself is the same on both.
 //
 // Changed on purpose: the original sent rh's `fnv1a64` as a signed decimal,
 // which is not the product's `fnv1a64:<16 hex>` fingerprint spelling
 // (`PayloadFingerprint::from_bytes`), so the expired-mutation receipt could
 // never be `request_deadline_expired` (it was `control_request_mismatch`).
 // The fingerprint here is the product's.
+//
+// Budget (measured 2026-08-29 on this host, steps): every copy of a string
+// costs ~67 per character and JSON.parse ~110, `slice` ~50K flat. A
+// headless `ui-snapshot` is 8.5 KB and `protocol-info --running` 61 KB, so
+// the harness's record path (three copies) plus the original's
+// concat-and-trim put the journey past the 100M ceiling. Here a command's
+// answer is handed to `append_command_record` already cut to what the
+// record keeps, and read once, uncopied, where the journey needs it; the
+// readiness poll asks only for the exit status (the answer it would have
+// journaled is the same `protocol-info` recorded right after). And no
+// answer rides the door's envelope: parsing an 8.5 KB snapshot out of one
+// costs 1.5M steps against 0.3M to read the same text from a file, so on
+// Unix every CLI child is `sh -c 'exec ... >FILE'` (the handle is still
+// the CLI process; exit code and stderr still come from the door) and its
+// stdout is read from FILE after the wait. Measured: 3.6M steps per client
+// through the envelope with the ceiling falling at client 23 of 24; with
+// the clients on files the journey passed at 100M and failed at 80M; with
+// every command on files it passes at 80M and fails at 65M. Same
+// commands, same assertions, same 512-character records.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -27,30 +49,88 @@ function catch_text(error) {
   return "" + error;
 }
 
+// stdout then stderr, as rh's `stdout_text() + stderr_text()`; the concat
+// is skipped when there is nothing to add.
 function output_combined_text(output) {
+  if (output.stderr === "") { return output.stdout; }
   return "" + output.stdout + output.stderr;
 }
 
+// The harness keeps 512 characters of stdout+stderr in a record; 513 of
+// each piece reproduce that record exactly (the marker fires on the same
+// answers) without copying the whole answer three times.
+function record(context, arguments, output, expected_failure) {
+  const bounded = {
+    exit_code: output.exit_code,
+    success: output.success,
+    timed_out: output.timed_out,
+    stdout: output.stdout.slice(0, 513),
+    stderr: output.stderr.slice(0, 513)
+  };
+  harness.append_command_record(context, arguments, bounded, expected_failure, []);
+}
+
+function cli_spec(context, cli, arguments) {
+  const all = ["--address", "" + context.address];
+  for (const a of arguments) { all.push("" + a); }
+  return harness.configured_cli_spec(context, cli, all);
+}
+
+const windows_host = rh.env_or("OS", "") === "Windows_NT";
+
+// The spec with its stdout going to `stdout_path` instead of the door's
+// envelope; on Windows the envelope carries it as before.
+function file_capture_spec(spec, stdout_path) {
+  if (windows_host) { return spec; }
+  const args = ["-c", "exec \"$0\" \"$@\" >\"$WAKE_STDOUT\"", spec.program];
+  for (const a of spec.args) { args.push("" + a); }
+  spec.env.WAKE_STDOUT = stdout_path;
+  spec.program = "sh";
+  spec.args = args;
+  return spec;
+}
+
+// What `stdout_path` holds, or "" when the child never wrote it.
+function captured_stdout(stdout_path) {
+  if (rh.exists(stdout_path)) { return rh.read_text(stdout_path); }
+  return "";
+}
+
+let command_counter = 0;
+
+// rh's `test_harness::invoke_cli`: run, record, require the expected result.
 function command(context, cli, arguments, expected_failure) {
-  return harness.invoke_cli_bounded(context, cli, arguments, expected_failure, []);
+  command_counter = command_counter + 1;
+  const stdout_path = rh.join(context.run_directory, "command-" + command_counter + ".out");
+  const spec = file_capture_spec(cli_spec(context, cli, arguments), stdout_path);
+  if (process_command(JSON.stringify(spec)) !== 0) { throw "process_command:" + tool_result(); }
+  const output = JSON.parse(tool_result());
+  if (!windows_host) { output.stdout = captured_stdout(stdout_path); }
+  record(context, arguments, output, expected_failure);
+  if (expected_failure !== 0) {
+    harness.require(!output.success, "test_harness_cli_unexpected_success");
+  } else {
+    harness.require(output.success, "test_harness_cli_failed:" + output.stderr);
+  }
+  return output;
 }
 
 function command_text(context, cli, arguments) {
   const output = command(context, cli, arguments, 0);
-  return ("" + output.stdout + output.stderr).trim();
+  return output_combined_text(output).trim();
 }
 
 function command_json(context, cli, arguments, expected_failure) {
   const output = command(context, cli, arguments, expected_failure);
-  const text = ("" + output.stdout + output.stderr).trim();
+  const text = output_combined_text(output);
   harness.require(text !== "", "wake_smoke_cli_empty_json");
   return JSON.parse(text);
 }
 
 function wait_for_server(context, cli, server_child, waited) {
   for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
-    const probe = harness.run_cli_bounded(context, cli, ["protocol-info", "--running"], 0, []);
-    if (probe.success) { return 0; }
+    const probe = cli_spec(context, cli, ["protocol-info", "--running"]);
+    if (process_status(JSON.stringify(probe)) === 0) { return 0; }
     if (harness.state(server_child) === "exited") {
       const output = harness.drain(server_child, 2000, waited);
       throw "wake_smoke_server_early_exit:" + output.stderr;
@@ -58,6 +138,57 @@ function wait_for_server(context, cli, server_child, waited) {
     harness.sleep_ms(25);
   }
   throw "wake_smoke_server_ready_timeout";
+}
+
+function shell_args() {
+  if (windows_host) { return ["cmd.exe", "/d", "/q"]; }
+  return ["sh"];
+}
+
+function echo_loop_line(prefix) {
+  if (windows_host) { return "for /L %i in (1,1,80) do @echo " + prefix + "_%i"; }
+  return "i=1; while [ $i -le 80 ]; do echo " + prefix + "_$i; i=$((i+1)); done";
+}
+
+// One raw request over TCP, one reply line to `response_path`; the exit code
+// of the shell-out. The request text rides in the environment so no quoting
+// rule of either shell touches it.
+function raw_ipc_request(host, port, request_text, response_path) {
+  if (windows_host) {
+    // Host and port must be separate `TcpClient` arguments (the one-string
+    // form binds the AddressFamily overload).
+    const ps =
+      "$req=$env:WAKE_REQUEST; "
+      + "$c=New-Object Net.Sockets.TcpClient('" + host + "'," + port + "); "
+      + "$s=$c.GetStream(); "
+      + "$b=[Text.Encoding]::UTF8.GetBytes($req); "
+      + "$s.Write($b,0,$b.Length); $s.Flush(); "
+      + "$r=New-Object IO.StreamReader($s); "
+      + "$r.ReadLine(); "
+      + "$c.Close()";
+    return rh.command_stdout_file(
+      "powershell", ["-NoProfile", "-Command", ps], response_path,
+      { timeout_ms: 30000, env: { WAKE_REQUEST: request_text } }
+    );
+  }
+  const sh =
+    "exec 3<>/dev/tcp/" + host + "/" + port + " || exit 2; "
+    + "printf '%s' \"$WAKE_REQUEST\" >&3; "
+    + "IFS= read -r -t 25 line <&3; "
+    + "printf '%s\\n' \"$line\"; "
+    + "exec 3>&-; exit 0";
+  return rh.command_stdout_file(
+    "bash", ["-c", sh], response_path,
+    { timeout_ms: 30000, env: { WAKE_REQUEST: request_text } }
+  );
+}
+
+// rh's `stdout_text() + stderr_text()` for a drained client.
+function client_snapshot_text(output, snapshot_path) {
+  if (windows_host) { return output_combined_text(output); }
+  const text = captured_stdout(snapshot_path);
+  if (output.stderr === "") { return text; }
+  return text + output.stderr;
 }
 
 function wait_for_exit(child, code, waited) {
@@ -90,6 +221,7 @@ const owned_children = [];
 const waited = [];
 const clients = [];
 const client_waited = [];
+const snapshot_paths = [];
 let succeeded = false;
 let failure = "";
 
@@ -101,20 +233,12 @@ try {
   owned_children.push(server_child);
   wait_for_server(context, cli, server_child, waited);
   const protocol = command_json(context, cli, ["protocol-info", "--running"], 0);
-  // gap: `protocol.pid == server_child.id` needs the child's pid, which a
-  // door handle does not carry; the server answered, which is what the
-  // readiness poll proved.
-  harness.require(typeof protocol.pid === "number" && protocol.pid > 0, "wake_smoke_server_identity");
+  harness.require(protocol.pid === process_pid(server_child), "wake_smoke_server_identity");
 
   const name = "wake-" + context.run_id;
-  const tab_id = command_text(
-    context, cli,
-    [
-      "new-window", "-d", "-P", "-F", "#{window_id}",
-      "-n", name,
-      "--", "cmd.exe", "/d", "/q"
-    ]
-  );
+  const new_window_args = ["new-window", "-d", "-P", "-F", "#{window_id}", "-n", name, "--"];
+  for (const a of shell_args()) { new_window_args.push(a); }
+  const tab_id = command_text(context, cli, new_window_args);
   command_text(
     context, cli,
     ["wait-ui", "-t", tab_id, "--tab-state", "running", "--timeout-ms", "30000"]
@@ -126,26 +250,32 @@ try {
       context, cli, ["--address", ctx_address, "ui-snapshot"]
     );
     client_spec.timeout_ms = 20000;
-    clients.push(harness.start(client_spec));
+    const snapshot_path = rh.join(context.run_directory, "client-" + index + "-snapshot.json");
+    clients.push(harness.start(file_capture_spec(client_spec, snapshot_path)));
+    snapshot_paths.push(snapshot_path);
   }
 
   const token = "WAKE_COMPLETE_" + context.run_id;
   command_text(
     context, cli,
-    [
-      "send-keys", "-t", tab_id, "-l",
-      "for /L %i in (1,1,80) do @echo WAKE_" + context.run_id + "_%i"
-    ]
+    ["send-keys", "-t", tab_id, "-l", echo_loop_line("WAKE_" + context.run_id)]
   );
   command_text(context, cli, ["send-keys", "-t", tab_id, "Enter"]);
   command_text(context, cli, ["send-keys", "-t", tab_id, "-l", "echo " + token]);
   command_text(context, cli, ["send-keys", "-t", tab_id, "Enter"]);
 
+  let client_index = 0;
   for (const client of clients) {
     const output = harness.drain(client, 20000, client_waited);
-    harness.append_command_record_bounded(context, ["ui-snapshot"], output, 0, []);
+    const snapshot_text = client_snapshot_text(output, snapshot_paths[client_index]);
+    client_index = client_index + 1;
+    record(
+      context, ["ui-snapshot"],
+      { exit_code: output.exit_code, success: output.success, timed_out: output.timed_out,
+        stdout: snapshot_text, stderr: "" },
+      0
+    );
     harness.require(output.success, "wake_smoke_concurrent_client");
-    const snapshot_text = output_combined_text(output).trim();
     const snapshot = JSON.parse(snapshot_text);
     harness.require(
       snapshot.schema_version >= 1
@@ -174,24 +304,9 @@ try {
     + "\",\"operation_id\":\"tabs.set-note\",\"payload_fingerprint\":\""
     + fingerprint + "\",\"intent\":\"mutation\",\"deadline_unix_ms\":0}}\n";
   const response_path = rh.join(context.run_directory, "wake-expired-response.jsonl");
-  // Host and port must be separate `TcpClient` arguments (the one-string
-  // form binds the AddressFamily overload). Still a shell-out: the door has
-  // no TCP surface, exactly as rh had none.
   const address_parts = ctx_address.split(":");
   harness.require(address_parts.length === 2, "wake_smoke_expired_address_shape:" + ctx_address);
-  const ps =
-    "$req='" + request_text + "'; "
-    + "$c=New-Object Net.Sockets.TcpClient('" + address_parts[0]
-    + "'," + address_parts[1] + "); "
-    + "$s=$c.GetStream(); "
-    + "$b=[Text.Encoding]::UTF8.GetBytes($req); "
-    + "$s.Write($b,0,$b.Length); $s.Flush(); "
-    + "$r=New-Object IO.StreamReader($s); "
-    + "$r.ReadLine(); "
-    + "$c.Close()";
-  const tcp_code = rh.command_stdout_file(
-    "powershell", ["-NoProfile", "-Command", ps], response_path, { timeout_ms: 30000 }
-  );
+  const tcp_code = raw_ipc_request(address_parts[0], address_parts[1], request_text, response_path);
   harness.require(tcp_code === 0, "wake_smoke_expired_tcp_failed");
   const response_text = rh.read_text(response_path).trim();
   harness.require(response_text !== "", "wake_smoke_expired_empty_response:" + response_path);
