@@ -361,6 +361,24 @@ fn fs_append_adds_to_the_end_and_creates_the_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `process.command_stdout` parks the child's stdout itself: no envelope to
+/// parse for the common case. A failure still answers the envelope, so the
+/// exit code and stderr are not lost.
+#[cfg(unix)]
+#[test]
+fn process_command_stdout_parks_the_text_and_a_failure_keeps_the_envelope() {
+    let out = run_tool(
+        r#"
+        let ok = JSON.stringify({ program: "sh", args: ["-c", "printf hello"], timeout_ms: 10000 });
+        let a = process_command_stdout(ok); let text = tool_result();
+        let bad = JSON.stringify({ program: "sh", args: ["-c", "printf oops 1>&2; exit 3"], timeout_ms: 10000 });
+        let b = process_command_stdout(bad); let env = JSON.parse(tool_result());
+        return a + "|" + text + "|" + b + "|" + env.exit_code + "|" + env.stderr;
+        "#,
+    );
+    assert_eq!(string_of(&out), "0|hello|1|3|oops", "{out:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn process_command_can_send_its_streams_to_files() {

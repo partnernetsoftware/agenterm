@@ -97,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 33] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 34] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -109,6 +109,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 33] = [
     ("fs.read_dir", 2, 1),
     ("fs.metadata", 2, 1),
     ("process.command", 2, 1),
+    ("process.command_stdout", 2, 1),
     ("process.id", 0, 1),
     ("env.get", 2, 1),
     ("env.has", 2, 1),
@@ -177,6 +178,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("fs.read_dir", s(), HostResult::I32),
         decl("fs.metadata", s(), HostResult::I32),
         decl("process.command", s(), HostResult::I32),
+        decl("process.command_stdout", s(), HostResult::I32),
         decl("process.id", Vec::new(), HostResult::I32),
         decl("env.get", s(), HostResult::I32),
         decl("env.has", s(), HostResult::I32),
@@ -645,6 +647,28 @@ pub(crate) fn install(
             let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                 .map_err(|e| format!("process.command: the spec is not valid: {e}"))?;
             run_command(spec, max_capture)
+        })
+    })?;
+
+    // `process.command_stdout(spec)`: the child's stdout as the parked bytes,
+    // no envelope. A script that only wants the text paid ~81 steps a byte
+    // to `JSON.parse` the answer around it (wave 3). Status 0 only when the
+    // command succeeded; otherwise the parked bytes are the usual envelope
+    // (`exit_code`, `stderr`, `timed_out`) so the failure is still legible.
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.command_stdout", move |args, memory| {
+        let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        answer(&state, "process.command_stdout", || {
+            let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                .map_err(|e| format!("process.command_stdout: the spec is not valid: {e}"))?;
+            let envelope = run_command(spec, max_capture)?;
+            let parsed: serde_json::Value = serde_json::from_str(&envelope)
+                .map_err(|e| format!("process.command_stdout: {e}"))?;
+            if parsed["success"].as_bool() == Some(true) {
+                Ok(parsed["stdout"].as_str().unwrap_or_default().to_string())
+            } else {
+                Err(envelope)
+            }
         })
     })?;
 
