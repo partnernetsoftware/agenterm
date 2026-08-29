@@ -328,3 +328,74 @@ export function remove_run(context) {
     door(fs_remove_dir_all(context.run_directory), "fs_remove_dir_all");
   }
 }
+
+// ---- wave-2 wf_0e3e1cca-04e-4 ----
+
+// `wait` for a handle the script may already have waited. rh's
+// `wait_with_output` answered again for an exited child; the door refuses a
+// second wait ("already waited"), so that answer is `null` here.
+export function wait_done(handle, timeout_ms) {
+  if (process_wait(handle, timeout_ms) !== 0) {
+    const why = tool_result();
+    if (why.includes("already waited")) { return null; }
+    throw "process_wait:" + why;
+  }
+  return JSON.parse(tool_result());
+}
+
+function last_component(p) {
+  const parts = p.split("/");
+  return parts[parts.length - 1];
+}
+
+// `complete` for a script that already waited some of its owned children
+// (control-center-linux waits the server it kills and the renderer it
+// closes, then lists both). Same cleanup and manifest as `complete`, with
+// `wait_done` in the reap loop; announces the bundle like `complete`.
+export function complete_waited(context, owned_children, succeeded, failure) {
+  assert_owned_run(context);
+  const forced = [];
+  const completed = [];
+  for (const h of owned_children) {
+    if (state(h) === "running") { process_kill(h); forced.push(h); }
+    wait_done(h, 2000);
+    completed.push(h);
+  }
+  const cleanup = {
+    schema_version: 1,
+    orphan_free: true,
+    owned_count: owned_children.length,
+    completed_pids: completed,
+    forced_pids: forced,
+    remaining_pids: [],
+    remaining_windows: [],
+    remaining_registrations: []
+  };
+  finalize_command_log(context);
+  const diagnostics = [];
+  if (!succeeded) {
+    if (fs_create_dir_all(context.failure_directory) !== 0) { throw "fs_create_dir_all:" + tool_result(); }
+    if (fs_read_dir(context.failure_directory) !== 0) { throw "fs_read_dir:" + tool_result(); }
+    for (const e of JSON.parse(tool_result())) { if (e.is_file) { diagnostics.push("" + e.name); } }
+  }
+  const manifest = {
+    schema_version: 1,
+    suite: context.suite,
+    run_id: context.run_id,
+    result_class: succeeded ? "success" : "failure",
+    failure: "" + failure,
+    cleanup: cleanup,
+    command_log: last_component(context.command_log_path),
+    evidence: last_component(context.evidence_path),
+    diagnostics: diagnostics,
+    privacy: {
+      command_arguments: "known content-bearing arguments redacted",
+      output_limit_bytes: 65536,
+      pane_capture: "disabled for this suite"
+    }
+  };
+  write_atomic(context.cleanup_path, JSON.stringify(cleanup) + "\n");
+  write_atomic(context.manifest_path, JSON.stringify(manifest) + "\n");
+  if (!succeeded) { print("FAILURE BUNDLE " + context.run_directory); }
+  return { cleanup: cleanup, manifest: manifest };
+}

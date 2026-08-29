@@ -249,3 +249,40 @@ export function try_rename(from, to) {
 export function try_copy(from, to) {
   return fs_copy(from, to) === 0 ? 1 : 0;
 }
+
+// ---- wave-2 wf_0e3e1cca-04e-4 ----
+
+// Run a raw command spec object (program/args/env/env_remove/current_dir/
+// timeout_ms) to completion. `command()` above takes program+args+options
+// and has no `env_remove`; the control-center smoke strips inherited
+// variables (rh's `command.env_remove`) and needs the spec verbatim.
+export function run_spec(spec) {
+  return JSON.parse(door(process_command(JSON.stringify(spec)), "process_command " + spec.program));
+}
+
+function pad2(n) {
+  return n < 10 ? "0" + n : "" + n;
+}
+
+// rh's `SystemTime::now().rfc3339` from a millisecond epoch, without `Date`:
+// civil-from-days (Howard Hinnant) in integer arithmetic. Seconds precision,
+// UTC, `Z` suffix -- the shape the matrix reports record.
+export function rfc3339_utc(ms) {
+  const total_seconds = int_div(ms, 1000);
+  const days = int_div(total_seconds, 86400);
+  const day_seconds = total_seconds - days * 86400;
+  const hour = int_div(day_seconds, 3600);
+  const minute = int_div(day_seconds - hour * 3600, 60);
+  const second = day_seconds - hour * 3600 - minute * 60;
+  const z = days + 719468;
+  const era = int_div(z, 146097);
+  const doe = z - era * 146097;
+  const yoe = int_div(doe - int_div(doe, 1460) + int_div(doe, 36524) - int_div(doe, 146096), 365);
+  const doy = doe - (365 * yoe + int_div(yoe, 4) - int_div(yoe, 100));
+  const mp = int_div(5 * doy + 2, 153);
+  const day = doy - int_div(153 * mp + 2, 5) + 1;
+  const month = mp < 10 ? mp + 3 : mp - 9;
+  let year = yoe + era * 400;
+  if (month <= 2) { year = year + 1; }
+  return "" + year + "-" + pad2(month) + "-" + pad2(day) + "T" + pad2(hour) + ":" + pad2(minute) + ":" + pad2(second) + "Z";
+}
