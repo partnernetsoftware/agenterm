@@ -96,7 +96,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 28] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 29] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -121,6 +121,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 28] = [
     ("process.state", 1, 1),
     ("process.kill", 1, 1),
     ("process.wait", 2, 1),
+    ("process.pid", 1, 1),
     ("fs.symlink_metadata", 2, 1),
     ("process.status", 2, 1),
     ("result_len", 0, 1),
@@ -217,6 +218,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.state", vec![HostParam::I32], HostResult::I32),
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
         decl("process.wait", vec![HostParam::I32, HostParam::I32], HostResult::I32),
+        decl("process.pid", vec![HostParam::I32], HostResult::I32),
         // `symlink_metadata` does not follow the link, so `is_symlink` is
         // answerable -- rh's gates use it to refuse a manifest that is a link.
         // `process.status` is `command` without capture: exit code only, for
@@ -252,7 +254,16 @@ pub(crate) struct ToolState {
     /// runs. Read through `arg_count` / `arg`; never written by the guest.
     args: Vec<String>,
     /// Children started by `process.spawn`, by handle. `None` once waited.
-    children: Vec<Option<std::process::Child>>,
+    children: Vec<Handle>,
+}
+
+/// One spawned child, by handle index. A waited child keeps its pid and
+/// replays its first answer: rh scripts `wait_with_output` a child they
+/// already reaped, and `complete` re-waits every owned handle -- wave 2 met
+/// "handle N was already waited" in every group that waits its own server.
+enum Handle {
+    Running(std::process::Child),
+    Done { pid: u32, answer: Result<String, String> },
 }
 
 impl Drop for ToolState {
@@ -260,9 +271,11 @@ impl Drop for ToolState {
     /// slot. rh's gates assert `orphan_free` in their cleanup manifest, and
     /// the door has to make that true rather than trust every script to.
     fn drop(&mut self) {
-        for child in self.children.iter_mut().flatten() {
-            let _ = child.kill();
-            let _ = child.wait();
+        for handle in &mut self.children {
+            if let Handle::Running(child) = handle {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
 }
@@ -535,7 +548,7 @@ pub(crate) fn install(
                 .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
             let child = spawn_command(&spec, true)?;
             let mut s = state.borrow_mut();
-            s.children.push(Some(child));
+            s.children.push(Handle::Running(child));
             i32::try_from(s.children.len() - 1).map_err(|_| "process.spawn: too many children".to_string())
         })
     })?;
@@ -547,12 +560,12 @@ pub(crate) fn install(
             let mut s = state.borrow_mut();
             let slot = usize::try_from(h).ok().and_then(|i| s.children.get_mut(i));
             Ok(match slot {
-                Some(Some(child)) => match child.try_wait() {
+                Some(Handle::Running(child)) => match child.try_wait() {
                     Ok(Some(_)) => "exited",
                     Ok(None) => "running",
                     Err(_) => "unknown",
                 },
-                Some(None) => "exited",
+                Some(Handle::Done { .. }) => "exited",
                 None => return Err(format!("process.state: no child with handle {h}")),
             }
             .to_string())
@@ -565,8 +578,8 @@ pub(crate) fn install(
         direct(&state, "process.kill", || {
             let mut s = state.borrow_mut();
             match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
-                Some(Some(child)) => { let _ = child.kill(); Ok(0) }
-                Some(None) => Ok(0),
+                Some(Handle::Running(child)) => { let _ = child.kill(); Ok(0) }
+                Some(Handle::Done { .. }) => Ok(0),
                 None => Err(format!("process.kill: no child with handle {h}")),
             }
         })
@@ -578,17 +591,55 @@ pub(crate) fn install(
         let h = arg(args, 0)?;
         let timeout_ms = arg(args, 1)?;
         answer(&state, "process.wait", || {
+            let index = usize::try_from(h).ok();
+            // Take the child out for the wait; the slot holds its pid and,
+            // afterwards, its answer, so a second wait replays the first.
             let child = {
                 let mut s = state.borrow_mut();
-                usize::try_from(h)
-                    .ok()
+                let slot = index
                     .and_then(|i| s.children.get_mut(i))
-                    .ok_or_else(|| format!("process.wait: no child with handle {h}"))?
-                    .take()
-                    .ok_or_else(|| format!("process.wait: handle {h} was already waited"))?
+                    .ok_or_else(|| format!("process.wait: no child with handle {h}"))?;
+                match slot {
+                    Handle::Done { answer, .. } => return answer.clone(),
+                    Handle::Running(child) => {
+                        let pid = child.id();
+                        let taken = std::mem::replace(
+                            slot,
+                            Handle::Done { pid, answer: Err(format!("process.wait: handle {h} is being waited")) },
+                        );
+                        match taken {
+                            Handle::Running(child) => child,
+                            Handle::Done { .. } => unreachable!("just matched Running"),
+                        }
+                    }
+                }
             };
             let timeout = u64::try_from(timeout_ms).ok().map(Duration::from_millis);
-            wait_child(child, timeout, max_capture)
+            let answer = wait_child(child, timeout, max_capture);
+            {
+                let mut s = state.borrow_mut();
+                if let Some(Handle::Done { answer: kept, .. }) = index.and_then(|i| s.children.get_mut(i)) {
+                    *kept = answer.clone();
+                }
+            }
+            answer
+        })
+    })?;
+
+    // `process.pid(handle)`: the child's OS pid, before and after the wait.
+    // rh's `child.id` backed ~40 identity checks in the smoke scripts
+    // (`protocol.pid == server.id`); a handle is a slot index, so without
+    // this every port needed a `sh -c 'printf $$'` wrapper or `pgrep -f`.
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.pid", move |args, _memory| {
+        let h = arg(args, 0)?;
+        direct(&state, "process.pid", || {
+            let s = state.borrow();
+            match usize::try_from(h).ok().and_then(|i| s.children.get(i)) {
+                Some(Handle::Running(child)) => Ok(i32::try_from(child.id()).unwrap_or(i32::MAX)),
+                Some(Handle::Done { pid, .. }) => Ok(i32::try_from(*pid).unwrap_or(i32::MAX)),
+                None => Err(format!("process.pid: no child with handle {h}")),
+            }
         })
     })?;
 

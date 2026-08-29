@@ -238,6 +238,27 @@ fn fs_metadata_reports_a_modification_time() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A handle answers its child's OS pid before and after the wait, and a
+/// second wait replays the first answer. rh's `child.id` backed ~40 identity
+/// checks in the smoke scripts, and rh let a script `wait_with_output` a child
+/// it had already reaped; wave 2 met "handle N was already waited" in every
+/// group that waited its own server.
+#[cfg(unix)]
+#[test]
+fn process_pid_is_stable_across_the_wait_and_a_second_wait_replays() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sh", args: ["-c", "echo hi; exit 4"] }));
+        let pid = process_pid(h);
+        let a = process_wait(h, 5000); let first = tool_result();
+        let b = process_wait(h, 5000); let second = tool_result();
+        return "" + (pid > 0) + "|" + (process_pid(h) === pid) + "|" + a + "|" + b + "|"
+            + (first === second) + "|" + JSON.parse(first).exit_code + "|" + JSON.parse(second).stdout;
+        "#,
+    );
+    assert_eq!(string_of(&out), "true|true|0|0|true|4|hi\n", "{out:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn process_status_of_a_chatty_child_is_its_own_exit_code() {
