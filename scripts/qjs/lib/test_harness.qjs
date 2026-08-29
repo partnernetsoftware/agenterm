@@ -643,3 +643,121 @@ export function complete_children(context, children, succeeded, failure) {
   if (!succeeded) { print("FAILURE BUNDLE " + context.run_directory); }
   return { cleanup: cleanup, manifest: manifest };
 }
+
+// ---- wave-2 long-lived-children (fleet-smoke, native-ipc-smoke, native-ipc-compat-smoke) ----
+
+// rh's `wait_with_output` could be called twice on one child (its `complete`
+// re-waited every owned child, including ones the script had already
+// reaped). The door takes the slot on the first `process.wait`, so a second
+// call answers "already waited"; this spelling answers null for that case
+// and throws for any other refusal.
+export function wait_once(handle, timeout_ms) {
+  if (process_wait(handle, timeout_ms) !== 0) {
+    const reason = tool_result();
+    if (reason.includes("already waited")) { return null; }
+    throw "process_wait:" + reason;
+  }
+  return JSON.parse(tool_result());
+}
+
+function ipc_last_path_piece(p) {
+  const parts = p.split("/");
+  return parts[parts.length - 1];
+}
+
+// `complete` for a script whose owned children may already have been
+// waited: the same run-directory artifacts `complete_impl` writes, but the
+// reap tolerates a taken slot instead of throwing on it.
+function complete_owned_impl(context, owned_children, succeeded, failure, announce) {
+  assert_owned_run(context);
+  const forced = [];
+  const completed = [];
+  for (const h of owned_children) {
+    if (state(h) === "running") { process_kill(h); forced.push(h); }
+    wait_once(h, 2000);
+    completed.push(h);
+  }
+  const cleanup = {
+    schema_version: 1,
+    orphan_free: true,
+    owned_count: owned_children.length,
+    completed_pids: completed,
+    forced_pids: forced,
+    remaining_pids: [],
+    remaining_windows: [],
+    remaining_registrations: []
+  };
+  finalize_command_log(context);
+  const diagnostics = [];
+  if (!succeeded) {
+    if (fs_create_dir_all(context.failure_directory) !== 0) { throw "fs_create_dir_all:" + tool_result(); }
+    if (fs_read_dir(context.failure_directory) !== 0) { throw "fs_read_dir:" + tool_result(); }
+    const entries = JSON.parse(tool_result());
+    for (const e of entries) { if (e.is_file) { diagnostics.push("" + e.name); } }
+  }
+  const manifest = {
+    schema_version: 1,
+    suite: context.suite,
+    run_id: context.run_id,
+    result_class: succeeded ? "success" : "failure",
+    failure: "" + failure,
+    cleanup: cleanup,
+    command_log: ipc_last_path_piece(context.command_log_path),
+    evidence: ipc_last_path_piece(context.evidence_path),
+    diagnostics: diagnostics,
+    privacy: {
+      command_arguments: "known content-bearing arguments redacted",
+      output_limit_bytes: 65536,
+      pane_capture: "disabled for this suite"
+    }
+  };
+  write_atomic(context.cleanup_path, JSON.stringify(cleanup) + "\n");
+  write_atomic(context.manifest_path, JSON.stringify(manifest) + "\n");
+  if (!succeeded && announce) { print("FAILURE BUNDLE " + context.run_directory); }
+  return { cleanup: cleanup, manifest: manifest };
+}
+
+export function complete_owned(context, owned_children, succeeded, failure) {
+  return complete_owned_impl(context, owned_children, succeeded, failure, true);
+}
+
+export function complete_owned_quiet(context, owned_children, succeeded, failure) {
+  return complete_owned_impl(context, owned_children, succeeded, failure, false);
+}
+
+// `bounded_record_text` uses `String.prototype.slice`, which this engine
+// refuses, so `append_command_record` fails on any output longer than its
+// 512-character limit -- and a smoke's `ui-snapshot` or `server-list --json`
+// is always longer. This spelling bounds by whole lines instead: lines are
+// kept while they fit, and the marker names how many characters the full
+// output had. A single line longer than the limit keeps nothing but the
+// marker; that is the deviation, recorded as a gap until `slice` lands.
+export function bounded_record_lines(source, maximum_characters) {
+  const text = "" + source;
+  if (text.length <= maximum_characters) { return text; }
+  let kept = "";
+  for (const line of text.split("\n")) {
+    if (kept.length + line.length + 1 > maximum_characters) { break; }
+    kept = kept + line + "\n";
+  }
+  return kept + "<agenterm-command-output-truncated:" + text.length + " chars>\n";
+}
+
+// `append_command_record` with the line-bounded output above; the record
+// shape is otherwise the same document.
+export function append_command_record_lines(context, args, output, expected_failure, redactions) {
+  const safe_args = [];
+  for (const a of args) { safe_args.push(redact_text("" + a, redactions)); }
+  const combined = redact_text(output.stdout + output.stderr, redactions);
+  const record = {
+    recorded_at_ms: now_ms(),
+    arguments: safe_args,
+    expected_failure: expected_failure !== 0,
+    exit_code: output.exit_code,
+    output: bounded_record_lines(combined, 512)
+  };
+  let journal = "";
+  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
+  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
+  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+}
