@@ -319,3 +319,59 @@ fn a_specifier_that_escapes_the_project_root_is_refused() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `--profile tool` is the only way a script reaches the machine, and it
+/// reaches it through the real CLI.
+///
+/// The `tool.*` door landed in the crate first (`4a7f0ec3`) with the CLI
+/// deliberately unwired. This is the wiring, asserted from the user's side:
+/// the same script, with and without the profile, and the two answers that
+/// have to differ. The door is two-pass like the fleet door -- a call returns
+/// a status and `tool_result()` carries the bytes -- which is why the script
+/// reads the way it does.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
+    let dir = std::env::temp_dir().join(format!("agenterm-tool-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(dir.join("in.txt"), "hello from disk").expect("fixture");
+    let entry = write(
+        &dir,
+        "tool.qjs",
+        "const status = fs_read_to_string(\"in.txt\");\n\
+         if (status !== 0) { return \"status:\" + status; }\n\
+         return \"read:\" + tool_result() + \"|missing:\" + fs_exists(\"nope.txt\");\n",
+    );
+
+    let mut with = Command::new(AGENTERM_BIN);
+    with.args(["cli", "script", "run", "--profile", "tool"]).arg(&entry);
+    with.current_dir(&dir).env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = with.output().expect("the CLI binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains("read:hello from disk|missing:0"),
+        "with --profile tool the script must read the file; stdout={stdout} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut without = Command::new(AGENTERM_BIN);
+    without.args(["cli", "script", "run"]).arg(&entry);
+    without.current_dir(&dir).env_remove("AGENTERM_SCRIPT_BACKEND");
+    let out = without.output().expect("the CLI binary runs");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Which `fs_*` name the sandbox trips on first is resolution order, not
+    // contract; that it names *a* tool function and lists only the three
+    // sandbox imports is.
+    assert!(
+        !out.status.success()
+            && combined.contains("no host function named `fs_")
+            && combined.contains("`print`, `fleet_call` and `fleet_result`"),
+        "without the profile the sandbox must refuse by name; got {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

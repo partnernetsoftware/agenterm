@@ -631,6 +631,7 @@ fn execute_inner(
             .map(std::path::PathBuf::from),
         arguments: serde_json::to_value(&invocation.arguments).ok(),
         budgets: Some(invocation.budgets.clone()),
+        tool_door: invocation.profile == crate::script_protocol::ScriptProfile::Tool,
     };
     let fleet_bridge: Option<crate::script_engine::ScriptFleetBridgeFn> =
         broker.as_ref().map(|broker| {

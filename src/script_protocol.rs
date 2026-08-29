@@ -21,6 +21,16 @@ pub enum ScriptProfile {
     Pure,
     Observe,
     Local,
+    /// A tool script: one that may open the `tool.*` door -- filesystem,
+    /// environment, child processes -- in addition to the fleet door.
+    ///
+    /// Distinct from [`ScriptProfile::Local`] on purpose. `Local` is what
+    /// every CLI invocation is today (the three older names all resolve to
+    /// it), so using it as the tool switch would open the second door for
+    /// every script that ever ran. This one is opened only by an explicit
+    /// `--profile tool`, which keeps `grep '"tool"'` a complete list of the
+    /// places the product hands a script the machine.
+    Tool,
 }
 
 impl ScriptProfile {
@@ -29,6 +39,7 @@ impl ScriptProfile {
             Self::Pure => "pure",
             Self::Observe => "observe",
             Self::Local => "local",
+            Self::Tool => "tool",
         }
     }
 }

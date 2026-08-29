@@ -41,6 +41,10 @@ pub struct ScriptInvocationOptions {
     pub project_root: Option<PathBuf>,
     pub arguments: Option<Value>,
     pub budgets: Option<ScriptBudgets>,
+    /// Whether this invocation may open the `tool.*` door. Set from
+    /// `ScriptProfile::Tool` and nothing else; every other engine ignores it,
+    /// because only qjswasm has a second door to open.
+    pub tool_door: bool,
 }
 
 /// Unified invocation result. `value` is `Option<serde_json::Value>` for
@@ -281,6 +285,23 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 ///   textual one is defeated by any of the three;
 /// * a file that is not there or is not UTF-8.
 #[cfg(feature = "script-qjswasm")]
+/// Compile through whichever door this invocation is allowed: the tool door
+/// when the profile says so, the sandbox otherwise. One function so `check`
+/// and `execute` cannot disagree about which language a script is checked
+/// against and run in -- the mismatch the door comment in
+/// `agenterm-qjswasm` already records as the worst shape a gate can have.
+fn compile_qjs_for(
+    options: &ScriptInvocationOptions,
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, agenterm_qjswasm::CompileError> {
+    if options.tool_door {
+        agenterm_qjswasm::compile_qjs_tool_with_modules(source, resolve)
+    } else {
+        agenterm_qjswasm::compile_qjs_with_modules(source, resolve)
+    }
+}
+
 fn qjs_module_resolver(
     project_root: Option<&std::path::Path>,
 ) -> impl Fn(&str) -> Option<String> + use<> {
@@ -726,9 +747,17 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `import` would refuse working scripts, which is the failure the door
         // declaration comment above this impl already records for host names.
         let resolve = qjs_module_resolver(_options.project_root.as_deref());
-        let wasm = agenterm_qjswasm::compile_qjs_with_modules(source, &resolve)
-            .map_err(|e| e.to_string())?;
-        agenterm_qjswasm::validate_wasm(&wasm).map_err(|e| e.to_string())?;
+        let wasm = compile_qjs_for(_options, source, &resolve).map_err(|e| e.to_string())?;
+        // The validator has to know the door too, or `check` refuses bytes
+        // `execute` would run: a tool script's `tool.*` imports are exactly
+        // what a sandbox validator exists to reject.
+        let budget = agenterm_qjswasm::Budget::default();
+        if _options.tool_door {
+            agenterm_qjswasm::validate_wasm_tool_with(&wasm, &budget)
+        } else {
+            agenterm_qjswasm::validate_wasm_with(&wasm, &budget)
+        }
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -768,8 +797,14 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // engine's. A script with no `import` never calls it and compiles to
         // the same bytes either way.
         let resolve = qjs_module_resolver(options.project_root.as_deref());
-        let wasm = agenterm_qjswasm::compile_qjs_with_modules(source, &resolve)
-            .map_err(|e| e.to_string())?;
+        let wasm = compile_qjs_for(options, source, &resolve).map_err(|e| e.to_string())?;
+        // Built after the door is known: a sandbox engine refuses tool bytes
+        // at load time, so this is the one place the two have to agree.
+        let mut engine = if options.tool_door {
+            agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default())
+        } else {
+            agenterm_qjswasm::Engine::new()
+        };
         let outcome = engine
             .run_once(
                 agenterm_qjswasm::Guest::CompiledQjs(&wasm),
@@ -1287,19 +1322,36 @@ mod tests {
         assert_eq!(result.value, Some(Value::from(42i64)));
     }
 
+    /// An engine reached directly runs what it is handed; selection is not
+    /// its job.
+    ///
+    /// This test was `lua_engine_execute_errors_when_not_enabled` and asserted
+    /// the opposite: that `execute` with no backend in the environment returns
+    /// `Err`. That gate -- `if !self.enabled()` at the top of every engine's
+    /// `check`/`execute` -- was removed on 2026-08-28 when `ScriptBackend::
+    /// resolve` became the one place an engine is chosen, because a second
+    /// copy of that decision is a second place for it to be wrong (it was:
+    /// routed to qjswasm by the dispatcher, refused by qjswasm's own gate).
+    /// The test kept asserting the deleted behaviour, and stayed green-looking
+    /// for a day because it is behind `script-lua` and the workspace run does
+    /// not enable it.
+    ///
+    /// It also poisoned `ENV_LOCK` when it failed, taking eleven unrelated
+    /// tests down as `PoisonError` -- the exact cascade PRD 36's verification
+    /// section warns about. A test that panics inside a shared lock is two
+    /// failures wearing one name.
     #[test]
     #[cfg(feature = "script-lua")]
-    fn lua_engine_execute_errors_when_not_enabled() {
-        // Migrated from script_backend.rs's lua_backend_not_enabled_without_env
-        // (was: try_execute_lua_invocation returns Ok(None) when the lua
-        // backend isn't selected). The trait surface has no Option-wrapping
-        // "not enabled" case, so the equivalent is an Err from execute().
+    fn lua_engine_runs_when_called_directly_regardless_of_env() {
         let _guard = ENV_LOCK.lock().expect("lock");
         let _env = EnvGuard::clear();
         let engine = LuaEngineBackend;
         let options = ScriptInvocationOptions::default();
 
-        assert!(engine.execute(LUA_VALID_SOURCE, &options, None).is_err());
+        assert!(
+            engine.execute(LUA_VALID_SOURCE, &options, None).is_ok(),
+            "selection happens in `resolve`, not in the engine; a direct call runs"
+        );
     }
 
     #[test]
@@ -1470,13 +1522,15 @@ mod tests {
 
     #[test]
     #[cfg(feature = "script-sql")]
-    fn sql_engine_check_errors_when_not_enabled() {
+    /// Same correction as the lua twin above: the engine no longer gates on
+    /// the environment, so a direct `check` checks.
+    fn sql_engine_check_runs_when_called_directly_regardless_of_env() {
         let _guard = ENV_LOCK.lock().expect("lock");
         let _env = EnvGuard::clear();
         let engine = SqlEngineBackend;
         let options = ScriptInvocationOptions::default();
 
-        assert!(engine.check(SQL_VALID_SOURCE, &options).is_err());
+        assert!(engine.check(SQL_VALID_SOURCE, &options).is_ok());
     }
 
     #[test]
@@ -1540,18 +1594,17 @@ mod tests {
 
     #[test]
     #[cfg(feature = "script-sql")]
-    fn sql_engine_execute_errors_when_not_enabled() {
+    /// Same correction as the lua twin above, for `execute`.
+    fn sql_engine_execute_runs_when_called_directly_regardless_of_env() {
         let _guard = ENV_LOCK.lock().expect("lock");
         let _env = EnvGuard::clear();
         let engine = SqlEngineBackend;
         let options = ScriptInvocationOptions::default();
 
-        let error = engine
-            .execute(SQL_VALID_SOURCE, &options, None)
-            .expect_err("execute must fail when the backend isn't enabled");
-        // "not enabled" must win over "not implemented" when both are
-        // true, matching lua/qjs's same enabled()-gate-first ordering.
-        assert!(error.contains("not enabled"), "{error}");
+        assert!(
+            engine.execute(SQL_VALID_SOURCE, &options, None).is_ok(),
+            "selection happens in `resolve`, not in the engine; a direct call runs"
+        );
     }
 
     #[test]

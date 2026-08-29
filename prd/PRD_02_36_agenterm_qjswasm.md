@@ -1138,6 +1138,20 @@ flowchart TD
 `switch` 是裸词，都会。**裸词与标点的模式必须先剥离字符串与注释，
 带定界符的方法调用模式不必——这条可以事前判断，不必事后发现。**
 
+**第八课：一把锁被毒，十一条无辜测试陪葬——第一条 panic 才是病，其余是症状。**
+合入 rh-out 后 `--features script-lua,script-sql --lib` 红了 16 条。按名字读：
+**只有一条**是真的（`lua_engine_execute_errors_when_not_enabled`，它断言的正是 08-28
+删掉的那道 `enabled()` 门），其余全是 `ENV_LOCK` 的 `PoisonError`。
+它藏了一天，因为它在 `script-lua` feature 后面，而整套 workspace 用默认 feature 跑。
+**两条规矩**：验证口径里的第二条命令（带三个 feature 的 `--lib`）不是可选的；
+读失败清单时先找**非 PoisonError 的第一条**，别数总数。
+
+**第九课：测试 spawn 的二进制不是测试自己编的那个。**
+`worker_supervisor` 两条红——真正原因是 `target/debug/agenterm` 是上一次
+默认 feature 构建留下的，没有 qjswasm，worker 答 `None`。指向带 feature 的
+二进制后 3/3 过。这是「`cargo test --workspace` 覆盖二进制」那条的镜像：
+**一个 spawn `target/debug/agenterm` 的测试，必须先自己保证那个文件是谁编的。**
+
 **第七课：并行的正确形状是「四条独立 worktree + 一次合并」，不是「四个人改同一棵树」。**
 2026-08-29 把 rh 移出、`tool.*` 门、`path.qjs`、双向金丝雀交给一个 workflow 四路并行。
 每路先只读普查、再在**自己的 worktree 分支**上建、再被一个对抗代理复跑试图推翻。
@@ -1254,7 +1268,7 @@ flowchart TD
 | ~~A1.4~~ | ~~`agenterm-rh` 移出本仓~~ **已移出（`08c51b2e` + `7e2b61dd`；快照 `partnernetsoftware/rh` `a22d224`，182 文件 blob 逐一相同）** | 政委改序：rh 先走 | `Cargo.lock` 零 `rhai`、零 `agenterm-rh`；`scripts/rh/` 不存在；默认构建二进制 6 907 664 → 5 230 384 B（**−24.3%**）；workspace 失败集 52 → 31，**新失败 0**（comm 逐名比对） |
 | A1.4b | 「默认后端切到 qjswasm」——**没有切，改成了没有默认** | `ScriptBackend::resolve` 只答具名拒绝（`Unselected` / `Retired` / `CompiledOut` / `Unknown`）；`.qjs` 靠扩展名路由到 qjswasm；`AGENTERM_SCRIPT_BACKEND=rh\|rhai` 答「去了 `partnernetsoftware/rh`」，exit 2 | 已决，不再另开一条：默认值是**决策点**不是环境（记忆宫殿那行的结论） |
 | A1.5 | 迁 71 个 `.rh` 脚本 + 8 个 qualification 门 | **0/71**；39 条门、4 条 host-native 门、bootstrap 与三条 CI 工作流都已指向**尚不存在**的 `cli script task run` 任务 | 每个门 `.qjs` 版通过原来那条 Rust 测试；`agenterm.tasks.json` 里的任务回到 71 |
-| A1.6 | `tool.*` 门接到 CLI | A1.3 只在 crate；`src/script_engine.rs` 仍只调 `compile_qjs` | qualification / CI 显式给开；沙箱脚本永远开不了 |
+| ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |
 | A3 | 下游既有失败逐条归因 | main `9aef2995`：安静复跑 2571/50，整套并行 2569/52 或 2567/54（多出来的是 `script_process` 两条进程回收测试与 `performance_summary` 两条；后两条单跑即过，前两条 2026-08-29 在 `9aef2995` 的干净导出上单跑 2/2 仍红——「owned process N did not create a descendant」，随机器状态变，不随代码变）；rh 移出后 **1954/31**，31 条与之前逐名相同（executor ×11、boundary ×2、stdlib ×8、script_cli_verb_parity ×9、vnc-rs doctest） | 每条要么修好，要么归入「环境抖动」并写明复跑命令 |

@@ -1867,6 +1867,10 @@ fn run_script_command_with_context(
     let requested_profile = option_value(arguments, "--profile").unwrap_or("local");
     let profile = match requested_profile {
         "pure" | "observe" | "local" => ScriptProfile::Local,
+        // The one profile that is not a synonym. A tool script gets the
+        // `tool.*` door; nothing else does, and there is no way to reach it
+        // without writing the word.
+        "tool" => ScriptProfile::Tool,
         other => {
             cli_eprintln!("unknown script profile: {other}");
             return 2;
