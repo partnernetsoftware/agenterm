@@ -154,3 +154,80 @@ export function env_or(name, fallback) {
   if (env_has(name) !== 1) { return fallback; }
   return door(env_get(name), "env_get " + name);
 }
+
+// rh's `std::env::has`: a boolean, for the scripts that branch on presence
+// before reading.
+export function has_env(name) {
+  return env_has(name) === 1;
+}
+
+// ---- args ---------------------------------------------------------------
+
+// rh's `args`: every entry argument, fetched through the two-pass door once
+// so a script can index and `.length` it the way rh did.
+export function args() {
+  const count = arg_count();
+  const out = [];
+  for (let i = 0; i < count; i = i + 1) {
+    if (arg(i) !== 0) { throw "arg " + i + ":" + tool_result(); }
+    out.push(tool_result());
+  }
+  return out;
+}
+
+// ---- fs, second batch (the d-p entry scripts) --------------------------
+
+export function copy(from, to) {
+  door(fs_copy(from, to), "fs_copy " + from + " -> " + to);
+}
+
+// rh's `std::fs::remove_file`: absent *is* an error, unlike try_remove_file.
+export function remove_file(p) {
+  door(fs_remove_file(p), "fs_remove_file " + p);
+}
+
+// ---- crypto -------------------------------------------------------------
+
+export function sha256_file(p) {
+  return door(crypto_sha256_file(p), "crypto_sha256_file " + p);
+}
+
+// ---- rh language shims --------------------------------------------------
+//
+// Pure helpers for rh spellings the engine has no direct form for. Each is
+// here because two or more of the migrated entries needed it.
+
+// rh's `type_of(x) == "array"` / `"map"`. The engine has no `Array` global,
+// so an array is an object with a numeric `length`.
+export function is_array(v) {
+  return typeof v === "object" && v !== null && typeof v.length === "number";
+}
+
+export function is_map(v) {
+  return typeof v === "object" && v !== null && typeof v.length !== "number";
+}
+
+// rh's integer `/` (truncating toward zero) without `Math.*`.
+export function int_div(a, b) {
+  return (a - (a % b)) / b;
+}
+
+// rh's `arr.contains(v)` for arrays: the engine has no `indexOf` on arrays.
+export function array_has(arr, v) {
+  for (const item of arr) { if (item === v) { return true; } }
+  return false;
+}
+
+// "Every character of `text` is in `alphabet`": the engine has neither `s[i]`
+// nor `split("")`, so delete each allowed character and check nothing is
+// left (the same trick artifact_manifest.qjs uses for its role names).
+export function only_chars(text, alphabet) {
+  let rest = text;
+  for (const c of alphabet) { rest = rest.replaceAll(c, ""); }
+  return rest === "";
+}
+
+export const DIGITS = ["0","1","2","3","4","5","6","7","8","9"];
+export const HEX = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
+export const LOWER = ["a","b","c","d","e","f","g","h","i","j","k","l","m",
+                      "n","o","p","q","r","s","t","u","v","w","x","y","z"];
