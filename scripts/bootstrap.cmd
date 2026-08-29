@@ -52,7 +52,7 @@ copy /y "%AGENTERM_BOOTSTRAP_SOURCE%" "%AGENTERM_BOOTSTRAP_CACHE_TEMP%" >nul
 if errorlevel 1 goto :failed
 for /f "delims=" %%H in ('git hash-object -- "%AGENTERM_BOOTSTRAP_CACHE_TEMP%"') do set "AGENTERM_BOOTSTRAP_CACHE_HASH=%%H"
 if not defined AGENTERM_BOOTSTRAP_CACHE_HASH goto :failed
-"%AGENTERM_BOOTSTRAP_CACHE_TEMP%" rh version >nul
+"%AGENTERM_BOOTSTRAP_CACHE_TEMP%" --version >nul
 if errorlevel 1 goto :failed
 > "%AGENTERM_BOOTSTRAP_STAMP_TEMP%" echo 2 %AGENTERM_BOOTSTRAP_FINGERPRINT% %AGENTERM_BOOTSTRAP_CACHE_HASH%
 move /y "%AGENTERM_BOOTSTRAP_CACHE_TEMP%" "%AGENTERM_BOOTSTRAP_CACHE_WORKER%" >nul
@@ -91,12 +91,11 @@ call :elapsed_cs %AGENTERM_BOOTSTRAP_START_CS% %AGENTERM_BOOTSTRAP_SETUP_END_CS%
 set /a AGENTERM_BOOTSTRAP_SETUP_MS=AGENTERM_BOOTSTRAP_SETUP_CS*10
 set /a AGENTERM_BOOTSTRAP_OTHER_SETUP_MS=AGENTERM_BOOTSTRAP_SETUP_MS-AGENTERM_BOOTSTRAP_CARGO_BUILD_MS-AGENTERM_BOOTSTRAP_WORKER_COPY_MS
 if %AGENTERM_BOOTSTRAP_OTHER_SETUP_MS% LSS 0 set "AGENTERM_BOOTSTRAP_OTHER_SETUP_MS=0"
-set "AGENTERM_SCRIPT_BACKEND=rh"
 set "AGENTERM_BOOTSTRAP_TIMING_SCHEMA=1"
 set "AGENTERM_BOOTSTRAP_CLOCK_RESOLUTION_MS=10"
 set "AGENTERM_BOOTSTRAP_CACHE_STAMP=%AGENTERM_BOOTSTRAP_CACHE_STAMP%"
 
-"%AGENTERM_BOOTSTRAP_WORKER%" rh task run "%AGENTERM_BOOTSTRAP_TASK%" --manifest "%AGENTERM_BOOTSTRAP_REPO%\agenterm.tasks.json" -- %*
+"%AGENTERM_BOOTSTRAP_WORKER%" cli script task run "%AGENTERM_BOOTSTRAP_TASK%" --manifest "%AGENTERM_BOOTSTRAP_REPO%\agenterm.tasks.json" -- %*
 if errorlevel 1 goto :failed
 call :cleanup
 popd
@@ -133,12 +132,12 @@ if errorlevel 1 exit /b 1
 >> "%~1" cargo -Vv
 if errorlevel 1 exit /b 1
 >> "%~1" echo tracked-index
-        >> "%~1" git ls-files -s -- Cargo.toml Cargo.lock build.rs rust-toolchain.toml .cargo crates src docs/agenterm-rhai-runtime.md assets/agenterm.ico agenterm.tasks.json
+        >> "%~1" git ls-files -s -- Cargo.toml Cargo.lock build.rs rust-toolchain.toml .cargo crates src docs/agenterm-rh-runtime.md assets/agenterm.ico agenterm.tasks.json
 if errorlevel 1 exit /b 1
 >> "%~1" echo tracked-worktree
-        >> "%~1" git diff --no-ext-diff --binary -- Cargo.toml Cargo.lock build.rs rust-toolchain.toml .cargo crates src docs/agenterm-rhai-runtime.md assets/agenterm.ico agenterm.tasks.json
+        >> "%~1" git diff --no-ext-diff --binary -- Cargo.toml Cargo.lock build.rs rust-toolchain.toml .cargo crates src docs/agenterm-rh-runtime.md assets/agenterm.ico agenterm.tasks.json
 if errorlevel 1 exit /b 1
-> "%AGENTERM_BOOTSTRAP_UNTRACKED%" git ls-files --others --exclude-standard -- Cargo.toml Cargo.lock build.rs rust-toolchain.toml .cargo crates src docs/agenterm-rhai-runtime.md assets/agenterm.ico agenterm.tasks.json
+> "%AGENTERM_BOOTSTRAP_UNTRACKED%" git ls-files --others --exclude-standard -- Cargo.toml Cargo.lock build.rs rust-toolchain.toml .cargo crates src docs/agenterm-rh-runtime.md assets/agenterm.ico agenterm.tasks.json
 if errorlevel 1 exit /b 1
 >> "%~1" echo untracked-paths
 >> "%~1" type "%AGENTERM_BOOTSTRAP_UNTRACKED%"

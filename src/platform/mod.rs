@@ -37,9 +37,6 @@ pub(crate) use policy::paths::{
 };
 pub(crate) use policy::runtime::hosted_script_worker_available;
 #[allow(unused_imports)]
-pub(crate) use policy::script_http::{
-    script_http_tls_config, script_http_tls_provider, script_http_tls_root_certs_are_expected,
-};
 #[allow(unused_imports)]
 pub(crate) use policy::workspace::{WorkspaceLayoutKind, workspace_layout_kind};
 
@@ -83,7 +80,6 @@ pub(crate) mod process;
 #[allow(dead_code)]
 pub(crate) mod runtime;
 #[allow(dead_code)]
-pub(crate) mod script_http;
 #[allow(dead_code)]
 pub(crate) mod services;
 #[allow(dead_code)]

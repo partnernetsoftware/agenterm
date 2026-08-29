@@ -1,6 +1,0 @@
-fn entry() {
-    let before = rh::clipboard::get_text();
-    rh::clipboard::set_text("native-clipboard-probe");
-    let after = rh::clipboard::get_text();
-    before.len() + after.len()
-}

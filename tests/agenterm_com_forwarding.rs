@@ -46,14 +46,27 @@ fn launcher_forwards_stderr_and_exit_code() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("must be from 1 to 60000"));
 }
 
+/// The two retired aliases are forwarded too, and answer with where their
+/// verbs went: `qjs` since 2026-08-26, `rh` since the engine left the
+/// repository on 2026-08-29.
+#[test]
+fn launcher_forwards_the_retired_engine_aliases_and_their_redirects() {
+    for subcommand in ["rh", "qjs"] {
+        let output = Command::new(launcher())
+            .args([subcommand, "version"])
+            .output()
+            .unwrap_or_else(|error| panic!("run {subcommand} through launcher: {error}"));
+        assert_eq!(output.status.code(), Some(2), "{subcommand} is retired");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("agenterm cli script"),
+            "{subcommand} must say where its verbs went"
+        );
+    }
+}
+
 #[test]
 fn launcher_forwards_all_unified_script_runtime_subcommands() {
-    for (subcommand, prefix) in [
-        ("rh", "agenterm-rh "),
-        ("qjs", "agenterm-qjs "),
-        ("lua", "agenterm-lua "),
-        ("sql", "agenterm-sql "),
-    ] {
+    for (subcommand, prefix) in [("lua", "agenterm-lua "), ("sql", "agenterm-sql ")] {
         let output = Command::new(launcher())
             .args([subcommand, "version"])
             .output()

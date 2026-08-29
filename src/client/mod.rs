@@ -316,16 +316,16 @@ pub fn run_script_entry_with_args(mut arguments: Vec<String>) -> i32 {
 fn script_help_text() -> &'static str {
     "AgenTerm Script Runtime\n\
          Usage:\n\
-           agenterm rh api [MODULE] [--status STATE] [--tree|--json]\n\
-           agenterm rh check [OPTIONS] FILE.rh|-\n\
-           agenterm rh check-many --manifest FILE [OPTIONS]\n\
-           agenterm rh evidence-list FILE.rh\n\
-           agenterm rh eval [OPTIONS] EXPRESSION|-- FILE.rh [--] [ARGS...]\n\
-           agenterm rh run [OPTIONS] FILE.rh|- [--] [ARGS...]\n\
-           agenterm rh task list [--manifest PATH] [--json]\n\
-           agenterm rh task show TASK [--manifest PATH] [--json]\n\
-           agenterm rh task check [TASK] [--manifest PATH] [--json]\n\
-           agenterm rh task run TASK [--manifest PATH] [OPTIONS] [--] [ARGS...]\n\
+           agenterm cli script api [MODULE] [--status STATE] [--tree|--json]\n\
+           agenterm cli script check [OPTIONS] FILE.qjs|-\n\
+           agenterm cli script eval [OPTIONS] EXPRESSION|-- FILE.qjs [--] [ARGS...]\n\
+           agenterm cli script run [OPTIONS] FILE.qjs|- [--] [ARGS...]\n\
+           agenterm cli script task list [--manifest PATH] [--json]\n\
+           agenterm cli script task show TASK [--manifest PATH] [--json]\n\
+           agenterm cli script task check [TASK] [--manifest PATH] [--json]\n\
+           agenterm cli script task run TASK [--manifest PATH] [OPTIONS] [--] [ARGS...]\n\
+         The entry's extension picks the engine (.qjs, .lua, .sql); \
+         AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
          Options: --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
          --project-root DIR --manifest FILE --json"
@@ -349,7 +349,7 @@ fn write_script_stdout(text: &str) -> std::result::Result<(), i32> {
 fn run_script_repl(_arguments: &[String]) -> i32 {
     cli_eprintln!(
         "script repl was removed with the Rh interpreter; \
-         use agenterm rh for check, eval, and run on .rh sources"
+         use agenterm cli script for check, eval, and run"
     );
     2
 }
@@ -1236,9 +1236,6 @@ fn run_cli(arguments: Vec<String>, control_options: CliControlOptions) -> i32 {
     if command == "agent-tools" {
         return run_agent_tools(&arguments);
     }
-    if command == "rh-pack" {
-        return crate::script_rh_pack::run_rh_pack_cli(&arguments);
-    }
     if matches!(command, "list-instances" | "server-list") {
         return run_list_instances(&arguments);
     }
@@ -1404,20 +1401,22 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
         // Placed above the hosted-worker check on purpose: printing which
         // engine you have must not require a worker to be spawnable, which is
         // exactly the situation someone asking is likely to be in.
-        use crate::script_engine::ScriptEngineBackend as _;
-        let backend = crate::script_backend::ScriptBackend::from_env();
-        cli_println!("{}", crate::script_engine::engine_for(backend).identity());
-        return 0;
+        return run_script_version();
     }
     if !crate::platform::services::script_host::hosted_worker_available() {
-        cli_eprintln!(
-            "agenterm cli script hosting is not yet available on this platform; \
-             invoke agenterm rh directly"
-        );
+        cli_eprintln!("agenterm cli script hosting is not yet available on this platform");
         return 2;
     }
     if arguments.get(1).is_some_and(|value| value == "check-many") {
-        return run_script_check_many_hosted(arguments);
+        // The verb was rh's: it re-invoked this executable behind the rh
+        // marker, and its manifest schema, `kind` string and receipt were
+        // rh's. The engine left on 2026-08-29 and the verb went with it.
+        cli_eprintln!(
+            "script check-many left with the rh engine (partnernetsoftware/rh); \
+             use `script check FILE` per file, or the engine's own dev CLI \
+             (`agenterm lua check-many`, `agenterm sql check-many`)"
+        );
+        return 2;
     }
     if arguments.get(1).is_some_and(|value| value == "task") {
         return run_script_task_command(arguments);
@@ -1493,11 +1492,12 @@ fn run_script_artifact_command(arguments: &[String]) -> i32 {
     // Chosen from the path, which is why it is read here and not above: these
     // verbs all take a file, so the extension answers "which engine" the same
     // way it does for `run`. `pack load` and `run-smoke` are handed an
-    // *artifact* rather than a source, and `resolve` gives them rh for a
-    // `.wasm` -- which is correct by omission rather than by design, and is
-    // the same open question `ScriptBackend::from_entry_path` records for
-    // `.wasm` generally.
-    let backend = crate::script_backend::ScriptBackend::resolve(path);
+    // *artifact* rather than a source, and a `.wasm` routes nowhere, so they
+    // need an explicit `AGENTERM_SCRIPT_BACKEND` -- the refusal says so.
+    let backend = match resolved_backend_or_refuse(path) {
+        Ok(backend) => backend,
+        Err(code) => return code,
+    };
     let engine = crate::script_engine::engine_for(backend);
 
     if action == "load" {
@@ -1676,7 +1676,10 @@ fn run_script_hash(arguments: &[String]) -> i32 {
     // The entry file decides, as it does for `run` -- `resolve` keeps an
     // explicit `AGENTERM_SCRIPT_BACKEND` winning. Hashing is the verb where
     // getting this wrong is quietest: the wrong engine still prints a digest.
-    let backend = crate::script_backend::ScriptBackend::resolve(path);
+    let backend = match resolved_backend_or_refuse(path) {
+        Ok(backend) => backend,
+        Err(code) => return code,
+    };
     match crate::script_engine::engine_for(backend).artifact_hash(&source) {
         Some(Ok((digest, what))) => {
             cli_println!("{digest}  {what}  {path}");
@@ -1709,7 +1712,10 @@ fn run_script_hash(arguments: &[String]) -> i32 {
 /// adds is the one thing that has to be per-engine: which scanner to hand it.
 fn run_script_corpus_scan(arguments: &[String]) -> i32 {
     use crate::script_engine::ScriptEngineBackend as _;
-    let backend = crate::script_backend::ScriptBackend::from_env();
+    let backend = match selected_backend_or_refuse() {
+        Ok(backend) => backend,
+        Err(code) => return code,
+    };
     let engine = crate::script_engine::engine_for(backend);
     // The refusal is returned *from the scanner slot* rather than checked
     // before the driver runs, so there is no placeholder report to invent for
@@ -1717,22 +1723,8 @@ fn run_script_corpus_scan(arguments: &[String]) -> i32 {
     // which is a green answer to a question that was never asked.
     let outcome = agenterm_script_common::cli::run_corpus_scan_command(&arguments[2..], |dir| {
         engine.corpus_scan(dir).unwrap_or_else(|| {
-            // One reason per engine, not both reasons for whichever engine
-            // asked: the two are unavailable for entirely different causes,
-            // and a caller reading someone else's cause has to work out which
-            // half is theirs.
-            let why = match backend {
-                crate::script_backend::ScriptBackend::Rh => {
-                    "it lives in rh's own dev CLI instead -- run `agenterm rh corpus-scan`"
-                }
-                _ => {
-                    "this engine's corpus is `.wasm` modules, which are bytes and not source; \
-                     the question they answer is the load gate, and calling that a corpus scan \
-                     would put two different questions under one verb"
-                }
-            };
             Err(format!(
-                "not offered on the {} engine: {why}",
+                "not offered on the {} engine: its corpus is not source text",
                 backend.as_str()
             ))
         })
@@ -1746,54 +1738,59 @@ fn run_script_corpus_scan(arguments: &[String]) -> i32 {
     }
 }
 
-fn run_script_check_many_hosted(arguments: &[String]) -> i32 {
-    // This verb runs on rh whatever the selected backend is: it re-invokes
-    // this executable behind the `__agenterm-internal-engine rh` marker, and
-    // its manifest schema, `kind` string and receipt are rh's. Say so rather
-    // than run rh behind the caller's back -- which is what happened until
-    // this guard existed, and which surfaced as rh complaining about the
-    // manifest rather than as an engine mismatch.
-    let selected = crate::script_backend::ScriptBackend::from_env();
-    if selected != crate::script_backend::ScriptBackend::Rh {
-        cli_eprintln!(
-            "{}",
-            crate::script_rh_cli::check_many_not_on_this_engine_error(selected.as_str())
-        );
-        return 2;
-    }
-    let worker = match script_worker_executable() {
-        Ok(worker) => worker,
-        Err(error) => {
-            cli_eprintln!("{error}");
-            return 2;
+/// `script version`: the selected engine's identity, or -- with nothing
+/// selected -- every compiled-in engine's, one per line. Listing them all is
+/// not a default: nothing runs, and the reader learns what this build can
+/// run, which is what someone asking `version` with no selection wants.
+fn run_script_version() -> i32 {
+    use crate::script_engine::ScriptEngineBackend as _;
+    match crate::script_backend::ScriptBackend::from_env() {
+        Ok(backend) => {
+            cli_println!("{}", crate::script_engine::engine_for(backend).identity());
+            0
         }
-    };
-    let mut command = std::process::Command::new(&worker.path);
-    command
-        .args(crate::worker_supervisor::SCRIPT_WORKER_ENGINE_ARGS)
-        .args(arguments.iter().skip(1))
-        .env(
-            "AGENTERM_SCRIPT_BACKEND",
-            std::env::var_os("AGENTERM_SCRIPT_BACKEND").unwrap_or_else(|| "rh".into()),
-        );
-    match command.status() {
-        Ok(status) => status.code().unwrap_or(1),
-        Err(error) => {
-            cli_eprintln!(
-                "host_worker_spawn: could not start {}: {error}",
-                worker.path.display()
-            );
-            1
+        Err(crate::script_backend::BackendRefusal::Unselected { .. }) => {
+            let engines = crate::script_engine::ScriptEngine::all();
+            if engines.is_empty() {
+                cli_println!(
+                    "agenterm {} carries no script engine; {}",
+                    env!("CARGO_PKG_VERSION"),
+                    crate::script_backend::SCRIPT_LANGUAGE_HINT
+                );
+            }
+            for engine in engines {
+                cli_println!("{}", engine.identity());
+            }
+            0
+        }
+        Err(refusal) => {
+            cli_eprintln!("{refusal}");
+            2
         }
     }
 }
 
+/// The engine `AGENTERM_SCRIPT_BACKEND` names, or the refusal printed and
+/// exit code 2. For the verbs that have no file to route by.
+fn selected_backend_or_refuse() -> Result<crate::script_backend::ScriptBackend, i32> {
+    crate::script_backend::ScriptBackend::from_env().map_err(|refusal| {
+        cli_eprintln!("{refusal}");
+        2
+    })
+}
+
+/// The engine an entry path routes to (an explicit `AGENTERM_SCRIPT_BACKEND`
+/// still wins), or the refusal printed and exit code 2.
+fn resolved_backend_or_refuse(label: &str) -> Result<crate::script_backend::ScriptBackend, i32> {
+    crate::script_backend::ScriptBackend::resolve(label).map_err(|refusal| {
+        cli_eprintln!("{refusal}");
+        2
+    })
+}
+
 fn run_script_command_direct(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "version") {
-        use crate::script_engine::ScriptEngineBackend as _;
-        let backend = crate::script_backend::ScriptBackend::from_env();
-        cli_println!("{}", crate::script_engine::engine_for(backend).identity());
-        return 0;
+        return run_script_version();
     }
     if arguments.get(1).is_some_and(|value| value == "task") {
         return run_script_task_command(arguments);
@@ -1815,12 +1812,11 @@ struct ResolvedScriptWorker {
     path: PathBuf,
 }
 
-/// The script worker is now the main `agenterm` PE itself, routed into its
-/// in-process rh/lua/qjs/sql engine host via
-/// `worker_supervisor::SCRIPT_WORKER_ENGINE_ARGS` — there is no longer a
-/// separate `agenterm-rh` binary to search an install directory for (that
-/// standalone bin is retired; see `src/bin/agenterm.rs`'s
-/// `__agenterm-internal-engine` dispatch). `current_exe()` is therefore
+/// The script worker is the main `agenterm` PE itself, routed into its
+/// in-process multi-engine worker host via
+/// `worker_supervisor::SCRIPT_WORKER_ENGINE_ARGS` — there is no separate
+/// engine binary to search an install directory for (see
+/// `src/bin/agenterm.rs`'s `__agenterm-internal-engine` dispatch). `current_exe()` is therefore
 /// always the right answer: this CLI code only ever runs from inside that
 /// same PE (directly on Unix, or re-exec'd through the
 /// `__agenterm-internal-cli` worker on Windows — see
@@ -1958,7 +1954,10 @@ fn run_script_command_with_context(
             // parser then complained about -- see
             // `ScriptEngineBackend::eval_entry_source` for the measurements.
             use crate::script_engine::ScriptEngineBackend as _;
-            let backend = crate::script_backend::ScriptBackend::from_env();
+            let backend = match selected_backend_or_refuse() {
+                Ok(backend) => backend,
+                Err(code) => return code,
+            };
             let Some(source) =
                 crate::script_engine::engine_for(backend).eval_entry_source(expression)
             else {
@@ -2037,10 +2036,11 @@ fn run_script_command_with_context(
                 // this door carries text. That is the true answer.
                 let source_is_a_path = {
                     use crate::script_engine::ScriptEngineBackend as _;
-                    crate::script_engine::engine_for(
-                        crate::script_backend::ScriptBackend::from_env(),
-                    )
-                    .source_is_a_path()
+                    crate::script_backend::ScriptBackend::from_env()
+                        .ok()
+                        .is_some_and(|backend| {
+                            crate::script_engine::engine_for(backend).source_is_a_path()
+                        })
                 };
                 if source_is_a_path {
                     (
@@ -3777,13 +3777,12 @@ fn non_text_script_hint(error: &str) -> String {
     if !error.contains("not UTF-8") {
         return String::new();
     }
-    let backend = crate::script_backend::ScriptBackend::from_env();
     format!(
         "\n  `agenterm cli script` carries script *text*: it reads the file as UTF-8 and \
          hands engines a `&str`. A compiled `.wasm` module has no route through this verb \
-         on any engine, {} included. Build it from source with `script run FILE.qjs`, or \
+         on any engine ({}). Build it from source with `script run FILE.qjs`, or \
          use the engine's own library API for a module.",
-        backend.as_str()
+        crate::script_backend::ScriptBackend::servable_names().join(", ")
     )
 }
 
@@ -4534,7 +4533,7 @@ pub(crate) fn protocol_info_json_with_ui_bridge(
             "planned": ["split-window", "layouts"]
         },
         "extensions": [
-            "ui-snapshot", "ui-action", "focus", "protocol-info", "control-center", "rh-pack",
+            "ui-snapshot", "ui-action", "focus", "protocol-info", "control-center",
             "inspect", "screenshot", "screenshot-pane", "dump-cells",
             "wait-pane", "send-mouse", "ui-input", "show-composer",
             "set-composer", "send-composer", "get-settings",
@@ -4557,7 +4556,15 @@ pub(crate) fn protocol_info_json_with_ui_bridge(
             "typed_operations": true,
             "typed_events": true
         },
-        "script": crate::script_rh_pack::rh_pack_observability(),
+        // Which script engines this build carries. `rh_pack` used to sit
+        // here beside `script_backend`; both left with the rh engine on
+        // 2026-08-29, and there is no default backend to report any more.
+        "script": {
+            "engines": crate::script_backend::ScriptBackend::servable_names(),
+            "script_backend": crate::script_backend::ScriptBackend::from_env()
+                .ok()
+                .map(crate::script_backend::ScriptBackend::as_str),
+        },
     }))
     .unwrap_or_default()
 }
@@ -4742,20 +4749,6 @@ mod tests {
         assert_eq!(normalize_script_source("print(1);".to_owned()), "print(1);");
     }
 
-    /// The rh wrapper is unchanged, asserted where it now lives.
-    #[test]
-    fn script_eval_wraps_expression_at_the_command_boundary() {
-        use crate::script_engine::ScriptEngineBackend as _;
-        let source = crate::script_engine::engine_for(crate::script_backend::ScriptBackend::Rh)
-            .eval_entry_source("let value = 40; value + 2")
-            .expect("rh has an expression form");
-        assert!(source.starts_with("fn __agenterm_eval_expression() {"));
-        assert!(source.contains("fn entry() {"));
-        assert!(source.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER));
-        assert!(source.contains("rh::json::stringify(__agenterm_eval_value)"));
-        assert!(source.ends_with("; 0 }"));
-    }
-
     /// The artifact face: two engines have one, four do not, and the four
     /// verbs that need it stand or fall together on that.
     #[test]
@@ -4793,7 +4786,7 @@ mod tests {
 
         // The text engines have neither half.
         #[allow(unused_mut)]
-        let mut text_only: Vec<ScriptBackend> = vec![ScriptBackend::Rh];
+        let mut text_only: Vec<ScriptBackend> = Vec::new();
         #[cfg(feature = "script-lua")]
         text_only.push(ScriptBackend::Lua);
         #[cfg(feature = "script-sql")]
@@ -4851,16 +4844,7 @@ mod tests {
         use crate::script_backend::ScriptBackend;
         use crate::script_engine::ScriptEngineBackend as _;
 
-        #[allow(unused_mut)]
-        let mut all: Vec<ScriptBackend> = vec![ScriptBackend::Rh];
-        #[cfg(feature = "script-lua")]
-        all.push(ScriptBackend::Lua);
-        #[cfg(feature = "script-sql")]
-        all.push(ScriptBackend::Sql);
-        #[cfg(feature = "script-qjswasm")]
-        all.push(ScriptBackend::Qjswasm);
-
-        let path_carrying: Vec<ScriptBackend> = all
+        let path_carrying: Vec<ScriptBackend> = ScriptBackend::all()
             .into_iter()
             .filter(|b| crate::script_engine::engine_for(*b).source_is_a_path())
             .collect();
@@ -4985,16 +4969,9 @@ mod tests {
             assert_eq!(report.failures, 0, "{backend:?} on an empty directory");
         }
 
-        // rh's is a verb of its own dev CLI, so it is `None` here and the CLI
-        // turns that into its own sentence. (wasmcore was the other `None`,
-        // for the different reason that it had no source to scan; it was
-        // archived on 2026-08-28.)
-        assert!(
-            crate::script_engine::engine_for(ScriptBackend::Rh)
-                .corpus_scan(empty.path())
-                .is_none(),
-            "rh's corpus-scan is `agenterm rh corpus-scan`, not this face"
-        );
+        // rh's was a verb of its own dev CLI (`None` here) and wasmcore had
+        // no source to scan; both engines have left, so every engine that
+        // remains answers this face.
     }
 
     /// Every engine names itself, and the compiler-backed one names its pin.
@@ -5012,7 +4989,7 @@ mod tests {
         use crate::script_engine::ScriptEngineBackend as _;
 
         #[allow(unused_mut)]
-        let mut cases: Vec<(ScriptBackend, &str)> = vec![(ScriptBackend::Rh, "agenterm-rh ")];
+        let mut cases: Vec<(ScriptBackend, &str)> = Vec::new();
         #[cfg(feature = "script-lua")]
         cases.push((ScriptBackend::Lua, "agenterm-lua "));
         #[cfg(feature = "script-sql")]
@@ -5042,42 +5019,6 @@ mod tests {
         }
     }
 
-    /// `check-many` names the engine mismatch instead of running rh behind
-    /// the caller's back.
-    ///
-    /// Measured before the guard existed:
-    /// `AGENTERM_SCRIPT_BACKEND=qjswasm agenterm cli script check-many
-    /// --manifest F` answered `rh parse error: check_many_manifest_json:
-    /// unknown field …` -- rh, complaining about a manifest, when the caller
-    /// had asked for another engine entirely. The refusal message had been
-    /// written months earlier and never wired to a caller.
-    ///
-    /// The message is asserted rather than just the exit code, because the
-    /// whole value of this change is that the sentence says *which* engine was
-    /// selected and what to do instead.
-    #[test]
-    fn check_many_names_the_engine_mismatch_rather_than_running_rh() {
-        let message = crate::script_rh_cli::check_many_not_on_this_engine_error("qjswasm");
-        assert!(
-            message.contains("only available on the rh engine"),
-            "{message}"
-        );
-        assert!(
-            message.contains("selects qjswasm"),
-            "the sentence must name the engine that was selected: {message}"
-        );
-        assert!(
-            message.contains("script check FILE"),
-            "the sentence must say what to do instead: {message}"
-        );
-        // And it must not read as a build problem, which is the *other*
-        // reason this verb can be unavailable and has its own message.
-        assert!(
-            !message.contains("cargo build"),
-            "an engine mismatch is not a build problem: {message}"
-        );
-    }
-
     /// **Every engine wraps an expression in its own dialect**, and the one
     /// that cannot says so.
     ///
@@ -5092,10 +5033,7 @@ mod tests {
         use crate::script_engine::ScriptEngineBackend as _;
 
         #[allow(unused_mut)]
-        let mut cases: Vec<(ScriptBackend, Option<&str>)> = vec![
-            // rh's marker wrapper, asserted in full by the test above.
-            (ScriptBackend::Rh, Some("fn __agenterm_eval_expression() {")),
-        ];
+        let mut cases: Vec<(ScriptBackend, Option<&str>)> = Vec::new();
         #[cfg(feature = "script-lua")]
         cases.push((ScriptBackend::Lua, Some("return (1 + 2)")));
         #[cfg(feature = "script-qjswasm")]
@@ -5118,12 +5056,10 @@ mod tests {
                     );
                     // The decisive property: no engine may be handed another's
                     // dialect. rh's marker is the one that leaked before.
-                    if backend != ScriptBackend::Rh {
-                        assert!(
-                            !got.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER),
-                            "{backend:?} was handed rh's eval protocol"
-                        );
-                    }
+                    assert!(
+                        !got.contains(crate::script_protocol::RH_EVAL_VALUE_MARKER),
+                        "{backend:?} was handed rh's eval protocol"
+                    );
                 }
                 None => assert!(
                     got.is_none(),
@@ -5135,9 +5071,8 @@ mod tests {
 
     #[test]
     fn script_worker_resolves_to_the_running_main_pe() {
-        // The standalone `agenterm-rh` binary is retired; the script worker
-        // is now always the currently running main `agenterm` PE itself,
-        // routed to its in-process rh engine via
+        // The script worker is always the currently running main `agenterm`
+        // PE itself, routed to its in-process engine host via
         // `worker_supervisor::SCRIPT_WORKER_ENGINE_ARGS`.
         let worker = script_worker_executable().expect("current executable resolves");
         assert_eq!(

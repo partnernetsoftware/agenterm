@@ -26,7 +26,6 @@ Copyright and license terms remain with their respective authors.
 | `object` | Apache-2.0 OR MIT |
 | `png` | MIT OR Apache-2.0 |
 | `rand` | MIT OR Apache-2.0 |
-| `rhai` | MIT OR Apache-2.0 |
 | `rquickjs` | MIT |
 | `rusqlite` | MIT |
 | `serde` | MIT OR Apache-2.0 |

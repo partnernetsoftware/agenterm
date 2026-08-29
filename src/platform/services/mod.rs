@@ -13,7 +13,6 @@ pub(crate) use agenterm_platform::runtime;
 pub(crate) mod script_clipboard;
 pub(crate) mod script_files;
 pub(crate) mod script_host;
-pub(crate) mod script_http;
 pub(crate) mod script_stream;
 pub(crate) mod script_window;
 pub(crate) mod supervisor_audit;

@@ -205,7 +205,7 @@ jobs:
             target/smoke/*.png
 
       - name: Publish Candidate quality timing summary
-        # A4: timing-summary.rh appends the per-gate table to GITHUB_STEP_SUMMARY
+        # A4: the timing-summary task appends the per-gate table to GITHUB_STEP_SUMMARY
         # when that env is set (Actions always sets it). No artifact download needed.
         if: always() && matrix.platform_id == 'windows-x86_64'
         continue-on-error: true
@@ -217,10 +217,10 @@ jobs:
             exit 0
           fi
           if [[ -x dist/agenterm.exe ]]; then
-            dist/agenterm.exe rh task run timing-summary \
+            dist/agenterm.exe cli script task run timing-summary \
               --manifest agenterm.tasks.json -- target/qualification/timing.json
           else
-            target/debug/agenterm.exe rh task run timing-summary \
+            target/debug/agenterm.exe cli script task run timing-summary \
               --manifest agenterm.tasks.json -- target/qualification/timing.json
           fi
           # Surface bootstrap reuse for R1 acceptance without opening the artifact.
@@ -255,7 +255,7 @@ jobs:
         if: matrix.platform_id == 'windows-x86_64'
         shell: cmd
         run: >-
-          dist\agenterm.exe rh task run package-release-qualified
+          dist\agenterm.exe cli script task run package-release-qualified
           --manifest agenterm.tasks.json
 
       - name: Install Windows ARM64 cross-build tooling
@@ -507,8 +507,8 @@ jobs:
           if result.get("status") != "Accepted":
               sys.exit(f"Apple notarization was not accepted: {result}")
           PY
-          target/aarch64-apple-darwin/release/agenterm rh \
-            run scripts/rh/finalize-macos-provenance.rh -- \
+          target/aarch64-apple-darwin/release/agenterm cli script \
+            task run finalize-macos-provenance --manifest agenterm.tasks.json -- \
             "$ARCHIVE" "$ARCHIVE.provenance.json"
 
       - name: Package macOS ARM64 unsigned preview
@@ -574,8 +574,8 @@ jobs:
           if result.get("status") != "Accepted":
               sys.exit(f"Apple notarization was not accepted: {result}")
           PY
-          target/x86_64-apple-darwin/release/agenterm rh \
-            run scripts/rh/finalize-macos-provenance.rh -- \
+          target/x86_64-apple-darwin/release/agenterm cli script \
+            task run finalize-macos-provenance --manifest agenterm.tasks.json -- \
             "$ARCHIVE" "$ARCHIVE.provenance.json"
 
       - name: Package macOS x86_64 unsigned preview
@@ -781,8 +781,8 @@ jobs:
           test -f candidate-input/qualification-receipt.json
           mkdir -p candidate-output/payload
           cp candidate-input/* candidate-output/payload/
-          "$RUNNER_TEMP/agenterm-candidate-tool/agenterm" rh \
-            run scripts/rh/candidate-aggregate.rh --project-root . -- \
+          "$RUNNER_TEMP/agenterm-candidate-tool/agenterm" cli script \
+            task run candidate-aggregate --manifest agenterm.tasks.json -- \
             . candidate-metadata.json candidate-output/payload \
             "candidate-output/agenterm-$version-candidate-manifest.json"
 

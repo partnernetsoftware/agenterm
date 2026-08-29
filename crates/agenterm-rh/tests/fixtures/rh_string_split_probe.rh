@@ -1,4 +1,0 @@
-fn entry() {
-    let parts = "a.b.c".split(".");
-    parts.len
-}

@@ -369,6 +369,14 @@ fn write_shared_rejection(
 }
 
 #[cfg(test)]
+#[cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(dead_code)
+)]
 fn process_framed_stream<R: Read, W: Write>(mut input: R, mut output: W) -> anyhow::Result<()> {
     let mut frame_tracker = ScriptFrameTracker::default();
     let mut completed_invocations = HashSet::new();
@@ -410,6 +418,14 @@ fn process_framed_stream<R: Read, W: Write>(mut input: R, mut output: W) -> anyh
 }
 
 #[cfg(test)]
+#[cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(dead_code)
+)]
 fn process_frame(frame: ScriptFrame, completed_invocations: &mut HashSet<String>) -> ScriptFrame {
     let frame_id = frame.frame_id;
     let result = match frame.payload {
@@ -462,6 +478,14 @@ fn result_frame(frame_id: String, result: ScriptResult) -> ScriptFrame {
 }
 
 #[cfg(test)]
+#[cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(dead_code)
+)]
 fn write_protocol_frame<W: Write>(
     output: &mut W,
     frame_id: &str,
@@ -563,12 +587,10 @@ fn execute_inner(
     _cancellation: Option<Arc<AtomicBool>>,
     broker: Option<BrokerClient>,
 ) -> Result<(String, Option<serde_json::Value>), ScriptFailure> {
-    let _temp_scope = crate::script_stdlib::enter_invocation_temp_root(
-        invocation
-            .invocation_temp_root
-            .as_deref()
-            .map(std::path::Path::new),
-    );
+    // `invocation_temp_root` used to be installed here as the rh host's
+    // per-invocation `rh::runtime::temp_dir`. That host left with the engine
+    // on 2026-08-29; the field stays in the protocol for the engines that
+    // will read it themselves.
     if invocation.envelope_version != SCRIPT_ENVELOPE_VERSION {
         return Err(protocol_error(
             "unsupported_envelope",
@@ -601,9 +623,7 @@ fn execute_inner(
     // Shared invocation options + fleet_bridge, built once (Trait-M3: this
     // used to be reconstructed identically per backend — see design
     // §1.4/§2.4). `fleet_bridge` wraps `BrokerClient::call_json("fleet.call",
-    // ...)` exactly like rh's `script_rh_host::broker_fleet_bridge` already
-    // did; `RhEngineBackend::execute` (script_engine.rs) converts this Arc
-    // into the `Box`-shaped `script_rh_host::FleetBridgeFn` internally.
+    // ...)`.
     let options = crate::script_engine::ScriptInvocationOptions {
         project_root: invocation
             .project_root
@@ -631,59 +651,29 @@ fn execute_inner(
             bridge
         });
 
-    // A backend this build did not compile in used to fall through to rh,
-    // so `AGENTERM_SCRIPT_BACKEND=wasmcore` -- a name no build serves now --
-    // ran the guest's bytes through rh's transpiler and reported rh's error.
-    // The same swallowed a typo. Neither is a backend choice the product can
-    // honour, and answering with a different language's diagnostic sends the
-    // reader to the wrong place entirely.
-    if let Some((requested, known)) = crate::script_backend::ScriptBackend::unavailable_request() {
-        return Err(configuration_error(
-            "script_backend_unavailable",
-            &if known {
-                format!(
-                    "script backend {requested} is not compiled into this build; rebuild with its feature enabled"
-                )
-            } else {
-                format!(
-                    "unknown script backend {requested}; expected one of {}",
-                    crate::script_backend::ScriptBackend::ALL_BACKEND_NAMES.join(", ")
-                )
-            },
-        ));
-    }
-
     // **Which engine runs this.** One question, asked once, from one place --
     // see `ScriptBackend::resolve` for why it is a named function and what
     // routing did before it existed (`.qjs` files were answered with rh's
-    // parse error). The arms below compare against this rather than each
-    // calling `enabled()`, which read the environment and only the
-    // environment.
-    let selected = crate::script_backend::ScriptBackend::resolve(&invocation.source_label);
-
-    // The specific engines are tried before rh, because rh is the **fallback**
-    // and a fallback that matches first is not a fallback. `resolve` already
-    // returns rh for an unrecognised extension, so ordering here decides
-    // nothing on its own -- it is defence against a future arm forgetting to
-    // be exclusive.
+    // parse error). There is no fallback arm below: a request nothing here
+    // can serve -- unset, a retired name, a compiled-out name, a typo, an
+    // entry with no routed extension -- is refused here by name. Until
+    // 2026-08-29 every one of those was answered by rh, which is how a
+    // request for one language came to be served by another's transpiler.
+    let selected = match crate::script_backend::ScriptBackend::resolve(&invocation.source_label) {
+        Ok(selected) => selected,
+        Err(refusal) => {
+            return Err(configuration_error(
+                "script_backend_unavailable",
+                refusal.message(),
+            ));
+        }
+    };
 
     // Lua backend: `AGENTERM_SCRIPT_BACKEND=lua` or a `.lua` entry.
     #[cfg(all(not(test), feature = "script-lua"))]
     if selected == crate::script_backend::ScriptBackend::Lua {
         return dispatch_via_engine(
             &crate::script_engine::LuaEngineBackend,
-            invocation.operation,
-            &invocation.source,
-            &options,
-            fleet_bridge,
-        );
-    }
-
-    // rh backend: no `#[cfg(not(test))]` gate — rh's `execute_inner` unit
-    // tests (below) rely on this branch actually running.
-    if selected == crate::script_backend::ScriptBackend::Rh {
-        return dispatch_via_engine(
-            &crate::script_engine::RhEngineBackend,
             invocation.operation,
             &invocation.source,
             &options,
@@ -722,15 +712,16 @@ fn execute_inner(
         );
     }
 
-
     // qjswasm backend: enabled via AGENTERM_SCRIPT_BACKEND=qjswasm or a `.qjs`
     // entry. This arm is the second dispatch site for the backend list --
     // `script_engine.rs`'s `ScriptEngine` enum is the first -- and it was
     // missed when the backend landed, so `.qjs` scripts registered, compiled,
     // and tested green while the product could not run one at all. The two
-    // lists have to be extended together; `all_backends_reach_a_dispatch_arm`
-    // below now fails if they drift apart again.
-    #[cfg(all(not(test), feature = "script-qjswasm"))]
+    // lists have to be extended together.
+    //
+    // No `#[cfg(not(test))]` gate: this is the engine the worker's own unit
+    // tests (below) run in-process, the role rh had until it left.
+    #[cfg(feature = "script-qjswasm")]
     if selected == crate::script_backend::ScriptBackend::Qjswasm {
         return dispatch_via_engine(
             &crate::script_engine::QjswasmEngineBackend,
@@ -743,7 +734,11 @@ fn execute_inner(
 
     Err(configuration_error(
         "script_backend_unavailable",
-        "no script backend handled this invocation; set AGENTERM_SCRIPT_BACKEND to rh, lua, qjs, qjswasm, or sql with matching source",
+        format!(
+            "no script backend handled this invocation on {}; this build's engines are {}",
+            selected.as_str(),
+            crate::script_backend::ScriptBackend::servable_names().join(", ")
+        ),
     ))
 }
 
@@ -754,6 +749,14 @@ fn execute_inner(
 /// Trait-M3 — kept as one shared function (instead of `ScriptEngine::all()`
 /// looped dispatch) so the three call sites above keep their independent
 /// `#[cfg(not(test))]` attributes per the M3 phase's conservative scope.
+#[cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(dead_code)
+)]
 fn dispatch_via_engine(
     engine: &dyn crate::script_engine::ScriptEngineBackend,
     operation: ScriptOperation,
@@ -845,15 +848,18 @@ fn configuration_error(code: impl Into<String>, message: impl Into<String>) -> S
     failure(code, message, ScriptFailureCategory::Configuration)
 }
 
+#[cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(dead_code)
+)]
 fn engine_execution_error(backend_code: &str, message: String) -> ScriptFailure {
-    if backend_code == "rh_backend"
-        && let Some(rest) = message.split("rh_fail: ").nth(1)
-        && let Some(code) = rest.split(':').next()
-        && (code.starts_with("process_") || code.starts_with("child_"))
-    {
-        let code = code.to_owned();
-        return failure(code, message, ScriptFailureCategory::Child);
-    }
+    // rh's `rh_fail: process_*` / `child_*` codes used to be reclassified as
+    // `Child` failures here. That engine left on 2026-08-29; the engines
+    // that remain surface typed failures directly.
     configuration_error(backend_code, message)
 }
 
@@ -887,43 +893,23 @@ fn failure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::script_api_validate::external_function_calls;
     use std::io::Cursor;
 
     // The ChannelReader/SharedBuffer framed-transport doubles that used to
     // live here left with the framed-worker tests that consumed them; the
-    // integration coverage lives in tests/rh_framed_worker.rs.
+    // subprocess coverage is in tests/script_framed_worker.rs.
 
-    fn rh_entry_source(body: &str) -> String {
-        if body.contains("fn entry") {
-            body.to_owned()
-        } else {
-            format!("fn entry() {{ {body} }}")
-        }
-    }
-
-    #[test]
-    fn rh_process_failure_retains_child_exit_class() {
-        let failure = engine_execution_error(
-            "rh_backend",
-            "rh compile error: rh_fail: process_spawn: missing".to_owned(),
-        );
-        assert_eq!(failure.code, "process_spawn");
-        assert_eq!(failure.category, ScriptFailureCategory::Child);
-    }
-
+    /// The sources below are `.qjs`, and the label says so: that is what
+    /// routes them to the engine these tests run in-process. rh was that
+    /// engine until it left on 2026-08-29.
     fn invocation(operation: ScriptOperation, source: &str) -> ScriptInvocation {
-        let source = match operation {
-            ScriptOperation::Run | ScriptOperation::Eval => rh_entry_source(source),
-            _ => source.to_owned(),
-        };
         ScriptInvocation {
             envelope_version: SCRIPT_ENVELOPE_VERSION,
             invocation_id: "unit-invocation".to_owned(),
             api_version: SCRIPT_API_VERSION,
             operation,
             profile: ScriptProfile::Pure,
-            source_label: "unit".to_owned(),
+            source_label: "unit.qjs".to_owned(),
             source: source.to_owned(),
             project_root: None,
             invocation_temp_root: None,
@@ -941,6 +927,14 @@ mod tests {
             .expect("expected failure")
     }
 
+    #[cfg_attr(
+        not(any(
+            feature = "script-lua",
+            feature = "script-sql",
+            feature = "script-qjswasm"
+        )),
+        allow(dead_code)
+    )]
     fn invoke_frame(frame_id: &str, invocation_id: &str, source: &str) -> ScriptFrame {
         let mut invocation = invocation(ScriptOperation::Eval, source);
         invocation.invocation_id = invocation_id.to_owned();
@@ -951,6 +945,14 @@ mod tests {
         }
     }
 
+    #[cfg_attr(
+        not(any(
+            feature = "script-lua",
+            feature = "script-sql",
+            feature = "script-qjswasm"
+        )),
+        allow(dead_code)
+    )]
     fn encoded_frame(frame: &ScriptFrame) -> Vec<u8> {
         let mut bytes = Vec::new();
         write_frame(&mut bytes, frame).expect("encode frame");
@@ -1080,40 +1082,40 @@ mod tests {
         assert!(oversized.len() as u64 > SCRIPT_INVOCATION_MAX_BYTES);
     }
 
+    // The three `api_scanner_*` tests that were here exercised
+    // `agenterm_rh::api_validate::external_function_calls`, an rh source
+    // scanner; they left with that crate.
+
+    /// With nothing in the environment and an entry no engine claims, the
+    /// worker refuses by name -- it does not run the source on whatever
+    /// happens to be linked, which is what it did until 2026-08-29.
     #[test]
-    fn api_scanner_ignores_strings_comments_and_method_calls() {
-        let source = r#"
-            // hidden_api()
-            let text = "also_hidden()";
-            values.len();
-            /* another_hidden() */
-        "#;
-        assert!(external_function_calls(source).is_empty());
+    fn an_unrouted_entry_is_refused_by_name_rather_than_run_on_a_default() {
+        let mut unrouted = invocation(ScriptOperation::Eval, "40 + 2");
+        unrouted.source_label = "unit.rh".to_owned();
+        let result = execute(unrouted);
+        assert_eq!(failure_code(&result), "script_backend_unavailable");
+        assert_eq!(result.exit_class, ScriptExitClass::Configuration);
+        let message = &result.failure.as_ref().expect("failure").message;
+        assert!(message.contains("`unit.rh`"), "{message}");
+        assert!(
+            message.contains(crate::script_backend::SCRIPT_LANGUAGE_HINT),
+            "{message}"
+        );
     }
 
-    #[test]
-    fn api_scanner_accepts_forward_function_declarations() {
-        let source = "twice(21); fn twice(value) { value * 2 }";
-        assert!(external_function_calls(source).is_empty());
-    }
-
-    #[test]
-    fn api_scanner_treats_parenthesized_throw_as_a_keyword() {
-        let source = r#"throw ("typed_failure:" + value.to_string());"#;
-        assert!(external_function_calls(source).is_empty());
-    }
-
+    #[cfg(feature = "script-qjswasm")]
     #[test]
     fn framed_worker_runs_multiple_invocations_without_stdout_corruption() {
         let mut input = encoded_frame(&invoke_frame(
             "frame-one",
             "invocation-one",
-            r#"print("inside-result"); 21 * 2"#,
+            r#"print("inside-result"); return 21 * 2;"#,
         ));
         input.extend(encoded_frame(&invoke_frame(
             "frame-two",
             "invocation-two",
-            "6 * 7",
+            "return 6 * 7;",
         )));
         let mut output = Vec::new();
         process_framed_stream(Cursor::new(input), &mut output).expect("framed stream");
@@ -1127,6 +1129,7 @@ mod tests {
         assert_eq!(frame_result(&frames[1]).value, Some(serde_json::json!(42)));
     }
 
+    #[cfg(feature = "script-qjswasm")]
     #[test]
     fn framed_worker_recovers_after_malformed_and_oversized_frames() {
         let mut input = Vec::new();
@@ -1138,7 +1141,7 @@ mod tests {
         input.extend(encoded_frame(&invoke_frame(
             "recovery-frame",
             "recovery-invocation",
-            "40 + 2",
+            "return 40 + 2;",
         )));
         let mut output = Vec::new();
         process_framed_stream(Cursor::new(input), &mut output).expect("framed stream");
@@ -1157,13 +1160,14 @@ mod tests {
         assert_eq!(frame_result(&frames[2]).value, Some(serde_json::json!(42)));
     }
 
+    #[cfg(feature = "script-qjswasm")]
     #[test]
     fn framed_worker_rejects_versions_duplicates_cancel_and_reserved_frames() {
-        let mut unsupported = invoke_frame("unsupported", "never-run", "1");
+        let mut unsupported = invoke_frame("unsupported", "never-run", "return 1;");
         unsupported.frame_version = SCRIPT_FRAME_VERSION + 1;
-        let first = invoke_frame("first", "same-invocation", "1");
-        let duplicate_invocation = invoke_frame("second", "same-invocation", "2");
-        let duplicate_frame = invoke_frame("first", "another-invocation", "3");
+        let first = invoke_frame("first", "same-invocation", "return 1;");
+        let duplicate_invocation = invoke_frame("second", "same-invocation", "return 2;");
+        let duplicate_frame = invoke_frame("first", "another-invocation", "return 3;");
         let cancel = ScriptFrame {
             frame_version: SCRIPT_FRAME_VERSION,
             frame_id: "cancel".to_owned(),
@@ -1222,7 +1226,7 @@ mod tests {
 
     #[test]
     fn framed_worker_replaces_unencodable_large_result_with_typed_failure() {
-        let mut result = execute(invocation(ScriptOperation::Eval, "42"));
+        let mut result = execute(invocation(ScriptOperation::Eval, "return 42;"));
         result.stdout = "\0".repeat(1024 * 1024);
         let frame = result_frame("large-result".to_owned(), result);
         let mut output = Vec::new();

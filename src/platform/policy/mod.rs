@@ -11,6 +11,5 @@ pub(crate) mod input;
 pub(crate) mod ipc;
 pub(crate) mod paths;
 pub(crate) mod runtime;
-pub(crate) mod script_http;
 pub(crate) mod test_fixtures;
 pub(crate) mod workspace;

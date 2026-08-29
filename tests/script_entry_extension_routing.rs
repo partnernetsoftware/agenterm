@@ -91,25 +91,57 @@ fn a_qjs_entry_runs_on_qjswasm_without_being_told_to() {
 ///
 /// This is the half that keeps the repair from being the same defect pointed
 /// the other way: someone who states a backend must get it, even for a file
-/// whose extension says otherwise. rh cannot parse this program, so its
-/// failure *is* the assertion -- a silent reroute to qjswasm would succeed.
+/// whose extension says otherwise. `rh` is an engine that has left this
+/// repository, so stating it must be *refused by name* -- a silent reroute
+/// to qjswasm would succeed, and until 2026-08-29 the reverse silence was
+/// the product's default.
 #[test]
 fn an_explicit_backend_beats_the_extension() {
     let dir = std::env::temp_dir().join(format!("agenterm-route-explicit-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = write(&dir, "t.qjs", "const xs = [1,2,3];\nreturn xs.map(x => x);\n");
+    let path = write(
+        &dir,
+        "t.qjs",
+        "const xs = [1,2,3];\nreturn xs.map(x => x);\n",
+    );
 
     let (stdout, stderr, code) = run_script(&path, Some("rh"));
     assert_ne!(
         code, 0,
-        "rh cannot run this program, so an explicit rh must fail rather than \
-         be quietly rerouted; stdout={stdout} stderr={stderr}"
+        "rh is not here to run this program, so an explicit rh must fail rather \
+         than be quietly rerouted; stdout={stdout} stderr={stderr}"
     );
     let combined = format!("{stdout}{stderr}");
     assert!(
-        combined.contains("rh_backend") || combined.contains("rh parse error"),
-        "the failure must come from rh, naming the engine the caller asked \
-         for; got {combined}"
+        combined.contains("partnernetsoftware/rh"),
+        "the refusal must name the engine the caller asked for and say where \
+         it went; got {combined}"
+    );
+    assert!(
+        !combined.contains("sum=") && !combined.contains("[1,2,3]"),
+        "nothing may have run; got {combined}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// With no backend stated and an extension nothing routes, the answer is a
+/// refusal that names the entry -- not rh's parse error, which is what a
+/// `.rh` file got here until the engine left, and not a run on whichever
+/// engine happens to be compiled in.
+#[test]
+fn an_unrouted_entry_is_refused_by_name() {
+    let dir = std::env::temp_dir().join(format!("agenterm-route-unrouted-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = write(&dir, "t.rh", "fn entry() { 42 }\n");
+
+    let (stdout, stderr, code) = run_script(&path, None);
+    assert_ne!(code, 0, "stdout={stdout} stderr={stderr}");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("t.rh") && combined.contains(".qjs is the script language now"),
+        "the refusal must name the entry and the language that replaced the \
+         default; got {combined}"
     );
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -169,10 +201,20 @@ fn hash_routes_by_extension_and_still_yields_to_an_explicit_backend() {
     explicit.args(["cli", "script", "hash"]).arg(&path);
     explicit.env("AGENTERM_SCRIPT_BACKEND", "rh");
     let out = explicit.output().expect("the CLI binary runs");
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let text = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "an explicit backend must still win here"
+    );
     assert!(
-        text.contains("  source  "),
-        "an explicit backend must still win here, and rh hashes the text; got {text}"
+        text.contains("partnernetsoftware/rh"),
+        "an explicit backend must still win here, and rh's answer is now the \
+         refusal that says where it went; got {text}"
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "no digest may be printed for a refused engine"
     );
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -180,10 +222,10 @@ fn hash_routes_by_extension_and_still_yields_to_an_explicit_backend() {
 
 /// `pack build` too, which is the verb that would otherwise refuse outright.
 ///
-/// Before this it reached rh, whose deployable shape is a directory rather
-/// than one file of bytes, so the answer was a paragraph explaining that rh
-/// cannot build an artifact through this verb -- correct about rh, and about
-/// an engine the caller never asked for.
+/// Before this it reached rh (the default then), whose deployable shape was
+/// a directory rather than one file of bytes, so the answer was a paragraph
+/// explaining that rh cannot build an artifact through this verb -- correct
+/// about rh, and about an engine the caller never asked for.
 #[cfg(feature = "script-qjswasm")]
 #[test]
 fn pack_build_routes_by_extension() {

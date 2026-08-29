@@ -1,3 +1,17 @@
+// Every script engine is behind a feature (the last unconditional one, rh,
+// left the repository on 2026-08-29). With none of them on, `ScriptBackend`
+// and `ScriptEngine` are empty enums, and every path past a backend selection
+// is unreachable -- which is true, not a defect, and not worth one warning
+// per call site.
+#![cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(unreachable_code, unused_variables)
+)]
+
 use std::time::Duration;
 
 pub mod agent_tools;
@@ -20,33 +34,16 @@ pub mod mcp_stdio;
 mod named_buffer;
 pub mod operations;
 mod protocol;
-pub mod script_api_validate;
 pub mod script_api_view;
 pub mod script_backend;
 pub mod script_catalog;
-pub mod script_clipboard;
 pub mod script_engine;
-pub mod script_error;
-pub mod script_fleet;
-pub mod script_http;
-pub mod script_image;
 pub mod script_lua_host;
 pub mod script_lua_run;
-pub mod script_net;
-pub mod script_process;
 pub mod script_project;
 pub mod script_protocol;
-pub mod script_rh_cache;
-pub mod script_rh_cli;
-pub mod script_rh_cli_main;
-pub mod script_rh_host;
-pub mod script_rh_pack;
-pub mod script_rh_run;
-pub mod script_runtime;
-pub mod script_stdlib;
-pub mod script_stream;
-pub mod script_task;
 mod script_worker;
+pub mod script_worker_cli;
 mod settings;
 mod tab_tree;
 mod terminal_cursor;

@@ -1225,9 +1225,8 @@ mod tests {
 
     /// Resolves the main `agenterm` PE — `PersistentWorkerClient::spawn` now
     /// always prefixes `Command::new(executable)` with
-    /// `SCRIPT_WORKER_ENGINE_ARGS` (`__agenterm-internal-engine rh`), so the
-    /// executable itself must be the main PE, not the retired standalone
-    /// `agenterm-rh` binary. `AGENTERM_TEST_SCRIPT_WORKER` still overrides
+    /// `SCRIPT_WORKER_ENGINE_ARGS` (`__agenterm-internal-engine worker`), so
+    /// the executable itself must be the main PE. `AGENTERM_TEST_SCRIPT_WORKER` still overrides
     /// this outright when set — its semantics are unchanged, only what it
     /// must now point at has (a main-PE-shaped binary, not a standalone rh
     /// exe).
@@ -1257,7 +1256,10 @@ mod tests {
             api_version: SCRIPT_API_VERSION,
             operation: ScriptOperation::Eval,
             profile: ScriptProfile::Local,
-            source_label: "persistent-worker-test".to_owned(),
+            // `.qjs`, so the worker routes the source to the engine these
+            // tests are compiled with. rh ran them until it left on
+            // 2026-08-29.
+            source_label: "persistent-worker-test.qjs".to_owned(),
             source: source.to_owned(),
             project_root: None,
             invocation_temp_root: None,
@@ -1302,6 +1304,11 @@ mod tests {
     // unrelated supervisor tests below. The PersistentReplClient itself is
     // graybox-retired (no production callers) pending deletion.
 
+    /// Needs an engine in the spawned PE: `cargo test --features
+    /// script-qjswasm` builds `target/debug/agenterm` with one. With no
+    /// engine feature the worker refuses every source by name, which is a
+    /// different contract and is asserted in `tests/script_framed_worker.rs`.
+    #[cfg(feature = "script-qjswasm")]
     #[test]
     fn same_pid_reuse_crash_replacement_and_reap_are_explicit() {
         let _test_guard = super::super::PROCESS_TEST_LOCK
@@ -1312,7 +1319,7 @@ mod tests {
         let first_pid = first.worker_pid();
         let one = first
             .invoke(
-                invocation("persistent-one", "fn entry() { 40 + 1 }"),
+                invocation("persistent-one", "return 40 + 1;"),
                 Duration::from_secs(120),
                 Duration::from_millis(150),
                 no_broker,
@@ -1320,7 +1327,7 @@ mod tests {
             .expect("first invocation");
         let two = first
             .invoke(
-                invocation("persistent-two", "fn entry() { 40 + 2 }"),
+                invocation("persistent-two", "return 40 + 2;"),
                 Duration::from_secs(120),
                 Duration::from_millis(150),
                 no_broker,
@@ -1335,7 +1342,7 @@ mod tests {
         first.force_worker_exit_for_test();
         let failure = first
             .invoke(
-                invocation("persistent-after-kill", "fn entry() { 43 }"),
+                invocation("persistent-after-kill", "return 43;"),
                 Duration::from_secs(120),
                 Duration::from_millis(150),
                 no_broker,
@@ -1357,7 +1364,7 @@ mod tests {
         assert_ne!(replacement_pid, first_pid);
         let recovered = replacement
             .invoke(
-                invocation("persistent-replacement", "fn entry() { 6 * 7 }"),
+                invocation("persistent-replacement", "return 6 * 7;"),
                 Duration::from_secs(120),
                 Duration::from_millis(150),
                 no_broker,
@@ -1368,7 +1375,7 @@ mod tests {
         for index in 2..=PERSISTENT_WORKER_INVOCATION_LIMIT {
             replacement
                 .invoke(
-                    invocation(&format!("persistent-bounded-{index}"), "42"),
+                    invocation(&format!("persistent-bounded-{index}"), "return 42;"),
                     Duration::from_secs(5),
                     Duration::from_millis(150),
                     no_broker,
@@ -1381,7 +1388,7 @@ mod tests {
         );
         assert!(matches!(
             replacement.invoke(
-                invocation("persistent-over-limit", "fn entry() { 42 }"),
+                invocation("persistent-over-limit", "return 42;"),
                 Duration::from_secs(120),
                 Duration::from_millis(150),
                 no_broker,

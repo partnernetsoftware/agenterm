@@ -1,6 +1,0 @@
-// Probe native rh::bytes::from_array for binary payload construction.
-fn entry() {
-    let empty = rh::bytes::from_array([]);
-    let payload = rh::bytes::from_array([0, 65, 255]);
-    empty.len + payload.len
-}

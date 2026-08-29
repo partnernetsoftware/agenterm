@@ -1,9 +1,0 @@
-fn entry() {
-    let safe = [];
-    let operation_index = 0;
-    safe[operation_index + 1] = "<content>";
-    if safe.len != 2 {
-        return rh::fail("len");
-    }
-    0
-}

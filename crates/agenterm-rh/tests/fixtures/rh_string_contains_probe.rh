@@ -1,7 +1,0 @@
-fn entry() {
-    let haystack = "agenterm-rh-probe-needle";
-    if haystack.contains("needle") {
-        return haystack.len;
-    }
-    0
-}

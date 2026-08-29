@@ -11,8 +11,8 @@
 //! (Trait-M4, see `plan/design-script-engine-trait.md` §4), so the same
 //! scenarios now run through the `ScriptEngineBackend` trait. The
 //! `ScriptBackend::Rhai` variant assertions were dropped when that backend
-//! was retired (`AGENTERM_SCRIPT_BACKEND=rhai` is now a compat alias for
-//! Rh, covered in `tests/rh_backend.rs`).
+//! was retired, and the `ScriptBackend::Rh` ones when that engine left the
+//! repository on 2026-08-29 (`partnernetsoftware/rh`).
 
 use agenterm::script_backend::ScriptBackend;
 use agenterm::script_engine::{LuaEngineBackend, ScriptEngineBackend, ScriptInvocationOptions};
@@ -48,25 +48,18 @@ fn lua_task_entry_backend_selection() {
     // Verify path-based backend selection.
     assert_eq!(
         ScriptBackend::from_entry_path("scripts/lua/test.lua"),
-        ScriptBackend::Lua
+        Some(ScriptBackend::Lua)
     );
-    assert_eq!(ScriptBackend::from_entry_path("test.rh"), ScriptBackend::Rh);
-    // Retired-rhai entry paths route to Rh.
-    assert_eq!(
-        ScriptBackend::from_entry_path("test.rhai"),
-        ScriptBackend::Rh
-    );
-    // Unknown extensions default to Rh.
-    assert_eq!(
-        ScriptBackend::from_entry_path("test.txt"),
-        ScriptBackend::Rh
-    );
+    // `.rh`/`.rhai` and unknown extensions route nowhere: there is no
+    // default engine, and `resolve` turns `None` into a refusal by name.
+    assert_eq!(ScriptBackend::from_entry_path("test.rh"), None);
+    assert_eq!(ScriptBackend::from_entry_path("test.rhai"), None);
+    assert_eq!(ScriptBackend::from_entry_path("test.txt"), None);
 }
 
 #[test]
 fn lua_backend_str() {
     assert_eq!(ScriptBackend::Lua.as_str(), "lua");
-    assert_eq!(ScriptBackend::Rh.as_str(), "rh");
     // `Qjs` was a third row here until that engine was archived. `qjs` is
     // still a name the CLI accepts -- it reaches `qjswasm` now -- but it is no
     // longer a backend of its own, so there is nothing to spell.

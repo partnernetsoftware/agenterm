@@ -115,8 +115,8 @@ jobs:
           manifest="$(find candidate -maxdepth 1 -type f \
             -name 'agenterm-*-candidate-manifest.json' -print -quit)"
           test -n "$manifest"
-          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" rh \
-            run scripts/rh/candidate-verify.rh --project-root . -- \
+          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script \
+            task run candidate-verify --manifest agenterm.tasks.json -- \
             . "$manifest" candidate/payload
           version="$(jq -r .version "$manifest")"
           tag="$(jq -r .expected_tag "$manifest")"
@@ -142,8 +142,8 @@ jobs:
             sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1
           )"
           [[ "$version" == "$cargo_version" ]]
-          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" rh \
-            run scripts/rh/promotion-identity.rh --project-root . -- \
+          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script \
+            task run promotion-identity --manifest agenterm.tasks.json -- \
             "$manifest" "$CANDIDATE_RUN_ID" "$source_sha" \
             candidate/promotion-identity.json >/dev/null
           identity="candidate/promotion-identity.json"
@@ -204,7 +204,7 @@ jobs:
             -name 'agenterm-*-candidate-manifest.json' -print -quit)"
           test -n "$manifest"
           test -x "$RUNNER_TEMP/agenterm-promotion-tool/agenterm"
-          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" rh \
+          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script \
             task run build-releases-index --manifest agenterm.tasks.json -- \
             "$manifest" candidate/payload candidate/releases.json
           test -f candidate/releases.json
@@ -261,8 +261,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/agenterm-publish-tool"
           tar -xzf "$archive" -C "$RUNNER_TEMP/agenterm-publish-tool"
           chmod +x "$RUNNER_TEMP/agenterm-publish-tool/agenterm"
-          "$RUNNER_TEMP/agenterm-publish-tool/agenterm" rh \
-            run scripts/rh/candidate-verify.rh --project-root . -- \
+          "$RUNNER_TEMP/agenterm-publish-tool/agenterm" cli script \
+            task run candidate-verify --manifest agenterm.tasks.json -- \
             . \
             "$(find candidate -maxdepth 1 -type f \
               -name 'agenterm-*-candidate-manifest.json' -print -quit)" \
@@ -272,7 +272,7 @@ jobs:
           manifest="$(find candidate -maxdepth 1 -type f \
             -name 'agenterm-*-candidate-manifest.json' -print -quit)"
           test -n "$manifest"
-          "$RUNNER_TEMP/agenterm-publish-tool/agenterm" rh \
+          "$RUNNER_TEMP/agenterm-publish-tool/agenterm" cli script \
             task run build-releases-index --manifest agenterm.tasks.json -- \
             "$manifest" candidate/payload candidate/releases.json
           test -f candidate/releases.json

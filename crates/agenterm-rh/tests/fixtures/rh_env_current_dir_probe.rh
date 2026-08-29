@@ -1,4 +1,0 @@
-fn entry() {
-    let cwd = std::env::current_dir().display;
-    cwd.len
-}

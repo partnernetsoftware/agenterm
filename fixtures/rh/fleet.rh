@@ -1,8 +1,0 @@
-fn entry() {
-    fleet.protocol.info();
-    11
-}
-
-fn cc_lines() {
-    ["rh-aot fleet", "host-shim"]
-}

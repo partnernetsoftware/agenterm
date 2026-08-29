@@ -1,20 +1,33 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use std::time::Duration;
+
 use crate::{
     operations::{OPERATION_CATALOG, OperationClass, OperationSpec},
-    script_http::{
-        DEFAULT_HTTP_BODY_BYTES, DEFAULT_HTTP_REDIRECTS, DEFAULT_HTTP_TIMEOUT, MAX_HTTP_BODY_BYTES,
-        MAX_HTTP_HEADER_BYTES, MAX_HTTP_HEADERS, MAX_HTTP_REDIRECTS, MAX_HTTP_REQUEST_BODY_BYTES,
-        MAX_HTTP_TIMEOUT, MAX_HTTP_URL_BYTES,
-    },
     script_protocol::{
         SCRIPT_API_VERSION, SCRIPT_FRAME_MAX_BYTES, SCRIPT_FRAME_VERSION,
         SCRIPT_INVOCATION_MAX_BYTES, ScriptBudgets,
     },
-    script_stream::{STREAM_BUFFER_BYTES, STREAM_READ_MAX_BYTES},
-    script_task::MAX_ACTIVE_TASKS,
 };
+
+// The documented ceilings of the `rh.http.*`, `rh.stream.*` and `rh.task.*`
+// catalog entries. They were the rhai host modules' own constants until those
+// modules left with the rh engine on 2026-08-29; the catalog still documents
+// the contract (lua serves these ids), so the numbers live with the document.
+pub const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(2);
+pub const MAX_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+pub const DEFAULT_HTTP_BODY_BYTES: usize = 64 * 1024;
+pub const MAX_HTTP_BODY_BYTES: usize = 256 * 1024;
+pub const MAX_HTTP_REQUEST_BODY_BYTES: usize = 256 * 1024;
+pub const MAX_HTTP_HEADERS: usize = 64;
+pub const MAX_HTTP_HEADER_BYTES: usize = 32 * 1024;
+pub const MAX_HTTP_URL_BYTES: usize = 8 * 1024;
+pub const DEFAULT_HTTP_REDIRECTS: u32 = 5;
+pub const MAX_HTTP_REDIRECTS: u32 = 10;
+pub const STREAM_BUFFER_BYTES: usize = 64 * 1024;
+pub const STREAM_READ_MAX_BYTES: usize = 64 * 1024;
+pub const MAX_ACTIVE_TASKS: usize = 64;
 
 pub const SCRIPT_CATALOG_SCHEMA_VERSION: u32 = 3;
 pub const SCRIPT_COMPARISON_SCHEMA_VERSION: u32 = 1;
@@ -2204,162 +2217,12 @@ mod tests {
         }
     }
 
-    const NON_CALLABLE_SURFACE_TRIAGE: &[&str] = &[
-        // Type-method/property groups, import and CLI surfaces documented in
-        // the catalog but not expressible as one module-native call. Method
-        // names inside these groups are still checked for registration below;
-        // property getters (engine::register_get) are covered by the
-        // black-box runtime suites under tests/.
-        "std.fs.dir-entry-path",
-        "std.fs.dir-entry-file-name",
-        "std.fs.dir-entry-types",
-        "std.fs.dir-entry-metadata",
-        "std.fs.metadata-facts",
-        "std.path.path-buf-join",
-        "std.path.path-buf-display",
-        "std.path.path-buf-file-name",
-        "std.path.path-buf-extension",
-        "std.path.path-buf-is-absolute",
-        "std.time.system-time-unix-millis",
-        "std.time.system-time-rfc3339",
-        "std.net.tcp-stream",
-        "std.net.tcp-listener",
-        "std.process.command-builder",
-        "std.process.command-output",
-        "std.process.command-start",
-        "std.process.command-status",
-        "std.process.command-stdout-file",
-        "std.process.child",
-        "std.process.child-window-input",
-        "std.process.output",
-        "std.fs.exists-case-exact",
-        "std.string.split",
-        "rh.fail",
-        "rh.stream.handle",
-        "rh.bytes.length",
-        "rh.bytes.raw-operations",
-        "rh.bytes.to-text",
-        "rh.task.handle",
-        "rh.http.response",
-        "runtime.project.module-import",
-        "runtime.project.named-task",
-    ];
-
-    fn collect_module_surface(
-        module: &rhai::Module,
-        prefix: &str,
-        out: &mut std::collections::HashMap<String, std::collections::HashSet<usize>>,
-    ) {
-        for signature in module.gen_fn_signatures_with_mapper(std::borrow::Cow::Borrowed) {
-            let (name, params) = signature
-                .split_once('(')
-                .unwrap_or((signature.as_str(), ""));
-            let params = params.trim_end_matches(')').trim();
-            let arity = if params.is_empty() {
-                0
-            } else {
-                params.split(',').count()
-            };
-            out.entry(format!("{prefix}{name}"))
-                .or_default()
-                .insert(arity);
-        }
-        for (name, sub) in module.iter_sub_modules() {
-            collect_module_surface(sub, &format!("{prefix}{name}::"), out);
-        }
-    }
-
-    fn catalog_arity(signature: &str) -> usize {
-        let params = signature
-            .split_once('(')
-            .map(|(_, rest)| rest.split(')').next().unwrap_or(""))
-            .unwrap_or("");
-        if params.trim().is_empty() {
-            0
-        } else {
-            params.split(',').count()
-        }
-    }
-
-    fn documented_callee_names(signature: &str) -> std::collections::HashSet<&str> {
-        signature
-            .split('/')
-            .filter_map(|part| {
-                part.split_once('(')
-                    .map(|(head, _)| head.trim().rsplit('.').next().unwrap_or("").trim())
-            })
-            .filter(|name| !name.is_empty())
-            .collect()
-    }
-
-    #[test]
-    fn every_shipped_plain_api_resolves_in_registered_surface() {
-        let mut engine = rhai::Engine::new();
-        let (std_module, host_api_module) = crate::script_stdlib::build_local_modules(&mut engine);
-        let mut surface: std::collections::HashMap<String, std::collections::HashSet<usize>> =
-            std::collections::HashMap::new();
-        collect_module_surface(&std_module, "std::", &mut surface);
-        collect_module_surface(&host_api_module, "rh::", &mut surface);
-        let mut names: std::collections::HashSet<String> = surface
-            .keys()
-            .filter_map(|path| path.rsplit("::").next().map(str::to_owned))
-            .collect();
-        for signature in engine.gen_fn_signatures(true) {
-            if let Some(name) = signature.split('(').next() {
-                let params = signature
-                    .split_once('(')
-                    .map(|(_, rest)| rest.split(')').next().unwrap_or(""))
-                    .unwrap_or("");
-                let arity = if params.trim().is_empty() {
-                    0
-                } else {
-                    params.split(',').count()
-                };
-                surface.entry(name.to_owned()).or_default().insert(arity);
-                names.insert(name.to_owned());
-            }
-        }
-
-        let mut triaged = Vec::new();
-        for entry in entries().into_iter().filter(|entry| {
-            entry.status == ScriptApiStatus::Shipped && entry.operation_id.is_none()
-        }) {
-            if entry
-                .signature
-                .starts_with(&format!("{}(", entry.surface_path))
-            {
-                let arity = catalog_arity(entry.signature);
-                let registered = surface.get(entry.surface_path);
-                assert!(
-                    registered.is_some_and(|arities| arities.contains(&arity)),
-                    "{}: surface {} with arity {} is not registered",
-                    entry.stable_id,
-                    entry.surface_path,
-                    arity
-                );
-            } else {
-                triaged.push(entry.stable_id);
-                for callee in documented_callee_names(entry.signature) {
-                    assert!(
-                        names.contains(callee),
-                        "{}: documented callee {} is not registered anywhere",
-                        entry.stable_id,
-                        callee
-                    );
-                }
-            }
-        }
-        for stable_id in NON_CALLABLE_SURFACE_TRIAGE {
-            assert!(
-                triaged.contains(stable_id),
-                "{stable_id} is triaged as non-callable but is directly callable"
-            );
-        }
-        for stable_id in triaged {
-            assert!(
-                NON_CALLABLE_SURFACE_TRIAGE.contains(&stable_id),
-                "{stable_id} is a non-direct surface and must be added to the triage allowlist"
-            );
-        }
-    }
+    // `every_shipped_plain_api_resolves_in_registered_surface` lived here: it
+    // built a rhai `Engine`, registered the root crate's `std`/`rh` host
+    // modules and proved every shipped id resolved with the documented arity.
+    // Those modules left with the rh engine on 2026-08-29, so there is no
+    // rhai surface left to resolve against. The catalog ids remain the
+    // cross-engine contract (lua's stdlib serves them by name); the
+    // per-engine proof that each id is bound now belongs to that engine's
+    // own suite.
 }

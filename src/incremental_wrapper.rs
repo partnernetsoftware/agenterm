@@ -158,14 +158,20 @@ fn incremental_metadata_identity(root: &Path) -> anyhow::Result<String> {
         .collect())
 }
 
-/// The digest behind `rh::crypto::tree_metadata_digest`.
+/// The digest a script host exposes as `crypto.tree_metadata_digest`.
 ///
 /// The prune task re-derives the identity that this wrapper recorded, and the
 /// two values are compared for equality. Any drift between a producer and a
 /// re-implementation silently disables pruning, so both sides call THIS
 /// function -- there is exactly one definition of the algorithm. It used to be
-/// transliterated into python3 inside `scripts/rh/lib/prune_target_incremental.rh`,
-/// which is precisely the duplication this avoids.
+/// transliterated into python3 inside the rh prune script, which is precisely
+/// the duplication this avoids.
+///
+/// Its only caller was the rh host (`rh::crypto::tree_metadata_digest`), which
+/// left with that engine on 2026-08-29. The `.qjs` tool door that replaces
+/// the prune script will bind it again; until then it is kept, unused, so the
+/// algorithm stays in one place.
+#[allow(dead_code)]
 pub(crate) fn tree_metadata_digest_json(root: &Path) -> serde_json::Value {
     match incremental_metadata_identity(root) {
         Ok(identity) => serde_json::json!({ "ok": true, "identity": identity }),

@@ -61,14 +61,18 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
     assert!(CANDIDATE.contains("target/qualification/receipt.json"));
     assert!(CANDIDATE.contains("name: Stage flat candidate part"));
     assert!(CANDIDATE.contains("path: candidate-part/"));
-    assert!(CANDIDATE.contains("candidate-aggregate.rh"));
+    assert!(CANDIDATE.contains("cli script \\\n            task run candidate-aggregate"));
+    assert!(!CANDIDATE.contains("candidate-aggregate.rh"));
+    assert!(!CANDIDATE.contains(" rh \\"));
     assert!(CANDIDATE.contains("python3 scripts/chassis-candidate-pack.py"));
     assert!(CANDIDATE.contains("candidate-input/agenterm-$version-chassis-product.tgz"));
     assert!(CANDIDATE.contains("name: Build thin Chassis-L1 loader"));
     assert!(CANDIDATE.contains("--features loader"));
     assert!(CANDIDATE.contains("python3 scripts/chassis-stage-l1-loader.py"));
     assert!(CANDIDATE.contains("--loader target/chassis-l1-loader"));
-    assert!(CANDIDATE.contains("--project-root . --"));
+    assert!(
+        CANDIDATE.contains("task run candidate-aggregate --manifest agenterm.tasks.json -- \\")
+    );
     assert!(CANDIDATE.contains("path: candidate-output/"));
     assert!(!CANDIDATE.contains(".agenterm-rhai.bin"));
     assert!(!CANDIDATE.contains("scripts/rhai/check.rhai"));
@@ -139,7 +143,9 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(PROMOTION.contains("conclusion"));
     assert!(PROMOTION.contains("head_sha"));
     assert!(PROMOTION.contains("publish-$tag"));
-    assert!(PROMOTION.contains("candidate-verify.rh"));
+    assert!(PROMOTION.contains("task run candidate-verify"));
+    assert!(!PROMOTION.contains("candidate-verify.rh"));
+    assert!(!PROMOTION.contains(" rh \\"));
     // H1: pure-derive releases.json during verify + publish (not a second truth).
     assert!(PROMOTION.contains("task run build-releases-index"));
     assert!(!PROMOTION.contains("build-releases-index.rhai"));
@@ -156,7 +162,8 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(PROMOTION.contains("--verify-tag"));
     assert!(PROMOTION.contains("Recovering exact unpublished draft"));
     assert!(PROMOTION.contains("agenterm-promotion-identity"));
-    assert!(PROMOTION.contains("scripts/rh/promotion-identity.rh"));
+    assert!(PROMOTION.contains("task run promotion-identity"));
+    assert!(!PROMOTION.contains("scripts/rh/promotion-identity.rh"));
     assert!(PROMOTION.contains("agenterm-promotion:v1 candidate_run_id="));
     assert!(PROMOTION.contains("body_sha256"));
     assert!(PROMOTION.contains("[[ \"$(jq -r .body <<<\"$release\")\" == \"$release_body\" ]]"));

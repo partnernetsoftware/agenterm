@@ -22,16 +22,15 @@ use platform::ConcurrencyPermit;
 pub(crate) mod persistent;
 
 /// Argv prefix that routes a `Command::new(<main agenterm PE>)` invocation
-/// into the in-process rh/lua/qjs/sql multi-engine worker host
-/// (`script_rh_cli_main::run_main`'s `--worker`/`--framed-worker` handling),
-/// instead of spawning the retired standalone `agenterm-rh` binary. The
-/// worker itself picks its actual script engine (rh/lua/qjs/sql) at runtime
-/// from `AGENTERM_SCRIPT_BACKEND` (see `configure_script_backend` below) —
-/// "rh" here is only the fixed entry-point token consumed by
-/// `src/bin/agenterm.rs`'s `__agenterm-internal-engine` dispatch, not a
-/// commitment to the rh engine. See `src/bin/agenterm.rs`'s
-/// `INTERNAL_ENGINE_SUBCOMMAND` and `ENGINE_SUBCOMMANDS`.
-pub(crate) const SCRIPT_WORKER_ENGINE_ARGS: [&str; 2] = ["__agenterm-internal-engine", "rh"];
+/// into the in-process multi-engine worker host
+/// (`script_worker_cli::run_main`'s `--worker`/`--framed-worker` handling).
+/// The worker itself picks its actual script engine (lua/sql/qjswasm) per
+/// invocation from `ScriptBackend::resolve` -- `worker` here is only the
+/// fixed entry-point token consumed by `src/bin/agenterm.rs`'s
+/// `__agenterm-internal-engine` dispatch. It was spelled `rh` until
+/// 2026-08-29, when that engine left the repository; the token was re-pointed
+/// because every engine's hosted invocations travel through it.
+pub(crate) const SCRIPT_WORKER_ENGINE_ARGS: [&str; 2] = ["__agenterm-internal-engine", "worker"];
 
 pub(crate) const PROCESS_CONCURRENCY_LIMIT: usize = 2;
 pub(crate) const GLOBAL_CONCURRENCY_LIMIT: usize = 8;
@@ -345,11 +344,12 @@ fn configure_script_backend(command: &mut Command) {
 /// point of decision (`resolve`'s final fallback) instead of being stamped
 /// into the environment ahead of it.
 ///
-/// The `rhai` -> `rh` normalisation stays here: that is a rename, not a
-/// default, and it has to happen wherever the name is passed on.
+/// Nothing is normalised here any more: `rhai` used to be rewritten to `rh`
+/// in passing, and both names are now refused by the worker itself
+/// (`ScriptBackend::RETIRED_BACKEND_NAMES`) with a sentence saying where the
+/// engine went. Rewriting the name here would hide that sentence.
 fn script_backend_environment(inherited: Option<OsString>) -> Option<OsString> {
     match inherited {
-        Some(value) if value == "rhai" => Some(OsString::from("rh")),
         Some(value) if value.is_empty() => None,
         Some(value) => Some(value),
         None => None,
@@ -415,7 +415,6 @@ fn read_frame(mut input: impl Read) -> Result<ScriptFrame, SupervisorError> {
 mod tests {
     use super::*;
 
-    #[test]
     /// An unset parent leaves the worker unset, and that is load-bearing.
     ///
     /// This asserted `None -> "rh"` until 2026-08-28. Stamping the default into
@@ -425,9 +424,10 @@ mod tests {
     /// reach its second rule. Extension routing was dead code for the life of
     /// the product because of this one line.
     ///
-    /// The `rhai` -> `rh` normalisation is a rename, not a default, and stays.
+    /// A retired name passes through untouched so the worker can refuse it
+    /// by name; normalising it here would turn a departure into a typo.
     #[test]
-    fn worker_backend_stays_unset_when_unset_and_normalizes_retired_rhai() {
+    fn worker_backend_stays_unset_when_unset_and_passes_retired_names_through() {
         assert_eq!(
             script_backend_environment(None),
             None,
@@ -440,7 +440,7 @@ mod tests {
         );
         assert_eq!(
             script_backend_environment(Some(OsString::from("rhai"))),
-            Some(OsString::from("rh"))
+            Some(OsString::from("rhai"))
         );
         #[cfg(feature = "script-lua")]
         assert_eq!(

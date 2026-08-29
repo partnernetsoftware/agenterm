@@ -41,7 +41,6 @@ Usage:
   agenterm-cc inspect --tab @ID [--json] [--instance NAME] [--endpoint ENDPOINT]
   agenterm-cc select --tab @ID [--json] [--instance NAME] [--endpoint ENDPOINT]
   agenterm-cc screenshot --output PATH [--json]
-  agenterm-cc rh-pack --path PATH [--json]
   agenterm-cc capabilities [--json]
   agenterm-cc --help
   agenterm-cc --version
@@ -89,10 +88,6 @@ enum EntryCommand {
     Screenshot {
         json: bool,
         output: PathBuf,
-    },
-    RhPack {
-        json: bool,
-        path: PathBuf,
     },
 }
 
@@ -1194,13 +1189,12 @@ fn parse_entry(args: &[OsString]) -> std::result::Result<EntryCommand, String> {
     let mut migration_endpoint = None;
     let mut migration_instance = None;
     let mut screenshot_output = None;
-    let mut rh_pack_path = None;
     let mut tab_target = None;
     let mut position = 0;
     while position < values.len() {
         match values[position].as_ref() {
             "--endpoint" | "--instance" | "--server-endpoint" | "--logical-instance" | "--tab"
-            | "--output" | "--path" => {
+            | "--output" => {
                 let option = values[position].as_ref();
                 let Some(value) = values.get(position + 1) else {
                     return Err(format!("{option} requires a value"));
@@ -1214,19 +1208,6 @@ fn parse_entry(args: &[OsString]) -> std::result::Result<EntryCommand, String> {
                         .is_some()
                     {
                         return Err("--output may be specified only once".to_owned());
-                    }
-                    position += 2;
-                    continue;
-                }
-                if option == "--path" {
-                    if value.is_empty() {
-                        return Err("--path requires a non-empty path".to_owned());
-                    }
-                    if rh_pack_path
-                        .replace(PathBuf::from(value.as_ref()))
-                        .is_some()
-                    {
-                        return Err("--path may be specified only once".to_owned());
                     }
                     position += 2;
                     continue;
@@ -1382,16 +1363,6 @@ fn parse_entry(args: &[OsString]) -> std::result::Result<EntryCommand, String> {
             Err("screenshot targets the exact live Control Center registry owner; endpoint selectors are not valid".to_owned())
         }
         ["screenshot"] => Err("--no-activate is valid only for open".to_owned()),
-        ["rh-pack"] if !explicit_no_activate && context.is_none() && rh_pack_path.is_some() => {
-            Ok(EntryCommand::RhPack {
-                json,
-                path: rh_pack_path.expect("guarded above"),
-            })
-        }
-        ["rh-pack"] if rh_pack_path.is_none() => Err("rh-pack requires --path PATH".to_owned()),
-        ["rh-pack"] if context.is_some() => {
-            Err("rh-pack does not accept endpoint selectors".to_owned())
-        }
         [] | ["open"] => {
             Err(
                 "--json is valid only for capabilities, snapshot, inspect, select, or screenshot"
@@ -1522,30 +1493,6 @@ fn run_entry(command: EntryCommand) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&document)?);
             } else {
                 println!("{}", document.output);
-            }
-        }
-        EntryCommand::RhPack { json, path } => {
-            let pack = crate::script_rh_pack::load_rh_pack(&path)
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
-            // Running is explicit and registers the host callbacks first; it is
-            // never a side effect of loading (see `load_rh_pack`).
-            let entry_value = crate::script_rh_pack::run_rh_pack_entry(&path)
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&crate::script_rh_pack::rh_pack_document(
-                        &pack,
-                        Some(entry_value)
-                    ))?
-                );
-            } else {
-                println!("rh pack loaded: {}", path.display());
-                println!("native_hash={}", pack.native_hash);
-                println!("entry={entry_value}");
-                for line in &pack.cc_lines {
-                    println!("cc: {line}");
-                }
             }
         }
         EntryCommand::Open {
@@ -2768,7 +2715,6 @@ struct ProductShellHost {
         mpsc::Receiver<Result<TabNavigationDocument, String>>,
     )>,
     queued_navigation: Option<String>,
-    rh_pack: Option<crate::script_rh_pack::LoadedRhPack>,
 }
 
 impl ProductShellHost {
@@ -2785,7 +2731,6 @@ impl ProductShellHost {
             last_native_input: None,
             pending_navigation: None,
             queued_navigation: None,
-            rh_pack: crate::script_rh_pack::cached_rh_pack().cloned(),
             owner,
         }
     }
@@ -2895,10 +2840,7 @@ impl crate::platform::services::control_center_shell::ControlCenterShellHost for
             self.selected_tab_id.as_deref(),
             self.navigation_status.as_deref(),
         );
-        match &self.rh_pack {
-            Some(pack) => crate::script_rh_pack::append_cc_lines(presentation.lines, pack),
-            None => presentation.lines,
-        }
+        presentation.lines
     }
     fn poll(&mut self) -> bool {
         let changed = self.poll_navigation() | self.projection.poll();

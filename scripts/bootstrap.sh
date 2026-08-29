@@ -64,15 +64,15 @@ write_identity() {
         cargo -Vv
         printf '%s\n' 'tracked-index'
         git ls-files -s -- Cargo.toml Cargo.lock build.rs \
-            rust-toolchain.toml .cargo crates src docs/agenterm-rhai-runtime.md \
+            rust-toolchain.toml .cargo crates src docs/agenterm-rh-runtime.md \
             assets/agenterm.ico agenterm.tasks.json
         printf '%s\n' 'tracked-worktree'
         git diff --no-ext-diff --binary -- Cargo.toml Cargo.lock build.rs \
-            rust-toolchain.toml .cargo crates src docs/agenterm-rhai-runtime.md \
+            rust-toolchain.toml .cargo crates src docs/agenterm-rh-runtime.md \
             assets/agenterm.ico agenterm.tasks.json
         git ls-files --others --exclude-standard -- Cargo.toml Cargo.lock \
             build.rs rust-toolchain.toml .cargo crates src \
-            docs/agenterm-rhai-runtime.md assets/agenterm.ico \
+            docs/agenterm-rh-runtime.md assets/agenterm.ico \
             agenterm.tasks.json > "$UNTRACKED_FILE"
         printf '%s\n' 'untracked-paths'
         cat "$UNTRACKED_FILE"
@@ -137,7 +137,7 @@ else
             cp -- "$SOURCE" "$CACHE_TEMP"
             chmod +x "$CACHE_TEMP"
             cache_hash=$(git hash-object -- "$CACHE_TEMP")
-            "$CACHE_TEMP" rh version >/dev/null
+            "$CACHE_TEMP" --version >/dev/null
             printf '2 %s %s\n' "$AGENTERM_BOOTSTRAP_FINGERPRINT" "$cache_hash" > "$STAMP_TEMP"
             mv -f -- "$CACHE_TEMP" "$CACHE_WORKER"
             mv -f -- "$STAMP_TEMP" "$CACHE_STAMP"
@@ -184,7 +184,6 @@ if [ "$AGENTERM_BOOTSTRAP_OTHER_SETUP_MS" -lt 0 ]; then
     AGENTERM_BOOTSTRAP_OTHER_SETUP_MS=0
 fi
 AGENTERM_BOOTSTRAP_TIMING_SCHEMA=1
-export AGENTERM_SCRIPT_BACKEND=rh
 export AGENTERM_BOOTSTRAP_WORKER AGENTERM_BOOTSTRAP_CACHE_WORKER
 export AGENTERM_BOOTSTRAP_CACHE_STAMP
 export AGENTERM_BOOTSTRAP_PLATFORM
@@ -195,7 +194,10 @@ export AGENTERM_BOOTSTRAP_WORKER_COPY_MS AGENTERM_BOOTSTRAP_OTHER_SETUP_MS
 export AGENTERM_BOOTSTRAP_LOCK_WAIT_STATE AGENTERM_BOOTSTRAP_WORKER_STATE
 export AGENTERM_BOOTSTRAP_FINGERPRINT
 
-"$WORKER" rh task run "$AGENTERM_BOOTSTRAP_TASK" \
+# The task's entry extension picks the engine. The rh engine that used to be
+# forced here left the repository on 2026-08-29; the tasks it ran are dark
+# until their .qjs ports land (prd/PRD_02_10_rhai_scripting.md).
+"$WORKER" cli script task run "$AGENTERM_BOOTSTRAP_TASK" \
     --manifest "$REPO/agenterm.tasks.json" \
     -- "$@"
 AGENTERM_BOOTSTRAP_STATUS=$?

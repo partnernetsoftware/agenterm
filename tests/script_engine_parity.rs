@@ -3,18 +3,19 @@
 
 //! Cross-engine parity tests for the shared `check-many` driver
 //! (`agenterm_script_common::check_many`, re-exported unchanged through
-//! each of `agenterm-rh`, `agenterm-lua`, `agenterm-sql`).
+//! each of `agenterm-lua` and `agenterm-sql`).
 //!
-//! `agenterm-qjs` was a fourth engine here until it was archived; the driver
-//! is unchanged, so what its row proved -- that a shared driver stays shared
-//! -- is proved by the three that remain.
+//! `agenterm-qjs` was a fourth engine here until it was archived, and
+//! `agenterm-rh` a third until it left the repository on 2026-08-29; the
+//! driver is unchanged, so what their rows proved -- that a shared driver
+//! stays shared -- is proved by the two that remain.
 //!
 //! `CheckManyManifest` / `CheckManyOptions` / `CheckManyReport` are the same
-//! type across all four engines now (each crate does a bare
-//! `pub use agenterm_script_common::check_many::{...}`), so this file
-//! standardizes on `agenterm_rh::check_many`'s re-export for the shared
-//! types and only reaches into each engine's own `check_many` module for
-//! the per-engine `read_manifest` / `run_check_many` entry points.
+//! type across every engine (each crate does a bare
+//! `pub use agenterm_script_common::check_many::{...}`), so this file takes
+//! the shared types from `agenterm_script_common` itself and only reaches
+//! into each engine's own `check_many` module for the per-engine
+//! `read_manifest` / `run_check_many` entry points.
 //!
 //! `agenterm-sql` (see `crates/agenterm-sql/src/lib.rs`'s module doc) is a
 //! fourth backend whose `execute` is still a fail-closed placeholder — but
@@ -38,7 +39,7 @@
 use std::fs;
 use std::path::Path;
 
-use agenterm_rh::check_many::{CheckManyManifest, CheckManyOptions, CheckManyReport};
+use agenterm_script_common::check_many::{CheckManyManifest, CheckManyOptions, CheckManyReport};
 
 /// One engine's fixed facts needed to drive it through an identical
 /// structural scenario: its manifest `kind`, its source file extension, a
@@ -62,11 +63,6 @@ struct EngineSpec {
     read_and_run: fn(&Path, CheckManyOptions) -> Result<CheckManyReport, String>,
 }
 
-fn rh_read_and_run(path: &Path, options: CheckManyOptions) -> Result<CheckManyReport, String> {
-    let manifest = agenterm_rh::check_many::read_manifest(path).map_err(|err| err.to_string())?;
-    Ok(agenterm_rh::check_many::run_check_many(manifest, options))
-}
-
 fn lua_read_and_run(path: &Path, options: CheckManyOptions) -> Result<CheckManyReport, String> {
     let manifest = agenterm_lua::check_many::read_manifest(path)?;
     Ok(agenterm_lua::check_many::run_check_many(manifest, options))
@@ -76,17 +72,6 @@ fn sql_read_and_run(path: &Path, options: CheckManyOptions) -> Result<CheckManyR
     let manifest = agenterm_sql::check_many::read_manifest(path).map_err(|err| err.to_string())?;
     Ok(agenterm_sql::check_many::run_check_many(manifest, options))
 }
-
-const RH: EngineSpec = EngineSpec {
-    name: "rh",
-    kind: "agenterm-rh-check-manifest",
-    ext: "rh",
-    valid_source: "40 + 2",
-    broken_source: "fn {{{",
-    read_and_run: rh_read_and_run,
-};
-
-const RH_LEGACY_RHAI_KIND: &str = "agenterm-rhai-check-manifest";
 
 const LUA: EngineSpec = EngineSpec {
     name: "lua",
@@ -110,8 +95,8 @@ const SQL: EngineSpec = EngineSpec {
     read_and_run: sql_read_and_run,
 };
 
-fn engines() -> [EngineSpec; 3] {
-    [RH, LUA, SQL]
+fn engines() -> [EngineSpec; 2] {
+    [LUA, SQL]
 }
 
 /// Write a check-many manifest JSON with the given `kind` and file labels
@@ -341,13 +326,9 @@ fn per_file_source_budget() {
 #[test]
 fn wrong_manifest_kind_rejected_by_each_reader() {
     // Each engine's read_manifest must reject the *other* engines' kind
-    // strings. 4 readers x 3 "other" kinds each = the 4x4 cross-kind
-    // rejection matrix (minus the 4 diagonal "own kind" cells, covered by
-    // the per-reader sanity check below instead).
-    let readers: [(&str, ManifestReader); 3] = [
-        ("rh", |p| {
-            agenterm_rh::check_many::read_manifest(p).map_err(|e| e.to_string())
-        }),
+    // strings: the cross-kind rejection matrix, minus the diagonal "own
+    // kind" cells, covered by the per-reader sanity check below instead.
+    let readers: [(&str, ManifestReader); 2] = [
         ("lua", agenterm_lua::check_many::read_manifest),
         ("sql", |p| {
             agenterm_sql::check_many::read_manifest(p).map_err(|e| e.to_string())
@@ -380,14 +361,4 @@ fn wrong_manifest_kind_rejected_by_each_reader() {
             "{name}: expected own kind to be accepted"
         );
     }
-
-    // Deliberate compat lock-in: rh additionally accepts the legacy rhai
-    // manifest kind (thin-forward compat, documented in
-    // crates/agenterm-rh/src/check_many.rs).
-    let dir = tempfile::tempdir().expect("tempdir");
-    fs::write(dir.path().join("a.rh"), RH.valid_source).unwrap();
-    let manifest_path = write_manifest(dir.path(), RH_LEGACY_RHAI_KIND, &["a.rh"]);
-    let manifest = agenterm_rh::check_many::read_manifest(&manifest_path)
-        .expect("rh accepts legacy rhai kind");
-    assert_eq!(manifest.kind, RH_LEGACY_RHAI_KIND);
 }

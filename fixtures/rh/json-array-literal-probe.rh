@@ -1,5 +1,0 @@
-fn entry() {
-    let doc = rh::json::parse("{\"a\":1,\"b\":2}");
-    let pair = [doc.a, doc.b];
-    pair.len
-}

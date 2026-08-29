@@ -154,16 +154,11 @@ struct Engine {
     wrong_kind_check_many_exit: i32,
 }
 
-const RH: Engine = Engine {
-    name: "rh",
-    ext: "rh",
-    kind: "agenterm-rh-check-manifest",
-    valid_source: "40 + 2",
-    broken_source: "fn {{{",
-    check_broken_exit: 1,
-    unknown_verb_exit: 1,
-    wrong_kind_check_many_exit: 2,
-};
+// `RH` was the first row here until the rh engine left the repository on
+// 2026-08-29 (partnernetsoftware/rh). `agenterm rh <verb>` still answers --
+// with where the verbs went, asserted in
+// [`rh_alias_is_retired_and_names_where_its_verbs_went`] -- but it is no
+// longer an engine to hold to parity.
 
 const LUA: Engine = Engine {
     name: "lua",
@@ -216,8 +211,8 @@ const SQL: Engine = Engine {
 /// test -- [`qjs_alias_is_retired_and_names_where_its_verbs_went`] -- because
 /// what is worth asserting about a retired alias is that it says where its
 /// verbs went, not that it still answers them.
-fn engines() -> [Engine; 3] {
-    [RH, LUA, SQL]
+fn engines() -> [Engine; 2] {
+    [LUA, SQL]
 }
 
 /// SUB-M4's invocation axis (`plan/archive/design-script-engine-subcommands.md`
@@ -643,7 +638,39 @@ fn unknown_verb_rejected() {
     }
 }
 
-// ── 5b. qjs's `task` stub is an honest failure, not a silent success ────
+// ── 5b. the retired aliases are honest failures, not silent successes ────
+
+/// `agenterm rh <verb>` is retired, and says where the engine and the verbs
+/// went. The engine left this repository on 2026-08-29; the alias stays so
+/// the old invocation is answered rather than opening a window.
+#[test]
+fn rh_alias_is_retired_and_names_where_its_verbs_went() {
+    let rh = Engine {
+        name: "rh",
+        ext: "rh",
+        kind: "agenterm-rh-check-manifest",
+        valid_source: "40 + 2",
+        broken_source: "fn {{{",
+        check_broken_exit: 2,
+        unknown_verb_exit: 2,
+        wrong_kind_check_many_exit: 2,
+    };
+    assert_parity_across_invocations(&rh, |engine, invocation| {
+        let output = run(engine, invocation, &["version"]);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{}/{invocation:?}: a retired alias exits 2; stderr={}",
+            engine.name,
+            stderr_lossy(&output)
+        );
+        let stderr = stderr_lossy(&output);
+        assert!(stderr.contains("partnernetsoftware/rh"), "{stderr}");
+        assert!(stderr.contains("agenterm cli script"), "{stderr}");
+        assert!(output.stdout.is_empty());
+        output
+    });
+}
 
 /// `agenterm qjs <verb>` is retired, and says where every verb went.
 ///

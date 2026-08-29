@@ -103,8 +103,11 @@ impl Drop for EnvGuard {
 /// completion value where `agenterm-qjs` called a top-level `entry()` -- and
 /// the divergences this file exists to record change with them. Each one is
 /// re-stated where it is asserted rather than carried over.
-const ENGINES: [ScriptBackend; 4] = [
-    ScriptBackend::Rh,
+///
+/// `Rh` left this list on 2026-08-29, when the engine left the repository
+/// (partnernetsoftware/rh). Its rows below -- and the divergences that named
+/// it -- went with it; each finding is re-stated for the engines that remain.
+const ENGINES: [ScriptBackend; 3] = [
     ScriptBackend::Lua,
     ScriptBackend::Qjswasm,
     ScriptBackend::Sql,
@@ -124,23 +127,6 @@ fn not_enabled_message(backend: ScriptBackend) -> String {
 #[test]
 fn script_engine_exec_parity_trivial_entry_value() {
     let _guard = ENV_LOCK.lock().expect("lock");
-
-    // rh: `fn entry() { 42 }` — verified fixture from src/script_engine.rs tests.
-    let rh_result = {
-        let _env = EnvGuard::set("rh");
-        engine_for(ScriptBackend::Rh)
-            .execute(
-                "fn entry() { 42 }",
-                &ScriptInvocationOptions::default(),
-                None,
-            )
-            .expect("rh execute should succeed")
-    };
-    assert_eq!(
-        rh_result.value,
-        Some(serde_json::json!(42)),
-        "rh: fn entry() {{ 42 }} should yield Some(42)"
-    );
 
     // lua: `return 42` — lua's native i64 result is widened via
     // `serde_json::Value::from` by `LuaEngineBackend::execute`.
@@ -169,9 +155,9 @@ fn script_engine_exec_parity_trivial_entry_value() {
         "qjs: function entry() {{ return 42; }} should yield Some(42)"
     );
 
-    // PARITY FINDING: all three engines agree — the trivial 42-program
-    // returns `Some(json!(42))` through the unified trait layer for rh,
-    // lua, and qjs alike. No divergence on this dimension.
+    // PARITY FINDING: both engines agree — the trivial 42-program returns
+    // `Some(json!(42))` through the unified trait layer for lua and qjs
+    // alike. No divergence on this dimension.
 }
 
 // ---------------------------------------------------------------------
@@ -181,29 +167,6 @@ fn script_engine_exec_parity_trivial_entry_value() {
 #[test]
 fn script_engine_exec_parity_stdout_capture() {
     let _guard = ENV_LOCK.lock().expect("lock");
-
-    // rh: `print(...)` is a real builtin (`rh_print` -> host utility
-    // `RH_HOST_UTILITY_PRINT` -> `RhOutputCapture::push_line`, which
-    // *always* appends a trailing '\n' per call — see
-    // src/script_rh_run.rs:31-45). This is distinct from rh's *other*
-    // stdout source, `cc_lines()` (an AOT compile-time constant-folded
-    // export appended by `try_execute_rh_invocation` after the capture) —
-    // not exercised here since it isn't a "print mechanism" in the other
-    // two engines' sense.
-    let rh = {
-        let _env = EnvGuard::set("rh");
-        engine_for(ScriptBackend::Rh)
-            .execute(
-                "fn entry() { print(\"hi\"); 0 }",
-                &ScriptInvocationOptions::default(),
-                None,
-            )
-            .expect("rh execute should succeed")
-    };
-    assert_eq!(
-        rh.stdout, "hi\n",
-        "rh: print(\"hi\") should capture \"hi\\n\""
-    );
 
     // lua: native `print` is overridden to append to the captured buffer,
     // one '\n' appended per call (crates/agenterm-lua/src/lib.rs:281-296).
@@ -239,7 +202,7 @@ fn script_engine_exec_parity_stdout_capture() {
         "qjs: print('hi') should capture \"hi\\n\""
     );
 
-    // PARITY FINDING: all three engines produce byte-identical stdout
+    // PARITY FINDING: both engines produce byte-identical stdout
     // ("hi\n") for the equivalent one-line-print program — same text, same
     // single trailing-newline convention. No divergence on this dimension.
 }
@@ -259,14 +222,9 @@ fn script_engine_exec_parity_check_accepts_valid_rejects_broken() {
     }
 
     // Same fixtures as src/script_engine.rs's own `#[cfg(test)]` module
-    // (RH_VALID_SOURCE/RH_BROKEN_SOURCE etc.) — copied here since those
+    // (LUA_VALID_SOURCE/LUA_BROKEN_SOURCE etc.) — copied here since those
     // consts are private to that module.
     let fixtures = [
-        CheckFixture {
-            backend: ScriptBackend::Rh,
-            valid: "fn entry() { 42 }",
-            broken: "fn entry() { 1 ",
-        },
         CheckFixture {
             backend: ScriptBackend::Lua,
             valid: "return 42",
@@ -278,9 +236,9 @@ fn script_engine_exec_parity_check_accepts_valid_rejects_broken() {
             broken: "return 1 +",
         },
         // sql: same fixtures as `src/script_engine.rs`'s own `#[cfg(test)]`
-        // `SQL_VALID_SOURCE`/`SQL_BROKEN_SOURCE` consts. Unlike the other
-        // three, sql's `check` needs no `fn`/`function entry()` wrapper at
-        // all — it's bare SQL parsed statement-by-statement.
+        // `SQL_VALID_SOURCE`/`SQL_BROKEN_SOURCE` consts. sql's `check` needs
+        // no entry wrapper at all — it's bare SQL parsed
+        // statement-by-statement.
         CheckFixture {
             backend: ScriptBackend::Sql,
             valid: "SELECT 1;",
@@ -313,7 +271,7 @@ fn script_engine_exec_parity_check_accepts_valid_rejects_broken() {
         );
     }
 
-    // PARITY FINDING: all four engines agree on the check() contract —
+    // PARITY FINDING: all three engines agree on the check() contract —
     // Ok(()) for valid source, Err(non-empty diagnostic) for broken source.
     // sql joining this scenario is not a coincidence: its check() is real
     // (delegates to `sqlparser`), so it was always going to hold up here —
@@ -329,33 +287,13 @@ fn script_engine_exec_parity_check_accepts_valid_rejects_broken() {
 fn script_engine_exec_parity_execute_missing_entry_fails_closed() {
     let _guard = ENV_LOCK.lock().expect("lock");
 
-    // rh: no `fn entry()` at all. `agenterm_rh::check()` (used by
-    // `check()`/`ScriptOperation::Check`) does NOT require `fn entry()` —
-    // `tests/script_engine_parity.rs` even uses bare "40 + 2" as rh's
-    // check-many *valid* source. But `execute()` goes through
-    // `transpile_cdylib_with_mode`, which explicitly requires it
-    // (crates/agenterm-rh/src/transpile.rs:267-269:
-    // "cdylib pack requires fn entry()"). So rh's fail-closed-ness is
-    // execute()-specific, not check()-specific.
-    let rh_error = {
-        let _env = EnvGuard::set("rh");
-        engine_for(ScriptBackend::Rh)
-            .execute("40 + 2", &ScriptInvocationOptions::default(), None)
-            .expect_err("rh: source without fn entry() should fail closed on execute")
-    };
-    assert!(
-        rh_error.contains("entry"),
-        "rh: missing-entry error should mention entry(), got: {rh_error}"
-    );
-
     // lua: DOCUMENTED CONTRACT DIVERGENCE. Lua has no separate "entry
     // function" concept at all — the whole script chunk *is* the entry
     // point, and `LuaEngine::eval`'s `value_to_i64` (crates/agenterm-lua/
     // src/lib.rs:322-335) maps a `nil` result (i.e. no explicit `return`)
     // to `0` rather than erroring. So a lua script with no return value
-    // does NOT fail closed the way rh/qjs do — it silently succeeds with
-    // value 0. This is real lua behavior, asserted here rather than
-    // papered over.
+    // does NOT fail closed — it silently succeeds with value 0. This is
+    // real lua behavior, asserted here rather than papered over.
     let lua_result = {
         let _env = EnvGuard::set("lua");
         engine_for(ScriptBackend::Lua)
@@ -388,22 +326,17 @@ fn script_engine_exec_parity_execute_missing_entry_fails_closed() {
         "qjswasm: the completion value is the result"
     );
 
-    // DIVERGENCE FOUND, and it **moved** when the qjs slot in this file
-    // became qjswasm on 2026-08-26.
+    // DIVERGENCE RETIRED, in two moves.
     //
     // It used to read: rh and qjs both fail closed on a missing entry point,
-    // each with its own wording, but lua has no such contract. Two of three
-    // fail closed.
-    //
-    // It now reads: **only rh fails closed.** lua's chunk is the program and
-    // qjswasm's script is the program, so for both of them "no entry point"
-    // is not a state that exists -- lua answers `0` and qjswasm answers the
-    // completion value. A caller relying on "missing entry point ==
-    // execute() error" is correct for rh alone.
-    //
-    // Worth stating rather than quietly updating: the engine that replaced
-    // qjs took the *opposite* side of this divergence, and a caller who was
-    // written against the old majority is the one this breaks.
+    // each with its own wording, but lua has no such contract. When the qjs
+    // slot became qjswasm on 2026-08-26 it read: only rh fails closed. When
+    // rh left the repository on 2026-08-29 the last fail-closed engine went
+    // with it: lua's chunk is the program and qjswasm's script is the
+    // program, so for both of them "no entry point" is not a state that
+    // exists -- lua answers `0` and qjswasm answers the completion value.
+    // A caller relying on "missing entry point == execute() error" is now
+    // correct for no engine at all.
 }
 
 // ---------------------------------------------------------------------
@@ -439,9 +372,9 @@ fn script_engine_exec_parity_disabled_backend_errors() {
         }
     }
 
-    // PARITY FINDING: all four engines agree on the "disabled backend"
+    // PARITY FINDING: all three engines agree on the "disabled backend"
     // contract — same message shape (`"{backend} backend not enabled"`)
-    // for all twelve (enabled, other) pairings, and the check never even
+    // for all six (enabled, other) pairings, and the check never even
     // reaches parsing the (deliberately garbage) source. This holds for sql
     // too even though its execute() is otherwise a placeholder: the
     // enabled()-gate runs before anything execute-shaped is attempted.
@@ -455,29 +388,8 @@ fn script_engine_exec_parity_disabled_backend_errors() {
 fn script_engine_exec_parity_error_not_panic() {
     let _guard = ENV_LOCK.lock().expect("lock");
 
-    // rh: calling an undefined function. rh is AOT-compiled to native
-    // code with statically-resolved calls, so this is NOT a "runtime
-    // exception" the way lua/qjs would surface one — it fails during
-    // execute()'s compile step (loaded_pack_for_source_with_project ->
-    // transpile), before any native code ever runs. Still: Err, not a
-    // panic, and the diagnostic names the offending symbol.
-    let rh_error = {
-        let _env = EnvGuard::set("rh");
-        engine_for(ScriptBackend::Rh)
-            .execute(
-                "fn entry() { undefined_fn_xyz() }",
-                &ScriptInvocationOptions::default(),
-                None,
-            )
-            .expect_err("rh: calling an undefined function should error, not panic")
-    };
-    assert!(
-        rh_error.contains("undefined_fn_xyz"),
-        "rh: error should name the unresolved symbol, got: {rh_error}"
-    );
-
-    // lua: `error('boom')` is a genuine *runtime* error (unlike rh's
-    // compile-time rejection above) — LuaEngine::eval turns it into
+    // lua: `error('boom')` is a genuine *runtime* error — LuaEngine::eval
+    // turns it into
     // `LuaError::Runtime(e.to_string())`, and mlua's rendering embeds the
     // original message text.
     let lua_error = {
@@ -525,7 +437,7 @@ fn script_engine_exec_parity_error_not_panic() {
     // sql: querying a table that doesn't exist. This parses fine (it's
     // syntactically valid SQL) and fails only when SQLite actually tries to
     // resolve `does_not_exist` at execution time — same "error, not panic"
-    // contract as the other three, enrolled directly (design doc §4: no new
+    // contract as the other two, enrolled directly (design doc §4: no new
     // scenario needed for this one).
     let sql_error = {
         let _env = EnvGuard::set("sql");
@@ -542,17 +454,16 @@ fn script_engine_exec_parity_error_not_panic() {
         "sql: error should name the unresolved table, got: {sql_error}"
     );
 
-    // DIVERGENCE FOUND: none of the four panics — all four fail closed
+    // DIVERGENCE FOUND: none of the three panics — all three fail closed
     // with `Err(String)` carrying a real diagnostic, so the trait-level
     // "error, not panic" contract holds uniformly. But *when* the error
     // occurs differs qualitatively: lua/qjs raise genuine runtime
-    // exceptions from a running script, rh's equivalent "calling
-    // something that doesn't exist" case is caught at AOT compile time
-    // before rh ever executes a single instruction, and sql's is caught by
-    // SQLite at statement-execution time (not sqlparser's parse time — the
-    // statement is syntactically valid SQL). A caller cannot assume "the
-    // program started running" from "execute() returned Err" uniformly
-    // across all four engines.
+    // exceptions from a running script, while sql's is caught by SQLite at
+    // statement-execution time (not sqlparser's parse time — the statement
+    // is syntactically valid SQL). rh's compile-time rejection, before a
+    // single instruction ran, left with that engine. A caller cannot assume
+    // "the program started running" from "execute() returned Err" uniformly
+    // across engines.
 }
 
 // ---------------------------------------------------------------------
@@ -606,7 +517,7 @@ fn script_engine_exec_parity_sql_stdout_is_empty() {
 /// "missing" to apply to. The closest analogue — a script with no
 /// result-producing statement at all (empty script, or only DDL/DML) — is a
 /// DOCUMENTED fail-*open*-to-`None` contract (design doc §4: "建议 M1 决定
-/// 空 value 用 None 而不是报错"), the mirror image of rh/qjs's fail-closed
+/// 空 value 用 None 而不是报错"), the mirror image of rh's former fail-closed
 /// missing-entry error and closer in spirit to lua's fail-open-to-0 (but
 /// sql uses `None`, not a fabricated `0`, to keep "no result" distinguishable
 /// from "a result that happens to be falsy/zero").

@@ -41,7 +41,7 @@ fn main() {
 
     // Embed the icon into every bin EXCEPT agenterm-com. The icon .rsrc is
     // ~59KiB and the trampoline's staged-size budget is 64KiB total
-    // (scripts/artifacts.json, enforced by stage-build.rh in every profile);
+    // (scripts/artifacts.json, enforced by the stage-build task in every profile);
     // its code is ~15KiB, so the icon alone is what would blow the budget.
     //
     // winresource only offers compile(), which emits a GLOBAL

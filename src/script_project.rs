@@ -2,13 +2,8 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
-    sync::Mutex,
 };
 
-use rhai::{
-    AST, Dynamic, Engine, EvalAltResult, Module, ModuleResolver, Position, Shared,
-    module_resolvers::FileModuleResolver,
-};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -213,117 +208,12 @@ pub struct ResolvedScriptTask {
     pub budget: Option<ScriptTaskBudget>,
 }
 
-pub struct ProjectModuleResolver {
-    root: PathBuf,
-    files: FileModuleResolver,
-    resolving: Mutex<HashSet<PathBuf>>,
-}
-
-impl ProjectModuleResolver {
-    pub fn new(root: &Path) -> Result<Self, String> {
-        let root = fs::canonicalize(root)
-            .map_err(|error| format!("script_project_root: {}: {error}", root.display()))?;
-        if !root.is_dir() {
-            return Err(format!(
-                "script_project_root: {} is not a directory",
-                root.display()
-            ));
-        }
-        Ok(Self {
-            // Explicit extension: rhai's default is `.rhai`, which silently
-            // broke every `import` after the repo-wide `.rh` rename.
-            files: FileModuleResolver::new_with_path_and_extension(&root, "rh"),
-            root,
-            resolving: Mutex::new(HashSet::new()),
-        })
-    }
-
-    fn checked_path(&self, path: &str, position: Position) -> Result<PathBuf, Box<EvalAltResult>> {
-        if path.is_empty()
-            || path.len() > 4096
-            || Path::new(path).is_absolute()
-            || Path::new(path).components().any(|component| {
-                matches!(
-                    component,
-                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
-                )
-            })
-        {
-            return Err(EvalAltResult::ErrorRuntime(
-                Dynamic::from(format!(
-                    "script_module_root_escape: import must be relative to the project root: {path}"
-                )),
-                position,
-            )
-            .into());
-        }
-        let mut candidate = self.root.join(path);
-        candidate.set_extension("rh");
-        if let Ok(canonical) = fs::canonicalize(&candidate) {
-            if !canonical.starts_with(&self.root) {
-                return Err(EvalAltResult::ErrorRuntime(
-                    Dynamic::from(format!(
-                        "script_module_root_escape: import resolves outside the project root: {path}"
-                    )),
-                    position,
-                )
-                .into());
-            }
-            return Ok(canonical);
-        }
-        Ok(candidate)
-    }
-}
-
-impl ModuleResolver for ProjectModuleResolver {
-    fn resolve(
-        &self,
-        engine: &Engine,
-        source: Option<&str>,
-        path: &str,
-        position: Position,
-    ) -> Result<Shared<Module>, Box<EvalAltResult>> {
-        let checked = self.checked_path(path, position)?;
-        {
-            let mut resolving = self.resolving.lock().map_err(|_| {
-                Box::<EvalAltResult>::from("script_module_state: resolver lock poisoned")
-            })?;
-            if !resolving.insert(checked.clone()) {
-                return Err(EvalAltResult::ErrorRuntime(
-                    Dynamic::from(format!("script_module_cycle: {path}")),
-                    position,
-                )
-                .into());
-            }
-        }
-        let result = self.files.resolve(engine, source, path, position);
-        if let Ok(mut resolving) = self.resolving.lock() {
-            resolving.remove(&checked);
-        }
-        result
-    }
-
-    fn resolve_ast(
-        &self,
-        engine: &Engine,
-        source: Option<&str>,
-        path: &str,
-        position: Position,
-    ) -> Option<Result<AST, Box<EvalAltResult>>> {
-        if let Err(error) = self.checked_path(path, position) {
-            return Some(Err(error));
-        }
-        self.files.resolve_ast(engine, source, path, position)
-    }
-}
-
-pub fn validate_project_imports(
-    _engine: &Engine,
-    root: &Path,
-    source: &str,
-) -> Result<Vec<String>, String> {
-    agenterm_rh::project_import::validate_project_imports(root, source)
-}
+// `ProjectModuleResolver` and `validate_project_imports` lived here until
+// 2026-08-29: a rhai `ModuleResolver` confining `import` to the project root,
+// and the rh crate's static import validation. Both left with the rh engine.
+// The `.qjs` engine resolves its own imports in
+// `script_engine::qjs_module_resolver`, which keeps the same root-confinement
+// rule.
 
 pub fn discover_task_manifest(start: &Path) -> Result<PathBuf, String> {
     let mut current = if start.is_dir() {
@@ -1256,38 +1146,6 @@ mod tests {
             assert_eq!(task.status, ScriptTaskStatus::Degraded);
             assert_eq!(task.degraded_reason.as_deref(), Some(reason));
         }
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn module_resolver_loads_root_relative_modules_and_rejects_escape() {
-        let (root, _) = fixture();
-        fs::write(root.join("scripts/math.rh"), "export const answer = 42;").unwrap();
-        let mut engine = Engine::new();
-        engine.set_module_resolver(ProjectModuleResolver::new(&root).unwrap());
-        assert_eq!(
-            engine
-                .eval::<rhai::INT>(r#"import "scripts/math" as math; math::answer"#)
-                .unwrap(),
-            42
-        );
-        let error = engine
-            .eval::<Dynamic>(r#"import "../outside" as outside;"#)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("script_module_root_escape"));
-
-        fs::write(root.join("compile-only.rh"), r#"throw "must not execute";"#).unwrap();
-        validate_project_imports(&engine, &root, r#"import "compile-only" as compile_only;"#)
-            .unwrap();
-
-        fs::write(root.join("cycle-a.rh"), r#"import "cycle-b" as b;"#).unwrap();
-        fs::write(root.join("cycle-b.rh"), r#"import "cycle-a" as a;"#).unwrap();
-        let error = engine
-            .compile_into_self_contained(&rhai::Scope::new(), r#"import "cycle-a" as cycle;"#)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("script_module_cycle"));
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,8 +1,0 @@
-fn entry() {
-    let ordered = [#{ id: 1 }, #{ id: 3 }];
-    let item = ordered[0];
-    if item.id != 1 {
-        return 1;
-    }
-    0
-}

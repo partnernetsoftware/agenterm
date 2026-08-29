@@ -658,7 +658,7 @@ if [[ -n "$SOURCE_COMMIT" ]]; then
   say "Supply-chain: commit=$SOURCE_COMMIT signed=${PROVENANCE_SIGNED:-?} notarized=${PROVENANCE_NOTARIZED:-?}"
 fi
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-  say "Add $BIN_DIR to PATH to use agenterm cli (mux/mcp subcommands) and agenterm rh (.rh tasks)"
+  say "Add $BIN_DIR to PATH to use agenterm cli (mux/mcp/script subcommands)"
 fi
 
 if command -v pgrep >/dev/null 2>&1 && pgrep -f '/agenterm( |$)' >/dev/null 2>&1; then

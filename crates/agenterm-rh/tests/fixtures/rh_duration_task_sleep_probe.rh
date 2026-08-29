@@ -1,4 +1,0 @@
-fn entry() {
-    rh::task::sleep(std::time::Duration::from_millis(1));
-    1
-}

@@ -1,8 +1,0 @@
-{
-  "schema": "agenterm.rh-pack-manifest/v1",
-  "rh_version": "0.1.16",
-  "source_hash": "c0bca02069bf2b73e53a7e9c0628cb70cd3c490be0fdd603b09fee9aa4d15be8",
-  "native_hash": "1fb51d3126df78c6b8066c2e4f9e09da2eb66f0113efdf032e72dab79a221adb",
-  "native_file": "six-cell-qualify.dylib",
-  "entry_symbol": "rh_entry"
-}

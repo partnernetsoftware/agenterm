@@ -1,9 +1,0 @@
-fn entry() {
-    let env = #{ unset: () };
-    let name = "unset";
-    let value = env[name];
-    if value == () {
-        return 0;
-    }
-    1
-}

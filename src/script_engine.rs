@@ -15,40 +15,27 @@
 //! outside this module's own tests referenced them (verified by grep across
 //! `src/`, `tests/`, `crates/`).
 //!
-//! `RhEngineBackend` is the one exception: it still delegates to
-//! `try_execute_rh_invocation` in `script_backend.rs`, which is NOT deleted
-//! and NOT folded here. `crates/agenterm-rh/src/main.rs` — compiled as the
-//! `agenterm-rh` *binary target of the root `agenterm` package* (see root
-//! `Cargo.toml`'s `[[bin]] name = "agenterm-rh" path =
-//! "crates/agenterm-rh/src/main.rs"`, distinct from the `agenterm-rh`
-//! library crate under `crates/agenterm-rh/`) — calls
-//! `agenterm::script_backend::try_execute_rh_invocation` directly and needs
-//! its typed `agenterm_rh::RhError` return (it propagates the error with
-//! `?` into its own `Result<_, RhError>`), which this trait's `String`-typed
-//! `ScriptEngineError` cannot losslessly round-trip. Folding rh's logic into
-//! `RhEngineBackend` while also keeping `try_execute_rh_invocation` for that
-//! caller would mean maintaining the same logic twice; keeping the existing
-//! thin-delegation shape for rh only avoids that duplication. See the M4
-//! task report for the full grep trail.
+//! `RhEngineBackend` was the one exception -- a thin delegation to
+//! `try_execute_rh_invocation` in `script_backend.rs` -- until the rh engine
+//! left this repository on 2026-08-29 (`partnernetsoftware/rh`). Every
+//! variant of `ScriptEngine` is now behind a feature; a build with none of
+//! them has an empty enum and answers every request with a named refusal
+//! (`script_backend::BackendRefusal`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::script_backend::{RhInvocationOptions, ScriptBackend, try_execute_rh_invocation};
-use crate::script_protocol::{ScriptBudgets, ScriptOperation};
+use crate::script_backend::ScriptBackend;
+use crate::script_protocol::ScriptBudgets;
 
 // ---------------------------------------------------------------------
 // §2.2 — shared types
 // ---------------------------------------------------------------------
 
-/// Shared invocation options across all three engines. Replaced the
-/// previously-duplicated `RhInvocationOptions`/`LuaInvocationOptions`/
-/// `QjsInvocationOptions`. Trait-M4 deleted the lua/qjs versions entirely
-/// (folded their logic in directly); `RhInvocationOptions` still exists in
-/// `script_backend.rs` — `RhEngineBackend` below converts into it — because
-/// `try_execute_rh_invocation` has a real external caller (see module doc).
+/// Shared invocation options across every engine. Replaced the
+/// previously-duplicated per-engine option structs.
 #[derive(Clone, Debug, Default)]
 pub struct ScriptInvocationOptions {
     pub project_root: Option<PathBuf>,
@@ -88,17 +75,14 @@ pub struct ScriptCost {
     pub peak_activation_slots: usize,
 }
 
-/// Unified error type. Trait boundary collapses `agenterm_rh::RhError`
-/// (typed enum) and lua/qjs's `String` down to `String` — see design §2.2
-/// "哪里不吸收" for the rationale (lossy but not a new loss: callers
-/// already flatten all three into `ScriptFailureCategory::Configuration`).
+/// Unified error type. Every engine's typed error collapses to `String` here
+/// -- see design §2.2 "哪里不吸收" for the rationale (lossy but not a new
+/// loss: callers already flatten them into
+/// `ScriptFailureCategory::Configuration`).
 pub type ScriptEngineError = String;
 
-/// Fleet bridge callback shared by all three engines: (operation_id,
-/// params_json) -> result_json. Unified to `Arc` (absorbs rh's `Box` vs
-/// lua/qjs's `Arc` asymmetry noted in design §1.3 finding 1); rh's adapter
-/// wraps this `Arc` in a closure to hand to `script_rh_host::FleetBridgeFn`
-/// (`Box`), since `script_rh_host.rs` itself is out of scope this phase.
+/// Fleet bridge callback shared by every engine: (operation_id,
+/// params_json) -> result_json.
 pub type ScriptFleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>;
 
 // ---------------------------------------------------------------------
@@ -118,14 +102,14 @@ pub trait ScriptEngineBackend {
     fn entry_extensions(&self) -> &'static [&'static str];
 
     /// Whether this engine is selected via `AGENTERM_SCRIPT_BACKEND`.
-    /// Default implementation reads the global `ScriptBackend::from_env()`.
+    /// Default implementation reads the global `ScriptBackend::from_env()`;
+    /// an unset variable selects nothing, so this is `false` for every engine.
     fn enabled(&self) -> bool {
-        ScriptBackend::from_env() == self.backend_id()
+        ScriptBackend::from_env().ok() == Some(self.backend_id())
     }
 
-    /// Check operation. `source` may be empty only for rh's cached-pack
-    /// deployment shape (see design §1.2 item 2) — non-rh engines return
-    /// `Err` on empty source without any special-casing at the trait level.
+    /// Check operation. Engines return `Err` on empty source without any
+    /// special-casing at the trait level.
     fn check(
         &self,
         source: &str,
@@ -269,24 +253,6 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 // §4 Trait-M2 — per-engine thin adapters
 // ---------------------------------------------------------------------
 
-/// Only rh still raises this, and only for the one case that is genuinely
-/// about availability rather than selection.
-///
-/// Every engine's `check`/`execute` opened with `if !self.enabled()` until
-/// 2026-08-28 -- a second gate that re-read `AGENTERM_SCRIPT_BACKEND` after
-/// the dispatcher had already chosen. Once selection gained a second input
-/// (the entry path, via `ScriptBackend::resolve`), the two gates disagreed:
-/// `script run t.qjs` was routed to qjswasm by the dispatcher and then refused
-/// by qjswasm itself with "qjswasm backend not enabled", because the
-/// environment still said rh.
-///
-/// The guard was redundant even before that -- the dispatcher never called an
-/// engine it had not selected. Redundant is not harmless: **a second copy of a
-/// decision is a second place for it to be wrong**, which is the same lesson
-/// the memory palace records about `.wasm` routing. Selection now happens once,
-/// in `resolve`, and an engine reached directly by a library caller runs what
-/// it was asked to run rather than second-guessing the caller's intent from an
-/// environment variable.
 /// What a `.qjs` module specifier points at, for this product.
 ///
 /// The compiler never touches a filesystem, so somebody has to say what a
@@ -314,6 +280,7 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 ///   absolute path alike. The check is on the **canonical** path, because a
 ///   textual one is defeated by any of the three;
 /// * a file that is not there or is not UTF-8.
+#[cfg(feature = "script-qjswasm")]
 fn qjs_module_resolver(
     project_root: Option<&std::path::Path>,
 ) -> impl Fn(&str) -> Option<String> + use<> {
@@ -330,10 +297,6 @@ fn qjs_module_resolver(
         }
         std::fs::read_to_string(resolved).ok()
     }
-}
-
-fn not_enabled_error(backend: ScriptBackend) -> ScriptEngineError {
-    format!("{} backend not enabled", backend.as_str())
 }
 
 /// Build the `args_len`/`arg` host-function closures shared by the lua and
@@ -372,143 +335,6 @@ fn script_args_accessors(arguments: Value) -> ScriptArgsAccessors {
     (args_len, arg)
 }
 
-/// rh engine adapter. Delegates to `try_execute_rh_invocation` — does not
-/// re-derive native-pack resolution, host binding, or output-budget logic.
-///
-/// Unlike `LuaEngineBackend`/`QjsEngineBackend` (Trait-M4 folded their logic
-/// in directly), this adapter is intentionally left delegating: see the
-/// module doc comment for why (`crates/agenterm-rh/src/main.rs`'s bin
-/// target is a real external caller of `try_execute_rh_invocation` that
-/// needs its typed `agenterm_rh::RhError`).
-pub struct RhEngineBackend;
-
-impl ScriptEngineBackend for RhEngineBackend {
-    fn backend_id(&self) -> ScriptBackend {
-        ScriptBackend::Rh
-    }
-
-    fn entry_extensions(&self) -> &'static [&'static str] {
-        &["rh", "rhai"]
-    }
-
-    fn identity(&self) -> String {
-        format!("agenterm-rh {}", env!("CARGO_PKG_VERSION"))
-    }
-
-    /// `None`: this engine's deployable artifact is its own CLI's shape (rh's
-    /// native pack, lua's and qjs's bytecode directories), which is a
-    /// directory plus a manifest rather than one file of bytes. Offering half
-    /// of it here would be a second, thinner answer to a question that
-    /// already has one.
-    fn pack_artifact(&self, _source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
-        None
-    }
-
-    fn execute_artifact(
-        &self,
-        _artifact: &[u8],
-        _options: &ScriptInvocationOptions,
-        _fleet_bridge: Option<ScriptFleetBridgeFn>,
-    ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
-        None
-    }
-
-    fn source_is_a_path(&self) -> bool {
-        false
-    }
-
-    /// The source, because rh's artifact is a native pack whose bytes depend
-    /// on the host toolchain -- hashing it would answer "which machine built
-    /// this" rather than "which program is this".
-    fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
-        Some(Ok((
-            agenterm_script_common::hex::sha256_hex(source.as_bytes()),
-            "source",
-        )))
-    }
-
-    /// `None`: rh's corpus-scan is a verb of its own dev CLI
-    /// (`agenterm rh corpus-scan`), reached through `script_rh_cli`'s
-    /// `RH_DEV_COMMANDS`, and there is no scanner in the `agenterm-rh` crate
-    /// for this face to call. Pointing at the verb that exists beats
-    /// re-implementing one that would then be a second answer.
-    fn corpus_scan(
-        &self,
-        _dir: &std::path::Path,
-    ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
-        None
-    }
-
-    /// The wrapper this verb has always used, now stated where it belongs.
-    ///
-    /// rh has no completion value, so the expression's value has to come back
-    /// out of `stdout` through a marker line that
-    /// `script_backend::take_rh_eval_value` strips. That is why this one is
-    /// shaped so differently from the others -- and why it read as a
-    /// reasonable shared default for as long as nobody ran the other engines.
-    fn eval_entry_source(&self, expression: &str) -> Option<String> {
-        Some(format!(
-            "fn __agenterm_eval_expression() {{ {expression} }}\nfn entry() {{ let __agenterm_eval_value = __agenterm_eval_expression(); print(\"{}\" + rh::json::stringify(__agenterm_eval_value)); 0 }}",
-            crate::script_protocol::RH_EVAL_VALUE_MARKER
-        ))
-    }
-
-    fn check(
-        &self,
-        source: &str,
-        options: &ScriptInvocationOptions,
-    ) -> Result<(), ScriptEngineError> {
-        let rh_options = RhInvocationOptions {
-            project_root: options.project_root.clone(),
-            arguments: options.arguments.clone(),
-            budgets: options.budgets.clone(),
-        };
-        match try_execute_rh_invocation(ScriptOperation::Check, source, rh_options, None) {
-            Ok(Some(_)) => Ok(()),
-            Ok(None) => Err(not_enabled_error(self.backend_id())),
-            Err(error) => Err(error.to_string()),
-        }
-    }
-
-    fn execute(
-        &self,
-        source: &str,
-        options: &ScriptInvocationOptions,
-        fleet_bridge: Option<ScriptFleetBridgeFn>,
-    ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-        let rh_options = RhInvocationOptions {
-            project_root: options.project_root.clone(),
-            arguments: options.arguments.clone(),
-            budgets: options.budgets.clone(),
-        };
-        // rh's try_execute_rh_invocation wants Option<script_rh_host::FleetBridgeFn>
-        // (Box<dyn Fn...>); wrap the shared Arc in a closure to bridge the two
-        // smart-pointer types (design §2.2 — rh internal adapter does this, not
-        // script_rh_host.rs itself).
-        let rh_bridge: Option<crate::script_rh_host::FleetBridgeFn> = fleet_bridge.map(|bridge| {
-            let boxed: crate::script_rh_host::FleetBridgeFn =
-                Box::new(move |op_id: &str, params: &str| bridge(op_id, params));
-            boxed
-        });
-        match try_execute_rh_invocation(ScriptOperation::Eval, source, rh_options, rh_bridge) {
-            Ok(Some(result)) => Ok(ScriptInvocationResult {
-                stdout: result.stdout,
-                value: result.value,
-                cost: None,
-            }),
-            Ok(None) => Err(not_enabled_error(self.backend_id())),
-            Err(error) => Err(error.to_string()),
-        }
-    }
-}
-
-/// Lua engine adapter. Invocation logic folded in directly (Trait-M4) from
-/// the former `try_execute_lua_invocation` in `script_backend.rs` — no
-/// other caller referenced it (grep-verified across `src/`, `tests/`,
-/// `crates/`; `tests/lua_task_entry_regression.rs` referenced it too, but
-/// that file was already failing to compile beforehand — pre-existing,
-/// unrelated `ScriptBackend::Rhai` reference — so it did not count as a
-/// live caller).
 #[cfg(feature = "script-lua")]
 pub struct LuaEngineBackend;
 
@@ -576,7 +402,6 @@ impl ScriptEngineBackend for LuaEngineBackend {
         source: &str,
         _options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
-
         let engine = agenterm_lua::LuaEngine::new().map_err(|e| e.to_string())?;
 
         engine.check(source).map_err(|e| e.to_string())?;
@@ -589,7 +414,6 @@ impl ScriptEngineBackend for LuaEngineBackend {
         options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-
         let engine = agenterm_lua::LuaEngine::new().map_err(|e| e.to_string())?;
 
         let mut host = agenterm_lua::LuaHostFunctions::default();
@@ -621,7 +445,6 @@ impl ScriptEngineBackend for LuaEngineBackend {
         })
     }
 }
-
 
 /// sql engine adapter — see `plan/design-sql-execution-target.md` (the M1
 /// design doc this impl now implements) and
@@ -707,7 +530,6 @@ impl ScriptEngineBackend for SqlEngineBackend {
         source: &str,
         _options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
-
         agenterm_sql::check(source, "invocation.sql").map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -718,7 +540,6 @@ impl ScriptEngineBackend for SqlEngineBackend {
         options: &ScriptInvocationOptions,
         _fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-
         // agenterm_sql::ExecuteBudgets is a small crate-local mirror of
         // ScriptBudgets (agenterm-sql can't depend on this crate's types —
         // see that struct's doc) covering only the M1-enforced subset:
@@ -917,7 +738,6 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
-
         // `ScriptFleetBridgeFn` and `agenterm_qjswasm::FleetBridgeFn` are the
         // same `Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>`
         // shape, so this is a rebind, not a wrapper.
@@ -1020,12 +840,16 @@ fn number_as_json(x: f64) -> Option<Value> {
 // §2.4 — enum static dispatch
 // ---------------------------------------------------------------------
 
-/// Static-dispatch registry over the three engines. Not a `dyn` trait
+/// Static-dispatch registry over the compiled-in engines. Not a `dyn` trait
 /// object list — see design §2.4 for why enum+match is preferred as the
 /// default over `Box<dyn ScriptEngineBackend>` (the trait remains
 /// object-safe as a documented, unused escape hatch).
+///
+/// Every variant is feature-gated. With no engine feature on this enum is
+/// empty, `all()` is empty, and `for_backend` can never be called because
+/// `ScriptBackend` is empty too -- which is the truthful shape of a build
+/// with no script engine, not a defect to paper over with a placeholder.
 pub enum ScriptEngine {
-    Rh(RhEngineBackend),
     #[cfg(feature = "script-lua")]
     Lua(LuaEngineBackend),
     #[cfg(feature = "script-sql")]
@@ -1036,21 +860,19 @@ pub enum ScriptEngine {
 
 impl ScriptEngine {
     pub fn all() -> Vec<ScriptEngine> {
-        #[allow(unused_mut)]
-        let mut engines = vec![Self::Rh(RhEngineBackend)];
-        #[cfg(feature = "script-lua")]
-        engines.push(Self::Lua(LuaEngineBackend));
-        #[cfg(feature = "script-sql")]
-        engines.push(Self::Sql(SqlEngineBackend));
-        #[cfg(feature = "script-qjswasm")]
-        engines.push(Self::Qjswasm(QjswasmEngineBackend));
-        engines
+        vec![
+            #[cfg(feature = "script-lua")]
+            Self::Lua(LuaEngineBackend),
+            #[cfg(feature = "script-sql")]
+            Self::Sql(SqlEngineBackend),
+            #[cfg(feature = "script-qjswasm")]
+            Self::Qjswasm(QjswasmEngineBackend),
+        ]
     }
 
     /// Construct the engine variant corresponding to `id`.
     pub fn for_backend(id: ScriptBackend) -> Self {
         match id {
-            ScriptBackend::Rh => Self::Rh(RhEngineBackend),
             #[cfg(feature = "script-lua")]
             ScriptBackend::Lua => Self::Lua(LuaEngineBackend),
             #[cfg(feature = "script-sql")]
@@ -1067,10 +889,26 @@ pub fn engine_for(backend: ScriptBackend) -> ScriptEngine {
     ScriptEngine::for_backend(backend)
 }
 
+#[cfg_attr(
+    not(any(
+        feature = "script-lua",
+        feature = "script-sql",
+        feature = "script-qjswasm"
+    )),
+    allow(unused_variables)
+)]
 impl ScriptEngineBackend for ScriptEngine {
     fn backend_id(&self) -> ScriptBackend {
         match self {
-            Self::Rh(backend) => backend.backend_id(),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.backend_id(),
             #[cfg(feature = "script-sql")]
@@ -1082,7 +920,15 @@ impl ScriptEngineBackend for ScriptEngine {
 
     fn entry_extensions(&self) -> &'static [&'static str] {
         match self {
-            Self::Rh(backend) => backend.entry_extensions(),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.entry_extensions(),
             #[cfg(feature = "script-sql")]
@@ -1094,7 +940,15 @@ impl ScriptEngineBackend for ScriptEngine {
 
     fn eval_entry_source(&self, expression: &str) -> Option<String> {
         match self {
-            Self::Rh(backend) => backend.eval_entry_source(expression),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.eval_entry_source(expression),
             #[cfg(feature = "script-sql")]
@@ -1106,7 +960,15 @@ impl ScriptEngineBackend for ScriptEngine {
 
     fn identity(&self) -> String {
         match self {
-            Self::Rh(backend) => backend.identity(),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.identity(),
             #[cfg(feature = "script-sql")]
@@ -1121,7 +983,15 @@ impl ScriptEngineBackend for ScriptEngine {
         dir: &std::path::Path,
     ) -> Option<Result<agenterm_script_common::corpus_scan::CorpusScanReport, String>> {
         match self {
-            Self::Rh(backend) => backend.corpus_scan(dir),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.corpus_scan(dir),
             #[cfg(feature = "script-sql")]
@@ -1133,7 +1003,15 @@ impl ScriptEngineBackend for ScriptEngine {
 
     fn artifact_hash(&self, source: &str) -> Option<Result<(String, &'static str), String>> {
         match self {
-            Self::Rh(backend) => backend.artifact_hash(source),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.artifact_hash(source),
             #[cfg(feature = "script-sql")]
@@ -1145,7 +1023,15 @@ impl ScriptEngineBackend for ScriptEngine {
 
     fn source_is_a_path(&self) -> bool {
         match self {
-            Self::Rh(backend) => backend.source_is_a_path(),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.source_is_a_path(),
             #[cfg(feature = "script-sql")]
@@ -1162,7 +1048,15 @@ impl ScriptEngineBackend for ScriptEngine {
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
         match self {
-            Self::Rh(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.execute_artifact(artifact, options, fleet_bridge),
             #[cfg(feature = "script-sql")]
@@ -1174,7 +1068,15 @@ impl ScriptEngineBackend for ScriptEngine {
 
     fn pack_artifact(&self, source: &str) -> Option<Result<(Vec<u8>, &'static str), String>> {
         match self {
-            Self::Rh(backend) => backend.pack_artifact(source),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.pack_artifact(source),
             #[cfg(feature = "script-sql")]
@@ -1190,7 +1092,15 @@ impl ScriptEngineBackend for ScriptEngine {
         options: &ScriptInvocationOptions,
     ) -> Result<(), ScriptEngineError> {
         match self {
-            Self::Rh(backend) => backend.check(source, options),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.check(source, options),
             #[cfg(feature = "script-sql")]
@@ -1207,7 +1117,15 @@ impl ScriptEngineBackend for ScriptEngine {
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Result<ScriptInvocationResult, ScriptEngineError> {
         match self {
-            Self::Rh(backend) => backend.execute(source, options, fleet_bridge),
+            // With no engine compiled in the enum is empty, `self` is
+            // uninhabited, and this arm is the proof: it can only be reached
+            // by a value that cannot exist.
+            #[cfg(not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )))]
+            _ => match *self {},
             #[cfg(feature = "script-lua")]
             Self::Lua(backend) => backend.execute(source, options, fleet_bridge),
             #[cfg(feature = "script-sql")]
@@ -1225,7 +1143,6 @@ impl ScriptEngineBackend for ScriptEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::script_backend::{RhInvocationOptions as RhOpts, try_execute_rh_invocation};
 
     // Mirrors script_backend.rs's ENV_LOCK pattern (serialize env-var
     // manipulation across tests in this module — this is a *different*
@@ -1251,6 +1168,14 @@ mod tests {
     }
 
     impl EnvGuard {
+        #[cfg_attr(
+            not(any(
+                feature = "script-lua",
+                feature = "script-sql",
+                feature = "script-qjswasm"
+            )),
+            allow(dead_code)
+        )]
         fn set(value: &str) -> Self {
             let prior = std::env::var("AGENTERM_SCRIPT_BACKEND").ok();
             unsafe {
@@ -1281,15 +1206,19 @@ mod tests {
         }
     }
 
+    /// With nothing in the environment nothing is enabled: there is no default
+    /// engine any more, and `enabled()` must not invent one.
     #[test]
-    fn rh_engine_enabled_by_default_with_no_env_set() {
+    fn no_engine_is_enabled_with_no_env_set() {
         let _guard = ENV_LOCK.lock().expect("lock");
         let _env = EnvGuard::clear();
-        assert!(RhEngineBackend.enabled());
-        #[cfg(feature = "script-lua")]
-        assert!(!LuaEngineBackend.enabled());
-        #[cfg(feature = "script-sql")]
-        assert!(!SqlEngineBackend.enabled());
+        for engine in ScriptEngine::all() {
+            assert!(
+                !engine.enabled(),
+                "{:?} enabled by default",
+                engine.backend_id()
+            );
+        }
     }
 
     #[test]
@@ -1301,76 +1230,6 @@ mod tests {
     }
 
     // ---- rh ----
-
-    const RH_VALID_SOURCE: &str = "fn entry() { 42 }";
-    const RH_BROKEN_SOURCE: &str = "fn entry() { 1 ";
-
-    #[test]
-    fn rh_engine_enabled_matches_env() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("rh");
-        let engine = RhEngineBackend;
-        assert_eq!(engine.backend_id(), ScriptBackend::Rh);
-        assert!(engine.enabled());
-
-        #[cfg(feature = "script-lua")]
-        {
-            let _env = EnvGuard::set("lua");
-            assert!(!RhEngineBackend.enabled());
-        }
-    }
-
-    #[test]
-    fn rh_engine_check_valid_and_broken_source() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("rh");
-        let engine = RhEngineBackend;
-        let options = ScriptInvocationOptions::default();
-
-        engine
-            .check(RH_VALID_SOURCE, &options)
-            .expect("valid rh source should check clean");
-        assert!(
-            engine.check(RH_BROKEN_SOURCE, &options).is_err(),
-            "broken rh source should fail check"
-        );
-    }
-
-    #[test]
-    fn rh_engine_execute_matches_direct_call() {
-        let _guard = ENV_LOCK.lock().expect("lock");
-        let _env = EnvGuard::set("rh");
-        let engine = RhEngineBackend;
-        let options = ScriptInvocationOptions::default();
-
-        let via_trait = engine
-            .execute(RH_VALID_SOURCE, &options, None)
-            .expect("trait execute should succeed");
-
-        let direct = try_execute_rh_invocation(
-            ScriptOperation::Eval,
-            RH_VALID_SOURCE,
-            RhOpts::default(),
-            None,
-        )
-        .expect("direct call should not error")
-        .expect("rh backend should be enabled");
-
-        assert_eq!(via_trait.stdout, direct.stdout);
-        assert_eq!(via_trait.value, direct.value);
-    }
-
-    #[test]
-    fn rh_engine_entry_extensions_match_from_entry_path() {
-        for ext in RhEngineBackend.entry_extensions() {
-            let path = format!("script.{ext}");
-            assert_eq!(
-                ScriptBackend::from_entry_path(&path),
-                ScriptBackend::Rh,
-                "extension {ext} should route to rh"
-            );
-        }
-    }
 
     // ---- lua ----
 
@@ -1450,7 +1309,7 @@ mod tests {
             let path = format!("script.{ext}");
             assert_eq!(
                 ScriptBackend::from_entry_path(&path),
-                ScriptBackend::Lua,
+                Some(ScriptBackend::Lua),
                 "extension {ext} should route to lua"
             );
         }
@@ -1571,7 +1430,6 @@ mod tests {
     //
     // They are deleted rather than `#[ignore]`d because an ignored test that
     // can never pass is a claim of coverage that is not there.
-
 
     // ---- sql ----
 
@@ -1703,7 +1561,7 @@ mod tests {
             let path = format!("script.{ext}");
             assert_eq!(
                 ScriptBackend::from_entry_path(&path),
-                ScriptBackend::Sql,
+                Some(ScriptBackend::Sql),
                 "extension {ext} should route to sql"
             );
         }
@@ -1715,14 +1573,7 @@ mod tests {
     fn script_engine_for_backend_and_engine_for_agree() {
         // Single-element with every engine feature off — the list grows
         // with features, so the loop shape is the point.
-        #[allow(clippy::single_element_loop)]
-        for id in [
-            ScriptBackend::Rh,
-            #[cfg(feature = "script-lua")]
-            ScriptBackend::Lua,
-            #[cfg(feature = "script-sql")]
-            ScriptBackend::Sql,
-        ] {
+        for id in ScriptBackend::all() {
             assert_eq!(ScriptEngine::for_backend(id).backend_id(), id);
             assert_eq!(engine_for(id).backend_id(), id);
         }
@@ -1731,19 +1582,10 @@ mod tests {
     #[test]
     fn script_engine_all_covers_every_backend_id() {
         let ids: Vec<ScriptBackend> = ScriptEngine::all().iter().map(|e| e.backend_id()).collect();
-        #[allow(unused_mut)]
-        let mut expected = vec![ScriptBackend::Rh];
-        #[cfg(feature = "script-lua")]
-        expected.push(ScriptBackend::Lua);
-        #[cfg(feature = "script-sql")]
-        expected.push(ScriptBackend::Sql);
-        // Must match `ScriptEngine::all`'s own push order. This arm was missing
-        // until 2026-08-25, so the test failed under `--features
-        // script-qjswasm` -- an enumeration test that does not enumerate the
-        // newest member is worse than none, because it reads as coverage.
-        #[cfg(feature = "script-qjswasm")]
-        expected.push(ScriptBackend::Qjswasm);
-        assert_eq!(ids, expected);
+        // Must match `ScriptBackend::all`'s own order. An enumeration test
+        // that does not enumerate the newest member is worse than none,
+        // because it reads as coverage.
+        assert_eq!(ids, ScriptBackend::all());
     }
 
     /// Every extension a backend claims must route to that backend -- with one
@@ -1769,14 +1611,14 @@ mod tests {
                 if engine.backend_id() == ScriptBackend::Qjswasm && *ext == "wasm" {
                     assert_ne!(
                         routed,
-                        ScriptBackend::Qjswasm,
+                        Some(ScriptBackend::Qjswasm),
                         "`.wasm` is documented as NOT routing to qjswasm by default"
                     );
                     continue;
                 }
                 assert_eq!(
                     routed,
-                    engine.backend_id(),
+                    Some(engine.backend_id()),
                     "extension {ext} should route to {:?}",
                     engine.backend_id()
                 );

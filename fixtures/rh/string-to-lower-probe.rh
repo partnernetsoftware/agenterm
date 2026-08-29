@@ -1,6 +1,0 @@
-// Probe native string to_lower for case-normalized comparisons.
-fn entry() {
-    let text = "Agenterm-RH-Probe";
-    let lowered = text.to_lower();
-    lowered.len
-}

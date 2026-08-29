@@ -1,5 +1,0 @@
-fn entry() {
-    let haystack = "" + args[0];
-    let fragment = "" + args[1];
-    haystack.index_of(fragment)
-}

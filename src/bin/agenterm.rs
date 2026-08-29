@@ -3,8 +3,8 @@
 const INTERNAL_CLI_SUBCOMMAND: &str = "__agenterm-internal-cli";
 const INTERNAL_TUI_SUBCOMMAND: &str = "__agenterm-internal-tui";
 const INTERNAL_ENGINE_SUBCOMMAND: &str = "__agenterm-internal-engine";
-/// `agenterm rh|lua|qjs|sql <rest>` — argv-transparent aliases for the four
-/// standalone `agenterm-{rh,lua,qjs,sql}` binaries (SUB-M3,
+/// `agenterm rh|lua|qjs|sql <rest>` — argv-transparent aliases for what used
+/// to be four standalone `agenterm-{rh,lua,qjs,sql}` binaries (SUB-M3,
 /// `plan/archive/design-script-engine-subcommands.md` §3). One shared internal
 /// marker (`INTERNAL_ENGINE_SUBCOMMAND`) carries the engine token as its
 /// first forwarded argument, rather than minting four more
@@ -13,6 +13,11 @@ const INTERNAL_ENGINE_SUBCOMMAND: &str = "__agenterm-internal-engine";
 /// shape that composes with zero changes to `run_console_worker`, which
 /// already treats its `args` parameter as an opaque, ordered Vec forwarded
 /// after the marker.
+///
+/// `rh` and `qjs` stay listed although their engines are gone, so that the
+/// old invocation is answered with where the verbs went rather than with a
+/// GUI window. The engine-neutral worker token, `worker`, is deliberately
+/// **not** here: it is reached only through the internal marker.
 const ENGINE_SUBCOMMANDS: &[&str] = &[
     "rh",
     #[cfg(feature = "script-lua")]
@@ -37,9 +42,9 @@ fn main() -> std::process::ExitCode {
     // before every other branch — including before argv is even collected
     // as `String` (`env::args()` panics on the first non-UTF-8 argument,
     // which would fire before the wrapper probe ever got a chance to run;
-    // `script_rh_cli_main::run_main`'s doc comment established this same
-    // `_os`-first, convert-after-the-check ordering for the identical
-    // reason).
+    // the retired `script_rh_cli_main::run_main`'s doc comment established
+    // this same `_os`-first, convert-after-the-check ordering for the
+    // identical reason).
     let os_args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if agenterm::incremental_wrapper::is_incremental_rustc_wrapper_process(&os_args) {
         agenterm::incremental_wrapper::run_incremental_rustc_wrapper(os_args);
@@ -134,8 +139,8 @@ fn main() -> std::process::ExitCode {
         let _console =
             agenterm_platform::process::ScopedConsole::attach_parent_with_default_interrupts();
         // Unlike the cli/tui workers above (both `i32`-returning entry
-        // points, forwarded via `std::process::exit`), rh's entry point
-        // returns `std::process::ExitCode`, which stable Rust offers no way
+        // points, forwarded via `std::process::exit`), the engine entry points
+        // return `std::process::ExitCode`, which stable Rust offers no way
         // to convert back into a raw `i32` — the only sanctioned way to
         // apply it to the real process exit status is to return it out of
         // `main` itself. That's why `main` returns `ExitCode` (all the
@@ -266,7 +271,7 @@ fn run_engine_from_gui_subsystem(engine: String, args: Vec<String>) -> std::proc
 /// stripped.
 fn dispatch_engine_from_args(mut args: Vec<String>) -> std::process::ExitCode {
     if args.is_empty() {
-        eprintln!("agenterm: missing engine token (expected one of: rh, lua, qjs, sql)");
+        eprintln!("agenterm: missing engine token (expected one of: worker, lua, sql)");
         return std::process::ExitCode::from(2);
     }
     let engine = args.remove(0);
@@ -279,14 +284,28 @@ fn dispatch_engine_from_args(mut args: Vec<String>) -> std::process::ExitCode {
 /// from `env::args().skip(1)`.
 fn dispatch_engine(engine: &str, rest: Vec<String>) -> std::process::ExitCode {
     match engine {
+        // The engine-neutral worker host. Its modes (`--worker`,
+        // `--framed-worker`, `--internal-incremental-finalize`, `task`) are
+        // argv-shape-sensitive (design §7: exact single-argument matches) and
+        // handled entirely inside `run_main` — forward `rest` untouched, with
+        // no normalization and no flag inspection here. This was the `rh` arm
+        // until 2026-08-29; see `script_worker_cli` for why it was re-pointed
+        // rather than deleted with that engine.
+        "worker" => agenterm::script_worker_cli::run_main(rest),
+        // `agenterm rh <verb>` is retired: the engine left this repository on
+        // 2026-08-29 for partnernetsoftware/rh, and `.qjs` is the script
+        // language here now. As with `qjs` below, the redirect outlives the
+        // engine on purpose -- someone with the old invocation in a script or
+        // in their fingers is told where the verbs went.
         "rh" => {
-            // rh's worker modes (`--worker`, `--framed-worker`,
-            // `--internal-incremental-finalize`) are argv-shape-sensitive
-            // (design §7: exact single-argument matches) and handled
-            // entirely inside `run_main` — forward `rest` untouched, with no
-            // normalization and no flag inspection here.
-            let os_args: Vec<std::ffi::OsString> = rest.into_iter().map(Into::into).collect();
-            agenterm::script_rh_cli_main::run_main(os_args)
+            eprintln!(
+                "agenterm rh is retired: the rh engine left this repository for \
+                 partnernetsoftware/rh, and .qjs is the script language here now. \
+                 Use `agenterm cli script <verb>` instead -- check, run, eval, hash, \
+                 corpus-scan, pack, qualify, run-smoke, task and version all live there \
+                 and route by the entry's extension or AGENTERM_SCRIPT_BACKEND."
+            );
+            std::process::ExitCode::from(2)
         }
         #[cfg(feature = "script-lua")]
         "lua" => {
@@ -349,7 +368,7 @@ Usage: agenterm [--no-activate] [--endpoint ENDPOINT | --address HOST:PORT | --i
        agenterm server [server options]
        agenterm cli <command> [options]
        agenterm tui
-       agenterm rh|lua|qjs|sql <args>  (aliases for the standalone agenterm-{rh,lua,qjs,sql} binaries)
+       agenterm lua|sql <args>  (engine dev CLIs; `agenterm cli script` is the product face)
        agenterm --version
        agenterm --help
 

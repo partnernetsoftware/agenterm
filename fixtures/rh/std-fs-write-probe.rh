@@ -1,8 +1,0 @@
-// Probe native std::fs::write for temp evidence files.
-fn entry() {
-    if args.len != 2 {
-        return rh::fail("expected: PATH TEXT");
-    }
-    std::fs::write(args[0], args[1]);
-    0
-}

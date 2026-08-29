@@ -1,7 +1,6 @@
 //! Parity checks for agenterm's script-engine "L2 facade" — the fleet.*
 //! scripting API surface that every engine exposes over
-//! `__host.fleet_call(operation_id, params_json)` (lua/qjs) or the
-//! equivalent compiled-in path (rh).
+//! `__host.fleet_call(operation_id, params_json)`.
 //!
 //! Nothing else in the tree asserts these surfaces stay aligned, so drift
 //! between engines would otherwise be silent. This file parses the actual
@@ -9,24 +8,26 @@
 //! the extracted (function/path -> operation_id) catalogs:
 //!
 //! 1. lua vs qjs: `scripts/lua/lib/fleet.lua` vs `scripts/qjs/lib/fleet.js`
-//! 2. rh vs lua/qjs: `crates/agenterm-rh/src/shipped_surfaces.rs` vs the above
-//! 3. every facade vs host: `src/operations.rs` `OPERATION_CATALOG` (the
+//! 2. every facade vs host: `src/operations.rs` `OPERATION_CATALOG` (the
 //!    authoritative, dispatchable operation-id list)
+//!
+//! A second comparison -- rh's compiled-in `SHIPPED_SURFACE_PATHS` (76
+//! `fleet.*` entries, a strict superset of the 29 here) against lua/qjs and
+//! against the host catalog -- lived here until the rh engine left the
+//! repository on 2026-08-29 (partnernetsoftware/rh). Its findings, including
+//! the 2026-08-25 correction below, stay as history.
 //!
 //! Investigation findings baked into this file:
 //!
 //! - lua and qjs are IN SYNC today: identical 29-entry (function_name ->
 //!   operation_id) maps. Test 1 locks full equality.
-//! - rh's `SHIPPED_SURFACE_PATHS` declares 76 `fleet.*` surface paths — a
-//!   strict superset of lua/qjs's 29. rh's surface legitimately being wider
-//!   (compiled-in, not hand-ported) is expected; this is documented and
-//!   pinned rather than silently ignored. See `rh_only_operation_ids()` below.
+//! - rh's `SHIPPED_SURFACE_PATHS` declared 76 `fleet.*` surface paths — a
+//!   strict superset of lua/qjs's 29 — and every one of them was in the host
+//!   catalog: the two catalogs agreed exactly (historical, see above).
 //! - `src/operations.rs::OPERATION_CATALOG` is the authoritative,
 //!   *dispatchable* operation-id list (`operation_by_id` looks entries up
-//!   there; see `crates/agenterm-rh/src/fleet.rs`/`src/script_fleet.rs`
-//!   callers). It has 77 entries, 76 of them `fleet.*`. Every lua/qjs
-//!   operation_id is in it, and so is **every one of rh's 76 declared
-//!   surfaces**: the two catalogs agree exactly.
+//!   there). It has 77 entries, 76 of them `fleet.*`. Every lua/qjs
+//!   operation_id is in it.
 //!
 //! # Correction, 2026-08-25: the "33 undispatchable rh surfaces" were not real
 //!
@@ -154,60 +155,6 @@ fn host_operation_catalog_ids() -> BTreeSet<String> {
     ids
 }
 
-/// Extracts the `fleet.*` entries of rh's
-/// `crates/agenterm-rh/src/shipped_surfaces.rs::SHIPPED_SURFACE_PATHS` and
-/// converts each surface path to the operation_id it names. The catalog
-/// uses `snake_case` path segments (matching Rust identifier conventions,
-/// e.g. `fleet.ui.tabs.set_width`, `fleet.ui.cwd_editor.open`) while
-/// operation ids use `kebab-case` segments (e.g. `ui.tabs.set-width`,
-/// `ui.cwd-editor.open`) — confirmed against `src/operations.rs`'s
-/// `script_surface` <-> `id` pairs (e.g. `TABS_SET_NOTE` has
-/// `script_surface: "fleet.tabs.set_note"` and `id: "tabs.set-note"`).
-/// So: strip the `fleet.` prefix, then replace `_` with `-` within each
-/// dot-separated segment.
-fn rh_shipped_fleet_operation_ids() -> BTreeSet<String> {
-    let source = read("crates/agenterm-rh/src/shipped_surfaces.rs");
-    let start_marker = "SHIPPED_SURFACE_PATHS";
-    let start = source
-        .find(start_marker)
-        .expect("SHIPPED_SURFACE_PATHS declaration not found");
-    let body = &source[start..];
-    let array_open = body
-        .find("= &[")
-        .expect("SHIPPED_SURFACE_PATHS array opener `= &[` not found");
-    let after_open = &body[array_open + "= &[".len()..];
-    let array_close = after_open
-        .find("\n];")
-        .expect("SHIPPED_SURFACE_PATHS array closer `\\n];` not found");
-    let block = &after_open[..array_close];
-
-    let mut ids = BTreeSet::new();
-    for line in block.lines() {
-        let line = line.trim();
-        let Some(rest) = line.strip_prefix('"') else {
-            continue;
-        };
-        let Some(end) = rest.find('"') else { continue };
-        let path = &rest[..end];
-        let Some(suffix) = path.strip_prefix("fleet.") else {
-            continue;
-        };
-        let operation_id = suffix
-            .split('.')
-            .map(|segment| segment.replace('_', "-"))
-            .collect::<Vec<_>>()
-            .join(".");
-        ids.insert(operation_id);
-    }
-    assert!(
-        ids.len() >= 60,
-        "sanity check: expected >=60 `fleet.*` entries in SHIPPED_SURFACE_PATHS, found {} \
-         (extraction likely broke — did shipped_surfaces.rs's array formatting change?)",
-        ids.len()
-    );
-    ids
-}
-
 // ── Test 1: lua vs qjs — the strong parity check ───────────────────────
 //
 // Investigation result: the two facades are IN SYNC today (29/29 identical
@@ -279,135 +226,6 @@ fn qjs_and_qjswasm_fleet_facades_are_the_same_binding() {
     );
 }
 
-// ── Test 2: rh vs lua/qjs ───────────────────────────────────────────────
-//
-// Investigation result: rh's declared surface (`SHIPPED_SURFACE_PATHS`,
-// 76 `fleet.*` entries) is a STRICT SUPERSET of lua/qjs's 29-entry set —
-// every lua/qjs operation_id is present in rh's declared surface, plus 47
-// rh-only entries. rh being compiled-in and wider than the hand-ported
-// script facades is plausible/legitimate (it may expose operations that
-// haven't been ported to lua/qjs yet), so this test locks the *intersection*
-// (must equal all of lua/qjs — zero missing) and pins the extra/known-divergent
-// entries explicitly rather than silently ignoring them.
-
-#[test]
-fn rh_shipped_surface_is_a_superset_of_the_lua_qjs_fleet_facade() {
-    let lua_ids: BTreeSet<String> = lua_facade().into_iter().map(|(_, id)| id).collect();
-    let rh_ids = rh_shipped_fleet_operation_ids();
-
-    let missing_from_rh: Vec<&String> = lua_ids.difference(&rh_ids).collect();
-    assert!(
-        missing_from_rh.is_empty(),
-        "lua/qjs reference operation_ids that rh's shipped_surfaces.rs does \
-         not declare: {missing_from_rh:?}"
-    );
-
-    // Pin today's known rh-only surplus so an *unexpected* future shrink or
-    // grow of the gap is caught. Growth here is expected as rh ships more
-    // fleet.* coverage than the script facades; shrinkage would mean rh
-    // removed a declared surface, which is worth a human look either way.
-    let rh_only: BTreeSet<String> = rh_ids.difference(&lua_ids).cloned().collect();
-    assert_eq!(
-        rh_only,
-        rh_only_operation_ids(),
-        "rh's fleet.* surplus over lua/qjs changed. If this is an \
-         intentional addition/removal to rh's shipped_surfaces.rs, update \
-         `rh_only_operation_ids()` in this test to match (and consider \
-         whether lua/qjs should gain the same operation)."
-    );
-}
-
-/// Documented, explicit allowlist of operation ids that rh's compiled-in
-/// `shipped_surfaces.rs` declares but that lua/qjs's fleet.* wrappers do not
-/// (yet) expose. Extracted from the investigation run on 2026-08-09;
-/// 47 entries.
-fn rh_only_operation_ids() -> BTreeSet<String> {
-    [
-        "terminal.copy-selection",
-        "terminal.mouse",
-        "ui.cwd-editor.open",
-        "ui.cwd-editor.prepare",
-        "ui.cwd-editor.prepare-append",
-        "ui.cwd-editor.prepare-replace",
-        "ui.cwd-editor.send-now",
-        "ui.font.decrease",
-        "ui.font.increase",
-        "ui.input.key",
-        "ui.instance-picker.cancel",
-        "ui.instance-picker.confirm",
-        "ui.instance-picker.next",
-        "ui.instance-picker.open",
-        "ui.instance-picker.prev",
-        "ui.instance-picker.select",
-        "ui.locale.toggle",
-        "ui.modal.cancel",
-        "ui.modal.confirm",
-        "ui.new-terminal.open",
-        "ui.server-strip.select",
-        "ui.settings.apply",
-        "ui.settings.inherit.font",
-        "ui.settings.inherit.size",
-        "ui.settings.inherit.theme",
-        "ui.settings.open",
-        "ui.settings.preset.classic-day",
-        "ui.settings.preset.classic-night",
-        "ui.settings.preset.fancy-day",
-        "ui.settings.preset.fancy-night",
-        "ui.settings.reset-overrides",
-        "ui.settings.scope.current",
-        "ui.settings.scope.defaults",
-        "ui.settings.theme.dark",
-        "ui.settings.theme.light",
-        "ui.tab.close",
-        "ui.tab.edit",
-        "ui.tab.editor.cancel",
-        "ui.tab.editor.save",
-        "ui.tab.new",
-        "ui.window-close.keep-server-running",
-        "ui.window-close.stop-server-and-exit",
-        "ui.window.close",
-        "ui.window.maximize",
-        "ui.window.minimize",
-        "ui.window.resize",
-        "ui.window.restore",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
-}
-
-// ── Test 3: every facade's operation_ids vs the host-authoritative list ──
-//
-// `src/operations.rs`'s `OPERATION_CATALOG` is the authoritative,
-// *dispatchable* operation-id list: `operation_by_id()` looks entries up
-// there, and both `src/script_fleet.rs` (rhai-engine binding) and
-// `crates/agenterm-rh/src/fleet.rs` (rh's AST-level transpiler, indirectly
-// via the runtime host bridge) reject any operation_id that isn't in it.
-//
-// Investigation result:
-//  - lua/qjs (29 operation_ids): a CLEAN SUBSET of the 44-entry
-//    OPERATION_CATALOG. Nothing referenced by the script facades is
-//    missing from the host's authoritative list. This is asserted as a
-//    strict subset check (any new lua/qjs operation_id that isn't wired
-//    into OPERATION_CATALOG will fail loudly).
-//  - rh's declared `SHIPPED_SURFACE_PATHS` (76 fleet.* entries) is NOT a
-//    subset: 32 of its declared operation ids have no entry in
-//    OPERATION_CATALOG at all (e.g. `ui.settings.*`, `ui.modal.*`,
-//    `ui.font.*`, `ui.window.{maximize,minimize,restore,close}`,
-//    `ui.instance-picker.{cancel,confirm,next,prev}`, `ui.tab.new`,
-//    `ui.tab.editor.{save,cancel}`, `terminal.copy-selection`,
-//    `ui.locale.toggle`, `ui.new-terminal.open`,
-//    `ui.window-close.keep-server-running`). rh's shipped-surface catalog
-//    claims support for operations the host does not (yet) implement /
-//    make dispatchable. This is real drift between "what rh's docs say it
-//    ships" and "what the host can actually execute" — pinned explicitly
-//    below rather than silently intersected away.
-//
-// (Aside, not asserted here: `OPERATION_CATALOG` also has `pane.capture`,
-// which has no `fleet.*`-prefixed shipped_surfaces entry because it's
-// listed there as `"FleetTerminal.capture"` instead — a naming
-// convention difference, not a missing surface.)
-
 #[test]
 fn lua_qjs_operation_ids_are_a_subset_of_the_host_operation_catalog() {
     let catalog = host_operation_catalog_ids();
@@ -419,44 +237,4 @@ fn lua_qjs_operation_ids_are_a_subset_of_the_host_operation_catalog() {
         "lua/qjs fleet facade references operation_ids the host's \
          OPERATION_CATALOG (src/operations.rs) does not implement: {missing:?}"
     );
-}
-
-#[test]
-fn rh_shipped_surface_operation_ids_not_in_host_catalog_match_documented_gap() {
-    let catalog = host_operation_catalog_ids();
-    let rh_ids = rh_shipped_fleet_operation_ids();
-
-    let undispatchable: BTreeSet<String> = rh_ids.difference(&catalog).cloned().collect();
-
-    assert_eq!(
-        undispatchable,
-        rh_surfaces_missing_from_host_catalog(),
-        "the set of rh-declared fleet.* operation_ids that are absent from \
-         src/operations.rs's OPERATION_CATALOG changed. If OPERATION_CATALOG \
-         gained one of these (the host now implements it), remove it from \
-         `rh_surfaces_missing_from_host_catalog()`. If rh's \
-         shipped_surfaces.rs gained a new undispatchable entry, that's new \
-         drift worth a second look before updating the allowlist."
-    );
-}
-
-/// Operation ids that rh's `shipped_surfaces.rs` declares as supported but
-/// that `OPERATION_CATALOG` does not dispatch.
-///
-/// **Empty, and that is the corrected answer.** It used to hold 33 entries --
-/// `ui.settings.*`, `ui.modal.*`, `ui.font.*`, `ui.instance-picker.*`,
-/// `ui.window.*`, `ui.tab.new`, and the rest -- described as surfaces rh
-/// claims and the host cannot dispatch. Every one of them is in
-/// `OPERATION_CATALOG` and always was. They were invisible to this file's
-/// former text extractor because they are built by the `nullary_ui_action()`
-/// constructor rather than written out with an `id:` line; see
-/// [`host_operation_catalog_ids`].
-///
-/// The list is kept as a function rather than inlined as `BTreeSet::new()`
-/// because the assertion it feeds is still worth having: if rh's shipped
-/// surfaces ever gain an entry the host does not dispatch, that is real drift,
-/// and this is where the evidence for accepting it would go.
-fn rh_surfaces_missing_from_host_catalog() -> BTreeSet<String> {
-    let empty: [&str; 0] = [];
-    empty.into_iter().map(String::from).collect()
 }
