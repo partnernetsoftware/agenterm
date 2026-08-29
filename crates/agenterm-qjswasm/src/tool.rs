@@ -97,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 17] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 20] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -113,6 +113,9 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 17] = [
     ("arg_count", 0, 1),
     ("arg", 1, 1),
     ("crypto.sha256_file", 2, 1),
+    ("fs.remove_dir_all", 2, 1),
+    ("fs.rename", 4, 1),
+    ("fs.copy", 4, 1),
     ("result_len", 0, 1),
     ("result", 2, 1),
 ];
@@ -172,6 +175,13 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         // needs to fingerprint `Cargo.lock` and the artifact manifest. Lower
         // hex, 64 chars, through the two-pass fetch like every other string.
         decl("crypto.sha256_file", vec![HostParam::StrPtrLen], HostResult::I32),
+        // The three the shared `test_harness` and `artifact_files` libraries
+        // reach for that the first cut of the door did not have. Same shape
+        // as `fs.remove_file`: status in, diagnostic (if any) via
+        // `tool_result`, nothing parked on success.
+        decl("fs.remove_dir_all", vec![HostParam::StrPtrLen], HostResult::I32),
+        decl("fs.rename", vec![HostParam::StrPtrLen, HostParam::StrPtrLen], HostResult::I32),
+        decl("fs.copy", vec![HostParam::StrPtrLen, HostParam::StrPtrLen], HostResult::I32),
         HostFn {
             name: "tool_result".to_string(),
             module: DOOR.to_string(),
@@ -286,6 +296,38 @@ pub(crate) fn install(
         answer(&state, "fs.remove_file", || {
             let path = utf8(path)?;
             std::fs::remove_file(path).map_err(|e| format!("fs.remove_file `{path}`: {e}"))?;
+            Ok(String::new())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.remove_dir_all", move |args, memory| {
+        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        answer(&state, "fs.remove_dir_all", || {
+            let path = utf8(path)?;
+            std::fs::remove_dir_all(path).map_err(|e| format!("fs.remove_dir_all `{path}`: {e}"))?;
+            Ok(String::new())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.rename", move |args, memory| {
+        let from = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        let to = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+        answer(&state, "fs.rename", || {
+            let (from, to) = (utf8(from)?, utf8(to)?);
+            std::fs::rename(from, to).map_err(|e| format!("fs.rename `{from}` -> `{to}`: {e}"))?;
+            Ok(String::new())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "fs.copy", move |args, memory| {
+        let from = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        let to = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+        answer(&state, "fs.copy", || {
+            let (from, to) = (utf8(from)?, utf8(to)?);
+            std::fs::copy(from, to).map_err(|e| format!("fs.copy `{from}` -> `{to}`: {e}"))?;
             Ok(String::new())
         })
     })?;

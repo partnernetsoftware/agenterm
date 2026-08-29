@@ -1281,8 +1281,8 @@ flowchart TD
 | ~~A1.6~~ | ~~`tool.*` 门接到 CLI~~ **已接（2026-08-29）**：`--profile tool` 是唯一开门方式，`check` 与 `execute` 走同一扇门 | 实测：`script run --profile tool` 读到磁盘文件；同一脚本不带 profile 被沙箱按名拒绝，且只列三个沙箱 import；`tests/script_entry_extension_routing.rs` 两面都断言 | 已闭合 |
 | ~~A1.7~~ | ~~三组提交合入 main~~ **已合入（2026-08-29，无冲突，顺序 path → tool → rh-out）** | 合并后整套 workspace **1978 / 31**，31 条**全在基线 52 里、零新增**；消失的 22 条随 rh 走；`cargo tree -i agenterm-rh` 为 0；`rhai` 出 `Cargo.lock` | 已闭合 |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |
-| A3 | 下游既有失败逐条归因 | main `9aef2995`：安静复跑 2571/50，整套并行 2569/52 或 2567/54（多出来的是 `script_process` 两条进程回收测试与 `performance_summary` 两条；后两条单跑即过，前两条 2026-08-29 在 `9aef2995` 的干净导出上单跑 2/2 仍红——「owned process N did not create a descendant」，随机器状态变，不随代码变）；rh 移出后 **1954/31**，31 条与之前逐名相同（executor ×11、boundary ×2、stdlib ×8、script_cli_verb_parity ×9、vnc-rs doctest） | 每条要么修好，要么归入「环境抖动」并写明复跑命令 |
-| A4 | Status 行上门 | 首行曾停在 rev `0afc88a`/153，实际 `ec67034`/152，靠人问才发现；**2026-08-29 又手改一次**（152 → 176），仍没有门 | 有检查在 Status 与实际 pin 不符时失败 |
+| ~~A3~~ | ~~下游既有失败逐条归因~~ **已归因（2026-08-29，rh 移出后 31 条）** | **五族，无一是本产品线代码缺陷**：`executor` ×11 = `agenterm-cu` 无障碍树，本机无可用显示；lua `stdlib` ×8 = `process_spawn: No such file or directory`，环境缺二进制；`platform::boundary_tests` ×2 = windows cfg 放错层，`3b63c87a` 引入；`script_cli_verb_parity` ×9 = **feature 条件**——带三个 feature 跑 **11/0**，默认 feature 的 workspace 跑不到引擎别名；vnc-rs doctest ×1 = 第三方 | 判据仍是失败**集合**逐名不变；带 feature 的 `--lib` + parity 是第二条口径，不可省 |
+| ~~A4~~ | ~~Status 行上门~~ **已上门（`bc1a22d5`）** | `the_prd_states_the_revision_this_build_pins`：读本文件版本链末尾的粗体「当前 pin」，与 `Cargo.toml` 的 tinyvm rev 比对；不一致则 `cargo test -p agenterm-qjswasm` 红 | 已闭合；抬 pin 时**同一提交**改版本链，否则门响 |
 | A5 | `.wasm` 扩展名的归属 | wasmcore 归档后 `.wasm` **谁也不路由**，靠 `non_text_script_hint` 大声失败 | 要么给它一个入口，要么在 PRD 写明永久不给 |
 
 #### A1.1 的答案：迁移跨的不是语言，是宿主面
