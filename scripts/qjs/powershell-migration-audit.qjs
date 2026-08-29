@@ -1,0 +1,427 @@
+// Enforce the frozen v0.1.10 PowerShell migration ledger.
+//
+// Args:
+//   [REPO]
+// Ported from scripts/rh/powershell-migration-audit.rh; runs under
+// `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+function is_archived_research_ps1(path) {
+  return path === "research/dynamic-core/build/build_windows.ps1"
+    || path === "research/dynamic-core/discovery/build/build_windows.ps1"
+    || path === "research/dynamic-core/ir/build/run.ps1"
+    || path === "research/dynamic-core/lowering/build/build_lowering.ps1"
+    || path === "research/dynamic-core/reuse/build/build_windows.ps1"
+    || path === "research/dynamic-core/stencil/build/build_stencil.ps1";
+}
+
+// One ledger list field: a non-empty array of at most 32 distinct, non-empty,
+// <=512-character strings. rh spelled this out five times.
+function check_list(entry, field, values) {
+  rh.require(
+    rh.is_array(values) && values.length > 0 && values.length <= 32,
+    "migration_ledger_" + field + ":" + entry.path
+  );
+  const seen = {};
+  for (const item of values) {
+    const item_text = ("" + item).trim();
+    rh.require(item_text !== "", "migration_ledger_" + field + ":" + entry.path);
+    rh.require(item_text.length <= 512, "migration_ledger_" + field + "_item_too_long:" + entry.path);
+    rh.require(
+      seen[item_text] !== true,
+      "migration_ledger_" + field + "_duplicate:" + entry.path + ":" + item_text
+    );
+    seen[item_text] = true;
+  }
+}
+
+function require_text(entry, field, code) {
+  rh.require(typeof entry[field] === "string", code + ":" + entry.path);
+  rh.require(("" + entry[field]).trim() !== "", code + ":" + entry.path);
+}
+
+function normalized_alias(path) {
+  return rh.read_text(path).replaceAll("\r\n", "\n").trim();
+}
+
+function require_thin_batch_alias(repo, name, task) {
+  rh.require(
+    normalized_alias(rh.join(repo, name)) ===
+      '@setlocal && set "AGENTERM_BOOTSTRAP_TASK=' + task + '" && call "%~dp0scripts\\bootstrap.cmd" %*',
+    "migration_batch_alias_not_thin:" + name
+  );
+}
+
+function require_thin_shell_alias(repo, name, task) {
+  const path = rh.join(repo, name);
+  rh.require(rh.exists(path), "migration_shell_alias_missing:" + name);
+  rh.require(
+    normalized_alias(path) ===
+      "#!/usr/bin/env sh\n" +
+      "set -eu\n" +
+      "AGENTERM_BOOTSTRAP_TASK=" + task + "\n" +
+      "export AGENTERM_BOOTSTRAP_TASK\n" +
+      'exec "$(dirname "$0")/scripts/bootstrap.sh" "$@"',
+    "migration_shell_alias_not_thin:" + name
+  );
+}
+
+const BUSINESS_RULES = [
+  "release-fast", "stage-build", "include-stress", "package-qualified",
+  "--timeout-ms", "--max-operations", "--max-collection-items",
+  "--max-string-bytes", "--max-output-bytes", "cargo clean", "git push", "git tag"
+];
+
+const TIMING_FACTS = [
+  "agenterm_bootstrap_timing_schema", "agenterm_bootstrap_setup_ms",
+  "agenterm_bootstrap_cargo_build_ms", "agenterm_bootstrap_worker_copy_ms",
+  "agenterm_bootstrap_other_setup_ms", "agenterm_bootstrap_clock_resolution_ms",
+  "agenterm_bootstrap_lock_wait_state", "agenterm_bootstrap_worker_state",
+  "agenterm_bootstrap_fingerprint", "included_not_separable", "not_applicable",
+  "worker.stamp", "git hash-object", "rustc -vv", "cargo -vv", "cargo.lock",
+  "agenterm.tasks.json"
+];
+
+const args = rh.args();
+if (args.length > 1) { throw "expected: [REPO]"; }
+
+let repo = rh.cwd();
+if (args.length === 1) {
+  repo = rh.absolute(args[0]);
+}
+const stdout_path = repo + ".powershell-migration-audit.stdout.tmp";
+const git_options = { timeout_ms: 10000 };
+
+const ledger = JSON.parse(rh.read_text(rh.join(repo, "scripts/powershell-migration.json")));
+rh.require(ledger.schema_version === 2, "migration_ledger_schema");
+rh.require(ledger.baseline_count === 43, "migration_ledger_baseline_count");
+rh.require(ledger.entries.length === ledger.baseline_count, "migration_ledger_entry_count");
+
+const known = {};
+const known_parity = {};
+let deleted = 0;
+const deleted_paths_set = {};
+// No `Object.keys` in this engine yet: the deleted paths are also kept as an
+// array, in ledger order, for the grep loop below.
+const deleted_paths = [];
+for (const entry of ledger.entries) {
+  const entry_path = ("" + entry.path).trim();
+  rh.require(typeof entry.id === "string", "migration_ledger_empty_id:" + entry_path);
+  rh.require(("" + entry.id).trim() !== "", "migration_ledger_empty_id:" + entry.path);
+  rh.require(entry_path.endsWith(".ps1"), "migration_ledger_non_ps1_path");
+  require_text(entry, "responsibility", "migration_ledger_responsibility");
+  require_text(entry, "replacement_task", "migration_ledger_replacement_task");
+  require_text(entry, "replacement", "migration_ledger_replacement");
+  require_text(entry, "evidence", "migration_ledger_evidence");
+  check_list(entry, "callers", entry.callers);
+  check_list(entry, "inputs", entry.inputs);
+  check_list(entry, "outputs", entry.outputs);
+  check_list(entry, "side_effects", entry.side_effects);
+  check_list(entry, "platforms", entry.platforms);
+  for (const platform of entry.platforms) {
+    rh.require(
+      platform === "windows" || platform === "linux" || platform === "macos",
+      "migration_ledger_platform:" + entry.path + ":" + platform
+    );
+  }
+  for (const effect of entry.side_effects) {
+    const effect_text = "" + effect;
+    rh.require(
+      effect_text === "none"
+        || effect_text === "repository_read"
+        || effect_text === "process_spawn"
+        || effect_text === "artifact_write"
+        || effect_text === "gui_spawn"
+        || effect_text === "network_loopback"
+        || effect_text === "terminal_compatibility_payload"
+        || effect_text === "git_mutation"
+        || effect_text === "remote_publish",
+      "migration_ledger_side_effect:" + entry.path + ":" + effect_text
+    );
+  }
+  rh.require(
+    rh.is_map(entry.budgets)
+      && entry.budgets.timeout_ms > 0
+      && entry.budgets.timeout_ms <= 3600000
+      && entry.budgets.max_output_bytes > 0
+      && entry.budgets.max_output_bytes <= 8388608,
+    "migration_ledger_budgets:" + entry.path
+  );
+  rh.require(
+    rh.is_array(entry.parity_evidence) && entry.parity_evidence.length > 0,
+    "migration_ledger_parity_evidence:" + entry.path
+  );
+  for (const parity of entry.parity_evidence) {
+    rh.require(rh.is_map(parity), "migration_ledger_parity_evidence_item:" + entry.path);
+    rh.require(typeof parity.id === "string", "migration_ledger_parity_id:" + entry.path);
+    const parity_id = ("" + parity.id).trim();
+    rh.require(parity_id !== "", "migration_ledger_parity_id:" + entry.path);
+    rh.require(typeof parity.owner === "string", "migration_ledger_parity_owner:" + entry.path);
+    rh.require(("" + parity.owner).trim() !== "", "migration_ledger_parity_owner:" + entry.path);
+    rh.require(typeof parity.proof === "string", "migration_ledger_parity_proof:" + entry.path);
+    rh.require(("" + parity.proof).trim() !== "", "migration_ledger_parity_proof:" + entry.path);
+    rh.require(
+      parity_id.startsWith("migration-parity:"),
+      "migration_ledger_parity_id:" + entry_path + ":" + parity_id
+    );
+    rh.require(
+      known_parity[parity_id] !== true,
+      "migration_ledger_parity_id_duplicate:" + entry_path + ":" + parity_id
+    );
+    known_parity[parity_id] = true;
+  }
+  rh.require(known[entry_path] !== true, "migration_ledger_duplicate_path: " + entry_path);
+  rh.require(
+    entry.status === "inventory" || entry.status === "deleted",
+    "migration_ledger_status: " + entry_path
+  );
+  known[entry_path] = true;
+  if (entry.status === "deleted") {
+    deleted = deleted + 1;
+    deleted_paths_set[entry_path] = true;
+    deleted_paths.push(entry_path);
+  }
+}
+
+const ps1_code = rh.command_stdout_file(
+  "git", ["-C", repo, "ls-files", "--", "*.ps1"], stdout_path, git_options
+);
+rh.require(ps1_code === 0, "migration-git-ls-files");
+const current = {};
+let current_count = 0;
+// These frozen dynamic-core experiment drivers are archived measurement
+// evidence, not product/build automation. Keep the exception exact so a
+// new PowerShell surface anywhere else still fails closed.
+for (const source_line of rh.read_text(stdout_path).split("\n")) {
+  const path = source_line.trim();
+  if (path === "") { continue; }
+  if (is_archived_research_ps1(path)) { continue; }
+  rh.require(known[path] === true, "migration_unplanned_ps1: " + path);
+  rh.require(deleted_paths_set[path] !== true, "migration_deleted_ps1_returned: " + path);
+  if (current[path] !== true) { current_count = current_count + 1; }
+  current[path] = true;
+}
+
+for (const entry of ledger.entries) {
+  const entry_path = ("" + entry.path).trim();
+  if (entry.status === "inventory") {
+    rh.require(current[entry_path] === true, "migration_unrecorded_removal: " + entry_path);
+  }
+}
+
+for (const deleted_path of deleted_paths) {
+  const grep_code = rh.command_stdout_file(
+    "git",
+    [
+      "-C", repo, "grep", "-n", "-F", "-e", deleted_path, "--",
+      ".github", "build.bat", "check.cmd", "lint.cmd", "release.cmd", "scripts", "tests"
+    ],
+    stdout_path,
+    git_options
+  );
+  rh.require(
+    grep_code === 0 || grep_code === 1,
+    "migration-git-grep-deleted-references:" + deleted_path
+  );
+  if (grep_code === 0) {
+    for (const source_line of rh.read_text(stdout_path).split("\n")) {
+      const line = source_line.trim();
+      if (line === "" || line.startsWith("scripts/powershell-migration.json:")) {
+        continue;
+      }
+      throw "migration_deleted_ps1_reference:" + line;
+    }
+  }
+}
+
+const automation_code = rh.command_stdout_file(
+  "git",
+  [
+    "-C", repo, "ls-files", "--",
+    "*.bat", "*.cmd", "*.sh", "*.rhai", "*.rh", ".github/workflows",
+    ":(exclude)scripts/archive/**"
+  ],
+  stdout_path,
+  git_options
+);
+rh.require(automation_code === 0, "migration-automation-inventory");
+let automation_count = 0;
+for (const source_line of rh.read_text(stdout_path).split("\n")) {
+  const path = source_line.trim();
+  if (path === "") { continue; }
+  automation_count = automation_count + 1;
+  const source = rh.read_text(rh.join(repo, path));
+  let line_number = 0;
+  for (const line of source.split("\n")) {
+    line_number = line_number + 1;
+    const lower_line = line.toLowerCase();
+    const trimmed_line = lower_line.trim();
+    let automation_hit = 0;
+    if (lower_line.includes(".ps1")
+        || lower_line.includes("powershell.exe")
+        || lower_line.includes("pwsh.exe")
+        || lower_line.includes('"powershell"')
+        || lower_line.includes('"pwsh"')
+        || lower_line.includes("'powershell'")
+        || lower_line.includes("'pwsh'")
+        || lower_line.includes("shell: powershell")
+        || lower_line.includes("shell: pwsh")
+        || trimmed_line.startsWith("powershell ")
+        || trimmed_line.startsWith("pwsh ")
+        || trimmed_line.startsWith("run: powershell ")
+        || trimmed_line.startsWith("run: pwsh ")) {
+      automation_hit = 1;
+    }
+    if (automation_hit === 1) {
+      let allowed = 0;
+      if (path === "scripts/rh/powershell-migration-audit.rh"
+          || path === "scripts/archive/rhai/powershell-migration-audit.rhai") {
+        if (!lower_line.includes("std::process::command(")
+            && !trimmed_line.startsWith("powershell ")
+            && !trimmed_line.startsWith("pwsh ")) {
+          allowed = 1;
+        }
+      } else if (path === "scripts/rh/check.rh") {
+        if (trimmed_line === 'if name != "powershell.exe" && name != "pwsh.exe" {') {
+          allowed = 1;
+        }
+      } else if (path === "scripts/rh/fresh-clone-rehearsal.rh") {
+        if (trimmed_line === '"powershell.exe"' || trimmed_line === '"pwsh.exe"') {
+          allowed = 1;
+        }
+      } else if (path === "scripts/rh/qualification-selftest.rh"
+          || path === "scripts/archive/rhai/qualification-selftest.rhai") {
+        if (trimmed_line === '["pwsh.exe:123"],'
+            || trimmed_line === 'automation_processes: rh::json::parse("[\\"pwsh.exe:123\\"]"),') {
+          allowed = 1;
+        }
+      } else if (path === "scripts/rh/wake-smoke.rh") {
+        // wake-smoke's "expired mutation is a typed no-op" step sends ONE raw
+        // IPC request the typed CLI cannot express, and that one line stayed
+        // PowerShell. Scoped to the exact program-name literal.
+        if (trimmed_line === '"powershell",') {
+          allowed = 1;
+        }
+      } else if (path === "scripts/rh/remote-ui-smoke.rh"
+          || path === "scripts/archive/rhai/remote-ui-smoke.rhai") {
+        if (trimmed_line === '"--", "powershell.exe", "-nologo", "-noprofile"'
+            || trimmed_line === '"--", "powershell.exe", "-nologo", "-noprofile",'
+            || trimmed_line === '"alternate-wheel.ps1"') {
+          allowed = 1;
+        }
+      }
+      if (allowed === 0) {
+        throw "migration_powershell_automation_reference:" + path + ":" + line_number;
+      }
+    }
+  }
+}
+
+const batch_code = rh.command_stdout_file(
+  "git", ["-C", repo, "ls-files", "--", "*.bat", "*.cmd"], stdout_path, git_options
+);
+rh.require(batch_code === 0, "migration-git-ls-batch");
+const batch_paths = {};
+let batch_count = 0;
+for (const source_line of rh.read_text(stdout_path).split("\n")) {
+  const path = source_line.trim();
+  if (path !== "") {
+    batch_paths[path] = true;
+    batch_count = batch_count + 1;
+  }
+}
+rh.require(batch_count === 7, "migration_batch_inventory_count:" + batch_count);
+for (const name of ["build.bat", "check.cmd", "lint.cmd", "release.cmd", "rh-check.cmd",
+                    "scripts/rh-check.cmd", "scripts/bootstrap.cmd"]) {
+  rh.require(batch_paths[name] === true, "migration_batch_inventory_missing:" + name);
+}
+
+require_thin_batch_alias(repo, "build.bat", "build");
+require_thin_batch_alias(repo, "check.cmd", "check");
+require_thin_batch_alias(repo, "lint.cmd", "lint");
+require_thin_batch_alias(repo, "release.cmd", "release");
+rh.require(
+  normalized_alias(rh.join(repo, "rh-check.cmd")) === "@echo off\n\"%~dp0scripts\\rh-check.cmd\" %*",
+  "migration_rh_check_alias_not_thin"
+);
+const rh_check_lower = rh.read_text(rh.join(repo, "scripts/rh-check.cmd")).toLowerCase();
+rh.require(
+  rh_check_lower.includes("cargo build --locked --bin agenterm")
+    && rh_check_lower.includes("cargo test -p agenterm-rh --locked")
+    && !rh_check_lower.includes("powershell")
+    && !rh_check_lower.includes("pwsh"),
+  "migration_rh_check_not_native"
+);
+const bootstrap_lower = rh.read_text(rh.join(repo, "scripts/bootstrap.cmd")).toLowerCase();
+for (const rule of BUSINESS_RULES) {
+  rh.require(!bootstrap_lower.includes(rule), "migration_batch_bootstrap_business_rule:" + rule);
+}
+rh.require(
+  bootstrap_lower.includes('task run "%agenterm_bootstrap_task%"'),
+  "migration_batch_bootstrap_task_forward"
+);
+rh.require(
+  bootstrap_lower.includes("cargo build --locked --bin agenterm"),
+  "migration_batch_bootstrap_worker_build"
+);
+let bootstrap_line_count = 0;
+for (const source_line of bootstrap_lower.split("\n")) {
+  bootstrap_line_count = bootstrap_line_count + 1;
+}
+rh.require(bootstrap_line_count <= 200, "migration_batch_bootstrap_size");
+
+require_thin_shell_alias(repo, "build.sh", "build");
+require_thin_shell_alias(repo, "check.sh", "check");
+require_thin_shell_alias(repo, "lint.sh", "lint");
+require_thin_shell_alias(repo, "release.sh", "release");
+const shell_bootstrap_path = rh.join(repo, "scripts/bootstrap.sh");
+rh.require(rh.exists(shell_bootstrap_path), "migration_shell_bootstrap_missing");
+const shell_bootstrap_lower = rh.read_text(shell_bootstrap_path).toLowerCase();
+let shell_bootstrap_operational_lines = 0;
+for (const source_line of shell_bootstrap_lower.split("\n")) {
+  const line = source_line.trim();
+  if (line !== "" && (!line.startsWith("#") || line.startsWith("#!"))) {
+    shell_bootstrap_operational_lines = shell_bootstrap_operational_lines + 1;
+  }
+}
+for (const rule of BUSINESS_RULES) {
+  rh.require(!shell_bootstrap_lower.includes(rule), "migration_shell_bootstrap_business_rule:" + rule);
+}
+rh.require(
+  shell_bootstrap_lower.includes('task run "$agenterm_bootstrap_task"')
+    && shell_bootstrap_lower.includes("cargo build --quiet --locked --bin agenterm")
+    && shell_bootstrap_operational_lines <= 200,
+  "migration_shell_bootstrap_not_generic"
+);
+for (const fact of TIMING_FACTS) {
+  rh.require(
+    bootstrap_lower.includes(fact) && shell_bootstrap_lower.includes(fact),
+    "migration_bootstrap_timing_fact:" + fact
+  );
+}
+
+rh.try_remove_file(stdout_path);
+
+const report = {
+  schema_version: 2,
+  task_id: "migration-audit",
+  baseline_count: ledger.baseline_count,
+  deleted_count: deleted,
+  remaining_count: current_count,
+  expected_remaining_count: ledger.baseline_count - deleted,
+  powershell_automation_references: 0,
+  automation_file_count: automation_count,
+  batch_entry_count: batch_count,
+  batch_alias_count: 4,
+  batch_business_logic_references: 0,
+  shell_alias_count: 4,
+  shell_business_logic_references: 0,
+  drift: false
+};
+rh.require(
+  report.remaining_count === report.expected_remaining_count,
+  "migration_remaining_count: actual=" + report.remaining_count +
+    ", expected=" + report.expected_remaining_count
+);
+print(rh.stringify_pretty(report));
+return 0;
