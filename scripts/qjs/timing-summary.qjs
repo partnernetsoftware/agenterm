@@ -1,0 +1,273 @@
+// Validate one AgenTerm quality-timing report and render a bounded Markdown
+// summary. In GitHub Actions, preserve earlier step summaries by appending via
+// atomic_write; elsewhere write the Markdown to stdout.
+// Moved from rh on 2026-08-29.
+//
+// Args:
+//   TIMING_JSON
+//
+// Runs under `--profile tool`.
+import * as rh from "lib/rh_compat";
+
+const args = [];
+for (let i = 0; i < arg_count(); i = i + 1) {
+  if (arg(i) !== 0) { throw "arg: " + tool_result(); }
+  args.push(tool_result());
+}
+if (args.length !== 1) {
+  throw "expected: TIMING_JSON";
+}
+
+const path = rh.absolute(args[0]);
+rh.require(
+  rh.exists(path) && rh.symlink_metadata(path).is_file,
+  "quality_timing_summary_missing"
+);
+const text = rh.read_text(path);
+const report = JSON.parse(text);
+
+rh.require(report.schema_version === 2, "quality_timing_summary_schema");
+rh.require(report.kind === "agenterm-quality-timing", "quality_timing_summary_schema");
+
+rh.require(
+  report.lane === "quick"
+    || report.lane === "ordinary"
+    || report.lane === "candidate",
+  "quality_timing_summary_run"
+);
+rh.require(report.profile !== "", "quality_timing_summary_run");
+rh.require(
+  report.status === "passed" || report.status === "failed",
+  "quality_timing_summary_run"
+);
+rh.require(report.total_wall_ms >= 0, "quality_timing_summary_run");
+rh.require(
+  report.wall_time.state === "partial"
+    || report.wall_time.state === "unavailable",
+  "quality_timing_summary_run"
+);
+rh.require(
+  report.wall_time.task_ms === report.total_wall_ms,
+  "quality_timing_summary_run"
+);
+rh.require(
+  report.wall_time.accounted_ms >= report.total_wall_ms,
+  "quality_timing_summary_run"
+);
+
+const commit = "" + report.source.commit;
+rh.require(commit.length === 40, "quality_timing_summary_identity");
+const cargo_lock_sha256 = "" + report.source.cargo_lock_sha256;
+rh.require(cargo_lock_sha256.length === 64, "quality_timing_summary_identity");
+const gate_manifest_sha256 = "" + report.gate_manifest.sha256;
+rh.require(gate_manifest_sha256.length === 64, "quality_timing_summary_identity");
+rh.require(report.workload.fingerprint !== "", "quality_timing_summary_identity");
+
+rh.require(report.bootstrap.schema_version === 1, "quality_timing_summary_bootstrap");
+rh.require(
+  report.bootstrap.kind === "agenterm-bootstrap-timing",
+  "quality_timing_summary_bootstrap"
+);
+rh.require(
+  report.bootstrap.state === "measured"
+    || report.bootstrap.state === "unavailable",
+  "quality_timing_summary_bootstrap"
+);
+// Valid reports keep cargo_lock_wait.duration_ms JSON-null; the rh native
+// packs could not observe JSON null, so this leaf does not re-check it.
+
+if (report.bootstrap.state === "measured") {
+  rh.require(report.bootstrap.setup_ms >= 0, "quality_timing_summary_bootstrap_measured");
+  rh.require(
+    report.bootstrap.cargo_build_ms >= 0,
+    "quality_timing_summary_bootstrap_measured"
+  );
+  rh.require(
+    report.bootstrap.worker_copy_ms >= 0,
+    "quality_timing_summary_bootstrap_measured"
+  );
+  rh.require(
+    report.bootstrap.other_setup_ms >= 0,
+    "quality_timing_summary_bootstrap_measured"
+  );
+  rh.require(
+    report.bootstrap.clock_resolution_ms > 0,
+    "quality_timing_summary_bootstrap_measured"
+  );
+  rh.require(
+    report.bootstrap.worker.state === "rebuilt"
+      || report.bootstrap.worker.state === "reused",
+    "quality_timing_summary_bootstrap_measured"
+  );
+  const worker_fingerprint = "" + report.bootstrap.worker.compatibility_fingerprint;
+  rh.require(
+    worker_fingerprint.length >= 40,
+    "quality_timing_summary_bootstrap_measured"
+  );
+  if (report.bootstrap.worker.state === "rebuilt") {
+    rh.require(
+      report.bootstrap.cargo_lock_wait.state === "included_not_separable",
+      "quality_timing_summary_bootstrap_measured"
+    );
+    rh.require(
+      report.bootstrap.cargo_lock_wait.included_in === "cargo_build_ms",
+      "quality_timing_summary_bootstrap_measured"
+    );
+  }
+  if (report.bootstrap.worker.state === "reused") {
+    rh.require(
+      report.bootstrap.cargo_build_ms === 0,
+      "quality_timing_summary_bootstrap_measured"
+    );
+    rh.require(
+      report.bootstrap.cargo_lock_wait.state === "not_applicable",
+      "quality_timing_summary_bootstrap_measured"
+    );
+    // included_in is JSON-null for reused workers; not re-checked (see above).
+  }
+}
+
+const gates = report.gates;
+rh.require(gates.length > 0, "quality_timing_summary_gates");
+
+const seen = {};
+let passed_count = 0;
+let failed_count = 0;
+let skipped_count = 0;
+let not_run_count = 0;
+let rows = "";
+
+for (const gate of gates) {
+  rh.require(gate.id !== "", "quality_timing_summary_gate");
+  const gate_id = gate.id;
+  rh.require(seen[gate_id] !== true, "quality_timing_summary_gate");
+  seen[gate_id] = true;
+
+  const gate_status = gate.status;
+  if (gate_status === "passed") {
+    passed_count = passed_count + 1;
+  }
+  if (gate_status === "failed") {
+    failed_count = failed_count + 1;
+  }
+  if (gate_status === "skipped") {
+    skipped_count = skipped_count + 1;
+  }
+  if (gate_status === "not_run") {
+    not_run_count = not_run_count + 1;
+  }
+  rh.require(
+    gate_status === "passed"
+      || gate_status === "failed"
+      || gate_status === "skipped"
+      || gate_status === "not_run",
+    "quality_timing_summary_gate"
+  );
+  rh.require(gate.duration_ms >= 0, "quality_timing_summary_gate");
+
+  const duration_ms = gate.duration_ms;
+  const row =
+    "| `" + gate_id + "` | " + gate_status + " | " +
+    duration_ms + " |\n";
+  rows = rows + row;
+}
+
+let first_failure_line = "";
+if (report.status === "passed") {
+  rh.require(failed_count === 0, "quality_timing_summary_passed_failure");
+} else {
+  rh.require(
+    report.first_failure.kind === "gate"
+      || report.first_failure.kind === "stage",
+    "quality_timing_summary_failed_first_failure"
+  );
+  rh.require(
+    report.first_failure.elapsed_ms >= 0,
+    "quality_timing_summary_failed_first_failure"
+  );
+  const failure_elapsed = report.first_failure.elapsed_ms;
+  if (report.first_failure.kind === "gate") {
+    rh.require(failed_count === 1, "quality_timing_summary_failed_first_failure");
+    const failure_gate_id = report.first_failure.gate_id;
+    rh.require(
+      seen[failure_gate_id] === true,
+      "quality_timing_summary_failed_first_failure"
+    );
+    first_failure_line =
+      "- First failure: `" + failure_gate_id + "` after " +
+      failure_elapsed + " ms\n";
+  }
+  if (report.first_failure.kind === "stage") {
+    rh.require(failed_count === 0, "quality_timing_summary_failed_first_failure");
+    rh.require(
+      report.first_failure.stage_id !== "",
+      "quality_timing_summary_failed_first_failure"
+    );
+    const failure_stage_id = report.first_failure.stage_id;
+    first_failure_line =
+      "- First failure: `" + failure_stage_id + "` after " +
+      failure_elapsed + " ms\n";
+  }
+}
+
+let bootstrap_suffix = "";
+if (report.bootstrap.state === "measured") {
+  const cargo_build_ms = report.bootstrap.cargo_build_ms;
+  const worker_copy_ms = report.bootstrap.worker_copy_ms;
+  const other_setup_ms = report.bootstrap.other_setup_ms;
+  bootstrap_suffix =
+    " — worker " + report.bootstrap.worker.state +
+    ", Cargo " + cargo_build_ms + " ms, copy " +
+    worker_copy_ms + " ms, other setup " +
+    other_setup_ms + " ms; Cargo lock wait " +
+    report.bootstrap.cargo_lock_wait.state;
+} else {
+  bootstrap_suffix = " — " + report.bootstrap.reason;
+}
+const bootstrap_line =
+  "- Bootstrap: `" + report.bootstrap.state + "`" +
+  bootstrap_suffix + "\n";
+
+const total_wall_ms = report.total_wall_ms;
+const accounted_ms = report.wall_time.accounted_ms;
+const source_commit = "" + report.source.commit;
+let markdown = "## AgenTerm quality timing\n\n";
+markdown = markdown + "- Lane: `" + report.lane + "` / `" + report.profile + "`\n";
+markdown = markdown + "- Status: **" + report.status + "**\n";
+markdown = markdown + "- Total wall time: **" + total_wall_ms + " ms**\n";
+markdown = markdown +
+  "- Accounted outer wall time: **" + accounted_ms +
+  " ms** (`" + report.wall_time.state + "`)\n";
+markdown = markdown + bootstrap_line;
+markdown = markdown + "- Source: `" + source_commit + "`\n";
+markdown = markdown +
+  "- Gates: " + passed_count + " passed, " + failed_count +
+  " failed, " + skipped_count + " skipped, " +
+  not_run_count + " not run\n";
+markdown = markdown + first_failure_line;
+markdown = markdown + "\n| Gate | Status | Duration (ms) |\n";
+markdown = markdown + "|---|---:|---:|\n";
+markdown = markdown + rows;
+
+if (env_has("GITHUB_STEP_SUMMARY") === 1) {
+  const summary_value = rh.env_or("GITHUB_STEP_SUMMARY", "");
+  if (summary_value !== "") {
+    const summary_path = rh.absolute(summary_value);
+    let previous = "";
+    if (rh.exists(summary_path)) {
+      const summary_meta = rh.symlink_metadata(summary_path);
+      rh.require(
+        summary_meta.len <= 1048576,
+        "quality_timing_summary_previous_too_large"
+      );
+      previous = rh.read_text(summary_path);
+    }
+    rh.atomic_write(summary_path, previous + markdown + "\n");
+  } else {
+    print(markdown);
+  }
+} else {
+  print(markdown);
+}
+
+return 0;
