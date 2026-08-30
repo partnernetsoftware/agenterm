@@ -749,10 +749,10 @@ impl std::fmt::Display for QjswasmError {
             ),
             Self::NoPrimitiveForm(Some(kind)) => write!(
                 f,
-                "the script used {kind} where a String or a Number was needed; this engine never converts                  one quietly -- write `JSON.stringify(x)` for its text, or pick the property you meant"
+                "the script used {kind} where a String or a Number was needed; this engine never converts one quietly -- write `JSON.stringify(x)` for its text, or pick the property you meant"
             ),
             Self::NoPrimitiveForm(None) => f.write_str(
-                "the script used an Object, an Array or a function where a String or a Number was needed;                  this engine never converts one quietly -- write `JSON.stringify(x)` for its text",
+                "the script used an Object, an Array or a function where a String or a Number was needed; this engine never converts one quietly -- write `JSON.stringify(x)` for its text",
             ),
             Self::HostArgument(Some((host, position))) => write!(
                 f,
