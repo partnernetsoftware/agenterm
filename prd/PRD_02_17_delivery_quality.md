@@ -174,24 +174,16 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     after tagging
 - [x] release CI runs the isolated public CLI and fleet smoke suites before
   packaging, even when the redundant GUI smoke suites are skipped
-- [x] ordinary feedback CI has two independent product owners:
-  `.github/workflows/ci-agenterm.yml` covers the server/script/Fleet workbench
-  and shared mechanism contracts. The lightweight host's CI left with the
-  product on 2026-08-23; what follows describes the arrangement while
-  `.github/workflows/ci-agenterm-con.yml`
-  covers the lightweight package, matching `con-*` unwind profile, public GUI
-  control journeys, and its six target cells. The pre-split monolithic CI is
-  preserved under `archive/ci/pre-product-split-2026-08-12/` and cannot execute.
-  Candidate preflight requires both workflow files to have a successful run at
-  the exact source SHA; one product's green status cannot substitute for the
-  other. This module owns the cross-product rule; the con-side workflow content,
-  profiles and artifact budget are owned by
-  [`agenterm-con` package and delivery](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_27_con_delivery.md).
-- [x] ordinary push/PR feedback remains replaceable by mutable ref, while an
-  explicit `workflow_dispatch` qualification is grouped by immutable
-  `github.sha` in all three Candidate prerequisite workflows. A later `main`
-  push therefore cannot cancel an exact-SHA agenterm, agenterm-con or
-  libagenterm run; a duplicate dispatch for the same SHA still replaces its
+- [~] ordinary push/PR workflows are parked under `.github/workflows/*.disabled`
+  and therefore make no release claim. Candidate is deliberately
+  self-contained: its Windows stress-inclusive qualification, six builds, six
+  native execute-only courts, package checks, aggregate, and sealed manifest
+  all belong to one exact run/SHA. This avoids paying for an ordinary six-grid
+  and then repeating it for Candidate while also avoiding an impossible
+  dependency on workflows GitHub cannot execute.
+- [x] explicit `workflow_dispatch` Candidate qualification is grouped by the
+  immutable source SHA. A later `main` push therefore cannot cancel an active
+  exact-SHA Candidate; a duplicate dispatch for the same SHA still replaces its
   predecessor.
 - v0.1.12 exact-SHA candidate promotion (P0)
   - [x] ordinary feedback CI, complete candidate qualification and tag

@@ -40,6 +40,8 @@ archives, explicit signing policy, and final-byte reputation checks.
   - [ ] delivery latency and cleanup
     - [ ] report cold/cache-hit build time separately from six runtime time
     - [ ] retain only bounded evidence and reclaim failed/stale staging trees
+    - [x] Candidate no longer waits for three ordinary workflows that are
+      parked as `.disabled`; its own exact-SHA qualification is self-contained
   - [ ] evidence and delivery
     - [ ] Candidate manifest proves six cells, sizes, hashes, provenance and court receipts
     - [ ] Promotion only publishes the manifest allowlist after explicit human approval

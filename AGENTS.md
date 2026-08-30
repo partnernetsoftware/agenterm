@@ -252,10 +252,12 @@ Before Candidate, Promotion, release authentication, dispatch, or monitoring,
 read [`skills/agenterm-release/SKILL.md`](skills/agenterm-release/SKILL.md) and
 the references it requires. The stable contract is:
 
-- `Release Candidate` qualifies the exact current `main` SHA, including the
-  single stress-inclusive Windows gate, then builds and seals all six platform
-  artifacts before any tag exists. Dispatch is allowed only after an explicit
-  exact-SHA Candidate request.
+- `Release Candidate` is self-contained because the ordinary push workflows
+  are parked as `.disabled`: it qualifies the exact current `main` SHA,
+  including the single stress-inclusive Windows gate, then builds, executes on
+  six native OS/ISA runners, and seals all six platform artifacts before any
+  tag exists. Dispatch is allowed only after an explicit exact-SHA Candidate
+  request.
 - `Release` promotes one exact successful Candidate without rebuilding its
   bytes. It requires explicit human approval for the version and
   `publish-vX.Y.Z` confirmation, creates only the exact tag, and preserves

@@ -30,10 +30,12 @@ delivery topology from an older release or from Git push behavior.
 
 1. Synchronize and inspect `origin/main`; preserve other platform agents'
    commits.
-2. Require the exact lowercase 40-character current `origin/main` HEAD and a
-   successful ordinary CI run for that SHA. Candidate currently rejects a
-   historical main ancestor because `workflow_dispatch` controller identity,
-   provenance, and Promotion must remain one unambiguous commit.
+2. Require the exact lowercase 40-character current `origin/main` HEAD.
+   Ordinary push workflows are parked as `.disabled`, so Candidate owns its
+   complete qualification and must not wait for impossible external CI runs.
+   Candidate rejects a historical main ancestor because `workflow_dispatch`
+   controller identity, provenance, and Promotion must remain one unambiguous
+   commit.
 3. Run local lint and only the owning policy/fixture tests before dispatch.
 4. Dispatch `candidate.yml` for that exact SHA through an actually available,
    authenticated Actions capability.
