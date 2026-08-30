@@ -223,6 +223,24 @@ Native Linux `agenterm` and `agenterm-cc` use winit. Control clients
 native binaries, so end users do not need
 `sudo apt install` for X11/Wayland keyboard libraries.
 
+**Slim X11 desktops** (hosts with `libxkbcommon0` but without
+`libxkbcommon-x11-0` / `libxcb-xkb1`) are supported without a full tarball:
+the Linux GUI binary embeds those two runtime-only libraries and stages them on
+first X11 launch when the host omits them.
+
+**Six-cell delivery** (build all `{win,lnx,osx} × {x86_64,aarch64}` from one
+host, package native archives with `.sha256` sidecars, optional experimental
+`agenterm-ape.com` launcher):
+
+```bash
+AGENTERM_BOOTSTRAP_TASK=client-build-all ./scripts/bootstrap.sh release-fast
+AGENTERM_BOOTSTRAP_TASK=six-cell-qualify ./scripts/bootstrap.sh release-fast
+AGENTERM_BOOTSTRAP_TASK=package-six-cell-delivery ./scripts/bootstrap.sh release-fast
+```
+
+Receipt: `target/qualification/six-cell/delivery-manifest.json`. APE packer:
+`research/agenterm-com-loader/`.
+
 **Building from source** on a minimal host still needs the same libraries available
 to the linker/runtime (CI installs them automatically):
 

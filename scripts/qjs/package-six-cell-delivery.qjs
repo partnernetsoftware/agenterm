@@ -1,0 +1,152 @@
+// Package all six native release archives plus an optional experimental APE.
+//
+// Args: REPO [release-fast|release|dev] [--no-ape]
+//
+// Expects `client-build-all` (or `six-cell-qualify --build`) to have populated
+// `target/qualification/six-cell/<triple>/<profile>/` with product binaries.
+// Each archive gets a `.sha256` sidecar via `package-client-release`.
+import * as rh from "lib/rh_compat";
+
+const cells = [
+  { target: "x86_64-pc-windows-msvc", os: "windows", arch: "x86_64" },
+  { target: "aarch64-pc-windows-msvc", os: "windows", arch: "aarch64" },
+  { target: "x86_64-unknown-linux-gnu", os: "linux", arch: "x86_64" },
+  { target: "aarch64-unknown-linux-gnu", os: "linux", arch: "aarch64" },
+  { target: "x86_64-apple-darwin", os: "macos", arch: "x86_64" },
+  { target: "aarch64-apple-darwin", os: "macos", arch: "aarch64" }
+];
+
+function artifact_leaf(profile) {
+  if (profile === "dev") { return "debug"; }
+  return "release";
+}
+
+function read_version(repo) {
+  const cargo = rh.read_text(rh.join(repo, "Cargo.toml"));
+  let in_package = 0;
+  for (const source_line of cargo.split("\n")) {
+    const line = source_line.trim();
+    if (line.startsWith("[")) {
+      in_package = line === "[package]" ? 1 : 0;
+      continue;
+    }
+    if (in_package !== 0 && line.startsWith("version")) {
+      const parts = line.split("\"");
+      if (parts.length >= 2) { return "" + parts[1]; }
+    }
+  }
+  throw "package_six_cell_version_missing";
+}
+
+const args = rh.args();
+rh.require(args.length >= 1, "expected: REPO [PROFILE] [--no-ape]");
+const repo = rh.absolute(args[0]);
+let profile = "release-fast";
+let pack_ape = 1;
+let index = 1;
+while (index < args.length) {
+  const value = "" + args[index];
+  if (value === "release" || value === "release-fast" || value === "dev") {
+    profile = value;
+  } else if (value === "--no-ape") {
+    pack_ape = 0;
+  } else {
+    throw "package_six_cell_unknown_argument:" + value;
+  }
+  index = index + 1;
+}
+
+rh.require(env_has("AGENTERM_BOOTSTRAP_WORKER") === 1, "package_six_cell_worker_missing");
+const worker = rh.absolute(rh.env_or("AGENTERM_BOOTSTRAP_WORKER", ""));
+const task_manifest = rh.join(repo, "agenterm.tasks.json");
+const version = read_version(repo);
+const leaf = artifact_leaf(profile);
+const work_root = rh.join(repo, "target/qualification/six-cell");
+const archives = [];
+let failed = 0;
+
+for (const cell of cells) {
+  const target = "" + cell.target;
+  const os_name = "" + cell.os;
+  const arch = "" + cell.arch;
+  const binary_directory = rh.join(rh.join(rh.join(repo, "target"), target), leaf);
+  rh.require(rh.exists(binary_directory), "package_six_cell_binary_directory:" + binary_directory);
+  print("package-six-cell: " + os_name + "-" + arch + " from " + binary_directory);
+  const output = rh.command(
+    worker,
+    [
+      "cli", "script", "task", "run", "package-client-release",
+      "--manifest", task_manifest,
+      "--", repo, version, os_name, arch, binary_directory
+    ],
+    { cwd: repo, timeout_ms: 1800000 }
+  );
+  if (!output.success) {
+    failed = failed + 1;
+    print("package-six-cell: FAIL " + os_name + "-" + arch);
+    print(output.stderr + output.stdout);
+    continue;
+  }
+  const extension = os_name === "linux" ? ".tar.gz" : ".zip";
+  const archive_name = "agenterm-" + version + "-" + os_name + "-" + arch + extension;
+  const archive_path = rh.join(repo, "dist", archive_name);
+  const checksum_path = archive_path + ".sha256";
+  rh.require(rh.exists(archive_path), "package_six_cell_archive_missing:" + archive_path);
+  rh.require(rh.exists(checksum_path), "package_six_cell_checksum_missing:" + checksum_path);
+  archives.push({
+    cell: os_name + "-" + arch,
+    target: target,
+    artifact: archive_name,
+    sha256: rh.sha256_file(archive_path),
+    bytes: rh.metadata(archive_path).len
+  });
+  print("package-six-cell: PASS " + archive_name);
+}
+
+let ape = null;
+if (pack_ape !== 0) {
+  const pack_script = rh.join(repo, "research/agenterm-com-loader/pack.sh");
+  if (rh.exists(pack_script)) {
+    const pack_out = rh.command(
+      "bash",
+      ["-c", "AGENTERM_APE_PROFILE=" + profile + " exec bash " + pack_script],
+      { cwd: repo, timeout_ms: 1800000 }
+    );
+    const ape_path = rh.join(repo, "research/agenterm-com-loader/dist/agenterm-ape.com");
+    const loader_path = rh.join(repo, "research/agenterm-com-loader/dist/agenterm-ape-loader");
+    if (pack_out.success && rh.exists(ape_path)) {
+      const ape_name = "agenterm-ape.com";
+      const ape_dist = rh.join(repo, "dist", ape_name);
+      rh.copy(ape_path, ape_dist);
+      const ape_hash = rh.sha256_file(ape_dist);
+      rh.atomic_write(ape_dist + ".sha256", ape_hash + "  " + ape_name + "\n");
+      ape = { artifact: ape_name, sha256: ape_hash, bytes: rh.metadata(ape_dist).len, kind: "ape" };
+      print("package-six-cell: APE " + ape_name);
+    } else if (pack_out.success && rh.exists(loader_path)) {
+      ape = {
+        artifact: "agenterm-ape-loader",
+        sha256: rh.sha256_file(loader_path),
+        bytes: rh.metadata(loader_path).len,
+        kind: "host-loader"
+      };
+      print("package-six-cell: host loader only (no cosmocc)");
+    } else {
+      print("package-six-cell: APE pack skipped or failed");
+    }
+  }
+}
+
+const manifest = {
+  kind: "agenterm-six-cell-delivery",
+  schema_version: 1,
+  profile: profile,
+  version: version,
+  archives: archives,
+  experimental_ape: ape,
+  totals: { archives: archives.length, failed: failed }
+};
+const manifest_path = rh.join(work_root, "delivery-manifest.json");
+rh.atomic_write(manifest_path, rh.stringify_pretty(manifest));
+print("package-six-cell: manifest " + manifest_path);
+rh.require(failed === 0, "package_six_cell_failed:" + failed);
+return;
