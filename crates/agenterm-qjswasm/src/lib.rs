@@ -398,6 +398,14 @@ pub struct Budget {
     /// meant to hold still. The sleeps themselves still happen. `None` is
     /// the wall clock.
     pub fixed_clock_ms: Option<u64>,
+    /// Environment names a script may read even though they look like
+    /// secrets (`*_TOKEN`, `*_SECRET`, `*_KEY`, `*_PASSWORD`, `AWS_*`, ...;
+    /// the list is `tool::secret_looking`). Compared case-insensitively.
+    /// In the tool profile `env.get` / `env.has` on such a name answers a
+    /// refusal unless it is listed here, and a listed read goes on the
+    /// receipt by name (never by value). The task contract's `env_allow`
+    /// is where a script's author declares them.
+    pub env_allow: Vec<String>,
 }
 
 impl std::fmt::Debug for Budget {
@@ -414,6 +422,7 @@ impl std::fmt::Debug for Budget {
             .field("max_host_ops", &self.max_host_ops)
             .field("cancellable", &self.cancel.is_some())
             .field("fixed_clock_ms", &self.fixed_clock_ms)
+            .field("env_allow", &self.env_allow)
             .finish()
     }
 }
@@ -428,6 +437,7 @@ impl Default for Budget {
             max_host_ops: 4096,
             cancel: None,
             fixed_clock_ms: None,
+            env_allow: Vec::new(),
         }
     }
 }

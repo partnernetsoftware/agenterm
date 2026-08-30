@@ -57,6 +57,10 @@ pub struct ScriptInvocationOptions {
     /// `ScriptInvocation::fixed_clock_ms`: the replay clock, when one was
     /// asked for. Only the qjswasm engine has a clock to fix.
     pub fixed_clock_ms: Option<u64>,
+    /// `ScriptInvocation::env_allow`: the secret-looking environment names
+    /// this invocation may read (PRD_02_36 A1.16). Only the qjswasm tool
+    /// door reads the environment.
+    pub env_allow: Vec<String>,
 }
 
 /// Unified invocation result. `value` is `Option<serde_json::Value>` for
@@ -358,6 +362,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
     }
     budget.cancel = options.cancellation.clone();
     budget.fixed_clock_ms = options.fixed_clock_ms;
+    budget.env_allow = options.env_allow.clone();
     // The guest heap is a bump allocator with no collector: everything a
     // script parses or concatenates stays until the call ends. tinyvm's
     // default of 256 pages (16 MiB) stopped unix-frontend-smoke at its fifth

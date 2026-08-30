@@ -1202,6 +1202,61 @@ fn bytes_through_the_door_are_billed_in_both_directions() {
     );
 }
 
+/// A secret-looking environment name is refused in the tool profile unless
+/// the budget's `env_allow` lists it; either way the receipt carries the
+/// name and never the value (PRD_02_36 A1.16).
+#[test]
+fn secret_looking_environment_names_are_refused_unless_allowed() {
+    let name = "AGENTERM_QJSWASM_TEST_SECRET_TOKEN";
+    // SAFETY: a process-global write, to a name no other test reads.
+    unsafe { std::env::set_var(name, "hunter2") };
+    let refused = run_tool(&format!(
+        "let h = env_has(\"{name}\"); let g = env_get(\"{name}\"); return h + \"|\" + g + \"|\" + tool_result();"
+    ));
+    let text = string_of(&refused);
+    assert!(
+        text.starts_with("-1|1|env.get: `AGENTERM_QJSWASM_TEST_SECRET_TOKEN` denied (secret)"),
+        "{text}"
+    );
+    assert!(!text.contains("hunter2"), "{text}");
+    assert_eq!(
+        refused.tool_calls,
+        [
+            format!("tool.env.has({name}) denied:secret"),
+            format!("tool.env.get({name}) denied:secret"),
+        ]
+    );
+    // Two operations, both refused before the host was asked; the refusal
+    // sentence is parked and billed like any diagnostic.
+    assert_eq!(refused.host_ops, 2, "{refused:?}");
+
+    let budget = Budget {
+        env_allow: vec![name.to_ascii_lowercase()],
+        ..Budget::default()
+    };
+    let allowed = Engine::with_tool_door(budget)
+        .run_once(
+            Guest::Qjs(&format!(
+                "let h = env_has(\"{name}\"); env_get(\"{name}\"); return h + \"|\" + tool_result();"
+            )),
+            None,
+            "main",
+            &[],
+        )
+        .expect("an allowed read answers");
+    assert_eq!(string_of(&allowed), "1|hunter2");
+    assert_eq!(
+        allowed.tool_calls,
+        [
+            format!("tool.env.has({name})"),
+            format!("tool.env.get({name})")
+        ]
+    );
+    // An ordinary name is not named on the receipt.
+    let plain = run_tool("env_has(\"PATH\"); return 1;");
+    assert_eq!(plain.tool_calls, ["tool.env.has"]);
+}
+
 /// `Budget::fixed_clock_ms` is a clock a script can be replayed against:
 /// `time.now_ms` answers the origin, moved only by the script's own
 /// `sleep_ms` requests, so two runs read the same times and a poll-until

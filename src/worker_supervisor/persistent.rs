@@ -1267,6 +1267,7 @@ mod tests {
             budgets: ScriptBudgets::default(),
             observation: None,
             fixed_clock_ms: None,
+            env_allow: Vec::new(),
         }
     }
 

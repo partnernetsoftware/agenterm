@@ -397,6 +397,9 @@ pub(crate) struct ToolState {
     clock: Option<(u64, u64)>,
     /// `Budget::cancel`, for the operations that wait.
     cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// `Budget::env_allow`, upper-cased: the secret-looking names this
+    /// call may read.
+    env_allow: Vec<String>,
 }
 
 /// One spawned child, by handle index. A waited child keeps its pid and
@@ -537,6 +540,11 @@ pub(crate) fn install(
         meter: Rc::clone(&meter),
         clock: budget.fixed_clock_ms.map(|origin| (origin, 0)),
         cancel: budget.cancel.clone(),
+        env_allow: budget
+            .env_allow
+            .iter()
+            .map(|name| name.to_ascii_uppercase())
+            .collect(),
     }));
 
     // ---- fs ---------------------------------------------------------------
@@ -889,9 +897,14 @@ pub(crate) fn install(
     let state = Rc::clone(&shared);
     bind_metered(module, &meter, DOOR, "env.get", move |args, memory| {
         let name = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "env.get", || {
-            let name = utf8(name)?;
-            match std::env::var(name) {
+        let name = match utf8(name) {
+            Ok(name) => name.to_owned(),
+            Err(message) => return answer(&state, "env.get", || Err(message)),
+        };
+        let (line, verdict) = env_verdict(&state, "get", &name);
+        answer_as(&state, "env.get", line, || {
+            verdict?;
+            match std::env::var(&name) {
                 Ok(value) => Ok(value),
                 // Unset and unreadable are both "no value", and each says
                 // which: a script that wants "" for unset has `env_has`.
@@ -906,8 +919,14 @@ pub(crate) fn install(
     let state = Rc::clone(&shared);
     bind_metered(module, &meter, DOOR, "env.has", move |args, memory| {
         let name = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        direct(&state, "env.has", || {
-            Ok(i32::from(std::env::var_os(utf8(name)?).is_some()))
+        let name = match utf8(name) {
+            Ok(name) => name.to_owned(),
+            Err(message) => return direct(&state, "env.has", || Err(message)),
+        };
+        let (line, verdict) = env_verdict(&state, "has", &name);
+        direct_as(&state, "env.has", line, || {
+            verdict?;
+            Ok(i32::from(std::env::var_os(&name).is_some()))
         })
     })?;
 
@@ -1458,6 +1477,72 @@ pub(crate) fn install(
     Ok(shared)
 }
 
+/// Does an environment name look like a secret? The redaction class of
+/// PRD_02_36 A1.16 (grok review §7.4), on the upper-cased name:
+///
+/// * a suffix `_TOKEN`, `_SECRET`, `_KEY`, `_PASSWORD`, `_PASSWD`, `_PASS`
+///   or `_CREDENTIALS`;
+/// * `PASSWORD`, `PASSWD` or `SECRET` anywhere (`PGPASSWORD`);
+/// * the `AWS_` prefix (the SDK's credential variables all wear it);
+/// * exactly `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`, `API_KEY`, `TOKEN`,
+///   `PASSWORD` or `SECRET`.
+///
+/// `GITHUB_SHA`, `GITHUB_RUN_ID`, `HOME`, `PATH` and every `AGENTERM_*` the
+/// repository's scripts read are outside it. A match is a refusal in the
+/// tool profile unless the task contract's `env_allow` names the variable.
+pub(crate) fn secret_looking(upper: &str) -> bool {
+    const SUFFIXES: [&str; 7] = [
+        "_TOKEN",
+        "_SECRET",
+        "_KEY",
+        "_PASSWORD",
+        "_PASSWD",
+        "_PASS",
+        "_CREDENTIALS",
+    ];
+    const EXACT: [&str; 7] = [
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "NPM_TOKEN",
+        "API_KEY",
+        "TOKEN",
+        "PASSWORD",
+        "SECRET",
+    ];
+    SUFFIXES.iter().any(|s| upper.ends_with(s))
+        || upper.contains("PASSWORD")
+        || upper.contains("PASSWD")
+        || upper.contains("SECRET")
+        || upper.starts_with("AWS_")
+        || EXACT.contains(&upper)
+}
+
+/// The receipt line and the verdict for `env.<op>(name)`: an ordinary name
+/// is the plain `tool.env.<op>` line and allowed; a secret-looking one is
+/// named on the line -- `tool.env.get(AWS_SECRET_ACCESS_KEY)` when the
+/// budget allows it, `... denied:secret` when it does not -- and never its
+/// value. The refusal is parked as the operation's diagnostic.
+fn env_verdict(
+    state: &Rc<RefCell<ToolState>>,
+    op: &str,
+    name: &str,
+) -> (String, Result<(), String>) {
+    let upper = name.to_ascii_uppercase();
+    if !secret_looking(&upper) {
+        return (format!("{DOOR}.env.{op}"), Ok(()));
+    }
+    if state.borrow().env_allow.contains(&upper) {
+        return (format!("{DOOR}.env.{op}({name})"), Ok(()));
+    }
+    (
+        format!("{DOOR}.env.{op}({name}) denied:secret"),
+        Err(format!(
+            "env.{op}: `{name}` denied (secret): a secret-looking name is refused in the tool \
+             profile unless the task contract's `env_allow` lists it"
+        )),
+    )
+}
+
 /// One text-producing operation: record it, run it contained, apply the cap,
 /// park the answer, return the status.
 fn answer(
@@ -1465,7 +1550,17 @@ fn answer(
     op: &'static str,
     run: impl FnOnce() -> Result<String, String>,
 ) -> Result<Vec<Val>, WasmError> {
-    state.borrow_mut().calls.push(format!("{DOOR}.{op}"));
+    answer_as(state, op, format!("{DOOR}.{op}"), run)
+}
+
+/// [`answer`], with the receipt line spelled by the caller.
+fn answer_as(
+    state: &Rc<RefCell<ToolState>>,
+    op: &'static str,
+    line: String,
+    run: impl FnOnce() -> Result<String, String>,
+) -> Result<Vec<Val>, WasmError> {
+    state.borrow_mut().calls.push(line);
     let (status, payload) = match contain(
         &format!("the tool door panicked while serving `{DOOR}.{op}`"),
         run,
@@ -1506,7 +1601,17 @@ fn direct(
     op: &'static str,
     run: impl FnOnce() -> Result<i32, String>,
 ) -> Result<Vec<Val>, WasmError> {
-    state.borrow_mut().calls.push(format!("{DOOR}.{op}"));
+    direct_as(state, op, format!("{DOOR}.{op}"), run)
+}
+
+/// [`direct`], with the receipt line spelled by the caller.
+fn direct_as(
+    state: &Rc<RefCell<ToolState>>,
+    op: &'static str,
+    line: String,
+    run: impl FnOnce() -> Result<i32, String>,
+) -> Result<Vec<Val>, WasmError> {
+    state.borrow_mut().calls.push(line);
     // The operation and its arguments went on the bill in `bind_metered`;
     // what is counted here is the diagnostic if one is parked, and the wait
     // if it waited. The previous operation's parked answer is not re-billed
@@ -1978,6 +2083,47 @@ mod tests {
         assert_eq!(argument_length_slots("process.window_key"), vec![2]);
         assert_eq!(argument_length_slots("time.sleep_ms"), Vec::<usize>::new());
         assert_eq!(argument_length_slots("result"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn the_secret_class_is_the_documented_list() {
+        for name in [
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+            "NPM_TOKEN",
+            "CARGO_REGISTRY_TOKEN",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "OPENAI_API_KEY",
+            "DB_PASSWORD",
+            "PGPASSWORD",
+            "MYSQL_PWD_PASSWD",
+            "SMTP_PASS",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "SECRET",
+            "MY_SECRET_VALUE",
+        ] {
+            assert!(secret_looking(&name.to_ascii_uppercase()), "{name}");
+        }
+        for name in [
+            "HOME",
+            "PATH",
+            "OS",
+            "GITHUB_SHA",
+            "GITHUB_RUN_ID",
+            "GITHUB_REPOSITORY",
+            "GITHUB_STEP_SUMMARY",
+            "RUNNER_ARCH",
+            "CARGO_TARGET_DIR",
+            "AGENTERM_BOOTSTRAP_WORKER",
+            "AGENTERM_TEST_EVIDENCE_PATH",
+            "SystemRoot",
+            "TOKENIZERS_PARALLELISM",
+            "KEYBOARD_LAYOUT",
+        ] {
+            assert!(!secret_looking(&name.to_ascii_uppercase()), "{name}");
+        }
         assert_eq!(argument_length_slots("no.such"), Vec::<usize>::new());
     }
 

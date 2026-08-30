@@ -328,7 +328,7 @@ fn script_help_text() -> &'static str {
          AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
          Options: --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
-         --max-host-operations N --fixed-clock-ms N --project-root DIR --manifest FILE --json"
+         --max-host-operations N --fixed-clock-ms N --env-allow NAME --project-root DIR --manifest FILE --json"
 }
 
 fn write_script_stdout(text: &str) -> std::result::Result<(), i32> {
@@ -1968,6 +1968,23 @@ fn run_script_command_with_context(
             }
         }
     }
+    // Not a budget either: the secret-looking environment names this run
+    // may read (PRD_02_36 A1.16). Repeatable; a task run translates the
+    // contract's `env_allow` into these.
+    let mut env_allow: Vec<String> = Vec::new();
+    let mut at = 0;
+    while at + 1 < arguments.len() {
+        if arguments[at] == "--env-allow" {
+            let name = &arguments[at + 1];
+            if name.is_empty() || name.len() > 128 || name.contains('=') || name.contains('\0') {
+                cli_eprintln!("script --env-allow must name an environment variable");
+                return 2;
+            }
+            env_allow.push(name.clone());
+            at += 1;
+        }
+        at += 1;
+    }
     if let Some(value) = option_value(arguments, "--max-output-bytes") {
         match value.parse::<usize>() {
             Ok(value) if (1..=hard_limits.output_bytes).contains(&value) => {
@@ -2246,6 +2263,7 @@ fn run_script_command_with_context(
         budgets,
         observation,
         fixed_clock_ms,
+        env_allow,
     };
     let executable = match script_worker_executable() {
         Ok(executable) => executable,
@@ -2788,6 +2806,10 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
         "--profile".to_owned(),
         task.profile,
     ];
+    for name in &task.env_allow {
+        translated.push("--env-allow".to_owned());
+        translated.push(name.clone());
+    }
     if let Some(budget) = task.budget {
         let mut declared_options = vec![
             ("--timeout-ms", budget.timeout_ms),

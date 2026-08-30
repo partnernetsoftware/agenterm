@@ -104,6 +104,12 @@ pub struct ScriptTaskContract {
     pub budget: ScriptTaskBudget,
     pub network: Vec<ScriptTaskNetwork>,
     pub evidence: Vec<String>,
+    /// Secret-looking environment names (`*_TOKEN`, `*_SECRET`, `*_KEY`,
+    /// `*_PASSWORD`, `AWS_*`, ... -- PRD_02_36 A1.16 has the list) the task
+    /// is allowed to read; the tool door refuses every other such name, and
+    /// logs an allowed read on the receipt by name. Absent means none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_allow: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -211,6 +217,8 @@ pub struct ResolvedScriptTask {
     pub args: Vec<String>,
     pub env: Vec<String>,
     pub budget: Option<ScriptTaskBudget>,
+    /// The contract's `env_allow`, translated to `--env-allow` on a task run.
+    pub env_allow: Vec<String>,
 }
 
 // `ProjectModuleResolver` and `validate_project_imports` lived here until
@@ -381,6 +389,11 @@ pub fn resolve_task(catalog: &ScriptTaskCatalog, id: &str) -> Result<ResolvedScr
             .contract
             .as_ref()
             .map(|contract| contract.budget.clone()),
+        env_allow: task
+            .contract
+            .as_ref()
+            .map(|contract| contract.env_allow.clone())
+            .unwrap_or_default(),
     })
 }
 
@@ -459,6 +472,8 @@ fn validate_task_contract(contract: &ScriptTaskContract) -> Result<(), String> {
     validate_contract_ids(&contract.outputs, "task_contract_outputs", false)?;
     validate_contract_ids(&contract.evidence, "task_contract_evidence", false)?;
     validate_unique(&contract.network, "task_contract_network")?;
+    validate_env(&contract.env_allow)
+        .map_err(|e| e.replace("task_env", "task_contract_env_allow"))?;
     let hard_limits = ScriptBudgets::hard_limits();
     if contract.budget.timeout_ms == 0 || contract.budget.timeout_ms > hard_limits.wall_time_ms {
         return Err("task_contract_budget_timeout_ms: expected 1..3600000".to_owned());
@@ -1049,6 +1064,46 @@ mod tests {
             assert_eq!(task.degraded_reason.as_deref(), Some(expected));
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[test]
+    fn a_contract_declares_the_secret_names_a_task_may_read() {
+        let (root, manifest) = fixture();
+        let mut manifest_value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        manifest_value["contracts"]["check"]["env_allow"] =
+            serde_json::json!(["GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY"]);
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&manifest_value).unwrap(),
+        )
+        .unwrap();
+        let catalog = load_task_catalog(&manifest).unwrap();
+        let resolved = resolve_task(&catalog, "check").unwrap();
+        assert_eq!(
+            resolved.env_allow,
+            ["GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY"]
+        );
+
+        // The same rule as a task's `env`: a name, not an assignment.
+        manifest_value["contracts"]["check"]["env_allow"] = serde_json::json!(["GITHUB_TOKEN=x"]);
+        fs::write(
+            &manifest,
+            serde_json::to_vec_pretty(&manifest_value).unwrap(),
+        )
+        .unwrap();
+        let catalog = load_task_catalog(&manifest).unwrap();
+        let task = catalog
+            .tasks
+            .iter()
+            .find(|task| task.id == "check")
+            .unwrap();
+        assert_eq!(task.status, ScriptTaskStatus::Degraded);
+        assert_eq!(
+            task.degraded_reason.as_deref(),
+            Some("task_contract_env_allow: invalid or duplicate environment name GITHUB_TOKEN=x")
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

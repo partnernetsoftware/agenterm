@@ -33,6 +33,7 @@ fn invocation(id: &str, label: &str, source: &str) -> ScriptInvocation {
         budgets: ScriptBudgets::default(),
         observation: None,
         fixed_clock_ms: None,
+        env_allow: Vec::new(),
     }
 }
 

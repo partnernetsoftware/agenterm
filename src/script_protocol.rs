@@ -248,6 +248,13 @@ pub struct ScriptInvocation {
     /// default so an older client's envelope still reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_clock_ms: Option<u64>,
+    /// Secret-looking environment names (`*_TOKEN`, `*_SECRET`, `*_KEY`,
+    /// `*_PASSWORD`, `AWS_*`, ...) the script may read through `env.get`
+    /// / `env.has`; every other such name is refused in the tool profile.
+    /// Declared by the task contract's `env_allow` (PRD_02_36 A1.16), or
+    /// `--env-allow NAME` on the command line. Absent means none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_allow: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
