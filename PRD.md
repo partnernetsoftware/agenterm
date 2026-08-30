@@ -238,7 +238,7 @@ substitutes for the other's, and that now holds across repositories.
 An unpublished release candidate uses
 `.\check.cmd --release --include-stress` on a clean commit and must emit one
 complete qualification receipt bound to the exact candidate bytes. The
-independent `agenterm-rh task run package-qualified` step may only copy
+independent `agenterm cli script task run package-qualified` step may only copy
 those byte-identical qualified artifacts; it does not rebuild. A non-publishing
 release rehearsal must validate the candidate, receipt, package manifest, and
 remote workflow contract before publication is considered. Creating or
