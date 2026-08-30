@@ -70,7 +70,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   expose; `refused` for an actuation under an observe-only grant;
   `ambiguous` (with `count`) for two showing matches; `a11y_node_not_found`
   for none; `unverified` for a `verify` mismatch; `timeout` (carrying the
-  last observation) for `wait --expect`; `usage` / `invalid_input` for a
+  last observation) for `wait --expect` (identity-only
+  `name`/`titleIncludes` is a legal expect item; it does not change
+  grant: still `observe`); `usage` / `invalid_input` for a
   malformed action or value. Cut 3.51 adds the background vocabulary, all
   journey-proven: `a11y_menu_item_not_found` / `a11y_menu_item_ambiguous`
   / `a11y_menu_item_disabled` / `a11y_menu_item_not_leaf` (every one

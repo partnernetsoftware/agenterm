@@ -110,6 +110,137 @@ pub fn normalize_role(raw: &str) -> String {
         .collect()
 }
 
+/// AX chrome-only vs page content, absorbed from MCU `classifyAxTree`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AxAvailability {
+    Content,
+    EmptyChrome,
+    Empty,
+}
+
+impl AxAvailability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Content => "content",
+            Self::EmptyChrome => "empty-chrome",
+            Self::Empty => "empty",
+        }
+    }
+}
+
+fn is_chrome_role(role: &str) -> bool {
+    matches!(
+        normalize_role(role).as_str(),
+        "window" | "group" | "button" | "image" | "statictext" | "toolbar" | "menubar"
+    )
+}
+
+fn is_page_content_role(role: &str) -> bool {
+    let n = normalize_role(role);
+    matches!(
+        n.as_str(),
+        "webarea"
+            | "heading"
+            | "textarea"
+            | "textfield"
+            | "link"
+            | "list"
+            | "cell"
+            | "edit"
+            | "document"
+    )
+}
+
+/// Classify a flattened AX tree the way MCU does: chrome-only Chromium
+/// windows are `empty-chrome`, not an empty page.
+pub fn classify_ax_tree(tree: &A11yTree) -> AxAvailability {
+    if tree.nodes.is_empty() {
+        return AxAvailability::Empty;
+    }
+    let mut text_nodes = 0usize;
+    let mut content_roles = 0usize;
+    for node in &tree.nodes {
+        let text = format!(
+            "{} {} {}",
+            node.name,
+            node.text.as_deref().unwrap_or(""),
+            node.identifier.as_deref().unwrap_or("")
+        );
+        if text.trim().len() > 0 {
+            text_nodes += 1;
+        }
+        if is_page_content_role(&node.role) || (!is_chrome_role(&node.role) && !node.role.is_empty())
+        {
+            // AX-prefixed chrome roles are already chrome; anything else
+            // with a page-like role counts as content.
+            if is_page_content_role(&node.role) {
+                content_roles += 1;
+            } else if !is_chrome_role(&node.role) {
+                content_roles += 1;
+            }
+        }
+    }
+    if content_roles == 0 && text_nodes <= 2 {
+        AxAvailability::EmptyChrome
+    } else {
+        AxAvailability::Content
+    }
+}
+
+pub fn chromium_app(app: &str) -> bool {
+    let lower = app.to_ascii_lowercase();
+    lower.contains("brave")
+        || lower.contains("chrome")
+        || lower.contains("chromium")
+        || lower.contains("msedge")
+        || lower.contains("edge")
+}
+
+/// Next actions when the tree is chrome-only: deepen query, never a
+/// screenshot and never "install the extension first".
+pub fn empty_chrome_next_actions(ax: AxAvailability, app: &str) -> Vec<String> {
+    if ax != AxAvailability::EmptyChrome && ax != AxAvailability::Empty {
+        return Vec::new();
+    }
+    let mut actions = vec![
+        "empty-chrome is not an empty page; run query --window HANDLE --depth 12 --role WebArea then invoke by identity"
+            .to_owned(),
+    ];
+    if chromium_app(app) || app.is_empty() {
+        actions.push(
+            "ordinary web control is AX query/invoke; do not steer to a browser extension"
+                .to_owned(),
+        );
+    }
+    actions
+}
+
+fn is_page_identity_role(normalized: &str) -> bool {
+    normalized == "webarea" || normalized == "heading"
+}
+
+/// MCU wait/verify: with a title substring, Heading and WebArea alias each
+/// other so a WebArea title can satisfy a Heading predicate.
+pub fn roles_match_for_page_identity(have: &str, want: &str, title_predicate: bool) -> bool {
+    let have_n = normalize_role(have);
+    let want_n = normalize_role(want);
+    if have_n == want_n {
+        return true;
+    }
+    title_predicate && is_page_identity_role(&have_n) && is_page_identity_role(&want_n)
+}
+
+/// Honest page-JS knife: debugger Runtime.evaluate is the MCU backend;
+/// this binary does not evaluate page JavaScript (and never MAIN-world
+/// eval or new Function, which chatgpt.com CSP swallows).
+pub fn page_js_backend() -> &'static str {
+    "debugger-runtime-evaluate"
+}
+
+pub fn page_js_unsupported_reason() -> &'static str {
+    "page JS is a second knife after AX WebArea query/invoke; this binary does not evaluate page JavaScript. Ordinary web control needs no browser extension. A future knife would use debugger Runtime.evaluate; MAIN-world eval or new Function is refused."
+}
+
 /// Parse a comma-separated role list, dropping empty items.
 pub fn parse_roles(raw: &str) -> Vec<String> {
     raw.split(',')
@@ -472,6 +603,7 @@ pub fn resolve_target<'a>(
     }
     let name = spec.name.as_deref().map(str::to_lowercase);
     let role = spec.role.as_deref().map(normalize_role);
+    let title_predicate = name.is_some();
     let hits: Vec<&FlatNode<'_>> = flat
         .iter()
         .filter(|entry| {
@@ -484,9 +616,9 @@ pub fn resolve_target<'a>(
                     .identifier
                     .as_deref()
                     .is_none_or(|wanted| node.identifier.as_deref() == Some(wanted))
-                && role
-                    .as_deref()
-                    .is_none_or(|wanted| normalize_role(&node.role) == wanted)
+                && role.as_deref().is_none_or(|wanted| {
+                    roles_match_for_page_identity(&node.role, wanted, title_predicate)
+                })
         })
         .collect();
     match hits.len() {
@@ -1722,5 +1854,95 @@ mod tests {
         assert_eq!(counts.returned, 1);
         assert!(counts.page_truncated);
         assert!(counts.truncated);
+    }
+
+    #[test]
+    fn empty_chrome_next_action_is_deeper_query_not_screenshot_or_extension() {
+        let chrome = tree(
+            vec![
+                node("/0", "AXWindow", "Brave Origin", &["AXRaise"]),
+                node("/0/0", "AXGroup", "", &[]),
+                node("/0/1", "AXButton", "reload", &["AXPress"]),
+            ],
+            false,
+        );
+        assert_eq!(classify_ax_tree(&chrome), AxAvailability::EmptyChrome);
+        let next = empty_chrome_next_actions(AxAvailability::EmptyChrome, "Brave Origin");
+        let joined = next.join(" ");
+        assert!(joined.contains("query"));
+        assert!(joined.contains("WebArea"));
+        assert!(!joined.to_ascii_lowercase().contains("screenshot"));
+        assert!(!joined.contains("brave://extensions"));
+        assert!(!joined.contains("debug-read"));
+        let content = tree(
+            vec![
+                node("/0", "AXWindow", "w", &[]),
+                showing(
+                    node(
+                        "/0/1",
+                        "AXWebArea",
+                        "Nepal floods latest",
+                        &[],
+                    ),
+                    &[],
+                ),
+            ],
+            false,
+        );
+        assert_eq!(classify_ax_tree(&content), AxAvailability::Content);
+        assert!(empty_chrome_next_actions(AxAvailability::Content, "Brave Origin").is_empty());
+    }
+
+    #[test]
+    fn heading_title_includes_matches_webarea_title() {
+        let web = showing(
+            node("/0/1", "AXWebArea", "Nepal floods latest: Head teacher", &[]),
+            &[],
+        );
+        let heading = showing(node("/0/2", "AXHeading", "Live Reporting", &[]), &[]);
+        let button = showing(node("/0/3", "AXButton", "Nepal floods latest", &["press"]), &[]);
+        let t = tree(
+            vec![node("/0", "AXWindow", "w", &[]), web, heading, button],
+            false,
+        );
+        let flat = flatten(&t);
+        let heading_pred = TargetSpec {
+            role: Some("AXHeading".into()),
+            name: Some("Nepal".into()),
+            ..TargetSpec::default()
+        };
+        let hit = resolve_target(&flat, &heading_pred).expect("WebArea title aliases Heading");
+        assert_eq!(normalize_role(&hit.node.role), "webarea");
+        let web_pred = TargetSpec {
+            role: Some("AXWebArea".into()),
+            name: Some("Nepal".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(
+            resolve_target(&flat, &web_pred).unwrap().node.role,
+            "AXWebArea"
+        );
+        let no_title = TargetSpec {
+            role: Some("AXHeading".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(
+            resolve_target(&flat, &no_title).unwrap().node.role,
+            "AXHeading"
+        );
+        let button_pred = TargetSpec {
+            role: Some("AXButton".into()),
+            name: Some("Nepal".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(
+            resolve_target(&flat, &button_pred).unwrap().node.role,
+            "AXButton"
+        );
+        assert_eq!(page_js_backend(), "debugger-runtime-evaluate");
+        assert!(page_js_unsupported_reason().contains("second knife"));
+        assert!(!page_js_unsupported_reason().contains("eval("));
+        assert!(!include_str!("command.rs").contains("eval("));
+        assert!(!include_str!("executor.rs").contains("eval("));
     }
 }

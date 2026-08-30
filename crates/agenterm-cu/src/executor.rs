@@ -27,6 +27,7 @@ use crate::{
     command::{Command, InvokeAction, InvokeValueKind, PointerButton, WaitCondition},
     mechanism, observe,
     rdp_transport::{self, RdpEndpoint},
+    receipt::{self, ReceiptLog},
     reply::{CuError, CuReply},
     ssh_transport::{self, SshEndpoint},
     target::TargetRef,
@@ -504,6 +505,24 @@ impl Executor {
         )
     }
 
+    /// `<audit dir>/cu-receipts`: beside the audit log this executor writes
+    /// (the injected test path, or the production resolution).
+    fn receipt_dir(&self) -> Result<PathBuf, CuError> {
+        #[cfg(test)]
+        if let Some(path) = self.audit_path.as_ref() {
+            return Ok(receipt::receipt_dir_beside(path));
+        }
+        let audit_path = crate::audit::resolved_audit_path()
+            .map_err(|error| CuError::new("receipt_unavailable", error))?;
+        Ok(receipt::receipt_dir_beside(&audit_path))
+    }
+
+    /// The crash-persistent receipt file for `target`, opened before the
+    /// mechanism is touched: failure to open it is failure to act.
+    fn open_receipts(&self, target: TargetRef) -> Result<ReceiptLog, CuError> {
+        ReceiptLog::open_in(&self.receipt_dir()?, target)
+    }
+
     fn execute_current(&self, command: &Command) -> CuReply {
         match self.run_current(command) {
             Ok(data) => CuReply::ok(command, data),
@@ -593,6 +612,7 @@ impl Executor {
                 },
                 *action,
                 value.as_deref(),
+                &mut self.open_receipts(command.target())?,
             ),
             Command::MenuInspect {
                 window,
@@ -616,7 +636,9 @@ impl Executor {
                 *offset,
                 *max,
             ),
-            Command::MenuInvoke { window, path, .. } => menu_invoke_payload(*window, path),
+            Command::MenuInvoke { window, path, .. } => {
+                menu_invoke_payload(*window, path, &mut self.open_receipts(command.target())?)
+            }
             Command::Focused {
                 window,
                 role,
@@ -642,17 +664,33 @@ impl Executor {
                 *interval_ms,
             ),
             Command::Verify { window, expect, .. } => verify_payload(*window, expect),
+            Command::PageJs { .. } => Err(CuError::new(
+                "unsupported",
+                observe::page_js_unsupported_reason(),
+            )
+            .with_detail(serde_json::json!({
+                "backend": observe::page_js_backend(),
+                "ax_default": true,
+            }))),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
             Command::PointerPosition { .. } => pointer_position(),
-            Command::Click { .. } => click_command(command),
+            Command::Click { .. } => {
+                click_command(command, &mut self.open_receipts(command.target())?)
+            }
             Command::Focus {
                 window,
                 node,
                 name,
                 role,
                 ..
-            } => focus(*window, node.as_deref(), name.as_deref(), role.as_deref()),
+            } => focus(
+                *window,
+                node.as_deref(),
+                name.as_deref(),
+                role.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::SendText {
                 text,
                 window,
@@ -713,7 +751,30 @@ impl Executor {
                 condition,
                 ..
             } => wait(*timeout_ms, condition),
-            Command::WindowPlace { action, window, .. } => window_place(action, *window),
+            Command::WindowPlace {
+                action,
+                window,
+                frame,
+                ..
+            } => window_place(action, *window, *frame),
+            Command::Close {
+                window,
+                pid,
+                title,
+                snapshot,
+                expect,
+                ..
+            } => close_payload(
+                *window,
+                *pid,
+                title.as_deref(),
+                *snapshot,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Receipts { window, max, .. } => {
+                receipts_payload(&self.receipt_dir()?, command.target(), *window, *max)
+            }
         }
     }
 }
@@ -859,6 +920,24 @@ fn capabilities_payload() -> serde_json::Value {
             "reason": "background menu / focused-control mechanisms are mapped on macOS AX only",
         })
     };
+    // The destructive verb rides the platform's window close control:
+    // macOS AX `AXCloseButton` (slice 4) and Windows `WM_CLOSE`; the Linux
+    // adapter has no close mapping yet.
+    let close_verb = if cfg!(target_os = "linux") {
+        serde_json::json!({
+            "status": "unsupported",
+            "reason": "window close is not mapped on the Linux window-op adapter",
+        })
+    } else {
+        serde_json::json!({ "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase() })
+    };
+    // macOS samples the real pointer read-only (no injection capability);
+    // elsewhere the pointer read follows the input capability.
+    let pointer_position_verb = if cfg!(target_os = "macos") {
+        serde_json::json!({ "status": "available", "mode": "read-only" })
+    } else {
+        serde_json::json!({ "status": status(mechanism::Capability::InputInject).to_ascii_lowercase() })
+    };
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -889,6 +968,14 @@ fn capabilities_payload() -> serde_json::Value {
             "menu-invoke": background_verb,
             "focused": background_verb,
             "observe": tree_verb,
+            "close": close_verb,
+            "receipts": { "status": "available" },
+            "page-js": {
+                "status": "unsupported",
+                "backend": observe::page_js_backend(),
+                "reason": observe::page_js_unsupported_reason(),
+            },
+            "pointer-position": pointer_position_verb,
         },
         "mapping": {
             "windows": "libagenterm agt_window_enumerate",
@@ -900,7 +987,7 @@ fn capabilities_payload() -> serde_json::Value {
             "screenshot": "none — shared agenterm.dll (milestone 46)",
             "input_degraded": "none — shared agenterm.dll (milestone 46)",
             "rdp_live": "rdp tier is placeholder; never declared available on current",
-            "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused) and the poll-diff observation stream (observe) are proven by scripts/qjs/cu-macos-smoke.qjs; destructive actions are not offered; AX notifications are not subscribed (observe is poll-diff)",
+            "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify / click / focus), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused), the poll-diff observation stream (observe), the destructive close (gate: exact target + snapshot + postcondition) with crash-persistent receipts (receipts), the read-only pointer position and the window-place frame transaction are proven by scripts/qjs/cu-macos-smoke.qjs; invoke offers no quit / delete action; AX notifications are not subscribed (observe is poll-diff)",
         }
     })
 }
@@ -960,6 +1047,8 @@ fn tree_payload(
         serde_json::to_value(&tree.nodes)
     }
     .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    let ax = observe::classify_ax_tree(&tree);
+    let app = window_app_name(tree.window_handle);
     Ok(serde_json::json!({
         "degraded": false,
         "backend": tree.backend,
@@ -972,8 +1061,21 @@ fn tree_payload(
         "truncated": tree.truncated,
         "visited": tree.visited,
         "returned": tree.returned,
+        "ax": ax.as_str(),
+        "next_actions": observe::empty_chrome_next_actions(ax, &app),
         "nodes": nodes,
     }))
+}
+
+fn window_app_name(handle: Option<isize>) -> String {
+    let Some(handle) = handle else {
+        return String::new();
+    };
+    mechanism::window_enumerate::enumerate_top_level()
+        .ok()
+        .and_then(|rows| rows.into_iter().find(|row| row.handle == handle))
+        .map(|row| row.app_name)
+        .unwrap_or_default()
 }
 
 /// Bounded, filtered flat node list over the same walk `tree` makes.
@@ -1028,6 +1130,11 @@ fn query_payload(
         "truncated": counts.truncated,
         "scan_truncated": counts.scan_truncated,
         "page_truncated": counts.page_truncated,
+        "ax": observe::classify_ax_tree(&tree).as_str(),
+        "next_actions": observe::empty_chrome_next_actions(
+            observe::classify_ax_tree(&tree),
+            &window_app_name(Some(window)),
+        ),
         "nodes": nodes,
     }))
 }
@@ -1088,7 +1195,10 @@ fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json::Value, Cu
     }))
 }
 
-fn click_command(command: &Command) -> Result<serde_json::Value, CuError> {
+fn click_command(
+    command: &Command,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
     let Command::Click {
         window,
         node,
@@ -1121,11 +1231,76 @@ fn click_command(command: &Command) -> Result<serde_json::Value, CuError> {
         ));
     }
     if let Some(resolved) = resolve_actuation_node(window, node, name, role, "click")? {
+        // Receipt (reserved before the press) and read-back: the window
+        // tree before and after, the same `tree-diff` proof `invoke press`
+        // uses. Without a window scope there is nothing to diff, which the
+        // reply says instead of claiming a verified click.
+        let before = window
+            .map(|handle| mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err))
+            .transpose()?;
+        let before_node = before
+            .as_ref()
+            .and_then(|tree| observe::node_by_id(tree, &resolved.node_id))
+            .map(observe::node_state_json);
+        let mut payload = click_tree_payload(&resolved, window, clicks, button);
+        let ticket = receipts.reserve(
+            "click",
+            window.unwrap_or(0),
+            serde_json::json!({
+                "action": "click",
+                "node": { "id": resolved.node_id, "name": resolved.matched.as_ref().map(|node| node.name.clone()), "role": resolved.matched.as_ref().map(|node| node.role.clone()) },
+                "clicks": clicks.max(1),
+                "before": before_node,
+            }),
+        )?;
+        let mut mechanism_error = None;
         for _ in 0..clicks.max(1) {
-            mechanism::perform_node_action(window, &resolved.node_id, mechanism::NodeAction::Click)
-                .map_err(map_mechanism_err)?;
+            if let Err(error) = mechanism::perform_node_action(
+                window,
+                &resolved.node_id,
+                mechanism::NodeAction::Click,
+            ) {
+                mechanism_error = Some(map_mechanism_err(error));
+                break;
+            }
         }
-        return Ok(click_tree_payload(&resolved, window, clicks, button));
+        let after = window
+            .map(|handle| mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err))
+            .transpose()?;
+        let (verified, method, reason) = match (&before, &after) {
+            (Some(was), Some(is)) if observe::tree_changed(was, is) => (true, "tree-diff", None),
+            (Some(_), Some(_)) => (false, "tree-diff", Some("no_observable_change")),
+            _ => (false, "none", Some("no_window_scope")),
+        };
+        let verified = verified && mechanism_error.is_none();
+        let after_node = after
+            .as_ref()
+            .and_then(|tree| observe::node_by_id(tree, &resolved.node_id))
+            .map(observe::node_state_json);
+        payload["performed"] = serde_json::json!(true);
+        payload["verified"] = serde_json::json!(verified);
+        payload["verification"] = serde_json::json!({
+            "method": method,
+            "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
+        });
+        payload["before"] = before_node.unwrap_or(serde_json::Value::Null);
+        payload["after"] = after_node.clone().unwrap_or(serde_json::Value::Null);
+        payload["receipt"] = ticket.json();
+        receipts.complete(
+            &ticket,
+            "click",
+            window.unwrap_or(0),
+            verified,
+            serde_json::json!({
+                "after": after_node,
+                "verification": payload["verification"].clone(),
+                "error": mechanism_error.as_ref().map(error_payload),
+            }),
+        )?;
+        if let Some(error) = mechanism_error {
+            return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+        }
+        return Ok(payload);
     }
     let Some([x, y]) = coords else {
         return Err(CuError::new(
@@ -1160,6 +1335,7 @@ fn focus(
     node: Option<&str>,
     name: Option<&str>,
     role: Option<&str>,
+    receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
     let resolved = resolve_actuation_node(window, node, name, role, "focus")?.ok_or_else(|| {
         CuError::new(
@@ -1167,9 +1343,71 @@ fn focus(
             "focus requires --node <path-id> or --window + --name",
         )
     })?;
-    mechanism::perform_node_action(window, &resolved.node_id, mechanism::NodeAction::Focus)
-        .map_err(map_mechanism_err)?;
-    Ok(focus_tree_payload(&resolved, window))
+    // Receipt reserved before the focus move; read back as the node's own
+    // `focused` state in the window tree (no window scope: unverifiable).
+    let before_node = window
+        .map(|handle| mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err))
+        .transpose()?
+        .as_ref()
+        .and_then(|tree| observe::node_by_id(tree, &resolved.node_id))
+        .map(observe::node_state_json);
+    let ticket = receipts.reserve(
+        "focus",
+        window.unwrap_or(0),
+        serde_json::json!({
+            "action": "focus",
+            "node": { "id": resolved.node_id, "name": resolved.matched.as_ref().map(|node| node.name.clone()), "role": resolved.matched.as_ref().map(|node| node.role.clone()) },
+            "before": before_node,
+        }),
+    )?;
+    let mechanism_error =
+        mechanism::perform_node_action(window, &resolved.node_id, mechanism::NodeAction::Focus)
+            .err()
+            .map(map_mechanism_err);
+    let after_node = window
+        .map(|handle| mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err))
+        .transpose()?
+        .as_ref()
+        .and_then(|tree| observe::node_by_id(tree, &resolved.node_id))
+        .cloned();
+    let (verified, method, reason) = match &after_node {
+        Some(node) => match observe::focused_state(node) {
+            observe::Tri::True => (true, "focused-readback", None),
+            observe::Tri::False | observe::Tri::Mixed => {
+                (false, "focused-readback", Some("state_mismatch"))
+            }
+            observe::Tri::Unknown => (false, "focused-readback", Some("state_unobservable")),
+        },
+        None if window.is_some() => (false, "node-readback", Some("node_gone")),
+        None => (false, "none", Some("no_window_scope")),
+    };
+    let verified = verified && mechanism_error.is_none();
+    let after_state = after_node.as_ref().map(observe::node_state_json);
+    let mut payload = focus_tree_payload(&resolved, window);
+    payload["performed"] = serde_json::json!(true);
+    payload["verified"] = serde_json::json!(verified);
+    payload["verification"] = serde_json::json!({
+        "method": method,
+        "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
+    });
+    payload["before"] = before_node.unwrap_or(serde_json::Value::Null);
+    payload["after"] = after_state.clone().unwrap_or(serde_json::Value::Null);
+    payload["receipt"] = ticket.json();
+    receipts.complete(
+        &ticket,
+        "focus",
+        window.unwrap_or(0),
+        verified,
+        serde_json::json!({
+            "after": after_state,
+            "verification": payload["verification"].clone(),
+            "error": mechanism_error.as_ref().map(error_payload),
+        }),
+    )?;
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    Ok(payload)
 }
 
 /// `send-text` with `--name` writes through native AT-SPI
@@ -2002,13 +2240,88 @@ fn name_scope(pattern: &str, role: Option<&str>) -> String {
     }
 }
 
-fn window_place(action_raw: &str, window: Option<isize>) -> Result<serde_json::Value, CuError> {
-    let action = crate::place::PlaceAction::parse(action_raw).ok_or_else(|| {
-        CuError::new(
-            "invalid_input",
-            format!("unknown window-place action '{action_raw}'"),
-        )
-    })?;
+/// What `window-place` was asked to do: a catalog action, or (PRD_02_32
+/// `frame`, slice 4) an explicit rect that replaces the geometry step and
+/// rides the same preflight / apply / read-back / history transaction.
+#[derive(Clone, Copy, Debug)]
+enum PlaceRequest {
+    Catalog(crate::place::PlaceAction),
+    Frame(crate::place::Rect),
+}
+
+impl PlaceRequest {
+    fn kebab(self) -> &'static str {
+        match self {
+            Self::Catalog(action) => action.kebab(),
+            Self::Frame(_) => "frame",
+        }
+    }
+
+    fn spectacle_id(self) -> &'static str {
+        match self {
+            Self::Catalog(action) => action.spectacle_id(),
+            // Not a Spectacle constant: `frame` is agenterm's own closed id.
+            Self::Frame(_) => "AgentermWindowActionFrame",
+        }
+    }
+
+    fn history(self) -> Option<crate::place::PlaceAction> {
+        match self {
+            Self::Catalog(action) if action.is_history() => Some(action),
+            _ => None,
+        }
+    }
+}
+
+const FRAME_MAX_EXTENT: i32 = 32_768;
+
+fn window_place(
+    action_raw: &str,
+    window: Option<isize>,
+    frame: Option<[i32; 4]>,
+) -> Result<serde_json::Value, CuError> {
+    let request = if action_raw.trim() == "frame" {
+        let Some([x, y, width, height]) = frame else {
+            return Err(CuError::new(
+                "invalid_input",
+                "window-place --action frame requires --x X --y Y --width W --height H",
+            ));
+        };
+        if width <= 0 || height <= 0 {
+            return Err(CuError::new(
+                "invalid_input",
+                format!("frame width and height must be positive, got {width}x{height}"),
+            ));
+        }
+        if [x, y, width, height]
+            .iter()
+            .any(|value| value.abs() > FRAME_MAX_EXTENT)
+        {
+            return Err(CuError::new(
+                "invalid_input",
+                format!("frame coordinates must be within ±{FRAME_MAX_EXTENT}"),
+            ));
+        }
+        PlaceRequest::Frame(crate::place::Rect::new(
+            f64::from(x),
+            f64::from(y),
+            f64::from(width),
+            f64::from(height),
+        ))
+    } else {
+        if frame.is_some() {
+            return Err(CuError::new(
+                "invalid_input",
+                format!("--x/--y/--width/--height belong to --action frame, not '{action_raw}'"),
+            ));
+        }
+        PlaceRequest::Catalog(crate::place::PlaceAction::parse(action_raw).ok_or_else(|| {
+            CuError::new(
+                "invalid_input",
+                format!("unknown window-place action '{action_raw}'"),
+            )
+        })?)
+    };
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let screens = mechanism::window_enumerate::list_screens().map_err(map_mechanism_err)?;
     if screens.is_empty() {
@@ -2028,8 +2341,8 @@ fn window_place(action_raw: &str, window: Option<isize>) -> Result<serde_json::V
     };
     let history = crate::place::PlaceHistory::open()
         .map_err(|error| CuError::new("failed", format!("history: {error}")))?;
-    window_place_resolved(
-        action,
+    window_place_transaction(
+        request,
         target_window,
         &screens,
         history,
@@ -2117,8 +2430,31 @@ impl HistoryCommitter for NativeHistoryCommitter {
     }
 }
 
+#[cfg(test)]
 fn window_place_resolved<R, H>(
     action: crate::place::PlaceAction,
+    target_window: &mechanism::window_enumerate::WindowInfo,
+    screens: &[mechanism::window_enumerate::ScreenInfo],
+    history: crate::place::PlaceHistory,
+    runtime: &mut R,
+    committer: &mut H,
+) -> Result<serde_json::Value, CuError>
+where
+    R: PlaceRuntime,
+    H: HistoryCommitter,
+{
+    window_place_transaction(
+        PlaceRequest::Catalog(action),
+        target_window,
+        screens,
+        history,
+        runtime,
+        committer,
+    )
+}
+
+fn window_place_transaction<R, H>(
+    request: PlaceRequest,
     target_window: &mechanism::window_enumerate::WindowInfo,
     screens: &[mechanism::window_enumerate::ScreenInfo],
     history: crate::place::PlaceHistory,
@@ -2153,7 +2489,7 @@ where
     })?;
     let geo_screens: Vec<_> = screens.iter().map(crate::place::screen_from_info).collect();
 
-    let (requested_target, planned_history) = if action.is_history() {
+    let (requested_target, planned_history) = if let Some(action) = request.history() {
         let step = if matches!(action, crate::place::PlaceAction::Undo) {
             history.plan_undo(&app_key)
         } else {
@@ -2167,8 +2503,11 @@ where
         };
         (rect, Some(planned))
     } else {
-        let dest = crate::place::place(action, before, &geo_screens)
-            .ok_or_else(|| CuError::new("failed", "could not compute destination rectangle"))?;
+        let dest = match request {
+            PlaceRequest::Frame(rect) => rect,
+            PlaceRequest::Catalog(action) => crate::place::place(action, before, &geo_screens)
+                .ok_or_else(|| CuError::new("failed", "could not compute destination rectangle"))?,
+        };
         (dest, None)
     };
 
@@ -2304,7 +2643,7 @@ where
                 "history": "published_durability_uncertain",
                 "window": identity.handle,
                 "app": app_key,
-                "action": action.kebab(),
+                "action": request.kebab(),
                 "before": rect_payload(before),
                 "intended": rect_payload(after_target),
                 "applied": rect_payload(after),
@@ -2331,8 +2670,8 @@ where
     Ok(serde_json::json!({
         "effect": "committed",
         "history": "committed",
-        "action": action.kebab(),
-        "spectacle_id": action.spectacle_id(),
+        "action": request.kebab(),
+        "spectacle_id": request.spectacle_id(),
         "window": identity.handle,
         "app": app_key,
         "screen": {
@@ -3230,6 +3569,7 @@ fn invoke_payload(
     spec: observe::TargetSpec,
     action: InvokeAction,
     value: Option<&str>,
+    receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
@@ -3343,6 +3683,29 @@ fn invoke_payload(
             _ => {}
         }
     }
+    // The crash-persistent receipt is reserved here — after every refusal
+    // that needs no mechanism, before the mechanism is touched — so a line
+    // with no `completed` / `failed` partner means "uncertain", never "did
+    // not happen".
+    let node_json = serde_json::json!({
+        "id": target.id,
+        "role": target.role,
+        "name": target.name,
+        "identifier": target.identifier,
+        "index": before.nodes.iter().position(|node| node.id == target.id),
+    });
+    let ticket = receipts.reserve(
+        "invoke",
+        window,
+        serde_json::json!({
+            "target": spec.json(),
+            "node": node_json,
+            "action": action.as_str(),
+            "value": value,
+            "performed": performed,
+            "before": observe::node_state_json(&target),
+        }),
+    )?;
     let mut mechanism_error = None;
     if performed
         && let Err(error) =
@@ -3397,31 +3760,41 @@ fn invoke_payload(
         (_, None) => (false, "node-readback", Some("node_gone")),
         _ => (false, "none", Some("unverifiable_action")),
     };
+    let verified = verified && mechanism_error.is_none();
+    let verification = serde_json::json!({
+        "method": method,
+        "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
+    });
+    let after_state = after_node.as_ref().map(observe::node_state_json);
     let receipt = serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
         "backend": before.backend,
         "window": window,
         "target": spec.json(),
-        "node": {
-            "id": target.id,
-            "role": target.role,
-            "name": target.name,
-            "identifier": target.identifier,
-            "index": before.nodes.iter().position(|node| node.id == target.id),
-        },
+        "node": node_json,
         "action": action.as_str(),
         "value": value,
         "performed": performed,
-        "verified": verified && mechanism_error.is_none(),
-        "verification": {
-            "method": method,
-            "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
-        },
+        "verified": verified,
+        "verification": verification,
         "before": observe::node_state_json(&target),
-        "after": after_node.as_ref().map(observe::node_state_json),
+        "after": after_state,
         "tree_changed": observe::tree_changed(&before, &after),
+        "receipt": ticket.json(),
     });
+    receipts.complete(
+        &ticket,
+        "invoke",
+        window,
+        verified,
+        serde_json::json!({
+            "after": after_state,
+            "verification": verification,
+            "tree_changed": observe::tree_changed(&before, &after),
+            "error": mechanism_error.as_ref().map(error_payload),
+        }),
+    )?;
     if let Some(error) = mechanism_error {
         return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
     }
@@ -3497,7 +3870,11 @@ fn menu_inspect_payload(
 
 /// Press one menu item by exact title path in the background, verified by
 /// the item's mark read-back and a whole-window tree diff.
-fn menu_invoke_payload(window: isize, path: &[String]) -> Result<serde_json::Value, CuError> {
+fn menu_invoke_payload(
+    window: isize,
+    path: &[String],
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
             "menu invoke requires --window <handle> (a non-zero handle from `windows`)".into(),
@@ -3510,7 +3887,35 @@ fn menu_invoke_payload(window: isize, path: &[String]) -> Result<serde_json::Val
         ));
     }
     let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
-    let receipt = mechanism::invoke_menu_path(Some(window), path).map_err(map_mechanism_err)?;
+    // The platform resolves the whole path (and refuses) before pressing,
+    // so a refusal there leaves a `failed` receipt with nothing performed.
+    let ticket = receipts.reserve(
+        "menu-invoke",
+        window,
+        serde_json::json!({
+            "path": path,
+            "action": "press",
+            "before": { "nodes": before.returned },
+        }),
+    )?;
+    let receipt = match mechanism::invoke_menu_path(Some(window), path) {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            let error = map_mechanism_err(error);
+            receipts.complete(
+                &ticket,
+                "menu-invoke",
+                window,
+                false,
+                serde_json::json!({
+                    "performed": false,
+                    "verification": { "method": "none", "reason": "mechanism_failed" },
+                    "error": error_payload(&error),
+                }),
+            )?;
+            return Err(error.with_detail(serde_json::json!({ "receipt": ticket.json() })));
+        }
+    };
     let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let tree_changed = observe::tree_changed(&before, &after);
     let mark_changed = receipt.mark_before != receipt.mark_after;
@@ -3521,6 +3926,21 @@ fn menu_invoke_payload(window: isize, path: &[String]) -> Result<serde_json::Val
     } else {
         ("tree-diff", Some("no_observable_change"))
     };
+    let verification = serde_json::json!({ "method": method, "reason": reason });
+    receipts.complete(
+        &ticket,
+        "menu-invoke",
+        window,
+        reason.is_none(),
+        serde_json::json!({
+            "performed": true,
+            "after": { "nodes": after.returned },
+            "verification": verification,
+            "mark_before": receipt.mark_before,
+            "mark_after": receipt.mark_after,
+            "tree_changed": tree_changed,
+        }),
+    )?;
     Ok(serde_json::json!({
         "addressing": "menu-path",
         "mechanism": "libagenterm",
@@ -3530,12 +3950,294 @@ fn menu_invoke_payload(window: isize, path: &[String]) -> Result<serde_json::Val
         "action": "press",
         "performed": true,
         "verified": reason.is_none(),
-        "verification": { "method": method, "reason": reason },
+        "verification": verification,
         "mark_before": receipt.mark_before,
         "mark_after": receipt.mark_after,
         "tree_changed": tree_changed,
         "nodes_before": before.returned,
         "nodes_after": after.returned,
+        "receipt": ticket.json(),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// The destructive verb and the receipt read-back (slice 4 of
+// plan/design-mcu-absorption.md).
+// ---------------------------------------------------------------------------
+
+/// Bounds of the prior snapshot a destructive action writes to its receipt.
+const CLOSE_SNAPSHOT_DEPTH: u32 = 6;
+const CLOSE_SNAPSHOT_NODES: usize = 500;
+/// How long the postcondition read-back polls the window inventory.
+const CLOSE_READBACK: Duration = Duration::from_millis(2_500);
+const CLOSE_READBACK_POLL: Duration = Duration::from_millis(50);
+
+/// The three-part destructive gate (PRD_02_31), checked before any
+/// inventory or tree read: every missing part is named in one refusal.
+fn destructive_gate(window: isize, snapshot: bool, expect: Option<&str>) -> Result<(), CuError> {
+    let mut missing = Vec::new();
+    if window == 0 {
+        missing.push("target");
+    }
+    if !snapshot {
+        missing.push("snapshot");
+    }
+    match expect {
+        Some("gone") => {}
+        Some(other) => {
+            return Err(invalid_input(format!(
+                "close --expect accepts only 'gone' (the window is read back as absent), got {other:?}"
+            )));
+        }
+        None => missing.push("postcondition"),
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(CuError::new(
+        "refused",
+        "close is destructive: it needs an exact target (--window HANDLE), a prior snapshot \
+         (--snapshot) and a checkable postcondition (--expect gone); nothing was performed",
+    )
+    .with_detail(serde_json::json!({
+        "reason": "destructive_gate",
+        "missing": missing,
+        "required": {
+            "target": "--window HANDLE [--pid N] [--title T]",
+            "snapshot": "--snapshot",
+            "postcondition": "--expect gone",
+        },
+        "effect": "not_performed",
+    })))
+}
+
+/// A compact node record for the snapshot a receipt carries.
+fn snapshot_node_json(node: &mechanism::A11yNode) -> serde_json::Value {
+    let text = node.text.as_deref().map(|text| {
+        let mut end = text.len().min(200);
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text[..end].to_owned()
+    });
+    serde_json::json!({
+        "id": node.id,
+        "role": node.role,
+        "name": node.name,
+        "identifier": node.identifier,
+        "text": text,
+        "states": node.states,
+    })
+}
+
+fn window_identity_json(row: &WindowInfo) -> serde_json::Value {
+    serde_json::json!({
+        "handle": row.handle,
+        "pid": row.process_id,
+        "app": row.app_name,
+        "title": row.title,
+        "bounds": row.bounds,
+        "focused": row.focused,
+    })
+}
+
+/// Close one top-level window through the platform's close control, in the
+/// background. Order: gate → exact target bound in one inventory read →
+/// prior snapshot → receipt reserved → close → postcondition read back
+/// (absent from the inventory) → receipt completed → reply.
+fn close_payload(
+    window: isize,
+    pid: Option<u32>,
+    title: Option<&str>,
+    snapshot: bool,
+    expect: Option<&str>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    destructive_gate(window, snapshot, expect)?;
+    let not_performed = |error: CuError| {
+        let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
+        detail["effect"] = serde_json::json!("not_performed");
+        error.with_detail(detail)
+    };
+    let windows = mechanism::window_enumerate::enumerate_top_level()
+        .map_err(map_mechanism_err)
+        .map_err(not_performed)?;
+    let Some(row) = windows.iter().find(|item| item.handle == window) else {
+        return Err(not_performed(CuError::new(
+            "window_not_found",
+            format!("no top-level window with handle {window}"),
+        )));
+    };
+    if let Some(pid) = pid
+        && row.process_id != pid
+    {
+        return Err(not_performed(
+            CuError::new(
+                "window_identity_mismatch",
+                format!(
+                    "window {window} belongs to pid {} not {pid}; refusing to close another process's window",
+                    row.process_id
+                ),
+            )
+            .with_detail(serde_json::json!({ "expected": { "pid": pid }, "observed": window_identity_json(row) })),
+        ));
+    }
+    if let Some(title) = title
+        && row.title != title
+    {
+        return Err(not_performed(
+            CuError::new(
+                "window_identity_mismatch",
+                format!(
+                    "window {window} is titled {:?} not {title:?}; refusing to close it",
+                    row.title
+                ),
+            )
+            .with_detail(serde_json::json!({ "expected": { "title": title }, "observed": window_identity_json(row) })),
+        ));
+    }
+    let identity = window_identity_json(row);
+    let tree = mechanism::tree_for_window_bounded(
+        Some(window),
+        mechanism::TreeBudget {
+            max_depth: Some(CLOSE_SNAPSHOT_DEPTH),
+            max_nodes: Some(CLOSE_SNAPSHOT_NODES),
+        },
+    )
+    .map_err(map_mechanism_err)
+    .map_err(not_performed)?;
+    let snapshot_json = serde_json::json!({
+        "backend": tree.backend,
+        "budget": { "depth": CLOSE_SNAPSHOT_DEPTH, "max_nodes": CLOSE_SNAPSHOT_NODES },
+        "visited": tree.visited,
+        "returned": tree.returned,
+        "truncated": tree.truncated,
+        "nodes": tree.nodes.iter().map(snapshot_node_json).collect::<Vec<_>>(),
+    });
+    let ticket = receipts.reserve(
+        "close",
+        window,
+        serde_json::json!({
+            "action": "close",
+            "target": identity,
+            "postcondition": "gone",
+            "before": { "present": true, "nodes": tree.returned },
+            "snapshot": snapshot_json,
+        }),
+    )?;
+    let started = Instant::now();
+    let mechanism_error = mechanism::window_op::close(window)
+        .err()
+        .map(map_mechanism_err);
+    // Postcondition: the handle (bound to its pid) leaves the inventory.
+    let mut polls = 0usize;
+    let mut present = true;
+    let mut readback_error = None;
+    while started.elapsed() < CLOSE_READBACK {
+        polls += 1;
+        match mechanism::window_enumerate::enumerate_top_level() {
+            Ok(now) => {
+                present = now
+                    .iter()
+                    .any(|item| item.handle == window && item.process_id == row.process_id);
+            }
+            Err(error) => {
+                readback_error = Some(map_mechanism_err(error));
+                break;
+            }
+        }
+        if !present || mechanism_error.is_some() {
+            break;
+        }
+        thread::sleep(CLOSE_READBACK_POLL);
+    }
+    let verified = !present && mechanism_error.is_none() && readback_error.is_none();
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if present {
+        Some("window_still_present")
+    } else {
+        None
+    };
+    let verification = serde_json::json!({
+        "method": "window-inventory",
+        "reason": reason,
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis(),
+    });
+    let after = serde_json::json!({ "present": present });
+    receipts.complete(
+        &ticket,
+        "close",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": mechanism_error.is_none(),
+            "after": after,
+            "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
+    let payload = serde_json::json!({
+        "addressing": "window-handle",
+        "mechanism": "libagenterm",
+        "backend": tree.backend,
+        "window": window,
+        "target": identity,
+        "action": "close",
+        "postcondition": "gone",
+        "performed": mechanism_error.is_none(),
+        "verified": verified,
+        "verification": verification,
+        "before": { "present": true, "nodes": tree.returned },
+        "after": after,
+        "snapshot": {
+            "visited": tree.visited,
+            "returned": tree.returned,
+            "truncated": tree.truncated,
+            "in_receipt": true,
+        },
+        "receipt": ticket.json(),
+    });
+    if let Some(error) = mechanism_error.or(readback_error) {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if present {
+        return Err(CuError::new(
+            "unverified",
+            format!(
+                "close was delivered to window {window} but it is still in the inventory after {} polls",
+                polls
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": "window_still_present", "receipt": payload })));
+    }
+    Ok(payload)
+}
+
+/// `receipts --window H --max N`: the target's receipt file read back in
+/// order. Observation only — the file is not created here.
+fn receipts_payload(
+    dir: &std::path::Path,
+    target: TargetRef,
+    window: Option<isize>,
+    max: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    let max = receipt::validate_list_max(max).map_err(invalid_input)?;
+    let path = dir.join(format!("{}.jsonl", target.as_str()));
+    let (lines, total) = receipt::list_file(&path, window, max)?;
+    Ok(serde_json::json!({
+        "addressing": "receipt-file",
+        "path": path,
+        "target": target.as_str(),
+        "window": window,
+        "max": max,
+        "total": total,
+        "returned": lines.len(),
+        "truncated": total > lines.len(),
+        "receipts": lines,
     }))
 }
 
@@ -3738,9 +4440,9 @@ fn check_one(
     flat: &[observe::FlatNode<'_>],
     expectation: &crate::command::Expectation,
 ) -> Result<Verdict, CuError> {
-    if !expectation.has_state() {
+    if !expectation.has_state() && !expectation.has_page_identity() {
         return Err(invalid_input(
-            "every --expect item needs at least one of value, checked, expanded, focused".into(),
+            "every --expect item needs a state (value, checked, expanded, focused) or a title substring (name / titleIncludes)".into(),
         ));
     }
     let spec = observe::TargetSpec::from_expectation(expectation);
@@ -3760,6 +4462,20 @@ fn check_one(
         }
         Err(error) => return Err(target_error(error)),
     };
+    if !expectation.has_state() {
+        return Ok(Verdict {
+            item: serde_json::json!({
+                "target": spec.json(),
+                "node": observe::node_state_json(node),
+                "checks": [],
+                "met": true,
+                "unknown": false,
+                "page_identity": true,
+            }),
+            met: true,
+            unknown: false,
+        });
+    }
     let checks = observe::check_expectation(node, expectation);
     let unknown = checks.iter().any(|check| check.met.is_none());
     let met = !unknown && checks.iter().all(|check| check.met == Some(true));
@@ -4896,6 +5612,7 @@ mod tests {
             target: TargetRef::Rdp,
             action: "left-half".into(),
             window: None,
+            frame: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -4922,6 +5639,7 @@ mod tests {
             target: TargetRef::Rdp,
             action: "left-half".into(),
             window: None,
+            frame: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -4955,6 +5673,7 @@ mod tests {
             target: TargetRef::Current,
             action: "left-half".into(),
             window: Some(7),
+            frame: None,
         };
         let reply = CuReply::err(
             &command,
@@ -5146,6 +5865,7 @@ mod tests {
             target: TargetRef::Current,
             action: "left-half".into(),
             window: None,
+            frame: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -5160,6 +5880,7 @@ mod tests {
             target: TargetRef::Current,
             action: "tile-magic".into(),
             window: None,
+            frame: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);

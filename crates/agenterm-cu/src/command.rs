@@ -90,7 +90,12 @@ pub struct Expectation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<usize>,
     /// Case-insensitive substring of the accessible name (showing nodes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// MCU `titleIncludes` is the same field (AX title ≈ name).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "titleIncludes"
+    )]
     pub name: Option<String>,
     /// Exact toolkit identifier (showing nodes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,6 +128,12 @@ impl Expectation {
             || self.checked.is_some()
             || self.expanded.is_some()
             || self.focused.is_some()
+    }
+
+    /// Page identity: a title substring is enough for wait/verify (MCU
+    /// WebArea title / Heading alias). State fields remain optional.
+    pub fn has_page_identity(&self) -> bool {
+        self.name.is_some()
     }
 }
 
@@ -532,11 +543,62 @@ pub enum Command {
         #[serde(flatten)]
         condition: WaitCondition,
     },
+    /// `frame` (PRD_02_32, absorbed from `moltbaby/skills/mcu`, slice 4)
+    /// is one more closed action id: `--action frame --x X --y Y --width W
+    /// --height H` replaces the catalog geometry step with the requested
+    /// rect and rides the same preflight / apply / read-back / history
+    /// transaction. `frame` is required for that action and refused for
+    /// every other.
     WindowPlace {
         target: TargetRef,
         action: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame: Option<[i32; 4]>,
+    },
+    /// The destructive verb (PRD_02_31): close one top-level window in the
+    /// background through the platform's own close control (macOS
+    /// `AXCloseButton` + `AXPress`, Windows `WM_CLOSE`). The three-part gate
+    /// is checked before anything is touched: an exact target (`window`,
+    /// optionally bound to `pid` / exact `title` in the same inventory
+    /// read), a prior `snapshot` (the bounded tree of the window, written
+    /// to the reserved receipt) and a checkable postcondition (`expect:
+    /// "gone"`, read back from the window inventory). Missing any of the
+    /// three is typed `refused` (`detail.reason = destructive_gate`) with
+    /// nothing performed.
+    Close {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        snapshot: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
+    /// Read back the crash-persistent receipt file of this target (the
+    /// `reserved` / `completed` / `failed` lines every actuation appends
+    /// before it returns): newest last, filtered by `window`, at most `max`
+    /// lines (default 50, ceiling 1000).
+    Receipts {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+    },
+    /// Page JavaScript is a second knife after AX WebArea query/invoke.
+    /// This binary answers typed `unsupported` (debugger `Runtime.evaluate`
+    /// would be the honest backend; MAIN-world eval is never used).
+    PageJs {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
     },
 }
 
@@ -636,6 +698,9 @@ impl Command {
             Self::GetText { .. } => "get-text".into(),
             Self::Wait { .. } => "wait".into(),
             Self::WindowPlace { .. } => "window-place".into(),
+            Self::Close { .. } => "close".into(),
+            Self::Receipts { .. } => "receipts".into(),
+            Self::PageJs { .. } => "page-js".into(),
         }
     }
 
@@ -669,7 +734,10 @@ impl Command {
             | Self::GetCaret { target, .. }
             | Self::GetText { target, .. }
             | Self::Wait { target, .. }
-            | Self::WindowPlace { target, .. } => *target,
+            | Self::WindowPlace { target, .. }
+            | Self::Close { target, .. }
+            | Self::Receipts { target, .. }
+            | Self::PageJs { target, .. } => *target,
         }
     }
 
@@ -687,7 +755,8 @@ impl Command {
             | Self::Scroll { .. }
             | Self::Select { .. }
             | Self::SetCaret { .. }
-            | Self::WindowPlace { .. } => crate::auth::Grant::Actuate,
+            | Self::WindowPlace { .. }
+            | Self::Close { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }
     }
@@ -1005,6 +1074,19 @@ mod tests {
         assert!(parsed.has_target() && parsed.has_state());
         let unknown = serde_json::from_str::<Expectation>(r#"{"name":"a","cheked":true}"#);
         assert!(unknown.is_err(), "a misspelled state must not parse");
+        let title: Expectation =
+            serde_json::from_str(r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#)
+                .expect("MCU titleIncludes aliases name");
+        assert_eq!(title.name.as_deref(), Some("Nepal"));
+        assert!(title.has_page_identity());
+        assert!(!title.has_state());
+        let page_js = Command::PageJs {
+            target: TargetRef::Current,
+            window: Some(14278),
+            expression: Some("document.title".into()),
+        };
+        assert_eq!(page_js.verb(), "page-js");
+        assert_eq!(page_js.required_grant(), Grant::Observe);
         let wait = Command::Wait {
             target: TargetRef::Current,
             timeout_ms: 500,
@@ -1024,6 +1106,74 @@ mod tests {
                 "verb": "wait", "target": "current", "timeout_ms": 500,
                 "wait": "expect", "window": 3,
                 "expect": [{ "node": "/0/1", "value": "pressed 1" }]
+            })
+        );
+    }
+
+    #[test]
+    fn close_is_actuation_with_a_closed_gate_shape_and_receipts_are_observation() {
+        let close = Command::Close {
+            target: TargetRef::Current,
+            window: 7,
+            pid: Some(4242),
+            title: None,
+            snapshot: true,
+            expect: Some("gone".into()),
+        };
+        assert_eq!(close.verb(), "close");
+        assert_eq!(close.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&close).expect("serialize"),
+            serde_json::json!({
+                "verb": "close", "target": "current", "window": 7,
+                "pid": 4242, "snapshot": true, "expect": "gone"
+            })
+        );
+        // The bare wire form (no snapshot, no postcondition) still decodes;
+        // the executor refuses it, the shape does not hide it.
+        let bare: Command = serde_json::from_value(
+            serde_json::json!({ "verb": "close", "target": "current", "window": 7 }),
+        )
+        .expect("deserialize");
+        assert!(matches!(
+            bare,
+            Command::Close {
+                window: 7,
+                snapshot: false,
+                expect: None,
+                pid: None,
+                title: None,
+                ..
+            }
+        ));
+        let receipts = Command::Receipts {
+            target: TargetRef::Ssh,
+            window: Some(7),
+            max: Some(5),
+        };
+        assert_eq!(receipts.verb(), "receipts");
+        assert_eq!(receipts.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&receipts).expect("serialize"),
+            serde_json::json!({ "verb": "receipts", "target": "ssh", "window": 7, "max": 5 })
+        );
+        // A pre-slice-4 window-place wire form decodes with no frame.
+        let place: Command = serde_json::from_value(serde_json::json!({
+            "verb": "window-place", "target": "current", "action": "left-half", "window": 7
+        }))
+        .expect("deserialize");
+        assert!(matches!(place, Command::WindowPlace { frame: None, .. }));
+        let framed = Command::WindowPlace {
+            target: TargetRef::Current,
+            action: "frame".into(),
+            window: Some(7),
+            frame: Some([10, 20, 300, 200]),
+        };
+        assert_eq!(
+            serde_json::to_value(&framed).expect("serialize"),
+            serde_json::json!({
+                "verb": "window-place", "target": "current", "action": "frame",
+                "window": 7, "frame": [10, 20, 300, 200]
             })
         );
     }

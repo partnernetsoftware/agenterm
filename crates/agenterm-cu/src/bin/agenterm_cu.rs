@@ -1024,10 +1024,96 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 return usage_err("window-place requires --action <id>");
             }
             let window = flag_isize(&mut args, "--window");
+            // `--action frame` takes the requested rect; the four flags are
+            // typed (a bad value is usage, never a silently dropped flag).
+            let mut rect = [None; 4];
+            for (slot, flag) in ["--x", "--y", "--width", "--height"]
+                .into_iter()
+                .enumerate()
+            {
+                rect[slot] = match flag_parsed::<i32>(&mut args, flag) {
+                    Ok(value) => value,
+                    Err(message) => return usage_err(message),
+                };
+            }
+            let frame = match rect {
+                [None, None, None, None] => None,
+                [Some(x), Some(y), Some(width), Some(height)] => Some([x, y, width, height]),
+                _ => {
+                    return usage_err(
+                        "window-place --action frame needs all four of --x --y --width --height",
+                    );
+                }
+            };
+            if action == "frame" && frame.is_none() {
+                return usage_err(
+                    "window-place --action frame requires --x X --y Y --width W --height H",
+                );
+            }
             Command::WindowPlace {
                 target,
                 action,
                 window,
+                frame,
+            }
+        }
+        "close" => {
+            // The destructive verb: closed shape, every part of the gate is
+            // a flag the executor checks before touching anything.
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                // Window 0 lets the executor name `target` among the missing
+                // gate parts in one typed refusal.
+                Ok(None) => 0,
+                Err(message) => return usage_err(message),
+            };
+            let pid = match flag_parsed::<u32>(&mut args, "--pid") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let title = match flag_text(&mut args, "--title") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let snapshot = take_switch(&mut args, "--snapshot");
+            let expect = match flag_text(&mut args, "--expect") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "close accepts only --window H [--pid N] [--title T] --snapshot --expect gone; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Close {
+                target,
+                window,
+                pid,
+                title,
+                snapshot,
+                expect,
+            }
+        }
+        "receipts" => {
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max = match flag_parsed::<usize>(&mut args, "--max") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "receipts accepts only [--window H] [--max N]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Receipts {
+                target,
+                window,
+                max,
             }
         }
         "wait" => {
@@ -1143,6 +1229,27 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 target,
                 timeout_ms,
                 condition,
+            }
+        }
+        "page-js" => {
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let expression = match flag_text(&mut args, "--expression") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "page-js accepts only --window H --expression EXPR; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::PageJs {
+                target,
+                window,
+                expression,
             }
         }
         other => return usage_err(format!("unknown command '{other}'")),
@@ -1584,9 +1691,9 @@ fn parse_expectations(raw: &str) -> Result<Vec<Expectation>, String> {
                 "--expect item {position} needs a target (node, index, name, identifier or role)"
             ));
         }
-        if !item.has_state() {
+        if !item.has_state() && !item.has_page_identity() {
             return Err(format!(
-                "--expect item {position} needs a state (value, checked, expanded or focused)"
+                "--expect item {position} needs a state (value, checked, expanded or focused) or a page identity (name/titleIncludes)"
             ));
         }
     }
@@ -1747,16 +1854,45 @@ Commands:
                               FocusChanged / Created / Destroyed with monotonic seq and
                               t_ms; stops at --max-events (<= 5000, default 200) with
                               truncated true; reports polls / emitted / filtered / stopped
-  verify --window HANDLE --expect '[{{"node"|"index"|"name"[+"role"]|"identifier"|"role",
+  verify --window HANDLE --expect '[{{"node"|"index"|"name"|"titleIncludes"[+"role"]|"identifier"|"role",
                                      "value"?, "checked"?, "expanded"?, "focused"?}}, ...]'
                               one tree read; all met -> ok + verified, a mismatch ->
                               "unverified", a state the node does not expose ->
-                              "unsupported" (fail closed), an unknown key -> usage
+                              "unsupported" (fail closed), an unknown key -> usage.
+                              name/titleIncludes alone is page identity (WebArea title)
+  page-js [--window HANDLE] [--expression EXPR]
+                              typed unsupported: page JS is a second knife after AX.
+                              honest backend is debugger Runtime.evaluate, never MAIN
+                              eval / new Function. capabilities.verbs["page-js"] carries
+                              status/backend/reason
   screenshot --out PATH [--window HANDLE]
   pointer-move --x X --y Y moves to absolute screen coordinates without any
                               press/release/click/drag/wheel side effect
   pointer-position            observes absolute screen coordinates without
-                              injecting any pointer event
+                              injecting any pointer event (macOS: a read-only
+                              CGEvent sample; the journey reads it around every
+                              click / close to prove the real pointer stayed put)
+  close --window HANDLE [--pid N] [--title T] --snapshot --expect gone
+                              the destructive verb: closes one top-level window in
+                              the background through the platform's own close
+                              control (macOS AXCloseButton + AXPress). The gate is
+                              three parts, all checked before anything is touched:
+                              an exact target (--window, bound to --pid / exact
+                              --title in the same inventory read), a prior
+                              snapshot (--snapshot: the bounded tree written to
+                              the receipt) and a checkable postcondition (--expect
+                              gone: the handle read back as absent). Missing any ->
+                              "refused" (detail.reason destructive_gate, missing
+                              [...]) with nothing performed
+  receipts [--window HANDLE] [--max N]
+                              the target's crash-persistent receipt file
+                              (<audit dir>/cu-receipts/<target>.jsonl) read back
+                              in order: every invoke / menu invoke / click / focus
+                              / close appends a "reserved" line before the
+                              mechanism and a "completed" / "failed" line after
+                              the read-back; a "reserved" line with no partner is
+                              the crash signature (uncertain, never "did not
+                              happen"). Default 50, at most 1000
   click (--window HANDLE --node ID | --window HANDLE --name PAT [--role ROLE] | --coords X,Y --degraded)
         [--button left|right|middle] [--clicks N]
                               --name reuses wait NodeNameContains matching, then the --node AT-SPI path
@@ -1996,5 +2132,49 @@ mod tests {
         let error = reply.error.expect("typed authorization error");
         assert_eq!(error.code, "invalid_authorization");
         assert!(!error.message.contains("credential-shaped-value"));
+    }
+
+    #[test]
+    fn page_js_cli_is_typed_unsupported_without_eval() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "page-js".into(),
+            "--expression".into(),
+            "document.title".into(),
+        ]);
+        assert!(!reply.ok);
+        assert_eq!(reply.command, "page-js");
+        let error = reply.error.expect("typed unsupported");
+        assert_eq!(error.code, "unsupported");
+        assert!(error.message.contains("second knife"));
+        let backend = error
+            .detail
+            .as_ref()
+            .and_then(|value| value.get("backend"))
+            .and_then(|value| value.as_str())
+            .expect("backend");
+        assert_eq!(backend, "debugger-runtime-evaluate");
+        assert!(!error.message.contains("eval("));
+    }
+
+    #[test]
+    fn expect_title_includes_without_state_is_not_usage() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "verify".into(),
+            "--window".into(),
+            "1".into(),
+            "--expect".into(),
+            r#"[{"role":"AXWebArea","titleIncludes":"Exact Reply"}]"#.into(),
+        ]);
+        assert_eq!(reply.command, "verify");
+        let error = reply.error.expect("window or unverified, not usage");
+        assert_ne!(error.code, "usage");
     }
 }

@@ -59,6 +59,21 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   the pop-up read back" (slice 2, 2026-08-30). Linux / Windows run the same
   verbs on their own backends with partial mappings (see PRD 30); live
   evidence there is not claimed.
+- [x] Chromium idle chrome is not an empty page: `tree` / `query` JSON
+  carries `ax` plus `next_actions` that name a deeper
+  `query --role WebArea` (never screenshot, never “install extension”).
+  `verify` / `wait --expect` accept identity-only `name` /
+  `titleIncludes`; Heading↔WebArea alias applies only when a title
+  predicate is present. Evidence:
+  `crates/agenterm-cu/src/observe.rs`
+  `empty_chrome_next_action_is_deeper_query_not_screenshot_or_extension`,
+  `heading_title_includes_matches_webarea_title`.
+- [x] `page-js` is a second knife after AX: the shipped verb is typed
+  `unsupported` with `detail.backend = debugger-runtime-evaluate`.
+  Ordinary AX web control needs no browser extension. MAIN-world
+  `eval` / `new Function` is never the backend (chatgpt.com CSP).
+  Evidence: `Command::PageJs`, `capabilities.verbs["page-js"]`,
+  `observe::page_js_backend()`.
 - [x] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
   [--text T | --text-exact T] [--identifier ID] [--actionable] [--within
   X,Y,W,H] [--offset N] [--max N]` returns a flat, bounded, filtered node list

@@ -29,6 +29,16 @@ loop until goal:
   wait on observable conditions with bounded timeouts — never sleep
 ```
 
+Chromium idle chrome is not an empty page: `tree`/`query` replies include
+`ax` and `next_actions` pointing at a deeper `query --role WebArea`, never
+screenshot or “install extension first”. `verify`/`wait --expect` accept
+identity-only `name`/`titleIncludes` (Heading↔WebArea when a title
+predicate is present). `page-js` is a second knife: typed `unsupported`
+with backend `debugger-runtime-evaluate`; AX web control does not require
+an extension. Tests: `observe.rs`
+`empty_chrome_next_action_is_deeper_query_not_screenshot_or_extension`,
+`heading_title_includes_matches_webarea_title`.
+
 `agenterm-cu` is capability, not judgment: no planner, model, or agent loop ships here.
 
 Named window placement (`window-place`) is in the command enum. Geometry
