@@ -136,31 +136,54 @@ if (internal_selftest === 1) {
       rh.parse_file(path);
     }
 
-    const text_code = rh.command_stdout_file(
+    // The host scans the tracked text, not the guest: reading every tracked
+    // file into the engine and running seven `includes` over each was
+    // ~36 steps a character, billions of steps for this repository and
+    // past any budget (2026-08-30). `git grep -I` skips what git deems
+    // binary, `-L` with an empty pattern lists exactly those -- a NUL byte
+    // in a tracked text file -- and the conflict markers are one anchored
+    // pattern over the same pathspecs.
+    const text_pathspecs = [
+      "*.rs", "*.toml", "*.rh", "*.rhai", "*.json", "*.md", "*.html",
+      "*.yml", "*.yaml", "*.sh", "*.bat", "*.cmd"
+    ];
+    // (`Array.prototype.concat` is not one of this engine's methods yet --
+    // a call on it is an unnamed trap, 2026-08-30 -- so the argument lists
+    // are built by hand.)
+    const nul_args = ["-C", repo, "grep", "-I", "-L", "-e", "", "--"];
+    for (const spec of text_pathspecs) { nul_args.push(spec); }
+    const nul_code = rh.command_stdout_file(
       "git",
-      [
-        "-C", repo, "ls-files", "--",
-        "*.rs", "*.toml", "*.rh", "*.rhai", "*.json", "*.md", "*.html",
-        "*.yml", "*.yaml", "*.sh", "*.bat", "*.cmd"
-      ],
+      nul_args,
       stdout_path,
-      { cwd: repo, timeout_ms: 10000 }
+      { cwd: repo, timeout_ms: 60000 }
     );
-    rh.require(text_code === 0, "lint_git_ls_files");
-    const text_output = rh.read_text(stdout_path);
-    for (const source_line of text_output.split("\n")) {
-      const relative_path = source_line.trim();
-      if (relative_path === "") { continue; }
-      const path = rh.join(repo, relative_path);
-      if (!rh.exists(path)) { continue; }
-      if (!rh.metadata(path).is_file) { continue; }
-      const text = rh.read_text(path);
-      if (text.includes("\u0000")) {
-        throw "Tracked text hygiene errors:\n" + relative_path + ": embedded NUL byte";
+    // 0: some file listed; 1: none; anything else is git failing.
+    rh.require(nul_code === 0 || nul_code === 1, "lint_git_grep_nul:" + nul_code);
+    const nul_files = rh.read_text(stdout_path).trim();
+    if (nul_files !== "") {
+      let errors = "Tracked text hygiene errors:";
+      for (const line of nul_files.split("\n")) {
+        if (line.trim() !== "") { errors = errors + "\n" + line.trim() + ": embedded NUL byte"; }
       }
-      if (has_conflict_marker(text)) {
-        throw "Tracked text hygiene errors:\n" + relative_path + ": unresolved merge-conflict marker";
+      throw errors;
+    }
+    const marker_args = ["-C", repo, "grep", "-I", "-n", "-E", "-e", "^(<<<<<<<|=======|>>>>>>>)", "--"];
+    for (const spec of text_pathspecs) { marker_args.push(spec); }
+    const marker_code = rh.command_stdout_file(
+      "git",
+      marker_args,
+      stdout_path,
+      { cwd: repo, timeout_ms: 60000 }
+    );
+    rh.require(marker_code === 0 || marker_code === 1, "lint_git_grep_markers:" + marker_code);
+    const marker_lines = rh.read_text(stdout_path).trim();
+    if (marker_lines !== "") {
+      let errors = "Tracked text hygiene errors:";
+      for (const line of marker_lines.split("\n")) {
+        if (line.trim() !== "") { errors = errors + "\n" + line.trim() + ": unresolved merge-conflict marker"; }
       }
+      throw errors;
     }
   }
 
