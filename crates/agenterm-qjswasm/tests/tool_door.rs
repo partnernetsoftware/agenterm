@@ -1122,3 +1122,51 @@ fn image_inspect_png_answers_dimensions_samples_and_mean_luma() {
         "{text}"
     );
 }
+
+// ---- the host-side bill (PRD_02_36 A1.12) ---------------------------------
+
+/// Every `tool.*` operation is one host operation on the receipt, and the
+/// cap ends the call as a budget, not a trap: the same class as running out
+/// of steps, because it is the same kind of refusal.
+#[test]
+fn host_operations_are_counted_and_capped() {
+    let out = run_tool(
+        "let n = 0; let i = 0; while (i < 5) { n = n + time_now_ms(); i = i + 1; } return i;",
+    );
+    assert_eq!(out.host_ops, 5, "{out:?}");
+    assert_eq!(out.tool_calls.len(), 5);
+    assert!(out.steps > 0);
+
+    let budget = Budget {
+        max_host_ops: 3,
+        ..Budget::default()
+    };
+    let err = Engine::with_tool_door(budget)
+        .run_once(
+            Guest::Qjs("let i = 0; while (i < 5) { time_now_ms(); i = i + 1; } return i;"),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("the fourth operation is past the cap");
+    assert!(
+        matches!(err, QjswasmError::Budget("max_host_ops")),
+        "got {err:?}"
+    );
+}
+
+/// Waiting is on the bill as wall-clock time, separately from steps: a
+/// script that sleeps 30 ms reports at least that, and a script that only
+/// computes reports none.
+#[test]
+fn waiting_is_billed_apart_from_computing() {
+    let slept = run_tool("time_sleep_ms(30); return 1;");
+    assert!(slept.waited_ms >= 25, "{slept:?}");
+    assert_eq!(slept.host_ops, 1);
+
+    let computed =
+        run_tool("let s = 0; let i = 0; while (i < 1000) { s = s + i; i = i + 1; } return s;");
+    assert_eq!(computed.waited_ms, 0, "{computed:?}");
+    assert_eq!(computed.host_ops, 0);
+    assert!(computed.steps > 1000);
+}

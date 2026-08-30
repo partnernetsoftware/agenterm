@@ -328,7 +328,7 @@ fn script_help_text() -> &'static str {
          AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
          Options: --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
-         --project-root DIR --manifest FILE --json"
+         --max-host-operations N --project-root DIR --manifest FILE --json"
 }
 
 fn write_script_stdout(text: &str) -> std::result::Result<(), i32> {
@@ -1940,6 +1940,17 @@ fn run_script_command_with_context(
             }
             _ => {
                 cli_eprintln!("script --max-operations must be from 1 to 1000000000");
+                return 2;
+            }
+        }
+    }
+    if let Some(value) = option_value(arguments, "--max-host-operations") {
+        match value.parse::<usize>() {
+            Ok(value) if (1..=hard_limits.host_operations).contains(&value) => {
+                budgets.host_operations = value;
+            }
+            _ => {
+                cli_eprintln!("script --max-host-operations must be from 1 to 1000000");
                 return 2;
             }
         }

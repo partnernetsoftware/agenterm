@@ -73,6 +73,12 @@ pub struct ScriptBudgets {
     pub event_items: usize,
     #[serde(default = "default_wait_time_ms")]
     pub wait_time_ms: u64,
+    /// Host operations one invocation may make: every `tool.*` operation and
+    /// every broker call, counted at the door. The step budget prices what a
+    /// script computes; this prices what it asks the host to do, which is
+    /// where an agent script's cost actually lives (A1.12).
+    #[serde(default = "default_host_operations")]
+    pub host_operations: usize,
 }
 
 const fn default_broker_requests() -> usize {
@@ -87,6 +93,10 @@ const fn default_capture_bytes() -> usize {
 const fn default_event_items() -> usize {
     256
 }
+const fn default_host_operations() -> usize {
+    4096
+}
+
 const fn default_wait_time_ms() -> u64 {
     2_000
 }
@@ -121,6 +131,7 @@ impl Default for ScriptBudgets {
             capture_bytes: default_capture_bytes(),
             event_items: default_event_items(),
             wait_time_ms: default_wait_time_ms(),
+            host_operations: default_host_operations(),
         }
     }
 }
@@ -157,6 +168,7 @@ impl ScriptBudgets {
             capture_bytes: 256 * 1024,
             event_items: 1024,
             wait_time_ms: 10_000,
+            host_operations: 1_000_000,
         }
     }
 }

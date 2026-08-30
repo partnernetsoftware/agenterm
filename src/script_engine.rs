@@ -83,6 +83,17 @@ pub struct ScriptCost {
     pub steps: u64,
     pub peak_call_depth: usize,
     pub peak_activation_slots: usize,
+    /// Host operations (`tool.*`, `fleet_call`) -- what `steps` cannot see.
+    #[serde(default)]
+    pub host_ops: u64,
+    /// Bytes across the door in those operations.
+    #[serde(default)]
+    pub host_bytes: u64,
+    /// Wall-clock milliseconds spent waiting in the host. The one line here
+    /// that is not deterministic, kept because it is the line that tells a
+    /// polling script from a computing one (PRD_02_36 A1.12).
+    #[serde(default)]
+    pub waited_ms: u64,
 }
 
 /// Unified error type. Every engine's typed error used to collapse to a bare
@@ -340,6 +351,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
     let mut budget = agenterm_qjswasm::Budget::default();
     if let Some(budgets) = options.budgets.as_ref() {
         budget.limits.max_steps = budgets.operations;
+        budget.max_host_ops = budgets.host_operations;
     }
     // The guest heap is a bump allocator with no collector: everything a
     // script parses or concatenates stays until the call ends. tinyvm's
@@ -824,6 +836,9 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                         steps: outcome.steps,
                         peak_call_depth: outcome.peak_call_depth,
                         peak_activation_slots: outcome.peak_activation_slots,
+                        host_ops: outcome.host_ops,
+                        host_bytes: outcome.host_bytes,
+                        waited_ms: outcome.waited_ms,
                     }),
                 })
                 .map_err(|e| ScriptEngineError::from(e.to_string())),
@@ -987,6 +1002,9 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 steps: outcome.steps,
                 peak_call_depth: outcome.peak_call_depth,
                 peak_activation_slots: outcome.peak_activation_slots,
+                host_ops: outcome.host_ops,
+                host_bytes: outcome.host_bytes,
+                waited_ms: outcome.waited_ms,
             }),
         })
     }

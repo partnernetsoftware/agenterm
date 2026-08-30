@@ -65,6 +65,71 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+/// The trap a door raises when [`Budget::max_host_ops`] is spent. Read back
+/// through [`HostState::take_budget_refusal`], which is what turns the
+/// core's `&'static str` into the budget's name.
+pub(crate) const HOST_OPS_EXHAUSTED: &str = "agenterm: host operation budget exhausted";
+
+/// One call's host-side bill, shared by the `agenterm.*` and `tool.*` doors.
+///
+/// Three counters and a cap. Charged at the door *before* the operation
+/// runs, like `ToolState::calls`, so an operation that panics is still on
+/// the bill.
+pub(crate) struct Meter {
+    ops: u64,
+    bytes: u64,
+    waited: Duration,
+    max_ops: usize,
+    refused: Option<&'static str>,
+}
+
+impl Meter {
+    pub(crate) fn new(max_ops: usize) -> Self {
+        Self {
+            ops: 0,
+            bytes: 0,
+            waited: Duration::ZERO,
+            max_ops,
+            refused: None,
+        }
+    }
+
+    /// One more operation carrying `bytes` of arguments. `Err` when the cap
+    /// is already spent: the operation must not run, and the caller traps
+    /// with [`HOST_OPS_EXHAUSTED`].
+    pub(crate) fn charge(&mut self, bytes: usize) -> Result<(), &'static str> {
+        if self.ops >= self.max_ops as u64 {
+            self.refused = Some("max_host_ops");
+            return Err(HOST_OPS_EXHAUSTED);
+        }
+        self.ops += 1;
+        self.bytes += bytes as u64;
+        Ok(())
+    }
+
+    pub(crate) fn answered(&mut self, bytes: usize) {
+        self.bytes += bytes as u64;
+    }
+
+    pub(crate) fn waited(&mut self, for_: Duration) {
+        self.waited += for_;
+    }
+
+    /// `(ops, bytes, waited_ms)`, reset for the next call.
+    pub(crate) fn take(&mut self) -> (u64, u64, u64) {
+        let bill = (self.ops, self.bytes, self.waited.as_millis() as u64);
+        self.ops = 0;
+        self.bytes = 0;
+        self.waited = Duration::ZERO;
+        bill
+    }
+
+    pub(crate) fn take_refusal(&mut self) -> Option<&'static str> {
+        self.refused.take()
+    }
+}
 
 use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
@@ -213,6 +278,8 @@ impl Pending {
 /// instance; dropping it drops the pending buffer and the captured bridge.
 pub(crate) struct HostState {
     pending: Rc<RefCell<Pending>>,
+    /// The call's host-side bill; both doors charge it.
+    meter: Rc<RefCell<Meter>>,
     /// The `tool.*` door's state, present only in a slot that opened it.
     tool: Option<Rc<RefCell<tool::ToolState>>>,
 }
@@ -241,6 +308,17 @@ impl HostState {
     /// Why the door failed during the call that just ended, if it recorded a
     /// reason. Draining, like [`take_stdout`](Self::take_stdout) and for the
     /// same reason: one call's failure must not be attributed to the next.
+    /// `(host_ops, host_bytes, waited_ms)` since the previous take.
+    pub(crate) fn take_meter(&self) -> (u64, u64, u64) {
+        self.meter.borrow_mut().take()
+    }
+
+    /// The budget a door refused to exceed, if this call ended on one --
+    /// read before `take_fault`, since a refusal is not a door defect.
+    pub(crate) fn take_budget_refusal(&self) -> Option<&'static str> {
+        self.meter.borrow_mut().take_refusal()
+    }
+
     pub(crate) fn take_fault(&self) -> Option<String> {
         self.pending
             .borrow_mut()
@@ -274,8 +352,9 @@ pub(crate) fn install(
     tool: Option<Vec<String>>,
 ) -> Result<HostState, QjswasmError> {
     check_declarations(module, tool.is_some())?;
+    let meter = Rc::new(RefCell::new(Meter::new(budget.max_host_ops)));
     let tool = match tool {
-        Some(args) => Some(tool::install(module, budget, args)?),
+        Some(args) => Some(tool::install(module, budget, args, Rc::clone(&meter))?),
         None => None,
     };
 
@@ -306,17 +385,23 @@ pub(crate) fn install(
 
     let state = Rc::clone(&pending);
     let max_result = budget.max_bridge_result_bytes;
+    let meter_for_fleet = Rc::clone(&meter);
     bind(module, DOOR, "fleet_call", move |args, memory| {
         // Bounds-check both regions before anything else runs: an out-of-range
         // pointer must not reach the bridge, let alone read host memory.
         let op = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let params = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
+        // On the bill before the bridge is asked, and refused past the cap.
+        meter_for_fleet
+            .borrow_mut()
+            .charge(op.len() + params.len())
+            .map_err(WasmError::Trap)?;
 
         let (status, payload) = match (str::from_utf8(op), str::from_utf8(params)) {
             (Err(_), _) | (_, Err(_)) => (STATUS_ERR, NOT_UTF8.as_bytes().to_vec()),
             (Ok(op), Ok(params)) => match &bridge {
                 None => (STATUS_NO_BRIDGE, NO_BRIDGE.as_bytes().to_vec()),
-                Some(bridge) => match call_bridge(bridge, op, params) {
+                Some(bridge) => match call_bridge(&meter_for_fleet, bridge, op, params) {
                     Ok(Ok(answer)) => (STATUS_OK, answer.into_bytes()),
                     Ok(Err(message)) => (STATUS_ERR, message.into_bytes()),
                     // A panic is neither of the two answers the bridge is
@@ -364,7 +449,11 @@ pub(crate) fn install(
         Ok(vec![Val::I32(needed)])
     })?;
 
-    Ok(HostState { pending, tool })
+    Ok(HostState {
+        pending,
+        meter,
+        tool,
+    })
 }
 
 /// Reject a guest whose door declarations do not match the ABI, at load time
@@ -433,6 +522,28 @@ pub(crate) fn check_declarations(
 }
 
 /// Bind one door function, tolerating a guest that never imported it.
+/// [`bind`], with the operation on the call's bill first: one host
+/// operation charged to `meter` before `f` runs, and the call refused with
+/// [`HOST_OPS_EXHAUSTED`] once [`Budget::max_host_ops`] is spent. Every
+/// `tool.*` import goes through this; `agenterm.*` charges by hand, since
+/// `print` is output and not a host operation.
+pub(crate) fn bind_metered<F>(
+    module: &mut tinyvm::WasmModule,
+    meter: &Rc<RefCell<Meter>>,
+    door: &str,
+    field: &str,
+    f: F,
+) -> Result<(), QjswasmError>
+where
+    F: Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmError> + 'static,
+{
+    let meter = Rc::clone(meter);
+    bind(module, door, field, move |args, memory| {
+        meter.borrow_mut().charge(0).map_err(WasmError::Trap)?;
+        f(args, memory)
+    })
+}
+
 pub(crate) fn bind<F>(
     module: &mut tinyvm::WasmModule,
     door: &str,
@@ -471,14 +582,24 @@ where
 /// the embedder's to reason about, and this slot's [`Pending`], which is not
 /// borrowed at the call.
 fn call_bridge(
+    meter: &Rc<RefCell<Meter>>,
     bridge: &FleetBridgeFn,
     op: &str,
     params: &str,
 ) -> Result<Result<String, String>, String> {
-    contain(
+    let started = Instant::now();
+    let answer = contain(
         &format!("the fleet bridge panicked while serving `{op}`"),
         || bridge(op, params),
-    )
+    );
+    // A bridge answer is a wait from the guest's side: the broker round trip
+    // is where a journey's wall clock goes, and it is not a step.
+    let mut meter = meter.borrow_mut();
+    meter.waited(started.elapsed());
+    if let Ok(Ok(text)) = &answer {
+        meter.answered(text.len());
+    }
+    answer
 }
 
 /// Run host code on a guest's behalf without letting a panic escape into the

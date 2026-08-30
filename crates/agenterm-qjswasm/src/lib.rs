@@ -369,6 +369,15 @@ pub struct Budget {
     /// the same reason as `max_bridge_result_bytes`: half a string is worse
     /// than a refusal, because the caller cannot tell it was cut.
     pub max_result_string_bytes: usize,
+    /// Host operations one call may make: every `tool.*` operation and every
+    /// `fleet_call`, counted at the door before the operation runs. The
+    /// core's step budget prices what the guest *computes*; a script that
+    /// spends its life in the host -- polling a window every 25 ms, running
+    /// a command per file -- is invisible to it, which is why a weekend of
+    /// raising `max_operations` never made such scripts cheaper (PRD_02_36
+    /// A1.12). Exceeding this ends the call as [`QjswasmError::Budget`]
+    /// (`"max_host_ops"`), the same class as running out of steps.
+    pub max_host_ops: usize,
 }
 
 impl std::fmt::Debug for Budget {
@@ -393,6 +402,7 @@ impl Default for Budget {
             max_stdout_bytes: 1 << 20,
             max_bridge_result_bytes: 1 << 20,
             max_result_string_bytes: 1 << 20,
+            max_host_ops: 4096,
         }
     }
 }
@@ -548,6 +558,18 @@ pub struct Outcome {
     pub steps: u64,
     pub peak_call_depth: usize,
     pub peak_activation_slots: usize,
+    /// Host operations this call made (`tool.*` and `fleet_call`), the count
+    /// [`Budget::max_host_ops`] bounds.
+    pub host_ops: u64,
+    /// Bytes that crossed the door in those operations: arguments in, parked
+    /// answers out.
+    pub host_bytes: u64,
+    /// Wall-clock milliseconds the call spent *waiting* in the host --
+    /// `time.sleep_ms`, `process.wait`, a command's run, a bridge answer.
+    /// The one non-deterministic line on the receipt, and deliberately so:
+    /// it is what separates "computed a lot" from "waited a lot", which
+    /// `steps` alone cannot tell apart.
+    pub waited_ms: u64,
 }
 
 /// The repository-wide fleet bridge shape, reused verbatim. This crate exposes

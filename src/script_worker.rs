@@ -831,6 +831,7 @@ fn validate_budgets(budgets: &ScriptBudgets) -> Result<(), ScriptFailure> {
     validate!(capture_bytes);
     validate!(event_items);
     validate!(wait_time_ms);
+    validate!(host_operations);
     Ok(())
 }
 

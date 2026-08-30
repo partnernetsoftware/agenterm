@@ -79,7 +79,9 @@ use std::time::{Duration, Instant};
 use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
-use crate::host::{STATUS_ERR, STATUS_OK, arg, bind, contain, guest_slice, guest_slice_mut};
+use crate::host::{
+    STATUS_ERR, STATUS_OK, arg, bind_metered, contain, guest_slice, guest_slice_mut,
+};
 use crate::{Budget, QjswasmError};
 
 /// The module name of this door. `agenterm` is the other.
@@ -355,6 +357,8 @@ pub(crate) struct ToolState {
     /// pre-flight and the hold-every-`.lock`-while-removing protocol of
     /// prune-target-incremental (wave 3).
     locks: Vec<Option<std::fs::File>>,
+    /// The call's host-side bill, shared with the `agenterm.*` door.
+    meter: Rc<RefCell<crate::host::Meter>>,
 }
 
 /// One spawned child, by handle index. A waited child keeps its pid and
@@ -482,6 +486,7 @@ pub(crate) fn install(
     module: &mut tinyvm::WasmModule,
     budget: &Budget,
     args: Vec<String>,
+    meter: Rc<RefCell<crate::host::Meter>>,
 ) -> Result<Rc<RefCell<ToolState>>, QjswasmError> {
     let shared = Rc::new(RefCell::new(ToolState {
         result: Vec::new(),
@@ -491,12 +496,13 @@ pub(crate) fn install(
         args,
         children: Vec::new(),
         locks: Vec::new(),
+        meter: Rc::clone(&meter),
     }));
 
     // ---- fs ---------------------------------------------------------------
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.exists", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.exists", move |args, memory| {
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         direct(&state, "fs.exists", || {
             Ok(i32::from(
@@ -507,29 +513,37 @@ pub(crate) fn install(
 
     let state = Rc::clone(&shared);
     let max_result = budget.max_bridge_result_bytes;
-    bind(module, DOOR, "fs.read_to_string", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "fs.read_to_string", || {
-            let path = utf8(path)?;
-            // Refuse before allocating, not after: the cap is checked again on
-            // the way out, but a multi-gigabyte file should not be read into
-            // host memory to discover that it does not fit.
-            let len = std::fs::metadata(path)
-                .map_err(|e| format!("fs.read_to_string `{path}`: {e}"))?
-                .len();
-            if len > max_result as u64 {
-                return Err(RESULT_TOO_LARGE.to_string());
-            }
-            std::fs::read_to_string(path).map_err(|e| format!("fs.read_to_string `{path}`: {e}"))
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.read_to_string",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "fs.read_to_string", || {
+                let path = utf8(path)?;
+                // Refuse before allocating, not after: the cap is checked again on
+                // the way out, but a multi-gigabyte file should not be read into
+                // host memory to discover that it does not fit.
+                let len = std::fs::metadata(path)
+                    .map_err(|e| format!("fs.read_to_string `{path}`: {e}"))?
+                    .len();
+                if len > max_result as u64 {
+                    return Err(RESULT_TOO_LARGE.to_string());
+                }
+                std::fs::read_to_string(path)
+                    .map_err(|e| format!("fs.read_to_string `{path}`: {e}"))
+            })
+        },
+    )?;
 
     // `fs.try_lock_exclusive(path) -> handle | -1`: an advisory exclusive lock
     // on the file (created if absent), or -1 when another holder has it.
     // `fs.unlock(handle)` releases it; dropping the state releases the rest.
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "fs.try_lock_exclusive",
         move |args, memory| {
@@ -560,7 +574,7 @@ pub(crate) fn install(
     )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.unlock", move |args, _memory| {
+    bind_metered(module, &meter, DOOR, "fs.unlock", move |args, _memory| {
         let h = arg(args, 0)?;
         direct(&state, "fs.unlock", || {
             let mut s = state.borrow_mut();
@@ -580,7 +594,7 @@ pub(crate) fn install(
     // rewrote its commands.jsonl on every record -- O(n^2) in string copies,
     // 15-20M steps of a journey's budget by the 35th record (wave 3).
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.append", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.append", move |args, memory| {
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let text = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
         answer(&state, "fs.append", || {
@@ -598,7 +612,7 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.write", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.write", move |args, memory| {
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let text = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
         answer(&state, "fs.write", || {
@@ -611,39 +625,57 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.create_dir_all", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "fs.create_dir_all", || {
-            let path = utf8(path)?;
-            std::fs::create_dir_all(path)
-                .map_err(|e| format!("fs.create_dir_all `{path}`: {e}"))?;
-            Ok(String::new())
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.create_dir_all",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "fs.create_dir_all", || {
+                let path = utf8(path)?;
+                std::fs::create_dir_all(path)
+                    .map_err(|e| format!("fs.create_dir_all `{path}`: {e}"))?;
+                Ok(String::new())
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.remove_file", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "fs.remove_file", || {
-            let path = utf8(path)?;
-            std::fs::remove_file(path).map_err(|e| format!("fs.remove_file `{path}`: {e}"))?;
-            Ok(String::new())
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.remove_file",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "fs.remove_file", || {
+                let path = utf8(path)?;
+                std::fs::remove_file(path).map_err(|e| format!("fs.remove_file `{path}`: {e}"))?;
+                Ok(String::new())
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.remove_dir_all", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "fs.remove_dir_all", || {
-            let path = utf8(path)?;
-            std::fs::remove_dir_all(path)
-                .map_err(|e| format!("fs.remove_dir_all `{path}`: {e}"))?;
-            Ok(String::new())
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.remove_dir_all",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "fs.remove_dir_all", || {
+                let path = utf8(path)?;
+                std::fs::remove_dir_all(path)
+                    .map_err(|e| format!("fs.remove_dir_all `{path}`: {e}"))?;
+                Ok(String::new())
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.rename", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.rename", move |args, memory| {
         let from = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let to = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
         answer(&state, "fs.rename", || {
@@ -654,7 +686,7 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.copy", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.copy", move |args, memory| {
         let from = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         let to = guest_slice(memory, arg(args, 2)?, arg(args, 3)?)?;
         answer(&state, "fs.copy", || {
@@ -665,62 +697,74 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.symlink_metadata", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "fs.symlink_metadata", || {
-            let path = utf8(path)?;
-            let meta = std::fs::symlink_metadata(path)
-                .map_err(|e| format!("fs.symlink_metadata `{path}`: {e}"))?;
-            Ok(serde_json::json!({
-                "is_file": meta.is_file(),
-                "is_dir": meta.is_dir(),
-                "is_symlink": meta.file_type().is_symlink(),
-                "len": meta.len(),
-                // Milliseconds since the Unix epoch, or null where the
-                // filesystem has no modification time. `target-report`
-                // (oldest/newest write, age) was the one rh script the door
-                // could not carry without it.
-                "modified_ms": modified_ms(&meta),
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.symlink_metadata",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "fs.symlink_metadata", || {
+                let path = utf8(path)?;
+                let meta = std::fs::symlink_metadata(path)
+                    .map_err(|e| format!("fs.symlink_metadata `{path}`: {e}"))?;
+                Ok(serde_json::json!({
+                    "is_file": meta.is_file(),
+                    "is_dir": meta.is_dir(),
+                    "is_symlink": meta.file_type().is_symlink(),
+                    "len": meta.len(),
+                    // Milliseconds since the Unix epoch, or null where the
+                    // filesystem has no modification time. `target-report`
+                    // (oldest/newest write, age) was the one rh script the door
+                    // could not carry without it.
+                    "modified_ms": modified_ms(&meta),
+                })
+                .to_string())
             })
-            .to_string())
-        })
-    })?;
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.status", move |args, memory| {
-        let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        direct(&state, "process.status", || {
-            let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.status: the spec is not valid: {e}"))?;
-            let timeout = spec.timeout_ms.map(Duration::from_millis);
-            // Not captured: spawned with null pipes, so a chatty child
-            // neither blocks on a pipe nobody reads nor dies of SIGPIPE on
-            // one that was dropped.
-            let mut child = spawn_command(&spec, false)?;
-            let started = Instant::now();
-            loop {
-                match child.try_wait() {
-                    Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
-                    Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err("process.status: timed out".to_string());
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.status",
+        move |args, memory| {
+            let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            direct(&state, "process.status", || {
+                let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.status: the spec is not valid: {e}"))?;
+                let timeout = spec.timeout_ms.map(Duration::from_millis);
+                // Not captured: spawned with null pipes, so a chatty child
+                // neither blocks on a pipe nobody reads nor dies of SIGPIPE on
+                // one that was dropped.
+                let mut child = spawn_command(&spec, false)?;
+                let started = Instant::now();
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
+                        Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return Err("process.status: timed out".to_string());
+                        }
+                        Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                        Err(e) => return Err(format!("process.status: {e}")),
                     }
-                    Ok(None) => std::thread::sleep(Duration::from_millis(5)),
-                    Err(e) => return Err(format!("process.status: {e}")),
                 }
-            }
-        })
-    })?;
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.read_dir", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.read_dir", move |args, memory| {
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         answer(&state, "fs.read_dir", || read_dir(utf8(path)?))
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.metadata", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "fs.metadata", move |args, memory| {
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         answer(&state, "fs.metadata", || {
             let path = utf8(path)?;
@@ -739,14 +783,20 @@ pub(crate) fn install(
 
     let state = Rc::clone(&shared);
     let max_capture = budget.max_bridge_result_bytes;
-    bind(module, DOOR, "process.command", move |args, memory| {
-        let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "process.command", || {
-            let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.command: the spec is not valid: {e}"))?;
-            run_command(spec, max_capture)
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.command",
+        move |args, memory| {
+            let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "process.command", || {
+                let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.command: the spec is not valid: {e}"))?;
+                run_command(spec, max_capture)
+            })
+        },
+    )?;
 
     // `process.command_stdout(spec)`: the child's stdout as the parked bytes,
     // no envelope. A script that only wants the text paid ~81 steps a byte
@@ -754,8 +804,9 @@ pub(crate) fn install(
     // command succeeded; otherwise the parked bytes are the usual envelope
     // (`exit_code`, `stderr`, `timed_out`) so the failure is still legible.
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "process.command_stdout",
         move |args, memory| {
@@ -776,7 +827,7 @@ pub(crate) fn install(
     )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.id", move |_args, _memory| {
+    bind_metered(module, &meter, DOOR, "process.id", move |_args, _memory| {
         direct(&state, "process.id", || {
             i32::try_from(std::process::id())
                 .map_err(|_| "process.id: the pid does not fit an i32".to_string())
@@ -786,7 +837,7 @@ pub(crate) fn install(
     // ---- env --------------------------------------------------------------
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "env.get", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "env.get", move |args, memory| {
         let name = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         answer(&state, "env.get", || {
             let name = utf8(name)?;
@@ -803,7 +854,7 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "env.has", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "env.has", move |args, memory| {
         let name = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         direct(&state, "env.has", || {
             Ok(i32::from(std::env::var_os(utf8(name)?).is_some()))
@@ -811,7 +862,7 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "env.cwd", move |_args, _memory| {
+    bind_metered(module, &meter, DOOR, "env.cwd", move |_args, _memory| {
         answer(&state, "env.cwd", || {
             std::env::current_dir()
                 .map(|p| p.to_string_lossy().into_owned())
@@ -820,136 +871,168 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "time.sleep_ms", move |args, _memory| {
-        let ms = arg(args, 0)?;
-        direct(&state, "time.sleep_ms", || {
-            let ms = u64::try_from(ms).map_err(|_| "time.sleep_ms: negative".to_string())?;
-            std::thread::sleep(Duration::from_millis(ms.min(60_000)));
-            Ok(0)
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "time.sleep_ms",
+        move |args, _memory| {
+            let ms = arg(args, 0)?;
+            direct(&state, "time.sleep_ms", || {
+                let ms = u64::try_from(ms).map_err(|_| "time.sleep_ms: negative".to_string())?;
+                std::thread::sleep(Duration::from_millis(ms.min(60_000)));
+                Ok(0)
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.spawn", move |args, memory| {
-        let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        direct(&state, "process.spawn", || {
-            let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
-            let mut child = spawn_command(&spec, true)?;
-            let drains = Drains::start(&mut child, max_capture);
-            let mut s = state.borrow_mut();
-            s.children.push(Handle::Running(Running {
-                child,
-                drains,
-                started: Instant::now(),
-                deadline: spec.timeout_ms.map(Duration::from_millis),
-                killed_by_deadline: false,
-                read_stdout: 0,
-                read_stderr: 0,
-            }));
-            i32::try_from(s.children.len() - 1)
-                .map_err(|_| "process.spawn: too many children".to_string())
-        })
-    })?;
-
-    let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.state", move |args, _memory| {
-        let h = arg(args, 0)?;
-        answer(&state, "process.state", || {
-            let mut s = state.borrow_mut();
-            let slot = usize::try_from(h).ok().and_then(|i| s.children.get_mut(i));
-            Ok(match slot {
-                Some(Handle::Running(r)) => {
-                    r.enforce_deadline();
-                    match r.child.try_wait() {
-                        Ok(Some(_)) => "exited",
-                        Ok(None) => "running",
-                        Err(_) => "unknown",
-                    }
-                }
-                Some(Handle::Done { .. }) => "exited",
-                None => return Err(format!("process.state: no child with handle {h}")),
-            }
-            .to_string())
-        })
-    })?;
-
-    let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.kill", move |args, _memory| {
-        let h = arg(args, 0)?;
-        direct(&state, "process.kill", || {
-            let mut s = state.borrow_mut();
-            match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
-                Some(Handle::Running(r)) => {
-                    let _ = r.child.kill();
-                    Ok(0)
-                }
-                Some(Handle::Done { .. }) => Ok(0),
-                None => Err(format!("process.kill: no child with handle {h}")),
-            }
-        })
-    })?;
-
-    let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.wait", move |args, _memory| {
-        let h = arg(args, 0)?;
-        let timeout_ms = arg(args, 1)?;
-        answer(&state, "process.wait", || {
-            let index = usize::try_from(h).ok();
-            // Take the child out for the wait; the slot holds its pid and,
-            // afterwards, its answer, so a second wait replays the first.
-            let child = {
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.spawn",
+        move |args, memory| {
+            let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            direct(&state, "process.spawn", || {
+                let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
+                let mut child = spawn_command(&spec, true)?;
+                let drains = Drains::start(&mut child, max_capture);
                 let mut s = state.borrow_mut();
-                let slot = index
-                    .and_then(|i| s.children.get_mut(i))
-                    .ok_or_else(|| format!("process.wait: no child with handle {h}"))?;
-                match slot {
-                    Handle::Done { answer, .. } => return answer.clone(),
-                    Handle::Running(r) => {
-                        let pid = r.child.id();
-                        let taken = std::mem::replace(
-                            slot,
-                            Handle::Done {
-                                pid,
-                                answer: Err(format!("process.wait: handle {h} is being waited")),
-                            },
-                        );
-                        match taken {
-                            Handle::Running(r) => r,
-                            Handle::Done { .. } => unreachable!("just matched Running"),
+                s.children.push(Handle::Running(Running {
+                    child,
+                    drains,
+                    started: Instant::now(),
+                    deadline: spec.timeout_ms.map(Duration::from_millis),
+                    killed_by_deadline: false,
+                    read_stdout: 0,
+                    read_stderr: 0,
+                }));
+                i32::try_from(s.children.len() - 1)
+                    .map_err(|_| "process.spawn: too many children".to_string())
+            })
+        },
+    )?;
+
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.state",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            answer(&state, "process.state", || {
+                let mut s = state.borrow_mut();
+                let slot = usize::try_from(h).ok().and_then(|i| s.children.get_mut(i));
+                Ok(match slot {
+                    Some(Handle::Running(r)) => {
+                        r.enforce_deadline();
+                        match r.child.try_wait() {
+                            Ok(Some(_)) => "exited",
+                            Ok(None) => "running",
+                            Err(_) => "unknown",
                         }
                     }
+                    Some(Handle::Done { .. }) => "exited",
+                    None => return Err(format!("process.state: no child with handle {h}")),
                 }
-            };
-            // The wait's own timeout, capped by whatever is left of the
-            // spawn deadline.
-            let timeout = u64::try_from(timeout_ms).ok().map(Duration::from_millis);
-            let remaining = child
-                .deadline
-                .map(|d| d.saturating_sub(child.started.elapsed()));
-            let timeout = match (timeout, remaining) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
-            let answer = finish_child(child, timeout);
-            {
+                .to_string())
+            })
+        },
+    )?;
+
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.kill",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            direct(&state, "process.kill", || {
                 let mut s = state.borrow_mut();
-                if let Some(Handle::Done { answer: kept, .. }) =
-                    index.and_then(|i| s.children.get_mut(i))
-                {
-                    *kept = answer.clone();
+                match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
+                    Some(Handle::Running(r)) => {
+                        let _ = r.child.kill();
+                        Ok(0)
+                    }
+                    Some(Handle::Done { .. }) => Ok(0),
+                    None => Err(format!("process.kill: no child with handle {h}")),
                 }
-            }
-            answer
-        })
-    })?;
+            })
+        },
+    )?;
+
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.wait",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            let timeout_ms = arg(args, 1)?;
+            answer(&state, "process.wait", || {
+                let index = usize::try_from(h).ok();
+                // Take the child out for the wait; the slot holds its pid and,
+                // afterwards, its answer, so a second wait replays the first.
+                let child = {
+                    let mut s = state.borrow_mut();
+                    let slot = index
+                        .and_then(|i| s.children.get_mut(i))
+                        .ok_or_else(|| format!("process.wait: no child with handle {h}"))?;
+                    match slot {
+                        Handle::Done { answer, .. } => return answer.clone(),
+                        Handle::Running(r) => {
+                            let pid = r.child.id();
+                            let taken = std::mem::replace(
+                                slot,
+                                Handle::Done {
+                                    pid,
+                                    answer: Err(format!(
+                                        "process.wait: handle {h} is being waited"
+                                    )),
+                                },
+                            );
+                            match taken {
+                                Handle::Running(r) => r,
+                                Handle::Done { .. } => unreachable!("just matched Running"),
+                            }
+                        }
+                    }
+                };
+                // The wait's own timeout, capped by whatever is left of the
+                // spawn deadline.
+                let timeout = u64::try_from(timeout_ms).ok().map(Duration::from_millis);
+                let remaining = child
+                    .deadline
+                    .map(|d| d.saturating_sub(child.started.elapsed()));
+                let timeout = match (timeout, remaining) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                let answer = finish_child(child, timeout);
+                {
+                    let mut s = state.borrow_mut();
+                    if let Some(Handle::Done { answer: kept, .. }) =
+                        index.and_then(|i| s.children.get_mut(i))
+                    {
+                        *kept = answer.clone();
+                    }
+                }
+                answer
+            })
+        },
+    )?;
 
     // `process.pid(handle)`: the child's OS pid, before and after the wait.
     // rh's `child.id` backed ~40 identity checks in the smoke scripts
     // (`protocol.pid == server.id`); a handle is a slot index, so without
     // this every port needed a `sh -c 'printf $$'` wrapper or `pgrep -f`.
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.pid", move |args, _memory| {
+    bind_metered(module, &meter, DOOR, "process.pid", move |args, _memory| {
         let h = arg(args, 0)?;
         direct(&state, "process.pid", || {
             let s = state.borrow();
@@ -968,8 +1051,9 @@ pub(crate) fn install(
     // the contract types, and answers the contract's typed error as
     // `<op>: <message> (<code>[, <cause>])`.
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "process.platform_facts",
         move |args, _memory| {
@@ -991,21 +1075,28 @@ pub(crate) fn install(
     )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.window_key", move |args, memory| {
-        let h = arg(args, 0)?;
-        let name = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
-        direct(&state, "process.window_key", || {
-            let pid = child_pid(&state.borrow(), h, "process.window_key")?;
-            let key = window_key_named(utf8(name)?)?;
-            agenterm_platform::process_window::key(pid, key)
-                .map_err(|e| window_error("process.window_key", e))?;
-            Ok(STATUS_OK)
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.window_key",
+        move |args, memory| {
+            let h = arg(args, 0)?;
+            let name = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+            direct(&state, "process.window_key", || {
+                let pid = child_pid(&state.borrow(), h, "process.window_key")?;
+                let key = window_key_named(utf8(name)?)?;
+                agenterm_platform::process_window::key(pid, key)
+                    .map_err(|e| window_error("process.window_key", e))?;
+                Ok(STATUS_OK)
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "process.window_pointer",
         move |args, memory| {
@@ -1024,8 +1115,9 @@ pub(crate) fn install(
     )?;
 
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "process.window_message",
         move |args, memory| {
@@ -1049,8 +1141,9 @@ pub(crate) fn install(
     )?;
 
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "process.window_resize",
         move |args, memory| {
@@ -1068,24 +1161,31 @@ pub(crate) fn install(
     )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.window_rect", move |args, _memory| {
-        let h = arg(args, 0)?;
-        let client = arg(args, 1)? != 0;
-        answer(&state, "process.window_rect", || {
-            let pid = child_pid(&state.borrow(), h, "process.window_rect")?;
-            let r = agenterm_platform::process_window::rect(pid, client)
-                .map_err(|e| window_error("process.window_rect", e))?;
-            Ok(serde_json::json!({
-                "left": r.left, "top": r.top, "right": r.right, "bottom": r.bottom,
-                "width": r.right - r.left, "height": r.bottom - r.top,
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.window_rect",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            let client = arg(args, 1)? != 0;
+            answer(&state, "process.window_rect", || {
+                let pid = child_pid(&state.borrow(), h, "process.window_rect")?;
+                let r = agenterm_platform::process_window::rect(pid, client)
+                    .map_err(|e| window_error("process.window_rect", e))?;
+                Ok(serde_json::json!({
+                    "left": r.left, "top": r.top, "right": r.right, "bottom": r.bottom,
+                    "width": r.right - r.left, "height": r.bottom - r.top,
+                })
+                .to_string())
             })
-            .to_string())
-        })
-    })?;
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(
+    bind_metered(
         module,
+        &meter,
         DOOR,
         "process.window_control",
         move |args, memory| {
@@ -1134,21 +1234,27 @@ pub(crate) fn install(
     // `{width, height, samples, luminance}`, where `samples` is the number
     // of pixels read and `luminance` their mean Rec. 601 luma, 0..255.
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "image.inspect_png", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "image.inspect_png", || {
-            let path = utf8(path)?;
-            let file = std::fs::File::open(path)
-                .map_err(|e| format!("image.inspect_png: cannot open `{path}`: {e}"))?;
-            let facts = inspect_png(std::io::BufReader::new(file))
-                .map_err(|e| format!("image.inspect_png: `{path}`: {e}"))?;
-            Ok(serde_json::json!({
-                "width": facts.width, "height": facts.height,
-                "samples": facts.samples, "luminance": facts.luminance,
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "image.inspect_png",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "image.inspect_png", || {
+                let path = utf8(path)?;
+                let file = std::fs::File::open(path)
+                    .map_err(|e| format!("image.inspect_png: cannot open `{path}`: {e}"))?;
+                let facts = inspect_png(std::io::BufReader::new(file))
+                    .map_err(|e| format!("image.inspect_png: `{path}`: {e}"))?;
+                Ok(serde_json::json!({
+                    "width": facts.width, "height": facts.height,
+                    "samples": facts.samples, "luminance": facts.luminance,
+                })
+                .to_string())
             })
-            .to_string())
-        })
-    })?;
+        },
+    )?;
 
     // `process.read(handle, max_bytes)`: what the child has written since
     // the last read, without waiting -- rh's `child.stdout.read(4096, 2s)`,
@@ -1156,83 +1262,101 @@ pub(crate) fn install(
     // answer is JSON `{stdout, stderr, state}`; `process.wait` still answers
     // the whole capture.
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.read", move |args, _memory| {
-        let h = arg(args, 0)?;
-        let max_bytes = usize::try_from(arg(args, 1)?).unwrap_or(usize::MAX);
-        answer(&state, "process.read", || {
-            let mut s = state.borrow_mut();
-            match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
-                Some(Handle::Running(r)) => {
-                    r.enforce_deadline();
-                    let (mut out, end_out) = Drains::since(&r.drains.stdout, r.read_stdout);
-                    let (mut err, end_err) = Drains::since(&r.drains.stderr, r.read_stderr);
-                    // Hand out at most `max_bytes` of each, on char boundaries.
-                    let cut = |t: &mut String, from: usize| -> usize {
-                        if t.len() <= max_bytes {
-                            return from + t.len();
-                        }
-                        let mut at = max_bytes;
-                        while !t.is_char_boundary(at) {
-                            at -= 1;
-                        }
-                        t.truncate(at);
-                        from + at
-                    };
-                    r.read_stdout = cut(&mut out, r.read_stdout).min(end_out);
-                    r.read_stderr = cut(&mut err, r.read_stderr).min(end_err);
-                    let state_text = match r.child.try_wait() {
-                        Ok(Some(_)) => "exited",
-                        Ok(None) => "running",
-                        Err(_) => "unknown",
-                    };
-                    Ok(
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.read",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            let max_bytes = usize::try_from(arg(args, 1)?).unwrap_or(usize::MAX);
+            answer(&state, "process.read", || {
+                let mut s = state.borrow_mut();
+                match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
+                    Some(Handle::Running(r)) => {
+                        r.enforce_deadline();
+                        let (mut out, end_out) = Drains::since(&r.drains.stdout, r.read_stdout);
+                        let (mut err, end_err) = Drains::since(&r.drains.stderr, r.read_stderr);
+                        // Hand out at most `max_bytes` of each, on char boundaries.
+                        let cut = |t: &mut String, from: usize| -> usize {
+                            if t.len() <= max_bytes {
+                                return from + t.len();
+                            }
+                            let mut at = max_bytes;
+                            while !t.is_char_boundary(at) {
+                                at -= 1;
+                            }
+                            t.truncate(at);
+                            from + at
+                        };
+                        r.read_stdout = cut(&mut out, r.read_stdout).min(end_out);
+                        r.read_stderr = cut(&mut err, r.read_stderr).min(end_err);
+                        let state_text = match r.child.try_wait() {
+                            Ok(Some(_)) => "exited",
+                            Ok(None) => "running",
+                            Err(_) => "unknown",
+                        };
+                        Ok(
                         serde_json::json!({ "stdout": out, "stderr": err, "state": state_text })
                             .to_string(),
                     )
+                    }
+                    Some(Handle::Done { .. }) => Ok(
+                        serde_json::json!({ "stdout": "", "stderr": "", "state": "exited" })
+                            .to_string(),
+                    ),
+                    None => Err(format!("process.read: no child with handle {h}")),
                 }
-                Some(Handle::Done { .. }) => Ok(
-                    serde_json::json!({ "stdout": "", "stderr": "", "state": "exited" })
-                        .to_string(),
-                ),
-                None => Err(format!("process.read: no child with handle {h}")),
-            }
-        })
-    })?;
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "time.now_ms", move |_args, _memory| {
-        answer(&state, "time.now_ms", || {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis().to_string())
-                .map_err(|e| format!("time.now_ms: {e}"))
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "time.now_ms",
+        move |_args, _memory| {
+            answer(&state, "time.now_ms", || {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis().to_string())
+                    .map_err(|e| format!("time.now_ms: {e}"))
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "crypto.sha256_file", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "crypto.sha256_file", || {
-            use sha2::Digest as _;
-            let path = utf8(path)?;
-            let bytes =
-                std::fs::read(path).map_err(|e| format!("crypto.sha256_file `{path}`: {e}"))?;
-            let digest = sha2::Sha256::digest(&bytes);
-            Ok(digest
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>())
-        })
-    })?;
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "crypto.sha256_file",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "crypto.sha256_file", || {
+                use sha2::Digest as _;
+                let path = utf8(path)?;
+                let bytes =
+                    std::fs::read(path).map_err(|e| format!("crypto.sha256_file `{path}`: {e}"))?;
+                let digest = sha2::Sha256::digest(&bytes);
+                Ok(digest
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>())
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "arg_count", move |_args, _memory| {
+    bind_metered(module, &meter, DOOR, "arg_count", move |_args, _memory| {
         let n = state.borrow().args.len();
         Ok(vec![Val::I32(n as i32)])
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "arg", move |args, _memory| {
+    bind_metered(module, &meter, DOOR, "arg", move |args, _memory| {
         let index = arg(args, 0)?;
         answer(&state, "arg", || {
             let s = state.borrow();
@@ -1252,12 +1376,12 @@ pub(crate) fn install(
     // ---- the shared fetch, exactly the fleet door's two passes -------------
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "result_len", move |_args, _memory| {
+    bind_metered(module, &meter, DOOR, "result_len", move |_args, _memory| {
         Ok(vec![Val::I32(result_len(&state)?)])
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "result", move |args, memory| {
+    bind_metered(module, &meter, DOOR, "result", move |args, memory| {
         let dst = guest_slice_mut(memory, arg(args, 0)?, arg(args, 1)?)?;
         let needed = result_len(&state)?;
         if (needed as usize) > dst.len() {
@@ -1310,10 +1434,25 @@ fn direct(
     run: impl FnOnce() -> Result<i32, String>,
 ) -> Result<Vec<Val>, WasmError> {
     state.borrow_mut().calls.push(format!("{DOOR}.{op}"));
-    match contain(
+    // The operation itself went on the bill in `bind_metered`; what is
+    // counted here is the parked answer's size, and the wait if it waited.
+    let meter = Rc::clone(&state.borrow().meter);
+    let started = Instant::now();
+    let outcome = contain(
         &format!("the tool door panicked while serving `{DOOR}.{op}`"),
         run,
-    ) {
+    );
+    {
+        let mut meter = meter.borrow_mut();
+        meter.answered(state.borrow().result.len());
+        // Only the operations that *wait* put their wall clock on the bill:
+        // a file read is compute the step budget cannot see, but it is not
+        // the idle time A1.12 wants separated out.
+        if WAITING_OPS.contains(&op) {
+            meter.waited(started.elapsed());
+        }
+    }
+    match outcome {
         Ok(Ok(value)) => Ok(vec![Val::I32(value)]),
         Ok(Err(message)) => {
             state.borrow_mut().result = message.into_bytes();
@@ -1325,6 +1464,14 @@ fn direct(
         }
     }
 }
+
+/// The `tool.*` operations whose time is waiting rather than computing.
+const WAITING_OPS: &[&str] = &[
+    "time.sleep_ms",
+    "process.wait",
+    "process.command",
+    "process.command_stdout",
+];
 
 fn utf8(bytes: &[u8]) -> Result<&str, String> {
     str::from_utf8(bytes).map_err(|_| NOT_UTF8.to_string())

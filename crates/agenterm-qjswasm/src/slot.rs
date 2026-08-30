@@ -120,6 +120,7 @@ impl Slot {
         // receipt. (It is lost on the error path, like stdout, and for the
         // same stated reason.)
         let tool_calls = self.door.take_tool_calls();
+        let (host_ops, host_bytes, waited_ms) = self.door.take_meter();
 
         let returned = match result {
             Ok(values) => values,
@@ -150,6 +151,9 @@ impl Slot {
             steps,
             peak_call_depth,
             peak_activation_slots,
+            host_ops,
+            host_bytes,
+            waited_ms,
         })
     }
 
@@ -289,6 +293,9 @@ impl Slot {
     /// answer for three situations at once (an ordinary fault, a module with
     /// no memory, a call that never started) and none of them is a throw.
     fn explain(&self, fault: tinyvm::WasmError) -> QjswasmError {
+        if let Some(budget) = self.door.take_budget_refusal() {
+            return QjswasmError::Budget(budget);
+        }
         if let Some(door) = self.door.take_fault() {
             return QjswasmError::Door(door);
         }
