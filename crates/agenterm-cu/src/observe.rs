@@ -169,7 +169,8 @@ pub fn classify_ax_tree(tree: &A11yTree) -> AxAvailability {
         if text.trim().len() > 0 {
             text_nodes += 1;
         }
-        if is_page_content_role(&node.role) || (!is_chrome_role(&node.role) && !node.role.is_empty())
+        if is_page_content_role(&node.role)
+            || (!is_chrome_role(&node.role) && !node.role.is_empty())
         {
             // AX-prefixed chrome roles are already chrome; anything else
             // with a page-like role counts as content.
@@ -1877,15 +1878,7 @@ mod tests {
         let content = tree(
             vec![
                 node("/0", "AXWindow", "w", &[]),
-                showing(
-                    node(
-                        "/0/1",
-                        "AXWebArea",
-                        "Nepal floods latest",
-                        &[],
-                    ),
-                    &[],
-                ),
+                showing(node("/0/1", "AXWebArea", "Nepal floods latest", &[]), &[]),
             ],
             false,
         );
@@ -1907,11 +1900,19 @@ mod tests {
     #[test]
     fn heading_title_includes_matches_webarea_title() {
         let web = showing(
-            node("/0/1", "AXWebArea", "Nepal floods latest: Head teacher", &[]),
+            node(
+                "/0/1",
+                "AXWebArea",
+                "Nepal floods latest: Head teacher",
+                &[],
+            ),
             &[],
         );
         let heading = showing(node("/0/2", "AXHeading", "Live Reporting", &[]), &[]);
-        let button = showing(node("/0/3", "AXButton", "Nepal floods latest", &["press"]), &[]);
+        let button = showing(
+            node("/0/3", "AXButton", "Nepal floods latest", &["press"]),
+            &[],
+        );
         let t = tree(
             vec![node("/0", "AXWindow", "w", &[]), web, heading, button],
             false,
@@ -1950,10 +1951,9 @@ mod tests {
             resolve_target(&flat, &button_pred).unwrap().node.role,
             "AXButton"
         );
-        let from_wait: crate::command::Expectation = serde_json::from_str(
-            r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#,
-        )
-        .expect("wait --expect titleIncludes");
+        let from_wait: crate::command::Expectation =
+            serde_json::from_str(r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#)
+                .expect("wait --expect titleIncludes");
         let wait_hit = resolve_target(&flat, &TargetSpec::from_expectation(&from_wait))
             .expect("shipped wait matcher aliases WebArea title");
         assert_eq!(normalize_role(&wait_hit.node.role), "webarea");
