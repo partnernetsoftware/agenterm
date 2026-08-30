@@ -7,6 +7,55 @@
 **当前唯一收口主题：修复 v0.1.16 exact-SHA CI / Candidate 发布链；公开 Promotion
 仍需对具体 Candidate 的独立人工授权。**
 
+## 当前发布前沿（2026-08-31）
+
+下面是现行执行索引；本文后面的 Rhai、旧 `ci.yml` 前置条件和失败 run 叙事
+都是历史证据，不再覆盖本节。当前脚本引擎是 `.qjs` → qjswasm/tinyvm，普通
+push CI 已停放为 `.disabled`，Candidate 自己拥有完整资格门。
+
+```text
+v0.1.16 release DAG
+├─ [x] identity
+│  ├─ Cargo.toml = 0.1.16
+│  ├─ release-policy.json = 0.1.16
+│  └─ origin has no v0.1.16 tag or Release
+├─ [x] Minicon lessons absorbed
+│  ├─ clean deterministic staging + raw/archive byte evidence
+│  ├─ six native build cells + six execute-only final-archive courts
+│  ├─ native Linux arm64 package + package-free dependency-closure court
+│  ├─ executable compression off + final Windows Defender court
+│  └─ checked-in optional signing policy; no certificate implied by review state
+├─ [x] local release contracts
+│  ├─ release_workflow_policy: 11/11
+│  ├─ internal-version-policy: pass
+│  └─ documentation redaction: pass
+├─ [ ] exact-SHA Candidate
+│  ├─ requires clean current origin/main and explicit exact-SHA request
+│  ├─ one Windows stress qualification
+│  ├─ six archives execute on matching native OS/ISA runners
+│  └─ aggregate seals manifest, hashes, sizes, SBOM, provenance and receipts
+└─ [ ] public Promotion
+   ├─ separate explicit `publish-v0.1.16` human authority
+   ├─ promote sealed bytes without rebuild/sign/package
+   └─ tag + exact asset set + post-release integrity must all pass
+```
+
+```mermaid
+flowchart LR
+  S["clean origin/main SHA"] --> L["local policy + version + redaction gates"]
+  L --> A{"explicit exact-SHA<br/>Candidate request?"}
+  A -->|no| H["hold · no tag · no Release"]
+  A -->|yes| C["self-contained Candidate<br/>Windows stress + six build cells"]
+  C --> R["six native execute-only courts<br/>final archive bytes"]
+  R --> V{"all receipts and hashes<br/>bound to one SHA?"}
+  V -->|no| F["fix source · new SHA · new Candidate"]
+  V -->|yes| Z["sealed Candidate · 14-day retention"]
+  Z --> P{"explicit publish-v0.1.16?"}
+  P -->|no| H
+  P -->|yes| X["byte-only Promotion"]
+  X --> I["v0.1.16 tag + Release<br/>post-release integrity"]
+```
+
 Chassis 加速（不替代 Candidate 授权）：[`CI / chassis`](../.github/workflows/ci-chassis.yml)
 只编 `agenterm-chassis` 六格；L2 跨架构打包走
 [`scripts/chassis-ci-pack.py`](../scripts/chassis-ci-pack.py)，**不编工作台 PE**。

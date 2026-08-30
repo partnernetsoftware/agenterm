@@ -24,8 +24,10 @@ archives, explicit signing policy, and final-byte reputation checks.
       executes the packaged CLI without installing runtime or `-dev` packages
     - [x] Linux aarch64 is packaged on a native ARM runner, so host package
       discovery cannot silently copy x86_64 GUI libraries into the ARM archive
-    - [ ] Windows courts execute the final PE bytes, not pre-package binaries
-    - [ ] macOS courts cover arm64 and real Intel runner/Rosetta evidence distinctly
+    - [x] Windows courts execute `agenterm.com` from the final extracted archive,
+      not a pre-package binary
+    - [x] macOS courts execute the final archives on distinct native arm64 and
+      Intel runner labels; Rosetta is not substituted for the Intel court
   - [ ] provider-neutral signing policy
     - [x] checked-in `release-policy.json` explicitly selects unsigned preview
       or required macOS signing; missing credentials never silently choose policy
@@ -38,7 +40,8 @@ archives, explicit signing policy, and final-byte reputation checks.
   - [ ] final-byte reputation court
     - [x] Defender scans the exact extracted Windows Candidate files on both
       native ISA runners, after archive SHA verification and execution
-    - [ ] no UPX or opaque executable compression in public assets
+    - [x] checked-in policy sets executable compression to `off`; Candidate
+      policy tests fail if the final-byte court or policy ownership disappears
     - [ ] third-party heuristic results are qualification evidence, not an installer dependency
   - [ ] delivery latency and cleanup
     - [ ] report cold/cache-hit build time separately from six runtime time

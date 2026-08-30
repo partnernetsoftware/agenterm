@@ -223,7 +223,7 @@ AgenTerm — local agent & process fleet work OS
 
 Run `.\lint.cmd` for fast local feedback and `.\check.cmd` for ordinary
 changes. A change is ready only when repository static lint, formatting,
-Clippy with warnings denied, production Rhai checks, unit tests, `dist/`
+Clippy with warnings denied, production QJS checks, unit tests, `dist/`
 artifact generation, CLI smoke, and semantic UX smoke all pass. Rendering
 changes additionally require
 `screenshot` or `screenshot-pane` inspection.

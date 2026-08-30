@@ -224,7 +224,7 @@ diagnostic, do not work around it.
 Use PowerShell from the repository root:
 
 ```powershell
-.\lint.cmd              # fast fail: Rust, JSON, text hygiene, and production Rhai
+.\lint.cmd              # fast fail: Rust, JSON, text hygiene, and production QJS
 .\build.bat              # default: release-fast -> .\dist\ (optimized, incremental)
 .\build.bat release-fast # same as default; explicit alias
 .\build.bat dev          # debug PE -> .\dist\ (also lands in target/debug/)
@@ -243,7 +243,7 @@ Linux/macOS have matching `./build.sh`, `./check.sh`, `./lint.sh`, and
 the four client binaries; default Unix `check` is the portable Quick lane, and
 default Unix `release` is validation-only. Stress qualification, Windows
 packaging and exact-byte qualification remain explicit Windows operations.
-Do not add an unmatched `.cmd` or `.bat`: prefer a named Rhai task, and when a
+Do not add an unmatched `.cmd` or `.bat`: prefer a named QJS task, and when a
 Windows bootstrap remains necessary, add the equivalent `.sh` entry and cover
 the pair in the cross-platform automation audit and Linux/macOS CI.
 
@@ -294,7 +294,7 @@ are migrated in the same patch.
 The four root Windows batch files and four matching Unix shell files are thin
 human aliases. Their shared platform bootstraps perform only generic stage-0
 Script worker build/copy/forward/cleanup. Build profiles, testing,
-qualification, packaging, cleanup and release policy belong to named Rhai
+qualification, packaging, cleanup and release policy belong to named QJS
 tasks; do not add task-specific branches or product rules to entry files.
 
 Treat build and test latency as a continuously measured product constraint.
@@ -305,7 +305,7 @@ GUI tests. Record cold build, hot incremental build, Quick, SkipSmoke, owning
 smoke, and release timings separately. Accept an optimization only when
 before/after evidence proves the gain and coverage remains owned elsewhere.
 
-Run cheap lint, formatting, JSON/catalog checks, and Rhai `check` before
+Run cheap lint, formatting, JSON/catalog checks, and QJS `check` before
 expensive compilation or black-box journeys so deterministic mistakes fail
 early and consume less developer time and agent context. Every expensive
 behavior has one authoritative gate: broad test lanes skip wrappers already
@@ -334,7 +334,7 @@ distributable files in `dist/`, and then reclaims both `target-release/` and
 development `target/`. The reusable bootstrap worker is stored outside Cargo
 output so this is safe on Windows. Dev and `release-fast` loops retain target
 output for incremental feedback. Release-only LTO belongs in `[profile.release]`.
-The staging path is one named Rhai task; do not split it
+The staging path is one named QJS task; do not split it
 back into one interpreter startup per artifact.
 `agenterm-con` was the deliberate panic-strategy exception here until
 2026-08-23, when it left for the `minicon` repository; the `con-*` profiles and
