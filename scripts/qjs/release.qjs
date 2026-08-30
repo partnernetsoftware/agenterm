@@ -11,8 +11,9 @@
 //   - rh used the packager's return value as the run directory; the packager
 //     returns 0 and records the run directory in `.latest-package-run`, which
 //     is what the other two importers read, so this reads the sidecar too.
-//   - tail truncation of the gate's output is line-granular (see `tail_text`):
-//     this engine has no `slice`/`substring` on strings.
+//   - tail truncation of the gate's output is line-granular (see `tail_text`);
+//     the engine has `substring` since tinyvm `fb1a1a6`, and the line cut
+//     is kept because it is the more readable diagnostic.
 import * as rh from "lib/rh_compat";
 import * as package_qualified from "lib/package_qualified";
 
@@ -20,9 +21,12 @@ function require_ok(condition, message) {
   if (!condition) { throw message; }
 }
 
-// "Every character is in `alphabet`", written without character access: this
-// engine has neither `s[i]` nor `split("")`. Deleting each allowed character
-// in turn and checking nothing survives asks the same question.
+// "Every character is in `alphabet`": delete each allowed character in turn
+// and check nothing survives. Kept over the engine's `charCodeAt` / `s[i]`
+// (tinyvm `fb1a1a6`) because it is the cheaper spelling -- measured
+// 2026-08-31 in `rh_compat.only_chars`: a 64-hex check is 52k steps this
+// way and 93k-113k as a per-position walk (each character access is a
+// prefab call; the `replaceAll` passes are not).
 function only_chars(value, alphabet) {
   let rest = value;
   for (const ch of alphabet) { rest = rest.replaceAll(ch, ""); }

@@ -297,13 +297,9 @@ export function write_platform(
 ) {
   const artifact_manifest_path = rh.absolute(artifact_manifest_value);
   const manifest = rh.parse_file(artifact_manifest_path);
-  // rh asked `type_of(platforms) == "array"`; there is no Array.isArray in
-  // this engine, so "an object with a numeric length" stands in for it.
+  // rh asked `type_of(platforms) == "array"`.
   rh.require(
-    manifest.schema_version === 2 &&
-      typeof manifest.platforms === "object" &&
-      manifest.platforms !== null &&
-      typeof manifest.platforms.length === "number",
+    manifest.schema_version === 2 && Array.isArray(manifest.platforms),
     "build_metadata_platform_manifest_invalid"
   );
   const executables = [];

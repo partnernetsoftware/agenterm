@@ -9,9 +9,12 @@
 // run under `--profile tool`.
 //
 // Engine notes, each at its site:
-//   - no substring or character access, so a "digits only" / "hex only"
-//     check deletes each allowed character with `replaceAll` and asks
-//     whether anything is left;
+//   - a "digits only" / "hex only" check deletes each allowed character
+//     with `replaceAll` and asks whether anything is left; kept after the
+//     engine grew `charCodeAt` / `s[i]` (tinyvm `fb1a1a6`) because it is
+//     cheaper (52k vs 93k-113k steps on a 64-hex check, measured
+//     2026-08-31 in `rh_compat.only_chars` -- each character access is a
+//     prefab call);
 //   - reading a property of `undefined` traps uncatchably, so optional
 //     sub-objects go through `child` / `list`;
 //   - `"" + x` on a runtime string costs thousands of interpreter steps
@@ -41,7 +44,7 @@ export function child(value, key) {
 }
 
 function is_array(value) {
-  return typeof value === "object" && value !== null && typeof value.length === "number";
+  return Array.isArray(value);
 }
 
 // An array field, or `[]` when absent: every consumer counts or iterates.

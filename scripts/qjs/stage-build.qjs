@@ -41,10 +41,9 @@ rh.create_dir_all(destination_directory);
 
 const artifact_manifest_path = rh.join(repo, "scripts/artifacts.json");
 const manifest = rh.parse_file(artifact_manifest_path);
-// rh asked `type_of(x) == "array"`; no Array.isArray here, so "an object
-// with a numeric length" stands in for it.
+// rh asked `type_of(x) == "array"`: `Array.isArray` (tinyvm `c9df46f`).
 function is_array(value) {
-  return typeof value === "object" && value !== null && typeof value.length === "number";
+  return Array.isArray(value);
 }
 rh.require(
   manifest.schema_version === 2 && is_array(manifest.executables) && is_array(manifest.libraries),
