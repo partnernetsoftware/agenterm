@@ -211,6 +211,9 @@ mod tests {
         let command = Command::Tree {
             target: TargetRef::Rdp,
             window: Some(0x1000),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         };
         let auth = Authorization::from_cli_and_env(Some("observe"));
         let err = run_session(&endpoint, &command, &auth).expect_err("placeholder");

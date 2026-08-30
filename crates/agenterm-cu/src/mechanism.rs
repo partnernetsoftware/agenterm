@@ -34,6 +34,9 @@ pub struct A11yNode {
     pub actions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Toolkit identifier (macOS `AXIdentifier`) when the backend exposes one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
@@ -42,6 +45,29 @@ pub struct A11yTree {
     pub window_handle: Option<isize>,
     pub root_id: String,
     pub nodes: Vec<A11yNode>,
+    /// The walk stopped at the depth or node budget with nodes still unread.
+    pub truncated: bool,
+    /// Nodes the backend adapter read during the walk.
+    pub visited: usize,
+    /// Nodes in `nodes`.
+    pub returned: usize,
+}
+
+/// Caller bounds for one tree walk, applied by the platform adapter while it
+/// reads the backend (ABI 1.12 `agt_a11y_tree_snapshot_bounded`). `None`
+/// keeps the adapter default for that dimension.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TreeBudget {
+    /// Deepest level returned (root = 0).
+    pub max_depth: Option<u32>,
+    /// Most nodes returned.
+    pub max_nodes: Option<usize>,
+}
+
+impl TreeBudget {
+    pub fn is_default(&self) -> bool {
+        self.max_depth.is_none() && self.max_nodes.is_none()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -335,10 +361,16 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         dynlib::AGT_UNSUPPORTED => CapabilityStatus::Unsupported {
             reason: "host adapter unavailable".to_owned(),
         },
-        _ => CapabilityStatus::Failed {
-            code: "capability_failed".to_owned(),
-            message: "agt_capability_query failed".to_owned(),
-        },
+        // ABI 1.12: a mechanism the OS refuses (macOS Accessibility
+        // permission) answers AGT_FAILED with its typed code and repair path
+        // in agt_last_error; carry both instead of a generic failure.
+        _ => {
+            let error = last_mechanism_error("agt_capability_query");
+            CapabilityStatus::Failed {
+                code: error_code(&error),
+                message: error_message(&error),
+            }
+        }
     }
 }
 
@@ -807,22 +839,94 @@ pub mod accessibility_tree {
 // ---------------------------------------------------------------------------
 
 pub fn tree_for_window(window: Option<isize>) -> Result<A11yTree, MechanismError> {
+    tree_for_window_bounded(window, TreeBudget::default())
+}
+
+/// `(major, minor)` of the loaded library, or the typed load failure.
+fn loaded_abi_version() -> Result<(u16, u16), MechanismError> {
+    let lib = dynlib::load().map_err(|error| MechanismError::Failed {
+        code: "dylib_load".into(),
+        message: error.message.clone(),
+    })?;
+    let version = lib
+        .abi_version()
+        .map_err(|message| MechanismError::Failed {
+            code: "dylib_symbol".into(),
+            message,
+        })?;
+    Ok(((version >> 16) as u16, (version & 0xffff) as u16))
+}
+
+/// Snapshot one window (or every root) under `budget`. With an ABI 1.12
+/// library the budget is applied by the adapter during its walk and the
+/// reply carries `truncated` / `visited` / `returned` plus per-node
+/// `identifier`. An older library still serves an unbounded-budget snapshot
+/// (`truncated: false`, counts equal to the node count); an explicit budget
+/// against it is typed `Unsupported`, never silently ignored.
+pub fn tree_for_window_bounded(
+    window: Option<isize>,
+    budget: TreeBudget,
+) -> Result<A11yTree, MechanismError> {
     let handle = window.unwrap_or(0);
     let mut count = 0usize;
-    let f = call_sym::<TreeSnapshot>(b"agt_a11y_tree_snapshot")?;
-    let status = unsafe { f(handle, &mut count) };
-    map_status("agt_a11y_tree_snapshot", status)?;
+    let (major, minor) = loaded_abi_version()?;
+    let bounded_abi = major == 1 && minor >= dynlib::TREE_BUDGET_ABI_MINOR;
+    if bounded_abi {
+        let f = call_sym::<TreeSnapshotBounded>(b"agt_a11y_tree_snapshot_bounded")?;
+        let max_depth = budget
+            .max_depth
+            .and_then(|depth| i32::try_from(depth).ok())
+            .unwrap_or(dynlib::AGT_A11Y_DEPTH_DEFAULT);
+        let max_nodes = budget
+            .max_nodes
+            .and_then(|nodes| u32::try_from(nodes).ok())
+            .unwrap_or(dynlib::AGT_A11Y_NODES_DEFAULT);
+        let status = unsafe { f(handle, max_depth, max_nodes, &mut count) };
+        map_status("agt_a11y_tree_snapshot_bounded", status)?;
+    } else {
+        if !budget.is_default() {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "tree depth / node budget requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    dynlib::TREE_BUDGET_ABI_MINOR
+                ),
+            });
+        }
+        let f = call_sym::<TreeSnapshot>(b"agt_a11y_tree_snapshot")?;
+        let status = unsafe { f(handle, &mut count) };
+        map_status("agt_a11y_tree_snapshot", status)?;
+    }
     let backend = read_meta_string(dynlib::AGT_A11Y_META_BACKEND)?;
     let root_id = read_meta_string(dynlib::AGT_A11Y_META_ROOT_ID)?;
+    let (truncated, visited, returned) = if bounded_abi {
+        (
+            read_meta_string(dynlib::AGT_A11Y_META_TRUNCATED)? == "1",
+            read_meta_count(dynlib::AGT_A11Y_META_VISITED)?,
+            read_meta_count(dynlib::AGT_A11Y_META_RETURNED)?,
+        )
+    } else {
+        (false, count, count)
+    };
     let mut nodes = Vec::with_capacity(count);
     for index in 0..count {
-        nodes.push(read_node(index)?);
+        nodes.push(read_node(index, bounded_abi)?);
     }
     Ok(A11yTree {
         backend,
         window_handle: window,
         root_id,
         nodes,
+        truncated,
+        visited,
+        returned,
+    })
+}
+
+fn read_meta_count(field: i32) -> Result<usize, MechanismError> {
+    let text = read_meta_string(field)?;
+    text.trim().parse().map_err(|_| MechanismError::Failed {
+        code: "bad_encoding".into(),
+        message: format!("snapshot metadata field {field} is not a count: {text:?}"),
     })
 }
 
@@ -1268,7 +1372,7 @@ pub fn send_node_keys(
     Ok(())
 }
 
-fn read_node(index: usize) -> Result<A11yNode, MechanismError> {
+fn read_node(index: usize, with_identifier: bool) -> Result<A11yNode, MechanismError> {
     let mut record = agt_a11y_node {
         bounds_x: 0,
         bounds_y: 0,
@@ -1310,6 +1414,12 @@ fn read_node(index: usize) -> Result<A11yNode, MechanismError> {
     for action_index in 0..record.actions_count as usize {
         actions.push(read_action_name(index, action_index)?);
     }
+    let identifier = if with_identifier {
+        let raw = read_node_string(index, dynlib::AGT_A11Y_STR_IDENTIFIER)?;
+        (!raw.is_empty()).then_some(raw)
+    } else {
+        None
+    };
     Ok(A11yNode {
         id,
         parent_id,
@@ -1324,6 +1434,7 @@ fn read_node(index: usize) -> Result<A11yNode, MechanismError> {
         },
         actions,
         text,
+        identifier,
     })
 }
 
@@ -1497,6 +1608,7 @@ type CaptureWindow =
 type DrainBus = unsafe extern "C" fn() -> i32;
 type LastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type TreeSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
+type TreeSnapshotBounded = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
 type MetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32;
 type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;

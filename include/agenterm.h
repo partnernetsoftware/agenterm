@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 11
+#define AGT_ABI_MINOR 12
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -398,14 +398,22 @@ typedef struct {
 
 typedef enum {
     AGT_A11Y_META_BACKEND = 0,
-    AGT_A11Y_META_ROOT_ID = 1
+    AGT_A11Y_META_ROOT_ID = 1,
+    /* ABI 1.12: "0" / "1" - the walk stopped at the depth or node budget. */
+    AGT_A11Y_META_TRUNCATED = 2,
+    /* ABI 1.12: decimal count of nodes read from the backend. */
+    AGT_A11Y_META_VISITED = 3,
+    /* ABI 1.12: decimal count of nodes in the snapshot. */
+    AGT_A11Y_META_RETURNED = 4
 } agt_a11y_meta_field;
 
 typedef enum {
     AGT_A11Y_STR_ROLE = 0,
     AGT_A11Y_STR_NAME = 1,
     AGT_A11Y_STR_TEXT = 2,
-    AGT_A11Y_STR_STATES = 3
+    AGT_A11Y_STR_STATES = 3,
+    /* ABI 1.12: toolkit identifier (macOS AXIdentifier); empty when absent. */
+    AGT_A11Y_STR_IDENTIFIER = 4
 } agt_a11y_string_kind;
 
 typedef enum {
@@ -420,6 +428,19 @@ typedef enum {
  * on this thread. *out_node_count receives the node count. Returns
  * AGT_UNSUPPORTED when the mechanism is absent on this build/host. */
 agt_status agt_a11y_tree_snapshot(intptr_t window_handle, size_t* out_node_count);
+
+/* ABI 1.12: same as agt_a11y_tree_snapshot under a caller budget that applies
+ * WHILE the backend is read (no unbounded tree is built and pruned). max_depth
+ * < 0 and max_nodes == 0 keep the adapter defaults; otherwise depth is root=0
+ * .. 64 and nodes 1..20000 (out of range -> AGT_FAILED{code="invalid_input"}).
+ * Reaching either budget is not an error: the snapshot holds the nodes read so
+ * far and AGT_A11Y_META_TRUNCATED reads "1". When the OS refuses the stack
+ * (macOS Accessibility permission) every a11y export, and
+ * agt_capability_query(AGT_CAP_ACCESSIBILITY_TREE), answer
+ * AGT_FAILED{code="a11y_permission_denied"} whose message names the repair
+ * path - never AGT_UNSUPPORTED and never an empty tree. */
+agt_status agt_a11y_tree_snapshot_bounded(intptr_t window_handle, int32_t max_depth,
+                                          uint32_t max_nodes, size_t* out_node_count);
 
 /* Fetch snapshot metadata (backend label or root id). Two-stage buffer
  * protocol identical to agt_window_event_text. Valid only until the next

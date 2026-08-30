@@ -61,22 +61,49 @@ receipt remains open until it runs on a controlled input desktop.
 | Concern | Windows | Linux (`current` slice) | macOS |
 |---------|---------|------------------------|-------|
 | Window list | Win32 `EnumWindows` | X11 `_NET_CLIENT_LIST` | `AXUIElement` application windows |
-| Control tree | **UIA** (`IUIAutomation`) | **AT-SPI2** (`org.a11y.atspi.*` on D-Bus) | **AX** (`NSAccessibility`) — `current tree` **PLACEHOLDER** (cut 3.45; live evidence not claimed) |
-| Node identity | automation id + runtime id + bounds | path id (`/0/2/5`) + role + name + bounds | child-index path + role + title + bounds (`backend:"ax"`) |
+| Control tree | **UIA** (`IUIAutomation`) | **AT-SPI2** (`org.a11y.atspi.*` on D-Bus) | **AX** (`NSAccessibility`) — `windows` / `tree` / `query` **live** (`cu-macos-smoke`); bounded walk, `AXActionNames`, `AXIdentifier` |
+| Node identity | automation id + runtime id + bounds | path id (`/0/2/5`) + role + name + bounds | child-index path + role + title + bounds + identifier (`backend:"ax"`) |
 | Node click/focus | `InvokePattern` / `LegacyIAccessible` | AT-SPI `Action` (`click`/`press`, else default `DoAction(0)`); no Action → Component `GetExtents` + `GenerateMouseEvent`; focus is `focus` / `Component::grab_focus` | AX actuation **not started** (`AXPress` / `AXRaise` planned) |
 | Text entry | `ValuePattern` / `SendInput` | AT-SPI `EditableText` (`SetTextContents` / `InsertText`) for `--name`; `Text` + toolkit set-value when EditableText is absent (Chrome AX, WebKitGTK eval helper); `input-inject` only without `--name` | AX value write **not started** |
 | Screenshot | GDI native capture | typed `unsupported` (no OCR substitute) | typed `unsupported` (planned) |
 
-macOS `tree` uses **AX only** (`agenterm-platform` macOS adapter). Missing
-Accessibility permission fails typed (`a11y_permission_denied`); timeout and
-bound exhaustion fail typed. Never screenshot, `--coords`, CGEvent, or silent
-AT-SPI/UIA reuse. Live fixture gate is `scripts/cu-macos-smoke.sh` (Darwin
-only; not claimed from Linux). Canonical observe argv:
+macOS `tree` / `query` use **AX only** (`agenterm-platform` macOS adapter).
+Missing Accessibility permission is typed `denied` with the repair path in
+`error.detail.repair` (System Settings > Privacy & Security > Accessibility)
+and `capabilities` reports `tree: "Denied"` — never an empty tree; timeout
+and the adapter's own limits fail typed. Never screenshot, `--coords`,
+CGEvent, or silent AT-SPI/UIA reuse. The live gate is
+`scripts/qjs/cu-macos-smoke.qjs` (task `cu-macos-smoke`, Darwin only) against
+the owned Cocoa fixture `examples/objc/agenterm_ax_fixture.m`. The observe
+loop it proves:
 
 ```bash
-agenterm-cu --target current --grant observe tree --window "$HANDLE"
+# inventory filters: with any filter/page flag the reply is
+# {windows, visited, matched, returned, offset, truncated}; bare `windows` stays an array
+agenterm-cu --target current --grant observe windows --pid "$PID"
+agenterm-cu --target current --grant observe windows --app TextEdit --title Untitled --max 5
+
+# bounded tree: depth (root=0, <=64) and node budget (1..20000) apply while the
+# platform walks; the reply reports truncated / visited / returned. --flat numbers
+# nodes (index, depth) in walk order — the identity query reports too.
+agenterm-cu --target current --grant observe tree --window "$HANDLE" --max-nodes 5
+agenterm-cu --target current --grant observe tree --window "$HANDLE" --depth 3 --flat
+
+# bounded, filtered flat node list (same ids / indices as tree). Roles accept
+# AXTextArea or text-area; --text is a substring of name/text, --text-exact and
+# --identifier are exact, --within X,Y,W,H intersects bounds. An unknown flag
+# fails typed `usage` before any tree is read.
+agenterm-cu --target current --grant observe query --window "$HANDLE" --role AXTextArea
+agenterm-cu --target current --grant observe query --window "$HANDLE" \
+  --role AXButton,AXCheckBox --actionable --within 0,0,900,700 --offset 0 --max 50
 # fixture seed text 345AXTREE + button "Fixture Press"; reply backend must be "ax"
 ```
+
+Every node carries the backend's action names (macOS `AXActionNames`,
+normalized: `AXPress` → `click`, `AXRaise` → `focus`, `AXShowMenu` →
+`show-menu`, others kebab-cased). An empty list means the backend reported
+none. Actuation on macOS (`invoke`) is slice 2 of
+`plan/design-mcu-absorption.md` and is not started.
 
 Linux `tree` and structured `click` / `focus` use **AT-SPI2 only**. If the
 accessibility bus is unavailable (no session bus, headless without a11y), commands

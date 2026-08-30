@@ -1059,6 +1059,9 @@ mod tests {
         let command = CuCommand::Tree {
             target: TargetRef::Ssh,
             window: Some(42),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "tree");

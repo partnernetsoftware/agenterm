@@ -89,10 +89,10 @@ use std::time::{Duration, Instant};
 
 use agenterm_platform::CapabilityStatus;
 use agenterm_platform::accessibility_tree::{
-    AccessibilityNodeAction, AccessibilityTreeError, drain_bus, get_node_caret_offset,
-    get_node_extents, get_node_selection, get_node_text, last_text_write_via, perform_node_action,
-    scroll_node, send_node_keys, set_node_caret_offset, set_node_selection, set_node_text,
-    tree_for_window,
+    AccessibilityNodeAction, AccessibilityTreeBudget, AccessibilityTreeError, drain_bus,
+    get_node_caret_offset, get_node_extents, get_node_selection, get_node_text,
+    last_text_write_via, perform_node_action, scroll_node, send_node_keys, set_node_caret_offset,
+    set_node_selection, set_node_text, tree_for_window_bounded,
 };
 use agenterm_platform::clipboard::{get_text, has_unicode_text, set_text};
 use agenterm_platform::desktop_host::{
@@ -273,7 +273,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 11);
+abi_version!(1, 12);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -435,13 +435,10 @@ pub extern "C" fn agt_capability_query(cap: u32) -> agt_status {
                 agt_status::AGT_OK
             }
         }
-        AGT_CAP_ACCESSIBILITY_TREE => {
-            if a11y_mechanism_available() {
-                agt_status::AGT_OK
-            } else {
-                agt_status::AGT_UNSUPPORTED
-            }
-        }
+        // ABI 1.12: a stack the OS refuses (macOS Accessibility permission)
+        // answers AGT_FAILED with the typed code and repair path in
+        // agt_last_error, so a consumer can tell "denied" from "absent".
+        AGT_CAP_ACCESSIBILITY_TREE => a11y_mechanism_gate().unwrap_or(agt_status::AGT_OK),
         // Milestone 43: report the host's real capability status for the
         // native-window and input-injection mechanisms (never a blanket
         // AGT_OK — Linux/macOS hosts may not implement them).
@@ -3019,11 +3016,23 @@ pub extern "C" fn agt_process_self() -> u32 {
 
 const AGT_A11Y_META_BACKEND: i32 = 0;
 const AGT_A11Y_META_ROOT_ID: i32 = 1;
+/// ABI 1.12: "0" / "1" — the walk stopped at the depth or node budget.
+const AGT_A11Y_META_TRUNCATED: i32 = 2;
+/// ABI 1.12: decimal count of nodes read from the backend.
+const AGT_A11Y_META_VISITED: i32 = 3;
+/// ABI 1.12: decimal count of nodes in the snapshot.
+const AGT_A11Y_META_RETURNED: i32 = 4;
 
 const AGT_A11Y_STR_ROLE: i32 = 0;
 const AGT_A11Y_STR_NAME: i32 = 1;
 const AGT_A11Y_STR_TEXT: i32 = 2;
 const AGT_A11Y_STR_STATES: i32 = 3;
+/// ABI 1.12: toolkit identifier (macOS `AXIdentifier`); empty when absent.
+const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
+
+/// `agt_a11y_tree_snapshot_bounded` sentinels: "keep the adapter default".
+const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
+const AGT_A11Y_NODES_DEFAULT: u32 = 0;
 
 const AGT_A11Y_ACTION_CLICK: i32 = 0;
 const AGT_A11Y_ACTION_FOCUS: i32 = 1;
@@ -3050,17 +3059,32 @@ struct A11ySnapshot {
     backend: String,
     root_id: String,
     nodes: Vec<agenterm_platform::accessibility_tree::AccessibilityNode>,
+    truncated: bool,
+    visited: usize,
+    returned: usize,
 }
 
 thread_local! {
     static A11Y_SNAPSHOT: RefCell<Option<A11ySnapshot>> = const { RefCell::new(None) };
 }
 
-fn a11y_mechanism_available() -> bool {
-    matches!(
-        agenterm_platform::accessibility_tree::capability_status(),
-        CapabilityStatus::Available
-    )
+/// `None` when the accessibility stack can be used now. `Unsupported` (no
+/// adapter on this host / build) is `AGT_UNSUPPORTED`; a stack that exists
+/// but is refused by the OS (macOS `a11y_permission_denied`) is
+/// `AGT_FAILED` with the code and repair path recorded in `agt_last_error`,
+/// so consumers never mistake a denial for a missing mechanism.
+fn a11y_mechanism_gate() -> Option<agt_status> {
+    match agenterm_platform::accessibility_tree::capability_status() {
+        CapabilityStatus::Available => None,
+        CapabilityStatus::Unsupported { .. } => Some(agt_status::AGT_UNSUPPORTED),
+        CapabilityStatus::Failed { code, message } => Some(map_a11y_error(
+            c"agt_a11y_mechanism",
+            AccessibilityTreeError::Failed { code, message },
+        )),
+        // `CapabilityStatus` is `#[non_exhaustive]`: a status this build does
+        // not know is reported as absent, never as available.
+        _ => Some(agt_status::AGT_UNSUPPORTED),
+    }
 }
 
 fn path_to_fixed(path: &str) -> ([u8; 64], u32, u32) {
@@ -3220,6 +3244,45 @@ fn with_snapshot_node(
     })
 }
 
+/// Shared body of the two snapshot exports: walk under `budget`, replace the
+/// thread-local snapshot, publish the node count.
+fn a11y_snapshot_into(
+    operation: &'static CStr,
+    window_handle: isize,
+    budget: AccessibilityTreeBudget,
+    out_node_count: *mut usize,
+) -> agt_status {
+    if out_node_count.is_null() {
+        record_error(operation, c"bad_pointer", "out_node_count is null");
+        return agt_status::AGT_FAILED;
+    }
+    if let Some(status) = a11y_mechanism_gate() {
+        return status;
+    }
+    let filter = if window_handle == 0 {
+        None
+    } else {
+        Some(window_handle)
+    };
+    let tree = match tree_for_window_bounded(filter, budget) {
+        Ok(t) => t,
+        Err(e) => return map_a11y_error(operation, e),
+    };
+    let count = tree.nodes.len();
+    A11Y_SNAPSHOT.with(|cell| {
+        *cell.borrow_mut() = Some(A11ySnapshot {
+            backend: tree.backend.to_string(),
+            root_id: tree.root_id.clone(),
+            nodes: tree.nodes,
+            truncated: tree.truncated,
+            visited: tree.visited,
+            returned: tree.returned,
+        });
+    });
+    unsafe { *out_node_count = count };
+    agt_status::AGT_OK
+}
+
 /// Capture a flattened accessibility tree for the host OS stack.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
@@ -3227,45 +3290,57 @@ pub extern "C" fn agt_a11y_tree_snapshot(
     window_handle: isize,
     out_node_count: *mut usize,
 ) -> agt_status {
-    fn inner(window_handle: isize, out_node_count: *mut usize) -> agt_status {
-        if out_node_count.is_null() {
-            record_error(
-                c"agt_a11y_tree_snapshot",
-                c"bad_pointer",
-                "out_node_count is null",
-            );
-            return agt_status::AGT_FAILED;
-        }
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
-        }
-        let filter = if window_handle == 0 {
-            None
-        } else {
-            Some(window_handle)
-        };
-        let tree = match tree_for_window(filter) {
-            Ok(t) => t,
-            Err(e) => return map_a11y_error(c"agt_a11y_tree_snapshot", e),
-        };
-        let count = tree.nodes.len();
-        A11Y_SNAPSHOT.with(|cell| {
-            *cell.borrow_mut() = Some(A11ySnapshot {
-                backend: tree.backend.to_string(),
-                root_id: tree.root_id.clone(),
-                nodes: tree.nodes,
-            });
-        });
-        unsafe { *out_node_count = count };
-        agt_status::AGT_OK
-    }
-    match catch_unwind(AssertUnwindSafe(|| inner(window_handle, out_node_count))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        a11y_snapshot_into(
+            c"agt_a11y_tree_snapshot",
+            window_handle,
+            AccessibilityTreeBudget::default(),
+            out_node_count,
+        )
+    })) {
         Ok(s) => s,
         Err(_) => {
             record_error(
                 c"agt_a11y_tree_snapshot",
                 c"panic",
                 "panic in agt_a11y_tree_snapshot",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.12: capture a tree under a caller budget. `max_depth` < 0 and
+/// `max_nodes` == 0 keep the adapter defaults; otherwise both apply while
+/// the backend is read (depth: root = 0, at most 64; nodes: 1..=20000,
+/// larger is `AGT_FAILED{code="invalid_input"}`). Read the cut through
+/// `agt_a11y_tree_meta_string` fields TRUNCATED / VISITED / RETURNED.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_tree_snapshot_bounded(
+    window_handle: isize,
+    max_depth: i32,
+    max_nodes: u32,
+    out_node_count: *mut usize,
+) -> agt_status {
+    match catch_unwind(AssertUnwindSafe(|| {
+        let budget = AccessibilityTreeBudget {
+            max_depth: (max_depth != AGT_A11Y_DEPTH_DEFAULT).then_some(max_depth.max(0) as u32),
+            max_nodes: (max_nodes != AGT_A11Y_NODES_DEFAULT).then_some(max_nodes as usize),
+        };
+        a11y_snapshot_into(
+            c"agt_a11y_tree_snapshot_bounded",
+            window_handle,
+            budget,
+            out_node_count,
+        )
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_tree_snapshot_bounded",
+                c"panic",
+                "panic in agt_a11y_tree_snapshot_bounded",
             );
             agt_status::AGT_FAILED
         }
@@ -3295,9 +3370,25 @@ pub extern "C" fn agt_a11y_tree_meta_string(
                     return agt_status::AGT_FAILED;
                 }
             };
+            let counts;
             let data = match field {
                 AGT_A11Y_META_BACKEND => snap.backend.as_bytes(),
                 AGT_A11Y_META_ROOT_ID => snap.root_id.as_bytes(),
+                AGT_A11Y_META_TRUNCATED => {
+                    if snap.truncated {
+                        b"1".as_slice()
+                    } else {
+                        b"0".as_slice()
+                    }
+                }
+                AGT_A11Y_META_VISITED => {
+                    counts = snap.visited.to_string();
+                    counts.as_bytes()
+                }
+                AGT_A11Y_META_RETURNED => {
+                    counts = snap.returned.to_string();
+                    counts.as_bytes()
+                }
                 _ => {
                     record_error(
                         c"agt_a11y_tree_meta_string",
@@ -3378,6 +3469,9 @@ pub extern "C" fn agt_a11y_node_string(
                     } else {
                         node.states.join(",").into_bytes()
                     }
+                }
+                AGT_A11Y_STR_IDENTIFIER => {
+                    node.identifier.as_deref().unwrap_or("").as_bytes().to_vec()
                 }
                 _ => {
                     record_error(c"agt_a11y_node_string", c"bad_field", "unknown string kind");
@@ -3464,8 +3558,8 @@ pub extern "C" fn agt_a11y_node_perform(
     action: i32,
 ) -> agt_status {
     fn inner(window_handle: isize, node_id: *const c_char, action: i32) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(c"agt_a11y_node_perform", c"bad_pointer", "node_id is null");
@@ -3539,8 +3633,8 @@ pub extern "C" fn agt_a11y_node_set_text(
         text: *const u8,
         len: usize,
     ) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(c"agt_a11y_node_set_text", c"bad_pointer", "node_id is null");
@@ -3625,8 +3719,8 @@ pub extern "C" fn agt_a11y_node_get_text(
         cap: usize,
         out_len: *mut usize,
     ) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(c"agt_a11y_node_get_text", c"bad_pointer", "node_id is null");
@@ -3694,8 +3788,8 @@ pub extern "C" fn agt_a11y_node_send_keys(
         keys: *const u8,
         len: usize,
     ) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(
@@ -3770,8 +3864,8 @@ pub extern "C" fn agt_a11y_node_send_keys(
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_a11y_node_scroll(window_handle: isize, node_id: *const c_char) -> agt_status {
     fn inner(window_handle: isize, node_id: *const c_char) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(c"agt_a11y_node_scroll", c"bad_pointer", "node_id is null");
@@ -3833,8 +3927,8 @@ pub extern "C" fn agt_a11y_node_get_extents(
         out_width: *mut i32,
         out_height: *mut i32,
     ) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(
@@ -3910,8 +4004,8 @@ pub extern "C" fn agt_a11y_node_set_selection(
     end: i32,
 ) -> agt_status {
     fn inner(window_handle: isize, node_id: *const c_char, start: i32, end: i32) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(
@@ -3978,8 +4072,8 @@ pub extern "C" fn agt_a11y_node_get_selection(
         out_start: *mut i32,
         out_end: *mut i32,
     ) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(
@@ -4053,8 +4147,8 @@ pub extern "C" fn agt_a11y_node_set_caret_offset(
     offset: i32,
 ) -> agt_status {
     fn inner(window_handle: isize, node_id: *const c_char, offset: i32) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(
@@ -4110,8 +4204,8 @@ pub extern "C" fn agt_a11y_node_get_caret_offset(
     out_offset: *mut i32,
 ) -> agt_status {
     fn inner(window_handle: isize, node_id: *const c_char, out_offset: *mut i32) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         if node_id.is_null() {
             record_error(
@@ -4178,8 +4272,8 @@ pub extern "C" fn agt_a11y_node_get_caret_offset(
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_a11y_drain_bus() -> agt_status {
     fn inner() -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         drain_bus();
         agt_status::AGT_OK
@@ -4212,8 +4306,8 @@ pub extern "C" fn agt_a11y_last_text_write_via(
     out_len: *mut usize,
 ) -> agt_status {
     fn inner(buf: *mut u8, cap: usize, out_len: *mut usize) -> agt_status {
-        if !a11y_mechanism_available() {
-            return agt_status::AGT_UNSUPPORTED;
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
         }
         copy_bytes_two_stage(
             c"agt_a11y_last_text_write_via",

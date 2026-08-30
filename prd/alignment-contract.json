@@ -33,6 +33,21 @@
       ]
     },
     {
+      "id": "computer-use.macos-current-observe",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "macOS `current` observation is live",
+      "evidence_ids": [
+        "cu.macos-ax-capabilities",
+        "cu.macos-ax-window-identity",
+        "cu.macos-ax-query",
+        "cu.macos-ax-tree-bounded",
+        "cu.macos-ax-tree-actions",
+        "cu.macos-ax-fixture-cleanup"
+      ]
+    },
+    {
       "id": "control-center.native-projection",
       "kind": "behavior",
       "status": "partial",

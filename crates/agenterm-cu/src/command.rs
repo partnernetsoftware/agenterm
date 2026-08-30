@@ -19,13 +19,75 @@ pub enum Command {
     Capabilities {
         target: TargetRef,
     },
+    /// Top-level window inventory. Without any filter or page field the
+    /// reply `data` is the plain window array (unchanged shape); with one,
+    /// `data` is the inventory object `{windows, visited, matched, returned,
+    /// offset, truncated}` so a filtered read carries its counts.
     Windows {
         target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        /// Case-insensitive substring of `app_name`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        /// Case-insensitive substring of `title`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focused: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minimized: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
     },
+    /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
+    /// apply while the platform adapter walks the backend; the reply reports
+    /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
+    /// the same order with a `depth` and a flatten `index` per node — the
+    /// numbering a later `invoke --index` addresses.
     Tree {
         target: TargetRef,
         #[serde(skip_serializing_if = "Option::is_none")]
         window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        flat: bool,
+    },
+    /// Bounded, filtered flat node list over the same walk `tree` makes
+    /// (same node ids and flatten indices). Filters: `role` (comma list;
+    /// `AXTextArea` and `text-area` both match), `text` (case-insensitive
+    /// substring of name or text) or `text_exact`, `identifier` (exact),
+    /// `actionable` (at least one action), `within` (bounds intersect
+    /// `[x, y, w, h]`). `offset` / `max` page the matches. The reply reports
+    /// `visited / matched / returned / truncated`.
+    Query {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        role: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_exact: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        identifier: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        actionable: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        within: Option<[i32; 4]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
     },
     Screenshot {
         target: TargetRef,
@@ -321,6 +383,7 @@ impl Command {
             Self::Capabilities { .. } => "capabilities".into(),
             Self::Windows { .. } => "windows".into(),
             Self::Tree { .. } => "tree".into(),
+            Self::Query { .. } => "query".into(),
             Self::Screenshot { .. } => "screenshot".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
             Self::PointerPosition { .. } => "pointer-position".into(),
@@ -348,6 +411,7 @@ impl Command {
             Self::Capabilities { target, .. }
             | Self::Windows { target, .. }
             | Self::Tree { target, .. }
+            | Self::Query { target, .. }
             | Self::Screenshot { target, .. }
             | Self::PointerMove { target, .. }
             | Self::PointerPosition { target, .. }
@@ -436,6 +500,130 @@ mod tests {
                 y: 1440
             }
         ));
+    }
+
+    #[test]
+    fn tree_defaults_keep_the_pre_budget_wire_shape() {
+        // A pre-1.12 caller's `{"verb":"tree","target":"current","window":7}`
+        // still decodes, and a default tree still encodes to exactly that.
+        let decoded: Command = serde_json::from_value(
+            serde_json::json!({ "verb": "tree", "target": "current", "window": 7 }),
+        )
+        .expect("deserialize");
+        assert!(matches!(
+            decoded,
+            Command::Tree {
+                target: TargetRef::Current,
+                window: Some(7),
+                depth: None,
+                max_nodes: None,
+                flat: false,
+            }
+        ));
+        assert_eq!(
+            serde_json::to_value(&decoded).expect("serialize"),
+            serde_json::json!({ "verb": "tree", "target": "current", "window": 7 })
+        );
+        let bounded = Command::Tree {
+            target: TargetRef::Ssh,
+            window: Some(7),
+            depth: Some(3),
+            max_nodes: Some(5),
+            flat: true,
+        };
+        assert_eq!(bounded.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&bounded).expect("serialize"),
+            serde_json::json!({
+                "verb": "tree", "target": "ssh", "window": 7,
+                "depth": 3, "max_nodes": 5, "flat": true
+            })
+        );
+    }
+
+    #[test]
+    fn query_is_observation_and_round_trips_its_filters() {
+        let command = Command::Query {
+            target: TargetRef::Vnc,
+            window: 14278,
+            depth: Some(12),
+            max_nodes: Some(500),
+            role: vec!["AXTextArea".into(), "button".into()],
+            text: Some("Fixture".into()),
+            text_exact: None,
+            identifier: None,
+            actionable: true,
+            within: Some([0, 0, 900, 700]),
+            offset: Some(2),
+            max: Some(10),
+        };
+        assert_eq!(command.verb(), "query");
+        assert_eq!(command.target(), TargetRef::Vnc);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let json = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "verb": "query", "target": "vnc", "window": 14278,
+                "depth": 12, "max_nodes": 500,
+                "role": ["AXTextArea", "button"], "text": "Fixture",
+                "actionable": true, "within": [0, 0, 900, 700],
+                "offset": 2, "max": 10
+            })
+        );
+        let decoded: Command = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(decoded.verb(), "query");
+        // The minimal wire form decodes with every filter at its default.
+        let minimal: Command = serde_json::from_value(
+            serde_json::json!({ "verb": "query", "target": "current", "window": 1 }),
+        )
+        .expect("deserialize minimal");
+        assert!(matches!(
+            minimal,
+            Command::Query { window: 1, actionable: false, ref role, .. } if role.is_empty()
+        ));
+    }
+
+    #[test]
+    fn windows_inventory_filters_default_to_the_bare_verb() {
+        let bare: Command =
+            serde_json::from_value(serde_json::json!({ "verb": "windows", "target": "current" }))
+                .expect("deserialize");
+        assert!(matches!(
+            bare,
+            Command::Windows {
+                pid: None,
+                app: None,
+                title: None,
+                focused: None,
+                minimized: None,
+                offset: None,
+                max: None,
+                ..
+            }
+        ));
+        assert_eq!(
+            serde_json::to_value(&bare).expect("serialize"),
+            serde_json::json!({ "verb": "windows", "target": "current" })
+        );
+        let filtered = Command::Windows {
+            target: TargetRef::Current,
+            pid: Some(4242),
+            app: Some("TextEdit".into()),
+            title: None,
+            focused: Some(true),
+            minimized: Some(false),
+            offset: None,
+            max: Some(1),
+        };
+        assert_eq!(filtered.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&filtered).expect("serialize"),
+            serde_json::json!({
+                "verb": "windows", "target": "current", "pid": 4242,
+                "app": "TextEdit", "focused": true, "minimized": false, "max": 1
+            })
+        );
     }
 
     #[test]

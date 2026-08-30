@@ -48,6 +48,18 @@
         "ux.unix-frontend-macos-native-clipboard",
         "ux.unix-frontend-macos-stale-paste"
       ]
+    },
+    {
+      "id": "cu-macos-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.macos-ax-capabilities",
+        "cu.macos-ax-window-identity",
+        "cu.macos-ax-query",
+        "cu.macos-ax-tree-bounded",
+        "cu.macos-ax-tree-actions",
+        "cu.macos-ax-fixture-cleanup"
+      ]
     }
   ]
 }

@@ -22,6 +22,7 @@ agt_process_list
 agt_process_kill
 agt_process_self
 agt_a11y_tree_snapshot
+agt_a11y_tree_snapshot_bounded
 agt_a11y_tree_meta_string
 agt_a11y_tree_node
 agt_a11y_node_string

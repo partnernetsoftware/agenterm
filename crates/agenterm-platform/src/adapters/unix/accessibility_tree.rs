@@ -6,7 +6,7 @@
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree,
-    AccessibilityTreeError,
+    AccessibilityTreeBudget, AccessibilityTreeError,
 };
 
 pub(crate) fn capability_status() -> CapabilityStatus {
@@ -17,6 +17,7 @@ pub(crate) fn capability_status() -> CapabilityStatus {
 
 pub(crate) fn tree_for_window(
     _window_handle: Option<isize>,
+    _budget: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
     Err(AccessibilityTreeError::Unsupported {
         reason: "accessibility-tree not wired on this unix host".into(),

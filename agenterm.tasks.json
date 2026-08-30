@@ -505,6 +505,25 @@
         "task.control-center-smoke"
       ]
     },
+    "cu-macos-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-macos-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-smoke"
+      ]
+    },
     "stage-cu-windows-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1942,6 +1961,26 @@
       "dependencies": [],
       "platforms": [
         "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-smoke",
+      "description": "Prove the macOS agenterm-cu AX observe loop: capabilities, windows inventory filters, query, bounded tree with truncation counts and AX action names, and owned Cocoa fixture cleanup",
+      "entry": "scripts/qjs/cu-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
       ],
       "side_effects": [
         "artifact_write",

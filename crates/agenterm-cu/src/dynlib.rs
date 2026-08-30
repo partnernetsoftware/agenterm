@@ -183,12 +183,24 @@ pub const AGT_WINDOW_CONSTRAINT_HAS_INCREMENT: u32 = 1 << 2;
 /// `agt_a11y_tree_meta_string` fields.
 pub const AGT_A11Y_META_BACKEND: i32 = 0;
 pub const AGT_A11Y_META_ROOT_ID: i32 = 1;
+/// ABI 1.12: "0" / "1" — the walk stopped at the depth or node budget.
+pub const AGT_A11Y_META_TRUNCATED: i32 = 2;
+/// ABI 1.12: decimal count of nodes read from the backend.
+pub const AGT_A11Y_META_VISITED: i32 = 3;
+/// ABI 1.12: decimal count of nodes in the snapshot.
+pub const AGT_A11Y_META_RETURNED: i32 = 4;
 
 /// `agt_a11y_node_string` kinds.
 pub const AGT_A11Y_STR_ROLE: i32 = 0;
 pub const AGT_A11Y_STR_NAME: i32 = 1;
 pub const AGT_A11Y_STR_TEXT: i32 = 2;
 pub const AGT_A11Y_STR_STATES: i32 = 3;
+/// ABI 1.12: toolkit identifier (macOS `AXIdentifier`); empty when absent.
+pub const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
+
+/// `agt_a11y_tree_snapshot_bounded` sentinels: keep the adapter default.
+pub const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
+pub const AGT_A11Y_NODES_DEFAULT: u32 = 0;
 
 /// `agt_a11y_node_perform` action kinds.
 pub const AGT_A11Y_ACTION_CLICK: i32 = 0;
@@ -214,6 +226,10 @@ pub const AGT_NATIVE_WINDOW_RESTORE: i32 = 4;
 const EXPECTED_ABI_MAJOR: u16 = 1;
 pub const WINDOW_PLACEMENT_ABI_MINOR: u16 = 10;
 pub const POINTER_POSITION_ABI_MINOR: u16 = 11;
+/// ABI 1.12: `agt_a11y_tree_snapshot_bounded`, snapshot meta fields
+/// TRUNCATED / VISITED / RETURNED, node string kind IDENTIFIER, and the typed
+/// `a11y_permission_denied` answer from `agt_capability_query`.
+pub const TREE_BUDGET_ABI_MINOR: u16 = 12;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

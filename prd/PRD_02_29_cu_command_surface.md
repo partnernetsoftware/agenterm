@@ -45,20 +45,55 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   press/release/move/click/drag; wheel; keyboard text and named keys; clipboard
   read/write; file transfer in both directions; **named window placement**
   (`window-place`, owned by [32](PRD_02_32_cu_window_placement.md)).
-- [ ] the default control loop is `windows` -> bounded `query` / `tree` ->
+- [~] the default control loop is `windows` -> bounded `query` / `tree` ->
   `invoke`, with `verify --expect` closing the loop (absorbed from
   `moltbaby/skills/mcu`, 2026-08-30). `elements`-style flat numbering is a
   secondary path (`tree --flat`, the same flatten index `invoke --index`
-  uses); screenshots are the last resort, never the default.
-- [ ] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
+  uses); screenshots are the last resort, never the default. The observe
+  half (`windows` -> `query` / `tree`) is live on macOS
+  (`scripts/qjs/cu-macos-smoke.qjs`, STEPs "windows --pid", "query by
+  role", "tree --max-nodes 5"); `invoke` / `verify` are slice 2.
+- [x] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
   [--text T | --text-exact T] [--identifier ID] [--actionable] [--within
   X,Y,W,H] [--offset N] [--max N]` returns a flat, bounded, filtered node list
-  with the same node identity `tree` uses, plus `visited / matched / returned
-  / truncated` counts. Depth and node budget apply *during* traversal; an
-  unbounded tree is never built first.
-- [ ] `tree` and `query` carry each node's available actions (`press`,
-  `set-value`, `increment`, ...) from the platform a11y backend; an empty
-  action list means the backend reported none, never that it was not asked.
+  with the same node identity `tree` uses (path id plus flatten `index`),
+  plus `visited / matched / returned / truncated` counts (with
+  `scan_truncated` / `page_truncated` split out). Depth (root = 0, at most
+  64) and node budget (1..20000) apply *during* traversal through ABI 1.12
+  `agt_a11y_tree_snapshot_bounded`; an unbounded tree is never built first.
+  `--role` accepts the platform spelling (`AXTextArea`) or the contract's
+  (`text-area`); `--text` is a case-insensitive substring of name or text,
+  `--text-exact` / `--identifier` are exact, `--within` is a screen-rect
+  intersection. The CLI shape is closed: an unknown flag, a missing value or
+  a stray positional fails typed `usage` before any tree is read. Evidence:
+  `cu-macos-smoke` STEP "query by role, identifier and exact text"
+  (`cu.macos-ax-query`); pure tests own the filter, paging and bounds
+  (`crates/agenterm-cu/src/observe.rs`). Linux / Windows answer through the
+  same verb with their own backends; live evidence there is not claimed.
+- [x] `tree --window HANDLE [--depth N] [--max-nodes N] [--flat]` applies
+  the same traversal-time budget and reports `truncated` / `visited` /
+  `returned` plus the requested `budget`; reaching a budget is a bounded
+  reply, not an error. `--flat` lists the same nodes in walk order with
+  `index` and `depth` per node — the numbering `query` reports and a later
+  `invoke --index` addresses. Evidence: `cu-macos-smoke` STEP
+  "tree --max-nodes 5 and --depth 0 report truncated" and STEP "full tree
+  reports truncated false" (`cu.macos-ax-tree-bounded`).
+- [x] `windows [--pid N] [--app SUB] [--title SUB] [--focused [BOOL]]
+  [--minimized [BOOL]] [--offset N] [--max N]` filters the inventory
+  (substrings case-insensitive) and pages it; with any filter or page flag
+  the reply is `{windows, visited, matched, returned, offset, truncated}`,
+  while the bare verb keeps its window-array reply. Evidence:
+  `cu-macos-smoke` STEP "public wait and windows --pid prove PID, title and
+  CGWindow identity" (`cu.macos-ax-window-identity`).
+- [x] `tree` and `query` carry each node's available actions from the
+  platform a11y backend (macOS: `AXUIElementCopyActionNames`, normalized —
+  `AXPress` is `click`, `AXRaise` is `focus`, `AXShowMenu` is `show-menu`,
+  other names kebab-cased); an empty action list means the backend reported
+  none, never that it was not asked. Evidence: `cu-macos-smoke` STEP "full
+  tree reports truncated false and AX action names on its controls"
+  (`cu.macos-ax-tree-actions`: the `Fixture Press` button carries `click`).
+  The `invoke` action vocabulary (`press`, `set-value`, `increment`, ...)
+  is slice 2.
 - [ ] `invoke --window HANDLE (--node PATH | --name PAT [--role ROLE])
   <action> [VALUE]` performs one semantic action (`press`, `set-value`,
   `select-option`, `set-checked`, `set-expanded`, `increment`, `decrement`)

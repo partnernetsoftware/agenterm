@@ -1,0 +1,488 @@
+// Prove the macOS agenterm-cu observe loop through libagenterm's AX backend:
+// capabilities -> windows (inventory filters) -> bounded tree / query.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// Runs under --profile tool on a real macOS desktop whose Accessibility
+// permission covers the process that spawns this journey. Slice 1 of
+// plan/design-mcu-absorption.md: observation only. No click / focus / value
+// actuation, no screenshot, no coordinate fallback.
+//
+// The owned fixture is examples/objc/agenterm_ax_fixture.m, compiled here
+// with clang and spawned as a door handle (process_spawn); its pid is
+// `harness.spawned_pid(handle)`, SIGTERM ends it with exit 0, and
+// `harness.wait` reaps it. A system application cannot stand in: a directly
+// exec'd system app binary is killed by launch constraints, and `open -a`
+// hands the process to LaunchServices, so its pid is not ours to kill.
+// Every agenterm-cu call is `rh.command` (exit_code, success, stdout,
+// stderr); the worker's JSON reply is parsed, never grepped.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.macos-ax-capabilities",
+  "cu.macos-ax-window-identity",
+  "cu.macos-ax-query",
+  "cu.macos-ax-tree-bounded",
+  "cu.macos-ax-tree-actions",
+  "cu.macos-ax-fixture-cleanup"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+// rh's `"" + json_null` is "" while JS's `"" + null` is "null".
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+// Null-safe dotted-path read: a refused reply carries `data: null` while an
+// accepted one carries `error: null`, and reading a property of null traps.
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  return text_of(at(value, dotted));
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(at(value, dotted));
+}
+
+function flag_at(value, dotted) {
+  return at(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+// One agenterm-cu call whose reply must be `ok: true`.
+function run_cu_json(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, { cwd: run_directory, timeout_ms: 30000 });
+  ensure(
+    output.success === true,
+    "cu_macos_smoke_cli_process:" + output.stdout + output.stderr
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_smoke_cli_empty");
+  const document = JSON.parse(trimmed);
+  ensure(
+    flag_at(document, "ok"),
+    "cu_macos_smoke_cli_reply:" + JSON.stringify(document)
+  );
+  return document;
+}
+
+// One agenterm-cu call whose reply is returned as parsed, ok or not.
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, { cwd: run_directory, timeout_ms: 30000 });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_smoke_cli_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function compile_fixture(run_directory, repo) {
+  const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
+  ensure(direct_file(source), "cu_macos_smoke_fixture_source_missing");
+  const fixture_executable = rh.join(run_directory, "agenterm_ax_fixture");
+  const compiled = rh.command(
+    "clang",
+    [
+      "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+      source, "-o", fixture_executable
+    ],
+    { cwd: repo, timeout_ms: 60000 }
+  );
+  ensure(
+    compiled.success === true && direct_file(fixture_executable),
+    "cu_macos_smoke_fixture_compile:" + compiled.stdout + compiled.stderr
+  );
+  return fixture_executable;
+}
+
+// The `windows --pid` inventory row for the fixture, or null.
+function fixture_window_row(run_directory, executable, pid, title) {
+  const inventory = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "windows", "--pid", "" + pid]
+  );
+  let row = null;
+  let matches = 0;
+  for (const candidate of inventory.data.windows) {
+    if (int_at(candidate, "process_id") === pid && text_at(candidate, "title") === title) {
+      matches = matches + 1;
+      row = candidate;
+    }
+  }
+  ensure(
+    int_at(inventory, "data.matched") === matches
+      && int_at(inventory, "data.returned") === matches
+      && !flag_at(inventory, "data.truncated"),
+    "cu_macos_smoke_windows_counts:" + JSON.stringify(inventory.data)
+  );
+  return matches === 1 ? row : null;
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_macos_smoke_executable_missing:" + executable);
+ensure(
+  direct_file(rh.join(rh.parent(executable), "libagenterm.dylib")),
+  "cu_macos_smoke_library_missing:" + rh.parent(executable)
+);
+
+const context = harness.new_context(repo, "cu-macos");
+const run_directory = rh.join(repo, "target/cu-macos-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_macos_smoke_stale_directory_locked");
+rh.create_dir_all(run_directory);
+
+let succeeded = 0;
+let failure = "";
+let fixture_pid = 0;
+let fixture = -1;
+let fixture_reaped = false;
+
+try {
+  print("STEP capabilities declare the AX tree and query available on current");
+  const version_output = rh.command(executable, ["--version"], { cwd: run_directory, timeout_ms: 30000 });
+  ensure(
+    version_output.success === true && version_output.stdout.trim().startsWith("agenterm-cu "),
+    "cu_macos_smoke_version:" + version_output.stdout + version_output.stderr
+  );
+  const capabilities = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "capabilities"]
+  );
+  ensure(
+    text_at(capabilities, "data.target") === "current"
+      && text_at(capabilities, "data.mechanism") === "libagenterm"
+      && text_at(capabilities, "data.capabilities.tree") === "Available"
+      && text_at(capabilities, "data.verbs.tree.status") === "available"
+      && text_at(capabilities, "data.verbs.query.status") === "available"
+      && text_at(capabilities, "data.mapping.tree").includes("macOS AX"),
+    "cu_macos_smoke_capabilities:" + JSON.stringify(capabilities.data)
+  );
+  // A refused observe is typed, never an empty tree.
+  const refused = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "windows"]
+  );
+  ensure(
+    !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
+    "cu_macos_smoke_refusal:" + JSON.stringify(refused)
+  );
+
+  print("STEP compile and start the owned no-activate Cocoa AX fixture");
+  const fixture_executable = compile_fixture(run_directory, repo);
+  fixture = harness.start({
+    program: fixture_executable,
+    args: [],
+    current_dir: run_directory,
+    timeout_ms: 30000
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-ax-fixture-" + fixture_pid;
+
+  print("STEP public wait and windows --pid prove PID, title and CGWindow identity");
+  const window_wait = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "wait",
+      "--timeout-ms", "5000", "--window-title-contains", fixture_title
+    ]
+  );
+  ensure(flag_at(window_wait, "data.met"), "cu_macos_smoke_window_wait_not_met");
+  const row = fixture_window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_macos_smoke_window_identity");
+  const fixture_handle = int_at(row, "handle");
+  ensure(
+    fixture_handle > 0
+      && int_at(row, "bounds.width") > 0
+      && int_at(row, "bounds.height") > 0,
+    "cu_macos_smoke_window_row:" + JSON.stringify(row)
+  );
+  const handle_text = "" + fixture_handle;
+  // The bare verb keeps its array shape; the title filter is case-insensitive
+  // and reports its counts.
+  const bare = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "windows"]
+  );
+  ensure(rh.is_array(bare.data), "cu_macos_smoke_windows_bare_shape");
+  const by_title = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "windows",
+      "--title", "AGENTERM-AX-FIXTURE-" + fixture_pid, "--max", "1"
+    ]
+  );
+  ensure(
+    int_at(by_title, "data.matched") === 1
+      && int_at(by_title, "data.returned") === 1
+      && int_at(by_title.data.windows[0], "handle") === fixture_handle,
+    "cu_macos_smoke_windows_title_filter:" + JSON.stringify(by_title.data)
+  );
+
+  print("STEP query by role, identifier and exact text hits the fixture controls");
+  const by_role = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "query",
+      "--window", handle_text, "--role", "AXTextArea"
+    ]
+  );
+  ensure(
+    text_at(by_role, "data.backend") === "ax"
+      && text_at(by_role, "data.addressing") === "accessibility-tree"
+      && text_at(by_role, "data.mechanism") === "libagenterm"
+      && int_at(by_role, "data.visited") > 1
+      && int_at(by_role, "data.matched") >= 1
+      && int_at(by_role, "data.returned") === int_at(by_role, "data.matched")
+      && !flag_at(by_role, "data.truncated"),
+    "cu_macos_smoke_query_role:" + JSON.stringify(by_role.data)
+  );
+  let seeded_text_matches = 0;
+  let text_area_id = "";
+  for (const node of by_role.data.nodes) {
+    ensure(text_at(node, "role") === "text-area", "cu_macos_smoke_query_role_leak:" + JSON.stringify(node));
+    if (text_at(node, "text") === "345AXTREE"
+        && text_at(node, "identifier") === "fixture-text"
+        && rh.has_item(node.states, "showing")) {
+      seeded_text_matches = seeded_text_matches + 1;
+      text_area_id = text_at(node, "id");
+    }
+  }
+  ensure(seeded_text_matches === 1, "cu_macos_smoke_query_seeded_text:" + JSON.stringify(by_role.data.nodes));
+  const by_identifier = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "query",
+      "--window", handle_text, "--identifier", "fixture-press", "--actionable"
+    ]
+  );
+  ensure(
+    int_at(by_identifier, "data.matched") === 1
+      && text_at(by_identifier.data.nodes[0], "role") === "button"
+      && text_at(by_identifier.data.nodes[0], "name") === "Fixture Press"
+      && rh.has_item(by_identifier.data.nodes[0].actions, "click"),
+    "cu_macos_smoke_query_identifier:" + JSON.stringify(by_identifier.data)
+  );
+  const by_exact = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "query",
+      "--window", handle_text, "--text-exact", "345AXTREE"
+    ]
+  );
+  ensure(
+    int_at(by_exact, "data.matched") === 1
+      && text_at(by_exact.data.nodes[0], "id") === text_area_id,
+    "cu_macos_smoke_query_text_exact:" + JSON.stringify(by_exact.data)
+  );
+  // A closed CLI shape: an unknown flag fails before any tree is read.
+  const bogus = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "query", "--window", handle_text, "--bogus"]
+  );
+  ensure(
+    !flag_at(bogus, "ok") && text_at(bogus, "error.code") === "usage",
+    "cu_macos_smoke_query_unknown_flag:" + JSON.stringify(bogus)
+  );
+
+  print("STEP tree --max-nodes 5 and --depth 0 report truncated; --flat numbers the walk");
+  const bounded = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "tree",
+      "--window", handle_text, "--max-nodes", "5"
+    ]
+  );
+  ensure(
+    text_at(bounded, "data.backend") === "ax"
+      && flag_at(bounded, "data.truncated")
+      && int_at(bounded, "data.returned") === 5
+      && int_at(bounded, "data.visited") === 5
+      && bounded.data.nodes.length === 5
+      && int_at(bounded, "data.budget.max_nodes") === 5,
+    "cu_macos_smoke_tree_max_nodes:" + JSON.stringify(bounded.data)
+  );
+  const root_only = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "tree",
+      "--window", handle_text, "--depth", "0", "--flat"
+    ]
+  );
+  ensure(
+    flag_at(root_only, "data.truncated")
+      && flag_at(root_only, "data.flat")
+      && int_at(root_only, "data.returned") === 1
+      && int_at(root_only.data.nodes[0], "index") === 0
+      && int_at(root_only.data.nodes[0], "depth") === 0
+      && text_at(root_only.data.nodes[0], "role") === "window"
+      && text_at(root_only.data.nodes[0], "name") === fixture_title,
+    "cu_macos_smoke_tree_depth_zero:" + JSON.stringify(root_only.data)
+  );
+  const too_deep = run_cu_reply(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "tree",
+      "--window", handle_text, "--max-nodes", "0"
+    ]
+  );
+  ensure(
+    !flag_at(too_deep, "ok") && text_at(too_deep, "error.code") === "invalid_input",
+    "cu_macos_smoke_tree_budget_bounds:" + JSON.stringify(too_deep)
+  );
+
+  print("STEP full tree reports truncated false and AX action names on its controls");
+  const full = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "tree", "--window", handle_text, "--flat"]
+  );
+  ensure(
+    text_at(full, "data.backend") === "ax"
+      && !flag_at(full, "data.degraded")
+      && !flag_at(full, "data.truncated")
+      && int_at(full, "data.returned") === full.data.nodes.length
+      && int_at(full, "data.visited") === full.data.nodes.length
+      && full.data.nodes.length > 5,
+    "cu_macos_smoke_tree_full:" + JSON.stringify(full.data)
+  );
+  let nodes_with_actions = 0;
+  let press_button_matches = 0;
+  let text_area_matches = 0;
+  let expected_index = 0;
+  for (const node of full.data.nodes) {
+    ensure(int_at(node, "index") === expected_index, "cu_macos_smoke_flat_index_order");
+    expected_index = expected_index + 1;
+    if (node.actions.length > 0) { nodes_with_actions = nodes_with_actions + 1; }
+    if (text_at(node, "role") === "button" && text_at(node, "name") === "Fixture Press"
+        && rh.has_item(node.actions, "click")) {
+      press_button_matches = press_button_matches + 1;
+    }
+    if (text_at(node, "id") === text_area_id && text_at(node, "role") === "text-area") {
+      text_area_matches = text_area_matches + 1;
+    }
+  }
+  ensure(
+    nodes_with_actions >= 1 && press_button_matches === 1 && text_area_matches === 1,
+    "cu_macos_smoke_tree_actions:actions=" + nodes_with_actions
+      + ":press=" + press_button_matches + ":text=" + text_area_matches
+  );
+
+  print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
+  const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
+  let fixture_exited = 0;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(fixture) === "exited") {
+      fixture_exited = 1;
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  ensure(fixture_exited !== 0, "cu_macos_smoke_fixture_exit_timeout");
+  const fixture_output = harness.wait(fixture, 2000);
+  fixture_reaped = true;
+  ensure(
+    fixture_output.success === true && fixture_output.exit_code === 0,
+    "cu_macos_smoke_fixture_exit:" + JSON.stringify(fixture_output)
+  );
+  const ready_parts = fixture_output.stdout.trim().split(" ");
+  ensure(
+    ready_parts.length === 2 && ready_parts[0] === "ready"
+      && rh.parse_int("" + ready_parts[1]) === fixture_pid,
+    "cu_macos_smoke_fixture_ready:" + fixture_output.stdout
+  );
+  ensure(harness.process_present(fixture_pid) === 0, "cu_macos_smoke_fixture_orphan");
+  const gone = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid]
+  );
+  ensure(int_at(gone, "data.matched") === 0, "cu_macos_smoke_fixture_window_lingers");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture >= 0 && !fixture_reaped) {
+  // Only the pid this run spawned; never a name pattern.
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  let reaped = false;
+  try {
+    const output = harness.wait(fixture, 3000);
+    reaped = output !== null;
+  } catch (wait_error) {
+    reaped = false;
+  }
+  if (!reaped && fixture_pid !== 0) {
+    rh.command("kill", ["-KILL", "" + fixture_pid], { timeout_ms: 5000 });
+    try { harness.wait(fixture, 3000); } catch (kill_error) { failure = failure + ":cu_macos_smoke_fixture_unreaped"; }
+  }
+}
+
+if (succeeded === 0) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_macos_smoke_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_macos_smoke_cleanup_locked");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-capabilities");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-identity");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-query");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-tree-bounded");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-tree-actions");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
+harness.remove_run(context);
+print("PASS: agenterm-cu macOS AX observe journey (capabilities, windows, query, bounded tree)");
+return;

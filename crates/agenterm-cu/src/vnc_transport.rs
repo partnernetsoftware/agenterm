@@ -773,6 +773,13 @@ mod tests {
     fn windows_observe_survives_target_rewrite() {
         let command = CuCommand::Windows {
             target: TargetRef::Vnc,
+            pid: None,
+            app: None,
+            title: None,
+            focused: None,
+            minimized: None,
+            offset: None,
+            max: None,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "windows");
@@ -1246,6 +1253,9 @@ mod tests {
         let command = CuCommand::Tree {
             target: TargetRef::Vnc,
             window: Some(42),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "tree");

@@ -1,9 +1,11 @@
-//! macOS Accessibility (AX) tree client — PLACEHOLDER observe path.
+//! macOS Accessibility (AX) tree client — observe path.
 //!
-//! Ships a real `cfg(macos)` AX walk for `agenterm-cu --target current tree`
-//! with typed permission / timeout / bound failures. Live black-box evidence
-//! is **not** claimed on non-macOS hosts; a later macOS agent owns the fixture
-//! gate (`345AXTREE` + `Fixture Press`, `backend:"ax"`).
+//! A `cfg(macos)` AX walk for `agenterm-cu --target current tree` / `query`
+//! with typed permission / timeout / bound failures. The walk is bounded
+//! while it reads: a caller's depth and node budget stop the breadth-first
+//! traversal at the boundary and the reply says `truncated` instead of
+//! failing or silently looking complete. Per-node actions come from
+//! `AXUIElementCopyActionNames`. Live evidence: `scripts/qjs/cu-macos-smoke.qjs`.
 //!
 //! No click / focus / value actuation, no screenshot, no CGEvent fallback, and
 //! no silent reuse of AT-SPI or UIA.
@@ -17,7 +19,7 @@ use std::time::{Duration, Instant};
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeError,
+    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
 };
 
 type CfTypeRef = *const c_void;
@@ -29,8 +31,14 @@ type AxUiElementRef = *const c_void;
 type AxValueRef = *const c_void;
 type CgWindowId = u32;
 
+/// Default node budget when the caller names none. A larger tree is not an
+/// error: the walk stops here and reports `truncated`.
 const MAX_NODES: usize = 1_000;
+/// Default depth budget (root = 0) when the caller names none.
 const MAX_DEPTH: usize = 32;
+/// Where to grant the permission this adapter needs. Quoted verbatim in the
+/// typed denial so an agent can relay it without guessing.
+const ACCESSIBILITY_REPAIR_PATH: &str = "System Settings > Privacy & Security > Accessibility: enable the process that runs agenterm-cu (or its parent terminal / launcher), then rerun";
 const MAX_SIBLINGS_PER_LEVEL: usize = 1_000;
 const MAX_NODE_ID_BYTES: usize = 4_096;
 const MAX_STRING_BYTES: usize = 16 * 1024;
@@ -38,6 +46,10 @@ const MAX_TOTAL_STRING_BYTES: usize = 2 * 1024 * 1024;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5);
 
 const AX_SUCCESS: i32 = 0;
+/// `kAXErrorFailure`: AppKit answers this for an attribute an element does
+/// not provide (an NSScrollView scroller's `AXDescription`, for one). On an
+/// attribute read it means "no value here", the same as unsupported.
+const AX_ERROR_FAILURE: i32 = -25200;
 const AX_ERROR_API_DISABLED: i32 = -25211;
 const AX_ERROR_INVALID_UI_ELEMENT: i32 = -25202;
 const AX_ERROR_ATTRIBUTE_UNSUPPORTED: i32 = -25205;
@@ -101,6 +113,7 @@ unsafe extern "C" {
         value: *mut CfTypeRef,
     ) -> i32;
     fn AXUIElementCopyAttributeNames(element: AxUiElementRef, names: *mut CfTypeRef) -> i32;
+    fn AXUIElementCopyActionNames(element: AxUiElementRef, names: *mut CfTypeRef) -> i32;
     fn AXValueGetValue(value: AxValueRef, typ: u32, value_ptr: *mut c_void) -> u8;
     fn _AXUIElementGetWindow(element: AxUiElementRef, out: *mut CgWindowId) -> i32;
 }
@@ -305,28 +318,55 @@ fn map_ax_status(status: i32, operation: &str) -> Result<(), AccessibilityTreeEr
     ))
 }
 
+fn permission_denied() -> AccessibilityTreeError {
+    AccessibilityTreeError::failed(
+        "a11y_permission_denied",
+        format!(
+            "AXIsProcessTrusted() is false: Accessibility permission is not granted. {ACCESSIBILITY_REPAIR_PATH}"
+        ),
+    )
+}
+
 fn require_trusted() -> Result<(), AccessibilityTreeError> {
     if unsafe { AXIsProcessTrusted() } == 0 {
-        return Err(AccessibilityTreeError::failed(
-            "a11y_permission_denied",
-            "AXIsProcessTrusted() is false; grant Accessibility for this process",
-        ));
+        return Err(permission_denied());
     }
     Ok(())
 }
 
+/// The AX mechanism is compiled into this adapter, so it is never
+/// `Unsupported` here. Without Accessibility permission the OS refuses every
+/// AX read, which is a typed denial carrying the repair path — not an empty
+/// tree and not a missing adapter.
 pub(crate) fn capability_status() -> CapabilityStatus {
-    // The AX mechanism is compiled into this adapter. Permission is a runtime
-    // failure on tree/actuation, not a missing host adapter.
-    CapabilityStatus::Available
+    match require_trusted() {
+        Ok(()) => CapabilityStatus::Available,
+        Err(AccessibilityTreeError::Failed { code, message }) => {
+            CapabilityStatus::Failed { code, message }
+        }
+        Err(AccessibilityTreeError::Unsupported { reason }) => {
+            CapabilityStatus::Unsupported { reason }
+        }
+    }
 }
 
 /// `None` walks every on-screen CG window under the same node/depth/string/time
 /// bounds as a window-scoped snapshot. `Some(handle)` scopes to that CGWindowID.
+///
+/// `budget` applies while reading: no child is fetched below `max_depth`, and
+/// the breadth-first walk stops once `max_nodes` nodes are read. Either cut
+/// sets `truncated`; `visited` counts nodes read from AX.
 pub(crate) fn tree_for_window(
     window_handle: Option<isize>,
+    budget_request: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
     require_trusted()?;
+    let max_nodes = budget_request.max_nodes.unwrap_or(MAX_NODES);
+    let max_depth = budget_request
+        .max_depth
+        .map(|depth| depth as usize)
+        .unwrap_or(MAX_DEPTH);
+    let mut truncated = false;
     let mut budget = Budget::new(SNAPSHOT_TIMEOUT);
     let roots = resolve_roots(window_handle, &mut budget)?;
     if roots.is_empty() {
@@ -349,11 +389,10 @@ pub(crate) fn tree_for_window(
 
     while let Some((element, id, parent_id, depth)) = queue.pop_front() {
         budget.check()?;
-        if nodes.len() >= MAX_NODES {
-            return Err(limit_error(
-                "a11y_node_limit",
-                format!("AX tree exceeds {MAX_NODES} nodes"),
-            ));
+        if nodes.len() >= max_nodes {
+            // Something was still queued: the node budget cut the walk.
+            truncated = true;
+            break;
         }
         if id.len() > MAX_NODE_ID_BYTES {
             return Err(limit_error(
@@ -375,11 +414,10 @@ pub(crate) fn tree_for_window(
             Err(error) if parent_id.is_some() && is_snapshot_branch_loss(&error) => continue,
             Err(error) => return Err(error),
         };
-        if !children.is_empty() && depth >= MAX_DEPTH {
-            return Err(limit_error(
-                "a11y_depth_limit",
-                format!("AX tree exceeds depth {MAX_DEPTH}"),
-            ));
+        if !children.is_empty() && depth >= max_depth {
+            // Children exist below the depth budget; they are not fetched.
+            truncated = true;
+            continue;
         }
         if children.len() > MAX_SIBLINGS_PER_LEVEL {
             return Err(limit_error(
@@ -389,11 +427,11 @@ pub(crate) fn tree_for_window(
         }
         for (child_index, child) in children.into_iter().enumerate() {
             budget.check()?;
-            if nodes.len().saturating_add(queue.len()).saturating_add(1) > MAX_NODES {
-                return Err(limit_error(
-                    "a11y_node_limit",
-                    format!("AX tree exceeds {MAX_NODES} nodes"),
-                ));
+            if nodes.len().saturating_add(queue.len()) >= max_nodes {
+                // No room left to even queue this child: the node budget
+                // cuts the walk here.
+                truncated = true;
+                break;
             }
             let child_id = format!("{id}/{child_index}");
             queue.push_back((child, child_id, Some(id.clone()), depth + 1));
@@ -412,11 +450,15 @@ pub(crate) fn tree_for_window(
         .map(|node| node.id.clone())
         .unwrap_or_else(|| "/0".to_owned());
 
+    let returned = nodes.len();
     Ok(AccessibilityTree {
         backend: "ax",
         window_handle,
         root_id,
         nodes,
+        truncated,
+        visited: returned,
+        returned,
     })
 }
 
@@ -551,10 +593,7 @@ fn all_on_screen_window_roots(budget: &mut Budget) -> Result<Vec<CfOwned>, Acces
             Err(AccessibilityTreeError::Failed { code, .. })
                 if code == "a11y_permission_denied" =>
             {
-                return Err(AccessibilityTreeError::failed(
-                    "a11y_permission_denied",
-                    "Accessibility permission is not granted for this process",
-                ));
+                return Err(permission_denied());
             }
             Err(_) => continue,
         }
@@ -652,10 +691,7 @@ fn ax_element_for_handle(
         let status = AXUIElementCopyAttributeValue(app.as_ax(), windows_key, &mut windows);
         CFRelease(windows_key as CfTypeRef);
         if status == AX_ERROR_API_DISABLED {
-            return Err(AccessibilityTreeError::failed(
-                "a11y_permission_denied",
-                "AXWindows denied: Accessibility permission is not granted",
-            ));
+            return Err(permission_denied());
         }
         map_ax_status(status, "AXWindows")?;
         let Some(windows) = CfOwned::from_create(windows) else {
@@ -700,14 +736,12 @@ fn copy_attribute(
         let status = AXUIElementCopyAttributeValue(element, key, &mut value);
         CFRelease(key as CfTypeRef);
         if status == AX_ERROR_API_DISABLED {
-            return Err(AccessibilityTreeError::failed(
-                "a11y_permission_denied",
-                format!("{name}: Accessibility permission is not granted"),
-            ));
+            return Err(permission_denied());
         }
         if status == AX_ERROR_ATTRIBUTE_UNSUPPORTED
             || status == AX_ERROR_NO_VALUE
             || status == AX_ERROR_NOT_IMPLEMENTED
+            || status == AX_ERROR_FAILURE
         {
             return Ok(None);
         }
@@ -775,14 +809,21 @@ fn read_node(
     budget.check()?;
     let role = attribute_string(element, "AXRole", budget)?.unwrap_or_default();
     let role = normalize_role(&role);
+    let identifier = attribute_string(element, "AXIdentifier", budget)?.filter(|s| !s.is_empty());
     let name = attribute_string(element, "AXTitle", budget)?
         .filter(|s| !s.is_empty())
-        .or(attribute_string(element, "AXDescription", budget)?)
-        .or(attribute_string(element, "AXIdentifier", budget)?)
+        .or(attribute_string(element, "AXDescription", budget)?.filter(|s| !s.is_empty()))
+        .or_else(|| identifier.clone())
         .unwrap_or_default();
-    let text = attribute_string(element, "AXValue", budget)?.filter(|s| !s.is_empty());
+    let (text, text_truncated) = attribute_value_text(element, budget)?;
     let bounds = read_bounds(element, budget)?;
-    let states = read_states(element, budget, &bounds)?;
+    let mut states = read_states(element, budget, &bounds)?;
+    if text_truncated {
+        // A window-sized text value (a terminal buffer, a long document) is
+        // previewed, not copied whole: the snapshot stays bounded and the
+        // node says so. The full value is a `get-text` read, not a tree.
+        states.push("text-truncated".to_owned());
+    }
     let actions = read_actions(element, budget)?;
 
     Ok(AccessibilityNode {
@@ -794,6 +835,7 @@ fn read_node(
         bounds,
         actions,
         text,
+        identifier,
     })
 }
 
@@ -821,6 +863,31 @@ fn attribute_string(
         }
     }
     Ok(Some(text))
+}
+
+/// `AXValue` as text, cut at a UTF-8 boundary to `MAX_STRING_BYTES`. Returns
+/// the preview and whether it was cut. A number-typed value (sliders) is not
+/// text; an empty value is `None`.
+fn attribute_value_text(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<(Option<String>, bool), AccessibilityTreeError> {
+    let Some(value) = copy_attribute(element, "AXValue", budget)? else {
+        return Ok((None, false));
+    };
+    let mut text = cf_string(value.as_ptr());
+    if text.is_empty() {
+        return Ok((None, false));
+    }
+    let truncated = text.len() > MAX_STRING_BYTES;
+    if truncated {
+        let mut cut = MAX_STRING_BYTES;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+    }
+    Ok((Some(text), truncated))
 }
 
 fn read_bounds(
@@ -920,17 +987,35 @@ fn attribute_bool(
     Ok(None)
 }
 
+/// The element's performable actions, from `AXUIElementCopyActionNames`
+/// (there is no `AXActions` attribute; reading one always came back empty).
+/// An element that reports none yields an empty list; a recycled element or
+/// a denied call fails typed like any other attribute read.
 fn read_actions(
     element: AxUiElementRef,
     budget: &mut Budget,
 ) -> Result<Vec<String>, AccessibilityTreeError> {
-    // Prefer AXActions when present; fall back to scanning action-like names.
-    if let Some(array) = copy_attribute(element, "AXActions", budget)? {
-        return actions_from_array(array.as_ptr() as CfArrayRef, budget);
+    budget.check()?;
+    unsafe {
+        let mut names: CfTypeRef = std::ptr::null();
+        let status = AXUIElementCopyActionNames(element, &mut names);
+        if status == AX_ERROR_API_DISABLED {
+            return Err(permission_denied());
+        }
+        if status == AX_ERROR_INVALID_UI_ELEMENT {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_node_recycled",
+                "AXActionNames: AX element disappeared",
+            ));
+        }
+        if status != AX_SUCCESS || names.is_null() {
+            return Ok(Vec::new());
+        }
+        let Some(names) = CfOwned::from_create(names) else {
+            return Ok(Vec::new());
+        };
+        actions_from_array(names.as_ptr() as CfArrayRef, budget)
     }
-    // Some elements only expose press via performable action names query.
-    let _ = element;
-    Ok(Vec::new())
 }
 
 fn actions_from_array(

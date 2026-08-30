@@ -287,10 +287,143 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
 
     let command = match verb.as_str() {
         "capabilities" => Command::Capabilities { target },
-        "windows" => Command::Windows { target },
+        "windows" => {
+            let pid = match flag_parsed::<u32>(&mut args, "--pid") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let app = match flag_text(&mut args, "--app") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let title = match flag_text(&mut args, "--title") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let focused = flag_tristate(&mut args, "--focused");
+            let minimized = flag_tristate(&mut args, "--minimized");
+            let offset = match flag_parsed::<usize>(&mut args, "--offset") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max = match flag_parsed::<usize>(&mut args, "--max") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "windows accepts only --pid N --app SUB --title SUB --focused [BOOL] \
+                     --minimized [BOOL] --offset N --max N; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Windows {
+                target,
+                pid,
+                app,
+                title,
+                focused,
+                minimized,
+                offset,
+                max,
+            }
+        }
         "tree" => {
             let window = flag_isize(&mut args, "--window");
-            Command::Tree { target, window }
+            let depth = match flag_parsed::<u32>(&mut args, "--depth") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max_nodes = match flag_parsed::<usize>(&mut args, "--max-nodes") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let flat = take_switch(&mut args, "--flat");
+            Command::Tree {
+                target,
+                window,
+                depth,
+                max_nodes,
+                flat,
+            }
+        }
+        "query" => {
+            // Closed CLI shape (mcu lesson): an unknown flag, a missing
+            // value, or a stray positional fails here, before any tree is
+            // read, instead of quietly returning the whole tree.
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("query requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            let depth = match flag_parsed::<u32>(&mut args, "--depth") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max_nodes = match flag_parsed::<usize>(&mut args, "--max-nodes") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let role = match flag_text(&mut args, "--role") {
+                Ok(value) => value
+                    .map(|raw| agenterm_cu::observe::parse_roles(&raw))
+                    .unwrap_or_default(),
+                Err(message) => return usage_err(message),
+            };
+            let text = match flag_text(&mut args, "--text") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let text_exact = match flag_text(&mut args, "--text-exact") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if text.is_some() && text_exact.is_some() {
+                return usage_err("query accepts --text or --text-exact, not both");
+            }
+            let identifier = match flag_text(&mut args, "--identifier") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let actionable = take_switch(&mut args, "--actionable");
+            let within = match flag_text(&mut args, "--within") {
+                Ok(Some(raw)) => match agenterm_cu::observe::parse_within(&raw) {
+                    Ok(rect) => Some(rect),
+                    Err(message) => return usage_err(message),
+                },
+                Ok(None) => None,
+                Err(message) => return usage_err(message),
+            };
+            let offset = match flag_parsed::<usize>(&mut args, "--offset") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max = match flag_parsed::<usize>(&mut args, "--max") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "query accepts only --window H --depth N --max-nodes N --role R,R \
+                     --text T | --text-exact T --identifier ID --actionable \
+                     --within X,Y,W,H --offset N --max N; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Query {
+                target,
+                window,
+                depth,
+                max_nodes,
+                role,
+                text,
+                text_exact,
+                identifier,
+                actionable,
+                within,
+                offset,
+                max,
+            }
         }
         "screenshot" => {
             let path = flag_value(&mut args, "--out")
@@ -995,6 +1128,67 @@ fn flag_isize(args: &mut Vec<String>, flag: &str) -> Option<isize> {
     flag_value(args, flag)?.parse().ok()
 }
 
+/// A typed flag that must parse when present: `Ok(None)` when absent,
+/// `Err(usage)` when present without a value or with a value that is not a
+/// `T`. Unlike `flag_isize`, a bad value never silently drops the flag.
+fn flag_parsed<T: std::str::FromStr>(
+    args: &mut Vec<String>,
+    flag: &'static str,
+) -> Result<Option<T>, String> {
+    let Some(index) = args.iter().position(|arg| arg == flag) else {
+        return Ok(None);
+    };
+    args.remove(index);
+    if index >= args.len() {
+        return Err(format!("{flag} requires a value"));
+    }
+    let raw = args.remove(index);
+    raw.parse::<T>().map(Some).map_err(|_| {
+        format!(
+            "{flag} value {raw:?} is not a {}",
+            std::any::type_name::<T>()
+        )
+    })
+}
+
+/// A string flag whose value is consumed with it (unlike `flag_value`, which
+/// leaves the value in `args` for the older verbs' lenient parsing). Present
+/// without a value is a usage error.
+fn flag_text(args: &mut Vec<String>, flag: &'static str) -> Result<Option<String>, String> {
+    let Some(index) = args.iter().position(|arg| arg == flag) else {
+        return Ok(None);
+    };
+    args.remove(index);
+    if index >= args.len() {
+        return Err(format!("{flag} requires a value"));
+    }
+    Ok(Some(args.remove(index)))
+}
+
+/// A presence switch (`--flat`, `--actionable`); every occurrence is removed.
+fn take_switch(args: &mut Vec<String>, flag: &str) -> bool {
+    let present = args.iter().any(|arg| arg == flag);
+    args.retain(|arg| arg != flag);
+    present
+}
+
+/// `--focused` alone means `true`; `--focused true|false` is explicit.
+fn flag_tristate(args: &mut Vec<String>, flag: &str) -> Option<bool> {
+    let index = args.iter().position(|arg| arg == flag)?;
+    args.remove(index);
+    match args.get(index).map(String::as_str) {
+        Some("true") => {
+            args.remove(index);
+            Some(true)
+        }
+        Some("false") => {
+            args.remove(index);
+            Some(false)
+        }
+        _ => Some(true),
+    }
+}
+
 fn flag_i32(args: &mut Vec<String>, flag: &str) -> Option<i32> {
     flag_value(args, flag)?.parse().ok()
 }
@@ -1130,8 +1324,20 @@ Global:
 
 Commands:
   capabilities
-  windows
-  tree [--window HANDLE]
+  windows [--pid N] [--app SUB] [--title SUB] [--focused [BOOL]] [--minimized [BOOL]]
+          [--offset N] [--max N]
+                              bare: the window array; with any filter/page flag:
+                              {{windows, visited, matched, returned, offset, truncated}}
+  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat]
+                              depth (root=0, <=64) and node budget (1..20000) apply
+                              while the platform walks; reply carries truncated /
+                              visited / returned. --flat numbers nodes (index, depth)
+                              in walk order — the same identity query reports
+  query --window HANDLE [--depth N] [--max-nodes N] [--role R,R] [--text T | --text-exact T]
+        [--identifier ID] [--actionable] [--within X,Y,W,H] [--offset N] [--max N]
+                              bounded, filtered flat node list with visited /
+                              matched / returned / truncated; roles accept AXTextArea
+                              or text-area; an unknown flag fails before the walk
   screenshot --out PATH [--window HANDLE]
   pointer-move --x X --y Y moves to absolute screen coordinates without any
                               press/release/click/drag/wheel side effect

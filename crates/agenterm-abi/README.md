@@ -288,7 +288,10 @@ parent-console / runtime / a11y 等大量向后兼容导出，minor 随导出面
 `agt_a11y_node_get_extents` / `agt_a11y_node_set_selection` /
 `agt_a11y_node_get_selection` / `agt_a11y_node_set_caret_offset` /
 `agt_a11y_node_get_caret_offset`）。ABI 1.10 又增加 placement inspection，且未
-改动既有 `agt_window_info`。
+改动既有 `agt_window_info`。ABI 1.12 增加 `agt_a11y_tree_snapshot_bounded`
+（遍历期 depth / node budget，元数据字段 TRUNCATED / VISITED / RETURNED，节点
+字符串 IDENTIFIER），并把 OS 拒绝的 a11y 栈（macOS 辅助功能权限）从
+`AGT_UNSUPPORTED` 改为带修复路径的 `AGT_FAILED{code="a11y_permission_denied"}`。
 
 `agt_build_id()` 返回 `<crate 版本>+abi.<major>.<minor>`
 （例如 `0.1.16+abi.1.1`），在**编译期**由 `CARGO_PKG_VERSION` 与

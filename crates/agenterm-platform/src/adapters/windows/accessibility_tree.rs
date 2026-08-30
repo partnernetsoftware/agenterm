@@ -58,7 +58,7 @@ use windows_sys::core::{BSTR, GUID, HRESULT};
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeError,
+    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
 };
 use crate::contract::input_inject::InputInjectError;
 
@@ -104,9 +104,18 @@ pub(crate) fn capability_status() -> CapabilityStatus {
 /// `None` deliberately means the desktop ControlView root, not an unbounded
 /// machine-wide crawl. It has the same node, depth, string, per-COM-call, and
 /// wall-clock limits as a window-scoped snapshot.
+///
+/// An explicit `budget` is a soft bound applied while walking: reaching it
+/// ends the walk with `truncated: true`. Without one the adapter's hard
+/// limits keep their typed-failure semantics (`a11y_node_limit` /
+/// `a11y_depth_limit`), unchanged.
 pub(crate) fn tree_for_window(
     window_handle: Option<isize>,
+    budget_request: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    let soft_nodes = budget_request.max_nodes;
+    let soft_depth = budget_request.max_depth.map(|depth| depth as usize);
+    let mut truncated = false;
     let mut budget = Budget::new(
         SNAPSHOT_TIMEOUT,
         "a11y_tree_timeout",
@@ -126,6 +135,10 @@ pub(crate) fn tree_for_window(
 
     while let Some((element, id, parent_id, depth)) = queue.pop_front() {
         budget.check()?;
+        if soft_nodes.is_some_and(|limit| nodes.len() >= limit) {
+            truncated = true;
+            break;
+        }
         if nodes.len() >= MAX_NODES {
             return Err(limit_error(
                 "a11y_node_limit",
@@ -142,6 +155,12 @@ pub(crate) fn tree_for_window(
         nodes.push(node);
 
         let first_child = session.first_child(&element, &budget)?;
+        if soft_depth.is_some_and(|limit| depth >= limit) {
+            if first_child.is_some() {
+                truncated = true;
+            }
+            continue;
+        }
         if depth >= MAX_DEPTH {
             if first_child.is_some() {
                 return Err(limit_error(
@@ -156,6 +175,10 @@ pub(crate) fn tree_for_window(
         let mut sibling_count = 0usize;
         while let Some(child) = current {
             budget.check()?;
+            if soft_nodes.is_some_and(|limit| nodes.len().saturating_add(queue.len()) >= limit) {
+                truncated = true;
+                break;
+            }
             sibling_count += 1;
             if sibling_count > MAX_SIBLINGS_PER_LEVEL
                 || nodes.len().saturating_add(queue.len()) >= MAX_NODES
@@ -207,11 +230,15 @@ pub(crate) fn tree_for_window(
         ));
     }
 
+    let returned = nodes.len();
     Ok(AccessibilityTree {
         backend: "uia",
         window_handle,
         root_id,
         nodes,
+        truncated,
+        visited: returned,
+        returned,
     })
 }
 
@@ -707,6 +734,7 @@ impl UiaSession {
             bounds,
             actions,
             text,
+            identifier: None,
         })
     }
 

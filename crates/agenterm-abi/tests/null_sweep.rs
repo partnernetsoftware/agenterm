@@ -153,6 +153,7 @@ type ScreenshotCaptureWindow =
 type ProcessList = unsafe extern "C" fn(*mut agt_process_info, usize, *mut usize) -> i32;
 type ProcessKill = unsafe extern "C" fn(u32) -> i32;
 type A11yTreeSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
+type A11yTreeSnapshotBounded = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
 type A11yTreeMetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32;
 type A11yTreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
@@ -758,6 +759,15 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<A11yTreeSnapshot> = unsafe { sym(lib, b"agt_a11y_tree_snapshot") };
                 unsafe { CallResult::Status(f(0, std::ptr::null_mut())) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_tree_snapshot_bounded[window_handle=0,max_depth=-1,max_nodes=0,out_node_count=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yTreeSnapshotBounded> =
+                    unsafe { sym(lib, b"agt_a11y_tree_snapshot_bounded") };
+                unsafe { CallResult::Status(f(0, -1, 0, std::ptr::null_mut())) }
             }),
         },
         SweepCase {

@@ -2,17 +2,35 @@
 
 pub use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeError,
+    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError, MAX_TREE_DEPTH_BUDGET,
+    MAX_TREE_NODE_BUDGET,
 };
 
+/// `Available` when the host stack can be walked now. A stack that exists but
+/// is refused by the OS (macOS Accessibility permission) answers
+/// `Failed { code: "a11y_permission_denied", .. }` with the repair path in
+/// the message, never `Unsupported` and never an empty tree.
 pub fn capability_status() -> crate::CapabilityStatus {
     crate::selected::accessibility_tree::capability_status()
 }
 
+/// Walk with the adapter's own default bounds (see [`tree_for_window_bounded`]).
 pub fn tree_for_window(
     window_handle: Option<isize>,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
-    crate::selected::accessibility_tree::tree_for_window(window_handle)
+    tree_for_window_bounded(window_handle, AccessibilityTreeBudget::default())
+}
+
+/// Walk one window (or every root when `None`) under `budget`. Depth and node
+/// budgets apply while the backend is being read; the result reports
+/// `truncated` / `visited` / `returned`. An out-of-range budget is typed
+/// `invalid_input` before any backend call.
+pub fn tree_for_window_bounded(
+    window_handle: Option<isize>,
+    budget: AccessibilityTreeBudget,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    budget.validate()?;
+    crate::selected::accessibility_tree::tree_for_window(window_handle, budget)
 }
 
 pub fn perform_node_action(

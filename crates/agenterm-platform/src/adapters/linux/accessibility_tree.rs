@@ -26,7 +26,7 @@ use zbus::zvariant::OwnedObjectPath;
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeError,
+    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
 };
 
 const MAX_NODES: usize = 1_000;
@@ -129,13 +129,20 @@ pub(crate) fn capability_status() -> CapabilityStatus {
     }
 }
 
+/// `budget` bounds the walk while the bus is read: `max_nodes` caps the
+/// nodes returned (default `MAX_NODES`) and `max_depth` the deepest level
+/// whose children are fetched (default `MAX_DEPTH`). The result's
+/// `truncated` reports whether the backend still had nodes past either bound.
 pub(crate) fn tree_for_window(
     window_handle: Option<isize>,
+    budget: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    let max_nodes = budget.max_nodes.unwrap_or(MAX_NODES);
+    let max_depth = budget.max_depth.unwrap_or(MAX_DEPTH);
     runtime().block_on(async {
         timeout(
             SNAPSHOT_TIMEOUT,
-            tree_for_window_async(window_handle, MAX_NODES, MAX_DEPTH),
+            tree_for_window_async(window_handle, max_nodes, max_depth),
         )
         .await
         .map_err(|_| {
@@ -400,6 +407,7 @@ async fn tree_for_window_async(
 
     let dbus = DBusProxy::new(&conn).await.ok();
     let mut nodes = Vec::new();
+    let mut truncated = false;
     let mut queue: VecDeque<(BusObject, String, Option<String>, u32)> = VecDeque::new();
     for (index, object) in selected.into_iter().enumerate() {
         queue.push_back((object, format!("/{index}"), None, 0));
@@ -407,6 +415,8 @@ async fn tree_for_window_async(
 
     while let Some((object, id, parent_id, depth)) = queue.pop_front() {
         if nodes.len() >= max_nodes {
+            // Nodes were still queued: the node budget cut the walk.
+            truncated = true;
             break;
         }
         let object =
@@ -423,12 +433,32 @@ async fn tree_for_window_async(
         let node = read_node(&proxy, id.clone(), parent_id.clone()).await;
         let child_budget = max_nodes.saturating_sub(nodes.len() + queue.len());
         let child_refs = if depth < max_depth && child_budget > 0 {
-            timeout(NODE_TIMEOUT, raw_children(&proxy, child_budget))
+            // Ask for one past the budget so a cut child list is visible as
+            // truncation instead of silently looking complete.
+            let mut refs = timeout(NODE_TIMEOUT, raw_children(&proxy, child_budget + 1))
                 .await
                 .ok()
                 .and_then(Result::ok)
-                .unwrap_or_default()
+                .unwrap_or_default();
+            if refs.len() > child_budget {
+                truncated = true;
+                refs.truncate(child_budget);
+            }
+            refs
         } else {
+            // Children are not fetched past the depth or node budget. Until
+            // the first proof of a cut, ask ChildCount (bounded) so a
+            // `truncated: false` reply stays a claim, not an assumption.
+            if !truncated {
+                let count = timeout(NODE_TIMEOUT, proxy.child_count())
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or(0);
+                if count > 0 {
+                    truncated = true;
+                }
+            }
             Vec::new()
         };
         nodes.push(node);
@@ -453,11 +483,15 @@ async fn tree_for_window_async(
         .map(|node| node.id.clone())
         .unwrap_or_else(|| "/0".to_owned());
 
+    let returned = nodes.len();
     Ok(AccessibilityTree {
         backend: "at-spi2",
         window_handle,
         root_id,
         nodes,
+        truncated,
+        visited: returned,
+        returned,
     })
 }
 
@@ -1709,6 +1743,7 @@ async fn read_node(
         },
         actions: Vec::new(),
         text,
+        identifier: None,
     }
 }
 
@@ -2868,7 +2903,11 @@ fn window_frame_tree(identity: &WindowIdentity) -> AccessibilityTree {
             bounds: identity.bounds,
             actions: vec!["focus".to_owned(), "click".to_owned()],
             text: None,
+            identifier: None,
         }],
+        truncated: false,
+        visited: 1,
+        returned: 1,
     }
 }
 

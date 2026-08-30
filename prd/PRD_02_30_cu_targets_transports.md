@@ -14,12 +14,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
 ## Target family
 
-Branch status (cut 3.48 — Linux `tree` cross-tier conformance; 3.47 per-target
-`capabilities`; 3.46 RDP placeholder; 3.45 macOS AX observe stub unchanged):
+Branch status (cut 3.49 — macOS AX observe live with bounded walk, action
+names and typed permission denial; 3.48 Linux `tree` cross-tier conformance;
+3.47 per-target `capabilities`; 3.46 RDP placeholder):
 
 | Target | Status | Notes |
 |--------|--------|-------|
-| `current` | **[x]** | Local in-process; Linux/Windows evidence held; `capabilities` names `data.target:"current"` + live libagenterm status; Linux `tree` cross-tier proven (3.48) |
+| `current` | **[x]** | Local in-process; Linux/Windows evidence held; macOS AX observe proven (3.49, `cu-macos-smoke`); `capabilities` names `data.target:"current"` + live libagenterm status; Linux `tree` cross-tier proven (3.48) |
 | `ssh` | **[x]** | OpenSSH exec of remote `--target current`; `capabilities` restores public/`data.target:"ssh"`; Linux `tree` cross-tier proven (3.48) |
 | `vnc` | **[x]** | RFB + local `--target current` worker; `capabilities` restores public/`data.target:"vnc"`; Linux `tree` cross-tier proven (3.48) |
 | `rdp` | **[~]** | PLACEHOLDER: parseable; `capabilities` declares transport placeholder/unavailable + `tree` unsupported with zero I/O; other authorized commands typed `rdp_unavailable`. Transport/session/live evidence empty |
@@ -115,14 +116,24 @@ Branch status (cut 3.48 — Linux `tree` cross-tier conformance; 3.47 per-target
 - [ ] first-platform delivery is explicit and does not imply the others. A tier
   or platform is claimed only with its own evidence.
 
-- [~] macOS `current` observation is live on this host as of 2026-08-30:
-  `windows` returns stable handles and `tree --window H` returns a real AX
-  tree (`backend: ax`, `degraded: false`, node id/role/name/bounds/states)
-  through `libagenterm`; what is missing is the evidence (no journey yet),
-  the node budget / truncation flag, per-node actions (today always empty),
-  and a typed `denied` with the repair path when Accessibility permission is
-  absent. Actuation (`invoke`) is not started. The macOS journey is
-  `scripts/qjs/cu-macos-smoke.qjs` (plan: design-mcu-absorption.md, slice 1).
+- [x] macOS `current` observation is live (cut 3.49, 2026-08-30, slice 1 of
+  `plan/design-mcu-absorption.md`): `windows` returns stable CGWindow handles
+  with PID / app / title inventory filters, `tree --window H` and `query`
+  return a real AX tree (`backend: ax`, `degraded: false`) through
+  `libagenterm` ABI 1.12 with a traversal-time depth / node budget,
+  `truncated` / `visited` / `returned` counts, per-node `AXActionNames`
+  actions and `AXIdentifier`. Evidence is `scripts/qjs/cu-macos-smoke.qjs`
+  against an owned Cocoa fixture (`examples/objc/agenterm_ax_fixture.m`):
+  STEP "capabilities declare the AX tree and query available"
+  (`cu.macos-ax-capabilities`), STEP "public wait and windows --pid prove
+  PID, title and CGWindow identity" (`cu.macos-ax-window-identity`), STEP
+  "query by role, identifier and exact text" (`cu.macos-ax-query`), STEP
+  "tree --max-nodes 5 and --depth 0 report truncated"
+  (`cu.macos-ax-tree-bounded`), STEP "full tree reports truncated false and
+  AX action names" (`cu.macos-ax-tree-actions`), STEP "SIGTERM ends only the
+  owned fixture" (`cu.macos-ax-fixture-cleanup`). Missing Accessibility
+  permission is typed `denied` with the repair path (see the shared leaf
+  below). Actuation (`invoke`) is not started — slice 2.
 ## Platform accessibility backends
 
 This branch is the **native accessibility stack** that backs structured
@@ -142,26 +153,27 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
 └── platform a11y backends (agenterm-platform)
     ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys)
     ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); separate from rdp
-    ├── macOS AX current tree         [~] PLACEHOLDER cut 3.45 (code present; live NOT claimed)
+    ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
     ├── macOS AX actuation            [ ] click / focus / value — not started
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
-**Cut 3.45 boundary:** only the macOS AX **observe** path for
-`agenterm-cu --target current tree` is stubbed in `agenterm-platform`
-(`adapters/macos/accessibility_tree.rs`, backend string `"ax"`). Typed
-failures: `a11y_permission_denied`, `unsupported`, `a11y_tree_timeout`,
-bound exhaustion (`a11y_node_limit` / `a11y_depth_limit` / string limits).
-No screenshot, no `--coords`, no CGEvent fallback, no silent AT-SPI/UIA
-reuse. A unit mock is **not** a live gate. A later **macOS agent** owns
-live fixture evidence.
+**Cut 3.49 boundary:** the macOS AX **observe** path (`windows`, `tree`,
+`query`) is live in `agenterm-platform`
+(`adapters/macos/accessibility_tree.rs`, backend string `"ax"`) and proven
+by `scripts/qjs/cu-macos-smoke.qjs`. A caller's depth / node budget ends
+the walk with `truncated: true` instead of failing; typed failures remain
+`a11y_permission_denied` (surfaced as cu `denied` with the repair path),
+`unsupported`, `a11y_tree_timeout`, and the adapter's own string / sibling
+limits. No screenshot, no `--coords`, no CGEvent fallback, no silent
+AT-SPI/UIA reuse. Actuation is **not** in this cut.
 
 Canonical host mapping (approved product vocabulary):
 
 | Host | Native accessibility stack | Structured `tree` source | Structured actuation |
 |------|---------------------------|--------------------------|----------------------|
 | Windows | native API + **UIA** | `IUIAutomation` control tree | UIA patterns / legacy accessible (`Invoke`, `LegacyIAccessible`) |
-| macOS | **AX** (`NSAccessibility`) | accessibility element tree — **PLACEHOLDER walk this cut** | `AXPress` / `AXRaise` / editable value — **not started** |
+| macOS | **AX** (`NSAccessibility`) | accessibility element tree — **live** (bounded walk, `AXActionNames`, `AXIdentifier`) | `AXPress` / `AXRaise` / editable value — **not started** |
 | Linux | **AT-SPI2** (`at-spi2-core` / `org.a11y.atspi.*`) | AT-SPI accessible hierarchy — **live** | AT-SPI `Action` / `Component` / `EditableText` — **live** |
 
 ### Requirements by stack
@@ -172,9 +184,19 @@ Canonical host mapping (approved product vocabulary):
   flattened nodes with path id, role, name, states, exact bounds, and action
   names. `agenterm-cu` maps this contract to its public JSON without host-specific
   fields leaking upward.
-- [ ] when the a11y bus / API is missing (headless without a11y, no registry,
+- [~] when the a11y bus / API is missing (headless without a11y, no registry,
   denied permission), `tree` and node actuation return typed `Unsupported` or
   `Failed` — never coordinate guessing while reporting structured success.
+  macOS (cut 3.49): a stack the OS refuses is not "unsupported" — with
+  Accessibility permission absent, `capability_status()` answers
+  `Failed { a11y_permission_denied }`, ABI 1.12 `agt_capability_query` /
+  every `agt_a11y_*` export answer `AGT_FAILED{a11y_permission_denied}` with
+  the repair path in the message, and cu replies `error.code = "denied"`
+  with `detail.repair` ("System Settings > Privacy & Security >
+  Accessibility ...") while `capabilities` reports `tree: "Denied"` — never
+  an empty tree. Pure evidence only (`permission_denial_is_typed_denied_with_repair_path`);
+  the journey host holds the permission, so the denied branch is not
+  exercised live. Linux / Windows unchanged.
 - [ ] screenshot and coordinate pointer paths are explicit degraded modes with
   observable markers in the reply; they do not satisfy a caller that requested
   structured node identity.
@@ -466,17 +488,23 @@ Canonical host mapping (approved product vocabulary):
 
 **macOS — AX (NSAccessibility)**
 
-- [~] **PLACEHOLDER (cut 3.45):** AX-backed `tree` on `current` through
-  `agenterm-platform` (`adapters/macos/accessibility_tree.rs`). The adapter
-  resolves a `CGWindowID` handle to an application AX element, walks
-  `AXChildren` with node/depth/string/time bounds, and returns
-  `backend: "ax"` with path ids, role, name, states, bounds, text, and
-  declared actions. Missing Accessibility permission fails typed
-  (`a11y_permission_denied`); timeout and bound exhaustion fail typed;
-  unsupported AX availability is typed `Unsupported`. **Live black-box
-  evidence is NOT claimed** on this cut (Linux builder has no Mac window).
-  A unit mock does not count. No screenshot / `--coords` / CGEvent fallback
-  and no silent AT-SPI or UIA reuse.
+- [x] AX-backed `tree` / `query` on `current` through `agenterm-platform`
+  (`adapters/macos/accessibility_tree.rs`). The adapter resolves a
+  `CGWindowID` handle to an application AX element, walks `AXChildren`
+  breadth-first under the caller's depth / node budget (defaults 32 / 1000,
+  ceilings 64 / 20000) plus string / sibling / wall-clock bounds, and returns
+  `backend: "ax"` with path ids, role, name, states, bounds, text,
+  `AXIdentifier`, and the element's `AXUIElementCopyActionNames`
+  (normalized: `click`, `focus`, `show-menu`, `scroll-to-visible`, ...).
+  Reaching the budget is `truncated: true` with the nodes read so far;
+  `kAXErrorFailure` on an optional attribute is an absent value, not a walk
+  failure. Missing Accessibility permission fails typed
+  (`a11y_permission_denied` → cu `denied` + repair path); timeout and the
+  adapter's own limits fail typed. Live evidence: `cu-macos-smoke` STEPs
+  "query by role, identifier and exact text", "tree --max-nodes 5 and
+  --depth 0 report truncated", "full tree reports truncated false and AX
+  action names" against the owned fixture (2026-08-30). No screenshot /
+  `--coords` / CGEvent fallback and no silent AT-SPI or UIA reuse.
 - [ ] AX structured `click` / `focus` / value actuation on `current`
   (`AXPress` / `AXRaise` / editable value). Explicitly **not** this cut.
 
@@ -566,30 +594,38 @@ Canonical host mapping (approved product vocabulary):
   staged host/DLL load and cleanup, exact window identity, public UIA tree,
   name-addressed Value/GetText/Invoke journeys and bounded fixture cleanup; it
   does not prove Candidate qualification or release.
-- [~] **macOS AX `current tree` PLACEHOLDER (cut 3.45) — live evidence NOT
-  claimed.** Code path exists; a later macOS agent must live-test. Handoff
-  recipe (also in `scripts/cu-macos-smoke.sh`, not-yet-run on Darwin):
+- [x] **macOS AX `current` observe (cut 3.49) — live evidence held.**
+  `scripts/qjs/cu-macos-smoke.qjs` (task `cu-macos-smoke`, host-native gate,
+  `--profile tool`) passed on a real macOS desktop on 2026-08-30 and emits
+  `cu.macos-ax-capabilities`, `cu.macos-ax-window-identity`,
+  `cu.macos-ax-query`, `cu.macos-ax-tree-bounded`,
+  `cu.macos-ax-tree-actions`, `cu.macos-ax-fixture-cleanup`. The recipe it
+  realizes (the cut-3.45 handoff, now executable):
 
-  1. On a real macOS host, grant Accessibility to the process that will run
-     `agenterm-cu` (`AXIsProcessTrusted()` must be true).
-  2. Launch a cut-owned native fixture with a unique title and stable PID.
-     Hierarchy: one window, one labeled editable text seeded with
-     **`345AXTREE`**, one button named **`Fixture Press`**.
-  3. Resolve `HANDLE` via existing window enumeration
-     (`agenterm-cu --target current --grant observe windows`).
-  4. Canonical argv (observe only; no new verb):
+  1. The process that spawns the journey holds Accessibility
+     (`AXIsProcessTrusted()` true for `agenterm-cu`).
+  2. The journey compiles and spawns the owned fixture
+     `examples/objc/agenterm_ax_fixture.m` (accessory policy, ordered front
+     without activating, unique title `agenterm-ax-fixture-<pid>`, an
+     `AXTextArea` seeded with **`345AXTREE`** and identifier `fixture-text`,
+     a **`Fixture Press`** button with identifier `fixture-press`); a
+     system app cannot stand in (launch constraints kill a directly exec'd
+     system binary; `open -a` hands the pid to LaunchServices).
+  3. `wait --window-title-contains` then `windows --pid PID` resolve
+     `HANDLE` with inventory counts.
+  4. Canonical argv:
 
      ```sh
-     agenterm-cu --target current --grant observe tree --window "$HANDLE"
+     agenterm-cu --target current --grant observe query --window "$HANDLE" --role AXTextArea
+     agenterm-cu --target current --grant observe tree --window "$HANDLE" --max-nodes 5
+     agenterm-cu --target current --grant observe tree --window "$HANDLE" --flat
      ```
 
-  5. Required reply fields: `ok: true`, `target: "current"`,
-     `command: "tree"`, data `backend: "ax"`, scoped to `HANDLE`, with
-     exactly one fixture text control whose text is `345AXTREE` and one
-     `Fixture Press` button under the fixture window.
-  6. Permission denial must be typed (`a11y_permission_denied`); timeout /
-     bound exhaustion remain typed. Never screenshot, OCR, CGEvent, or
-     AT-SPI/UIA reuse. Worker JSON from a Linux box does not count.
+  5. Required replies: `backend: "ax"`, exactly one `text-area` whose text
+     is `345AXTREE`, `--max-nodes 5` → `truncated: true` / `returned: 5`,
+     the full tree → `truncated: false` with the `Fixture Press` button
+     carrying `click`, and the fixture ends with exit 0 on SIGTERM with no
+     orphan. Never screenshot, OCR, CGEvent, or AT-SPI/UIA reuse.
 
 - [~] **RDP target PLACEHOLDER (cut 3.46) + declared `capabilities` (cut
   3.47) — live RDP / Windows evidence NOT claimed.** Linux static proof:

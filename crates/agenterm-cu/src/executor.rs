@@ -25,7 +25,7 @@ use crate::{
     auth::{Authorization, Grant},
     auth_store::{AuthStore, AuthStoreErrorKind, GrantAttempt, GrantDecision, GrantDenialKind},
     command::{Command, PointerButton, WaitCondition},
-    mechanism,
+    mechanism, observe,
     rdp_transport::{self, RdpEndpoint},
     reply::{CuError, CuReply},
     ssh_transport::{self, SshEndpoint},
@@ -33,6 +33,10 @@ use crate::{
     target_binding::{CurrentIdentityProvider, resolve_target_binding},
     vnc_transport::{self, VncEndpoint},
 };
+
+/// Where the macOS Accessibility permission is granted. Quoted in the typed
+/// `denied` reply so an agent can relay the repair path without guessing.
+pub const ACCESSIBILITY_REPAIR_PATH: &str = "System Settings > Privacy & Security > Accessibility: enable the process that runs agenterm-cu (or its parent terminal / launcher), then rerun";
 
 pub struct Executor {
     auth: Authorization,
@@ -510,13 +514,62 @@ impl Executor {
     fn run_current(&self, command: &Command) -> Result<serde_json::Value, CuError> {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
-            Command::Windows { .. } => {
-                let windows = mechanism::window_enumerate::enumerate_top_level()
-                    .map_err(map_mechanism_err)?;
-                serde_json::to_value(&windows)
-                    .map_err(|error| CuError::new("serialize", error.to_string()))
-            }
-            Command::Tree { window, .. } => tree_payload(*window),
+            Command::Windows {
+                pid,
+                app,
+                title,
+                focused,
+                minimized,
+                offset,
+                max,
+                ..
+            } => windows_payload(
+                observe::WindowFilter {
+                    pid: *pid,
+                    app: app.clone(),
+                    title: title.clone(),
+                    focused: *focused,
+                    minimized: *minimized,
+                },
+                *offset,
+                *max,
+            ),
+            Command::Tree {
+                window,
+                depth,
+                max_nodes,
+                flat,
+                ..
+            } => tree_payload(*window, *depth, *max_nodes, *flat),
+            Command::Query {
+                window,
+                depth,
+                max_nodes,
+                role,
+                text,
+                text_exact,
+                identifier,
+                actionable,
+                within,
+                offset,
+                max,
+                ..
+            } => query_payload(
+                *window,
+                *depth,
+                *max_nodes,
+                observe::NodeFilter::from_parts(
+                    role,
+                    text.as_deref(),
+                    text_exact.as_deref(),
+                    identifier.as_deref(),
+                    *actionable,
+                    *within,
+                ),
+                text.is_some() && text_exact.is_some(),
+                *offset,
+                *max,
+            ),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
             Command::PointerPosition { .. } => pointer_position(),
@@ -692,18 +745,39 @@ fn capabilities_payload() -> serde_json::Value {
     let status = |capability: mechanism::Capability| {
         format!("{:?}", mechanism::capability_status(capability))
     };
-    let tree_status = if mechanism::accessibility_tree_available() {
-        "Available"
-    } else {
-        "Unsupported"
-    };
-    let tree_verb_status = if tree_status == "Available" {
-        "available"
-    } else {
-        "unsupported"
-    };
-    // Host-specific tree mapping only. Do not list unproven peers (macOS AX
-    // live evidence, live RDP/UIA-over-RDP) as if this host ships them.
+    // ABI 1.12: the a11y capability answers three ways. `Denied` is an OS
+    // permission the caller can repair (macOS Accessibility); it is neither
+    // "unsupported" (no adapter) nor an empty tree.
+    let (tree_status, tree_verb) =
+        match mechanism::capability_status(mechanism::Capability::AccessibilityTree) {
+            mechanism::CapabilityStatus::Available => {
+                ("Available", serde_json::json!({ "status": "available" }))
+            }
+            mechanism::CapabilityStatus::Failed { code, message }
+                if code == "a11y_permission_denied" =>
+            {
+                (
+                    "Denied",
+                    serde_json::json!({
+                        "status": "denied",
+                        "reason": code,
+                        "message": message,
+                        "permission": "accessibility",
+                        "repair": ACCESSIBILITY_REPAIR_PATH,
+                    }),
+                )
+            }
+            mechanism::CapabilityStatus::Failed { code, message } => (
+                "Failed",
+                serde_json::json!({ "status": "failed", "reason": code, "message": message }),
+            ),
+            mechanism::CapabilityStatus::Unsupported { reason } => (
+                "Unsupported",
+                serde_json::json!({ "status": "unsupported", "reason": reason }),
+            ),
+        };
+    // Host-specific tree mapping only. Do not list unproven peers (live
+    // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
     serde_json::json!({
         "target": "current",
@@ -724,7 +798,8 @@ fn capabilities_payload() -> serde_json::Value {
         },
         "verbs": {
             "capabilities": { "status": "available" },
-            "tree": { "status": tree_verb_status },
+            "tree": tree_verb,
+            "query": tree_verb,
         },
         "mapping": {
             "windows": "libagenterm agt_window_enumerate",
@@ -736,7 +811,7 @@ fn capabilities_payload() -> serde_json::Value {
             "screenshot": "none — shared agenterm.dll (milestone 46)",
             "input_degraded": "none — shared agenterm.dll (milestone 46)",
             "rdp_live": "rdp tier is placeholder; never declared available on current",
-            "macos_ax_live": "macOS AX live evidence is a separate cut; not claimed here",
+            "macos_ax_live": "macOS AX observe (windows / tree / query) is proven by scripts/qjs/cu-macos-smoke.qjs; AX actuation (invoke) is not started",
         }
     })
 }
@@ -752,8 +827,7 @@ fn current_tree_mapping() -> &'static str {
     }
     #[cfg(target_os = "macos")]
     {
-        // Cut 3.45 placeholder: adapter exists; live AX evidence is not claimed.
-        "libagenterm agt_a11y_* → macOS AX (placeholder; live evidence not claimed)"
+        "libagenterm agt_a11y_* → macOS AX (observe live: cu-macos-smoke; actuation not started)"
     }
     #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
@@ -761,8 +835,42 @@ fn current_tree_mapping() -> &'static str {
     }
 }
 
-fn tree_payload(window: Option<isize>) -> Result<serde_json::Value, CuError> {
-    let tree = mechanism::tree_for_window(window).map_err(map_mechanism_err)?;
+fn invalid_input(message: String) -> CuError {
+    CuError::new("invalid_input", message)
+}
+
+fn tree_budget(
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+) -> Result<mechanism::TreeBudget, CuError> {
+    observe::validate_budget(depth, max_nodes).map_err(invalid_input)?;
+    Ok(mechanism::TreeBudget {
+        max_depth: depth,
+        max_nodes,
+    })
+}
+
+fn budget_json(depth: Option<u32>, max_nodes: Option<usize>) -> serde_json::Value {
+    // `null` means the platform adapter's own default for that dimension.
+    serde_json::json!({ "depth": depth, "max_nodes": max_nodes })
+}
+
+/// Bounded tree. `flat` returns the same nodes in walk order, each with its
+/// flatten `index` and `depth`; the identities are the tree's own ids.
+fn tree_payload(
+    window: Option<isize>,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    flat: bool,
+) -> Result<serde_json::Value, CuError> {
+    let budget = tree_budget(depth, max_nodes)?;
+    let tree = mechanism::tree_for_window_bounded(window, budget).map_err(map_mechanism_err)?;
+    let nodes = if flat {
+        serde_json::to_value(observe::flatten(&tree))
+    } else {
+        serde_json::to_value(&tree.nodes)
+    }
+    .map_err(|error| CuError::new("serialize", error.to_string()))?;
     Ok(serde_json::json!({
         "degraded": false,
         "backend": tree.backend,
@@ -770,7 +878,102 @@ fn tree_payload(window: Option<isize>) -> Result<serde_json::Value, CuError> {
         "mechanism": "libagenterm",
         "window": tree.window_handle,
         "root_id": tree.root_id,
-        "nodes": tree.nodes,
+        "flat": flat,
+        "budget": budget_json(depth, max_nodes),
+        "truncated": tree.truncated,
+        "visited": tree.visited,
+        "returned": tree.returned,
+        "nodes": nodes,
+    }))
+}
+
+/// Bounded, filtered flat node list over the same walk `tree` makes.
+#[allow(clippy::too_many_arguments)]
+fn query_payload(
+    window: isize,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    filter: observe::NodeFilter,
+    text_and_text_exact: bool,
+    offset: Option<usize>,
+    max: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "query requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    if text_and_text_exact {
+        return Err(invalid_input(
+            "query accepts --text or --text-exact, not both".into(),
+        ));
+    }
+    let budget = tree_budget(depth, max_nodes)?;
+    let page = observe::Page::new(offset, max).map_err(invalid_input)?;
+    let tree =
+        mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let flat = observe::flatten(&tree);
+    let (hits, counts) = observe::query(&flat, &filter, page, tree.truncated);
+    let nodes = serde_json::to_value(&hits)
+        .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    Ok(serde_json::json!({
+        "degraded": false,
+        "backend": tree.backend,
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "window": window,
+        "root_id": tree.root_id,
+        "budget": budget_json(depth, max_nodes),
+        "filter": {
+            "role": filter.roles,
+            "text": filter.text,
+            "text_exact": filter.text_exact,
+            "identifier": filter.identifier,
+            "actionable": filter.actionable,
+            "within": filter.within,
+        },
+        "visited": counts.visited,
+        "matched": counts.matched,
+        "returned": counts.returned,
+        "offset": counts.offset,
+        "truncated": counts.truncated,
+        "scan_truncated": counts.scan_truncated,
+        "page_truncated": counts.page_truncated,
+        "nodes": nodes,
+    }))
+}
+
+/// Window inventory. The bare verb keeps its array reply; any filter or page
+/// field switches to the inventory object with counts.
+fn windows_payload(
+    filter: observe::WindowFilter,
+    offset: Option<usize>,
+    max: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    let page = observe::Page::new(offset, max).map_err(invalid_input)?;
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    if filter.is_empty() && offset.is_none() && max.is_none() {
+        return serde_json::to_value(&windows)
+            .map_err(|error| CuError::new("serialize", error.to_string()));
+    }
+    let (hits, counts) = observe::inventory(&windows, &filter, page);
+    let rows = serde_json::to_value(&hits)
+        .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    Ok(serde_json::json!({
+        "mechanism": "libagenterm",
+        "filter": {
+            "pid": filter.pid,
+            "app": filter.app,
+            "title": filter.title,
+            "focused": filter.focused,
+            "minimized": filter.minimized,
+        },
+        "visited": counts.visited,
+        "matched": counts.matched,
+        "returned": counts.returned,
+        "offset": counts.offset,
+        "truncated": counts.truncated,
+        "windows": rows,
     }))
 }
 
@@ -2857,6 +3060,16 @@ fn node_is_showing(node: &mechanism::A11yNode) -> bool {
 fn map_mechanism_err(error: mechanism::MechanismError) -> CuError {
     match error {
         mechanism::MechanismError::Unsupported { reason } => CuError::new("unsupported", reason),
+        // An OS permission refusal is the PRD 31 `denied` vocabulary, with
+        // the mechanism code and repair path kept in `detail` so a caller
+        // never has to parse prose to know what to fix.
+        mechanism::MechanismError::Failed { code, message } if code == "a11y_permission_denied" => {
+            CuError::new("denied", message).with_detail(serde_json::json!({
+                "reason": code,
+                "permission": "accessibility",
+                "repair": ACCESSIBILITY_REPAIR_PATH,
+            }))
+        }
         mechanism::MechanismError::Failed { code, message } => CuError::new(code, message),
     }
 }
@@ -3612,6 +3825,7 @@ mod tests {
             },
             actions: Vec::new(),
             text: None,
+            identifier: None,
         }
     }
 
@@ -4963,6 +5177,9 @@ mod tests {
         let command = Command::Tree {
             target: TargetRef::Rdp,
             window: Some(0x1000),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -5053,6 +5270,9 @@ mod tests {
         let tree = executor.execute(&Command::Tree {
             target: TargetRef::Rdp,
             window: Some(1),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         });
         assert!(!tree.ok);
         assert_eq!(tree.error.as_ref().unwrap().code, "rdp_unavailable");
@@ -5074,6 +5294,86 @@ mod tests {
         assert_eq!(reply.target, "rdp");
         assert_eq!(reply.command, "capabilities");
         assert_eq!(reply.error.as_ref().unwrap().code, "refused");
+    }
+
+    #[test]
+    fn permission_denial_is_typed_denied_with_repair_path() {
+        let error = map_mechanism_err(mechanism::MechanismError::Failed {
+            code: "a11y_permission_denied".into(),
+            message: "AXIsProcessTrusted() is false".into(),
+        });
+        assert_eq!(error.code, "denied");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["reason"], "a11y_permission_denied");
+        assert_eq!(detail["permission"], "accessibility");
+        assert_eq!(detail["repair"], ACCESSIBILITY_REPAIR_PATH);
+        // Every other mechanism code passes through unchanged.
+        let other = map_mechanism_err(mechanism::MechanismError::Failed {
+            code: "a11y_tree_empty".into(),
+            message: "no nodes".into(),
+        });
+        assert_eq!(other.code, "a11y_tree_empty");
+        assert!(other.detail.is_none());
+    }
+
+    #[test]
+    fn tree_and_query_budgets_fail_typed_before_any_mechanism_call() {
+        let executor = observe_executor();
+        let too_deep = executor.execute(&Command::Tree {
+            target: TargetRef::Current,
+            window: Some(1),
+            depth: Some(65),
+            max_nodes: None,
+            flat: false,
+        });
+        assert!(!too_deep.ok);
+        assert_eq!(too_deep.error.as_ref().unwrap().code, "invalid_input");
+        let zero_nodes = executor.execute(&Command::Tree {
+            target: TargetRef::Current,
+            window: Some(1),
+            depth: None,
+            max_nodes: Some(0),
+            flat: false,
+        });
+        assert_eq!(zero_nodes.error.as_ref().unwrap().code, "invalid_input");
+        let query =
+            |window: isize, text: Option<&str>, text_exact: Option<&str>, max: Option<usize>| {
+                executor.execute(&Command::Query {
+                    target: TargetRef::Current,
+                    window,
+                    depth: None,
+                    max_nodes: None,
+                    role: Vec::new(),
+                    text: text.map(str::to_owned),
+                    text_exact: text_exact.map(str::to_owned),
+                    identifier: None,
+                    actionable: false,
+                    within: None,
+                    offset: None,
+                    max,
+                })
+            };
+        let no_window = query(0, None, None, None);
+        assert_eq!(no_window.command, "query");
+        assert_eq!(no_window.error.as_ref().unwrap().code, "invalid_input");
+        let both_texts = query(1, Some("a"), Some("b"), None);
+        assert_eq!(both_texts.error.as_ref().unwrap().code, "invalid_input");
+        let bad_page = query(1, None, None, Some(0));
+        assert_eq!(bad_page.error.as_ref().unwrap().code, "invalid_input");
+        let bad_windows_page = executor.execute(&Command::Windows {
+            target: TargetRef::Current,
+            pid: None,
+            app: None,
+            title: None,
+            focused: None,
+            minimized: None,
+            offset: None,
+            max: Some(0),
+        });
+        assert_eq!(
+            bad_windows_page.error.as_ref().unwrap().code,
+            "invalid_input"
+        );
     }
 
     #[test]
@@ -5140,6 +5440,9 @@ mod tests {
         let command = Command::Tree {
             target: TargetRef::Rdp,
             window: Some(0x1000),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -5161,6 +5464,9 @@ mod tests {
         let command = Command::Tree {
             target: TargetRef::Rdp,
             window: Some(1),
+            depth: None,
+            max_nodes: None,
+            flat: false,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
