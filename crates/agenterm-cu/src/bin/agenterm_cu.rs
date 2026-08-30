@@ -2177,4 +2177,24 @@ mod tests {
         let error = reply.error.expect("window or unverified, not usage");
         assert_ne!(error.code, "usage");
     }
+
+    #[test]
+    fn wait_expect_title_includes_is_not_usage() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "wait".into(),
+            "--timeout-ms".into(),
+            "1".into(),
+            "--window".into(),
+            "1".into(),
+            "--expect".into(),
+            r#"[{"role":"AXHeading","titleIncludes":"Nepal"}]"#.into(),
+        ]);
+        assert_eq!(reply.command, "wait");
+        let error = reply.error.expect("timeout or missing window, not usage");
+        assert_ne!(error.code, "usage");
+    }
 }

@@ -3698,7 +3698,7 @@ fn invoke_payload(
         "invoke",
         window,
         serde_json::json!({
-            "target": spec.json(),
+            "spec": spec.json(),
             "node": node_json,
             "action": action.as_str(),
             "value": value,
@@ -4119,7 +4119,7 @@ fn close_payload(
         window,
         serde_json::json!({
             "action": "close",
-            "target": identity,
+            "window_identity": identity,
             "postcondition": "gone",
             "before": { "present": true, "nodes": tree.returned },
             "snapshot": snapshot_json,
@@ -7051,5 +7051,43 @@ mod tests {
         assert_eq!(reply.target, "rdp");
         assert_eq!(reply.command, "tree");
         assert_eq!(reply.error.as_ref().unwrap().code, "refused");
+    }
+
+    #[test]
+    fn check_one_title_includes_heading_matches_webarea_identity() {
+        let web = mechanism::A11yNode {
+            id: "/0/1".into(),
+            parent_id: None,
+            role: "AXWebArea".into(),
+            name: "Nepal floods latest: Head teacher".into(),
+            states: vec!["showing".into()],
+            bounds: mechanism::A11yBounds {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        };
+        let tree = mechanism::A11yTree {
+            backend: "ax".into(),
+            window_handle: Some(1),
+            root_id: "/0".into(),
+            nodes: vec![web],
+            truncated: false,
+            visited: 1,
+            returned: 1,
+        };
+        let flat = observe::flatten(&tree);
+        let expectation: crate::command::Expectation = serde_json::from_str(
+            r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#,
+        )
+        .expect("titleIncludes");
+        let verdict = super::check_one(&flat, &expectation).expect("identity-only expect");
+        assert!(verdict.met);
+        assert_eq!(verdict.item["page_identity"], true);
+        assert!(verdict.item["checks"].as_array().unwrap().is_empty());
     }
 }

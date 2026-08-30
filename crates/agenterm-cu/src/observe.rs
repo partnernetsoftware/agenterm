@@ -1891,6 +1891,17 @@ mod tests {
         );
         assert_eq!(classify_ax_tree(&content), AxAvailability::Content);
         assert!(empty_chrome_next_actions(AxAvailability::Content, "Brave Origin").is_empty());
+        let payload = serde_json::json!({
+            "ax": classify_ax_tree(&chrome).as_str(),
+            "next_actions": empty_chrome_next_actions(
+                classify_ax_tree(&chrome),
+                "Brave Origin",
+            ),
+        });
+        assert_eq!(payload["ax"], "empty-chrome");
+        let next = payload["next_actions"][0].as_str().unwrap_or_default();
+        assert!(next.contains("query") && next.contains("WebArea"));
+        assert!(!next.to_ascii_lowercase().contains("screenshot"));
     }
 
     #[test]
@@ -1939,8 +1950,20 @@ mod tests {
             resolve_target(&flat, &button_pred).unwrap().node.role,
             "AXButton"
         );
+        let from_wait: crate::command::Expectation = serde_json::from_str(
+            r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#,
+        )
+        .expect("wait --expect titleIncludes");
+        let wait_hit = resolve_target(&flat, &TargetSpec::from_expectation(&from_wait))
+            .expect("shipped wait matcher aliases WebArea title");
+        assert_eq!(normalize_role(&wait_hit.node.role), "webarea");
+    }
+
+    #[test]
+    fn page_js_knife_is_debugger_evaluate_not_eval() {
         assert_eq!(page_js_backend(), "debugger-runtime-evaluate");
         assert!(page_js_unsupported_reason().contains("second knife"));
+        assert!(page_js_unsupported_reason().contains("no browser extension"));
         assert!(!page_js_unsupported_reason().contains("eval("));
         assert!(!include_str!("command.rs").contains("eval("));
         assert!(!include_str!("executor.rs").contains("eval("));
