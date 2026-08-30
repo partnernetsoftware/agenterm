@@ -79,3 +79,38 @@
 
 与 §5 比：server-smoke 510 KB → 886 KB，wake-smoke 359 KB → 1.14 MB——旧数既漏（答复）又重（陈旧答复），
 新数两次跑只差 7–32 字节（环境答复的长度）。`host_bytes` 不再是下界。
+
+## 7. 步数去了哪里（2026-08-30 深夜，server-smoke 的步数剖面）
+
+没有 profiler；用三样东西拼：(a) 旅程自己的 `tool_calls` 收据（526 条有名操作 + `tool_result` 取答复 ≈601 次 = `host_ops` 1 127），
+(b) 一份加了 `print(x.length)` 的旅程副本数出每次 `JSON.parse` / `JSON.stringify` / 拼接经手的字节，(c) 把**真实答复原文**（34 份，225 KB）
+逐个塞进 tinyvm-qjs 进程内跑 `JSON.parse`、把 34 条真实记录逐个跑 `JSON.stringify`，用 `last_steps()` 差分定价（`tests/json_parse_cost.rs` / `json_stringify_cost.rs` 加了对应形状的钉）。
+被剖的那次跑：**31 215 008 步 / 1 127 ops / 891 400 B / 258 ms**（加打印的副本 33.6M，打印不算宿主操作）。
+
+| 家族 | 次数 | 经手字节 | 单价（进程内实测） | 步数 | 占比 |
+|---|---|---|---|---|---|
+| `JSON.parse` 广播答复（`command_json` 21 次 + `protocol-info` 1 次） | 22 | 225 454 | 58–64 步/字节（61 KB 3.94M、47 KB 2.71M、32 KB 1.88M、31 KB 1.85M；小答复 60–82） | **13 560 556** | **43.4%** |
+| `JSON.parse` 折叠日志（`finalize_command_log`，34 行） | 34 | 15 870 | 81/字节 | 1 288 289 | 4.1% |
+| `JSON.parse` 门信封（`process_command` 的 `{exit_code,…}`） | 34 | 2 582 | 7 499/次 | 254 966 | 0.8% |
+| `JSON.stringify` 记录 ×2（journal 行 + `[record]`） | 68 | 31 672 | 每条 38.8k–97k（118–359/字节） | 4 773 377 | 15.3% |
+| `JSON.stringify` 折叠日志（34 条一个数组） | 1 | 15 871 | — | 2 278 357 | 7.3% |
+| `JSON.stringify` 命令 spec（`configured_cli_spec`，~770 B）+ 探针 | 35 | 26 775 | 51.7k/次（67/字节） | ≈1 800 000 | 5.8% |
+| journal 拼接 `journal + rec + "\n"`（两次整段复制） | 34 | 265 074 | 2.4/字节 | ≈1 270 000 | 4.1% |
+| 折叠日志的 `split` + `trim` | 1 | 15 870 | — | 794 296 | 2.5% |
+| 其余（脚本自身：`"" + x`、`find_tab`、`count_tab_events`、`.length`、`slice`、harness 逻辑） | | | | ≈5 190 000 | 16.6% |
+
+合计：**`JSON.parse` 15.10M（48.4%）**，`JSON.stringify` 8.86M（28.4%），拼接/切分 2.06M（6.6%），其余 16.6%。
+
+**判决**：`JSON.parse` 一家过 40%，第 2 项打它。它的钱花在两处，都与答复是**美化打印**的有关（`agenterm cli --json` 两空格缩进；
+bootstrap 答复 63% 的字节是缩进，protocol-info 38%）：
+
+- **空白**：`__jp_ws` 每个空白字节 **39 步**（每字节一次 `__jp_at` 调用 + 四个比较）。旅程的答复里约 123 KB 空白 ⇒ ≈4.8M（旅程的 15%）。
+- **每个字符串的固定价**：键与字符串值各付 ≈**760 步**固定（`__jb_new` 一个缓冲、`__jb_bytes` 一段、`__jb_take` 再拷成记录），每多一字节 +24。
+  答复里约 7 900 个键/串 ⇒ ≈6.0M（19%）。
+- 剩下的是逐节点解释常数（对象成员 5 键时 ≈1 600、20 键时 ≈2 600——`__obj_set` 线性扫已有键；`true` 386；`12345` 691）。
+
+**顺手看见、不在第 2 项里的**：`JSON.stringify` 的记录为什么 108 字节要 38.8k 步——`recorded_at_ms: 1788101436756` 这种 13 位整数超出 i32，
+离开 `num_to_string` 的位数循环走通用 double 路径，一个 **32 567 步**（`"" + 1788101436756` 同价 33 002）。旅程里每条记录序列化三次（journal、`[record]`、折叠），
+102 个时间戳 ≈3.3M 步（10.7%）——这是 stringify 家族里最集中的一笔，也是第 2 项之后最便宜的一刀。`tests/json_stringify_cost.rs::a_journal_record_has_a_known_price` 钉着它。
+
+wake-smoke 没有单独剖：同一个 harness、同一种答复，步数多出的 17M 与它多读的 `ui-bootstrap` 一致。
