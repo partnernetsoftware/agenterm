@@ -120,3 +120,19 @@ Linux/Windows：新动词三平台一个拼写，未接的平台 typed `unsuppor
 
 macOS 上 `cu-macos-smoke.qjs` 三段 PASS（观察 / 语义写 / 后台菜单），旅程在 `agenterm.tasks.json` 里是一个 task，
 quick lane 之外单独一条 GUI lane；PRD 29/30/31 对应 leaf 从 `[ ]` 变 `[x]` 且每条都指向旅程里的 STEP 行。
+
+## 5. 状态（2026-08-31 凌晨，四片都由评审者本机重跑验收）
+
+| 片 | 提交 | 旅程（评审者重跑） | 账单 |
+|---|---|---|---|
+| 1 观察有界 | `5abb85ee` | 7 STEP / 6 EVIDENCE | 6.97M 步 / 182 ops / 8 页 |
+| 2 `invoke`/`verify` | `26142e3e` | 12 / 11 | 20.5M / 327 / 22 页 |
+| 3 `menu`/`focused`/`observe` | `96d52316` | 16 / 15，前台句柄不变 | 40.0M / 196 / 37 页 |
+| 4 `close` 三件套 / 收据 / `click` / `frame` | `ac6c2d72` | 21 / 20，真鼠标 (88,658) 不动 | 73.8M / 261 / 67 页 |
+
+mcu 的默认环、四条不变量、后台动词、destructive 三件套、崩溃持久收据，在 macOS `current` 上都有证据了；ABI 1.12 → 1.14。
+片 4 顺手修了一个真缺陷：`AXFocusedApplication` 跟的是 key-window 归属，附属 App 把窗口 ordered-front 后会被误判为前台——现在要求 `AXFrontmost`。
+
+**还没做（不在本页范围，另立题）**：Linux/Windows 对新动词的实现（现为 typed `unsupported`）；`observe` 接 AX 通知（现为 poll-diff，答复里明写）；macOS 指针注入（只接了读）；远程层（ssh/vnc）上的新动词；PRD 32 `frame` 的黑盒证据仍 `[~]`。
+**引擎侧从旅程里得到的需求**（已交引擎线）：`concat` / `join` / 数组 `indexOf` / `sort` / `charCodeAt`·`substring` / `stringify` 的 `space` / `Array.isArray`。
+
