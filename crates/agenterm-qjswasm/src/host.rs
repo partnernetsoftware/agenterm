@@ -453,6 +453,15 @@ pub(crate) fn install(
                 },
             },
         };
+        // A bridge round trip is a wait, and a wait ends on a cancel: the
+        // embedder's bridge returns early when it sees the flag (the worker
+        // polls its broker in slices), and whatever it answered is not
+        // parked -- the call ends as `Cancelled` here, the way a cut sleep
+        // does, so the script cannot catch its way past it as status 1.
+        meter_for_fleet
+            .borrow_mut()
+            .check_cancel()
+            .map_err(WasmError::Trap)?;
         // The cap applies to whatever the bridge produced, success or failure
         // message alike, and replaces it wholesale rather than cutting it.
         let (status, payload) = if payload.len() > max_result {

@@ -32,7 +32,15 @@ struct BrokerClient {
     next_request: Arc<std::sync::atomic::AtomicUsize>,
     requests_remaining: Arc<std::sync::atomic::AtomicUsize>,
     timeout: Duration,
+    /// The invocation's cancel flag, read while waiting for a response so a
+    /// cancel frame ends a bridge wait the way it ends a sleep. `None` in
+    /// the sequential worker, which has no one to set it.
+    cancellation: Option<Arc<AtomicBool>>,
 }
+
+/// How often a waiting broker call looks at the cancel flag. The same slice
+/// the engine's own waits use (`agenterm-qjswasm`'s `cancellable_sleep`).
+const BROKER_CANCEL_SLICE: Duration = Duration::from_millis(25);
 
 impl BrokerClient {
     fn call_json(
@@ -78,17 +86,45 @@ impl BrokerClient {
                 .take();
             return Err(format!("broker_request_send_failed: {error}"));
         }
-        let response = receiver.recv_timeout(self.timeout).map_err(|_| {
-            self.pending
-                .lock()
-                .expect("pending broker lock poisoned")
-                .take();
-            "broker_response_timeout".to_owned()
-        })?;
+        let deadline = Instant::now() + self.timeout;
+        let response = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match receiver.recv_timeout(remaining.min(BROKER_CANCEL_SLICE)) {
+                Ok(response) => break response,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    self.forget_pending();
+                    return Err("broker_response_channel_closed".to_owned());
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if self
+                        .cancellation
+                        .as_ref()
+                        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+                    {
+                        // The engine reads the same flag when this returns
+                        // and ends the call as `cancelled`; the text is for
+                        // an engine that does not.
+                        self.forget_pending();
+                        return Err("broker_request_cancelled".to_owned());
+                    }
+                    if remaining.is_zero() {
+                        self.forget_pending();
+                        return Err("broker_response_timeout".to_owned());
+                    }
+                }
+            }
+        };
         if let Some(error) = response.error {
             return Err(format!("{}: {}", error.code, error.message));
         }
         Ok(response.value.unwrap_or(serde_json::Value::Null))
+    }
+
+    fn forget_pending(&self) {
+        self.pending
+            .lock()
+            .expect("pending broker lock poisoned")
+            .take();
     }
 }
 
@@ -201,6 +237,7 @@ fn process_concurrent_framed_worker<R: Read>(
                                     invocation.budgets.broker_requests,
                                 )),
                                 timeout: Duration::from_millis(invocation.budgets.wait_time_ms),
+                                cancellation: Some(Arc::clone(&cancellation)),
                             })
                         } else {
                             None
@@ -1234,6 +1271,124 @@ mod tests {
             "the bill says how long it really waited: {:?}",
             result.cost
         );
+    }
+
+    /// A bridge wait is a wait too: a script blocked in `fleet_call` on a
+    /// broker request nobody answers used to hold the worker until
+    /// `wait_time_ms` no matter when the cancel frame
+    /// came, because `BrokerClient` waited in one `recv_timeout`. Now it
+    /// waits in slices and reads the same flag the sleeps read, and the
+    /// engine turns the early return into `cancelled`.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn framed_worker_cancels_a_running_bridge_wait() {
+        let mut blocked = invocation(
+            ScriptOperation::Eval,
+            r#"let s = fleet_call("noop", "{}"); return "caught:" + s;"#,
+        );
+        blocked.invocation_id = "blocked".to_owned();
+        // Longer than the assertion below, so the broker's own timeout
+        // cannot be what ends the wait.
+        blocked.budgets.wait_time_ms = 8_000;
+        let invoke = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "invoke".to_owned(),
+            payload: ScriptFramePayload::Invoke(blocked),
+        };
+        let cancel = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "cancel".to_owned(),
+            payload: ScriptFramePayload::Cancel {
+                invocation_id: "blocked".to_owned(),
+            },
+        };
+        #[derive(Clone)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("sink").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        // A `Cursor` would hand over the cancel frame before the guest
+        // reaches the door, and the call would end at the entry check with
+        // the wait never entered (`host_ops 0`). This reader holds the
+        // cancel frame back until the worker has *written* the broker
+        // request -- until the invocation is inside the wait under test.
+        struct Staged {
+            stages: Vec<Vec<u8>>,
+            pending: Vec<u8>,
+            sink: Sink,
+        }
+        impl Read for Staged {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.pending.is_empty() {
+                    if self.stages.is_empty() {
+                        return Ok(0);
+                    }
+                    if self.stages.len() == 1 {
+                        let waited = std::time::Instant::now();
+                        loop {
+                            let output = self.sink.0.lock().expect("sink").clone();
+                            if decoded_frames(&output).iter().any(|f| {
+                                matches!(f.payload, ScriptFramePayload::BrokerRequest { .. })
+                            }) {
+                                break;
+                            }
+                            assert!(
+                                waited.elapsed() < std::time::Duration::from_secs(5),
+                                "the script never reached the broker"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(5));
+                        }
+                    }
+                    self.pending = self.stages.remove(0);
+                }
+                let n = buf.len().min(self.pending.len());
+                buf[..n].copy_from_slice(&self.pending[..n]);
+                self.pending.drain(..n);
+                Ok(n)
+            }
+        }
+        let sink = Sink(Arc::new(Mutex::new(Vec::new())));
+        let input = Staged {
+            stages: vec![encoded_frame(&invoke), encoded_frame(&cancel)],
+            pending: Vec::new(),
+            sink: sink.clone(),
+        };
+        let started = std::time::Instant::now();
+        process_concurrent_framed_worker(input, sink.clone()).expect("framed stream");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(4),
+            "the cancel must cut the 8 s broker wait short: {:?}",
+            started.elapsed()
+        );
+        let output = sink.0.lock().expect("sink").clone();
+        let frames = decoded_frames(&output);
+        assert!(
+            frames
+                .iter()
+                .any(|f| matches!(f.payload, ScriptFramePayload::BrokerRequest { .. })),
+            "the script reached the broker: {frames:?}"
+        );
+        let result = frames
+            .iter()
+            .find(|f| f.frame_id == "invoke")
+            .map(frame_result)
+            .expect("the invocation answers");
+        assert_eq!(result.exit_class, ScriptExitClass::Cancelled, "{result:?}");
+        assert_eq!(result.value, None, "{result:?}");
+        // The bill says the wait happened: one operation, and the bridge's
+        // wall clock on it.
+        let cost = result
+            .cost
+            .as_ref()
+            .expect("a cancelled call keeps its bill");
+        assert_eq!(cost.host_ops, 1, "{cost:?}");
+        assert!(cost.waited_ms < 4000, "{cost:?}");
     }
 
     #[cfg(feature = "script-qjswasm")]

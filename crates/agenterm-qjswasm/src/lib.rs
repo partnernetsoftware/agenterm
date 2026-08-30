@@ -381,10 +381,12 @@ pub struct Budget {
     /// Set by the embedder to end the call at the next host operation or
     /// wait: `time.sleep_ms` sleeps in slices and looks; `process.wait` /
     /// `process.command` look between polls of the child; every `tool.*`
-    /// and `fleet_call` entry looks before running. The call then ends as
-    /// [`QjswasmError::Cancelled`]. Pure compute is not interrupted -- the
-    /// step budget bounds that -- which is why this is a flag the doors
-    /// read and not a signal. `None` means no one can cancel.
+    /// and `fleet_call` entry looks before running, and `fleet_call` looks
+    /// again when the bridge answers, so a bridge that returns early on the
+    /// same flag ends the call rather than parking a refusal. The call then
+    /// ends as [`QjswasmError::Cancelled`]. Pure compute is not interrupted
+    /// -- the step budget bounds that -- which is why this is a flag the
+    /// doors read and not a signal. `None` means no one can cancel.
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 

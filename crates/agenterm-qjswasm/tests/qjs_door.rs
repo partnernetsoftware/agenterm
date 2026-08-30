@@ -123,6 +123,46 @@ fn an_application_error_is_status_one_and_its_message_is_readable() {
     assert_eq!(got, "err:broker_invalid_arguments");
 }
 
+/// A bridge round trip is a wait, so a cancel ends it: a bridge that sees
+/// the flag and returns early -- with any answer at all -- ends the call as
+/// `Cancelled`, not as a status the script could catch, and the bill still
+/// says how long the bridge was waited for.
+#[test]
+fn a_cancel_seen_by_the_bridge_ends_the_call() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let flag = Arc::new(AtomicBool::new(false));
+    let budget = agenterm_qjswasm::Budget {
+        cancel: Some(Arc::clone(&flag)),
+        ..agenterm_qjswasm::Budget::default()
+    };
+    let calls = Arc::new(Calls::default());
+    let setter = Arc::clone(&flag);
+    let bridge = bridge(&calls, move |_op, _params| {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        setter.store(true, Ordering::Relaxed);
+        Err("broker_request_cancelled".to_string())
+    });
+    let mut eng = Engine::with_budget(budget);
+    let err = eng
+        .run_once(
+            Guest::Qjs(
+                r#"
+                let status = fleet_call("noop", "{}");
+                return "caught:" + status + ":" + fleet_result();
+                "#,
+            ),
+            Some(bridge),
+            "main",
+            &[],
+        )
+        .expect_err("the cancel ends the call at the bridge");
+    assert!(matches!(err, QjswasmError::Cancelled), "got {err:?}");
+    assert_eq!(calls.0.lock().unwrap().len(), 1);
+    let cost = eng.take_failed_cost().expect("it ran");
+    assert!(cost.waited_ms >= 35, "{cost:?}");
+    assert_eq!(cost.host_ops, 1, "{cost:?}");
+}
+
 /// Status 2 is "no bridge is installed in this slot" -- distinguishable from
 /// an error the bridge produced, because a caller can fix one and not the
 /// other.
