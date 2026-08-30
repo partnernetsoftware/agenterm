@@ -18,9 +18,10 @@ archives, explicit signing policy, and final-byte reputation checks.
       have no checkout and no Cargo/cosmocc/build step
     - [x] every runner verifies archive SHA-256 and executes the packaged
       console version probe on its real OS/ISA
-    - [~] Linux package gate binds the known
-      `libxkbcommon-x11.so.0 → libxcb-xkb.so.1` transitive edge; a slim-X11
-      execute-only court without `-dev` packages remains
+    - [x] Linux package gate binds the known
+      `libxkbcommon-x11.so.0 → libxcb-xkb.so.1` transitive edge, then a pinned
+      package-free Ubuntu container runs `ldd` over every bundled library and
+      executes the packaged CLI without installing runtime or `-dev` packages
     - [ ] Windows courts execute the final PE bytes, not pre-package binaries
     - [ ] macOS courts cover arm64 and real Intel runner/Rosetta evidence distinctly
   - [ ] provider-neutral signing policy

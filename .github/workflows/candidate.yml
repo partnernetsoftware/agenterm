@@ -845,6 +845,32 @@ jobs:
           grep -Fq "$version" <<<"$output"
           echo "PASS ${{ matrix.platform_id }} $(sha256sum "$archive" | cut -d' ' -f1) $output"
 
+      - name: Prove Linux bundle closure in package-free Ubuntu
+        if: matrix.family == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Official Ubuntu 24.04 multi-arch index, pinned so the court cannot
+          # drift independently of the Candidate workflow hash.
+          image='ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517'
+          docker run --rm \
+            -v "$PWD/runtime:/court:ro" \
+            "$image" \
+            bash -euo pipefail -c '
+              shopt -s nullglob
+              libraries=(/court/lib/*.so*)
+              test "${#libraries[@]}" -gt 0
+              for library in "${libraries[@]}"; do
+                missing="$(LD_LIBRARY_PATH=/court/lib ldd "$library" |
+                  grep "not found" || true)"
+                if test -n "$missing"; then
+                  echo "$library: $missing" >&2
+                  exit 1
+                fi
+              done
+              LD_LIBRARY_PATH=/court/lib /court/agenterm cli --version
+            '
+
       - name: Execute final macOS archive
         if: matrix.family == 'macos'
         shell: bash
