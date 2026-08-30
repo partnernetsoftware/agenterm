@@ -63,8 +63,9 @@ receipt remains open until it runs on a controlled input desktop.
 | Window list | Win32 `EnumWindows` | X11 `_NET_CLIENT_LIST` | `AXUIElement` application windows |
 | Control tree | **UIA** (`IUIAutomation`) | **AT-SPI2** (`org.a11y.atspi.*` on D-Bus) | **AX** (`NSAccessibility`) — `windows` / `tree` / `query` **live** (`cu-macos-smoke`); bounded walk, `AXActionNames`, `AXIdentifier` |
 | Node identity | automation id + runtime id + bounds | path id (`/0/2/5`) + role + name + bounds | child-index path + role + title + bounds + identifier (`backend:"ax"`) |
-| Node click/focus | `InvokePattern` / `LegacyIAccessible` | AT-SPI `Action` (`click`/`press`, else default `DoAction(0)`); no Action → Component `GetExtents` + `GenerateMouseEvent`; focus is `focus` / `Component::grab_focus` | AX actuation **not started** (`AXPress` / `AXRaise` planned) |
-| Text entry | `ValuePattern` / `SendInput` | AT-SPI `EditableText` (`SetTextContents` / `InsertText`) for `--name`; `Text` + toolkit set-value when EditableText is absent (Chrome AX, WebKitGTK eval helper); `input-inject` only without `--name` | AX value write **not started** |
+| Node click/focus | `InvokePattern` / `LegacyIAccessible` | AT-SPI `Action` (`click`/`press`, else default `DoAction(0)`); no Action → Component `GetExtents` + `GenerateMouseEvent`; focus is `focus` / `Component::grab_focus` | `AXPress` / `AXFocused` (mapped; not journey-proven) — `AXRaise` is never sent |
+| `invoke` (press / set-value / select-option / set-checked / set-expanded / increment / decrement) | `Invoke` / `Value.SetValue` / `Toggle` (desired state); others typed `unsupported` | `Action` press / `EditableText` set-value; others typed `unsupported` | **live** (`cu-macos-smoke`): `AXPress`, `AXValue` write + read-back, pop-up option `AXPress`, desired-state `AXValue` 0/1 / `AXExpanded`, `AXIncrement` / `AXDecrement` — ABI 1.13 `agt_a11y_node_invoke` |
+| Text entry | `ValuePattern` / `SendInput` | AT-SPI `EditableText` (`SetTextContents` / `InsertText`) for `--name`; `Text` + toolkit set-value when EditableText is absent (Chrome AX, WebKitGTK eval helper); `input-inject` only without `--name` | `AXValue` write with read-back (`invoke set-value`, `send-text --name`) |
 | Screenshot | GDI native capture | typed `unsupported` (no OCR substitute) | typed `unsupported` (planned) |
 
 macOS `tree` / `query` use **AX only** (`agenterm-platform` macOS adapter).
@@ -102,8 +103,47 @@ agenterm-cu --target current --grant observe query --window "$HANDLE" \
 Every node carries the backend's action names (macOS `AXActionNames`,
 normalized: `AXPress` → `click`, `AXRaise` → `focus`, `AXShowMenu` →
 `show-menu`, others kebab-cased). An empty list means the backend reported
-none. Actuation on macOS (`invoke`) is slice 2 of
-`plan/design-mcu-absorption.md` and is not started.
+none. macOS also reports two-way control states (`checked` / `unchecked` /
+`mixed`, `expanded` / `collapsed`) and a numeric `AXValue` as `text`, so
+`verify` can tell "off" from "not observable".
+
+The actuation half of the loop (slice 2 of `plan/design-mcu-absorption.md`,
+same journey, same fixture) is `invoke` read back by `verify` / `wait
+--expect`. Nothing activates or raises the window; every write is read
+back; refusals are typed:
+
+```bash
+# one semantic action; the reply carries verified true|false (+ reason) and a
+# receipt {target, node, action, value, performed, before, after}
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-field set-value "written by cu"
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --name "Fixture Check" --role AXCheckBox set-checked true
+#   ^ desired state: repeating it is performed:false, verified:true (no second press)
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-press press
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-stepper increment
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-popup select-option Beta
+
+# read the same fields query reports; a mismatch is "unverified", a state the
+# node does not expose is "unsupported" (state_unobservable), an unknown key is
+# "usage" — never "probably fine"
+agenterm-cu --target current --grant observe verify --window "$HANDLE" \
+  --expect '[{"identifier":"fixture-field","value":"written by cu"},{"name":"Fixture Check","checked":true}]'
+agenterm-cu --target current --grant observe wait --timeout-ms 3000 --window "$HANDLE" \
+  --expect '[{"identifier":"fixture-press-count","value":"pressed 1"}]'
+
+# typed refusals: two showing matches -> ambiguous (count), an action the node
+# does not list -> unsupported (node_action_missing), no readable checked state
+# -> unsupported (state_unobservable), no match -> a11y_node_not_found,
+# observe-only grant -> refused
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --name "Fixture Twin" press
+```
+
+Verification per action: `set-value` / `select-option` compare the node's
+value; `set-checked` / `set-expanded` compare the state; `increment` /
+`decrement` require the numeric value to change; `press` is verified by a
+whole-tree diff (the count label changed) and is `verified: false` with
+`no_observable_change` when nothing did. Linux maps `press` / `set-value`
+and Windows `press` / `set-value` / `set-checked` through the same verb; the
+rest answer typed `unsupported` there (compile-checked, no live evidence).
 
 Linux `tree` and structured `click` / `focus` use **AT-SPI2 only**. If the
 accessibility bus is unavailable (no session bus, headless without a11y), commands

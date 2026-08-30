@@ -511,8 +511,22 @@ async fn perform_node_action_async(
     let object = resolve_path(&conn, &selected, &indices).await?;
     let proxy = open_bus_object(&conn, &object).await?;
     match action {
-        AccessibilityNodeAction::Click => invoke_structured_click(&proxy).await,
+        AccessibilityNodeAction::Click | AccessibilityNodeAction::Press => {
+            invoke_structured_click(&proxy).await
+        }
         AccessibilityNodeAction::Focus => invoke_structured_focus(&proxy).await,
+        AccessibilityNodeAction::SetValue(text) => {
+            invoke_editable_text(&proxy, &text, window_handle).await
+        }
+        // Desired-state / option / range verbs have no AT-SPI mapping in
+        // this cut: typed, never a synthetic click or key.
+        other => Err(AccessibilityTreeError::Unsupported {
+            reason: format!(
+                "AT-SPI has no mapping for action {} in this cut",
+                other.name()
+            )
+            .into(),
+        }),
     }
 }
 

@@ -159,6 +159,7 @@ type A11yTreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type A11yNodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type A11yNodePerform = unsafe extern "C" fn(isize, *const c_char, i32) -> i32;
+type A11yNodeInvoke = unsafe extern "C" fn(isize, *const c_char, i32, *const u8, usize) -> i32;
 type A11yNodeSetText = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
 type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
@@ -784,6 +785,22 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<A11yNodePerform> = unsafe { sym(lib, b"agt_a11y_node_perform") };
                 unsafe { CallResult::Status(f(0, std::ptr::null(), 0)) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_node_invoke[window_handle=0,node_id=NULL,action=2,value=NULL,len=0]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yNodeInvoke> = unsafe { sym(lib, b"agt_a11y_node_invoke") };
+                unsafe { CallResult::Status(f(0, std::ptr::null(), 2, std::ptr::null(), 0)) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_node_invoke[window_handle=0,node_id=/0,action=3,value=NULL,len=1]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yNodeInvoke> = unsafe { sym(lib, b"agt_a11y_node_invoke") };
+                unsafe { CallResult::Status(f(0, c"/0".as_ptr(), 3, std::ptr::null(), 1)) }
             }),
         },
         SweepCase {

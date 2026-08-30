@@ -258,7 +258,30 @@ pub(crate) fn perform_node_action(
     let element = session.resolve_node(window_handle, node_id, &budget)?;
     match action {
         AccessibilityNodeAction::Focus => session.set_focus(&element, &budget),
-        AccessibilityNodeAction::Click => session.click(&element, &budget),
+        AccessibilityNodeAction::Click | AccessibilityNodeAction::Press => {
+            session.click(&element, &budget)
+        }
+        AccessibilityNodeAction::SetValue(text) => {
+            if text.len() > MAX_SET_TEXT_BYTES {
+                return Err(limit_error(
+                    "a11y_text_limit",
+                    format!("value exceeds {MAX_SET_TEXT_BYTES} UTF-8 bytes"),
+                ));
+            }
+            session.set_text(&element, &text, &budget)
+        }
+        AccessibilityNodeAction::SetChecked(desired) => {
+            session.set_checked(&element, desired, &budget)
+        }
+        // Option / expansion / range verbs have no UIA mapping in this cut:
+        // typed, never a synthetic click or key.
+        other => Err(AccessibilityTreeError::Unsupported {
+            reason: format!(
+                "UI Automation has no mapping for action {} in this cut",
+                other.name()
+            )
+            .into(),
+        }),
     }
 }
 
@@ -850,6 +873,39 @@ impl UiaSession {
         budget.check()?;
         let hr = unsafe { ((*element_vtable(element)).set_focus)(element.as_ptr()) };
         hresult(hr, "IUIAutomationElement.SetFocus")
+    }
+
+    /// Desired-state, idempotent `set-checked` over the Toggle pattern: read
+    /// the state, toggle only when it differs, read it back.
+    fn set_checked(
+        &self,
+        element: &ComPtr,
+        desired: bool,
+        budget: &Budget,
+    ) -> Result<(), AccessibilityTreeError> {
+        budget.check()?;
+        let Some(pattern) =
+            self.pattern(element, UIA_TogglePatternId, &IID_TOGGLE_PATTERN, budget)?
+        else {
+            return Err(AccessibilityTreeError::Unsupported {
+                reason: "node exposes no UI Automation Toggle pattern".into(),
+            });
+        };
+        let wanted = if desired { "checked" } else { "unchecked" };
+        if toggle_state(&pattern)? == wanted {
+            return Ok(());
+        }
+        toggle_pattern(&pattern)?;
+        budget.check()?;
+        let observed = toggle_state(&pattern)?;
+        if observed == wanted {
+            Ok(())
+        } else {
+            Err(AccessibilityTreeError::failed(
+                "a11y_action_no_effect",
+                format!("toggle read-back is {observed} after asking for {wanted}"),
+            ))
+        }
     }
 
     fn click(&self, element: &ComPtr, budget: &Budget) -> Result<(), AccessibilityTreeError> {

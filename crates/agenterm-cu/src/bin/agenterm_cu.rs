@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use agenterm_cu::{
     Authorization, Command, Executor, PointerButton, RdpEndpoint, SshEndpoint, TargetRef,
     VncEndpoint, WaitCondition,
+    command::{Expectation, InvokeAction},
 };
 
 fn main() {
@@ -425,6 +426,108 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 max,
             }
         }
+        "invoke" => {
+            // Closed shape: flags first, then exactly `<action> [VALUE]`.
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("invoke requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            let node = match flag_text(&mut args, "--node") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let index = match flag_parsed::<usize>(&mut args, "--index") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let name = match flag_text(&mut args, "--name") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let identifier = match flag_text(&mut args, "--identifier") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let role = match flag_text(&mut args, "--role") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if node.is_none() && index.is_none() && name.is_none() && identifier.is_none() {
+                return usage_err(
+                    "invoke requires one of --node PATH, --index N, --name PAT [--role ROLE], --identifier ID",
+                );
+            }
+            if let Some(stray) = args.iter().find(|arg| arg.starts_with("--")) {
+                return usage_err(format!(
+                    "invoke accepts only --window H --node PATH | --index N | --name PAT [--role ROLE] | --identifier ID, then <action> [VALUE]; unexpected {stray:?}"
+                ));
+            }
+            let Some(action_raw) = args.first().cloned() else {
+                return usage_err(format!(
+                    "invoke requires an action: {}",
+                    InvokeAction::ALL
+                        .iter()
+                        .map(|action| action.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                ));
+            };
+            let Some(action) = InvokeAction::parse(&action_raw) else {
+                return usage_err(format!(
+                    "unknown invoke action {action_raw:?}; expected one of {}",
+                    InvokeAction::ALL
+                        .iter()
+                        .map(|action| action.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                ));
+            };
+            let value = args.get(1).cloned();
+            if args.len() > 2 {
+                return usage_err(format!(
+                    "invoke takes at most one VALUE after the action; unexpected {:?}",
+                    args[2]
+                ));
+            }
+            Command::Invoke {
+                target,
+                window,
+                node,
+                index,
+                name,
+                identifier,
+                role,
+                action,
+                value,
+            }
+        }
+        "verify" => {
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("verify requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            let expect = match flag_text(&mut args, "--expect") {
+                Ok(Some(raw)) => match parse_expectations(&raw) {
+                    Ok(expect) => expect,
+                    Err(message) => return usage_err(message),
+                },
+                Ok(None) => return usage_err("verify requires --expect '<json array>'"),
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "verify accepts only --window H --expect JSON; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Verify {
+                target,
+                window,
+                expect,
+            }
+        }
         "screenshot" => {
             let path = flag_value(&mut args, "--out")
                 .or_else(|| args.first().cloned())
@@ -723,7 +826,17 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Some(index) => Some(args.split_off(index)[1..].join(" ")),
                 None => None,
             };
-            let timeout_ms = flag_u64(&mut args, "--timeout-ms").unwrap_or(5_000);
+            let expect_present = args.iter().any(|arg| arg == "--expect");
+            // `--expect` is a closed shape, so its timeout value is consumed
+            // (the older conditions' lenient `flag_u64` leaves it in place).
+            let timeout_ms = if expect_present {
+                match flag_parsed::<u64>(&mut args, "--timeout-ms") {
+                    Ok(value) => value.unwrap_or(5_000),
+                    Err(message) => return usage_err(message),
+                }
+            } else {
+                flag_u64(&mut args, "--timeout-ms").unwrap_or(5_000)
+            };
             let text_equals_present = args
                 .iter()
                 .any(|arg| arg == "--text-equals" || arg == "--node-text-equals");
@@ -732,6 +845,27 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 .any(|arg| arg == "--text-contains" || arg == "--node-text-contains");
             let condition = if text_equals_present && text_contains_present {
                 return usage_err("wait accepts one of --text-equals or --text-contains, not both");
+            } else if expect_present {
+                let expect = match flag_text(&mut args, "--expect") {
+                    Ok(Some(raw)) => match parse_expectations(&raw) {
+                        Ok(expect) => expect,
+                        Err(message) => return usage_err(message),
+                    },
+                    Ok(None) => return usage_err("wait --expect requires a JSON array"),
+                    Err(message) => return usage_err(message),
+                };
+                let window = match flag_parsed::<isize>(&mut args, "--window") {
+                    Ok(Some(value)) => value,
+                    Ok(None) => return usage_err("wait --expect requires --window <handle>"),
+                    Err(message) => return usage_err(message),
+                };
+                if !args.is_empty() {
+                    return usage_err(format!(
+                        "wait --expect accepts only --timeout-ms MS --window H --expect JSON; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                WaitCondition::Expect { window, expect }
             } else if text_equals_present {
                 let expected = flag_value(&mut args, "--text-equals")
                     .or_else(|| flag_value(&mut args, "--node-text-equals"))
@@ -1226,6 +1360,29 @@ fn flag_coords(args: &mut Vec<String>, flag: &str) -> Option<[i32; 2]> {
     Some([x, y])
 }
 
+/// `--expect` is a JSON array of closed-shape items; an unknown key or a
+/// non-array is a usage error before any tree is read.
+fn parse_expectations(raw: &str) -> Result<Vec<Expectation>, String> {
+    let items: Vec<Expectation> = serde_json::from_str(raw)
+        .map_err(|error| format!("--expect must be a JSON array of {{node|index|name|identifier|role, value?, checked?, expanded?, focused?}} items: {error}"))?;
+    if items.is_empty() {
+        return Err("--expect needs at least one item".to_owned());
+    }
+    for (position, item) in items.iter().enumerate() {
+        if !item.has_target() {
+            return Err(format!(
+                "--expect item {position} needs a target (node, index, name, identifier or role)"
+            ));
+        }
+        if !item.has_state() {
+            return Err(format!(
+                "--expect item {position} needs a state (value, checked, expanded or focused)"
+            ));
+        }
+    }
+    Ok(items)
+}
+
 fn usage_err(message: impl Into<String>) -> agenterm_cu::CuReply {
     eprint_usage();
     agenterm_cu::CuReply {
@@ -1338,6 +1495,21 @@ Commands:
                               bounded, filtered flat node list with visited /
                               matched / returned / truncated; roles accept AXTextArea
                               or text-area; an unknown flag fails before the walk
+  invoke --window HANDLE (--node PATH | --index N | --name PAT [--role ROLE] | --identifier ID)
+         <press | set-value TEXT | select-option NAME | set-checked true|false
+          | set-expanded true|false | increment | decrement>
+                              one semantic a11y action; never activates or raises
+                              the window. Two showing matches -> "ambiguous", none
+                              -> "a11y_node_not_found", an action the node does not
+                              offer -> "unsupported". set-checked / set-expanded are
+                              desired states (already there = verified no-op). The
+                              reply carries verified true|false with the reason and a
+                              receipt (target, node, action, before / after state)
+  verify --window HANDLE --expect '[{{"node"|"index"|"name"[+"role"]|"identifier"|"role",
+                                     "value"?, "checked"?, "expanded"?, "focused"?}}, ...]'
+                              one tree read; all met -> ok + verified, a mismatch ->
+                              "unverified", a state the node does not expose ->
+                              "unsupported" (fail closed), an unknown key -> usage
   screenshot --out PATH [--window HANDLE]
   pointer-move --x X --y Y moves to absolute screen coordinates without any
                               press/release/click/drag/wheel side effect
@@ -1461,6 +1633,9 @@ Commands:
                               (a11y_text_unavailable). Never XTest /
                               --coords / screenshot.
   wait --timeout-ms MS (--window-count-gte N | --window-title-contains PAT | --focused-handle HANDLE
+                        | --window HANDLE --expect JSON   (same matcher as verify; polls
+                          until every item is met, ambiguity / unobservable state fail
+                          at once, timeout is typed with the last observation)
                         | --node-name-contains PAT [--node-role ROLE] [--window HANDLE]
                         | --text-equals TEXT --name PAT [--role ROLE] --window HANDLE
                         | --text-contains SUB --name PAT [--role ROLE] --window HANDLE)

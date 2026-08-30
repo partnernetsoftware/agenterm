@@ -48,6 +48,20 @@
       ]
     },
     {
+      "id": "computer-use.macos-current-actuate",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "macOS `current` semantic actuation is live",
+      "evidence_ids": [
+        "cu.macos-ax-invoke-set-value",
+        "cu.macos-ax-invoke-set-checked",
+        "cu.macos-ax-invoke-press",
+        "cu.macos-ax-invoke-value-readback",
+        "cu.macos-ax-invoke-refusals"
+      ]
+    },
+    {
       "id": "control-center.native-projection",
       "kind": "behavior",
       "status": "partial",

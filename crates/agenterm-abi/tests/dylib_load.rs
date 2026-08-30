@@ -223,6 +223,7 @@ type A11yTreeMetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) 
 type A11yTreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type A11yNodePerform = unsafe extern "C" fn(isize, *const c_char, i32) -> i32;
+type A11yNodeInvoke = unsafe extern "C" fn(isize, *const c_char, i32, *const u8, usize) -> i32;
 type A11yNodeSetText = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
 type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
@@ -1595,6 +1596,45 @@ fn a11y_node_perform_rejects_null_node_id() {
     assert!(
         msg.contains("bad_pointer"),
         "expected code \"bad_pointer\" in error, got: {msg}"
+    );
+}
+
+/// ABI 1.13: `agt_a11y_node_invoke` NULL node_id → bad_pointer, and a
+/// value-bearing kind through `agt_a11y_node_perform` → bad_action, both
+/// before any node is resolved; hosts without an a11y stack answer
+/// AGT_UNSUPPORTED.
+#[test]
+fn a11y_node_invoke_rejects_null_node_id_and_perform_refuses_value_kinds() {
+    let lib = load();
+    let query: Symbol<CapabilityQuery> = unsafe { sym(lib, b"agt_capability_query") };
+    let cap = unsafe { query(AGT_CAP_ACCESSIBILITY_TREE) };
+    let invoke: Symbol<A11yNodeInvoke> = unsafe { sym(lib, b"agt_a11y_node_invoke") };
+    let st = unsafe { invoke(0, std::ptr::null(), 2, std::ptr::null(), 0) };
+    if cap == AGT_UNSUPPORTED {
+        eprintln!("SKIP (no a11y stack): AGT_CAP_ACCESSIBILITY_TREE unsupported");
+        assert_eq!(st, AGT_UNSUPPORTED, "expected AGT_UNSUPPORTED, got {st}");
+        return;
+    }
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("bad_pointer"),
+        "expected code \"bad_pointer\" in error, got: {msg}"
+    );
+    let perform: Symbol<A11yNodePerform> = unsafe { sym(lib, b"agt_a11y_node_perform") };
+    let st = unsafe { perform(0, c"/0".as_ptr(), 3) };
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("bad_action"),
+        "expected code \"bad_action\" in error, got: {msg}"
+    );
+    let st = unsafe { invoke(0, c"/0".as_ptr(), 5, b"maybe".as_ptr(), 5) };
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("invalid_input"),
+        "expected code \"invalid_input\" in error, got: {msg}"
     );
 }
 

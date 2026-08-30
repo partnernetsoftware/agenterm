@@ -70,10 +70,61 @@ impl TreeBudget {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// One semantic node action. `Click` / `Focus` are the historical verbs
+/// (ABI 1.x `agt_a11y_node_perform`); the rest are the `invoke` vocabulary
+/// (ABI 1.13 `agt_a11y_node_invoke`). `SetChecked` / `SetExpanded` name a
+/// desired state the platform adapter reads before acting on.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NodeAction {
     Click,
     Focus,
+    Press,
+    SetValue(String),
+    SelectOption(String),
+    SetChecked(bool),
+    SetExpanded(bool),
+    Increment,
+    Decrement,
+}
+
+impl NodeAction {
+    /// The public verb spelling (`press`, `set-value`, ...).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Click => "click",
+            Self::Focus => "focus",
+            Self::Press => "press",
+            Self::SetValue(_) => "set-value",
+            Self::SelectOption(_) => "select-option",
+            Self::SetChecked(_) => "set-checked",
+            Self::SetExpanded(_) => "set-expanded",
+            Self::Increment => "increment",
+            Self::Decrement => "decrement",
+        }
+    }
+
+    /// `(abi kind, value payload)` for the loaded library.
+    fn abi_parts(&self) -> (i32, Option<String>) {
+        match self {
+            Self::Click => (dynlib::AGT_A11Y_ACTION_CLICK, None),
+            Self::Focus => (dynlib::AGT_A11Y_ACTION_FOCUS, None),
+            Self::Press => (dynlib::AGT_A11Y_ACTION_PRESS, None),
+            Self::SetValue(value) => (dynlib::AGT_A11Y_ACTION_SET_VALUE, Some(value.clone())),
+            Self::SelectOption(option) => {
+                (dynlib::AGT_A11Y_ACTION_SELECT_OPTION, Some(option.clone()))
+            }
+            Self::SetChecked(flag) => (
+                dynlib::AGT_A11Y_ACTION_SET_CHECKED,
+                Some(if *flag { "1" } else { "0" }.to_owned()),
+            ),
+            Self::SetExpanded(flag) => (
+                dynlib::AGT_A11Y_ACTION_SET_EXPANDED,
+                Some(if *flag { "1" } else { "0" }.to_owned()),
+            ),
+            Self::Increment => (dynlib::AGT_A11Y_ACTION_INCREMENT, None),
+            Self::Decrement => (dynlib::AGT_A11Y_ACTION_DECREMENT, None),
+        }
+    }
 }
 
 /// Typed failure for every mechanism call. `Unsupported` carries a human
@@ -930,20 +981,46 @@ fn read_meta_count(field: i32) -> Result<usize, MechanismError> {
     })
 }
 
+/// `Click` / `Focus` go through `agt_a11y_node_perform` so an older library
+/// still serves them; every `invoke` action needs ABI 1.13
+/// `agt_a11y_node_invoke`, and an older library answers a typed
+/// `Unsupported` rather than a silently different action.
 pub fn perform_node_action(
     window: Option<isize>,
     node_id: &str,
     action: NodeAction,
 ) -> Result<(), MechanismError> {
     let handle = window.unwrap_or(0);
-    let action_kind = match action {
-        NodeAction::Click => dynlib::AGT_A11Y_ACTION_CLICK,
-        NodeAction::Focus => dynlib::AGT_A11Y_ACTION_FOCUS,
-    };
     let node_c = CStringOrStack::new(node_id)?;
-    let f = call_sym::<NodePerform>(b"agt_a11y_node_perform")?;
-    let status = unsafe { f(handle, node_c.as_ptr(), action_kind) };
-    map_status("agt_a11y_node_perform", status)?;
+    let (kind, value) = action.abi_parts();
+    if matches!(action, NodeAction::Click | NodeAction::Focus) {
+        let f = call_sym::<NodePerform>(b"agt_a11y_node_perform")?;
+        let status = unsafe { f(handle, node_c.as_ptr(), kind) };
+        map_status("agt_a11y_node_perform", status)?;
+        return Ok(());
+    }
+    let (major, minor) = loaded_abi_version()?;
+    if !(major == 1 && minor >= dynlib::NODE_INVOKE_ABI_MINOR) {
+        return Err(MechanismError::Unsupported {
+            reason: format!(
+                "invoke {} requires ABI 1.{}, loaded library reports {major}.{minor}",
+                action.name(),
+                dynlib::NODE_INVOKE_ABI_MINOR
+            ),
+        });
+    }
+    let f = call_sym::<NodeInvoke>(b"agt_a11y_node_invoke")?;
+    let payload = value.unwrap_or_default();
+    let status = unsafe {
+        f(
+            handle,
+            node_c.as_ptr(),
+            kind,
+            payload.as_ptr(),
+            payload.len(),
+        )
+    };
+    map_status("agt_a11y_node_invoke", status)?;
     Ok(())
 }
 
@@ -1614,6 +1691,8 @@ type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type NodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type NodePerform = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32) -> i32;
+type NodeInvoke =
+    unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, *const u8, usize) -> i32;
 type NodeSetText = unsafe extern "C" fn(isize, *const std::ffi::c_char, *const u8, usize) -> i32;
 type NodeGetText =
     unsafe extern "C" fn(isize, *const std::ffi::c_char, *mut u8, usize, *mut usize) -> i32;

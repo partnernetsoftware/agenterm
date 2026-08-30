@@ -13,6 +13,119 @@ pub enum PointerButton {
     Middle,
 }
 
+/// The `invoke` action vocabulary (absorbed from `moltbaby/skills/mcu`,
+/// 2026-08-30): one spelling on every platform; a platform without a
+/// mapping answers typed `unsupported`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InvokeAction {
+    Press,
+    SetValue,
+    SelectOption,
+    SetChecked,
+    SetExpanded,
+    Increment,
+    Decrement,
+}
+
+/// What an `invoke` action's `VALUE` positional must be.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InvokeValueKind {
+    /// No value (`press`, `increment`, `decrement`).
+    None,
+    /// Free text (`set-value`, `select-option`).
+    Text,
+    /// `true` / `false` (`set-checked`, `set-expanded`).
+    Flag,
+}
+
+impl InvokeAction {
+    pub const ALL: [InvokeAction; 7] = [
+        Self::Press,
+        Self::SetValue,
+        Self::SelectOption,
+        Self::SetChecked,
+        Self::SetExpanded,
+        Self::Increment,
+        Self::Decrement,
+    ];
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|action| action.as_str() == raw.trim())
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Press => "press",
+            Self::SetValue => "set-value",
+            Self::SelectOption => "select-option",
+            Self::SetChecked => "set-checked",
+            Self::SetExpanded => "set-expanded",
+            Self::Increment => "increment",
+            Self::Decrement => "decrement",
+        }
+    }
+
+    pub fn value_kind(self) -> InvokeValueKind {
+        match self {
+            Self::Press | Self::Increment | Self::Decrement => InvokeValueKind::None,
+            Self::SetValue | Self::SelectOption => InvokeValueKind::Text,
+            Self::SetChecked | Self::SetExpanded => InvokeValueKind::Flag,
+        }
+    }
+}
+
+/// One `verify --expect` / `wait --expect` item: a target (at least one of
+/// `node`, `index`, `name`, `identifier`, `role`; `role` narrows `name` /
+/// `identifier` or stands alone) plus the states to compare. The shape is
+/// closed: an unknown key fails at parse time, so a misspelled state can
+/// never pass by being ignored.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Expectation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+    /// Case-insensitive substring of the accessible name (showing nodes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Exact toolkit identifier (showing nodes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    /// Role in either spelling (`AXCheckBox` / `check-box`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Exact node `text` (the value `query` reports).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused: Option<bool>,
+}
+
+impl Expectation {
+    pub fn has_target(&self) -> bool {
+        self.node.is_some()
+            || self.index.is_some()
+            || self.name.is_some()
+            || self.identifier.is_some()
+            || self.role.is_some()
+    }
+
+    pub fn has_state(&self) -> bool {
+        self.value.is_some()
+            || self.checked.is_some()
+            || self.expanded.is_some()
+            || self.focused.is_some()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "verb", rename_all = "kebab-case")]
 pub enum Command {
@@ -88,6 +201,40 @@ pub enum Command {
         offset: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
+    },
+    /// One semantic action on one node of `window` through the platform
+    /// a11y backend, never activating or raising the window. Exactly one of
+    /// `node` (path id), `index` (flatten index) or `name` [+ `role`] /
+    /// `identifier` addresses the target; two or more showing matches are
+    /// `ambiguous`, none is `a11y_node_not_found`, an action the node does
+    /// not offer is `unsupported`. The reply carries `verified` (the
+    /// postcondition was read back) and a receipt (target, node, action,
+    /// before / after state).
+    Invoke {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        identifier: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        action: InvokeAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+    /// Read one tree and check every expectation against it. All met is
+    /// `ok` with per-item results; a known mismatch is typed `unverified`;
+    /// a state the node does not expose is typed `unsupported` (fail
+    /// closed, never "probably fine").
+    Verify {
+        target: TargetRef,
+        window: isize,
+        expect: Vec<Expectation>,
     },
     Screenshot {
         target: TargetRef,
@@ -327,6 +474,14 @@ pub enum WaitCondition {
     WindowCountGte {
         count: usize,
     },
+    /// Polls the tree until every `verify` expectation is met. A missing
+    /// target keeps polling; an ambiguous target or an unobservable state
+    /// fails closed at once; the deadline is typed `timeout` carrying the
+    /// last observation.
+    Expect {
+        window: isize,
+        expect: Vec<Expectation>,
+    },
     WindowTitleContains {
         pattern: String,
     },
@@ -384,6 +539,8 @@ impl Command {
             Self::Windows { .. } => "windows".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
+            Self::Invoke { .. } => "invoke".into(),
+            Self::Verify { .. } => "verify".into(),
             Self::Screenshot { .. } => "screenshot".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
             Self::PointerPosition { .. } => "pointer-position".into(),
@@ -412,6 +569,8 @@ impl Command {
             | Self::Windows { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
+            | Self::Invoke { target, .. }
+            | Self::Verify { target, .. }
             | Self::Screenshot { target, .. }
             | Self::PointerMove { target, .. }
             | Self::PointerPosition { target, .. }
@@ -437,6 +596,7 @@ impl Command {
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
             Self::PointerMove { .. }
+            | Self::Invoke { .. }
             | Self::Click { .. }
             | Self::Focus { .. }
             | Self::SendText { .. }
@@ -622,6 +782,102 @@ mod tests {
             serde_json::json!({
                 "verb": "windows", "target": "current", "pid": 4242,
                 "app": "TextEdit", "focused": true, "minimized": false, "max": 1
+            })
+        );
+    }
+
+    #[test]
+    fn invoke_is_actuation_and_verify_is_observation() {
+        let invoke = Command::Invoke {
+            target: TargetRef::Current,
+            window: 7,
+            node: None,
+            index: None,
+            name: Some("Fixture Check".into()),
+            identifier: None,
+            role: Some("AXCheckBox".into()),
+            action: InvokeAction::SetChecked,
+            value: Some("true".into()),
+        };
+        assert_eq!(invoke.verb(), "invoke");
+        assert_eq!(invoke.required_grant(), Grant::Actuate);
+        let json = serde_json::to_value(&invoke).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "verb": "invoke", "target": "current", "window": 7,
+                "name": "Fixture Check", "role": "AXCheckBox",
+                "action": "set-checked", "value": "true"
+            })
+        );
+        let decoded: Command = serde_json::from_value(json).expect("deserialize");
+        assert!(matches!(
+            decoded,
+            Command::Invoke {
+                action: InvokeAction::SetChecked,
+                window: 7,
+                ..
+            }
+        ));
+        assert_eq!(
+            InvokeAction::parse("select-option"),
+            Some(InvokeAction::SelectOption)
+        );
+        assert_eq!(InvokeAction::parse("raise"), None);
+        assert_eq!(InvokeAction::Press.value_kind(), InvokeValueKind::None);
+        assert_eq!(InvokeAction::SetValue.value_kind(), InvokeValueKind::Text);
+        assert_eq!(
+            InvokeAction::SetExpanded.value_kind(),
+            InvokeValueKind::Flag
+        );
+
+        let verify = Command::Verify {
+            target: TargetRef::Ssh,
+            window: 7,
+            expect: vec![Expectation {
+                identifier: Some("fixture-check".into()),
+                checked: Some(true),
+                ..Expectation::default()
+            }],
+        };
+        assert_eq!(verify.verb(), "verify");
+        assert_eq!(verify.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&verify).expect("serialize"),
+            serde_json::json!({
+                "verb": "verify", "target": "ssh", "window": 7,
+                "expect": [{ "identifier": "fixture-check", "checked": true }]
+            })
+        );
+    }
+
+    #[test]
+    fn expectation_shape_is_closed() {
+        let parsed: Expectation =
+            serde_json::from_str(r#"{"name":"Fixture","role":"AXButton","value":"x"}"#)
+                .expect("known keys parse");
+        assert!(parsed.has_target() && parsed.has_state());
+        let unknown = serde_json::from_str::<Expectation>(r#"{"name":"a","cheked":true}"#);
+        assert!(unknown.is_err(), "a misspelled state must not parse");
+        let wait = Command::Wait {
+            target: TargetRef::Current,
+            timeout_ms: 500,
+            condition: WaitCondition::Expect {
+                window: 3,
+                expect: vec![Expectation {
+                    node: Some("/0/1".into()),
+                    value: Some("pressed 1".into()),
+                    ..Expectation::default()
+                }],
+            },
+        };
+        assert_eq!(wait.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&wait).expect("serialize"),
+            serde_json::json!({
+                "verb": "wait", "target": "current", "timeout_ms": 500,
+                "wait": "expect", "window": 3,
+                "expect": [{ "node": "/0/1", "value": "pressed 1" }]
             })
         );
     }

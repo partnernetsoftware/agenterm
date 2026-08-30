@@ -58,6 +58,11 @@
         "cu.macos-ax-query",
         "cu.macos-ax-tree-bounded",
         "cu.macos-ax-tree-actions",
+        "cu.macos-ax-invoke-set-value",
+        "cu.macos-ax-invoke-set-checked",
+        "cu.macos-ax-invoke-press",
+        "cu.macos-ax-invoke-value-readback",
+        "cu.macos-ax-invoke-refusals",
         "cu.macos-ax-fixture-cleanup"
       ]
     }

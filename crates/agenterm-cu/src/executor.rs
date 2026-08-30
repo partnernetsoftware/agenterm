@@ -24,7 +24,7 @@ use crate::{
     audit::AuditLog,
     auth::{Authorization, Grant},
     auth_store::{AuthStore, AuthStoreErrorKind, GrantAttempt, GrantDecision, GrantDenialKind},
-    command::{Command, PointerButton, WaitCondition},
+    command::{Command, InvokeAction, InvokeValueKind, PointerButton, WaitCondition},
     mechanism, observe,
     rdp_transport::{self, RdpEndpoint},
     reply::{CuError, CuReply},
@@ -570,6 +570,29 @@ impl Executor {
                 *offset,
                 *max,
             ),
+            Command::Invoke {
+                window,
+                node,
+                index,
+                name,
+                identifier,
+                role,
+                action,
+                value,
+                ..
+            } => invoke_payload(
+                *window,
+                observe::TargetSpec {
+                    node: node.clone(),
+                    index: *index,
+                    name: name.clone(),
+                    identifier: identifier.clone(),
+                    role: role.clone(),
+                },
+                *action,
+                value.as_deref(),
+            ),
+            Command::Verify { window, expect, .. } => verify_payload(*window, expect),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
             Command::PointerPosition { .. } => pointer_position(),
@@ -800,6 +823,8 @@ fn capabilities_payload() -> serde_json::Value {
             "capabilities": { "status": "available" },
             "tree": tree_verb,
             "query": tree_verb,
+            "invoke": tree_verb,
+            "verify": tree_verb,
         },
         "mapping": {
             "windows": "libagenterm agt_window_enumerate",
@@ -811,7 +836,7 @@ fn capabilities_payload() -> serde_json::Value {
             "screenshot": "none — shared agenterm.dll (milestone 46)",
             "input_degraded": "none — shared agenterm.dll (milestone 46)",
             "rdp_live": "rdp tier is placeholder; never declared available on current",
-            "macos_ax_live": "macOS AX observe (windows / tree / query) is proven by scripts/qjs/cu-macos-smoke.qjs; AX actuation (invoke) is not started",
+            "macos_ax_live": "macOS AX observe (windows / tree / query) and semantic actuation (invoke / verify) are proven by scripts/qjs/cu-macos-smoke.qjs; destructive actions are not offered",
         }
     })
 }
@@ -827,7 +852,7 @@ fn current_tree_mapping() -> &'static str {
     }
     #[cfg(target_os = "macos")]
     {
-        "libagenterm agt_a11y_* → macOS AX (observe live: cu-macos-smoke; actuation not started)"
+        "libagenterm agt_a11y_* → macOS AX (observe + invoke live: cu-macos-smoke)"
     }
     #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
@@ -2687,6 +2712,9 @@ fn screen_for_rect(
 
 fn wait(timeout_ms: u64, condition: &WaitCondition) -> Result<serde_json::Value, CuError> {
     match condition {
+        WaitCondition::Expect { window, expect } => {
+            return wait_expect(timeout_ms, *window, expect);
+        }
         WaitCondition::NodeNameContains {
             pattern,
             role,
@@ -2761,7 +2789,8 @@ fn condition_met(condition: &WaitCondition, windows: &[WindowInfo]) -> bool {
             .iter()
             .any(|window| window.focused && window.handle == *handle),
         // Polled against the accessibility tree, not the window list.
-        WaitCondition::NodeNameContains { .. }
+        WaitCondition::Expect { .. }
+        | WaitCondition::NodeNameContains { .. }
         | WaitCondition::NodeTextEquals { .. }
         | WaitCondition::NodeTextContains { .. } => false,
     }
@@ -3055,6 +3084,430 @@ fn node_is_showing(node: &mechanism::A11yNode) -> bool {
     node.states
         .iter()
         .any(|state| state.eq_ignore_ascii_case("showing") || state.eq_ignore_ascii_case("visible"))
+}
+
+// ---------------------------------------------------------------------------
+// invoke / verify / wait --expect (PRD 29 default loop, PRD 31 invariants).
+// ---------------------------------------------------------------------------
+
+fn target_error(error: observe::TargetError) -> CuError {
+    match error {
+        observe::TargetError::Invalid(message) => CuError::new("invalid_input", message),
+        observe::TargetError::Missing(message) => CuError::new("a11y_node_not_found", message),
+        observe::TargetError::Ambiguous { count, scope } => CuError::new(
+            "ambiguous",
+            format!("{count} showing accessibility nodes with {scope}; refusing to guess"),
+        )
+        .with_count(count)
+        .with_detail(serde_json::json!({ "matches": count })),
+    }
+}
+
+/// The platform action for an `invoke` verb plus its validated value.
+fn invoke_action(
+    action: InvokeAction,
+    value: Option<&str>,
+) -> Result<mechanism::NodeAction, CuError> {
+    match action.value_kind() {
+        InvokeValueKind::None => {
+            if value.is_some() {
+                return Err(invalid_input(format!(
+                    "invoke {} takes no value",
+                    action.as_str()
+                )));
+            }
+        }
+        InvokeValueKind::Text => {
+            if value.is_none() {
+                return Err(invalid_input(format!(
+                    "invoke {} requires a value",
+                    action.as_str()
+                )));
+            }
+        }
+        InvokeValueKind::Flag => {
+            if !matches!(value, Some("true") | Some("false")) {
+                return Err(invalid_input(format!(
+                    "invoke {} requires true or false",
+                    action.as_str()
+                )));
+            }
+        }
+    }
+    let flag = value == Some("true");
+    let text = value.unwrap_or_default().to_owned();
+    Ok(match action {
+        InvokeAction::Press => mechanism::NodeAction::Press,
+        InvokeAction::SetValue => mechanism::NodeAction::SetValue(text),
+        InvokeAction::SelectOption => mechanism::NodeAction::SelectOption(text),
+        InvokeAction::SetChecked => mechanism::NodeAction::SetChecked(flag),
+        InvokeAction::SetExpanded => mechanism::NodeAction::SetExpanded(flag),
+        InvokeAction::Increment => mechanism::NodeAction::Increment,
+        InvokeAction::Decrement => mechanism::NodeAction::Decrement,
+    })
+}
+
+/// The normalized action name a node must list before cu even asks the
+/// backend (`set-value` / `select-option` are attribute writes the backend
+/// alone can judge).
+fn required_node_action(action: InvokeAction) -> Option<&'static str> {
+    match action {
+        InvokeAction::Press | InvokeAction::SetChecked | InvokeAction::SetExpanded => Some("click"),
+        InvokeAction::Increment => Some("increment"),
+        InvokeAction::Decrement => Some("decrement"),
+        InvokeAction::SetValue | InvokeAction::SelectOption => None,
+    }
+}
+
+/// One semantic action with a read-back receipt. Never activates or raises
+/// the window: the only mechanism is the a11y node action.
+fn invoke_payload(
+    window: isize,
+    spec: observe::TargetSpec,
+    action: InvokeAction,
+    value: Option<&str>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "invoke requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    let node_action = invoke_action(action, value)?;
+    let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let target = {
+        let flat = observe::flatten(&before);
+        let hit = observe::resolve_target(&flat, &spec).map_err(target_error)?;
+        hit.node.clone()
+    };
+    if let Some(required) = required_node_action(action)
+        && !target
+            .actions
+            .iter()
+            .any(|offered| offered.eq_ignore_ascii_case(required))
+    {
+        return Err(CuError::new(
+            "unsupported",
+            format!(
+                "node {} ({} {:?}) does not offer {} (actions: {})",
+                target.id,
+                target.role,
+                target.name,
+                action.as_str(),
+                if target.actions.is_empty() {
+                    "none".to_owned()
+                } else {
+                    target.actions.join(", ")
+                }
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "reason": "node_action_missing",
+            "required": required,
+            "offered": target.actions,
+        })));
+    }
+    // Desired-state verbs: an unobservable state is refused before any
+    // action; an already-matching state is a verified no-op.
+    let desired = match &node_action {
+        mechanism::NodeAction::SetChecked(flag) => {
+            Some(("checked", *flag, observe::checked_state(&target)))
+        }
+        mechanism::NodeAction::SetExpanded(flag) => {
+            Some(("expanded", *flag, observe::expanded_state(&target)))
+        }
+        _ => None,
+    };
+    let mut performed = true;
+    if let Some((field, flag, state)) = desired {
+        match state {
+            observe::Tri::Unknown => {
+                return Err(CuError::new(
+                    "unsupported",
+                    format!(
+                        "node {} ({} {:?}) exposes no {field} state; refusing to press blind",
+                        target.id, target.role, target.name
+                    ),
+                )
+                .with_detail(
+                    serde_json::json!({ "reason": "state_unobservable", "state": field }),
+                ));
+            }
+            observe::Tri::True | observe::Tri::False if state.as_bool() == Some(flag) => {
+                performed = false;
+            }
+            _ => {}
+        }
+    }
+    let mut mechanism_error = None;
+    if performed
+        && let Err(error) =
+            mechanism::perform_node_action(Some(window), &target.id, node_action.clone())
+    {
+        mechanism_error = Some(map_mechanism_err(error));
+    }
+    let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let after_node = observe::node_by_id(&after, &target.id).cloned();
+    let (verified, method, reason) = match (&node_action, &after_node) {
+        (mechanism::NodeAction::SetValue(wanted), Some(now))
+        | (mechanism::NodeAction::SelectOption(wanted), Some(now)) => {
+            let hit = now.text.as_deref() == Some(wanted.as_str());
+            (
+                hit,
+                "value-readback",
+                if hit { None } else { Some("value_mismatch") },
+            )
+        }
+        (mechanism::NodeAction::SetChecked(wanted), Some(now)) => {
+            let hit = observe::checked_state(now).as_bool() == Some(*wanted);
+            (
+                hit,
+                "checked-readback",
+                if hit { None } else { Some("state_mismatch") },
+            )
+        }
+        (mechanism::NodeAction::SetExpanded(wanted), Some(now)) => {
+            let hit = observe::expanded_state(now).as_bool() == Some(*wanted);
+            (
+                hit,
+                "expanded-readback",
+                if hit { None } else { Some("state_mismatch") },
+            )
+        }
+        (mechanism::NodeAction::Increment, Some(now))
+        | (mechanism::NodeAction::Decrement, Some(now)) => {
+            match (observe::numeric_text(&target), observe::numeric_text(now)) {
+                (Some(was), Some(is)) if was != is => (true, "value-readback", None),
+                (Some(_), Some(_)) => (false, "value-readback", Some("value_unchanged")),
+                _ => (false, "value-readback", Some("value_unreadable")),
+            }
+        }
+        (mechanism::NodeAction::Press, Some(_)) => {
+            if observe::tree_changed(&before, &after) {
+                (true, "tree-diff", None)
+            } else {
+                (false, "tree-diff", Some("no_observable_change"))
+            }
+        }
+        (mechanism::NodeAction::Press, None) => (true, "tree-diff", Some("node_gone")),
+        (_, None) => (false, "node-readback", Some("node_gone")),
+        _ => (false, "none", Some("unverifiable_action")),
+    };
+    let receipt = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "backend": before.backend,
+        "window": window,
+        "target": spec.json(),
+        "node": {
+            "id": target.id,
+            "role": target.role,
+            "name": target.name,
+            "identifier": target.identifier,
+            "index": before.nodes.iter().position(|node| node.id == target.id),
+        },
+        "action": action.as_str(),
+        "value": value,
+        "performed": performed,
+        "verified": verified && mechanism_error.is_none(),
+        "verification": {
+            "method": method,
+            "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
+        },
+        "before": observe::node_state_json(&target),
+        "after": after_node.as_ref().map(observe::node_state_json),
+        "tree_changed": observe::tree_changed(&before, &after),
+    });
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
+    }
+    Ok(receipt)
+}
+
+/// One expectation checked against one flattened tree.
+struct Verdict {
+    item: serde_json::Value,
+    met: bool,
+    unknown: bool,
+}
+
+fn check_one(
+    flat: &[observe::FlatNode<'_>],
+    expectation: &crate::command::Expectation,
+) -> Result<Verdict, CuError> {
+    if !expectation.has_state() {
+        return Err(invalid_input(
+            "every --expect item needs at least one of value, checked, expanded, focused".into(),
+        ));
+    }
+    let spec = observe::TargetSpec::from_expectation(expectation);
+    let node = match observe::resolve_target(flat, &spec) {
+        Ok(hit) => hit.node,
+        Err(observe::TargetError::Missing(message)) => {
+            return Ok(Verdict {
+                item: serde_json::json!({
+                    "target": spec.json(),
+                    "node": null,
+                    "met": false,
+                    "reason": message,
+                }),
+                met: false,
+                unknown: false,
+            });
+        }
+        Err(error) => return Err(target_error(error)),
+    };
+    let checks = observe::check_expectation(node, expectation);
+    let unknown = checks.iter().any(|check| check.met.is_none());
+    let met = !unknown && checks.iter().all(|check| check.met == Some(true));
+    Ok(Verdict {
+        item: serde_json::json!({
+            "target": spec.json(),
+            "node": observe::node_state_json(node),
+            "checks": checks,
+            "met": met,
+            "unknown": unknown,
+        }),
+        met,
+        unknown,
+    })
+}
+
+fn verify_payload(
+    window: isize,
+    expect: &[crate::command::Expectation],
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "verify requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    if expect.is_empty() {
+        return Err(invalid_input(
+            "verify requires a non-empty --expect array".into(),
+        ));
+    }
+    let tree = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let flat = observe::flatten(&tree);
+    let mut results = Vec::with_capacity(expect.len());
+    let mut unknown = false;
+    let mut unmet = false;
+    for expectation in expect {
+        let verdict = check_one(&flat, expectation)?;
+        unknown |= verdict.unknown;
+        unmet |= !verdict.met;
+        results.push(verdict.item);
+    }
+    let observation = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "backend": tree.backend,
+        "window": window,
+        "visited": tree.visited,
+        "truncated": tree.truncated,
+        "results": results,
+    });
+    if unknown {
+        return Err(CuError::new(
+            "unsupported",
+            "an expected state is not observable on its node; refusing to call it met",
+        )
+        .with_detail(
+            serde_json::json!({ "reason": "state_unobservable", "observation": observation }),
+        ));
+    }
+    if unmet {
+        return Err(CuError::new(
+            "unverified",
+            "at least one expectation is not met by the current tree",
+        )
+        .with_detail(serde_json::json!({ "observation": observation })));
+    }
+    let mut payload = observation;
+    payload["verified"] = serde_json::Value::Bool(true);
+    Ok(payload)
+}
+
+/// Poll the same matcher until every expectation is met. A missing node
+/// keeps polling; ambiguity and an unobservable state fail closed at once.
+fn wait_expect(
+    timeout_ms: u64,
+    window: isize,
+    expect: &[crate::command::Expectation],
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "wait --expect requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    if expect.is_empty() {
+        return Err(invalid_input(
+            "wait requires a non-empty --expect array".into(),
+        ));
+    }
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
+    let poll = Duration::from_millis(50);
+    let mut polls = 0usize;
+    let mut last;
+    loop {
+        polls += 1;
+        match mechanism::tree_for_window(Some(window)) {
+            Ok(tree) => {
+                let flat = observe::flatten(&tree);
+                let mut results = Vec::with_capacity(expect.len());
+                let mut all_met = true;
+                for expectation in expect {
+                    let verdict = check_one(&flat, expectation)?;
+                    if verdict.unknown {
+                        return Err(CuError::new(
+                            "unsupported",
+                            "an expected state is not observable on its node; more polling cannot make it so",
+                        )
+                        .with_detail(serde_json::json!({ "reason": "state_unobservable", "item": verdict.item })));
+                    }
+                    all_met &= verdict.met;
+                    results.push(verdict.item);
+                }
+                last = serde_json::json!({
+                    "backend": tree.backend,
+                    "visited": tree.visited,
+                    "truncated": tree.truncated,
+                    "results": results,
+                });
+                if all_met {
+                    return Ok(serde_json::json!({
+                        "met": true,
+                        "verified": true,
+                        "addressing": "accessibility-tree",
+                        "mechanism": "libagenterm",
+                        "window": window,
+                        "polls": polls,
+                        "observation": last,
+                    }));
+                }
+            }
+            Err(mechanism::MechanismError::Unsupported { reason }) => {
+                return Err(map_mechanism_err(mechanism::MechanismError::Unsupported {
+                    reason,
+                }));
+            }
+            Err(error) => {
+                let error = map_mechanism_err(error);
+                if error.code == "denied" {
+                    return Err(error);
+                }
+                last = serde_json::json!({ "tree_error": error_payload(&error) });
+            }
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(poll);
+    }
+    Err(CuError::new(
+        "timeout",
+        format!("expectations not met after {timeout_ms}ms ({polls} polls)"),
+    )
+    .with_detail(serde_json::json!({ "observation": last })))
 }
 
 fn map_mechanism_err(error: mechanism::MechanismError) -> CuError {

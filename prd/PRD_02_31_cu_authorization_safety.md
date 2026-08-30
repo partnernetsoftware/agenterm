@@ -35,21 +35,62 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [ ] a denied action fails typed and locally. It never partially executes, and
   it never falls back to a lower-fidelity path that achieves the same effect.
 
-- [ ] a background action never steals the foreground application, its
+- [x] a background action never steals the foreground application, its
   keyboard focus or the real pointer position; an explicit `focus` may only
   move focus *inside* the addressed application. A target that cannot be
   reached without doing so fails closed with a typed refusal -- there is no
-  silent fallback to global input or implicit privilege.
-- [ ] refusals use one typed vocabulary across every tier: `unsupported`
+  silent fallback to global input or implicit privilege. **Proven for
+  macOS `current` `invoke` only** (cut 3.50, `scripts/qjs/cu-macos-smoke.qjs`
+  STEP "ambiguous --name, missing action, unobservable state, missing
+  target and observe-only grant are typed refusals", 2026-08-30): the
+  macOS adapter never sends `AXRaise` or activates the application, the
+  fixture is an accessory-policy app ordered front without activation, and
+  the journey reads `windows --focused true` before the actuation section
+  (set-value, set-checked, press, increment, decrement, select-option and
+  every refusal) and after it, requiring the same focused window handle
+  and never the fixture's. Not proven here: keyboard focus and pointer
+  position (the journey does not read them; macOS has no
+  `pointer-position` yet), `focus` itself (mapped to `AXFocused`, not in
+  the journey), Linux / Windows, and remote tiers.
+- [x] refusals use one typed vocabulary across every tier: `unsupported`
   (backend lacks the capability), `degraded` (a weaker path was used and says
   so), `denied` (authorization or OS permission), `needs-privilege` (an
-  elevation would be required and was not attempted).
-- [ ] delivery is not success: every actuation result carries `verified`
+  elevation would be required and was not attempted). **Proven for macOS
+  `current` `invoke` / `verify` / `wait --expect`** (cut 3.50, same
+  journey STEP): `unsupported` for an action the node does not list
+  (`detail.reason = node_action_missing`, offered actions in
+  `detail.offered`), for a desired-state verb on a node with no readable
+  state (`state_unobservable`) and for a `verify` state the node does not
+  expose; `refused` for an actuation under an observe-only grant;
+  `ambiguous` (with `count`) for two showing matches; `a11y_node_not_found`
+  for none; `unverified` for a `verify` mismatch; `timeout` (carrying the
+  last observation) for `wait --expect`; `usage` / `invalid_input` for a
+  malformed action or value. `denied` for a missing Accessibility
+  permission is pure-tested (cut 3.49), not live; `degraded` and
+  `needs-privilege` are not exercised by this journey (no coordinate path
+  and no elevation exists on the macOS actuation path); Linux / Windows /
+  remote tiers are not claimed.
+- [x] delivery is not success: every actuation result carries `verified`
   (the postcondition was read back) or `unverified`, and a receipt naming
-  target, node, action and observed state survives the process.
+  target, node, action and observed state survives the process. **Proven
+  for macOS `current` `invoke`** (cut 3.50, `cu-macos-smoke` STEPs "invoke
+  set-value ...", "invoke set-checked true twice ...", "invoke press
+  advances the count label ...", "invoke increment / decrement ...
+  select-option ..."): each accepted reply carries `verified: true|false`
+  with `verification.method` (value / checked / expanded read-back, tree
+  diff for `press`) and `reason` when false, plus the receipt (`target`,
+  `node` id / role / name / identifier / index, `action`, `value`,
+  `performed`, `before` / `after` node state); a mechanism failure returns
+  the receipt in `error.detail.receipt` (the `select-option Omega` case).
+  The receipt survives the process only as the command's JSON stdout and
+  the existing actuate audit record — a crash-persistent effect receipt
+  written before the action is not built. `click` / `focus` / `send-text`
+  and the older verbs still answer without `verified`.
 - [ ] a destructive action (close, quit, delete, overwrite) requires an exact
   target reference, a prior snapshot of the state it changes and a checkable
-  postcondition; without all three it is refused typed.
+  postcondition; without all three it is refused typed. `invoke` offers no
+  destructive action (no close / quit / delete verb exists), so nothing is
+  proven or refused here yet.
 ## Audit
 
 - [ ] every authorized action produces an observable record identifying target,

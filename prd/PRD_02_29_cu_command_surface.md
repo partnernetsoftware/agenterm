@@ -45,14 +45,20 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   press/release/move/click/drag; wheel; keyboard text and named keys; clipboard
   read/write; file transfer in both directions; **named window placement**
   (`window-place`, owned by [32](PRD_02_32_cu_window_placement.md)).
-- [~] the default control loop is `windows` -> bounded `query` / `tree` ->
+- [x] the default control loop is `windows` -> bounded `query` / `tree` ->
   `invoke`, with `verify --expect` closing the loop (absorbed from
   `moltbaby/skills/mcu`, 2026-08-30). `elements`-style flat numbering is a
   secondary path (`tree --flat`, the same flatten index `invoke --index`
-  uses); screenshots are the last resort, never the default. The observe
-  half (`windows` -> `query` / `tree`) is live on macOS
-  (`scripts/qjs/cu-macos-smoke.qjs`, STEPs "windows --pid", "query by
-  role", "tree --max-nodes 5"); `invoke` / `verify` are slice 2.
+  uses); screenshots are the last resort, never the default. The whole loop
+  is live on macOS `current` in `scripts/qjs/cu-macos-smoke.qjs`: observe
+  STEPs "windows --pid", "query by role", "tree --max-nodes 5" (slice 1),
+  then actuation STEPs "invoke set-value writes the text field and verify
+  --expect reads it back", "invoke set-checked true twice", "invoke press
+  advances the count label; wait --expect and verify read it on another
+  node", "invoke increment / decrement on the stepper and select-option on
+  the pop-up read back" (slice 2, 2026-08-30). Linux / Windows run the same
+  verbs on their own backends with partial mappings (see PRD 30); live
+  evidence there is not claimed.
 - [x] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
   [--text T | --text-exact T] [--identifier ID] [--actionable] [--within
   X,Y,W,H] [--offset N] [--max N]` returns a flat, bounded, filtered node list
@@ -93,17 +99,60 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   tree reports truncated false and AX action names on its controls"
   (`cu.macos-ax-tree-actions`: the `Fixture Press` button carries `click`).
   The `invoke` action vocabulary (`press`, `set-value`, `increment`, ...)
-  is slice 2.
-- [ ] `invoke --window HANDLE (--node PATH | --name PAT [--role ROLE])
-  <action> [VALUE]` performs one semantic action (`press`, `set-value`,
-  `select-option`, `set-checked`, `set-expanded`, `increment`, `decrement`)
-  through the a11y backend without activating or raising the window; an
-  ambiguous or missing target and a missing action are typed refusals, and
-  every result is marked `verified` (the state was read back) or
-  `unverified`.
-- [ ] `verify --window HANDLE --expect '[{"role":..,"name":..,"checked":..,
-  "value":..}]'` and `wait ... --expect ...` read the same fields `query`
-  reports and fail closed on an unknown state.
+  is the leaf below. macOS also reports two-way control states so a caller
+  can tell "off" from "not observable": `checked` / `unchecked` / `mixed`
+  (AXCheckBox / AXRadioButton `AXValue` 0 / 1 / 2) and `expanded` /
+  `collapsed` (`AXExpanded`, disclosure triangles), and a numeric `AXValue`
+  (stepper, slider) is the node's `text`.
+- [x] `invoke --window HANDLE (--node PATH | --index N | --name PAT [--role
+  ROLE] | --identifier ID) <action> [VALUE]` performs one semantic action
+  (`press`, `set-value TEXT`, `select-option NAME`, `set-checked
+  true|false`, `set-expanded true|false`, `increment`, `decrement`) through
+  the platform a11y backend (ABI 1.13 `agt_a11y_node_invoke`) without
+  activating or raising the window. Two showing matches are typed
+  `ambiguous` (with `count`), none is `a11y_node_not_found`, an action the
+  node does not list is `unsupported` (`detail.reason =
+  node_action_missing`, the offered actions in `detail.offered`), and a
+  desired-state verb on a node with no readable state is `unsupported`
+  (`state_unobservable`) — never a blind press. `set-checked` /
+  `set-expanded` are desired states: an already-matching node is
+  `performed: false` and still `verified: true`. Every reply carries
+  `verified` with `verification.method` / `reason` (value / checked /
+  expanded read-back; `increment` / `decrement` must change the numeric
+  value; `press` is verified by a whole-tree diff, `no_observable_change`
+  otherwise) and a receipt (`target`, `node`, `action`, `value`,
+  `performed`, `before` / `after` state). Evidence: `cu-macos-smoke` STEPs
+  "invoke set-value writes the text field and verify --expect reads it
+  back" (`cu.macos-ax-invoke-set-value`), "invoke set-checked true twice:
+  the first presses, the second is a verified no-op"
+  (`cu.macos-ax-invoke-set-checked`), "invoke press advances the count
+  label" (`cu.macos-ax-invoke-press`), "invoke increment / decrement on the
+  stepper and select-option on the pop-up read back"
+  (`cu.macos-ax-invoke-value-readback`), "ambiguous --name, missing
+  action, unobservable state, missing target and observe-only grant are
+  typed refusals" (`cu.macos-ax-invoke-refusals`). The CLI shape is closed
+  (`usage` for an unknown action or stray flag; `invalid_input` for a bad
+  value). Linux maps `press` / `set-value`, Windows `press` / `set-value` /
+  `set-checked` (Toggle); the rest answer typed `unsupported` there
+  (compile-checked, not live-proven).
+- [x] `verify --window HANDLE --expect '[{"node"|"index"|"name"[+"role"]|
+  "identifier"|"role", "value"?, "checked"?, "expanded"?, "focused"?}, ...]'`
+  reads one tree and checks every item against the same fields `query`
+  reports: all met is `ok` with `verified: true` and per-item `checks`
+  (`expected` / `observed` / `met`); a known mismatch is typed
+  `unverified` with the observation; a state the node does not expose
+  (`checked` on a button, `focused` on a non-focusable node) is typed
+  `unsupported` (`state_unobservable`) — fail closed, never "probably
+  fine"; an unknown key is `usage` before any tree is read. `wait
+  --timeout-ms MS --window HANDLE --expect JSON` polls the same matcher: a
+  missing target keeps polling, ambiguity and an unobservable state fail at
+  once, and the deadline is typed `timeout` carrying the last observation
+  (what was seen, not just that time passed). Evidence: `cu-macos-smoke`
+  STEP "invoke set-value writes the text field and verify --expect reads
+  it back" (`verify` ok / `unverified` / `unsupported` / `usage`) and STEP
+  "invoke press advances the count label; wait --expect and verify read it
+  on another node" (`wait --expect` met and `timeout` with the last
+  observed value).
 - [ ] second batch: `focused --window HANDLE` (App-local focused control,
   read and targeted write, never requiring the foreground), `observe` (a
   bounded, filtered event stream over the same tree), and `menu inspect /

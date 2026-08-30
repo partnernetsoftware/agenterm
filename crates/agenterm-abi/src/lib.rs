@@ -273,7 +273,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 12);
+abi_version!(1, 13);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3036,6 +3036,57 @@ const AGT_A11Y_NODES_DEFAULT: u32 = 0;
 
 const AGT_A11Y_ACTION_CLICK: i32 = 0;
 const AGT_A11Y_ACTION_FOCUS: i32 = 1;
+/// ABI 1.13: the `invoke` vocabulary. Kinds 3..=6 carry a value and go
+/// through `agt_a11y_node_invoke`; the others work through either export.
+const AGT_A11Y_ACTION_PRESS: i32 = 2;
+const AGT_A11Y_ACTION_SET_VALUE: i32 = 3;
+const AGT_A11Y_ACTION_SELECT_OPTION: i32 = 4;
+const AGT_A11Y_ACTION_SET_CHECKED: i32 = 5;
+const AGT_A11Y_ACTION_SET_EXPANDED: i32 = 6;
+const AGT_A11Y_ACTION_INCREMENT: i32 = 7;
+const AGT_A11Y_ACTION_DECREMENT: i32 = 8;
+
+/// Map an action kind plus optional value payload to the contract action.
+/// `Err` carries the `agt_last_error` code and message.
+fn a11y_action_from_abi(
+    action: i32,
+    value: Option<&str>,
+) -> Result<AccessibilityNodeAction, (&'static CStr, String)> {
+    let need_value = |what: &str| {
+        value.map(str::to_owned).ok_or_else(|| {
+            (
+                c"bad_action",
+                format!("{what} needs a value; use agt_a11y_node_invoke"),
+            )
+        })
+    };
+    let need_flag = |what: &str| match value.map(str::trim) {
+        Some("1") | Some("true") => Ok(true),
+        Some("0") | Some("false") => Ok(false),
+        _ => Err((
+            c"invalid_input",
+            format!("{what} needs a value of 0/1 or true/false; use agt_a11y_node_invoke"),
+        )),
+    };
+    Ok(match action {
+        AGT_A11Y_ACTION_CLICK => AccessibilityNodeAction::Click,
+        AGT_A11Y_ACTION_FOCUS => AccessibilityNodeAction::Focus,
+        AGT_A11Y_ACTION_PRESS => AccessibilityNodeAction::Press,
+        AGT_A11Y_ACTION_SET_VALUE => AccessibilityNodeAction::SetValue(need_value("set-value")?),
+        AGT_A11Y_ACTION_SELECT_OPTION => {
+            AccessibilityNodeAction::SelectOption(need_value("select-option")?)
+        }
+        AGT_A11Y_ACTION_SET_CHECKED => {
+            AccessibilityNodeAction::SetChecked(need_flag("set-checked")?)
+        }
+        AGT_A11Y_ACTION_SET_EXPANDED => {
+            AccessibilityNodeAction::SetExpanded(need_flag("set-expanded")?)
+        }
+        AGT_A11Y_ACTION_INCREMENT => AccessibilityNodeAction::Increment,
+        AGT_A11Y_ACTION_DECREMENT => AccessibilityNodeAction::Decrement,
+        _ => return Err((c"bad_action", "unknown action kind".to_owned())),
+    })
+}
 
 /// Fixed-size node record mirroring `include/agenterm.h`.
 #[repr(C)]
@@ -3130,6 +3181,12 @@ fn map_a11y_error(operation: &'static CStr, error: AccessibilityTreeError) -> ag
                 "a11y_tree_empty" => c"a11y_tree_empty",
                 "a11y_node_not_found" => c"a11y_node_not_found",
                 "a11y_action_unavailable" => c"a11y_action_unavailable",
+                "a11y_action_no_effect" => c"a11y_action_no_effect",
+                "a11y_action_timeout" => c"a11y_action_timeout",
+                "a11y_option_not_found" => c"a11y_option_not_found",
+                "a11y_option_ambiguous" => c"a11y_option_ambiguous",
+                "a11y_text_limit" => c"a11y_text_limit",
+                "a11y_text_read_only" => c"a11y_text_read_only",
                 "a11y_text_unavailable" => c"a11y_text_unavailable",
                 "a11y_text_timeout" => c"a11y_text_timeout",
                 "a11y_key_unavailable" => c"a11y_key_unavailable",
@@ -3576,15 +3633,10 @@ pub extern "C" fn agt_a11y_node_perform(
                 return agt_status::AGT_FAILED;
             }
         };
-        let platform_action = match action {
-            AGT_A11Y_ACTION_CLICK => AccessibilityNodeAction::Click,
-            AGT_A11Y_ACTION_FOCUS => AccessibilityNodeAction::Focus,
-            _ => {
-                record_error(
-                    c"agt_a11y_node_perform",
-                    c"bad_action",
-                    "unknown action kind",
-                );
+        let platform_action = match a11y_action_from_abi(action, None) {
+            Ok(action) => action,
+            Err((code, message)) => {
+                record_error(c"agt_a11y_node_perform", code, &message);
                 return agt_status::AGT_FAILED;
             }
         };
@@ -3605,6 +3657,114 @@ pub extern "C" fn agt_a11y_node_perform(
                 c"agt_a11y_node_perform",
                 c"panic",
                 "panic in agt_a11y_node_perform",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.13: perform one `invoke` action (`agt_a11y_action_kind`) on a
+/// child-index path, with the UTF-8 value payload the kind needs:
+/// `SET_VALUE` / `SELECT_OPTION` take the text, `SET_CHECKED` /
+/// `SET_EXPANDED` take `"0"` / `"1"` (or `"true"` / `"false"`) as the
+/// desired state, the rest ignore it (`value == NULL`, `value_len == 0`).
+/// `value == NULL` with `value_len > 0` → `bad_pointer`; non-UTF-8 →
+/// `bad_encoding`; a kind that needs a value without one → `bad_action`;
+/// a flag payload that is not 0/1 → `invalid_input`. Desired-state kinds
+/// read the control first and act only when it differs; a node that does
+/// not offer the action → `AGT_UNSUPPORTED` with the reason; an action
+/// whose read-back does not match → `a11y_action_no_effect`. Never
+/// activates or raises the window.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_node_invoke(
+    window_handle: isize,
+    node_id: *const c_char,
+    action: i32,
+    value: *const u8,
+    value_len: usize,
+) -> agt_status {
+    fn inner(
+        window_handle: isize,
+        node_id: *const c_char,
+        action: i32,
+        value: *const u8,
+        value_len: usize,
+    ) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if node_id.is_null() {
+            record_error(c"agt_a11y_node_invoke", c"bad_pointer", "node_id is null");
+            return agt_status::AGT_FAILED;
+        }
+        let node_id = match unsafe { CStr::from_ptr(node_id) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                record_error(
+                    c"agt_a11y_node_invoke",
+                    c"bad_encoding",
+                    "node_id is not UTF-8",
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let payload = if value_len == 0 {
+            None
+        } else if value.is_null() {
+            record_error(
+                c"agt_a11y_node_invoke",
+                c"bad_pointer",
+                "value is null with value_len > 0",
+            );
+            return agt_status::AGT_FAILED;
+        } else {
+            match std::str::from_utf8(unsafe { std::slice::from_raw_parts(value, value_len) }) {
+                Ok(text) => Some(text),
+                Err(_) => {
+                    record_error(
+                        c"agt_a11y_node_invoke",
+                        c"bad_encoding",
+                        "value is not UTF-8",
+                    );
+                    return agt_status::AGT_FAILED;
+                }
+            }
+        };
+        // An empty payload for the text kinds is a legal "clear the value";
+        // it is only "absent" for the flag kinds, which the mapper rejects.
+        let payload = match action {
+            AGT_A11Y_ACTION_SET_VALUE | AGT_A11Y_ACTION_SELECT_OPTION => {
+                Some(payload.unwrap_or(""))
+            }
+            _ => payload,
+        };
+        let platform_action = match a11y_action_from_abi(action, payload) {
+            Ok(action) => action,
+            Err((code, message)) => {
+                record_error(c"agt_a11y_node_invoke", code, &message);
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let filter = if window_handle == 0 {
+            None
+        } else {
+            Some(window_handle)
+        };
+        match perform_node_action(filter, node_id, platform_action) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(e) => map_a11y_error(c"agt_a11y_node_invoke", e),
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(window_handle, node_id, action, value, value_len)
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_node_invoke",
+                c"panic",
+                "panic in agt_a11y_node_invoke",
             );
             agt_status::AGT_FAILED
         }

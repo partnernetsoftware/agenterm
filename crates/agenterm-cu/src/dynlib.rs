@@ -202,9 +202,17 @@ pub const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
 pub const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
 pub const AGT_A11Y_NODES_DEFAULT: u32 = 0;
 
-/// `agt_a11y_node_perform` action kinds.
+/// `agt_a11y_node_perform` / `agt_a11y_node_invoke` action kinds.
 pub const AGT_A11Y_ACTION_CLICK: i32 = 0;
 pub const AGT_A11Y_ACTION_FOCUS: i32 = 1;
+/// ABI 1.13 `invoke` vocabulary (value-bearing kinds need `agt_a11y_node_invoke`).
+pub const AGT_A11Y_ACTION_PRESS: i32 = 2;
+pub const AGT_A11Y_ACTION_SET_VALUE: i32 = 3;
+pub const AGT_A11Y_ACTION_SELECT_OPTION: i32 = 4;
+pub const AGT_A11Y_ACTION_SET_CHECKED: i32 = 5;
+pub const AGT_A11Y_ACTION_SET_EXPANDED: i32 = 6;
+pub const AGT_A11Y_ACTION_INCREMENT: i32 = 7;
+pub const AGT_A11Y_ACTION_DECREMENT: i32 = 8;
 
 /// `agt_native_window_show` states.
 pub const AGT_NATIVE_WINDOW_HIDE: i32 = 0;
@@ -230,6 +238,8 @@ pub const POINTER_POSITION_ABI_MINOR: u16 = 11;
 /// TRUNCATED / VISITED / RETURNED, node string kind IDENTIFIER, and the typed
 /// `a11y_permission_denied` answer from `agt_capability_query`.
 pub const TREE_BUDGET_ABI_MINOR: u16 = 12;
+/// ABI 1.13: `agt_a11y_node_invoke` and the `invoke` action kinds.
+pub const NODE_INVOKE_ABI_MINOR: u16 = 13;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

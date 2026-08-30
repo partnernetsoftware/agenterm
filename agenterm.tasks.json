@@ -1970,7 +1970,7 @@
     },
     {
       "id": "cu-macos-smoke",
-      "description": "Prove the macOS agenterm-cu AX observe loop: capabilities, windows inventory filters, query, bounded tree with truncation counts and AX action names, and owned Cocoa fixture cleanup",
+      "description": "Prove the macOS agenterm-cu AX default loop: capabilities, windows inventory filters, query, bounded tree with truncation counts and AX action names, then invoke (set-value / set-checked / press / increment / select-option) read back by verify and wait --expect with typed refusals and an unchanged focused window, and owned Cocoa fixture cleanup",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -3,6 +3,7 @@
 //! `visited / matched / returned / truncated` counts. No mechanism calls live
 //! here, so every rule is unit-tested without a desktop.
 
+use crate::command::Expectation;
 use crate::mechanism::window_enumerate::WindowInfo;
 use crate::mechanism::{A11yNode, A11yTree};
 
@@ -342,11 +343,491 @@ pub fn inventory<'a>(
     (returned.to_vec(), counts)
 }
 
+// ---------------------------------------------------------------------------
+// Targets and expectations (`invoke`, `verify`, `wait --expect`).
+// ---------------------------------------------------------------------------
+
+/// How one `invoke` / `verify` item names its node.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TargetSpec {
+    pub node: Option<String>,
+    pub index: Option<usize>,
+    /// Case-insensitive substring of `name`; showing nodes only.
+    pub name: Option<String>,
+    /// Exact `identifier`; showing nodes only.
+    pub identifier: Option<String>,
+    /// Either role spelling; showing nodes only when it stands alone.
+    pub role: Option<String>,
+}
+
+impl TargetSpec {
+    pub fn from_expectation(expectation: &Expectation) -> Self {
+        Self {
+            node: expectation.node.clone(),
+            index: expectation.index,
+            name: expectation.name.clone(),
+            identifier: expectation.identifier.clone(),
+            role: expectation.role.clone(),
+        }
+    }
+
+    /// The target as the receipt names it.
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "node": self.node,
+            "index": self.index,
+            "name": self.name,
+            "identifier": self.identifier,
+            "role": self.role,
+        })
+    }
+
+    fn describe(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(node) = &self.node {
+            parts.push(format!("node {node}"));
+        }
+        if let Some(index) = self.index {
+            parts.push(format!("index {index}"));
+        }
+        if let Some(name) = &self.name {
+            parts.push(format!("name contains {name:?}"));
+        }
+        if let Some(identifier) = &self.identifier {
+            parts.push(format!("identifier {identifier:?}"));
+        }
+        if let Some(role) = &self.role {
+            parts.push(format!("role {role:?}"));
+        }
+        parts.join(" and ")
+    }
+}
+
+/// Why a target did not resolve to exactly one node.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TargetError {
+    /// The spec itself is malformed (no target, or an exact address mixed
+    /// with a search).
+    Invalid(String),
+    Missing(String),
+    Ambiguous {
+        count: usize,
+        scope: String,
+    },
+}
+
+fn node_is_showing(node: &A11yNode) -> bool {
+    node.states
+        .iter()
+        .any(|state| state.eq_ignore_ascii_case("showing") || state.eq_ignore_ascii_case("visible"))
+}
+
+/// Resolve a target to exactly one node of the flattened tree. `node` and
+/// `index` are exact addresses (no showing requirement, no other field);
+/// `name` / `identifier` / `role` are a search over showing nodes whose
+/// every given field matches, and two or more hits are ambiguous.
+pub fn resolve_target<'a>(
+    flat: &'a [FlatNode<'a>],
+    spec: &TargetSpec,
+) -> Result<&'a FlatNode<'a>, TargetError> {
+    let searching = spec.name.is_some() || spec.identifier.is_some() || spec.role.is_some();
+    let exact = spec.node.is_some() as u8 + spec.index.is_some() as u8;
+    if exact == 0 && !searching {
+        return Err(TargetError::Invalid(
+            "a target needs --node, --index, --name [--role], --identifier [--role] or --role"
+                .to_owned(),
+        ));
+    }
+    if exact > 1 || (exact == 1 && searching) {
+        return Err(TargetError::Invalid(
+            "--node / --index are exact addresses; do not combine them with each other or with --name / --identifier / --role"
+                .to_owned(),
+        ));
+    }
+    if let Some(node_id) = &spec.node {
+        return flat
+            .iter()
+            .find(|entry| &entry.node.id == node_id)
+            .ok_or_else(|| TargetError::Missing(format!("no node with id {node_id}")));
+    }
+    if let Some(index) = spec.index {
+        return flat
+            .get(index)
+            .ok_or_else(|| TargetError::Missing(format!("no node at flatten index {index}")));
+    }
+    let name = spec.name.as_deref().map(str::to_lowercase);
+    let role = spec.role.as_deref().map(normalize_role);
+    let hits: Vec<&FlatNode<'_>> = flat
+        .iter()
+        .filter(|entry| {
+            let node = entry.node;
+            node_is_showing(node)
+                && name
+                    .as_deref()
+                    .is_none_or(|needle| node.name.to_lowercase().contains(needle))
+                && spec
+                    .identifier
+                    .as_deref()
+                    .is_none_or(|wanted| node.identifier.as_deref() == Some(wanted))
+                && role
+                    .as_deref()
+                    .is_none_or(|wanted| normalize_role(&node.role) == wanted)
+        })
+        .collect();
+    match hits.len() {
+        1 => Ok(hits[0]),
+        0 => Err(TargetError::Missing(format!(
+            "no showing node with {}",
+            spec.describe()
+        ))),
+        count => Err(TargetError::Ambiguous {
+            count,
+            scope: spec.describe(),
+        }),
+    }
+}
+
+/// A two-way control state as the tree reports it. `Unknown` means the
+/// backend published neither direction — the fail-closed answer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Tri {
+    True,
+    False,
+    Mixed,
+    Unknown,
+}
+
+impl Tri {
+    pub fn json(self) -> serde_json::Value {
+        match self {
+            Self::True => serde_json::Value::Bool(true),
+            Self::False => serde_json::Value::Bool(false),
+            Self::Mixed => serde_json::Value::String("mixed".into()),
+            Self::Unknown => serde_json::Value::Null,
+        }
+    }
+
+    pub fn as_bool(self) -> Option<bool> {
+        match self {
+            Self::True => Some(true),
+            Self::False => Some(false),
+            Self::Mixed | Self::Unknown => None,
+        }
+    }
+}
+
+fn has_state(node: &A11yNode, wanted: &str) -> bool {
+    node.states
+        .iter()
+        .any(|state| state.eq_ignore_ascii_case(wanted))
+}
+
+pub fn checked_state(node: &A11yNode) -> Tri {
+    if has_state(node, "checked") {
+        Tri::True
+    } else if has_state(node, "unchecked") {
+        Tri::False
+    } else if has_state(node, "mixed") || has_state(node, "indeterminate") {
+        Tri::Mixed
+    } else {
+        Tri::Unknown
+    }
+}
+
+pub fn expanded_state(node: &A11yNode) -> Tri {
+    if has_state(node, "expanded") {
+        Tri::True
+    } else if has_state(node, "collapsed") {
+        Tri::False
+    } else {
+        Tri::Unknown
+    }
+}
+
+/// `focused` is known false only when the node is `focusable` and not
+/// `focused`; a node that is neither has no readable focus state.
+pub fn focused_state(node: &A11yNode) -> Tri {
+    if has_state(node, "focused") {
+        Tri::True
+    } else if has_state(node, "focusable") {
+        Tri::False
+    } else {
+        Tri::Unknown
+    }
+}
+
+/// The readable state of one node, as receipts and `verify` report it.
+pub fn node_state_json(node: &A11yNode) -> serde_json::Value {
+    serde_json::json!({
+        "id": node.id,
+        "role": node.role,
+        "name": node.name,
+        "identifier": node.identifier,
+        "text": node.text,
+        "states": node.states,
+        "checked": checked_state(node).json(),
+        "expanded": expanded_state(node).json(),
+        "focused": focused_state(node).json(),
+    })
+}
+
+/// One compared field. `met == None` is an unobservable state.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct Check {
+    pub field: &'static str,
+    pub expected: serde_json::Value,
+    pub observed: serde_json::Value,
+    pub met: Option<bool>,
+}
+
+fn tri_check(field: &'static str, expected: bool, observed: Tri) -> Check {
+    Check {
+        field,
+        expected: serde_json::Value::Bool(expected),
+        observed: observed.json(),
+        met: match observed {
+            Tri::Unknown => None,
+            other => Some(other.as_bool() == Some(expected)),
+        },
+    }
+}
+
+/// Compare the states an expectation names against one node. A node with
+/// no `text` compared to an expected value is a known mismatch (empty),
+/// not unknown: `query` always reports `text`.
+pub fn check_expectation(node: &A11yNode, expectation: &Expectation) -> Vec<Check> {
+    let mut checks = Vec::new();
+    if let Some(value) = &expectation.value {
+        let observed = node.text.clone().unwrap_or_default();
+        checks.push(Check {
+            field: "value",
+            expected: serde_json::Value::String(value.clone()),
+            observed: serde_json::Value::String(observed.clone()),
+            met: Some(&observed == value),
+        });
+    }
+    if let Some(checked) = expectation.checked {
+        checks.push(tri_check("checked", checked, checked_state(node)));
+    }
+    if let Some(expanded) = expectation.expanded {
+        checks.push(tri_check("expanded", expanded, expanded_state(node)));
+    }
+    if let Some(focused) = expectation.focused {
+        checks.push(tri_check("focused", focused, focused_state(node)));
+    }
+    checks
+}
+
+/// The node with this path id, if the tree still has it.
+pub fn node_by_id<'a>(tree: &'a A11yTree, id: &str) -> Option<&'a A11yNode> {
+    tree.nodes.iter().find(|node| node.id == id)
+}
+
+/// Whether anything observable differs between two walks of the same
+/// window: node set, roles, names, text or states. Bounds are ignored (a
+/// layout pass is not a semantic change).
+pub fn tree_changed(before: &A11yTree, after: &A11yTree) -> bool {
+    if before.nodes.len() != after.nodes.len() {
+        return true;
+    }
+    before.nodes.iter().zip(after.nodes.iter()).any(|(a, b)| {
+        a.id != b.id
+            || a.role != b.role
+            || a.name != b.name
+            || a.text != b.text
+            || a.states != b.states
+    })
+}
+
+/// Decimal value of a node's text, for `increment` / `decrement` receipts.
+pub fn numeric_text(node: &A11yNode) -> Option<f64> {
+    node.text.as_deref()?.trim().parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mechanism::A11yBounds;
     use crate::mechanism::window_enumerate::WindowBounds;
+
+    fn showing(mut node: A11yNode, extra: &[&str]) -> A11yNode {
+        node.states.push("showing".into());
+        node.states
+            .extend(extra.iter().map(|state| (*state).to_owned()));
+        node
+    }
+
+    #[test]
+    fn targets_resolve_exactly_one_showing_node_or_fail_typed() {
+        let mut twin_a = showing(node("/0/1", "button", "Fixture Twin", &["click"]), &[]);
+        twin_a.identifier = Some("fixture-twin-a".into());
+        let mut twin_b = showing(node("/0/2", "button", "Fixture Twin", &["click"]), &[]);
+        twin_b.identifier = Some("fixture-twin-b".into());
+        let hidden = node("/0/3", "button", "Fixture Hidden", &["click"]);
+        let check = showing(
+            node("/0/4", "check-box", "Fixture Check", &["click"]),
+            &["unchecked"],
+        );
+        let t = tree(
+            vec![
+                node("/0", "window", "w", &[]),
+                twin_a,
+                twin_b,
+                hidden,
+                check,
+            ],
+            false,
+        );
+        let flat = flatten(&t);
+
+        let by_node = TargetSpec {
+            node: Some("/0/4".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(resolve_target(&flat, &by_node).unwrap().index, 4);
+        let by_index = TargetSpec {
+            index: Some(2),
+            ..TargetSpec::default()
+        };
+        assert_eq!(resolve_target(&flat, &by_index).unwrap().node.id, "/0/2");
+        let by_identifier = TargetSpec {
+            identifier: Some("fixture-twin-b".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(
+            resolve_target(&flat, &by_identifier).unwrap().node.id,
+            "/0/2"
+        );
+        let by_name_role = TargetSpec {
+            name: Some("fixture".into()),
+            role: Some("AXCheckBox".into()),
+            ..TargetSpec::default()
+        };
+        assert_eq!(
+            resolve_target(&flat, &by_name_role).unwrap().node.id,
+            "/0/4"
+        );
+
+        let ambiguous = TargetSpec {
+            name: Some("Fixture Twin".into()),
+            ..TargetSpec::default()
+        };
+        assert!(matches!(
+            resolve_target(&flat, &ambiguous),
+            Err(TargetError::Ambiguous { count: 2, .. })
+        ));
+        let hidden = TargetSpec {
+            name: Some("Fixture Hidden".into()),
+            ..TargetSpec::default()
+        };
+        assert!(matches!(
+            resolve_target(&flat, &hidden),
+            Err(TargetError::Missing(_))
+        ));
+        let missing_index = TargetSpec {
+            index: Some(99),
+            ..TargetSpec::default()
+        };
+        assert!(matches!(
+            resolve_target(&flat, &missing_index),
+            Err(TargetError::Missing(_))
+        ));
+        assert!(matches!(
+            resolve_target(&flat, &TargetSpec::default()),
+            Err(TargetError::Invalid(_))
+        ));
+        let mixed = TargetSpec {
+            node: Some("/0/4".into()),
+            name: Some("x".into()),
+            ..TargetSpec::default()
+        };
+        assert!(matches!(
+            resolve_target(&flat, &mixed),
+            Err(TargetError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn expectations_fail_closed_on_unobservable_state() {
+        let mut field = showing(node("/0/1", "text-field", "", &[]), &["focusable"]);
+        field.text = Some("written".into());
+        let check = showing(
+            node("/0/2", "check-box", "Fixture Check", &["click"]),
+            &["checked"],
+        );
+        let button = showing(node("/0/3", "button", "Fixture Press", &["click"]), &[]);
+
+        let value = Expectation {
+            value: Some("written".into()),
+            ..Expectation::default()
+        };
+        let checks = check_expectation(&field, &value);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].met, Some(true));
+        let wrong = Expectation {
+            value: Some("other".into()),
+            ..Expectation::default()
+        };
+        assert_eq!(check_expectation(&field, &wrong)[0].met, Some(false));
+        let focused = Expectation {
+            focused: Some(false),
+            ..Expectation::default()
+        };
+        assert_eq!(check_expectation(&field, &focused)[0].met, Some(true));
+
+        let checked = Expectation {
+            checked: Some(true),
+            ..Expectation::default()
+        };
+        assert_eq!(check_expectation(&check, &checked)[0].met, Some(true));
+        let unchecked = Expectation {
+            checked: Some(false),
+            ..Expectation::default()
+        };
+        assert_eq!(check_expectation(&check, &unchecked)[0].met, Some(false));
+        // A button publishes no checked / expanded / focused state: unknown,
+        // never "met".
+        assert_eq!(check_expectation(&button, &checked)[0].met, None);
+        let expanded = Expectation {
+            expanded: Some(true),
+            ..Expectation::default()
+        };
+        assert_eq!(check_expectation(&button, &expanded)[0].met, None);
+        assert_eq!(check_expectation(&button, &focused)[0].met, None);
+        assert_eq!(checked_state(&button), Tri::Unknown);
+        assert_eq!(focused_state(&field), Tri::False);
+
+        let state = node_state_json(&check);
+        assert_eq!(state["checked"], serde_json::json!(true));
+        assert_eq!(state["expanded"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn tree_change_ignores_bounds_and_sees_text_and_states() {
+        let before = tree(
+            vec![
+                node("/0", "window", "w", &[]),
+                node("/0/1", "static-text", "", &[]),
+            ],
+            false,
+        );
+        let mut after = before.clone();
+        assert!(!tree_changed(&before, &after));
+        after.nodes[1].bounds.x += 5;
+        assert!(!tree_changed(&before, &after));
+        after.nodes[1].text = Some("pressed 1".into());
+        assert!(tree_changed(&before, &after));
+        let mut gone = before.clone();
+        gone.nodes.pop();
+        assert!(tree_changed(&before, &gone));
+        assert_eq!(
+            node_by_id(&before, "/0/1").map(|n| n.role.as_str()),
+            Some("static-text")
+        );
+        let mut stepper = node("/0/2", "incrementor", "", &["increment"]);
+        stepper.text = Some("4".into());
+        assert_eq!(numeric_text(&stepper), Some(4.0));
+    }
 
     fn node(id: &str, role: &str, name: &str, actions: &[&str]) -> A11yNode {
         A11yNode {

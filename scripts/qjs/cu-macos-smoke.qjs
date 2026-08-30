@@ -1,13 +1,16 @@
-// Prove the macOS agenterm-cu observe loop through libagenterm's AX backend:
-// capabilities -> windows (inventory filters) -> bounded tree / query.
+// Prove the macOS agenterm-cu default loop through libagenterm's AX backend:
+// capabilities -> windows (inventory filters) -> bounded tree / query ->
+// invoke -> verify / wait --expect.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
 //
 // Runs under --profile tool on a real macOS desktop whose Accessibility
-// permission covers the process that spawns this journey. Slice 1 of
-// plan/design-mcu-absorption.md: observation only. No click / focus / value
-// actuation, no screenshot, no coordinate fallback.
+// permission covers the process that spawns this journey. Slices 1 and 2 of
+// plan/design-mcu-absorption.md: observation, then semantic actuation that
+// never activates or raises the fixture (the focused window before and after
+// the actuation section must be the same one). No screenshot, no coordinate
+// fallback, no keystroke injection; every write is read back.
 //
 // The owned fixture is examples/objc/agenterm_ax_fixture.m, compiled here
 // with clang and spawned as a door handle (process_spawn); its pid is
@@ -26,6 +29,11 @@ const declared_evidence = [
   "cu.macos-ax-query",
   "cu.macos-ax-tree-bounded",
   "cu.macos-ax-tree-actions",
+  "cu.macos-ax-invoke-set-value",
+  "cu.macos-ax-invoke-set-checked",
+  "cu.macos-ax-invoke-press",
+  "cu.macos-ax-invoke-value-readback",
+  "cu.macos-ax-invoke-refusals",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -143,6 +151,77 @@ function fixture_window_row(run_directory, executable, pid, title) {
     "cu_macos_smoke_windows_counts:" + JSON.stringify(inventory.data)
   );
   return matches === 1 ? row : null;
+}
+
+// The focused top-level window handle right now (0 when none is focused),
+// read through the public inventory so the background invariant is checked
+// with the same tool the agent would use.
+function focused_window_handle(run_directory, executable) {
+  const focused = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "windows", "--focused", "true", "--max", "1"]
+  );
+  if (int_at(focused, "data.returned") !== 1) { return 0; }
+  return int_at(focused.data.windows[0], "handle");
+}
+
+// argv for one invoke: the engine has no Array.prototype.concat.
+function invoke_arguments(grant, handle_text, selector, action_and_value) {
+  const arguments_list = ["--target", "current", "--grant", grant, "invoke", "--window", handle_text];
+  for (const item of selector) { arguments_list.push(item); }
+  for (const item of action_and_value) { arguments_list.push(item); }
+  return arguments_list;
+}
+
+// One authorized invoke whose reply must be ok; returns the receipt `data`.
+function invoke_ok(run_directory, executable, handle_text, selector, action_and_value) {
+  const reply = run_cu_json(
+    run_directory,
+    executable,
+    invoke_arguments("actuate", handle_text, selector, action_and_value)
+  );
+  ensure(
+    text_at(reply, "data.addressing") === "accessibility-tree"
+      && text_at(reply, "data.mechanism") === "libagenterm"
+      && text_at(reply, "data.backend") === "ax",
+    "cu_macos_smoke_invoke_shape:" + JSON.stringify(reply.data)
+  );
+  return reply.data;
+}
+
+// One invoke whose reply must be a typed refusal with `code`.
+function invoke_refused(run_directory, executable, grant, handle_text, selector, action_and_value, code) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    invoke_arguments(grant, handle_text, selector, action_and_value)
+  );
+  ensure(
+    !flag_at(reply, "ok") && text_at(reply, "error.code") === code,
+    "cu_macos_smoke_invoke_refusal:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function verify_reply(run_directory, executable, handle_text, expect) {
+  return run_cu_reply(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "verify",
+      "--window", handle_text, "--expect", JSON.stringify(expect)
+    ]
+  );
+}
+
+function verify_ok(run_directory, executable, handle_text, expect) {
+  const reply = verify_reply(run_directory, executable, handle_text, expect);
+  ensure(
+    flag_at(reply, "ok") && flag_at(reply, "data.verified"),
+    "cu_macos_smoke_verify:" + JSON.stringify(expect) + ":" + JSON.stringify(reply)
+  );
+  return reply;
 }
 
 // ---- entry ----------------------------------------------------------------
@@ -414,6 +493,242 @@ try {
       + ":press=" + press_button_matches + ":text=" + text_area_matches
   );
 
+  // ---- slice 2: actuation, read back through the same tree -------------
+  const focused_before = focused_window_handle(run_directory, executable);
+
+  print("STEP invoke set-value writes the text field and verify --expect reads it back");
+  const set_value = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-field"], ["set-value", "written by cu"]
+  );
+  ensure(
+    text_at(set_value, "action") === "set-value"
+      && flag_at(set_value, "performed")
+      && flag_at(set_value, "verified")
+      && text_at(set_value, "verification.method") === "value-readback"
+      && text_at(set_value, "node.role") === "text-field"
+      && text_at(set_value, "node.identifier") === "fixture-field"
+      && text_at(set_value, "before.text") === "seed"
+      && text_at(set_value, "after.text") === "written by cu",
+    "cu_macos_smoke_invoke_set_value:" + JSON.stringify(set_value)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-field", value: "written by cu" },
+    { identifier: "fixture-text", role: "AXTextArea", value: "345AXTREE" }
+  ]);
+  const mismatch = verify_reply(run_directory, executable, handle_text, [
+    { identifier: "fixture-field", value: "seed" }
+  ]);
+  ensure(
+    !flag_at(mismatch, "ok") && text_at(mismatch, "error.code") === "unverified"
+      && text_at(mismatch.error.detail.observation.results[0], "node.text") === "written by cu",
+    "cu_macos_smoke_verify_mismatch:" + JSON.stringify(mismatch)
+  );
+  // A state the node does not expose fails closed, never "probably fine".
+  const unobservable = verify_reply(run_directory, executable, handle_text, [
+    { identifier: "fixture-field", checked: true }
+  ]);
+  ensure(
+    !flag_at(unobservable, "ok") && text_at(unobservable, "error.code") === "unsupported"
+      && text_at(unobservable, "error.detail.reason") === "state_unobservable",
+    "cu_macos_smoke_verify_unobservable:" + JSON.stringify(unobservable)
+  );
+  const misspelled = run_cu_reply(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "verify", "--window", handle_text,
+      "--expect", "[{\"identifier\":\"fixture-field\",\"cheked\":true}]"
+    ]
+  );
+  ensure(
+    !flag_at(misspelled, "ok") && text_at(misspelled, "error.code") === "usage",
+    "cu_macos_smoke_verify_unknown_key:" + JSON.stringify(misspelled)
+  );
+
+  print("STEP invoke set-checked true twice: the first presses, the second is a verified no-op");
+  const checked_first = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--name", "Fixture Check", "--role", "AXCheckBox"], ["set-checked", "true"]
+  );
+  ensure(
+    flag_at(checked_first, "performed")
+      && flag_at(checked_first, "verified")
+      && text_at(checked_first, "verification.method") === "checked-readback"
+      && at(checked_first, "before.checked") === false
+      && at(checked_first, "after.checked") === true,
+    "cu_macos_smoke_invoke_set_checked_first:" + JSON.stringify(checked_first)
+  );
+  const checked_again = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--name", "Fixture Check", "--role", "AXCheckBox"], ["set-checked", "true"]
+  );
+  ensure(
+    !flag_at(checked_again, "performed")
+      && flag_at(checked_again, "verified")
+      && at(checked_again, "before.checked") === true
+      && at(checked_again, "after.checked") === true,
+    "cu_macos_smoke_invoke_set_checked_noop:" + JSON.stringify(checked_again)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-check", checked: true }
+  ]);
+  const unchecked = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-check"], ["set-checked", "false"]
+  );
+  ensure(
+    flag_at(unchecked, "performed") && flag_at(unchecked, "verified")
+      && at(unchecked, "after.checked") === false,
+    "cu_macos_smoke_invoke_set_checked_off:" + JSON.stringify(unchecked)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { name: "Fixture Check", checked: false }
+  ]);
+
+  print("STEP invoke press advances the count label; wait --expect and verify read it on another node");
+  const pressed = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-press"], ["press"]
+  );
+  ensure(
+    text_at(pressed, "action") === "press"
+      && flag_at(pressed, "performed")
+      && flag_at(pressed, "verified")
+      && text_at(pressed, "verification.method") === "tree-diff"
+      && flag_at(pressed, "tree_changed")
+      && text_at(pressed, "node.name") === "Fixture Press",
+    "cu_macos_smoke_invoke_press:" + JSON.stringify(pressed)
+  );
+  const label_wait = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "wait", "--timeout-ms", "3000",
+      "--window", handle_text,
+      "--expect", JSON.stringify([{ identifier: "fixture-press-count", value: "pressed 1" }])
+    ]
+  );
+  ensure(
+    flag_at(label_wait, "data.met") && flag_at(label_wait, "data.verified")
+      && int_at(label_wait, "data.polls") >= 1,
+    "cu_macos_smoke_wait_expect:" + JSON.stringify(label_wait.data)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-press-count", role: "AXStaticText", value: "pressed 1" }
+  ]);
+  const never = run_cu_reply(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "wait", "--timeout-ms", "300",
+      "--window", handle_text,
+      "--expect", JSON.stringify([{ identifier: "fixture-press-count", value: "pressed 99" }])
+    ]
+  );
+  ensure(
+    !flag_at(never, "ok") && text_at(never, "error.code") === "timeout"
+      && text_at(never.error.detail.observation.results[0], "node.text") === "pressed 1",
+    "cu_macos_smoke_wait_expect_timeout:" + JSON.stringify(never)
+  );
+
+  print("STEP invoke increment / decrement on the stepper and select-option on the pop-up read back");
+  const incremented = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-stepper"], ["increment"]
+  );
+  ensure(
+    flag_at(incremented, "verified")
+      && text_at(incremented, "node.role") === "incrementor"
+      && text_at(incremented, "before.text") === "3"
+      && text_at(incremented, "after.text") === "4",
+    "cu_macos_smoke_invoke_increment:" + JSON.stringify(incremented)
+  );
+  const decremented = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-stepper"], ["decrement"]
+  );
+  ensure(
+    flag_at(decremented, "verified") && text_at(decremented, "after.text") === "3",
+    "cu_macos_smoke_invoke_decrement:" + JSON.stringify(decremented)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-stepper", value: "3" }
+  ]);
+  const selected = invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-popup"], ["select-option", "Beta"]
+  );
+  ensure(
+    flag_at(selected, "verified")
+      && text_at(selected, "node.role") === "pop-up-button"
+      && text_at(selected, "before.text") === "Alpha"
+      && text_at(selected, "after.text") === "Beta",
+    "cu_macos_smoke_invoke_select_option:" + JSON.stringify(selected)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-popup", value: "Beta" }
+  ]);
+  const no_option = invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--identifier", "fixture-popup"], ["select-option", "Omega"], "a11y_option_not_found"
+  );
+  ensure(
+    text_at(no_option, "error.detail.receipt.after.text") === "Beta",
+    "cu_macos_smoke_invoke_select_option_missing:" + JSON.stringify(no_option)
+  );
+
+  print("STEP ambiguous --name, missing action, unobservable state, missing target and observe-only grant are typed refusals");
+  const ambiguous = invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--name", "Fixture Twin"], ["press"], "ambiguous"
+  );
+  ensure(int_at(ambiguous, "error.count") === 2, "cu_macos_smoke_invoke_ambiguous_count:" + JSON.stringify(ambiguous));
+  const missing_action = invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--identifier", "fixture-check"], ["increment"], "unsupported"
+  );
+  ensure(
+    text_at(missing_action, "error.detail.reason") === "node_action_missing",
+    "cu_macos_smoke_invoke_missing_action:" + JSON.stringify(missing_action)
+  );
+  const blind_state = invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--identifier", "fixture-press"], ["set-checked", "true"], "unsupported"
+  );
+  ensure(
+    text_at(blind_state, "error.detail.reason") === "state_unobservable",
+    "cu_macos_smoke_invoke_blind_state:" + JSON.stringify(blind_state)
+  );
+  invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--identifier", "fixture-nowhere"], ["press"], "a11y_node_not_found"
+  );
+  invoke_refused(
+    run_directory, executable, "observe", handle_text,
+    ["--identifier", "fixture-press"], ["press"], "refused"
+  );
+  invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--identifier", "fixture-press"], ["raise"], "usage"
+  );
+  invoke_refused(
+    run_directory, executable, "actuate", handle_text,
+    ["--identifier", "fixture-check"], ["set-checked", "maybe"], "invalid_input"
+  );
+  // The refusals and the whole actuation section changed nothing outside the
+  // fixture: the count label still says exactly one press, and the focused
+  // window is the same one as before the section (the fixture never took it).
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-press-count", value: "pressed 1" }
+  ]);
+  const focused_after = focused_window_handle(run_directory, executable);
+  ensure(
+    focused_after === focused_before && focused_after !== fixture_handle,
+    "cu_macos_smoke_foreground_stolen:before=" + focused_before + ":after=" + focused_after
+      + ":fixture=" + fixture_handle
+  );
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -482,7 +797,12 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-identity")
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-query");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-tree-bounded");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-tree-actions");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-set-value");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-set-checked");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-press");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-value-readback");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-refusals");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu macOS AX observe journey (capabilities, windows, query, bounded tree)");
+print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify)");
 return;

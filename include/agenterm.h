@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 12
+#define AGT_ABI_MINOR 13
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -418,7 +418,17 @@ typedef enum {
 
 typedef enum {
     AGT_A11Y_ACTION_CLICK = 0,
-    AGT_A11Y_ACTION_FOCUS = 1
+    AGT_A11Y_ACTION_FOCUS = 1,
+    /* ABI 1.13: the `invoke` vocabulary. PRESS / INCREMENT / DECREMENT work
+     * through agt_a11y_node_perform too; the four value-bearing kinds need
+     * agt_a11y_node_invoke (agt_a11y_node_perform answers bad_action). */
+    AGT_A11Y_ACTION_PRESS = 2,
+    AGT_A11Y_ACTION_SET_VALUE = 3,
+    AGT_A11Y_ACTION_SELECT_OPTION = 4,
+    AGT_A11Y_ACTION_SET_CHECKED = 5,
+    AGT_A11Y_ACTION_SET_EXPANDED = 6,
+    AGT_A11Y_ACTION_INCREMENT = 7,
+    AGT_A11Y_ACTION_DECREMENT = 8
 } agt_a11y_action_kind;
 
 /* Capture a flattened accessibility tree for the host OS accessibility stack
@@ -470,6 +480,23 @@ agt_status agt_a11y_node_action_name(size_t node_index, size_t action_index,
  * codes such as "a11y_node_not_found". */
 agt_status agt_a11y_node_perform(intptr_t window_handle, const char* node_id,
                                    agt_a11y_action_kind action);
+
+/* ABI 1.13: perform one semantic `invoke` action on `node_id` with the UTF-8
+ * payload the kind needs: SET_VALUE / SELECT_OPTION take the text (an empty
+ * payload clears a value), SET_CHECKED / SET_EXPANDED take "0" / "1" (or
+ * "true" / "false") as the DESIRED state, every other kind ignores it
+ * (value == NULL, value_len == 0). value == NULL with value_len > 0 ->
+ * AGT_FAILED{code="bad_pointer"}; non-UTF-8 -> "bad_encoding"; a flag payload
+ * that is not 0/1 -> "invalid_input". Desired-state kinds read the control
+ * first and act only when it differs, so repeating a call is a no-op success.
+ * A node that does not offer the action -> AGT_UNSUPPORTED with the reason;
+ * an action whose read-back does not match -> AGT_FAILED{code=
+ * "a11y_action_no_effect"}; a pop-up option that is missing / not unique ->
+ * "a11y_option_not_found" / "a11y_option_ambiguous". Never activates or
+ * raises the window (macOS never sends AXRaise). */
+agt_status agt_a11y_node_invoke(intptr_t window_handle, const char* node_id,
+                                  agt_a11y_action_kind action, const uint8_t* value,
+                                  size_t value_len);
 
 /* Write UTF-8 text through the host accessibility text interface
  * (Linux: AT-SPI EditableText SetTextContents / InsertText). `node_id`

@@ -14,13 +14,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
 ## Target family
 
-Branch status (cut 3.49 — macOS AX observe live with bounded walk, action
-names and typed permission denial; 3.48 Linux `tree` cross-tier conformance;
+Branch status (cut 3.50 — macOS AX semantic actuation live: `invoke` /
+`verify` / `wait --expect` through ABI 1.13; 3.49 macOS AX observe live with
+bounded walk, action names and typed permission denial; 3.48 Linux `tree`
+cross-tier conformance;
 3.47 per-target `capabilities`; 3.46 RDP placeholder):
 
 | Target | Status | Notes |
 |--------|--------|-------|
-| `current` | **[x]** | Local in-process; Linux/Windows evidence held; macOS AX observe proven (3.49, `cu-macos-smoke`); `capabilities` names `data.target:"current"` + live libagenterm status; Linux `tree` cross-tier proven (3.48) |
+| `current` | **[x]** | Local in-process; Linux/Windows evidence held; macOS AX observe (3.49) and semantic actuation `invoke` / `verify` (3.50) proven (`cu-macos-smoke`); `capabilities` names `data.target:"current"` + live libagenterm status; Linux `tree` cross-tier proven (3.48) |
 | `ssh` | **[x]** | OpenSSH exec of remote `--target current`; `capabilities` restores public/`data.target:"ssh"`; Linux `tree` cross-tier proven (3.48) |
 | `vnc` | **[x]** | RFB + local `--target current` worker; `capabilities` restores public/`data.target:"vnc"`; Linux `tree` cross-tier proven (3.48) |
 | `rdp` | **[~]** | PLACEHOLDER: parseable; `capabilities` declares transport placeholder/unavailable + `tree` unsupported with zero I/O; other authorized commands typed `rdp_unavailable`. Transport/session/live evidence empty |
@@ -133,7 +135,36 @@ names and typed permission denial; 3.48 Linux `tree` cross-tier conformance;
   AX action names" (`cu.macos-ax-tree-actions`), STEP "SIGTERM ends only the
   owned fixture" (`cu.macos-ax-fixture-cleanup`). Missing Accessibility
   permission is typed `denied` with the repair path (see the shared leaf
-  below). Actuation (`invoke`) is not started — slice 2.
+  below).
+- [x] macOS `current` semantic actuation is live (cut 3.50, 2026-08-30,
+  slice 2 of `plan/design-mcu-absorption.md`): `invoke --window H
+  (--node | --index | --name [--role] | --identifier) <press | set-value |
+  select-option | set-checked | set-expanded | increment | decrement>`
+  runs through `libagenterm` ABI 1.13 `agt_a11y_node_invoke` into the AX
+  adapter (`AXPress`, `AXValue` write with read-back, pop-up option chosen
+  by pressing the matching `AXMenuItem`, desired-state `set-checked` /
+  `set-expanded` that read before pressing and read back after,
+  `AXIncrement` / `AXDecrement`); `verify --expect` and `wait --expect`
+  read the same tree back. Nothing activates or raises the fixture
+  (`AXRaise` is never sent), and the journey proves the focused window
+  handle before and after the actuation section is the same one and never
+  the fixture. Evidence is `scripts/qjs/cu-macos-smoke.qjs` against the
+  extended fixture (text field `fixture-field`, check box `Fixture Check`,
+  stepper `fixture-stepper`, pop-up `fixture-popup`, count label
+  `fixture-press-count`, twin buttons `Fixture Twin`): STEP "invoke
+  set-value writes the text field and verify --expect reads it back"
+  (`cu.macos-ax-invoke-set-value`), STEP "invoke set-checked true twice:
+  the first presses, the second is a verified no-op"
+  (`cu.macos-ax-invoke-set-checked`), STEP "invoke press advances the
+  count label; wait --expect and verify read it on another node"
+  (`cu.macos-ax-invoke-press`), STEP "invoke increment / decrement on the
+  stepper and select-option on the pop-up read back"
+  (`cu.macos-ax-invoke-value-readback`), STEP "ambiguous --name, missing
+  action, unobservable state, missing target and observe-only grant are
+  typed refusals" (`cu.macos-ax-invoke-refusals`). Not claimed: `click` /
+  `focus` on macOS (mapped to `AXPress` / `AXFocused` in the adapter but
+  not in the journey), destructive actions (none is offered), Linux /
+  Windows live evidence for the new verbs.
 ## Platform accessibility backends
 
 This branch is the **native accessibility stack** that backs structured
@@ -154,26 +185,29 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys)
     ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); separate from rdp
     ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
-    ├── macOS AX actuation            [ ] click / focus / value — not started
+    ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; click/focus mapped, not journey-proven
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
-**Cut 3.49 boundary:** the macOS AX **observe** path (`windows`, `tree`,
-`query`) is live in `agenterm-platform`
+**Cut 3.49 / 3.50 boundary:** the macOS AX **observe** path (`windows`,
+`tree`, `query`) and the **semantic actuation** path (`invoke`, `verify`,
+`wait --expect`) are live in `agenterm-platform`
 (`adapters/macos/accessibility_tree.rs`, backend string `"ax"`) and proven
 by `scripts/qjs/cu-macos-smoke.qjs`. A caller's depth / node budget ends
 the walk with `truncated: true` instead of failing; typed failures remain
 `a11y_permission_denied` (surfaced as cu `denied` with the repair path),
-`unsupported`, `a11y_tree_timeout`, and the adapter's own string / sibling
-limits. No screenshot, no `--coords`, no CGEvent fallback, no silent
-AT-SPI/UIA reuse. Actuation is **not** in this cut.
+`unsupported`, `a11y_tree_timeout`, `a11y_action_no_effect` (a write whose
+read-back does not match), `a11y_option_not_found` / `a11y_option_ambiguous`,
+and the adapter's own string / sibling limits. No screenshot, no
+`--coords`, no CGEvent fallback, no `AXRaise` / activation, no silent
+AT-SPI/UIA reuse.
 
 Canonical host mapping (approved product vocabulary):
 
 | Host | Native accessibility stack | Structured `tree` source | Structured actuation |
 |------|---------------------------|--------------------------|----------------------|
 | Windows | native API + **UIA** | `IUIAutomation` control tree | UIA patterns / legacy accessible (`Invoke`, `LegacyIAccessible`) |
-| macOS | **AX** (`NSAccessibility`) | accessibility element tree — **live** (bounded walk, `AXActionNames`, `AXIdentifier`) | `AXPress` / `AXRaise` / editable value — **not started** |
+| macOS | **AX** (`NSAccessibility`) | accessibility element tree — **live** (bounded walk, `AXActionNames`, `AXIdentifier`) | `AXPress` / `AXValue` write / option `AXPress` / desired-state checked & expanded / `AXIncrement` `AXDecrement` — **live** (`invoke`, cut 3.50); `AXRaise` is never sent |
 | Linux | **AT-SPI2** (`at-spi2-core` / `org.a11y.atspi.*`) | AT-SPI accessible hierarchy — **live** | AT-SPI `Action` / `Component` / `EditableText` — **live** |
 
 ### Requirements by stack
@@ -505,8 +539,26 @@ Canonical host mapping (approved product vocabulary):
   --depth 0 report truncated", "full tree reports truncated false and AX
   action names" against the owned fixture (2026-08-30). No screenshot /
   `--coords` / CGEvent fallback and no silent AT-SPI or UIA reuse.
-- [ ] AX structured `click` / `focus` / value actuation on `current`
-  (`AXPress` / `AXRaise` / editable value). Explicitly **not** this cut.
+- [x] AX semantic actuation on `current` (cut 3.50): `invoke` resolves the
+  child-index path at call time (`a11y_node_not_found` when stale), checks
+  the element's `AXActionNames` before performing (`AXPress`, `AXIncrement`,
+  `AXDecrement`; a missing action is typed `Unsupported`), writes `AXValue`
+  only when `AXUIElementIsAttributeSettable` says so and reads it back
+  (`a11y_action_no_effect` on mismatch; a numeric value is compared as a
+  number), chooses a pop-up option by opening the pop-up with `AXPress` and
+  pressing the unique `AXMenuItem` titled exactly the option (closing the
+  menu again with `AXCancel` when none matches), and treats `set-checked` /
+  `set-expanded` as desired states (read `AXValue` 0/1/2 or `AXExpanded`,
+  press only when different, read back). `click` maps to `AXPress` and
+  `focus` sets `AXFocused` on the element (first responder inside the app;
+  no activation) — both compiled, neither journey-proven. `get-text` /
+  `send-text --name` use the same `AXValue` read / write. Live evidence:
+  `cu-macos-smoke` STEPs "invoke set-value ...", "invoke set-checked true
+  twice ...", "invoke press advances the count label ...", "invoke
+  increment / decrement ... select-option ...", "ambiguous --name, missing
+  action, unobservable state, missing target and observe-only grant are
+  typed refusals" (2026-08-30). Never `AXRaise`, never a CGEvent, never a
+  screenshot or `--coords` fallback.
 
 ### Degraded fallbacks (never silent)
 
@@ -594,6 +646,32 @@ Canonical host mapping (approved product vocabulary):
   staged host/DLL load and cleanup, exact window identity, public UIA tree,
   name-addressed Value/GetText/Invoke journeys and bounded fixture cleanup; it
   does not prove Candidate qualification or release.
+- [x] **macOS AX `current` actuation (cut 3.50) — live evidence held.**
+  The same journey, same fixture, same run (2026-08-30) emits
+  `cu.macos-ax-invoke-set-value`, `cu.macos-ax-invoke-set-checked`,
+  `cu.macos-ax-invoke-press`, `cu.macos-ax-invoke-value-readback`,
+  `cu.macos-ax-invoke-refusals`. Canonical argv:
+
+  ```sh
+  agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-field set-value "written by cu"
+  agenterm-cu --target current --grant observe verify --window "$HANDLE" --expect '[{"identifier":"fixture-field","value":"written by cu"}]'
+  agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --name "Fixture Check" --role AXCheckBox set-checked true
+  agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-press press
+  agenterm-cu --target current --grant observe wait --timeout-ms 3000 --window "$HANDLE" --expect '[{"identifier":"fixture-press-count","value":"pressed 1"}]'
+  agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-stepper increment
+  agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-popup select-option Beta
+  ```
+
+  Required replies: every accepted `invoke` is `verified: true` with a
+  `before` / `after` receipt (the second `set-checked true` is
+  `performed: false`); `verify` answers `unverified` for a wrong value,
+  `unsupported` (`state_unobservable`) for `checked` on the text field and
+  `usage` for a misspelled key; `wait --expect` on `pressed 99` is
+  `timeout` carrying the last observed `pressed 1`; `--name "Fixture
+  Twin"` is `ambiguous` with `count: 2`; `increment` on the check box is
+  `unsupported` (`node_action_missing`); `--grant observe` is `refused`;
+  the focused window handle is unchanged across the section and is never
+  the fixture.
 - [x] **macOS AX `current` observe (cut 3.49) — live evidence held.**
   `scripts/qjs/cu-macos-smoke.qjs` (task `cu-macos-smoke`, host-native gate,
   `--profile tool`) passed on a real macOS desktop on 2026-08-30 and emits

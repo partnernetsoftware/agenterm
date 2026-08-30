@@ -292,6 +292,11 @@ parent-console / runtime / a11y 等大量向后兼容导出，minor 随导出面
 （遍历期 depth / node budget，元数据字段 TRUNCATED / VISITED / RETURNED，节点
 字符串 IDENTIFIER），并把 OS 拒绝的 a11y 栈（macOS 辅助功能权限）从
 `AGT_UNSUPPORTED` 改为带修复路径的 `AGT_FAILED{code="a11y_permission_denied"}`。
+ABI 1.13 增加 `agt_a11y_node_invoke`（`invoke` 动作词表：PRESS / SET_VALUE /
+SELECT_OPTION / SET_CHECKED / SET_EXPANDED / INCREMENT / DECREMENT，带 UTF-8
+值载荷；SET_CHECKED / SET_EXPANDED 是期望态、幂等），`agt_a11y_node_perform`
+额外接受不带值的新 kind；macOS 适配器落地 `AXPress` / `AXValue` 写 / 子项
+`AXPress` / `AXIncrement` / `AXDecrement`，从不 `AXRaise` 或激活 App。
 
 `agt_build_id()` 返回 `<crate 版本>+abi.<major>.<minor>`
 （例如 `0.1.16+abi.1.1`），在**编译期**由 `CARGO_PKG_VERSION` 与

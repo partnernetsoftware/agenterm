@@ -28,6 +28,7 @@ agt_a11y_tree_node
 agt_a11y_node_string
 agt_a11y_node_action_name
 agt_a11y_node_perform
+agt_a11y_node_invoke
 agt_a11y_node_set_text
 agt_a11y_node_get_text
 agt_a11y_node_send_keys

@@ -34,6 +34,12 @@ pub struct AccessibilityNode {
     pub parent_id: Option<String>,
     pub role: String,
     pub name: String,
+    /// Backend states, lower-case. Besides the observe vocabulary (`enabled`,
+    /// `focusable`, `focused`, `showing`, `visible`, `selected`) an adapter
+    /// that can read a two-way control state reports **both directions** so
+    /// a caller can tell "off" from "not observable": `checked` /
+    /// `unchecked` / `mixed`, and `expanded` / `collapsed`. A node carrying
+    /// neither word of a pair has no readable state of that kind.
     pub states: Vec<String>,
     pub bounds: AccessibilityBounds,
     /// Action names exposed by the backend (`click`, `focus`, ...). An empty
@@ -113,11 +119,55 @@ impl AccessibilityTreeBudget {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// One semantic actuation on a resolved node. The first two are the
+/// historical verbs (`click` / `focus`); the rest are the `invoke`
+/// vocabulary absorbed from `moltbaby/skills/mcu` (2026-08-30). Every
+/// adapter maps what it can and answers a typed `Unsupported` for the rest —
+/// never a coordinate or keystroke substitute.
+///
+/// `SetChecked` / `SetExpanded` name a **desired state**: an adapter reads
+/// the current state, acts only when it differs, and reads it back. Already
+/// being in the requested state is success with no action performed.
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum AccessibilityNodeAction {
     Click,
     Focus,
+    /// The node's primary action (macOS `AXPress`, UIA `Invoke`, AT-SPI
+    /// `press` / `click`).
+    Press,
+    /// Replace the node's value (macOS `AXValue` write, UIA `Value.SetValue`,
+    /// AT-SPI `EditableText`). A numeric value target (slider, stepper)
+    /// takes the decimal text of the number.
+    SetValue(String),
+    /// Choose the child option whose name is exactly this string (macOS:
+    /// open the pop-up and `AXPress` the matching menu item).
+    SelectOption(String),
+    /// Desired checked state; idempotent.
+    SetChecked(bool),
+    /// Desired expanded state; idempotent.
+    SetExpanded(bool),
+    /// macOS `AXIncrement`; the caller reads the value back.
+    Increment,
+    /// macOS `AXDecrement`; the caller reads the value back.
+    Decrement,
+}
+
+impl AccessibilityNodeAction {
+    /// The public verb spelling (`press`, `set-value`, ...).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Click => "click",
+            Self::Focus => "focus",
+            Self::Press => "press",
+            Self::SetValue(_) => "set-value",
+            Self::SelectOption(_) => "select-option",
+            Self::SetChecked(_) => "set-checked",
+            Self::SetExpanded(_) => "set-expanded",
+            Self::Increment => "increment",
+            Self::Decrement => "decrement",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

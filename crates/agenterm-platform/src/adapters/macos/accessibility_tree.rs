@@ -1,4 +1,4 @@
-//! macOS Accessibility (AX) tree client — observe path.
+//! macOS Accessibility (AX) tree client — observe and semantic actuation.
 //!
 //! A `cfg(macos)` AX walk for `agenterm-cu --target current tree` / `query`
 //! with typed permission / timeout / bound failures. The walk is bounded
@@ -7,8 +7,14 @@
 //! failing or silently looking complete. Per-node actions come from
 //! `AXUIElementCopyActionNames`. Live evidence: `scripts/qjs/cu-macos-smoke.qjs`.
 //!
-//! No click / focus / value actuation, no screenshot, no CGEvent fallback, and
-//! no silent reuse of AT-SPI or UIA.
+//! Actuation (slice 2 of `plan/design-mcu-absorption.md`) is semantic only:
+//! `AXPress` / `AXIncrement` / `AXDecrement`, an `AXValue` write, a pop-up
+//! option chosen by pressing the matching menu item, and desired-state
+//! `set-checked` / `set-expanded` that read before acting and read back
+//! after. Nothing here activates the application, raises a window
+//! (`AXRaise` is never sent), moves the pointer, or posts a CGEvent; a node
+//! that does not offer an action answers a typed `Unsupported`. No
+//! screenshot fallback and no silent reuse of AT-SPI or UIA.
 
 #![cfg(target_os = "macos")]
 
@@ -44,6 +50,17 @@ const MAX_NODE_ID_BYTES: usize = 4_096;
 const MAX_STRING_BYTES: usize = 16 * 1024;
 const MAX_TOTAL_STRING_BYTES: usize = 2 * 1024 * 1024;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Wall-clock bound for one actuation including its read-back polls.
+const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a desired-state action waits for the toolkit to publish the new
+/// state before calling the action ineffective.
+const READBACK_WINDOW: Duration = Duration::from_millis(1_500);
+const READBACK_POLL: Duration = Duration::from_millis(25);
+/// How deep below a pop-up the option search looks (`AXMenu` → `AXMenuItem`
+/// is two levels; one spare for a grouped menu).
+const OPTION_SEARCH_DEPTH: usize = 3;
+/// Largest `set-value` payload, mirroring the Windows adapter's bound.
+const MAX_SET_VALUE_BYTES: usize = 64 * 1024;
 
 const AX_SUCCESS: i32 = 0;
 /// `kAXErrorFailure`: AppKit answers this for an attribute an element does
@@ -65,6 +82,7 @@ const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CF_NUMBER_SINT32: i32 = 3;
 const K_CF_NUMBER_SINT64: i32 = 4;
+const K_CF_NUMBER_DOUBLE: i32 = 13;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -116,6 +134,20 @@ unsafe extern "C" {
     fn AXUIElementCopyActionNames(element: AxUiElementRef, names: *mut CfTypeRef) -> i32;
     fn AXValueGetValue(value: AxValueRef, typ: u32, value_ptr: *mut c_void) -> u8;
     fn _AXUIElementGetWindow(element: AxUiElementRef, out: *mut CgWindowId) -> i32;
+
+    fn AXUIElementPerformAction(element: AxUiElementRef, action: CfStringRef) -> i32;
+    fn AXUIElementSetAttributeValue(
+        element: AxUiElementRef,
+        attribute: CfStringRef,
+        value: CfTypeRef,
+    ) -> i32;
+    fn AXUIElementIsAttributeSettable(
+        element: AxUiElementRef,
+        attribute: CfStringRef,
+        settable: *mut u8,
+    ) -> i32;
+    fn CFNumberCreate(alloc: CfTypeRef, the_type: CfIndex, value_ptr: *const c_void) -> CfTypeRef;
+    static kCFBooleanTrue: CfTypeRef;
 }
 
 struct CfOwned(CfTypeRef);
@@ -464,34 +496,653 @@ pub(crate) fn tree_for_window(
 
 pub(crate) fn drain_bus() {}
 
+/// Perform one semantic action on the element at `node_id` (a child-index
+/// path from the window root, as `tree` numbers it). Resolution happens at
+/// call time, so a stale path is `a11y_node_not_found`, never a guess.
+///
+/// Background invariant: nothing here activates the application or raises
+/// the window. `Focus` writes `AXFocused` on the element, which moves the
+/// first responder *inside* the owning application only.
 pub(crate) fn perform_node_action(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _action: AccessibilityNodeAction,
+    window_handle: Option<isize>,
+    node_id: &str,
+    action: AccessibilityNodeAction,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX actuation (click/focus) is not implemented in this PLACEHOLDER cut"
-            .into(),
-    })
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    match action {
+        AccessibilityNodeAction::Click | AccessibilityNodeAction::Press => {
+            perform_named_action(element.as_ax(), "AXPress", &mut budget)
+        }
+        AccessibilityNodeAction::Increment => {
+            perform_named_action(element.as_ax(), "AXIncrement", &mut budget)
+        }
+        AccessibilityNodeAction::Decrement => {
+            perform_named_action(element.as_ax(), "AXDecrement", &mut budget)
+        }
+        AccessibilityNodeAction::Focus => focus_element(element.as_ax(), &mut budget),
+        AccessibilityNodeAction::SetValue(value) => set_value(element.as_ax(), &value, &mut budget),
+        AccessibilityNodeAction::SelectOption(option) => {
+            select_option(element.as_ax(), &option, &mut budget)
+        }
+        AccessibilityNodeAction::SetChecked(desired) => {
+            set_checked(element.as_ax(), desired, &mut budget)
+        }
+        AccessibilityNodeAction::SetExpanded(desired) => {
+            set_expanded(element.as_ax(), desired, &mut budget)
+        }
+        // The contract is `non_exhaustive`; a variant this adapter does not
+        // know is typed, not silently mapped to something else.
+        #[allow(unreachable_patterns)]
+        other => Err(AccessibilityTreeError::Unsupported {
+            reason: format!("macOS AX has no mapping for action {}", other.name()).into(),
+        }),
+    }
 }
 
+/// `AXValue` write for `send-text --name` / `paste`: the same settable-check
+/// plus read-back as `set-value`.
 pub(crate) fn set_node_text(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _text: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
+    text: &str,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX set-text is not implemented in this PLACEHOLDER cut".into(),
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    set_value(element.as_ax(), text, &mut budget)
+}
+
+/// Independent `AXValue` read for `get-text`: a text value verbatim, a
+/// numeric value as decimal text, no value as `a11y_text_unavailable`.
+pub(crate) fn get_node_text(
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<String, AccessibilityTreeError> {
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    match read_ax_value(element.as_ax(), &mut budget)? {
+        AxValue::Text(text) => Ok(text),
+        AxValue::Number(number) => Ok(format_number(number)),
+        AxValue::Bool(flag) => Ok(if flag { "1" } else { "0" }.to_owned()),
+        AxValue::None | AxValue::Other => Err(AccessibilityTreeError::failed(
+            "a11y_text_unavailable",
+            format!("node {node_id} has no readable AXValue text"),
+        )),
+    }
+}
+
+/// Parse `/0/2/5` into child indices. The first index selects the root
+/// (`0` for a window-scoped call).
+fn parse_node_path(node_id: &str) -> Result<Vec<usize>, AccessibilityTreeError> {
+    let invalid = |detail: &str| {
+        AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("node id {node_id:?} is not a child-index path: {detail}"),
+        )
+    };
+    if node_id.len() > MAX_NODE_ID_BYTES {
+        return Err(invalid("too long"));
+    }
+    let Some(rest) = node_id.strip_prefix('/') else {
+        return Err(invalid("must start with '/'"));
+    };
+    if rest.is_empty() {
+        return Err(invalid("empty path"));
+    }
+    rest.split('/')
+        .map(|part| {
+            part.parse::<usize>()
+                .map_err(|_| invalid(&format!("segment {part:?} is not an index")))
+        })
+        .collect()
+}
+
+/// Resolve a child-index path to a live element, walking `AXChildren` one
+/// level per segment (no whole-tree snapshot).
+fn resolve_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+    budget: &mut Budget,
+) -> Result<CfOwned, AccessibilityTreeError> {
+    let indices = parse_node_path(node_id)?;
+    let roots = resolve_roots(window_handle, budget)?;
+    let not_found = |detail: String| {
+        AccessibilityTreeError::failed(
+            "a11y_node_not_found",
+            format!("node path {node_id} does not resolve: {detail}"),
+        )
+    };
+    let mut current = roots
+        .into_iter()
+        .nth(indices[0])
+        .ok_or_else(|| not_found(format!("no root at index {}", indices[0])))?;
+    for (level, index) in indices.iter().enumerate().skip(1) {
+        budget.check()?;
+        let children = copy_children(current.as_ax(), budget)?;
+        let count = children.len();
+        current = children.into_iter().nth(*index).ok_or_else(|| {
+            not_found(format!("segment {level} asks for child {index} of {count}"))
+        })?;
+    }
+    Ok(current)
+}
+
+/// The raw `AXActionNames` of an element (not normalized).
+fn raw_action_names(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Vec<String>, AccessibilityTreeError> {
+    budget.check()?;
+    unsafe {
+        let mut names: CfTypeRef = std::ptr::null();
+        let status = AXUIElementCopyActionNames(element, &mut names);
+        if status == AX_ERROR_API_DISABLED {
+            return Err(permission_denied());
+        }
+        if status == AX_ERROR_INVALID_UI_ELEMENT {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_node_recycled",
+                "AXActionNames: AX element disappeared",
+            ));
+        }
+        let Some(names) = CfOwned::from_create(names) else {
+            return Ok(Vec::new());
+        };
+        let array = names.as_ptr() as CfArrayRef;
+        let count = CFArrayGetCount(array);
+        let mut out = Vec::new();
+        for i in 0..count {
+            let item = CFArrayGetValueAtIndex(array, i);
+            let raw = cf_string(item);
+            if !raw.is_empty() {
+                out.push(raw);
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Perform a named AX action the element advertises. A node that does not
+/// list the action is a typed `Unsupported`, not a blind attempt.
+fn perform_named_action(
+    element: AxUiElementRef,
+    action: &str,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    let offered = raw_action_names(element, budget)?;
+    if !offered.iter().any(|name| name == action) {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: format!(
+                "node does not offer {action} (AXActionNames: {})",
+                if offered.is_empty() {
+                    "none".to_owned()
+                } else {
+                    offered.join(", ")
+                }
+            )
+            .into(),
+        });
+    }
+    budget.check()?;
+    let status = unsafe {
+        let key = cfstr(action);
+        let status = AXUIElementPerformAction(element, key);
+        CFRelease(key as CfTypeRef);
+        status
+    };
+    if status == AX_ERROR_API_DISABLED {
+        return Err(permission_denied());
+    }
+    map_ax_status(status, action)
+}
+
+fn attribute_settable(
+    element: AxUiElementRef,
+    name: &str,
+    budget: &mut Budget,
+) -> Result<bool, AccessibilityTreeError> {
+    budget.check()?;
+    let mut settable = 0u8;
+    let status = unsafe {
+        let key = cfstr(name);
+        let status = AXUIElementIsAttributeSettable(element, key, &mut settable);
+        CFRelease(key as CfTypeRef);
+        status
+    };
+    if status == AX_ERROR_API_DISABLED {
+        return Err(permission_denied());
+    }
+    if status == AX_ERROR_INVALID_UI_ELEMENT {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_node_recycled",
+            format!("{name}: AX element disappeared"),
+        ));
+    }
+    Ok(status == AX_SUCCESS && settable != 0)
+}
+
+fn set_attribute(
+    element: AxUiElementRef,
+    name: &str,
+    value: CfTypeRef,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    budget.check()?;
+    let status = unsafe {
+        let key = cfstr(name);
+        let status = AXUIElementSetAttributeValue(element, key, value);
+        CFRelease(key as CfTypeRef);
+        status
+    };
+    if status == AX_ERROR_API_DISABLED {
+        return Err(permission_denied());
+    }
+    map_ax_status(status, &format!("set {name}"))
+}
+
+fn no_effect(what: &str, expected: &str, observed: &str) -> AccessibilityTreeError {
+    AccessibilityTreeError::failed(
+        "a11y_action_no_effect",
+        format!("{what}: read-back is {observed} after asking for {expected}"),
+    )
+}
+
+/// Poll `read` until it returns `true` or the read-back window closes.
+fn wait_for_readback<F>(budget: &mut Budget, mut read: F) -> Result<bool, AccessibilityTreeError>
+where
+    F: FnMut(&mut Budget) -> Result<bool, AccessibilityTreeError>,
+{
+    let stop = Instant::now() + READBACK_WINDOW;
+    loop {
+        if read(budget)? {
+            return Ok(true);
+        }
+        if Instant::now() >= stop {
+            return Ok(false);
+        }
+        budget.check()?;
+        std::thread::sleep(READBACK_POLL);
+    }
+}
+
+/// `AXFocused = true` on the element: first responder moves inside the
+/// owning application; the application itself is never activated.
+fn focus_element(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    if attribute_bool(element, "AXFocused", budget)? == Some(true) {
+        return Ok(());
+    }
+    if !attribute_settable(element, "AXFocused", budget)? {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: "node does not accept focus (AXFocused is not settable)".into(),
+        });
+    }
+    set_attribute(element, "AXFocused", unsafe { kCFBooleanTrue }, budget)?;
+    if wait_for_readback(budget, |budget| {
+        Ok(attribute_bool(element, "AXFocused", budget)? == Some(true))
+    })? {
+        Ok(())
+    } else {
+        Err(no_effect("AXFocused", "true", "false"))
+    }
+}
+
+/// Write `AXValue` and read it back. A numeric target (slider, stepper)
+/// takes the decimal text of the number and is compared numerically.
+fn set_value(
+    element: AxUiElementRef,
+    text: &str,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    if text.len() > MAX_SET_VALUE_BYTES {
+        return Err(limit_error(
+            "a11y_text_limit",
+            format!("value exceeds {MAX_SET_VALUE_BYTES} UTF-8 bytes"),
+        ));
+    }
+    if !attribute_settable(element, "AXValue", budget)? {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: "node does not accept a value write (AXValue is not settable)".into(),
+        });
+    }
+    match read_ax_value(element, budget)? {
+        AxValue::Number(_) => {
+            let wanted: f64 = text.trim().parse().map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "invalid_input",
+                    format!("node holds a numeric AXValue; {text:?} is not a number"),
+                )
+            })?;
+            if !wanted.is_finite() {
+                return Err(AccessibilityTreeError::failed(
+                    "invalid_input",
+                    "numeric AXValue must be finite",
+                ));
+            }
+            let number = unsafe {
+                CFNumberCreate(
+                    std::ptr::null(),
+                    K_CF_NUMBER_DOUBLE as CfIndex,
+                    &wanted as *const f64 as *const c_void,
+                )
+            };
+            let Some(number) = CfOwned::from_create(number) else {
+                return Err(AccessibilityTreeError::failed(
+                    "a11y_backend_failed",
+                    "CFNumberCreate returned null",
+                ));
+            };
+            set_attribute(element, "AXValue", number.as_ptr(), budget)?;
+            let mut observed = String::new();
+            if wait_for_readback(budget, |budget| {
+                Ok(match read_ax_value(element, budget)? {
+                    AxValue::Number(now) => {
+                        observed = format_number(now);
+                        (now - wanted).abs() <= 1e-9 * wanted.abs().max(1.0)
+                    }
+                    other => {
+                        observed = format!("{other:?}");
+                        false
+                    }
+                })
+            })? {
+                Ok(())
+            } else {
+                Err(no_effect("AXValue", &format_number(wanted), &observed))
+            }
+        }
+        _ => {
+            let value = cfstr(text);
+            let Some(value) = CfOwned::from_create(value as CfTypeRef) else {
+                return Err(AccessibilityTreeError::failed(
+                    "a11y_backend_failed",
+                    "CFStringCreateWithCString returned null",
+                ));
+            };
+            set_attribute(element, "AXValue", value.as_ptr(), budget)?;
+            let mut observed = String::new();
+            if wait_for_readback(budget, |budget| {
+                Ok(match read_ax_value(element, budget)? {
+                    AxValue::Text(now) => {
+                        let hit = now == text;
+                        observed = now;
+                        hit
+                    }
+                    AxValue::None if text.is_empty() => true,
+                    other => {
+                        observed = format!("{other:?}");
+                        false
+                    }
+                })
+            })? {
+                Ok(())
+            } else {
+                Err(no_effect(
+                    "AXValue",
+                    &format!("{text:?}"),
+                    &format!("{observed:?}"),
+                ))
+            }
+        }
+    }
+}
+
+/// Current checked state from `AXValue` 0 / 1 / 2 (`None`: not a
+/// two-state control).
+fn checked_value(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<f64>, AccessibilityTreeError> {
+    let role = attribute_string(element, "AXRole", budget)?.unwrap_or_default();
+    if !is_checkable_role(&normalize_role(&role)) {
+        return Ok(None);
+    }
+    Ok(match read_ax_value(element, budget)? {
+        AxValue::Number(number) => Some(number),
+        AxValue::Bool(flag) => Some(if flag { 1.0 } else { 0.0 }),
+        _ => None,
     })
 }
 
-pub(crate) fn get_node_text(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-) -> Result<String, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX get-text is not implemented in this PLACEHOLDER cut".into(),
+/// Desired-state, idempotent: read, press only when the state differs, read
+/// back. `mixed` differs from both `true` and `false`.
+fn set_checked(
+    element: AxUiElementRef,
+    desired: bool,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    let Some(current) = checked_value(element, budget)? else {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: "node exposes no checked state (not a check box / radio button / switch)"
+                .into(),
+        });
+    };
+    let matches = |number: f64| (number as i64) == i64::from(desired);
+    if matches(current) {
+        return Ok(());
+    }
+    perform_named_action(element, "AXPress", budget)?;
+    let mut observed = current;
+    if wait_for_readback(budget, |budget| {
+        Ok(match checked_value(element, budget)? {
+            Some(now) => {
+                observed = now;
+                matches(now)
+            }
+            None => false,
+        })
+    })? {
+        Ok(())
+    } else {
+        Err(no_effect(
+            "checked",
+            if desired { "checked" } else { "unchecked" },
+            checked_state_name(observed),
+        ))
+    }
+}
+
+fn expanded_value(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<bool>, AccessibilityTreeError> {
+    let role = attribute_string(element, "AXRole", budget)?.unwrap_or_default();
+    let role = normalize_role(&role);
+    let value = read_ax_value(element, budget)?;
+    expanded_state(element, &role, &value, budget)
+}
+
+/// Desired-state, idempotent, like [`set_checked`] over `AXExpanded` or a
+/// disclosure triangle's value.
+fn set_expanded(
+    element: AxUiElementRef,
+    desired: bool,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    let Some(current) = expanded_value(element, budget)? else {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: "node exposes no expanded state (no AXExpanded, not a disclosure triangle)"
+                .into(),
+        });
+    };
+    if current == desired {
+        return Ok(());
+    }
+    // Prefer writing the attribute when the toolkit allows it; otherwise
+    // the primary action toggles it.
+    if attribute_settable(element, "AXExpanded", budget)? {
+        let flag = if desired {
+            unsafe { kCFBooleanTrue }
+        } else {
+            let zero = 0i64;
+            unsafe {
+                CFNumberCreate(
+                    std::ptr::null(),
+                    K_CF_NUMBER_SINT64 as CfIndex,
+                    &zero as *const i64 as *const c_void,
+                )
+            }
+        };
+        set_attribute(element, "AXExpanded", flag, budget)?;
+        if !desired {
+            unsafe { CFRelease(flag) };
+        }
+    } else {
+        perform_named_action(element, "AXPress", budget)?;
+    }
+    let mut observed = current;
+    if wait_for_readback(budget, |budget| {
+        Ok(match expanded_value(element, budget)? {
+            Some(now) => {
+                observed = now;
+                now == desired
+            }
+            None => false,
+        })
+    })? {
+        Ok(())
+    } else {
+        Err(no_effect(
+            "expanded",
+            if desired { "expanded" } else { "collapsed" },
+            if observed { "expanded" } else { "collapsed" },
+        ))
+    }
+}
+
+/// Elements below `root` (bounded depth and count) whose `AXTitle` equals
+/// `title`.
+fn find_titled_descendants(
+    root: AxUiElementRef,
+    title: &str,
+    budget: &mut Budget,
+) -> Result<Vec<CfOwned>, AccessibilityTreeError> {
+    let mut hits = Vec::new();
+    let mut queue: VecDeque<(CfOwned, usize)> = VecDeque::new();
+    let Some(root) = CfOwned::retain(root as CfTypeRef) else {
+        return Ok(hits);
+    };
+    queue.push_back((root, 0));
+    let mut visited = 0usize;
+    while let Some((element, depth)) = queue.pop_front() {
+        budget.check()?;
+        visited += 1;
+        if visited > MAX_NODES {
+            break;
+        }
+        if depth > 0 {
+            let name = attribute_string(element.as_ax(), "AXTitle", budget)?;
+            if name.as_deref() == Some(title) {
+                hits.push(CfOwned::retain(element.as_ptr()).expect("non-null element"));
+                continue;
+            }
+        }
+        if depth >= OPTION_SEARCH_DEPTH {
+            continue;
+        }
+        for child in copy_children(element.as_ax(), budget)? {
+            queue.push_back((child, depth + 1));
+        }
+    }
+    Ok(hits)
+}
+
+/// The pop-up's current selection as text, if it publishes one.
+fn selection_text(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<String>, AccessibilityTreeError> {
+    Ok(match read_ax_value(element, budget)? {
+        AxValue::Text(text) => Some(text),
+        _ => None,
     })
+}
+
+/// Choose the option titled exactly `option`: already selected is a no-op;
+/// otherwise open the pop-up with `AXPress` (AppKit returns at once and
+/// publishes an `AXMenu` child), press the unique matching item, and read
+/// the selection back. No match closes the menu again (`AXCancel`) and
+/// fails typed; two matches refuse before pressing anything.
+fn select_option(
+    element: AxUiElementRef,
+    option: &str,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    if option.is_empty() || option.len() > MAX_SET_VALUE_BYTES {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            "select-option needs a non-empty option name",
+        ));
+    }
+    if selection_text(element, budget)?.as_deref() == Some(option) {
+        return Ok(());
+    }
+    let mut hits = find_titled_descendants(element, option, budget)?;
+    let mut opened = false;
+    if hits.is_empty() {
+        let offered = raw_action_names(element, budget)?;
+        let opener = ["AXPress", "AXShowMenu"]
+            .into_iter()
+            .find(|name| offered.iter().any(|have| have == name));
+        let Some(opener) = opener else {
+            return Err(AccessibilityTreeError::Unsupported {
+                reason:
+                    "node has no options and offers neither AXPress nor AXShowMenu to reveal any"
+                        .into(),
+            });
+        };
+        perform_named_action(element, opener, budget)?;
+        opened = true;
+        wait_for_readback(budget, |budget| {
+            hits = find_titled_descendants(element, option, budget)?;
+            Ok(!hits.is_empty())
+        })?;
+    }
+    let outcome = match hits.len() {
+        0 => Err(AccessibilityTreeError::failed(
+            "a11y_option_not_found",
+            format!("no option titled {option:?} under the node"),
+        )),
+        1 => perform_named_action(hits[0].as_ax(), "AXPress", budget),
+        count => Err(AccessibilityTreeError::failed(
+            "a11y_option_ambiguous",
+            format!("{count} options titled {option:?} under the node; refusing to guess"),
+        )),
+    };
+    if outcome.is_err() && opened {
+        // Leave the application as it was: close the menu we opened.
+        for child in copy_children(element, budget)? {
+            let offered = raw_action_names(child.as_ax(), budget)?;
+            if offered.iter().any(|name| name == "AXCancel") {
+                let _ = perform_named_action(child.as_ax(), "AXCancel", budget);
+            }
+        }
+    }
+    outcome?;
+    let mut observed = String::new();
+    if wait_for_readback(budget, |budget| {
+        Ok(match selection_text(element, budget)? {
+            Some(now) => {
+                let hit = now == option;
+                observed = now;
+                hit
+            }
+            None => false,
+        })
+    })? {
+        Ok(())
+    } else {
+        Err(no_effect(
+            "selection",
+            &format!("{option:?}"),
+            &format!("{observed:?}"),
+        ))
+    }
 }
 
 pub(crate) fn last_text_write_via() -> &'static str {
@@ -815,7 +1466,17 @@ fn read_node(
         .or(attribute_string(element, "AXDescription", budget)?.filter(|s| !s.is_empty()))
         .or_else(|| identifier.clone())
         .unwrap_or_default();
-    let (text, text_truncated) = attribute_value_text(element, budget)?;
+    let value = read_ax_value(element, budget)?;
+    let checkable = is_checkable_role(&role);
+    let (text, text_truncated) = match &value {
+        AxValue::Text(raw) => bounded_text_preview(raw),
+        // A slider / stepper / progress value is its number; a check box's
+        // 0 / 1 / 2 is a state (below), not text.
+        AxValue::Number(number) if !checkable && role != "disclosure-triangle" => {
+            (Some(format_number(*number)), false)
+        }
+        _ => (None, false),
+    };
     let bounds = read_bounds(element, budget)?;
     let mut states = read_states(element, budget, &bounds)?;
     if text_truncated {
@@ -823,6 +1484,16 @@ fn read_node(
         // previewed, not copied whole: the snapshot stays bounded and the
         // node says so. The full value is a `get-text` read, not a tree.
         states.push("text-truncated".to_owned());
+    }
+    // Two-way control states: both directions are reported so a caller can
+    // tell "off" from "not observable" (contract doc on `states`).
+    if checkable && let AxValue::Number(number) = &value {
+        states.push(checked_state_name(*number).to_owned());
+    }
+    match expanded_state(element, &role, &value, budget)? {
+        Some(true) => states.push("expanded".to_owned()),
+        Some(false) => states.push("collapsed".to_owned()),
+        None => {}
     }
     let actions = read_actions(element, budget)?;
 
@@ -865,29 +1536,115 @@ fn attribute_string(
     Ok(Some(text))
 }
 
-/// `AXValue` as text, cut at a UTF-8 boundary to `MAX_STRING_BYTES`. Returns
-/// the preview and whether it was cut. A number-typed value (sliders) is not
-/// text; an empty value is `None`.
-fn attribute_value_text(
+/// The typed shape of an element's `AXValue`.
+#[derive(Clone, Debug, PartialEq)]
+enum AxValue {
+    /// No value, or an unsupported attribute.
+    None,
+    Text(String),
+    Number(f64),
+    Bool(bool),
+    /// A CF type this adapter does not read (an AXValue struct, an array).
+    Other,
+}
+
+fn read_ax_value(
     element: AxUiElementRef,
     budget: &mut Budget,
-) -> Result<(Option<String>, bool), AccessibilityTreeError> {
+) -> Result<AxValue, AccessibilityTreeError> {
     let Some(value) = copy_attribute(element, "AXValue", budget)? else {
-        return Ok((None, false));
+        return Ok(AxValue::None);
     };
-    let mut text = cf_string(value.as_ptr());
-    if text.is_empty() {
-        return Ok((None, false));
+    Ok(classify_cf_value(value.as_ptr()))
+}
+
+fn classify_cf_value(value: CfTypeRef) -> AxValue {
+    if value.is_null() {
+        return AxValue::None;
     }
-    let truncated = text.len() > MAX_STRING_BYTES;
-    if truncated {
-        let mut cut = MAX_STRING_BYTES;
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
+    unsafe {
+        let type_id = CFGetTypeID(value);
+        if type_id == CFStringGetTypeID() {
+            return AxValue::Text(cf_string(value));
         }
-        text.truncate(cut);
+        if type_id == CFBooleanGetTypeID() {
+            return AxValue::Bool(CFBooleanGetValue(value) != 0);
+        }
+        if type_id == CFNumberGetTypeID() {
+            let mut out = 0f64;
+            if CFNumberGetValue(
+                value,
+                K_CF_NUMBER_DOUBLE as CfIndex,
+                &mut out as *mut f64 as *mut c_void,
+            ) {
+                return AxValue::Number(out);
+            }
+            return cf_i64(value)
+                .map(|n| AxValue::Number(n as f64))
+                .unwrap_or(AxValue::Other);
+        }
     }
-    Ok((Some(text), truncated))
+    AxValue::Other
+}
+
+/// A text value cut at a UTF-8 boundary to `MAX_STRING_BYTES`: the preview
+/// and whether it was cut. An empty value is `None`.
+fn bounded_text_preview(raw: &str) -> (Option<String>, bool) {
+    if raw.is_empty() {
+        return (None, false);
+    }
+    let truncated = raw.len() > MAX_STRING_BYTES;
+    if !truncated {
+        return (Some(raw.to_owned()), false);
+    }
+    let mut cut = MAX_STRING_BYTES;
+    while !raw.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    (Some(raw[..cut].to_owned()), true)
+}
+
+/// Decimal text of a numeric `AXValue`: integers print without a fraction.
+fn format_number(number: f64) -> String {
+    if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e15 {
+        format!("{}", number as i64)
+    } else {
+        format!("{number}")
+    }
+}
+
+fn is_checkable_role(role: &str) -> bool {
+    matches!(role, "check-box" | "radio-button" | "toggle" | "switch")
+}
+
+/// AppKit publishes a check box's state as `AXValue` 0 / 1 / 2.
+fn checked_state_name(number: f64) -> &'static str {
+    match number as i64 {
+        0 => "unchecked",
+        1 => "checked",
+        _ => "mixed",
+    }
+}
+
+/// `Some(expanded)` when the element publishes an expansion state: the
+/// `AXExpanded` boolean, or a disclosure triangle's `AXValue` 0 / 1.
+fn expanded_state(
+    element: AxUiElementRef,
+    role: &str,
+    value: &AxValue,
+    budget: &mut Budget,
+) -> Result<Option<bool>, AccessibilityTreeError> {
+    if let Some(expanded) = attribute_bool(element, "AXExpanded", budget)? {
+        return Ok(Some(expanded));
+    }
+    if role == "disclosure-triangle" {
+        return Ok(match value {
+            AxValue::Number(number) => Some(*number != 0.0),
+            AxValue::Bool(flag) => Some(*flag),
+            _ => None,
+        });
+    }
+    Ok(None)
 }
 
 fn read_bounds(
@@ -1145,7 +1902,36 @@ fn copy_attribute_names(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_action, normalize_role};
+    use super::{
+        checked_state_name, format_number, is_checkable_role, normalize_action, normalize_role,
+        parse_node_path,
+    };
+
+    #[test]
+    fn node_paths_parse_or_fail_typed() {
+        assert_eq!(parse_node_path("/0").unwrap(), vec![0]);
+        assert_eq!(parse_node_path("/0/2/5").unwrap(), vec![0, 2, 5]);
+        for bad in ["", "/", "0/1", "/a", "/0//1"] {
+            let error = parse_node_path(bad).unwrap_err();
+            assert!(
+                matches!(error, super::AccessibilityTreeError::Failed { ref code, .. } if code == "invalid_input"),
+                "{bad:?} -> {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn numbers_and_check_states_format_stably() {
+        assert_eq!(format_number(3.0), "3");
+        assert_eq!(format_number(-2.0), "-2");
+        assert_eq!(format_number(0.5), "0.5");
+        assert_eq!(checked_state_name(0.0), "unchecked");
+        assert_eq!(checked_state_name(1.0), "checked");
+        assert_eq!(checked_state_name(2.0), "mixed");
+        assert!(is_checkable_role("check-box"));
+        assert!(is_checkable_role("radio-button"));
+        assert!(!is_checkable_role("button"));
+    }
 
     #[test]
     fn normalizes_ax_roles() {
