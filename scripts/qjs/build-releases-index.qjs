@@ -17,12 +17,14 @@ function child(value, key) {
   return inner;
 }
 
+// rh's `type_of(x) == "map"` / `"array"`, over `Array.isArray` (tinyvm
+// `c9df46f`).
 function is_map(value) {
-  return typeof value === "object" && value !== null && typeof value.length !== "number";
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function is_array(value) {
-  return typeof value === "object" && value !== null && typeof value.length === "number";
+  return Array.isArray(value);
 }
 
 const args = rh.args();

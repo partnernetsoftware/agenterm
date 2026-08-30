@@ -20,10 +20,10 @@
 import * as rh from "lib/rh_compat";
 import * as artifact_manifest from "lib/artifact_manifest";
 
-// No `.includes` on arrays here (engine wall): a loop answers the same.
+// rh's `.contains` on the metadata's `features`, an array of strings:
+// `includes` (tinyvm `c9df46f`).
 function array_has(values, wanted) {
-  for (const v of values) { if ("" + v === wanted) { return true; } }
-  return false;
+  return values.includes(wanted);
 }
 
 if (arg_count() !== 1 && arg_count() !== 2) { throw "expected: REPO [release|development]"; }

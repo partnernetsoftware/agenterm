@@ -117,12 +117,11 @@ function file_name(p) {
   return parts[parts.length - 1];
 }
 
-// rh's `.contains` on whatever the JSON carried: a string or an array.
+// rh's `.contains` on whatever the JSON carried: a string or an array
+// (`rh.has_item` answers false for null / undefined / anything else, as
+// the guard here did).
 function has_item(collection, needle) {
-  if (collection === undefined || collection === null) { return false; }
-  if (typeof collection === "string") { return collection.includes(needle); }
-  if (rh.is_array(collection)) { return rh.array_has(collection, needle); }
-  return false;
+  return rh.has_item(collection, needle);
 }
 
 function sidebar_visible_code(snapshot) {

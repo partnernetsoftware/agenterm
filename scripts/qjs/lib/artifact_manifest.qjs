@@ -22,12 +22,13 @@ function isArtifactName(name) {
   if (name.includes("/") || name.includes("\\")) { return false; }
   const role = name.replace("agenterm-", "").replace(".exe", "");
   if (role === "") { return false; }
-  // "Every character is a-z", written without character access: this engine
-  // has neither `s[i]` nor `split("")` (the latter refuses on purpose -- it
-  // would have to produce lone surrogates for non-BMP text). Deleting each
-  // letter in turn and checking nothing survives asks the same question with
-  // the tools that exist, and costs 26 `replaceAll` calls on a string that
-  // is a few characters long.
+  // "Every character is a-z": delete each letter in turn and check nothing
+  // survives -- 26 `replaceAll` calls on a string a few characters long.
+  // The engine has `s[i]` / `charCodeAt` since tinyvm `fb1a1a6` (`split("")`
+  // is still a named refusal: it would have to produce lone surrogates for
+  // non-BMP text), but the deletion is the cheaper spelling -- measured
+  // 2026-08-31 in `rh_compat.only_chars`, each character access is a prefab
+  // call and costs more than the passes it would save.
   const letters = ["a","b","c","d","e","f","g","h","i","j","k","l","m",
                    "n","o","p","q","r","s","t","u","v","w","x","y","z"];
   let rest = role;
