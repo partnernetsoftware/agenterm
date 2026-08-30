@@ -13,8 +13,11 @@ archives, explicit signing policy, and final-byte reputation checks.
     - [x] reclaim owned stale package scratch before staging
     - [x] record and report uncompressed payload bytes and archive bytes
     - [ ] reject unexpected files after extracting every archive
-  - [ ] six execute-only runtime courts
-    - [ ] runners download sealed bytes; no Cargo build in runtime jobs
+  - [~] six execute-only runtime courts
+    - [x] six native runners download the matching final archive; runtime jobs
+      have no checkout and no Cargo/cosmocc/build step
+    - [x] every runner verifies archive SHA-256 and executes the packaged
+      console version probe on its real OS/ISA
     - [~] Linux package gate binds the known
       `libxkbcommon-x11.so.0 → libxcb-xkb.so.1` transitive edge; a slim-X11
       execute-only court without `-dev` packages remains
@@ -81,3 +84,6 @@ flowchart LR
 - `.github/workflows/candidate.yml` and `.github/workflows/release.yml` remain
   the Candidate and Promotion authorities. Remaining unchecked leaves are not
   release claims.
+- The Candidate runtime matrix uses native Windows, Linux, and macOS runners
+  for both x86_64 and aarch64. Aggregate cannot seal bytes unless all six
+  downloaded archives pass hash and packaged-binary execution.

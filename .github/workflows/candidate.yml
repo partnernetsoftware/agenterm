@@ -750,8 +750,98 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  aggregate:
+  runtime:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform_id: windows-x86_64
+            runner: windows-2025
+            family: windows
+          - platform_id: windows-aarch64
+            runner: windows-11-arm
+            family: windows
+          - platform_id: linux-x86_64
+            runner: ubuntu-24.04
+            family: linux
+          - platform_id: linux-aarch64
+            runner: ubuntu-24.04-arm
+            family: linux
+          - platform_id: macos-aarch64
+            runner: macos-15
+            family: macos
+          - platform_id: macos-x86_64
+            runner: macos-15-intel
+            family: macos
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      # Runtime courts consume only the archive built by the matching build
+      # cell. They deliberately do not checkout source or invoke Cargo.
+      - name: Download matching Candidate part
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: candidate-part-${{ matrix.platform_id }}
+          path: part
+
+      - name: Execute final Windows archive
+        if: matrix.family == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Get-ChildItem part -File -Filter 'agenterm-*-windows-*.zip' |
+            Select-Object -First 1
+          if (-not $archive) { throw 'runtime_archive_missing' }
+          $sidecar = Get-Content "$($archive.FullName).sha256" -Raw
+          $expectedHash = ($sidecar -split '\s+')[0].ToLowerInvariant()
+          $actualHash = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) { throw 'runtime_archive_hash_mismatch' }
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath runtime
+          $version = (Get-Content "$($archive.FullName).provenance.json" -Raw |
+            ConvertFrom-Json).version
+          $output = & .\runtime\agenterm.com cli --version
+          if ($LASTEXITCODE -ne 0 -or "$output" -notmatch [regex]::Escape($version)) {
+            throw "runtime_version_probe_failed: $output"
+          }
+          "PASS ${{ matrix.platform_id }} $actualHash $output"
+
+      - name: Execute final Linux archive
+        if: matrix.family == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find part -maxdepth 1 -type f \
+            -name 'agenterm-*-linux-*.tar.gz' -print -quit)"
+          test -n "$archive"
+          (cd part && sha256sum -c "$(basename "$archive").sha256")
+          mkdir runtime
+          tar -xzf "$archive" -C runtime
+          chmod +x runtime/agenterm
+          version="$(jq -r .version "$archive.provenance.json")"
+          output="$(runtime/agenterm cli --version)"
+          grep -Fq "$version" <<<"$output"
+          echo "PASS ${{ matrix.platform_id }} $(sha256sum "$archive" | cut -d' ' -f1) $output"
+
+      - name: Execute final macOS archive
+        if: matrix.family == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find part -maxdepth 1 -type f \
+            -name 'agenterm-*-macos-*.zip' -print -quit)"
+          test -n "$archive"
+          (cd part && shasum -a 256 -c "$(basename "$archive").sha256")
+          mkdir runtime
+          ditto -x -k "$archive" runtime
+          chmod +x runtime/agenterm
+          version="$(jq -r .version "$archive.provenance.json")"
+          output="$(runtime/agenterm cli --version)"
+          grep -Fq "$version" <<<"$output"
+          echo "PASS ${{ matrix.platform_id }} $(shasum -a 256 "$archive" | cut -d' ' -f1) $output"
+
+  aggregate:
+    needs: [build, runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
