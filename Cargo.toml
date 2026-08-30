@@ -24,7 +24,13 @@ name = "agenterm-cc"
 path = "src/bin/agenterm-cc.rs"
 
 [features]
-default = []
+# `.qjs` is the product's script language: the default build carries its
+# engine, so `cargo build` produces a worker that can run the repository's
+# own qualification (`task run check`), which the unix bootstrap builds with
+# no feature flags. Until 2026-08-30 the default was empty and every such
+# worker answered "this build compiles no script engine in". lua and sql stay
+# opt-in.
+default = ["script-qjswasm"]
 script-lua = ["agenterm-lua"]
 script-sql = ["agenterm-sql"]
 script-qjswasm = ["agenterm-qjswasm"]
