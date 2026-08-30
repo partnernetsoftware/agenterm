@@ -75,7 +75,7 @@ qjswasm 在这里的角色：**每一片的黑盒证据都是一段 `.qjs`**（�
   `set-checked true` 在已勾选时是 no-op + `verified`，不是再按一次。
 - 旅程：cu-macos-smoke 加一段——`invoke ... set-value` 写 TextEdit 文本，`verify --expect` 回读；再 `invoke press` 一个 checkbox 并回读 checked。
 
-### 片 3 —— 后台 `menu`、`focused`、`observe`，与 PRD 32 的 `frame` 事务合流 —— **已落地（2026-08-30 深夜，待评审者重跑）**
+### 片 3 —— 后台 `menu`、`focused`、`observe`，与 PRD 32 的 `frame` 事务合流 —— **已落地 `96d52316`，评审者本机重跑通过（2026-08-31 凌晨）**：`success`，16 STEP / 15 EVIDENCE，前台窗口句柄前后相同（15122 → 15122），无孤儿；账单 `steps 40.0M / host_ops 196 / host_bytes 257 KB / waited 809 ms / heap 37 页`。§4 的三段完成判据（观察 / 语义写 / 后台菜单）到此都 PASS。
 
 落地形状：ABI 1.14 三个后台导出（`agt_a11y_menu_snapshot` / `agt_a11y_menu_invoke` / `agt_a11y_focused_snapshot`，都复用既有节点读取器）；
 macOS 适配器读 `AXMenuBar`、逐段按 `AXTitle` 唯一解析并在 `AXPress` 前拒绝禁用/歧义/非叶子，`AXFocusedUIElement` 经 `AXParent` 链 + `CFEqual`
