@@ -16,6 +16,10 @@ path = "src/lib.rs"
 sha2 = { version = "0.11", default-features = false }
 # The shared corpus-scan / check-many drivers every engine's CLI wrapper uses.
 agenterm-script-common = { path = "../agenterm-script-common" }
+# The `process.window_*` and `process.platform_facts` ops: the platform
+# crate owns the process-window contract and its adapters; the door only
+# maps a handle to a pid and JSON to the contract types.
+agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["window", "portable-pixel-window", "process"] }
 # tinyvm is the execution core; tinyvm-qjs is the `.qjs` -> `.wasm` compiler.
 # Both pinned by revision, never vendored: the write knife lives in ../tinyvm
 # (PRD 35). A private-repo git dep needs the system git client -- see

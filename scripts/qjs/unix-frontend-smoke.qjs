@@ -36,8 +36,10 @@ function gap(what) {
 // server's claim, not the compositor's, and this journey is about the
 // difference.
 function platform_facts(handle) {
-  gap("platform_facts: the door has no native window facts for spawned handle " + handle);
-  return null;
+  // The door's `process.platform_facts(handle)`: the host's own view of the
+  // child's top-level window, the six fields rh's `child.platform_facts` had.
+  if (process_platform_facts(handle) !== 0) { throw "process_platform_facts:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 // rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance}.

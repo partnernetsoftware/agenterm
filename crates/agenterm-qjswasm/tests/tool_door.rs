@@ -948,3 +948,79 @@ fn a_command_spec_can_remove_an_inherited_variable() {
     };
     assert_eq!(got, "present|unset");
 }
+
+// =========================================================================
+// process.platform_facts / process.window_*: the platform crate's
+// process-window contract on a spawned handle
+// =========================================================================
+
+/// The host's own view of a child's top-level window, as rh's
+/// `child.platform_facts` gave it. A `sleep` has no window: the answer says
+/// so with the same six fields the GUI journeys read, and nothing traps.
+#[cfg(unix)]
+#[test]
+fn process_platform_facts_answers_the_hosts_view_of_a_windowless_child() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sleep", args: ["5"] }));
+        let status = process_platform_facts(h);
+        let facts = JSON.parse(tool_result());
+        process_kill(h); process_wait(h, 5000);
+        return "" + status + "|" + (typeof facts.top_level_window_supported) + "|" + facts.top_level_window_present
+            + "|" + facts.top_level_window_id + "|" + (typeof facts.foreground_window_id) + "|" + facts.top_level_window_is_foreground
+            + "|" + (typeof facts.top_level_window_title);
+        "#,
+    );
+    assert_eq!(string_of(&out), "0|boolean|false|0|number|false|string", "{out:?}");
+    assert!(out.tool_calls.iter().any(|c| c == "tool.process.platform_facts"), "{:?}", out.tool_calls);
+}
+
+/// A key the contract does not name is refused by name before any window is
+/// looked up; a real key on a windowless child is the contract's typed
+/// refusal, prefixed with the op so a script can tell the two apart. The
+/// status is `direct`'s -1 for both; `answer`-shaped ops (control) say 1.
+#[cfg(unix)]
+#[test]
+fn process_window_key_refuses_unknown_keys_and_windowless_children_by_name() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sleep", args: ["5"] }));
+        let a = process_window_key(h, "Meta"); let first = tool_result();
+        let b = process_window_key(h, "Escape"); let second = tool_result();
+        let c = process_window_key(99, "Escape"); let third = tool_result();
+        process_kill(h); process_wait(h, 5000);
+        return a + "|" + first + "||" + b + "|" + second + "||" + c + "|" + third;
+        "#,
+    );
+    let text = string_of(&out);
+    let parts: Vec<&str> = text.split("||").collect();
+    assert_eq!(parts.len(), 3, "{text}");
+    assert!(parts[0].starts_with("-1|process.window_key: no key named `Meta` (process_window_key_invalid)"), "{text}");
+    assert!(parts[1].starts_with("-1|process.window_key: ") && parts[1].contains("process_window_not_found"), "{text}");
+    assert!(parts[2].starts_with("-1|process.window_key: no child with handle 99"), "{text}");
+}
+
+/// The pointer and control ops parse their JSON spec and refuse an unknown
+/// action or op by name; a resize on a windowless child is the typed refusal.
+#[cfg(unix)]
+#[test]
+fn process_window_pointer_control_and_resize_refuse_by_name() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sleep", args: ["5"] }));
+        let a = process_window_pointer(h, JSON.stringify({ action: "tap", x: 1, y: 2 })); let first = tool_result();
+        let b = process_window_control(h, JSON.stringify({ id: 2105, op: "hover" })); let second = tool_result();
+        let c = process_window_resize(h, JSON.stringify({ width: 640, height: 480 })); let third = tool_result();
+        let d = process_window_rect(h, 1); let fourth = tool_result();
+        process_kill(h); process_wait(h, 5000);
+        return a + "|" + first + "||" + b + "|" + second + "||" + c + "|" + third + "||" + d + "|" + fourth;
+        "#,
+    );
+    let text = string_of(&out);
+    let parts: Vec<&str> = text.split("||").collect();
+    assert_eq!(parts.len(), 4, "{text}");
+    assert!(parts[0].starts_with("-1|process.window_pointer: no action named `tap`"), "{text}");
+    assert!(parts[1].starts_with("1|process.window_control: no op named `hover`"), "{text}");
+    assert!(parts[2].starts_with("-1|process.window_resize: "), "{text}");
+    assert!(parts[3].starts_with("1|process.window_rect: "), "{text}");
+}

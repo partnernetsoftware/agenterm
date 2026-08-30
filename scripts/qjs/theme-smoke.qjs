@@ -326,10 +326,10 @@ try {
   text_cli(context, cli, ["ui-action", "open-settings"]);
   const second_preview = json_cli(context, cli, ["ui-action", "settings-preset-classic-day"]);
   assert_theme_open(second_preview, "classic-night", "classic-day");
-  // rh: `first_gui.window_key("Escape")` -- a native key into the GUI window.
-  // The door has no window-input operation; sending `ui-action cancel`
-  // instead would prove the public action, not the keyboard rollback.
-  gap("window_key(Escape): the door has no native window input for a spawned handle");
+  // rh: `first_gui.window_key("Escape")` -- a native key into the GUI window,
+  // through the door's `process.window_key`; `ui-action cancel` would prove
+  // the public action, not the keyboard rollback.
+  if (process_window_key(first_gui, "Escape") !== 0) { throw "process_window_key(Escape):" + tool_result(); }
   const escaped_snapshot = json_cli(
     context,
     cli,

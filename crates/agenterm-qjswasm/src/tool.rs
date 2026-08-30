@@ -97,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 34] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 41] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -128,6 +128,13 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 34] = [
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
     ("process.read", 2, 1),
+    ("process.platform_facts", 1, 1),
+    ("process.window_key", 3, 1),
+    ("process.window_pointer", 3, 1),
+    ("process.window_message", 3, 1),
+    ("process.window_resize", 3, 1),
+    ("process.window_rect", 2, 1),
+    ("process.window_control", 3, 1),
     ("fs.symlink_metadata", 2, 1),
     ("process.status", 2, 1),
     ("result_len", 0, 1),
@@ -233,6 +240,13 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
         decl("process.wait", vec![HostParam::I32, HostParam::I32], HostResult::I32),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
+        decl("process.platform_facts", vec![HostParam::I32], HostResult::I32),
+        decl("process.window_key", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
+        decl("process.window_pointer", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
+        decl("process.window_message", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
+        decl("process.window_resize", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
+        decl("process.window_rect", vec![HostParam::I32, HostParam::I32], HostResult::I32),
+        decl("process.window_control", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
         decl("process.read", vec![HostParam::I32, HostParam::I32], HostResult::I32),
         // `symlink_metadata` does not follow the link, so `is_symlink` is
         // answerable -- rh's gates use it to refuse a manifest that is a link.
@@ -847,6 +861,129 @@ pub(crate) fn install(
         })
     })?;
 
+    // The process-window ops: rh's `child.platform_facts` and
+    // `child.window_*`, which the GUI journeys (startup, unix-frontend,
+    // workbench, theme) stop on without. The platform crate owns the
+    // contract and the adapters; the door maps a handle to a pid and JSON to
+    // the contract types, and answers the contract's typed error as
+    // `<op>: <message> (<code>[, <cause>])`.
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.platform_facts", move |args, _memory| {
+        let h = arg(args, 0)?;
+        answer(&state, "process.platform_facts", || {
+            let pid = child_pid(&state.borrow(), h, "process.platform_facts")?;
+            let f = agenterm_platform::process_window::facts(pid);
+            Ok(serde_json::json!({
+                "top_level_window_supported": f.supported,
+                "top_level_window_present": f.present,
+                "top_level_window_id": f.window_id,
+                "top_level_window_title": f.title,
+                "foreground_window_id": f.foreground_window_id,
+                "top_level_window_is_foreground": f.is_foreground,
+            })
+            .to_string())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.window_key", move |args, memory| {
+        let h = arg(args, 0)?;
+        let name = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+        direct(&state, "process.window_key", || {
+            let pid = child_pid(&state.borrow(), h, "process.window_key")?;
+            let key = window_key_named(utf8(name)?)?;
+            agenterm_platform::process_window::key(pid, key)
+                .map_err(|e| window_error("process.window_key", e))?;
+            Ok(STATUS_OK)
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.window_pointer", move |args, memory| {
+        let h = arg(args, 0)?;
+        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+        direct(&state, "process.window_pointer", || {
+            let pid = child_pid(&state.borrow(), h, "process.window_pointer")?;
+            let spec: PointerSpec = serde_json::from_str(utf8(spec)?)
+                .map_err(|e| format!("process.window_pointer: the spec is not valid: {e}"))?;
+            let action = pointer_action_named(&spec.action)?;
+            agenterm_platform::process_window::pointer(pid, action, spec.x, spec.y)
+                .map_err(|e| window_error("process.window_pointer", e))?;
+            Ok(STATUS_OK)
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.window_message", move |args, memory| {
+        let h = arg(args, 0)?;
+        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+        answer(&state, "process.window_message", || {
+            let pid = child_pid(&state.borrow(), h, "process.window_message")?;
+            let spec: MessageSpec = serde_json::from_str(utf8(spec)?)
+                .map_err(|e| format!("process.window_message: the spec is not valid: {e}"))?;
+            let message = agenterm_platform::contract::process_window::ProcessWindowMessage {
+                message: spec.message,
+                wparam: usize::try_from(spec.wparam).map_err(|_| "process.window_message: wparam is negative".to_string())?,
+                lparam: spec.lparam,
+            };
+            let result = agenterm_platform::process_window::message(pid, message)
+                .map_err(|e| window_error("process.window_message", e))?;
+            Ok(serde_json::json!({ "result": result }).to_string())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.window_resize", move |args, memory| {
+        let h = arg(args, 0)?;
+        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+        direct(&state, "process.window_resize", || {
+            let pid = child_pid(&state.borrow(), h, "process.window_resize")?;
+            let spec: ResizeSpec = serde_json::from_str(utf8(spec)?)
+                .map_err(|e| format!("process.window_resize: the spec is not valid: {e}"))?;
+            agenterm_platform::process_window::resize(pid, spec.width, spec.height)
+                .map_err(|e| window_error("process.window_resize", e))?;
+            Ok(STATUS_OK)
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.window_rect", move |args, _memory| {
+        let h = arg(args, 0)?;
+        let client = arg(args, 1)? != 0;
+        answer(&state, "process.window_rect", || {
+            let pid = child_pid(&state.borrow(), h, "process.window_rect")?;
+            let r = agenterm_platform::process_window::rect(pid, client)
+                .map_err(|e| window_error("process.window_rect", e))?;
+            Ok(serde_json::json!({
+                "left": r.left, "top": r.top, "right": r.right, "bottom": r.bottom,
+                "width": r.right - r.left, "height": r.bottom - r.top,
+            })
+            .to_string())
+        })
+    })?;
+
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "process.window_control", move |args, memory| {
+        let h = arg(args, 0)?;
+        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+        answer(&state, "process.window_control", || {
+            let pid = child_pid(&state.borrow(), h, "process.window_control")?;
+            let spec: ControlSpec = serde_json::from_str(utf8(spec)?)
+                .map_err(|e| format!("process.window_control: the spec is not valid: {e}"))?;
+            use agenterm_platform::process_window as w;
+            let err = |e| window_error("process.window_control", e);
+            let answer = match spec.op.as_str() {
+                "exists" => { w::control_exists(pid, spec.id).map_err(err)?; serde_json::json!({}) }
+                "visible" => serde_json::json!({ "visible": w::control_visible(pid, spec.id).map_err(err)? }),
+                "text" => serde_json::json!({ "text": w::control_text(pid, spec.id).map_err(err)? }),
+                "set_text" => { w::control_set_text(pid, spec.id, spec.text.as_deref().unwrap_or_default()).map_err(err)?; serde_json::json!({}) }
+                "click" => { w::control_click(pid, spec.id).map_err(err)?; serde_json::json!({}) }
+                other => return Err(format!("process.window_control: no op named `{other}`; exists, visible, text, set_text, click")),
+            };
+            Ok(answer.to_string())
+        })
+    })?;
+
     // `process.read(handle, max_bytes)`: what the child has written since
     // the last read, without waiting -- rh's `child.stdout.read(4096, 2s)`,
     // minus the blocking (a script polls with `time_sleep_ms`). The
@@ -1048,6 +1185,84 @@ fn read_dir(path: &str) -> Result<String, String> {
 /// What `process.command` takes, as JSON. Unknown fields are refused rather
 /// than ignored: a script that writes `timeout` for `timeout_ms` should learn
 /// so from the status, not from a child that ran unbounded.
+/// The pid behind a handle, running or done: the window ops observe and
+/// drive a child by its process id.
+fn child_pid(s: &ToolState, h: i32, op: &str) -> Result<u32, String> {
+    match usize::try_from(h).ok().and_then(|i| s.children.get(i)) {
+        Some(Handle::Running(r)) => Ok(r.child.id()),
+        Some(Handle::Done { pid, .. }) => Ok(*pid),
+        None => Err(format!("{op}: no child with handle {h}")),
+    }
+}
+
+fn window_error(op: &str, e: agenterm_platform::contract::process_window::ProcessWindowError) -> String {
+    match e.cause {
+        Some(cause) => format!("{op}: {} ({}, {cause})", e.message, e.code),
+        None => format!("{op}: {} ({})", e.message, e.code),
+    }
+}
+
+/// rh's key names, exactly as the journeys spell them.
+fn window_key_named(name: &str) -> Result<agenterm_platform::contract::process_window::ProcessWindowKey, String> {
+    use agenterm_platform::contract::process_window::ProcessWindowKey as K;
+    Ok(match name {
+        "Backspace" => K::Backspace,
+        "Delete" => K::Delete,
+        "Down" => K::Down,
+        "End" => K::End,
+        "Enter" => K::Enter,
+        "Escape" => K::Escape,
+        "F2" => K::F2,
+        "Home" => K::Home,
+        "Left" => K::Left,
+        "Right" => K::Right,
+        "Tab" => K::Tab,
+        "Up" => K::Up,
+        other => return Err(format!("process.window_key: no key named `{other}` (process_window_key_invalid)")),
+    })
+}
+
+fn pointer_action_named(name: &str) -> Result<agenterm_platform::contract::process_window::ProcessWindowPointerAction, String> {
+    use agenterm_platform::contract::process_window::ProcessWindowPointerAction as A;
+    Ok(match name {
+        "click" => A::Click,
+        "down" => A::Down,
+        "move" => A::Move,
+        "move-held" => A::MoveHeld,
+        "up" => A::Up,
+        "capture-changed" => A::CaptureChanged,
+        other => return Err(format!("process.window_pointer: no action named `{other}` (process_window_pointer_action_invalid)")),
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct PointerSpec {
+    action: String,
+    x: i32,
+    y: i32,
+}
+
+#[derive(serde::Deserialize)]
+struct MessageSpec {
+    message: u32,
+    wparam: i64,
+    lparam: isize,
+}
+
+#[derive(serde::Deserialize)]
+struct ResizeSpec {
+    width: i32,
+    height: i32,
+}
+
+#[derive(serde::Deserialize)]
+struct ControlSpec {
+    id: i32,
+    op: String,
+    #[serde(default)]
+    text: Option<String>,
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CommandSpec {

@@ -35,7 +35,10 @@ const windows = rh.env_or("OS", "") === "Windows_NT";
 
 // gap: a door handle has no platform facts (see the header).
 function platform_facts(handle) {
-  throw "startup_smoke_gap:process_handle_has_no_platform_facts:" + handle;
+  // The door's `process.platform_facts(handle)`: the host's own view of the
+  // child's top-level window, the six fields rh's `child.platform_facts` had.
+  if (process_platform_facts(handle) !== 0) { throw "process_platform_facts:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 // gap: the door has no live read of a running child's stderr (see the header).
