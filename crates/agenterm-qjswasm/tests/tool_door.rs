@@ -1024,3 +1024,36 @@ fn process_window_pointer_control_and_resize_refuse_by_name() {
     assert!(parts[2].starts_with("-1|process.window_resize: "), "{text}");
     assert!(parts[3].starts_with("1|process.window_rect: "), "{text}");
 }
+
+/// `image.inspect_png(path)`: dimensions, pixel count and mean luma of an
+/// evidence screenshot, which is what the GUI journeys assert on. A 4x2 RGB
+/// image, half white and half black, is 8 samples at luma 127.5; a file
+/// that is not a PNG is a refusal that names the path.
+#[test]
+fn image_inspect_png_answers_dimensions_samples_and_mean_luma() {
+    let scratch = Scratch::new("image-inspect-png");
+    let path = scratch.0.join("half.png");
+    {
+        let file = std::fs::File::create(&path).expect("create");
+        let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), 4, 2);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("header");
+        let mut data = vec![255u8; 4 * 3];
+        data.extend(vec![0u8; 4 * 3]);
+        writer.write_image_data(&data).expect("pixels");
+    }
+    let not_png = scratch.0.join("not.png");
+    std::fs::write(&not_png, b"hello").expect("write");
+    let out = run_tool(&format!(
+        r#"
+        let a = image_inspect_png({p}); let facts = JSON.parse(tool_result());
+        let b = image_inspect_png({q}); let refusal = tool_result();
+        return "" + a + "|" + facts.width + "x" + facts.height + "|" + facts.samples + "|" + facts.luminance + "|" + b + "|" + refusal;
+        "#,
+        p = js(&path), q = js(&not_png)
+    ));
+    let text = string_of(&out);
+    assert!(text.starts_with("0|4x2|8|127.5|1|image.inspect_png: `"), "{text}");
+    assert!(text.contains("not.png`: not a PNG this engine can read"), "{text}");
+}

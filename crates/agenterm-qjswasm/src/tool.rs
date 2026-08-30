@@ -97,7 +97,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 41] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 42] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -135,6 +135,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 41] = [
     ("process.window_resize", 3, 1),
     ("process.window_rect", 2, 1),
     ("process.window_control", 3, 1),
+    ("image.inspect_png", 2, 1),
     ("fs.symlink_metadata", 2, 1),
     ("process.status", 2, 1),
     ("result_len", 0, 1),
@@ -247,6 +248,7 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.window_resize", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
         decl("process.window_rect", vec![HostParam::I32, HostParam::I32], HostResult::I32),
         decl("process.window_control", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
+        decl("image.inspect_png", vec![HostParam::StrPtrLen], HostResult::I32),
         decl("process.read", vec![HostParam::I32, HostParam::I32], HostResult::I32),
         // `symlink_metadata` does not follow the link, so `is_symlink` is
         // answerable -- rh's gates use it to refuse a manifest that is a link.
@@ -984,6 +986,28 @@ pub(crate) fn install(
         })
     })?;
 
+    // `image.inspect_png(path)`: rh's `rh::image::inspect_png`, which the GUI
+    // journeys use to read the evidence screenshots they took back -- not the
+    // pixels (binary bytes do not cross this door) but what a test asserts on:
+    // `{width, height, samples, luminance}`, where `samples` is the number
+    // of pixels read and `luminance` their mean Rec. 601 luma, 0..255.
+    let state = Rc::clone(&shared);
+    bind(module, DOOR, "image.inspect_png", move |args, memory| {
+        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        answer(&state, "image.inspect_png", || {
+            let path = utf8(path)?;
+            let file = std::fs::File::open(path)
+                .map_err(|e| format!("image.inspect_png: cannot open `{path}`: {e}"))?;
+            let facts = inspect_png(std::io::BufReader::new(file))
+                .map_err(|e| format!("image.inspect_png: `{path}`: {e}"))?;
+            Ok(serde_json::json!({
+                "width": facts.width, "height": facts.height,
+                "samples": facts.samples, "luminance": facts.luminance,
+            })
+            .to_string())
+        })
+    })?;
+
     // `process.read(handle, max_bytes)`: what the child has written since
     // the last read, without waiting -- rh's `child.stdout.read(4096, 2s)`,
     // minus the blocking (a script polls with `time_sleep_ms`). The
@@ -1185,6 +1209,50 @@ fn read_dir(path: &str) -> Result<String, String> {
 /// What `process.command` takes, as JSON. Unknown fields are refused rather
 /// than ignored: a script that writes `timeout` for `timeout_ms` should learn
 /// so from the status, not from a child that ran unbounded.
+/// What `image.inspect_png` answers.
+struct PngFacts {
+    width: u32,
+    height: u32,
+    samples: u64,
+    luminance: f64,
+}
+
+/// Decode a PNG and reduce it to its dimensions, its pixel count and the
+/// mean luma. Every colour type the `png` crate expands to 8-bit RGB/RGBA/
+/// grey/grey-alpha is read; 16-bit samples are stripped to their high byte.
+fn inspect_png(reader: impl std::io::Read) -> Result<PngFacts, String> {
+    let mut decoder = png::Decoder::new(reader);
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|e| format!("not a PNG this engine can read: {e}"))?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).map_err(|e| format!("cannot decode the image: {e}"))?;
+    let bytes = &buf[..info.buffer_size()];
+    let channels = match info.color_type {
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        other => return Err(format!("unexpected colour type after expansion: {other:?}")),
+    };
+    let mut total = 0f64;
+    let mut samples = 0u64;
+    for px in bytes.chunks_exact(channels) {
+        let luma = if channels >= 3 {
+            0.299 * f64::from(px[0]) + 0.587 * f64::from(px[1]) + 0.114 * f64::from(px[2])
+        } else {
+            f64::from(px[0])
+        };
+        total += luma;
+        samples += 1;
+    }
+    Ok(PngFacts {
+        width: info.width,
+        height: info.height,
+        samples,
+        luminance: if samples == 0 { 0.0 } else { total / samples as f64 },
+    })
+}
+
 /// The pid behind a handle, running or done: the window ops observe and
 /// drive a child by its process id.
 fn child_pid(s: &ToolState, h: i32, op: &str) -> Result<u32, String> {

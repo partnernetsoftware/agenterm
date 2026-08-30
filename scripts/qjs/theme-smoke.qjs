@@ -24,6 +24,14 @@ function gap(what) {
   throw "qjs_gap:" + what;
 }
 
+// rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance},
+// through the door's `image.inspect_png`: decoded on the host side, the
+// pixels never cross the text door.
+function inspect_png(path) {
+  if (image_inspect_png(path) !== 0) { throw "image_inspect_png:" + tool_result(); }
+  return JSON.parse(tool_result());
+}
+
 // rh's `"" + json_null` is "" while JS's `"" + null` is "null"; the theme
 // assertions compare absent drafts and modal kinds against "".
 function text_of(value) {
@@ -367,9 +375,16 @@ try {
     fancy_persisted.appearance_preset === "fancy-day",
     "fancy_apply_not_persisted"
   );
-  // rh: `rh::image::inspect_png(path)` -> {width, height, luminance}. Binary
-  // bytes cannot cross the text door and it carries no image operation.
-  gap("image_inspect_png: the door has no PNG inspection (" + day_png + ", " + fancy_day_png + ")");
+  const classic_shot = inspect_png(day_png);
+  const fancy_shot = inspect_png(fancy_day_png);
+  harness.require(
+    classic_shot.width === fancy_shot.width && classic_shot.height === fancy_shot.height,
+    "fancy_screenshot_geometry_mismatch"
+  );
+  harness.require(
+    classic_shot.luminance !== fancy_shot.luminance,
+    "fancy_render_not_visibly_distinct"
+  );
   const token_after = "AGENTERM_THEME_AFTER_" + rh.pid();
   text_cli(context, cli, ["send-keys", "-t", tab_id, "echo " + token_after, "Enter"]);
   text_cli(
@@ -394,7 +409,12 @@ try {
     rh.metadata(night_png).len >= 1000 && rh.metadata(day_png).len >= 1000,
     "theme_screenshot_too_small"
   );
-  gap("image_inspect_png: the door has no PNG inspection (" + night_png + ", " + day_png + ")");
+  const dark = inspect_png(night_png);
+  const light = inspect_png(day_png);
+  harness.require(
+    dark.width === light.width && dark.height === light.height && light.luminance > dark.luminance,
+    "theme_render_not_visibly_distinct"
+  );
 
   print("STEP saved fancy-day survives shutdown and restart");
   text_cli(context, cli, ["ui-action", "close-window"]);

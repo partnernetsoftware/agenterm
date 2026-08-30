@@ -20,6 +20,10 @@ agenterm-script-common = { path = "../agenterm-script-common" }
 # crate owns the process-window contract and its adapters; the door only
 # maps a handle to a pid and JSON to the contract types.
 agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["window", "portable-pixel-window", "process"] }
+# `image.inspect_png`: the evidence PNGs the GUI journeys read back --
+# width, height, sample count, mean luminance -- decoded with the same
+# crate the root uses to write them.
+png = "0.17"
 # tinyvm is the execution core; tinyvm-qjs is the `.qjs` -> `.wasm` compiler.
 # Both pinned by revision, never vendored: the write knife lives in ../tinyvm
 # (PRD 35). A private-repo git dep needs the system git client -- see
@@ -33,8 +37,8 @@ agenterm-platform = { path = "../agenterm-platform", default-features = false, f
 # vocabulary, so the layering rule governs: generic engine capability upstream,
 # business here. This crate keeps the half that is business -- the `agenterm.*`
 # door, slots, budget policy -- and re-exports the compiler's face.
-tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "6a7c9c7" }
-tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "6a7c9c7" }
+tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "cab9a91" }
+tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "cab9a91" }
 # The `tool.*` door speaks JSON where the wasm vocabulary has no record type:
 # `process.command` takes its spec as one, and `fs.metadata` / `fs.read_dir`
 # answer with one. Same crates the rest of the workspace already carries.

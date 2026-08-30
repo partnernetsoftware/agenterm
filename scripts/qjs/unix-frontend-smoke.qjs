@@ -45,8 +45,10 @@ function platform_facts(handle) {
 // rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance}.
 // Binary bytes cannot cross the text door and it carries no image operation.
 function inspect_png(path) {
-  gap("image_inspect_png: the door has no PNG inspection (" + path + ")");
-  return null;
+  // The door's `image.inspect_png(path)`: {width, height, samples, luminance},
+  // decoded on the host side -- the pixels never cross the text door.
+  if (image_inspect_png(path) !== 0) { throw "image_inspect_png:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 function trimmed(value) {

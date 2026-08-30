@@ -41,9 +41,26 @@ function platform_facts(handle) {
   return JSON.parse(tool_result());
 }
 
-// gap: the door has no live read of a running child's stderr (see the header).
+// rh's `child.stderr.read_until(needle, timeout)`: what the running child has
+// written to stderr so far, polled through the door's `process.read` until
+// the needle shows up or the time is spent. Answers the text read either way;
+// the caller decides what an absent needle means.
 function read_until(handle, needle, timeout_ms) {
-  throw "startup_smoke_gap:door_has_no_live_stderr_read:" + needle + ":" + timeout_ms;
+  let text = "";
+  const deadline = now_ms() + timeout_ms;
+  for (;;) {
+    if (process_read(handle, 65536) !== 0) { throw "process_read:" + tool_result(); }
+    const chunk = JSON.parse(tool_result());
+    text = text + chunk.stderr + chunk.stdout;
+    if (text.includes(needle)) { return text; }
+    if (chunk.state === "exited" || now_ms() >= deadline) { return text; }
+    harness.sleep_ms(25);
+  }
+}
+
+function now_ms() {
+  if (time_now_ms() !== 0) { throw "time_now_ms:" + tool_result(); }
+  return Number(tool_result());
 }
 
 // rh's `child.id`.
