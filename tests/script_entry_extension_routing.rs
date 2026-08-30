@@ -579,3 +579,52 @@ fn the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The guest heap is a bump allocator with no collector, and tinyvm's own
+/// default of 256 pages (16 MiB) stopped a GUI journey on 2026-08-30. A
+/// `.qjs` invocation gets 1024 pages: twenty-four live 1 MiB strings fit, and
+/// `AGENTERM_QJS_MAX_MEMORY_PAGES` turns the ceiling down to the old one,
+/// where the same script is a `limit` refusal naming `max_memory_pages`.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn the_guest_heap_ceiling_is_1024_pages_and_the_env_knob_moves_it() {
+    let _slot = cli_slot();
+    let dir = std::env::temp_dir().join(format!("agenterm-heap-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let script = write(
+        &dir,
+        "heap.qjs",
+        "let s = \"0123456789012345\";\nfor (let i = 0; i < 16; i = i + 1) { s = s + s; }\nlet keep = [];\nfor (let k = 0; k < 24; k = k + 1) { keep.push(s + k); }\nprint(\"done \" + keep.length);\n",
+    );
+
+    let mut roomy = Command::new(AGENTERM_BIN);
+    roomy
+        .args(["cli", "script", "run", "--max-operations", "1000000000", "--timeout-ms", "120000"])
+        .arg(&script)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .env_remove("AGENTERM_QJS_MAX_MEMORY_PAGES");
+    let out = roomy.output().expect("the CLI binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.trim() == "done 24",
+        "twenty-four live megabytes fit in 1024 pages; stdout={stdout} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut cramped = Command::new(AGENTERM_BIN);
+    cramped
+        .args(["cli", "script", "run", "--max-operations", "1000000000", "--timeout-ms", "120000"])
+        .arg(&script)
+        .env_remove("AGENTERM_SCRIPT_BACKEND")
+        .env("AGENTERM_QJS_MAX_MEMORY_PAGES", "256");
+    let out = cramped.output().expect("the CLI binary runs");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success()
+            && stderr.contains("budget exhausted: max_memory_pages")
+            && stderr.contains("\"exit_class\":\"limit\""),
+        "256 pages cannot hold them, and that is a limit; got {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -107,7 +107,9 @@ impl Default for ScriptBudgets {
             // ~1M a journaled CLI command, and a machine under load ran
             // them past 16M. 64M is ~6 s of interpretation, still a
             // runaway guard; the wall-clock timeout is the other one.
-            operations: 64_000_000,
+            // 128M the same evening: theme-smoke, the third journey to
+            // run end to end, bisects at ~108M for ~100 journaled commands.
+            operations: 128_000_000,
             call_depth: 64,
             expression_depth: 64,
             collection_items: 10_000,

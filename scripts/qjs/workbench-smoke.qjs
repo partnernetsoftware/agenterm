@@ -40,28 +40,44 @@ function gap(what) {
 // rh's `Child.window_pointer(action, x, y)`: a native pointer event into the
 // spawned GUI's top-level window. No door operation carries it.
 function window_pointer(gui_child, action, x, y) {
-  gap("window_pointer(" + action + "," + x + "," + y + "): the door has no native window input for spawned handle " + gui_child);
+  const spec = JSON.stringify({ action: "" + action, x: x, y: y });
+  if (process_window_pointer(gui_child, spec) !== 0) { throw "process_window_pointer:" + tool_result(); }
 }
 
 // rh's `Child.window_message(message, wparam, lparam)`: a raw Win32 message.
 function window_message(gui_child, message, wparam, lparam) {
-  gap("window_message(" + message + "," + wparam + "," + lparam + "): the door has no native window input for spawned handle " + gui_child);
+  const spec = JSON.stringify({ message: message, wparam: wparam, lparam: lparam });
+  if (process_window_message(gui_child, spec) !== 0) { throw "process_window_message:" + tool_result(); }
+  return JSON.parse(tool_result()).result;
 }
 
 // rh's `Child.window_key(key)`.
 function window_key(gui_child, key) {
-  gap("window_key(" + key + "): the door has no native window input for spawned handle " + gui_child);
+  if (process_window_key(gui_child, "" + key) !== 0) { throw "process_window_key:" + tool_result(); }
 }
 
 // rh's `Child.window_resize(width, height)`.
 function window_resize(gui_child, width, height) {
-  gap("window_resize(" + width + "," + height + "): the door has no native window control for spawned handle " + gui_child);
+  const spec = JSON.stringify({ width: width, height: height });
+  if (process_window_resize(gui_child, spec) !== 0) { throw "process_window_resize:" + tool_result(); }
 }
 
 // rh's `Child.window_control(id)` -> {visible, set_text(text)}.
 function window_control(gui_child, id) {
-  gap("window_control(" + id + "): the door has no native window control for spawned handle " + gui_child);
-  return null;
+  // rh resolved the control once and handed back an object; the door
+  // answers each question by id, so the object asks on every use.
+  function ask(op, text) {
+    const spec = JSON.stringify({ id: id, op: op, text: text === undefined ? null : "" + text });
+    if (process_window_control(gui_child, spec) !== 0) { throw "process_window_control(" + op + "," + id + "):" + tool_result(); }
+    return JSON.parse(tool_result());
+  }
+  ask("exists");
+  return {
+    visible: ask("visible").visible,
+    text: function () { return ask("text").text; },
+    set_text: function (text) { ask("set_text", text); },
+    click: function () { ask("click"); }
+  };
 }
 
 // rh's `x == json_null()`: a JSON null, or a path the answer does not carry.

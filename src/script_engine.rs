@@ -326,8 +326,26 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
     if let Some(budgets) = options.budgets.as_ref() {
         budget.limits.max_steps = budgets.operations;
     }
+    // The guest heap is a bump allocator with no collector: everything a
+    // script parses or concatenates stays until the call ends. tinyvm's
+    // default of 256 pages (16 MiB) stopped unix-frontend-smoke at its fifth
+    // step on 2026-08-30, after two clipboard journeys' worth of answers.
+    // 1024 pages is 64 MiB, still a hard cap on a runaway, and the wall-clock
+    // and step budgets stand beside it.
+    budget.limits.max_memory_pages = std::env::var("AGENTERM_QJS_MAX_MEMORY_PAGES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|pages| (1..=65_536).contains(pages))
+        .unwrap_or(QJS_MAX_MEMORY_PAGES);
     budget
 }
+
+#[cfg(feature = "script-qjswasm")]
+/// The guest heap ceiling for a `.qjs` invocation, in 64 KiB pages.
+/// `AGENTERM_QJS_MAX_MEMORY_PAGES` overrides it for one process -- the knob
+/// a journey's author turns to price the heap it needs, the way
+/// `--max-operations` prices its steps.
+pub(crate) const QJS_MAX_MEMORY_PAGES: usize = 1024;
 
 #[cfg(feature = "script-qjswasm")]
 /// Compile through whichever door this invocation is allowed: the tool door
