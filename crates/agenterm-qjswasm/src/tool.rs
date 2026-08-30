@@ -74,8 +74,10 @@
 //! `bind_metered` before it runs, together with the bytes of its string
 //! arguments; what it parks is charged as `host_bytes` when parked. So the
 //! bill counts both directions through the door, and `tool_result()` --
-//! which only moves an answer already paid for -- adds operations but no
-//! bytes.
+//! which only moves an answer already paid for -- is not on it at all:
+//! neither of its two passes is an operation, the same as `fleet_result`.
+//! Until 2026-08-30 the two passes counted as two operations, so a journey's
+//! `host_ops` read roughly double its operations.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -87,7 +89,7 @@ use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
 use crate::host::{
-    STATUS_ERR, STATUS_OK, arg, bind_metered, contain, guest_slice, guest_slice_mut,
+    STATUS_ERR, STATUS_OK, arg, bind, bind_metered, contain, guest_slice, guest_slice_mut,
 };
 use crate::{Budget, QjswasmError};
 
@@ -1434,14 +1436,16 @@ pub(crate) fn install(
     })?;
 
     // ---- the shared fetch, exactly the fleet door's two passes -------------
+    // Unmetered, like `fleet_result`: the answer was billed when parked, and
+    // collecting it is not a host operation.
 
     let state = Rc::clone(&shared);
-    bind_metered(module, &meter, DOOR, "result_len", move |_args, _memory| {
+    bind(module, DOOR, "result_len", move |_args, _memory| {
         Ok(vec![Val::I32(result_len(&state)?)])
     })?;
 
     let state = Rc::clone(&shared);
-    bind_metered(module, &meter, DOOR, "result", move |args, memory| {
+    bind(module, DOOR, "result", move |args, memory| {
         let dst = guest_slice_mut(memory, arg(args, 0)?, arg(args, 1)?)?;
         let needed = result_len(&state)?;
         if (needed as usize) > dst.len() {

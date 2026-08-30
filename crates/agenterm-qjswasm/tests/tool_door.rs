@@ -1176,8 +1176,9 @@ fn bytes_through_the_door_are_billed_in_both_directions() {
         p = js(&path)
     ));
     assert_eq!(string_of(&both), "hello");
-    // read, result_len, result, exists
-    assert_eq!(both.host_ops, 4, "{both:?}");
+    // read, exists: collecting the answer is not an operation (it was two
+    // until 2026-08-30, which doubled every journey's count).
+    assert_eq!(both.host_ops, 2, "{both:?}");
     assert_eq!(both.host_bytes, 2 * path_len + 5, "{both:?}");
 
     let written = run_tool(&format!(

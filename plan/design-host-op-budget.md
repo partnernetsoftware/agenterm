@@ -18,7 +18,7 @@
 
 | 计数 | 何时加 | 单位 |
 |---|---|---|
-| `host_ops` | 每次进入 `direct(...)`（13 个 `tool.*` 入口）与 `fleet_call` | 次 |
+| `host_ops` | 每次进入 `direct(...)`（13 个 `tool.*` 入口）与 `fleet_call`；**`tool_result` / `fleet_result` 取答复不算**（2026-08-30 深夜改：此前 `tool_result` 的两趟各算一次，旅程的数因此约翻倍） | 次 |
 | `host_bytes` | 参数字节 + 结果字节（`state.result.len()`） | 字节 |
 | `waited_ms` | `time.sleep_ms` 的请求值；`process.wait` / `process.command*` 从 `Instant::now()` 到返回的墙钟；`fleet_call` 等 broker 答复的墙钟 | 毫秒（墙钟，**非确定**） |
 
@@ -70,7 +70,7 @@
 顺手发现 §5 的 `host_bytes` 两个方向都记错了：`answer()`（停放文本的 29 个操作）**从未**记停放的字节，而 `direct()`（答 `i32` 的操作）
 每次都把**上一个**停放的答复再记一遍。现在 `answer()` 记停放的载荷（含被上限替换的拒绝句），`direct()` 只记它自己停放的诊断。
 `tests/tool_door.rs::bytes_through_the_door_are_billed_in_both_directions` 钉：`fs_exists(p)` = `len(p)`；
-`fs_read_to_string(p); tool_result(); fs_exists(p)` = `2·len(p) + 5`（`tool_result` 加两次操作、零字节）。
+`fs_read_to_string(p); tool_result(); fs_exists(p)` = `2·len(p) + 5`（`tool_result` 零字节；同夜起也零操作——见 §7.2）。
 
 | 旅程 | steps | host_ops | host_bytes | waited_ms | heap_pages | 墙钟 ms |
 |---|---|---|---|---|---|---|
@@ -127,3 +127,16 @@ wake-smoke 没有单独剖：同一个 harness、同一种答复，步数多出�
 server-smoke −15.8%、wake-smoke −15.7%，与「parse 占 48% × 降 38% ≈ 18%」相符（差的 2 个点是 parse 里数字/结构那部分没动）。
 堆页少了 10–17 页：每个串少一个 `__jb_new` 缓冲（64 B 起、按倍增长）。`host_ops` / `host_bytes` 不动——这一刀只在 guest 里。
 下一刀按 §7 的表是 stringify 的 13 位时间戳（≈3.3M，10.7% → 现在 12.5%）。
+
+### 7.2 `tool_result` 不是宿主操作（同夜）
+
+§7 数出来的 1 127 个 `host_ops` 里只有 526 个是有名操作，其余 ≈601 是 `tool_result()` 的两趟（`result_len` + `result`）各记一次——
+取一个已经在停放时上过账的答复，被记成两次操作、零字节。`fleet_result` 从来就是 `bind`（不计）；现在 `tool.result_len` / `tool.result` 同样走 `bind`，
+`tests/tool_door.rs::bytes_through_the_door_are_billed_in_both_directions` 的 `read; tool_result(); exists` 从 4 次改钉 **2** 次，字节不变。
+
+| 旅程 | steps | host_ops 前 → 后 | host_bytes | waited_ms | heap_pages | 墙钟 ms |
+|---|---|---|---|---|---|---|
+| server-smoke | 26 006 034 | 1 136 → **530** | 891 362 | 280 | 35 | 2 872 |
+| wake-smoke | 41 075 927 | 1 154 → **512** | 1 145 998 | 248 | 46 | 2 890 |
+
+`host_ops` 现在与收据 `tool_calls` 的行数同数量级（server-smoke 526 行 + 桥 0 次；差的 4 个是这次跑多的轮询）。协议默认 4 096 的余量因此从 3.6× 变成 7.7×，不改默认。
