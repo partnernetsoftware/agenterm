@@ -151,8 +151,10 @@ function parent_dir(p) {
   return joined === "" ? "/" : joined;
 }
 
-// rh's multi-line template literals, which the engine has no form for: each
-// line followed by a newline, the way the backtick text ended.
+// rh's multi-line template literals as a line array: each line followed by
+// a newline, the way the backtick text ended. The engine has had multi-line
+// template literals since tinyvm `b7e757c` (probed 2026-08-31); the callers
+// hand this helper arrays, so the spelling stays.
 function lines_text(lines) {
   let text = "";
   for (const line of lines) { text = text + line + "\n"; }
@@ -269,10 +271,12 @@ function wheel_message_lparam(gui) {
   return y * 65536 + x;
 }
 
-// WM_LBUTTONDBLCLK is 0x0203 = 515; the engine has no hex literals.
+// WM_LBUTTONDBLCLK (0x0203) is spelled at the call: the named constants
+// below are declared after this function, and a module-level `const` is not
+// readable before its line runs.
 function double_click_point(gui_child, x, y) {
   window_pointer(gui_child, "click", x, y);
-  window_message(gui_child, 515, 0, y * 65536 + x);
+  window_message(gui_child, 0x0203, 0, y * 65536 + x);
   return 0;
 }
 
@@ -864,25 +868,26 @@ const remote_ui_declared_evidence = [
   "ux-parity.window-focus-contract"
 ];
 
-// Win32 message and key numbers, decimal because the engine has no hex
-// literals.
-const WM_CLOSE = 16;           // 0x0010
-const WM_KEYDOWN = 256;        // 0x0100
-const WM_CHAR = 258;           // 0x0102
-const WM_COMMAND = 273;        // 0x0111
-const WM_SYSCOMMAND = 274;     // 0x0112
-const WM_VSCROLL = 275;        // 0x0113
-const WM_MOUSEWHEEL = 522;     // 0x020A
-const SC_TERMINAL_COPY = 7936; // 0x1F00
-const SC_TABS_TOGGLE = 7968;   // 0x1F20
-const VK_TAB = 9;              // 0x09
-const VK_RETURN = 13;          // 0x0D
-const VK_ESCAPE = 27;          // 0x1B
-const VK_LEFT = 37;            // 0x25
-const VK_UP = 38;              // 0x26
-const VK_RIGHT = 39;           // 0x27
-const VK_DOWN = 40;            // 0x28
-const VK_C = 67;               // 0x43
+// Win32 message and key numbers, as winuser.h spells them (hex literals
+// since tinyvm `b7e757c`; they were decimal with the hex in a comment
+// before that).
+const WM_CLOSE = 0x0010;
+const WM_KEYDOWN = 0x0100;
+const WM_CHAR = 0x0102;
+const WM_COMMAND = 0x0111;
+const WM_SYSCOMMAND = 0x0112;
+const WM_VSCROLL = 0x0113;
+const WM_MOUSEWHEEL = 0x020A;
+const SC_TERMINAL_COPY = 0x1F00;
+const SC_TABS_TOGGLE = 0x1F20;
+const VK_TAB = 0x09;
+const VK_RETURN = 0x0D;
+const VK_ESCAPE = 0x1B;
+const VK_LEFT = 0x25;
+const VK_UP = 0x26;
+const VK_RIGHT = 0x27;
+const VK_DOWN = 0x28;
+const VK_C = 0x43
 const IDC_CLOSE_CANCEL = 2111;
 const focus_message = 32771;    // 0x8003
 const shortcut_message = 32770; // 0x8002
