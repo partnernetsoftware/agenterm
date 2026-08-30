@@ -1,0 +1,1032 @@
+// Prove staged Windows agenterm-cu host and public UIA journeys through libagenterm.
+//
+// Args: REPO AGENTERM_CU_EXE AGENTERM_DLL FIXTURE_SOURCE
+// or:   --list-evidence
+//
+// Ported from scripts/rh/cu-windows-smoke.rh on 2026-08-30; runs under
+// --profile tool. Windows-only: ported, unproven on this host.
+//
+// The owned fixture is a door handle (process_spawn) polled through
+// `harness.state` and reaped by `harness.wait`; rh's `child.id` is
+// `harness.spawned_pid(handle)`. Every agenterm-cu call is `rh.command`
+// (rh's `command.output()`: {exit_code, success, stdout, stderr}). rh's
+// `capture_limit` has no door spelling and is dropped; the door captures
+// whole streams. Paths are split on `/` only, as the sibling
+// stage-cu-windows-smoke.qjs does (see lib/path.qjs).
+//
+// Gaps:
+//   - `rh::clipboard::get_text` (the native snapshot the clipboard-read
+//     step compares against): the door has no clipboard op, so `clipboard_text()`
+//     throws `qjs_gap:rh::clipboard::get_text` at its site and the run fails
+//     closed there. The door op that would unblock it: `clipboard_get_text()`.
+//   - `metadata.is_reparse_point`: the door's `fs_symlink_metadata` JSON has
+//     no such field (is_file/is_dir/is_symlink/len only), so `direct_file`
+//     reads it as absent -> false. Not a throwing gap: on a Windows host a
+//     reparse-point payload would pass this check where rh refused it.
+//
+// rh's `cc_lines` hook (pack-qualification metadata, not script behaviour)
+// carried:
+//   "staged agenterm-cu and agenterm.dll are colocated"
+//   "Windows desktop host self-test closes registered resources"
+//   "isolated persisted observe grants consume once, exhaust, revoke, and emit linked secret-free decisions"
+//   "standalone clipboard-read matches a non-mutating native Unicode-text snapshot without persisting its content"
+//   "public UIA tree exposes unique named edit and button controls"
+//   "public name addressing uses ValuePattern, GetText, and Invoke"
+//   "observe-only window placement is refused without changing bounds"
+//   "authorized left-half placement matches independent window bounds"
+//   "isolated window-placement audit records authorization decision, attempt, and success without sensitive fields"
+//   "owned no-activate fixture exits normally with bounded cleanup proof"
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.windows-host-self-test",
+  "cu.windows-persisted-grant",
+  "cu.libagenterm-load-cleanup",
+  "cu.windows-clipboard-read",
+  "cu.windows-uia-window-identity",
+  "cu.windows-uia-tree",
+  "cu.windows-uia-name-actuation",
+  "cu.windows-uia-value-wait",
+  "cu.windows-window-place-refusal",
+  "cu.windows-window-place-actuation",
+  "cu.windows-window-place-audit",
+  "cu.windows-uia-cleanup"
+];
+
+// A door wall this port cannot route around without changing what is
+// proven. The site throws with the rh spelling so the run fails closed.
+function gap(what) {
+  throw "qjs_gap:" + what;
+}
+
+// gap: no clipboard door (see the header).
+function clipboard_text() {
+  return gap("rh::clipboard::get_text");
+}
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+// rh's `"" + json_null` is "" while JS's `"" + null` is "null".
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+// Null-safe dotted-path read: reading a property of null traps uncatchably
+// in this engine, and a refused reply carries `data: null` while an
+// accepted one carries `error: null`.
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+// rh's `"" + reply.a.b` and `0 + reply.a.b`.
+function text_at(value, dotted) {
+  return text_of(at(value, dotted));
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(at(value, dotted));
+}
+
+// rh's `reply.ok != 0` on a JSON boolean.
+function flag_at(value, dotted) {
+  return at(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  // `is_reparse_point` is absent from the door's metadata (header): false.
+  return metadata.is_file === true
+    && metadata.is_symlink !== true
+    && metadata.is_reparse_point !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+function run_cu_json(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, { cwd: run_directory, timeout_ms: 30000 });
+  const stdout = output.stdout;
+  const stderr = output.stderr;
+  ensure(
+    output.success === true,
+    "cu_windows_smoke_cli_process:" + stdout + stderr
+  );
+  const trimmed = stdout.trim();
+  ensure(trimmed !== "", "cu_windows_smoke_cli_empty");
+  const document = JSON.parse(trimmed);
+  ensure(
+    flag_at(document, "ok"),
+    "cu_windows_smoke_cli_reply:" + JSON.stringify(document)
+  );
+  return document;
+}
+
+// Persisted grant replies contain opaque selectors. Keep them in memory and
+// never copy child stdout, store paths, or identifiers into task stdout.
+function run_private_cu_json(run_directory, executable, arguments, audit_path) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: audit_path },
+    timeout_ms: 30000
+  });
+  ensure(
+    output.success === true,
+    "cu_windows_smoke_persisted_cli_process"
+  );
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_windows_smoke_persisted_cli_empty");
+  return JSON.parse(stdout);
+}
+
+function compile_fixture(run_directory, repo, source) {
+  ensure(
+    rh.has_env("ProgramFiles(x86)"),
+    "cu_windows_smoke_program_files_x86_missing"
+  );
+  const installer_root = rh.env_or("ProgramFiles(x86)", "");
+  const vswhere = rh.join(
+    installer_root,
+    "Microsoft Visual Studio/Installer/vswhere.exe"
+  );
+  ensure(
+    direct_file(vswhere),
+    "cu_windows_smoke_vswhere_missing"
+  );
+
+  const discovered = rh.command(
+    vswhere,
+    ["-latest", "-products", "*", "-property", "installationPath"],
+    { cwd: repo, timeout_ms: 15000 }
+  );
+  const installation = discovered.stdout.trim();
+  ensure(
+    discovered.success === true && installation !== "",
+    "cu_windows_smoke_visual_studio_missing:" + discovered.stderr
+  );
+  const vsdevcmd = rh.join(
+    installation,
+    "Common7/Tools/VsDevCmd.bat"
+  );
+  ensure(
+    direct_file(vsdevcmd),
+    "cu_windows_smoke_vsdevcmd_missing"
+  );
+
+  const fixture_executable = rh.join(
+    run_directory,
+    "agenterm-plain-window-fixture.exe"
+  );
+  const fixture_object = rh.join(
+    run_directory,
+    "agenterm-plain-window-fixture.obj"
+  );
+  const object_argument = "/Fo:" + fixture_object;
+  const executable_argument = "/Fe:" + fixture_executable;
+  // VsDevCmd otherwise launches the vctip telemetry helper, which can
+  // outlive cl.exe and retain handles to this disposable fixture build.
+  // MSVC may leave vctip alive briefly after cl.exe exits. Do not let that
+  // descendant inherit the disposable directory as its Windows CWD.
+  const compiled = rh.command(
+    "cmd.exe",
+    [
+      "/d", "/s", "/c", "call", vsdevcmd,
+      "-no_logo", "-arch=x64", "-host_arch=x64", "&&",
+      "cl.exe", "/nologo", "/W4", "/WX",
+      "/DUNICODE", "/D_UNICODE", object_argument,
+      executable_argument, source, "user32.lib"
+    ],
+    {
+      cwd: repo,
+      env: { VSCMD_SKIP_SENDTELEMETRY: "1" },
+      timeout_ms: 45000
+    }
+  );
+  ensure(
+    compiled.success === true && direct_file(fixture_executable),
+    "cu_windows_smoke_fixture_compile:" + compiled.stdout + compiled.stderr
+  );
+  return fixture_executable;
+}
+
+// rh's `command.output()` on a command the script also gave an env: the
+// spec's `env` map (rh's `command.env(...)` calls).
+function run_cu_with_env(run_directory, executable, arguments, env) {
+  return rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000
+  });
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(
+  args.length === 4,
+  "expected: REPO AGENTERM_CU_EXE AGENTERM_DLL FIXTURE_SOURCE"
+);
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const library = rh.absolute(args[2]);
+const fixture_source = rh.absolute(args[3]);
+ensure(
+  direct_file(executable),
+  "cu_windows_smoke_executable_missing"
+);
+ensure(
+  direct_file(library),
+  "cu_windows_smoke_library_missing"
+);
+ensure(
+  direct_file(fixture_source),
+  "cu_windows_smoke_fixture_source_missing"
+);
+ensure(
+  rh.parent(executable) === rh.parent(library),
+  "cu_windows_smoke_payload_not_colocated"
+);
+ensure(
+  rh.file_name(executable) === "agenterm-cu.exe"
+    && rh.file_name(library) === "agenterm.dll",
+  "cu_windows_smoke_payload_names"
+);
+
+// The harness context carries only the evidence file (and the shared
+// AGENTERM_TEST_EVIDENCE_PATH override); the journey's own files live in
+// rh's `target/cu-windows-smoke-run`, exactly as before.
+const context = harness.new_context(repo, "cu-windows");
+
+const run_directory = rh.join(
+  repo,
+  "target/cu-windows-smoke-run"
+);
+ensure(
+  remove_directory_bounded(run_directory),
+  "cu_windows_smoke_stale_directory_locked"
+);
+rh.create_dir_all(run_directory);
+const persisted_state = rh.join(
+  run_directory,
+  "persisted-grant-state"
+);
+const persisted_store = rh.join(
+  persisted_state,
+  "grants.json"
+);
+const persisted_audit = rh.join(
+  run_directory,
+  "persisted-grant-audit.jsonl"
+);
+let succeeded = 0;
+let failure = "";
+let fixture_pid = 0;
+let fixture = -1;
+
+try {
+  print("STEP staged version and no-activate desktop host self-test");
+  const version_output = rh.command(executable, ["--version"], { cwd: run_directory, timeout_ms: 30000 });
+  ensure(
+    version_output.success === true,
+    "cu_windows_smoke_version:" + version_output.stderr
+  );
+  const version = version_output.stdout.trim();
+  ensure(
+    version.startsWith("agenterm-cu "),
+    "cu_windows_smoke_version_output:" + version
+  );
+
+  const host_output = rh.command(
+    executable,
+    ["host", "--self-test", "--json"],
+    { cwd: run_directory, timeout_ms: 30000 }
+  );
+  ensure(
+    host_output.success === true,
+    "cu_windows_smoke_host:" + host_output.stdout + host_output.stderr
+  );
+  const host_text = host_output.stdout.trim();
+  ensure(host_text !== "", "cu_windows_smoke_host_empty");
+  const host = JSON.parse(host_text);
+  ensure(
+    flag_at(host, "ok")
+      && text_at(host, "host") === "windows-notification-area"
+      && int_at(host, "actions") === 19
+      && flag_at(host, "shared_executor")
+      && text_at(host, "dispatch_command") === "window-place"
+      && flag_at(host, "dispatch_refused")
+      && flag_at(host, "cleaned_up"),
+    "cu_windows_smoke_host_contract:" + host_text
+  );
+
+  print("STEP persisted current-target grants consume, exhaust, revoke, and audit");
+  rh.create_dir_all(persisted_state);
+  rh.try_remove_file(persisted_audit);
+  const one_created = run_private_cu_json(
+    run_directory,
+    executable,
+    [
+      "grant", "create", "--target", "current",
+      "--scopes", "observe", "--ttl-ms", "60000",
+      "--one-shot", "--grant-store", persisted_store
+    ],
+    persisted_audit
+  );
+  ensure(
+    flag_at(one_created, "ok")
+      && text_at(one_created, "command") === "grant-create"
+      && int_at(one_created, "data.grant.max_uses") === 1
+      && int_at(one_created, "data.grant.remaining_uses") === 1,
+    "cu_windows_smoke_persisted_one_create"
+  );
+  const one_id = text_at(one_created, "data.grant.grant_id");
+  ensure(one_id.startsWith("cu1_"), "cu_windows_smoke_persisted_one_id");
+
+  const one_first = run_private_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant-id", one_id,
+      "--grant-store", persisted_store, "capabilities"
+    ],
+    persisted_audit
+  );
+  ensure(
+    flag_at(one_first, "ok")
+      && text_at(one_first, "target") === "current"
+      && text_at(one_first, "command") === "capabilities",
+    "cu_windows_smoke_persisted_one_first"
+  );
+  const one_second = run_private_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant-id", one_id,
+      "--grant-store", persisted_store, "capabilities"
+    ],
+    persisted_audit
+  );
+  const one_second_message = text_at(one_second, "error.message");
+  ensure(
+    !flag_at(one_second, "ok")
+      && text_at(one_second, "error.code") === "refused"
+      && one_second_message.includes("exhausted"),
+    "cu_windows_smoke_persisted_one_exhausted"
+  );
+
+  const revoked_created = run_private_cu_json(
+    run_directory,
+    executable,
+    [
+      "grant", "create", "--target", "current",
+      "--scopes", "observe", "--ttl-ms", "60000",
+      "--max-uses", "2", "--grant-store", persisted_store
+    ],
+    persisted_audit
+  );
+  ensure(
+    flag_at(revoked_created, "ok")
+      && int_at(revoked_created, "data.grant.max_uses") === 2,
+    "cu_windows_smoke_persisted_revoked_create"
+  );
+  const revoked_id = text_at(revoked_created, "data.grant.grant_id");
+  ensure(
+    revoked_id.startsWith("cu1_") && revoked_id !== one_id,
+    "cu_windows_smoke_persisted_revoked_id"
+  );
+  const revoked = run_private_cu_json(
+    run_directory,
+    executable,
+    [
+      "grant", "revoke", "--grant-id", revoked_id,
+      "--grant-store", persisted_store
+    ],
+    persisted_audit
+  );
+  ensure(
+    flag_at(revoked, "ok") && flag_at(revoked, "data.grant.revoked"),
+    "cu_windows_smoke_persisted_revoke"
+  );
+  const after_revoke = run_private_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant-id", revoked_id,
+      "--grant-store", persisted_store, "capabilities"
+    ],
+    persisted_audit
+  );
+  const after_revoke_message = text_at(after_revoke, "error.message");
+  ensure(
+    !flag_at(after_revoke, "ok")
+      && text_at(after_revoke, "error.code") === "refused"
+      && after_revoke_message.includes("revoked"),
+    "cu_windows_smoke_persisted_revoked_refusal"
+  );
+
+  ensure(
+    direct_file(persisted_audit),
+    "cu_windows_smoke_persisted_audit_missing"
+  );
+  const persisted_audit_text = rh.read_text(persisted_audit);
+  const persisted_audit_lower = persisted_audit_text.toLowerCase();
+  ensure(
+    !persisted_audit_lower.includes("session_binding")
+      && !persisted_audit_lower.includes("install_key")
+      && !persisted_audit_lower.includes("credential")
+      && !persisted_audit_lower.includes("secret")
+      && !persisted_audit_lower.includes("token"),
+    "cu_windows_smoke_persisted_audit_sensitive_field"
+  );
+  let one_attempt_decision = "";
+  let one_ok_decision = "";
+  let one_exhausted_decision = "";
+  let revoked_decision = "";
+  let one_attempts = 0;
+  let one_oks = 0;
+  let one_exhausted = 0;
+  let revoked_denials = 0;
+  const persisted_lines = persisted_audit_text.split("\n");
+  for (const raw_line of persisted_lines) {
+    const line = raw_line.trim();
+    if (line !== "") {
+      const record = JSON.parse(line);
+      ensure(
+        text_at(record, "target") === "current"
+          && text_at(record, "verb") === "capabilities"
+          && text_at(record, "grant") === "observe"
+          && text_at(record, "authority_scope") === "stored_bounded",
+        "cu_windows_smoke_persisted_audit_scope"
+      );
+      const record_grant = text_at(record, "grant_id");
+      const record_decision_id = text_at(record, "decision_id");
+      const record_decision = text_at(record, "decision");
+      const record_outcome = text_at(record, "outcome");
+      ensure(
+        record_decision_id.startsWith("d1_"),
+        "cu_windows_smoke_persisted_audit_decision_id"
+      );
+      if (record_grant === one_id && record_outcome === "attempt") {
+        ensure(
+          record_decision === "authorized",
+          "cu_windows_smoke_persisted_attempt_decision"
+        );
+        one_attempt_decision = record_decision_id;
+        one_attempts = one_attempts + 1;
+      } else if (record_grant === one_id && record_outcome === "ok") {
+        ensure(
+          record_decision === "authorized",
+          "cu_windows_smoke_persisted_ok_decision"
+        );
+        one_ok_decision = record_decision_id;
+        one_oks = one_oks + 1;
+      } else if (record_grant === one_id
+          && record_outcome === "exhausted") {
+        ensure(
+          record_decision === "denied",
+          "cu_windows_smoke_persisted_exhausted_decision"
+        );
+        one_exhausted_decision = record_decision_id;
+        one_exhausted = one_exhausted + 1;
+      } else if (record_grant === revoked_id
+          && record_outcome === "revoked") {
+        ensure(
+          record_decision === "denied",
+          "cu_windows_smoke_persisted_revoked_decision"
+        );
+        revoked_decision = record_decision_id;
+        revoked_denials = revoked_denials + 1;
+      } else {
+        ensure(false, "cu_windows_smoke_persisted_audit_unexpected");
+      }
+    }
+  }
+  ensure(
+    one_attempts === 1 && one_oks === 1 && one_exhausted === 1
+      && revoked_denials === 1
+      && one_attempt_decision === one_ok_decision
+      && one_attempt_decision !== one_exhausted_decision
+      && one_exhausted_decision !== revoked_decision,
+    "cu_windows_smoke_persisted_audit_linkage"
+  );
+  rh.try_remove_file(persisted_audit);
+  ensure(
+    remove_directory_bounded(persisted_state)
+      && !rh.exists(persisted_audit),
+    "cu_windows_smoke_persisted_cleanup"
+  );
+
+  print("STEP standalone clipboard-read matches a non-mutating native snapshot");
+  // Keep the user's complete clipboard untouched: even restoring saved
+  // Unicode text would destroy unrelated native formats. The snapshot
+  // remains in memory and is never included in diagnostics or evidence.
+  const clipboard_snapshot = clipboard_text();
+  const clipboard_audit_path = rh.join(
+    run_directory,
+    "clipboard-read-audit.jsonl"
+  );
+  rh.try_remove_file(clipboard_audit_path);
+
+  const refused_clipboard_output = run_cu_with_env(
+    run_directory,
+    executable,
+    ["--target", "current", "clipboard-read"],
+    { AGENTERM_CU_AUDIT_PATH: clipboard_audit_path }
+  );
+  ensure(
+    refused_clipboard_output.success === true,
+    "cu_windows_smoke_clipboard_refusal_process"
+  );
+  const refused_clipboard_text = refused_clipboard_output.stdout;
+  const refused_clipboard_reply = JSON.parse(refused_clipboard_text);
+  ensure(
+    !flag_at(refused_clipboard_reply, "ok")
+      && text_at(refused_clipboard_reply, "target") === "current"
+      && text_at(refused_clipboard_reply, "command") === "clipboard-read"
+      && text_at(refused_clipboard_reply, "error.code") === "refused",
+    "cu_windows_smoke_clipboard_refusal_contract"
+  );
+
+  const read_clipboard_output = run_cu_with_env(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "clipboard-read"],
+    { AGENTERM_CU_AUDIT_PATH: clipboard_audit_path }
+  );
+  ensure(
+    read_clipboard_output.success === true,
+    "cu_windows_smoke_clipboard_read_process"
+  );
+  const read_clipboard_text = read_clipboard_output.stdout;
+  const read_clipboard_reply = JSON.parse(read_clipboard_text);
+  ensure(
+    flag_at(read_clipboard_reply, "ok")
+      && text_at(read_clipboard_reply, "target") === "current"
+      && text_at(read_clipboard_reply, "command") === "clipboard-read",
+    "cu_windows_smoke_clipboard_read_envelope"
+  );
+  const observed_clipboard_text = text_at(read_clipboard_reply, "data.text");
+  const observed_clipboard_bytes = int_at(read_clipboard_reply, "data.bytes");
+  ensure(
+    observed_clipboard_text === clipboard_snapshot
+      && observed_clipboard_bytes === clipboard_snapshot.length
+      && text_at(read_clipboard_reply, "data.format")
+        === "text/plain;charset=utf-8"
+      && text_at(read_clipboard_reply, "data.mechanism")
+        === "libagenterm",
+    "cu_windows_smoke_clipboard_read_contract"
+  );
+  ensure(
+    !rh.exists(clipboard_audit_path),
+    "cu_windows_smoke_clipboard_read_wrote_audit"
+  );
+
+  print("STEP compile and start owned no-activate Win32 UIA fixture");
+  const fixture_executable = compile_fixture(
+    run_directory,
+    repo,
+    fixture_source
+  );
+  ensure(
+    direct_file(fixture_executable),
+    "cu_windows_smoke_fixture_compile_failed"
+  );
+  fixture = harness.start({
+    program: fixture_executable,
+    args: [],
+    current_dir: run_directory,
+    timeout_ms: 30000
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title =
+    "agenterm-plain-window-probe-" + fixture_pid;
+
+  print("STEP public wait and windows prove PID title HWND identity");
+  const window_wait = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "wait",
+      "--timeout-ms", "4000",
+      "--window-title-contains", fixture_title
+    ]
+  );
+  ensure(
+    flag_at(window_wait, "data.met"),
+    "cu_windows_smoke_window_wait_not_met"
+  );
+  const windows = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "windows"]
+  );
+  let identity_matches = 0;
+  let fixture_handle = 0;
+  let fixture_bounds_before = "";
+  let fixture_x_before = 0;
+  let fixture_y_before = 0;
+  let fixture_width_before = 0;
+  let fixture_height_before = 0;
+  for (const row of windows.data) {
+    const row_pid = int_at(row, "process_id");
+    const row_title = text_at(row, "title");
+    if (row_pid === fixture_pid && row_title === fixture_title) {
+      identity_matches = identity_matches + 1;
+      fixture_handle = int_at(row, "handle");
+      fixture_bounds_before = JSON.stringify(row.bounds);
+      fixture_x_before = int_at(row, "bounds.x");
+      fixture_y_before = int_at(row, "bounds.y");
+      fixture_width_before = int_at(row, "bounds.width");
+      fixture_height_before = int_at(row, "bounds.height");
+    }
+  }
+  ensure(
+    identity_matches === 1 && fixture_handle !== 0
+      && fixture_bounds_before !== "",
+    "cu_windows_smoke_window_identity"
+  );
+  const handle_text = "" + fixture_handle;
+
+  print("STEP public tree proves unique UIA edit and button");
+  const tree = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "tree",
+      "--window", handle_text
+    ]
+  );
+  ensure(
+    text_at(tree, "data.backend") === "uia"
+      && text_at(tree, "data.addressing") === "accessibility-tree"
+      && text_at(tree, "data.mechanism") === "libagenterm",
+    "cu_windows_smoke_tree_backend:" + JSON.stringify(tree)
+  );
+  let edit_matches = 0;
+  let button_matches = 0;
+  for (const node of tree.data.nodes) {
+    const node_name = text_at(node, "name");
+    const node_role = text_at(node, "role");
+    const visible = rh.has_item(node.states, "showing")
+      || rh.has_item(node.states, "visible");
+    if (node_name === "Fixture Field" && node_role === "edit"
+        && visible) {
+      edit_matches = edit_matches + 1;
+    }
+    if (node_name === "Fixture Close" && node_role === "button"
+        && visible && rh.has_item(node.actions, "click")) {
+      button_matches = button_matches + 1;
+    }
+  }
+  ensure(
+    edit_matches === 1 && button_matches === 1,
+    "cu_windows_smoke_tree_unique_controls"
+  );
+
+  print("STEP public name-addressed ValuePattern write and GetText wait");
+  const roundtrip_text = "uia-value-roundtrip";
+  const sent = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe,actuate",
+      "send-text", "--window", handle_text,
+      "--name", "Fixture Field", "--role", "edit", "--",
+      roundtrip_text
+    ]
+  );
+  ensure(
+    text_at(sent, "data.addressing") === "accessibility-tree"
+      && text_at(sent, "data.mechanism") === "libagenterm"
+      && text_at(sent, "data.via") === "value-pattern",
+    "cu_windows_smoke_value_pattern:" + JSON.stringify(sent)
+  );
+  const text_wait = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "wait",
+      "--timeout-ms", "4000", "--window", handle_text,
+      "--text-equals", roundtrip_text,
+      "--name", "Fixture Field", "--role", "edit"
+    ]
+  );
+  ensure(
+    flag_at(text_wait, "data.met")
+      && text_at(text_wait, "data.addressing") === "accessibility-tree"
+      && text_at(text_wait, "data.via") === "gettext"
+      && text_at(text_wait, "data.text") === roundtrip_text,
+    "cu_windows_smoke_gettext_wait:" + JSON.stringify(text_wait)
+  );
+
+  print("STEP observe-only window-place is refused without moving fixture");
+  const audit_path = rh.join(
+    run_directory,
+    "window-place-audit.jsonl"
+  );
+  rh.try_remove_file(audit_path);
+  // A present CLI grant is the only selected source. The environment
+  // must not union its broader scope into this observe-only command.
+  const refused_output = run_cu_with_env(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe",
+      "window-place", "--action", "left-half",
+      "--window", handle_text
+    ],
+    { AGENTERM_CU_AUDIT_PATH: audit_path, AGENTERM_CU_GRANT: "actuate" }
+  );
+  const refused_text = refused_output.stdout.trim();
+  ensure(
+    refused_output.success === true && refused_text !== "",
+    "cu_windows_smoke_window_place_refused_process:"
+      + refused_text + refused_output.stderr
+  );
+  const refused = JSON.parse(refused_text);
+  ensure(
+    !flag_at(refused, "ok")
+      && text_at(refused, "target") === "current"
+      && text_at(refused, "command") === "window-place"
+      && text_at(refused, "error.code") === "refused",
+    "cu_windows_smoke_window_place_refused_reply:" + refused_text
+  );
+  ensure(
+    !rh.exists(audit_path),
+    "cu_windows_smoke_refused_window_place_wrote_audit"
+  );
+  const after_refusal = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "windows"]
+  );
+  let refusal_matches = 0;
+  let bounds_after_refusal = "";
+  for (const row of after_refusal.data) {
+    const row_handle = int_at(row, "handle");
+    if (row_handle === fixture_handle) {
+      refusal_matches = refusal_matches + 1;
+      bounds_after_refusal = JSON.stringify(row.bounds);
+    }
+  }
+  ensure(
+    refusal_matches === 1
+      && bounds_after_refusal === fixture_bounds_before,
+    "cu_windows_smoke_refused_window_place_changed_bounds:before="
+      + fixture_bounds_before + ":after=" + bounds_after_refusal
+  );
+
+  print("STEP actuated window-place changes fixture and is independently observed");
+  const place_output = run_cu_with_env(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "actuate",
+      "window-place", "--action", "left-half",
+      "--window", handle_text
+    ],
+    { AGENTERM_CU_AUDIT_PATH: audit_path }
+  );
+  const place_text = place_output.stdout.trim();
+  ensure(
+    place_output.success === true && place_text !== "",
+    "cu_windows_smoke_window_place_process:"
+      + place_text + place_output.stderr
+  );
+  const placed = JSON.parse(place_text);
+  const constraint_mode = text_at(placed, "data.constraint_mode");
+  ensure(
+    flag_at(placed, "ok")
+      && text_at(placed, "target") === "current"
+      && text_at(placed, "command") === "window-place"
+      && text_at(placed, "data.action") === "left-half"
+      && (constraint_mode === "explicit"
+        || constraint_mode === "application_enforced")
+      && int_at(placed, "data.window") === fixture_handle,
+    "cu_windows_smoke_window_place_reply:" + place_text
+  );
+  const reply_after = JSON.stringify(placed.data.after);
+  const reply_after_x = int_at(placed, "data.after.x");
+  const reply_after_y = int_at(placed, "data.after.y");
+  const reply_after_width = int_at(placed, "data.after.width");
+  const reply_after_height = int_at(placed, "data.after.height");
+  const reply_screen_index = int_at(placed, "data.screen.index");
+  const reply_screen_x = int_at(placed, "data.screen.visible.x");
+  const reply_screen_y = int_at(placed, "data.screen.visible.y");
+  const reply_screen_width = int_at(placed, "data.screen.visible.width");
+  const reply_screen_height = int_at(placed, "data.screen.visible.height");
+  ensure(
+    reply_screen_index >= 0
+      && reply_after_x >= reply_screen_x
+      && reply_after_y >= reply_screen_y
+      && reply_after_x + reply_after_width <= reply_screen_x + reply_screen_width
+      && reply_after_y + reply_after_height <= reply_screen_y + reply_screen_height,
+    "cu_windows_smoke_window_place_screen:" + place_text
+  );
+  ensure(
+    reply_after_x !== fixture_x_before
+      || reply_after_y !== fixture_y_before
+      || reply_after_width !== fixture_width_before
+      || reply_after_height !== fixture_height_before,
+    "cu_windows_smoke_window_place_reply_unchanged"
+  );
+  let observed_after = "";
+  let observed_matches = 0;
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const observed_windows = run_cu_json(
+      run_directory,
+      executable,
+      ["--target", "current", "--grant", "observe", "windows"]
+    );
+    for (const row of observed_windows.data) {
+      const row_handle = int_at(row, "handle");
+      if (row_handle === fixture_handle) {
+        const row_bounds = JSON.stringify(row.bounds);
+        const observed_x = int_at(row, "bounds.x");
+        const observed_y = int_at(row, "bounds.y");
+        const observed_width = int_at(row, "bounds.width");
+        const observed_height = int_at(row, "bounds.height");
+        if (observed_x === reply_after_x
+            && observed_y === reply_after_y
+            && observed_width === reply_after_width
+            && observed_height === reply_after_height) {
+          observed_matches = 1;
+        }
+        observed_after = row_bounds;
+      }
+    }
+    if (observed_matches !== 0) {
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  ensure(
+    observed_matches !== 0
+      && observed_after !== fixture_bounds_before,
+    "cu_windows_smoke_window_place_readback:before="
+      + fixture_bounds_before + ":reply=" + reply_after
+      + ":observed=" + observed_after
+  );
+
+  print("STEP isolated window-place audit records attempt and success");
+  ensure(
+    direct_file(audit_path),
+    "cu_windows_smoke_window_place_audit_missing"
+  );
+  const audit_text = rh.read_text(audit_path);
+  const audit_lower = audit_text.toLowerCase();
+  ensure(
+    !audit_lower.includes("password")
+      && !audit_lower.includes("credential")
+      && !audit_lower.includes("secret")
+      && !audit_lower.includes("token")
+      && !audit_lower.includes("endpoint"),
+    "cu_windows_smoke_window_place_audit_sensitive_field"
+  );
+  let attempt_records = 0;
+  let ok_records = 0;
+  const audit_lines = audit_text.split("\n");
+  for (const raw_line of audit_lines) {
+    const line = raw_line.trim();
+    if (line !== "") {
+      const record = JSON.parse(line);
+      ensure(
+        text_at(record, "target") === "current"
+          && text_at(record, "verb") === "window-place"
+          && text_at(record, "grant") === "actuate"
+          && text_at(record, "decision") === "authorized"
+          && text_at(record, "authority_scope") === "process",
+        "cu_windows_smoke_window_place_audit_scope:" + line
+      );
+      const outcome = text_at(record, "outcome");
+      ensure(
+        outcome === "attempt" || outcome === "ok",
+        "cu_windows_smoke_window_place_audit_outcome:" + line
+      );
+      if (outcome === "attempt") {
+        attempt_records = attempt_records + 1;
+      } else if (outcome === "ok") {
+        ensure(
+          text_at(record, "detail.action") === "left-half"
+            && int_at(record, "detail.window") === fixture_handle,
+          "cu_windows_smoke_window_place_audit_detail:" + line
+        );
+        ok_records = ok_records + 1;
+      }
+    }
+  }
+  ensure(
+    attempt_records === 1 && ok_records === 1,
+    "cu_windows_smoke_window_place_audit_counts:attempt="
+      + attempt_records + ":ok=" + ok_records
+  );
+
+  print("STEP public name-addressed Invoke closes only owned fixture");
+  const clicked = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe,actuate",
+      "click", "--window", handle_text,
+      "--name", "Fixture Close", "--role", "button"
+    ]
+  );
+  ensure(
+    text_at(clicked, "data.addressing") === "accessibility-tree"
+      && text_at(clicked, "data.mechanism") === "libagenterm",
+    "cu_windows_smoke_invoke_addressing:" + JSON.stringify(clicked)
+  );
+  let fixture_exited = 0;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(fixture) === "exited") {
+      fixture_exited = 1;
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  ensure(fixture_exited !== 0, "cu_windows_smoke_invoke_exit_timeout");
+  const fixture_output = harness.wait(fixture, 2000);
+  const fixture_stdout_raw = fixture_output.stdout;
+  const fixture_stderr = fixture_output.stderr;
+  ensure(
+    fixture_output.success === true,
+    "cu_windows_smoke_fixture_exit:" + fixture_stdout_raw + fixture_stderr
+  );
+  const fixture_stdout = fixture_stdout_raw.trim();
+  const ready_parts = fixture_stdout.split(" ");
+  ensure(
+    ready_parts.length === 2 && ready_parts[0] === "ready",
+    "cu_windows_smoke_fixture_ready:" + fixture_stdout
+  );
+  const reported_handle_text = "" + ready_parts[1];
+  const reported_handle = rh.parse_int(reported_handle_text);
+  ensure(
+    reported_handle === fixture_handle,
+    "cu_windows_smoke_reported_hwnd_mismatch"
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+rh.try_remove_file(persisted_audit);
+rh.try_remove_dir_all(persisted_state);
+
+if (succeeded === 0 && fixture_pid !== 0) {
+  // rh ignored taskkill's result; the door's refusal (status, not a throw)
+  // is ignored the same way, so cleanup cannot replace `failure`.
+  const fixture_pid_text = "" + fixture_pid;
+  process_command(JSON.stringify({
+    program: "taskkill.exe",
+    args: ["/PID", fixture_pid_text, "/T", "/F"],
+    timeout_ms: 5000
+  }));
+}
+if (succeeded === 0) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_windows_smoke_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(
+  remove_directory_bounded(run_directory),
+  "cu_windows_smoke_cleanup_locked"
+);
+harness.emit_evidence(context, declared_evidence, "cu.windows-host-self-test");
+harness.emit_evidence(context, declared_evidence, "cu.windows-persisted-grant");
+harness.emit_evidence(context, declared_evidence, "cu.libagenterm-load-cleanup");
+harness.emit_evidence(context, declared_evidence, "cu.windows-clipboard-read");
+harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-identity");
+harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
+harness.emit_evidence(context, declared_evidence, "cu.windows-uia-name-actuation");
+harness.emit_evidence(context, declared_evidence, "cu.windows-uia-value-wait");
+harness.emit_evidence(context, declared_evidence, "cu.windows-window-place-refusal");
+harness.emit_evidence(context, declared_evidence, "cu.windows-window-place-actuation");
+harness.emit_evidence(context, declared_evidence, "cu.windows-window-place-audit");
+harness.emit_evidence(context, declared_evidence, "cu.windows-uia-cleanup");
+harness.remove_run(context);
+print(
+  "PASS: staged agenterm-cu host and public Windows UIA journey"
+);
+return;
