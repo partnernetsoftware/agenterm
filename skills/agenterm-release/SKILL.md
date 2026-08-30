@@ -14,7 +14,8 @@ Read these repository-owned contracts before acting:
 2. `prd/PRD_02_17_delivery_quality.md`.
 3. `.github/workflows/candidate.yml`, `.github/workflows/release.yml`, and
    `.github/workflows/release-integrity.yml`.
-4. `scripts/rh/release.rh` and `agenterm.tasks.json`.
+4. `scripts/qjs/release.qjs`, `scripts/qjs/candidate-verify.qjs`,
+   `scripts/qjs/candidate-aggregate.qjs`, and `agenterm.tasks.json`.
 
 Read `references/github-auth-and-dispatch.md` when authentication, workflow
 dispatch, monitoring, rate limits, or human approval is involved.

@@ -201,6 +201,7 @@ export function verify_platform(
   let asset_notarized = false;
   let asset_sha256 = "";
   let asset_size = 0;
+  let asset_payload_uncompressed_bytes = 0;
   let asset_checksum_name = "";
   let asset_checksum_sha256 = "";
   let asset_checksum_size = 0;
@@ -217,6 +218,7 @@ export function verify_platform(
       asset_notarized = asset.notarized;
       asset_sha256 = text(asset.sha256);
       asset_size = asset.size;
+      asset_payload_uncompressed_bytes = asset.payload_uncompressed_bytes;
       const checksum = child(asset, "checksum");
       asset_checksum_name = text(checksum.name);
       asset_checksum_sha256 = text(checksum.sha256);
@@ -269,6 +271,14 @@ export function verify_platform(
     provenance, asset_name, archive_hash, text(source_sha), text(version),
     text(expected_tag), os_text, arch_text, text(cargo_hash), text(artifact_hash), text(sbom_hash)
   );
+  if (os_text !== "chassis") {
+    check(
+      provenance.archive_bytes === archive_size
+        && provenance.payload_uncompressed_bytes > 0
+        && asset_payload_uncompressed_bytes === provenance.payload_uncompressed_bytes,
+      "candidate_archive_size_evidence:", asset_name
+    );
+  }
   check(
     asset_channel === provenance.channel
       && asset_signed === provenance.signed

@@ -17,7 +17,8 @@ release.yml  workflow_dispatch(candidate_run_id, confirmation)
     -> verify exact Candidate + create tag + promote existing bytes
 ```
 
-`scripts/rh/release.rh` (`agenterm-rh task run release publish`) now rejects local publication with
+`scripts/qjs/release.qjs` (`agenterm cli script task run release --manifest
+agenterm.tasks.json -- publish`) rejects local publication with
 `release_promotion_requires_github_workflow`.
 
 The first post-migration Candidate required a browser click because:

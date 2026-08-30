@@ -4,6 +4,11 @@ Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+- [~] Minicon's proven release lessons are being absorbed through
+  `plan/goal-release-minicon-lessons.md`: clean staging, raw/compressed size
+  evidence, six execute-only courts, slim-Linux dependency proof, explicit
+  signing policy, and reputation checks over final Candidate bytes. AgenTerm's
+  exact-SHA Candidate → no-rebuild Promotion authority remains unchanged.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
 - [x] size-optimized release profile and enforced 4 MiB GUI plus 2 MiB
@@ -573,12 +578,12 @@ costs a full candidate cycle:
 - [ ] `.github/workflows/release.yml` runs from `--ref main`. Fixing it does
   **not** require a new candidate; re-dispatch promotion against the existing
   one.
-- [ ] `scripts/rh/promotion-identity.rh` and
-  `scripts/rh/candidate-verify.rh` are checked out at the candidate's
+- [ ] `scripts/qjs/promotion-identity.qjs` and
+  `scripts/qjs/candidate-verify.qjs` are checked out at the candidate's
   `source_sha`. Fixing them **requires a new candidate** — reusing the old one
   reproduces the identical failure no matter how correct `main` is.
 - [ ] Anything the candidate build itself runs — gate scripts, smoke scripts,
-  `scripts/rh/lib/release_candidate.rh` — likewise requires a new candidate.
+  `scripts/qjs/lib/release_candidate.qjs` — likewise requires a new candidate.
 
 ### Cost structure
 
@@ -591,8 +596,8 @@ costs a full candidate cycle:
 ### Verify locally before spending a candidate
 
 - [ ] Download the sealed bundle and replay the promotion scripts offline
-  before dispatching promotion. `candidate-verify.rh` and
-  `promotion-identity.rh` both run against a downloaded bundle and reproduce
+  before dispatching promotion. `candidate-verify.qjs` and
+  `promotion-identity.qjs` both run against a downloaded bundle and reproduce
   CI's result exactly, and the publish job's assertions — body digest, marker
   reconstruction, channel uniqueness — can be recomputed with `jq` and
   `sha256sum`. This surfaces in seconds what otherwise costs a full cycle.

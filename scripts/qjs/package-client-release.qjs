@@ -22,6 +22,26 @@ function valid_source_sha(value) {
   return rh.only_chars(text, rh.HEX);
 }
 
+function directory_payload_bytes(root) {
+  const pending = [root];
+  let index = 0;
+  let bytes = 0;
+  while (index < pending.length) {
+    const directory = pending[index];
+    index = index + 1;
+    for (const entry of rh.read_dir(directory)) {
+      rh.require(!entry.is_symlink, "package_client_payload_symlink:" + entry.path);
+      if (entry.is_dir) {
+        pending.push(entry.path);
+      } else {
+        rh.require(entry.is_file, "package_client_payload_entry:" + entry.path);
+        bytes = bytes + rh.metadata(entry.path).len;
+      }
+    }
+  }
+  return bytes;
+}
+
 const args = rh.args();
 if (args.length !== 5 && args.length !== 6) { throw "package_client_arguments"; }
 
@@ -124,6 +144,12 @@ if (rh.has_env("AGENTERM_PACKAGE_DIST")) {
 rh.create_dir_all(dist);
 const scratch = rh.join(repo, ".package-client-release-scratch");
 const staging = rh.join(scratch, "payload");
+// A failed pack must never seed the next archive with stale bytes. This is a
+// deterministic owned directory, so fail closed if it cannot be reclaimed.
+if (rh.exists(scratch)) {
+  rh.try_remove_dir_all(scratch);
+  rh.require(!rh.exists(scratch), "package_client_stale_scratch_cleanup");
+}
 rh.create_dir_all(staging);
 
 const executable_names = [];
@@ -217,6 +243,9 @@ if (unsigned_preview) {
   rh.copy(preview_zh_source, rh.join(dist, "MACOS_UNSIGNED_PREVIEW_README.zh-Hant.md"));
 }
 
+const payload_uncompressed_bytes = directory_payload_bytes(staging);
+rh.require(payload_uncompressed_bytes > 0, "package_client_empty_payload");
+
 let suffix = "";
 if (unsigned_preview) {
   suffix = "-unsigned-preview";
@@ -243,6 +272,7 @@ if (package_format === "zip") {
   rh.require(tar_code === 0, "package_client_tar");
 }
 const archive_hash = rh.sha256_file(archive);
+const archive_bytes = rh.metadata(archive).len;
 let source_commit = "";
 if (rh.has_env("AGENTERM_CANDIDATE_SOURCE_SHA")) {
   const value = rh.env_or("AGENTERM_CANDIDATE_SOURCE_SHA", "");
@@ -295,6 +325,8 @@ const package_manifest = {
   notarized: false,
   artifact: archive_name,
   sha256: archive_hash,
+  payload_uncompressed_bytes: payload_uncompressed_bytes,
+  archive_bytes: archive_bytes,
   source_commit: source_commit,
   source_tag: "v" + version,
   artifact_manifest_sha256: artifact_manifest_sha256,
@@ -309,5 +341,9 @@ if (rh.exists(scratch)) {
   rh.try_remove_dir_all(scratch);
   rh.require(!rh.exists(scratch), "package_client_scratch_cleanup");
 }
-print("PACKAGED " + archive);
+print(
+  "PACKAGED " + archive
+    + " payload_bytes=" + payload_uncompressed_bytes
+    + " archive_bytes=" + archive_bytes
+);
 return;

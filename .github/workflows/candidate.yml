@@ -362,6 +362,28 @@ jobs:
           ./scripts/bootstrap.sh \
             "$VERSION" linux aarch64 target/aarch64-unknown-linux-gnu/release
 
+      - name: Verify bundled Linux XKB dependency closure
+        if: startsWith(matrix.platform_id, 'linux-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          arch="${{ matrix.platform_id }}"
+          arch="${arch#linux-}"
+          archive="dist/agenterm-$version-linux-$arch.tar.gz"
+          root="$RUNNER_TEMP/linux-package-closure-$arch"
+          mkdir -p "$root"
+          tar -xzf "$archive" -C "$root"
+          xkb="$(find "$root/lib" -maxdepth 1 -type f \
+            -name 'libxkbcommon-x11.so.0*' -print -quit)"
+          xcb="$(find "$root/lib" -maxdepth 1 -type f \
+            -name 'libxcb-xkb.so.1*' -print -quit)"
+          test -n "$xkb" && test -f "$xkb"
+          test -n "$xcb" && test -f "$xcb"
+          readelf -d "$xkb" | grep -Eq \
+            'NEEDED.*\[libxcb-xkb\.so\.1\]'
+          echo "Bundled closure: $(basename "$xkb") -> $(basename "$xcb")"
+
       - name: Import Apple Developer ID credentials
         if: >-
           startsWith(matrix.platform_id, 'macos-') &&
@@ -801,6 +823,9 @@ jobs:
           ARTIFACT_ID: ${{ steps.candidate-upload.outputs.artifact-id }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
+          manifest="$(find candidate-output -maxdepth 1 -type f \
+            -name 'agenterm-*-candidate-manifest.json' -print -quit)"
+          test -f "$manifest"
           {
             echo "## AgenTerm release candidate"
             echo
@@ -809,6 +834,14 @@ jobs:
             echo "- Artifact ID: \`$ARTIFACT_ID\`"
             echo "- Artifact digest: \`$ARTIFACT_DIGEST\`"
             echo "- Retention: 14 days"
+            echo
+            echo "### Native archive sizes"
+            echo
+            echo "| Cell | Payload bytes | Archive bytes |"
+            echo "|---|---:|---:|"
+            jq -r '.assets[] | select(.os != "chassis") |
+              "| \(.os)-\(.arch) | \(.payload_uncompressed_bytes) | \(.size) |"' \
+              "$manifest"
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Publish candidate delivery timing evidence

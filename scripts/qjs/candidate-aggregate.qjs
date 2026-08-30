@@ -133,6 +133,7 @@ for (const spec of candidate.platform_specs(metadata_version)) {
     signed: provenance.signed,
     notarized: provenance.notarized,
     size: archive_size,
+    payload_uncompressed_bytes: provenance.payload_uncompressed_bytes,
     sha256: archive_hash,
     checksum: { name: checksum_name, size: checksum_size, sha256: checksum_hash },
     provenance: { name: provenance_name, size: provenance_size, sha256: provenance_hash }
