@@ -78,7 +78,7 @@ impl NativeListener {
                 endpoint.to_string(),
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "Unix socket path must be absolute and within the platform length limit",
+                    "invalid Unix socket path: it must be absolute and within the platform length limit",
                 ),
             ));
         }
@@ -87,6 +87,20 @@ impl NativeListener {
         // this resolution so endpoint strings stay host-neutral while the on-disk
         // path is always real and private — matching the "pipe name just works"
         // Windows experience.
+        // The length check comes before the private-directory walk, so an
+        // overlong endpoint is `InvalidEndpoint` and not whatever the walk
+        // trips over first (a read-only parent on macOS answered `Io` for a
+        // 103-byte path, and native-ipc-smoke's step 2 caught it).
+        if requested.as_os_str().as_bytes().len() > unix_socket_path_limit() {
+            return Err(IpcTransportError::new(
+                IpcTransportErrorCode::InvalidEndpoint,
+                endpoint.to_string(),
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid Unix socket path: it must be absolute and within the platform length limit",
+                ),
+            ));
+        }
         let path = resolve_unix_socket_path(&requested, endpoint)?;
         if path.as_os_str().as_bytes().len() > unix_socket_path_limit() {
             return Err(IpcTransportError::new(
@@ -94,7 +108,7 @@ impl NativeListener {
                 endpoint.to_string(),
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "Unix socket path must be absolute and within the platform length limit",
+                    "invalid Unix socket path: it must be absolute and within the platform length limit",
                 ),
             ));
         }
@@ -284,6 +298,16 @@ impl NativeStream {
                 "this host native IPC adapter accepts only Unix sockets",
             ));
         };
+        if path.as_bytes().len() > unix_socket_path_limit() {
+            return Err(IpcTransportError::new(
+                IpcTransportErrorCode::InvalidEndpoint,
+                endpoint.to_string(),
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid Unix socket path: it must be absolute and within the platform length limit",
+                ),
+            ));
+        }
         let path = resolve_unix_socket_path(Path::new(path), endpoint)?;
         let stream = connect_bounded(path.to_string_lossy().as_ref(), timeout, endpoint)?;
         Self::from_stream(stream, endpoint, timeout)

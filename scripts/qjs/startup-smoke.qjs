@@ -254,7 +254,7 @@ try {
     harness.require(false, "startup_second_gui_handoff_timeout:" + declined);
   }
   const second_output = harness.drain(second, 2000, waited);
-  harness.require(second_output.success, "startup_second_gui_exit");
+  harness.require(second_output.success, "startup_second_gui_exit:" + second_output.exit_code + ":" + second_output.stderr);
   const second_guidance = second_output.stderr;
   harness.require(
     normalized_guidance(second_guidance) === expected_guidance(child_pid(second), smoke_address),

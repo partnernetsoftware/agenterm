@@ -555,6 +555,19 @@ enum SidebarTabAction {
     Cancel,
 }
 
+/// What a launcher tells the console that started it, before any window:
+/// `Launcher PID` for a smoke to watch, and the server address it resolved.
+/// Word for word the Windows launcher's, so one journey reads both.
+fn gui_console_summary(address: &str) -> String {
+    format!(
+        "Launcher PID: {}\n\
+         Configured server address: {address}\n\n\
+         List running server PID and port: agenterm cli server-list\n\
+         More CLI commands: agenterm cli -h",
+        std::process::id()
+    )
+}
+
 pub(crate) fn run_gui_entry_result() -> GuiLaunchResult {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if let Some(result) = gui_help_result(&arguments, UNIX_GUI_USAGE) {
@@ -572,6 +585,11 @@ pub(crate) fn run_gui_entry_result() -> GuiLaunchResult {
             return GuiLaunchResult::UsageError;
         }
     };
+    // The same launch summary the Windows launcher writes to its parent
+    // console: the PID a smoke can wait on and the address it configured.
+    // Best effort -- a launcher without a stderr loses nothing else.
+    eprintln!("{}", gui_console_summary(&crate::ipc_address()));
+
     let selected_image =
         match crate::frontend::chassis_image::load_selected_image(options.chassis_image.as_deref())
         {
@@ -4663,6 +4681,17 @@ impl UnixApp {
                                                     }),
                                                 Err(error) => Some(IpcResponse::failure(error)),
                                             }
+                                        }
+                                        // The proxy workbench is archived on
+                                        // every host; the Windows frontend
+                                        // answers these names the same way.
+                                        action
+                                            if action.starts_with("proxy-")
+                                                || action == "open-proxy-editor" =>
+                                        {
+                                            Some(IpcResponse::failure(
+                                                "proxy workbench controls are archived".to_owned(),
+                                            ))
                                         }
                                         _ => Some(IpcResponse::failure(format!(
                                             "unknown UI action: {other}"
