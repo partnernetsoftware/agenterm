@@ -2,20 +2,30 @@
 // capabilities -> windows (inventory filters) -> bounded tree / query ->
 // invoke -> verify / wait --expect, then the background verbs: menu inspect
 // / invoke on the application's menu bar, focused / invoke --focused on its
-// App-local focused control, and observe (poll-diff event stream).
+// App-local focused control, and observe (poll-diff event stream); then
+// slice 4: click by --node / --name with the real pointer read before and
+// after, the window-place `frame` transaction, the destructive `close`
+// gate (exact target + prior snapshot + checkable postcondition, refused
+// typed when any part is missing) on the fixture's second window, and the
+// crash-persistent receipt file read back with `receipts`.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
 //
 // Runs under --profile tool on a real macOS desktop whose Accessibility
-// permission covers the process that spawns this journey. Slices 1, 2 and 3
-// of plan/design-mcu-absorption.md: observation, semantic actuation, then
-// background menus / focused control / observation, none of which activates
-// or raises the fixture (the focused window before and after each actuating
-// section must be the same one). No screenshot, no coordinate fallback, no
-// keystroke injection; every write is read back. The observer for `observe`
-// is a second agenterm-cu spawned through the door (harness.start) so the
-// script can issue the change it must capture while the observer runs.
+// permission covers the process that spawns this journey. Slices 1 to 4
+// of plan/design-mcu-absorption.md: observation, semantic actuation,
+// background menus / focused control / observation, then the destructive
+// gate and receipts, none of which activates or raises the fixture (the
+// focused window before and after each actuating section must be the same
+// one) or moves the real pointer (pointer-position is read around every
+// click and close). No screenshot, no coordinate fallback, no keystroke
+// injection; every write is read back. The observer for `observe` is a
+// second agenterm-cu spawned through the door (harness.start) so the script
+// can issue the change it must capture while the observer runs. Every cu
+// call runs with AGENTERM_CU_AUDIT_PATH inside the run directory, so the
+// audit log and the receipt file (<audit dir>/cu-receipts/current.jsonl)
+// are this run's own.
 //
 // The owned fixture is examples/objc/agenterm_ax_fixture.m, compiled here
 // with clang and spawned as a door handle (process_spawn); its pid is
@@ -43,6 +53,11 @@ const declared_evidence = [
   "cu.macos-ax-menu-invoke",
   "cu.macos-ax-focused",
   "cu.macos-ax-observe",
+  "cu.macos-ax-click",
+  "cu.macos-ax-frame",
+  "cu.macos-ax-destructive-refusals",
+  "cu.macos-ax-destructive-close",
+  "cu.macos-ax-receipts",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -94,9 +109,22 @@ function remove_directory_bounded(path) {
   return false;
 }
 
+// The audit log (and beside it the receipt file) of this run, never the
+// user's default location.
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+function receipt_file(run_directory) {
+  return rh.join(run_directory, "cu-receipts/current.jsonl");
+}
+
 // One agenterm-cu call whose reply must be `ok: true`.
 function run_cu_json(run_directory, executable, arguments) {
-  const output = rh.command(executable, arguments, { cwd: run_directory, timeout_ms: 30000 });
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
   ensure(
     output.success === true,
     "cu_macos_smoke_cli_process:" + output.stdout + output.stderr
@@ -113,7 +141,10 @@ function run_cu_json(run_directory, executable, arguments) {
 
 // One agenterm-cu call whose reply is returned as parsed, ok or not.
 function run_cu_reply(run_directory, executable, arguments) {
-  const output = rh.command(executable, arguments, { cwd: run_directory, timeout_ms: 30000 });
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_macos_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
@@ -138,7 +169,9 @@ function compile_fixture(run_directory, repo) {
   return fixture_executable;
 }
 
-// The `windows --pid` inventory row for the fixture, or null.
+// The `windows --pid` inventory row of the fixture window with exactly
+// `title`, or null. The fixture owns two windows since slice 4, so the
+// inventory counts are checked against every row of the pid.
 function fixture_window_row(run_directory, executable, pid, title) {
   const inventory = run_cu_json(
     run_directory,
@@ -147,19 +180,85 @@ function fixture_window_row(run_directory, executable, pid, title) {
   );
   let row = null;
   let matches = 0;
+  let rows_for_pid = 0;
   for (const candidate of inventory.data.windows) {
+    if (int_at(candidate, "process_id") === pid) { rows_for_pid = rows_for_pid + 1; }
     if (int_at(candidate, "process_id") === pid && text_at(candidate, "title") === title) {
       matches = matches + 1;
       row = candidate;
     }
   }
   ensure(
-    int_at(inventory, "data.matched") === matches
-      && int_at(inventory, "data.returned") === matches
+    int_at(inventory, "data.matched") === rows_for_pid
+      && int_at(inventory, "data.returned") === rows_for_pid
       && !flag_at(inventory, "data.truncated"),
     "cu_macos_smoke_windows_counts:" + JSON.stringify(inventory.data)
   );
   return matches === 1 ? row : null;
+}
+
+// The real pointer's coordinates as "x,y", read without injecting anything
+// (macOS: a CGEvent sample). Read immediately before and after every click
+// and close: PRD 31's pointer invariant.
+function pointer_text(run_directory, executable) {
+  const reply = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "pointer-position"]
+  );
+  ensure(
+    text_at(reply, "data.effect") === "observed"
+      && text_at(reply, "data.addressing") === "absolute-screen-coordinates"
+      && reply.data.coords.length === 2,
+    "cu_macos_smoke_pointer_shape:" + JSON.stringify(reply.data)
+  );
+  return text_of(reply.data.coords[0]) + "," + text_of(reply.data.coords[1]);
+}
+
+function close_reply(run_directory, executable, grant, extra) {
+  const arguments_list = ["--target", "current", "--grant", grant, "close"];
+  for (const item of extra) { arguments_list.push(item); }
+  return run_cu_reply(run_directory, executable, arguments_list);
+}
+
+// A `close` that must be refused typed with `code` before anything happens.
+function close_refused(run_directory, executable, grant, extra, code) {
+  const reply = close_reply(run_directory, executable, grant, extra);
+  ensure(
+    !flag_at(reply, "ok") && text_at(reply, "error.code") === code,
+    "cu_macos_smoke_close_refusal:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function receipts_reply(run_directory, executable, extra) {
+  const arguments_list = ["--target", "current", "--grant", "observe", "receipts"];
+  for (const item of extra) { arguments_list.push(item); }
+  return run_cu_reply(run_directory, executable, arguments_list);
+}
+
+// Every `reserved` line must be followed by its own `completed` / `failed`
+// line (same receipt_id); returns the number of pairs.
+function count_receipt_pairs(lines) {
+  let pairs = 0;
+  let index = 0;
+  while (index < lines.length) {
+    const reserved = lines[index];
+    ensure(text_at(reserved, "phase") === "reserved", "cu_macos_smoke_receipt_order:" + JSON.stringify(reserved));
+    ensure(index + 1 < lines.length, "cu_macos_smoke_receipt_unpaired:" + JSON.stringify(reserved));
+    const closing = lines[index + 1];
+    ensure(
+      text_at(closing, "receipt_id") === text_at(reserved, "receipt_id")
+        && (text_at(closing, "phase") === "completed" || text_at(closing, "phase") === "failed")
+        && text_at(closing, "verb") === text_at(reserved, "verb")
+        && int_at(closing, "window") === int_at(reserved, "window")
+        && int_at(closing, "ts_ms") >= int_at(reserved, "ts_ms"),
+      "cu_macos_smoke_receipt_pair:" + JSON.stringify(reserved) + ":" + JSON.stringify(closing)
+    );
+    pairs = pairs + 1;
+    index = index + 2;
+  }
+  return pairs;
 }
 
 // The focused top-level window handle right now (0 when none is focused),
@@ -273,6 +372,7 @@ function start_observer(run_directory, executable, handle_text, extra) {
     program: executable,
     args: arguments_list,
     current_dir: run_directory,
+    env: cu_env(run_directory),
     timeout_ms: 30000
   });
 }
@@ -948,7 +1048,14 @@ try {
     executable,
     ["--target", "current", "--grant", "actuate", "focus", "--window", handle_text, "--node", field_id]
   );
-  ensure(text_at(focus_field, "data.action") === "focus", "cu_macos_smoke_focus_field:" + JSON.stringify(focus_field));
+  ensure(
+    text_at(focus_field, "data.action") === "focus"
+      && flag_at(focus_field, "data.verified")
+      && text_at(focus_field, "data.verification.method") === "focused-readback"
+      && at(focus_field, "data.after.focused") === true
+      && text_at(focus_field, "data.receipt.id") !== "",
+    "cu_macos_smoke_focus_field:" + JSON.stringify(focus_field)
+  );
   const now_focused = focused_reply(
     run_directory, executable, handle_text, ["--role", "AXTextField", "--max-value-bytes", "2"]
   );
@@ -1068,6 +1175,341 @@ try {
     "cu_macos_smoke_slice3_foreground_stolen:before=" + focused_before + ":after=" + focused_after_slice3
   );
 
+  // ---- slice 4: click, frame, the destructive gate, receipts -----------
+  print("STEP click --node and click --name press the button; the label advances, the real pointer and the focused window do not move");
+  const press_id = text_at(by_identifier.data.nodes[0], "id");
+  const pointer_before_click = pointer_text(run_directory, executable);
+  const clicked_by_node = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "actuate", "click", "--window", handle_text, "--node", press_id]
+  );
+  const pointer_after_click = pointer_text(run_directory, executable);
+  ensure(
+    text_at(clicked_by_node, "data.addressing") === "accessibility-tree"
+      && text_at(clicked_by_node, "data.action") === "click"
+      && text_at(clicked_by_node, "data.node") === press_id
+      && flag_at(clicked_by_node, "data.performed")
+      && flag_at(clicked_by_node, "data.verified")
+      && text_at(clicked_by_node, "data.verification.method") === "tree-diff"
+      && text_at(clicked_by_node, "data.receipt.id") !== "",
+    "cu_macos_smoke_click_node:" + JSON.stringify(clicked_by_node)
+  );
+  ensure(
+    pointer_after_click === pointer_before_click,
+    "cu_macos_smoke_click_pointer_moved:" + pointer_before_click + "->" + pointer_after_click
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-press-count", value: "pressed 2" }
+  ]);
+  const pointer_before_name = pointer_text(run_directory, executable);
+  const clicked_by_name = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "actuate", "click", "--window", handle_text, "--name", "Fixture Press"]
+  );
+  const pointer_after_name = pointer_text(run_directory, executable);
+  ensure(
+    flag_at(clicked_by_name, "data.verified")
+      && text_at(clicked_by_name, "data.node") === press_id
+      && text_at(clicked_by_name, "data.matched.name") === "Fixture Press"
+      && text_at(clicked_by_name, "data.backend") === "ax",
+    "cu_macos_smoke_click_name:" + JSON.stringify(clicked_by_name)
+  );
+  ensure(
+    pointer_after_name === pointer_before_name,
+    "cu_macos_smoke_click_name_pointer_moved:" + pointer_before_name + "->" + pointer_after_name
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-press-count", value: "pressed 3" }
+  ]);
+  const click_ambiguous = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "actuate", "click", "--window", handle_text, "--name", "Fixture Twin"]
+  );
+  ensure(
+    !flag_at(click_ambiguous, "ok") && text_at(click_ambiguous, "error.code") === "a11y_node_ambiguous",
+    "cu_macos_smoke_click_ambiguous:" + JSON.stringify(click_ambiguous)
+  );
+  const focused_after_click = focused_window_handle(run_directory, executable);
+  ensure(
+    focused_after_click === focused_before && focused_after_click !== fixture_handle,
+    "cu_macos_smoke_click_foreground_stolen:before=" + focused_before + ":after=" + focused_after_click
+  );
+
+  print("STEP window-place --action frame moves the fixture window to a requested rect in one transaction and the inventory reads it back");
+  const framed = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "actuate", "window-place", "--action", "frame",
+      "--window", handle_text, "--x", "200", "--y", "200", "--width", "500", "--height", "400"
+    ]
+  );
+  ensure(
+    text_at(framed, "data.effect") === "committed"
+      && text_at(framed, "data.action") === "frame"
+      && text_at(framed, "data.history") === "committed"
+      && int_at(framed, "data.after.width") === 500
+      && int_at(framed, "data.after.height") === 400
+      && int_at(framed, "data.after.x") === 200
+      && int_at(framed, "data.after.y") === 200,
+    "cu_macos_smoke_frame:" + JSON.stringify(framed.data)
+  );
+  const framed_row = fixture_window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(
+    framed_row !== null
+      && int_at(framed_row, "bounds.x") === 200
+      && int_at(framed_row, "bounds.y") === 200
+      && int_at(framed_row, "bounds.width") === 500
+      && int_at(framed_row, "bounds.height") === 400,
+    "cu_macos_smoke_frame_readback:" + JSON.stringify(framed_row)
+  );
+  const frame_missing = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "actuate", "window-place", "--action", "frame", "--window", handle_text, "--x", "1"]
+  );
+  ensure(
+    !flag_at(frame_missing, "ok") && text_at(frame_missing, "error.code") === "usage",
+    "cu_macos_smoke_frame_missing:" + JSON.stringify(frame_missing)
+  );
+  const frame_on_catalog = run_cu_reply(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "actuate", "window-place", "--action", "center",
+      "--window", handle_text, "--x", "1", "--y", "1", "--width", "10", "--height", "10"
+    ]
+  );
+  ensure(
+    !flag_at(frame_on_catalog, "ok") && text_at(frame_on_catalog, "error.code") === "invalid_input",
+    "cu_macos_smoke_frame_on_catalog:" + JSON.stringify(frame_on_catalog)
+  );
+
+  print("STEP close without a snapshot, a postcondition or a target, and with a wrong --pid / --title, is refused typed; the second window stays");
+  const second_title = "agenterm-ax-second-" + fixture_pid;
+  const second_row = fixture_window_row(run_directory, executable, fixture_pid, second_title);
+  ensure(second_row !== null, "cu_macos_smoke_second_window_missing");
+  const second_handle = int_at(second_row, "handle");
+  const second_text = "" + second_handle;
+  ensure(second_handle > 0 && second_handle !== fixture_handle, "cu_macos_smoke_second_window_handle");
+  const no_snapshot = close_refused(
+    run_directory, executable, "actuate", ["--window", second_text, "--expect", "gone"], "refused"
+  );
+  ensure(
+    text_at(no_snapshot, "error.detail.reason") === "destructive_gate"
+      && no_snapshot.error.detail.missing.length === 1
+      && text_of(no_snapshot.error.detail.missing[0]) === "snapshot"
+      && text_at(no_snapshot, "error.detail.effect") === "not_performed",
+    "cu_macos_smoke_close_no_snapshot:" + JSON.stringify(no_snapshot)
+  );
+  const no_postcondition = close_refused(
+    run_directory, executable, "actuate", ["--window", second_text, "--snapshot"], "refused"
+  );
+  ensure(
+    text_at(no_postcondition, "error.detail.reason") === "destructive_gate"
+      && no_postcondition.error.detail.missing.length === 1
+      && text_of(no_postcondition.error.detail.missing[0]) === "postcondition",
+    "cu_macos_smoke_close_no_postcondition:" + JSON.stringify(no_postcondition)
+  );
+  const nothing = close_refused(run_directory, executable, "actuate", [], "refused");
+  ensure(
+    text_at(nothing, "error.detail.reason") === "destructive_gate"
+      && nothing.error.detail.missing.length === 3
+      && text_of(nothing.error.detail.missing[0]) === "target",
+    "cu_macos_smoke_close_nothing:" + JSON.stringify(nothing)
+  );
+  close_refused(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--snapshot", "--expect", "vanish"], "invalid_input"
+  );
+  const wrong_pid = close_refused(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--pid", "1", "--snapshot", "--expect", "gone"], "window_identity_mismatch"
+  );
+  ensure(
+    text_at(wrong_pid, "error.detail.effect") === "not_performed"
+      && int_at(wrong_pid, "error.detail.observed.pid") === fixture_pid,
+    "cu_macos_smoke_close_wrong_pid:" + JSON.stringify(wrong_pid)
+  );
+  close_refused(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--title", fixture_title, "--snapshot", "--expect", "gone"], "window_identity_mismatch"
+  );
+  close_refused(
+    run_directory, executable, "actuate",
+    ["--window", "1", "--snapshot", "--expect", "gone"], "window_not_found"
+  );
+  close_refused(
+    run_directory, executable, "observe",
+    ["--window", second_text, "--snapshot", "--expect", "gone"], "refused"
+  );
+  close_refused(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--snapshot", "--expect", "gone", "--bogus"], "usage"
+  );
+  // Nothing was performed: the second window is still there, and no
+  // receipt was reserved for it (a refusal before the mechanism writes none).
+  ensure(
+    fixture_window_row(run_directory, executable, fixture_pid, second_title) !== null,
+    "cu_macos_smoke_close_refusal_closed_it"
+  );
+  const receipts_before_close = receipts_reply(run_directory, executable, ["--window", second_text]);
+  ensure(
+    flag_at(receipts_before_close, "ok") && int_at(receipts_before_close, "data.total") === 0,
+    "cu_macos_smoke_close_refusal_receipt:" + JSON.stringify(receipts_before_close)
+  );
+
+  print("STEP close --pid --title --snapshot --expect gone closes the second window in the background; the inventory reads it gone, the pointer and the focused window are unchanged");
+  const pointer_before_close = pointer_text(run_directory, executable);
+  const closed = close_reply(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--pid", "" + fixture_pid, "--title", second_title, "--snapshot", "--expect", "gone"]
+  );
+  const pointer_after_close = pointer_text(run_directory, executable);
+  ensure(
+    flag_at(closed, "ok")
+      && text_at(closed, "data.addressing") === "window-handle"
+      && text_at(closed, "data.backend") === "ax"
+      && text_at(closed, "data.action") === "close"
+      && text_at(closed, "data.postcondition") === "gone"
+      && flag_at(closed, "data.performed")
+      && flag_at(closed, "data.verified")
+      && text_at(closed, "data.verification.method") === "window-inventory"
+      && int_at(closed, "data.verification.polls") >= 1
+      && text_at(closed, "data.target.title") === second_title
+      && int_at(closed, "data.target.pid") === fixture_pid
+      && int_at(closed, "data.snapshot.returned") >= 2
+      && flag_at(closed, "data.snapshot.in_receipt")
+      && at(closed, "data.after.present") === false
+      && text_at(closed, "data.receipt.id") !== "",
+    "cu_macos_smoke_close:" + JSON.stringify(closed)
+  );
+  ensure(
+    pointer_after_close === pointer_before_close,
+    "cu_macos_smoke_close_pointer_moved:" + pointer_before_close + "->" + pointer_after_close
+  );
+  ensure(
+    fixture_window_row(run_directory, executable, fixture_pid, second_title) === null,
+    "cu_macos_smoke_close_window_lingers"
+  );
+  ensure(
+    fixture_window_row(run_directory, executable, fixture_pid, fixture_title) !== null
+      && harness.process_present(fixture_pid) === 1,
+    "cu_macos_smoke_close_took_the_main_window"
+  );
+  const closed_again = close_refused(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--snapshot", "--expect", "gone"], "window_not_found"
+  );
+  ensure(
+    text_at(closed_again, "error.detail.effect") === "not_performed",
+    "cu_macos_smoke_close_again:" + JSON.stringify(closed_again)
+  );
+  const focused_after_close = focused_window_handle(run_directory, executable);
+  ensure(
+    focused_after_close === focused_before && focused_after_close !== fixture_handle,
+    "cu_macos_smoke_close_foreground_stolen:before=" + focused_before + ":after=" + focused_after_close
+  );
+
+  print("STEP receipts lists every actuation of this run in order from the crash-persistent file, reserved before and completed after each");
+  const second_receipts = receipts_reply(run_directory, executable, ["--window", second_text]);
+  ensure(
+    flag_at(second_receipts, "ok")
+      && text_at(second_receipts, "data.addressing") === "receipt-file"
+      && text_at(second_receipts, "data.path") === receipt_file(run_directory)
+      && int_at(second_receipts, "data.total") === 2
+      && int_at(second_receipts, "data.returned") === 2
+      && !flag_at(second_receipts, "data.truncated"),
+    "cu_macos_smoke_receipts_second_shape:" + JSON.stringify(second_receipts)
+  );
+  ensure(count_receipt_pairs(second_receipts.data.receipts) === 1, "cu_macos_smoke_receipts_second_pairs");
+  const close_reserved = second_receipts.data.receipts[0];
+  const close_completed = second_receipts.data.receipts[1];
+  ensure(
+    text_at(close_reserved, "verb") === "close"
+      && text_at(close_reserved, "target") === "current"
+      && text_at(close_reserved, "action") === "close"
+      && text_at(close_reserved, "postcondition") === "gone"
+      && text_at(close_reserved, "target") === "current"
+      && text_at(close_reserved, "window_identity.title") === second_title
+      && int_at(close_reserved, "pid") > 0
+      && close_reserved.snapshot.nodes.length >= 2
+      && text_at(close_reserved.snapshot.nodes[0], "role") === "window"
+      && text_at(close_reserved, "receipt_id") === text_at(closed, "data.receipt.id")
+      && text_at(close_completed, "phase") === "completed"
+      && flag_at(close_completed, "verified")
+      && at(close_completed, "after.present") === false,
+    "cu_macos_smoke_receipts_close:" + JSON.stringify(second_receipts.data.receipts)
+  );
+  const main_receipts = receipts_reply(run_directory, executable, ["--window", handle_text, "--max", "1000"]);
+  ensure(flag_at(main_receipts, "ok") && !flag_at(main_receipts, "data.truncated"), "cu_macos_smoke_receipts_main:" + JSON.stringify(main_receipts));
+  const main_lines = main_receipts.data.receipts;
+  const main_pairs = count_receipt_pairs(main_lines);
+  let invoke_receipts = 0;
+  let menu_receipts = 0;
+  let focus_receipts = 0;
+  let click_receipts = 0;
+  let failed_receipts = 0;
+  for (const line of main_lines) {
+    if (text_at(line, "phase") !== "reserved") {
+      if (text_at(line, "phase") === "failed") { failed_receipts = failed_receipts + 1; }
+      continue;
+    }
+    const verb = text_at(line, "verb");
+    if (verb === "invoke") { invoke_receipts = invoke_receipts + 1; }
+    if (verb === "menu-invoke") { menu_receipts = menu_receipts + 1; }
+    if (verb === "focus") { focus_receipts = focus_receipts + 1; }
+    if (verb === "click") { click_receipts = click_receipts + 1; }
+  }
+  // The first actuation of the run was `invoke set-value` on the seed; the
+  // last two were the clicks; `select-option Omega` and the four platform
+  // menu refusals left `failed` partners (reserved, then refused by the
+  // mechanism), and the pure refusals (ambiguous, missing action, grant,
+  // usage) reserved nothing.
+  ensure(
+    main_pairs >= 12
+      && invoke_receipts >= 10
+      && menu_receipts === 6
+      && focus_receipts === 1
+      && click_receipts === 2
+      && failed_receipts === 5
+      && text_at(main_lines[0], "verb") === "invoke"
+      && text_at(main_lines[0], "action") === "set-value"
+      && text_at(main_lines[0], "value") === "written by cu"
+      && text_at(main_lines[0], "before.text") === "seed"
+      && text_at(main_lines[1], "phase") === "completed"
+      && text_at(main_lines[1], "after.text") === "written by cu"
+      && text_at(main_lines[main_lines.length - 2], "verb") === "click"
+      && text_at(main_lines[main_lines.length - 1], "phase") === "completed",
+    "cu_macos_smoke_receipts_main_counts:pairs=" + main_pairs + ":invoke=" + invoke_receipts
+      + ":menu=" + menu_receipts + ":focus=" + focus_receipts + ":click=" + click_receipts
+      + ":failed=" + failed_receipts + ":first=" + JSON.stringify(main_lines[0])
+  );
+  // The file itself: one JSON line per receipt line the verb reported.
+  const all_receipts = receipts_reply(run_directory, executable, ["--max", "1000"]);
+  const file_lines = rh.read_text(receipt_file(run_directory)).trim().split("\n");
+  ensure(
+    int_at(all_receipts, "data.total") === file_lines.length
+      && file_lines.length === main_lines.length + 2,
+    "cu_macos_smoke_receipts_file:" + file_lines.length + ":" + JSON.stringify(all_receipts.data)
+  );
+  const capped_receipts = receipts_reply(run_directory, executable, ["--window", handle_text, "--max", "2"]);
+  ensure(
+    int_at(capped_receipts, "data.returned") === 2
+      && flag_at(capped_receipts, "data.truncated")
+      && int_at(capped_receipts, "data.total") === main_lines.length
+      && text_at(capped_receipts.data.receipts[1], "receipt_id") === text_at(main_lines[main_lines.length - 1], "receipt_id"),
+    "cu_macos_smoke_receipts_capped:" + JSON.stringify(capped_receipts.data)
+  );
+  const zero_max = receipts_reply(run_directory, executable, ["--max", "0"]);
+  ensure(
+    !flag_at(zero_max, "ok") && text_at(zero_max, "error.code") === "invalid_input",
+    "cu_macos_smoke_receipts_zero_max:" + JSON.stringify(zero_max)
+  );
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -1145,7 +1587,12 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-focused");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-click");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-frame");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-refusals");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-close");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-receipts");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe)");
+print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");
 return;

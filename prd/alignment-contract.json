@@ -75,6 +75,38 @@
       ]
     },
     {
+      "id": "computer-use.macos-current-pointer-click",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "structured `click` / `focus` by node id use the same platform a11y",
+      "evidence_ids": [
+        "cu.macos-ax-click"
+      ]
+    },
+    {
+      "id": "computer-use.macos-current-frame",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "`frame` transaction leaf",
+      "evidence_ids": [
+        "cu.macos-ax-frame"
+      ]
+    },
+    {
+      "id": "computer-use.macos-current-destructive",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "a destructive action (close, quit, delete, overwrite) requires an exact",
+      "evidence_ids": [
+        "cu.macos-ax-destructive-refusals",
+        "cu.macos-ax-destructive-close",
+        "cu.macos-ax-receipts"
+      ]
+    },
+    {
       "id": "control-center.native-projection",
       "kind": "behavior",
       "status": "partial",

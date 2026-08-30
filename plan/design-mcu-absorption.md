@@ -85,6 +85,25 @@ macOS 适配器读 `AXMenuBar`、逐段按 `AXTitle` 唯一解析并在 `AXPress
 意外：accessory App 的主菜单 AppKit 会自动补 Apple / Services 等项（菜单栏 75 节点）；`menu inspect --depth 0` 下 `has_submenu` 只反映已走到的层。
 PRD 32 的 `frame` 只写成 `[ ]` leaf + 一段映射（沿用既有 apply pipeline），没有代码。
 
+
+### 片 4 —— destructive `close` 三件套、crash-persistent receipts、`click`/`focus`/`pointer`/`frame` 真机证明 —— **已落地 cut 3.52（2026-08-31）**
+
+验收（本机重跑）：`cu-macos-smoke.qjs` `success`，**21 STEP / 20 EVIDENCE**，固件被 SIGTERM 回收无孤儿；账单 `steps 75.8M / host_ops 264 / host_bytes 445 KB / waited 819 ms / heap 67 页`，约 14.4 s。片 4 在片 1–3 之后新增五段 STEP（`cu.macos-ax-click` / `cu.macos-ax-frame` / `cu.macos-ax-destructive-refusals` / `cu.macos-ax-destructive-close` / `cu.macos-ax-receipts`）。
+
+落地形状：
+
+- **PRD 31 destructive gate（`close`）**：新动词 `close --window H [--pid N] [--title T] --snapshot --expect gone`。三件套在碰任何机制之前检查——精确目标（`--window`，可用同一次 inventory 读里的 `--pid`/精确 `--title` 绑定）、前置快照（`--snapshot`：目标窗口的有界树写进 reserved 收据）、可验证后置条件（`--expect gone`：句柄从 inventory 回读为缺席）——缺任何一件即 typed `refused`（`detail.reason=destructive_gate`，`missing` 指名，`effect:not_performed`）。机制是平台自己的关闭控件（macOS `AXCloseButton` + `AXPress`，从不 activate/raise）。旅程关掉固件的第二个窗口，回读它 gone、主窗口与进程仍在、指针与前台窗口不变；错 `--pid`/`--title` → `window_identity_mismatch`，未知句柄 → `window_not_found`，observe grant → `refused`，坏后置条件 → `invalid_input`；重复关同一句柄 → `window_not_found`。
+- **crash-persistent receipt（新模块 `receipt.rs`）**：每个 actuation（`invoke` / `menu invoke` / `click` / `focus` / `close`）在 audit 目录旁开一个 per-target JSONL（`<audit dir>/cu-receipts/<target>.jsonl`），动作前 flush 一行 `reserved`（target/node/action/value/before/snapshot），回读后 flush 一行 `completed`/`failed`（after/verified/method/reason）。只有 `reserved` 没有配对行 = 崩溃签名（uncertain，绝不当"没发生"）。开不了收据即拒动作（`receipt_unavailable`）。`receipts [--window H] [--max N]`（Observe）按序回读，默认 50、上限 1000、`--max 0` 是 `invalid_input`。
+- **`click`/`focus` 真机化**：片 2 只映射未走旅程；片 4 用 `--node` 与 `--name` 各按一次 `Fixture Press`（tree-diff verified，计数标签前进），`focus --node` 移一 responder（focused-readback verified），都带收据；`--name "Fixture Twin"` 两命中 → `a11y_node_ambiguous`。注意 `click`/`wait` 的 name matcher 用**归一化** role 拼写（`button`），与 `invoke`/`query` 接受 `AXButton` 不同。
+- **pointer invariant（PRD 31）**：`pointer-position` 在 macOS 从 unsupported 变为**只读**实现（`CGEventCreate(NULL)` + `CGEventGetLocation`，不投任何事件）；旅程在每次 `click`/`close` 前后读它并要求坐标不变，证明真实光标从不移动。ABI 里 `agt_input_pointer_position` 的可用性闸放宽：只读观察不再要求 `input-inject` capability 为 `Available`（macOS 只读、不注入）。
+- **`frame` 事务（PRD 32）**：`window-place --action frame --window H --x --y --w --h` 复用既有 apply pipeline（rect 替换 geometry step，其余 preflight/quantize/clamp/单次 AX 写/独立回读/grant/audit/undo 不变）；非 resizable 窗口 typed `window_not_resizable`，catalog 动作带 `--x…` → `invalid_input`，缺维度 → `usage`。旅程把固件主窗口移到请求 rect 并用 `windows --pid` 独立回读证实。
+
+平台侧发现（值得记）：headless 启动固件时，附属（accessory）App 的 `orderFrontRegardless` 窗口会成为其**内部** key window（让固件 App 发布 `AXFocusedUIElement`，片 3 `focused` 需要它），但 `AXFocusedApplication`（系统级）在没有真正活跃 GUI App"守位"时会指向该固件——旧 `mark_focused` 因此把固件误报为 focused。修复：`focused_window_id()` 只在 focused App 同时 `AXFrontmost` 时才采信，并去掉"猜第一个窗口"的兜底。这样 `windows --focused` 回到真正前台（Brave），而固件 `focused` 动词照常工作。这是把 mcu"后台不抢前景"的不变量做实、且不改片 1–3 已验收行为的关键一步。固件本身仍是普通 `NSWindow`（`+resizable`，为 `frame`）+ 第二个可关窗口 `agenterm-ax-second-<pid>`；NSPanel/nonactivating 试过但破坏片 3 的 `focused`。
+
+意外：(1) 第二窗口初名 `<main>-second` 是主标题的超串，破坏片 1 的 `--title` 过滤（matched 2）→ 改名 `agenterm-ax-second-<pid>`；(2) 收据 head 的 `target`（层级串 `current`）与 body 的 `target`（身份对象）键冲突、`merged` 保 head → body 对象被丢，qjs 读 `.title` 于 String 触发引擎缺口 → body 改名 `window_identity` / `spec`。
+
+Linux/Windows：新动词三平台一个拼写，未接的平台 typed `unsupported`（`close` 在 Linux `window_op` 无映射，capabilities 明说；Windows `WM_CLOSE` 有映射但无旅程）；`-p agenterm-platform --features a11y-tree` 对 `x86_64-unknown-linux-gnu` 与 `x86_64-pc-windows-msvc` 均 `cargo check` 通过。ABI 无新导出、无版本 bump（只放宽了 `agt_input_pointer_position` 的可用性闸并给 macOS 接了只读实现）。
+
 - 每个动词一行 PRD 29 leaf + 一段旅程。
 - 两条面的边界（2026-08-30 读过门的实现后定）：qjs 门的 `process.window_{key,pointer,rect,control}` 是**按 PID + 数字控件 id 的原始窗口操作**
   （`agenterm_platform::process_window`），存在的理由是旅程要驱动 **agenterm 自己的窗口**做产品自检；cu 的动词是**面向 agent 的 a11y 语义面**，

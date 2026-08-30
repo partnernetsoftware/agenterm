@@ -54,10 +54,20 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   to `focus` / `invoke --focused` (the STEP "focus moves the first
   responder to the text field ..." moves focus *inside* the fixture only —
   `focused` reads it back — while the user's focused window stays the
-  same) and to the observation STEP. Not proven here: keyboard focus of
-  the user's application and pointer position (the journey does not read
-  them; macOS has no `pointer-position` yet), Linux / Windows, and remote
-  tiers.
+  same) and to the observation STEP. Cut 3.52 (slice 4, 2026-08-31) adds
+  the **pointer invariant**: the journey reads `pointer-position` (a
+  read-only macOS `CGEvent` sample, no event posted) immediately before
+  and after every `click` and every `close` and requires the same
+  coordinates, proving the real pointer never moved; `close` (the
+  destructive verb) runs a background `AXPress` on the window's own
+  `AXCloseButton`, and the focused window handle is read before and after
+  the whole click / frame / close section and is never the fixture (the
+  fixture is proven non-frontmost: its window can be the app's key window
+  for the `focused` read while `AXFocusedApplication` stays the user's
+  real frontmost app, which the adapter now checks via `AXFrontmost`).
+  Not proven here: keyboard focus of the user's application (the journey
+  reads the focused *window*, not the keystroke sink), Linux / Windows,
+  and remote tiers.
 - [x] refusals use one typed vocabulary across every tier: `unsupported`
   (backend lacks the capability), `degraded` (a weaker path was used and says
   so), `denied` (authorization or OS permission), `needs-privilege` (an
@@ -100,16 +110,48 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   Cut 3.51: `menu invoke` answers the same way (`verified` by mark
   read-back or a whole-window tree diff, `mark_before` / `mark_after`,
   `no_observable_change` when neither moved) and `invoke --focused`
-  carries the focused identity it bound in `target` / `node`. The receipt
-  survives the process only as the command's JSON stdout and the existing
-  actuate audit record — a crash-persistent effect receipt written before
-  the action is not built. `click` / `focus` / `send-text` and the older
-  verbs still answer without `verified`.
-- [ ] a destructive action (close, quit, delete, overwrite) requires an exact
+  carries the focused identity it bound in `target` / `node`. Cut 3.52
+  (slice 4) builds the **crash-persistent effect receipt**: every
+  actuation (`invoke`, `menu invoke`, `click`, `focus`, `close`) opens a
+  per-target JSONL file under the audit dir and appends a `reserved` line
+  (target, node, action, value, before / snapshot) **before** the
+  mechanism is touched and a `completed` / `failed` line (after,
+  verified, verification method / reason) after the read-back, each
+  flushed; a `reserved` line with no partner is the crash signature
+  (uncertain, never "did not happen"), and `receipts --window H --max N`
+  reads them back in order. Failure to reserve is failure to act
+  (`receipt_unavailable`). `click` and `focus` now also carry `verified`
+  (tree-diff for click, focused-readback for focus). Proven by
+  `cu-macos-smoke` STEPs "click --node and click --name ..."
+  (`cu.macos-ax-click`) and "receipts lists every actuation of this run
+  in order ..." (`cu.macos-ax-receipts`: the receipt file lists the
+  run's invoke / menu / focus / click / close lines, reserved before and
+  completed after each, the close snapshot inside its reserved line).
+  `send-text` and the older verbs still answer without `verified`.
+- [x] a destructive action (close, quit, delete, overwrite) requires an exact
   target reference, a prior snapshot of the state it changes and a checkable
-  postcondition; without all three it is refused typed. `invoke` offers no
-  destructive action (no close / quit / delete verb exists), so nothing is
-  proven or refused here yet.
+  postcondition; without all three it is refused typed. **Proven for macOS
+  `current` `close`** (cut 3.52, slice 4, `scripts/qjs/cu-macos-smoke.qjs`
+  STEPs "close without a snapshot, a postcondition or a target ..."
+  (`cu.macos-ax-destructive-refusals`) and "close --pid --title --snapshot
+  --expect gone closes the second window ..." (`cu.macos-ax-destructive-close`)):
+  `close --window H [--pid N] [--title T] --snapshot --expect gone` closes
+  one top-level window through the platform's own close control (macOS
+  `AXCloseButton` + `AXPress`, never activating the app). The three-part
+  gate is checked before anything is touched — an exact target (`--window`,
+  bound to `--pid` / exact `--title` in one inventory read), a prior
+  snapshot (`--snapshot`: the bounded tree of the target written to the
+  reserved receipt) and a checkable postcondition (`--expect gone`: the
+  handle read back as absent) — and any missing part is typed `refused`
+  (`detail.reason = destructive_gate`, `missing` naming which, `effect:
+  not_performed`) with nothing performed; a wrong `--pid` / `--title` is
+  `window_identity_mismatch`, an unknown handle `window_not_found`, an
+  observe grant `refused`, a bad postcondition `invalid_input`. The journey
+  closes the fixture's second window with all three, reads it gone from the
+  inventory (pointer and focused window unchanged, the main window and
+  process still alive), and a second close of the same handle is
+  `window_not_found`. `invoke` still offers no destructive action (no
+  quit / delete). Linux / Windows / remote tiers are not claimed.
 ## Audit
 
 - [ ] every authorized action produces an observable record identifying target,

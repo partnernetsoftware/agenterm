@@ -88,19 +88,24 @@ agenterm-cu (28)
   `screen`, and whether quantized / clamped adjustment ran.
 - [ ] `wait` already owned by [29](PRD_02_29_cu_command_surface.md) is the
   only legal way to observe completion. Workflows must not sleep.
-- [ ] `frame` transaction leaf (absorbed as a shape from `moltbaby/skills/mcu`
-  `frame` / `maximize`, 2026-08-30; not started): `window-place --action
-  frame --window HANDLE --x X --y Y --width W --height H` would be one more
-  closed action id on this verb, not a new verb. Mapping onto the existing
-  apply pipeline: the requested rect replaces the geometry step (no
-  Spectacle cycle), then the same preflight (ABI 1.10 role / support /
-  constraint query), the same quantize-and-clamp, the same single AX
+- [x] `frame` transaction leaf (absorbed as a shape from `moltbaby/skills/mcu`
+  `frame` / `maximize`, 2026-08-30; landed cut 3.52, slice 4):
+  `window-place --action frame --window HANDLE --x X --y Y --width W
+  --height H` is one more closed action id on this verb, not a new verb.
+  It rides the existing apply pipeline: the requested rect replaces the
+  geometry step (no Spectacle cycle), then the same preflight (ABI 1.10
+  role / support / constraint query — a non-resizable window is typed
+  `window_not_resizable`), the same quantize-and-clamp, the same single AX
   position+size write, the same independent bounds read-back and the same
-  grant / audit / receipt path; a partial apply restores the whole previous
-  frame before failing typed, and the reply is the `before` / `after` /
-  `screen` record every other action already returns. Undo history would
-  record it like any action. Nothing here needs new platform mechanism;
-  it is deferred only because no journey asks for an arbitrary frame yet.
+  grant / audit path; the reply is the `before` / `after` / `screen`
+  record every other action returns, and it is recorded in undo history
+  like any action. `frame` is required for that action and refused for
+  every other (`--x/--y/--width/--height` on a catalog action is
+  `invalid_input`; a missing dimension is `usage`; a non-positive or
+  out-of-range extent is `invalid_input`). Nothing here needs new platform
+  mechanism. Evidence: `cu-macos-smoke` STEP "window-place --action frame
+  moves the fixture window to a requested rect in one transaction and the
+  inventory reads it back" (`cu.macos-ax-frame`).
 
 ## Geometry contract (must match Spectacle 1.2)
 
@@ -207,8 +212,13 @@ crash recovery and concurrent-writer CAS remain open; this leaf is still partial
 - [x] pure tests: all 16 stateless frozen actions have exact deterministic
   fixtures, including complete half/corner/third/display cycles; undo/redo have
   separate bounded history, persistence and compensation-saga tests.
-- [ ] black-box: real `agenterm-cu` on a real macOS session places a visible window
-  and a subsequent `windows` / `wait` observation shows the new bounds.
+- [~] black-box: real `agenterm-cu` on a real macOS session places a visible window
+  and a subsequent `windows` / `wait` observation shows the new bounds. The
+  `frame` action is proven (cut 3.52, `cu-macos-smoke` `cu.macos-ax-frame`:
+  `--action frame` sets the fixture window's rect and an independent
+  `windows --pid` read confirms the new bounds); the Spectacle catalog
+  actions (halves / thirds / corners / display walk) are not yet journey-proven
+  on macOS.
 - [~] unauthorized call is `refused` and does not move the window. The staged
   Windows x86_64 public smoke proves this against its owned fixture; macOS and
   Linux evidence remain open.

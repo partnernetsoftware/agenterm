@@ -191,9 +191,32 @@ cross-tier conformance;
   set-value issued while it runs" (`cu.macos-ax-observe`; the observer is a
   second `agenterm-cu` spawned through the door). The focused window handle
   is the same before and after every actuating section and never the
-  fixture. Not claimed: AX notifications (`observe` is poll-diff), `click`
-  on macOS, Linux / Windows for the background verbs (their adapters
-  answer typed `unsupported`).
+  fixture. Not claimed: AX notifications (`observe` is poll-diff), Linux /
+  Windows for the background verbs (their adapters answer typed
+  `unsupported`); macOS `click` is now proven in slice 4 below.
+- [x] macOS `current` slice 4 is live (cut 3.52, 2026-08-31, slice 4 of
+  `plan/design-mcu-absorption.md` — the destructive gate, crash-persistent
+  receipts, and click / focus / pointer / frame journey-proven): `click`
+  and `focus` by `--node` and by `--name` press / focus the fixture
+  through the a11y backend (verified by tree-diff / focused-readback), the
+  read-only `pointer-position` (a macOS `CGEvent` sample that posts no
+  event) is read before and after every click and close and is unchanged
+  (PRD 31's pointer invariant), `window-place --action frame` sets an
+  arbitrary rect in one transaction read back from the inventory, and the
+  destructive `close --window H [--pid N] [--title T] --snapshot --expect
+  gone` closes one window through macOS `AXCloseButton` + `AXPress` behind
+  the three-part gate, every actuation appending a `reserved` / `completed`
+  line to a per-target receipt file read back by `receipts`. Evidence is
+  `scripts/qjs/cu-macos-smoke.qjs` STEPs `cu.macos-ax-click`,
+  `cu.macos-ax-frame`, `cu.macos-ax-destructive-refusals`,
+  `cu.macos-ax-destructive-close`, `cu.macos-ax-receipts`. The focused
+  window handle is the same before and after the whole section and never
+  the fixture (the adapter now confirms the focused application is
+  genuinely frontmost via `AXFrontmost`, so a background key panel is never
+  mislabeled as the foreground). Not claimed: `close` on Linux / Windows
+  (their adapters answer typed `unsupported` / use `WM_CLOSE` untested by a
+  journey), pointer *injection* on macOS (only the read is wired), and
+  remote tiers.
 ## Platform accessibility backends
 
 This branch is the **native accessibility stack** that backs structured

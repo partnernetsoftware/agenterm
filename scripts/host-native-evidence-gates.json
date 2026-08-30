@@ -67,6 +67,11 @@
         "cu.macos-ax-menu-invoke",
         "cu.macos-ax-focused",
         "cu.macos-ax-observe",
+        "cu.macos-ax-click",
+        "cu.macos-ax-frame",
+        "cu.macos-ax-destructive-refusals",
+        "cu.macos-ax-destructive-close",
+        "cu.macos-ax-receipts",
         "cu.macos-ax-fixture-cleanup"
       ]
     }

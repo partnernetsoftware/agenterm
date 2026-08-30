@@ -37,6 +37,16 @@
  *     `focus` makes it the window's first responder without key focus
  *     leaving the user's application, and `focused` reads it back.
  *
+ * Slice 4 (destructive gate, receipts, click) adds a SECOND window titled
+ * `agenterm-ax-fixture-<pid>-second` (closable, ordered front without
+ * activation, holding one AXStaticText `fixture-second-label`): the target
+ * of `close --window H --snapshot --expect gone` (titled
+ * `agenterm-ax-second-<pid>`, not a superstring of the main title so the
+ * slice-1 title filter still matches exactly one window). Closing it must not end
+ * the process (`releasedWhenClosed` off; an accessory app does not quit on
+ * its last window), so the main window and the journey's SIGTERM cleanup
+ * are unchanged.
+ *
  * System applications cannot stand in: since macOS 13 a directly exec'd
  * system app binary is killed by launch constraints, and `open -a` hands the
  * process to LaunchServices, so its pid is not the spawner's to kill.
@@ -105,9 +115,12 @@ int main(int argc, const char *argv[]) {
         NSString *title =
             [NSString stringWithFormat:@"agenterm-ax-fixture-%d", (int)getpid()];
         NSRect frame = NSMakeRect(160.0, 160.0, 560.0, 440.0);
+        // Resizable so the slice-4 `window-place --action frame` transaction
+        // (ABI 1.10 resizable/size-settable preflight) can set its rect.
         NSWindow *window = [[NSWindow alloc]
             initWithContentRect:frame
-                      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
+                      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                                 | NSWindowStyleMaskResizable)
                         backing:NSBackingStoreBuffered
                           defer:NO];
         [window setTitle:title];
@@ -253,8 +266,34 @@ int main(int argc, const char *argv[]) {
         [button setAction:@selector(press:)];
         [content addSubview:button];
 
-        /* Order front without activating: the fixture must never take the
-         * user's foreground or key focus. */
+        /* Slice 4: the second, closable window `close` acts on. */
+        NSRect second_frame = NSMakeRect(760.0, 160.0, 320.0, 200.0);
+        NSWindow *second = [[NSWindow alloc]
+            initWithContentRect:second_frame
+                      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
+                        backing:NSBackingStoreBuffered
+                          defer:NO];
+        [second setTitle:[NSString stringWithFormat:@"agenterm-ax-second-%d", (int)getpid()]];
+        [second setReleasedWhenClosed:NO];
+        NSTextField *secondLabel =
+            [[NSTextField alloc] initWithFrame:NSMakeRect(20.0, 80.0, 280.0, 24.0)];
+        [secondLabel setStringValue:@"second window"];
+        [secondLabel setEditable:NO];
+        [secondLabel setBezeled:NO];
+        [secondLabel setDrawsBackground:NO];
+        [secondLabel setSelectable:NO];
+        [secondLabel setAccessibilityIdentifier:@"fixture-second-label"];
+        [[second contentView] addSubview:secondLabel];
+
+        /* Order both windows front WITHOUT activating: an accessory app's
+         * `orderFrontRegardless` gives the app an internal key window (so it
+         * publishes an AXFocusedUIElement for the slice-3 `focused` read)
+         * without becoming the system's frontmost/active application, so the
+         * user's foreground app and the cu background invariant are both
+         * untouched. The main window is ordered last so it is the app's main
+         * window; `text` is its initial first responder. */
+        [second orderFrontRegardless];
+        [window setInitialFirstResponder:text];
         [window orderFrontRegardless];
 
         printf("ready %d\n", (int)getpid());

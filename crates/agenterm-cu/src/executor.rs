@@ -7081,10 +7081,9 @@ mod tests {
             returned: 1,
         };
         let flat = observe::flatten(&tree);
-        let expectation: crate::command::Expectation = serde_json::from_str(
-            r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#,
-        )
-        .expect("titleIncludes");
+        let expectation: crate::command::Expectation =
+            serde_json::from_str(r#"{"role":"AXHeading","titleIncludes":"Nepal"}"#)
+                .expect("titleIncludes");
         let verdict = super::check_one(&flat, &expectation).expect("identity-only expect");
         assert!(verdict.met);
         assert_eq!(verdict.item["page_identity"], true);

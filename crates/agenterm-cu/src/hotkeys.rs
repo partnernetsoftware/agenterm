@@ -310,6 +310,7 @@ mod macos {
             target: TargetRef::Current,
             action: "center".into(),
             window: None,
+            frame: None,
         });
         if reply.ok {
             eprintln!("agenterm-cu host --self-test: window-place center ok");

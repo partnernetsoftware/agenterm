@@ -48,10 +48,8 @@ pub(crate) enum InjectedAuditFailure {
 
 impl AuditLog {
     pub fn open() -> Result<Self, CuError> {
-        let path = std::env::var("AGENTERM_CU_AUDIT_PATH")
-            .map(PathBuf::from)
-            .or_else(|_| default_audit_path())
-            .map_err(|error| CuError::new("audit_unavailable", error))?;
+        let path =
+            resolved_audit_path().map_err(|error| CuError::new("audit_unavailable", error))?;
         Self::open_at(path)
     }
 
@@ -216,6 +214,15 @@ impl AuditLog {
     }
 }
 
+/// The audit log path this process would write: `AGENTERM_CU_AUDIT_PATH`
+/// or the platform default. The receipt file (`receipt.rs`) lives beside
+/// it, so one variable relocates both.
+pub(crate) fn resolved_audit_path() -> Result<PathBuf, String> {
+    std::env::var("AGENTERM_CU_AUDIT_PATH")
+        .map(PathBuf::from)
+        .or_else(|_| default_audit_path())
+}
+
 fn default_audit_path() -> Result<PathBuf, String> {
     // Resolution order: AGENTERM_CU_AUDIT_PATH is handled by AuditLog::open();
     // here we fall back HOME -> USERPROFILE (the latter covers Windows, which
@@ -271,6 +278,7 @@ mod tests {
             target: TargetRef::Current,
             action: "left-half".into(),
             window: None,
+            frame: None,
         }
     }
 

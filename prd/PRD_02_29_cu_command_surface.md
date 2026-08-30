@@ -251,6 +251,30 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     new value, `seq` / `t_ms` monotonic, `stopped: "deadline"`; a second
     observer with `--max-events 1` stops on the first of two writes with
     `truncated: true`; `--notification Moved` is `usage`).
+- [x] `close --window HANDLE [--pid N] [--title T] --snapshot --expect gone`
+  is the destructive verb (absorbed from `moltbaby/skills/mcu`, slice 4):
+  it closes one top-level window in the background through the platform's
+  own close control (macOS `AXCloseButton` + `AXPress`; never activating
+  or raising the app), gated by [31](PRD_02_31_cu_authorization_safety.md)'s
+  three-part destructive rule — an exact target, a prior snapshot written
+  to the receipt, and a checkable postcondition read back — any missing
+  part typed `refused` (`detail.reason = destructive_gate`). The CLI shape
+  is closed. Evidence: `cu-macos-smoke` STEPs
+  `cu.macos-ax-destructive-refusals` (missing snapshot / postcondition /
+  target, wrong `--pid` / `--title`, unknown handle, observe grant, bad
+  postcondition are each typed and perform nothing) and
+  `cu.macos-ax-destructive-close` (the fixture's second window is closed
+  and read back gone, the main window and process untouched).
+- [x] `receipts [--window HANDLE] [--max N]` reads back the crash-persistent
+  effect-receipt file every actuation appends to
+  (`<audit dir>/cu-receipts/<target>.jsonl`): a `reserved` line before the
+  mechanism and a `completed` / `failed` line after the read-back, newest
+  last, filtered by `window`, at most `max` (default 50, ceiling 1000). It
+  is Observe-grant observation; the file is not created here. Evidence:
+  `cu-macos-smoke` STEP `cu.macos-ax-receipts` (the run's invoke / menu /
+  focus / click / close lines listed in order, reserved before and
+  completed after each, the close snapshot inside its reserved line;
+  `--max 2` truncates with `truncated: true`, `--max 0` is `invalid_input`).
 - [ ] browser pages are reached through the platform's own web accessibility
   area (`role` WebArea and its descendants) on the same loop; no browser
   extension, native-messaging bridge or devtools protocol is adopted.
@@ -292,10 +316,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   a safe pointer-move receipt. ABI 1.11 adds a null-checked, non-injecting
   query; CU requires that minor version and maps an old library or missing
   symbol to typed unsupported. Windows `GetCursorPos` and X11 `QueryPointer`
-  are wired; macOS remains unsupported. Pure/ABI/transport evidence is closed,
-  but the move → independent readback → restore black box remains open because
-  this automation session cannot read its input desktop (`GetCursorPos`
-  returns a typed platform failure).
+  are wired; macOS is now wired read-only too (cut 3.52, slice 4: a
+  `CGEventCreate(NULL)` + `CGEventGetLocation` sample that posts no event).
+  Pure/ABI/transport evidence is closed. macOS live evidence is now held:
+  `cu-macos-smoke` reads `pointer-position` before and after every `click`
+  and `close` and requires the same coordinates (the pointer invariant,
+  `cu.macos-ax-click` / `cu.macos-ax-destructive-close`). The
+  move → independent readback → restore black box stays open on Windows
+  (that session cannot read its input desktop) and no macOS move is
+  attempted (injection stays unsupported; only the read is wired).
 
 ## Structured observation
 
@@ -312,20 +341,32 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   explicitly with typed `Unsupported` / `Failed`. Coordinate-only or
   screenshot-only operation is always visible in the result, never inferred by
   the caller.
-- [ ] structured `click` / `focus` by node id use the same platform a11y
+- [x] structured `click` / `focus` by node id use the same platform a11y
   backend as `tree`. Coordinate `click` is a separate degraded path requiring
   an explicit marker; it never substitutes silently when structured actuation
-  was requested.
-- [~] structured `click` / `focus` also accept an accessible name
+  was requested. **Journey-proven on macOS `current`** (cut 3.52, slice 4,
+  `cu-macos-smoke` STEP "click --node and click --name press the button ..."
+  `cu.macos-ax-click`, and the slice-3 `focus` STEP `cu.macos-ax-focused`):
+  `click --window H --node ID` presses the fixture button (verified by
+  tree-diff, the count label advances), `focus --node ID` moves the first
+  responder (verified by `focused`-readback), and both carry a
+  crash-persistent receipt; `pointer-position` read before and after each
+  click is unchanged (the real pointer never moves) and the focused window
+  is never the fixture.
+- [x] structured `click` / `focus` also accept an accessible name
   (`--window` + `--name` + optional `--role`). Resolution reuses the
   `wait --node-name-contains` matcher (showing/visible, case-insensitive
-  substring) and then acts on the existing node-path a11y path. A miss is
-  typed `a11y_node_not_found`. Two or more showing matches are typed
+  substring; the `--role` narrowing uses the normalized role spelling,
+  e.g. `button`) and then acts on the existing node-path a11y path. A miss
+  is typed `a11y_node_not_found`. Two or more showing matches are typed
   `a11y_node_ambiguous` (with the match count); the command must not pick
   the first. Name addressing must not parse tree dumps, take screenshots,
   or fall through to `--coords`. A showing named node with no Action
   still uses the AT-SPI Component path and reports
-  `addressing=accessibility-tree`.
+  `addressing=accessibility-tree`. **Journey-proven on macOS**: cut 3.52
+  `click --window H --name "Fixture Press"` presses the unique button and
+  `--name "Fixture Twin"` (two showing matches) is `a11y_node_ambiguous`
+  (`cu.macos-ax-click`).
 - [x] `send-text` accepts the same name addressing (`--window` + `--name` +
   optional `--role`, with `--` ending flag parsing). Named write goes
   through native AT-SPI `EditableText` (`SetTextContents` / `InsertText`)

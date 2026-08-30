@@ -632,7 +632,14 @@ pub(crate) mod input_inject;
 #[path = "adapters/linux/input_inject.rs"]
 pub(crate) mod input_inject;
 
-#[cfg(all(feature = "input-inject", not(any(windows, target_os = "linux"))))]
+#[cfg(all(feature = "input-inject", target_os = "macos"))]
+#[path = "adapters/macos/input_inject.rs"]
+pub(crate) mod input_inject;
+
+#[cfg(all(
+    feature = "input-inject",
+    not(any(windows, target_os = "linux", target_os = "macos"))
+))]
 #[path = "adapters/unix/input_inject.rs"]
 pub(crate) mod input_inject;
 

@@ -160,6 +160,7 @@ pub fn command(id: u32) -> Option<Command> {
         target: TargetRef::Current,
         action: action.place.kebab().to_owned(),
         window: None,
+        frame: None,
     })
 }
 

@@ -100,6 +100,7 @@ unsafe extern "C" {
     fn AXValueCreate(typ: u32, value_ptr: *const c_void) -> AxValueRef;
     fn AXValueGetValue(value: AxValueRef, typ: u32, value_ptr: *mut c_void) -> u8;
     fn _AXUIElementGetWindow(element: AxUiElementRef, out: *mut CgWindowId) -> i32;
+    fn CFBooleanGetValue(boolean: CfTypeRef) -> u8;
 }
 
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
@@ -279,12 +280,36 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
 }
 
 fn mark_focused(windows: &mut [WindowInfo]) {
+    // Only a window whose owning application is genuinely *frontmost* is
+    // reported focused. A non-activating panel (a background tool window,
+    // the cu smoke fixture) can hold the app's key window and thus
+    // `AXFocusedApplication` without its app being frontmost — reporting it
+    // as focused would falsely claim the foreground moved. When the
+    // frontmost app's focused window cannot be resolved, nothing is marked
+    // (never a guessed first window), so `--focused` is empty rather than
+    // wrong.
     if let Some(id) = focused_window_id() {
         for window in windows.iter_mut() {
             window.focused = window.handle == id as isize;
         }
-    } else if let Some(first) = windows.first_mut() {
-        first.focused = true;
+    }
+}
+
+/// True only when the application element is the frontmost (active)
+/// application: `AXFrontmost` is a CFBoolean the WindowServer sets on the
+/// active app. A non-activating key panel's app reads false here.
+fn app_is_frontmost(app: AxUiElementRef) -> bool {
+    unsafe {
+        let key = cfstr("AXFrontmost");
+        let mut value: CfTypeRef = std::ptr::null();
+        let status = AXUIElementCopyAttributeValue(app, key, &mut value);
+        CFRelease(key as CfTypeRef);
+        if status != AX_SUCCESS || value.is_null() {
+            return false;
+        }
+        let frontmost = CFBooleanGetValue(value) != 0;
+        CFRelease(value);
+        frontmost
     }
 }
 
@@ -300,6 +325,13 @@ fn focused_window_id() -> Option<u32> {
         CFRelease(focused_app_key as CfTypeRef);
         CFRelease(system as CfTypeRef);
         if status != AX_SUCCESS || app.is_null() {
+            return None;
+        }
+        // The keyboard-focused application is only the *foreground* app when
+        // it is also frontmost; otherwise its key window belongs to a
+        // background panel and must not be reported as focused.
+        if !app_is_frontmost(app as AxUiElementRef) {
+            CFRelease(app);
             return None;
         }
         let focused_win_key = cfstr("AXFocusedWindow");
@@ -610,8 +642,52 @@ pub(crate) fn set_topmost(_handle: isize, _topmost: bool) -> Result<(), WindowOp
     })
 }
 
-pub(crate) fn close(_handle: isize) -> Result<(), WindowOpError> {
-    Err(WindowOpError::Unsupported {
-        reason: "window close is not wired on macOS yet".into(),
-    })
+/// Close a foreign window in the background: `AXPress` on the window's own
+/// `AXCloseButton`, the same button the user would click. Nothing here
+/// activates or raises the application; a window without a close button
+/// (a sheet, a non-closable panel) is typed `Unsupported`, and the caller
+/// owns the postcondition (the window must be read back as gone).
+pub(crate) fn close(handle: isize) -> Result<(), WindowOpError> {
+    unsafe extern "C" {
+        fn AXUIElementPerformAction(element: AxUiElementRef, action: CfStringRef) -> i32;
+    }
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        return Err(WindowOpError::failed(
+            "a11y_permission_denied",
+            "AXIsProcessTrusted() is false: Accessibility permission is not granted",
+        ));
+    }
+    let window = ax_element_for_handle(handle)?;
+    unsafe {
+        let key = cfstr("AXCloseButton");
+        let mut button: CfTypeRef = std::ptr::null();
+        let status = AXUIElementCopyAttributeValue(window, key, &mut button);
+        CFRelease(key as CfTypeRef);
+        if status == AX_API_DISABLED {
+            CFRelease(window as CfTypeRef);
+            return Err(WindowOpError::failed(
+                "a11y_permission_denied",
+                "AXCloseButton: Accessibility permission is not granted",
+            ));
+        }
+        if status != AX_SUCCESS || button.is_null() {
+            CFRelease(window as CfTypeRef);
+            return Err(WindowOpError::Unsupported {
+                reason: format!("window {handle} publishes no AXCloseButton (AXError {status})")
+                    .into(),
+            });
+        }
+        let press = cfstr("AXPress");
+        let pressed = AXUIElementPerformAction(button as AxUiElementRef, press);
+        CFRelease(press as CfTypeRef);
+        CFRelease(button);
+        CFRelease(window as CfTypeRef);
+        if pressed != AX_SUCCESS {
+            return Err(WindowOpError::failed(
+                "ax_close_failed",
+                format!("AXPress on AXCloseButton of window {handle} failed (AXError {pressed})"),
+            ));
+        }
+    }
+    Ok(())
 }

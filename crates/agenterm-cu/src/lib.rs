@@ -18,6 +18,7 @@ pub mod mechanism;
 pub mod observe;
 pub mod place;
 pub mod rdp_transport;
+pub mod receipt;
 pub mod reply;
 pub mod ssh_transport;
 #[cfg(target_os = "macos")]

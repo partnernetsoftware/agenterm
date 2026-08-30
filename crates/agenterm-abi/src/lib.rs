@@ -5972,9 +5972,10 @@ pub extern "C" fn agt_input_pointer_position(x: *mut i32, y: *mut i32) -> agt_st
             );
             return agt_status::AGT_FAILED;
         }
-        if !input_inject_available() {
-            return agt_status::AGT_UNSUPPORTED;
-        }
+        // The pointer read is an observation, not an injection: a host
+        // whose adapter can sample the pointer but not inject (macOS, ABI
+        // 1.14 slice 4) answers here even though the `input-inject`
+        // capability is not `Available`. A host with neither says so typed.
         match pointer_position() {
             Ok(position) => {
                 unsafe {
@@ -5982,6 +5983,9 @@ pub extern "C" fn agt_input_pointer_position(x: *mut i32, y: *mut i32) -> agt_st
                     *y = position.y;
                 }
                 agt_status::AGT_OK
+            }
+            Err(agenterm_platform::input_inject::InputInjectError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
             }
             Err(error) => {
                 record_error(
