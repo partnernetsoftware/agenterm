@@ -114,3 +114,16 @@ bootstrap 答复 63% 的字节是缩进，protocol-info 38%）：
 102 个时间戳 ≈3.3M 步（10.7%）——这是 stringify 家族里最集中的一笔，也是第 2 项之后最便宜的一刀。`tests/json_stringify_cost.rs::a_journal_record_has_a_known_price` 钉着它。
 
 wake-smoke 没有单独剖：同一个 harness、同一种答复，步数多出的 17M 与它多读的 `ui-bootstrap` 一致。
+
+### 7.1 第 2 项落地后的账（同夜，tinyvm `8d3f4c5`）
+
+`__jp_ws` 空白按字（39 → 14 步/字节，缩进行 7）、`__json_pstr` 平凡串直接成记录（`"ab"` 758 → 591）：34 份真实答复进程内 **13.56M → 8.45M（−38%）**。
+
+| 旅程 | steps 前 | steps 后 | host_ops | host_bytes | waited_ms | heap_pages 前 → 后 | 墙钟 ms |
+|---|---|---|---|---|---|---|---|
+| server-smoke | 31 215 008 | **26 275 039**（第二次 26 341 917） | 1 136 | 887 579 | 287 / 277 | 45 → **35** | 2 975 |
+| wake-smoke | 48 912 831 | **41 220 613**（第二次 41 296 366） | 1 154 | 1 144 959 | 246 / 236 | 63 → **46** | 2 940 |
+
+server-smoke −15.8%、wake-smoke −15.7%，与「parse 占 48% × 降 38% ≈ 18%」相符（差的 2 个点是 parse 里数字/结构那部分没动）。
+堆页少了 10–17 页：每个串少一个 `__jb_new` 缓冲（64 B 起、按倍增长）。`host_ops` / `host_bytes` 不动——这一刀只在 guest 里。
+下一刀按 §7 的表是 stringify 的 13 位时间戳（≈3.3M，10.7% → 现在 12.5%）。

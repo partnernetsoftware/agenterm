@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "d0db3eb";
+pub const UPSTREAM_TINYVM_REV: &str = "8d3f4c5";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
