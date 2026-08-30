@@ -99,21 +99,21 @@ impl PrimaryFaceReport {
 
 /// Measures the face the grid is built on at `size_px`.
 pub fn primary_face_report(size_px: u16) -> Result<PrimaryFaceReport, FontError> {
-    #[cfg(windows)]
-    {
-        selected::font::primary_face_report(size_px)
-    }
-    #[cfg(not(windows))]
-    {
-        let metrics = primary_metrics(size_px)?;
-        Ok(PrimaryFaceReport {
-            face: rasterizer_name()?,
-            cell_width: crate::numeric::ceil_f32(metrics.cell_width).max(1.0) as u32,
-            cell_height: crate::numeric::ceil_f32(metrics.cell_height).max(1.0) as u32,
-            ascii_advance: None,
-            full_width_advance: None,
-        })
-    }
+    selected::primary_face_report(size_px)
+}
+
+/// The report assembled from the portable metrics and the rasterizer's
+/// name -- what every platform without a native face report answers.
+/// `selected.rs` decides who answers; no `cfg` lives here.
+pub(crate) fn portable_primary_face_report(size_px: u16) -> Result<PrimaryFaceReport, FontError> {
+    let metrics = primary_metrics(size_px)?;
+    Ok(PrimaryFaceReport {
+        face: rasterizer_name()?,
+        cell_width: crate::numeric::ceil_f32(metrics.cell_width).max(1.0) as u32,
+        cell_height: crate::numeric::ceil_f32(metrics.cell_height).max(1.0) as u32,
+        ascii_advance: None,
+        full_width_advance: None,
+    })
 }
 
 /// Rasterizes one Unicode scalar without exposing font files or native handles.

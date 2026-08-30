@@ -474,6 +474,23 @@ pub(crate) mod font;
 #[path = "adapters/unix/font_raster.rs"]
 pub(crate) mod portable_font_raster;
 
+/// Who measures the primary face: the Windows adapter has a native report;
+/// every other platform assembles one from the portable metrics. The
+/// `cfg` lives here, as the boundary test insists, not in `font.rs`.
+#[cfg(all(feature = "font", windows))]
+pub(crate) fn primary_face_report(
+    size_px: u16,
+) -> Result<crate::font::PrimaryFaceReport, crate::font::FontError> {
+    font::primary_face_report(size_px)
+}
+
+#[cfg(all(feature = "font", not(windows)))]
+pub(crate) fn primary_face_report(
+    size_px: u16,
+) -> Result<crate::font::PrimaryFaceReport, crate::font::FontError> {
+    crate::font::portable_primary_face_report(size_px)
+}
+
 #[cfg(all(
     any(feature = "filesystem-conventions", feature = "filesystem"),
     target_os = "linux"
@@ -798,6 +815,38 @@ pub(crate) mod pty;
 #[cfg(all(feature = "pty", windows))]
 #[path = "adapters/windows/console_agent.rs"]
 pub(crate) mod console_agent;
+
+/// The argument that starts the console agent, where this platform has one.
+#[cfg(all(feature = "pty", windows))]
+pub(crate) const CONSOLE_AGENT_ARGUMENT: Option<&str> = Some(console_agent::AGENT_ARGUMENT);
+
+#[cfg(all(feature = "pty", not(windows)))]
+pub(crate) const CONSOLE_AGENT_ARGUMENT: Option<&str> = None;
+
+/// Which PTY backend this machine gets: Windows asks its adapter (a
+/// pseudoconsole or the console agent), every other platform has one PTY.
+#[cfg(all(feature = "pty", windows))]
+pub(crate) fn pty_backend_report() -> crate::pty::BackendReport {
+    pty::backend_report()
+}
+
+#[cfg(all(feature = "pty", not(windows)))]
+pub(crate) fn pty_backend_report() -> crate::pty::BackendReport {
+    crate::pty::single_backend_report("unix-pty")
+}
+
+/// The console agent's re-execution hook; ordinary arguments everywhere
+/// but Windows.
+#[cfg(all(feature = "pty", windows))]
+pub(crate) fn run_if_console_agent(arguments: &[String]) -> Option<i32> {
+    console_agent::run_if_agent(arguments)
+}
+
+#[cfg(all(feature = "pty", not(windows)))]
+pub(crate) fn run_if_console_agent(arguments: &[String]) -> Option<i32> {
+    let _ = arguments;
+    None
+}
 
 #[cfg(all(feature = "pty", target_os = "linux"))]
 #[path = "adapters/linux/pty.rs"]

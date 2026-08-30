@@ -1641,7 +1641,7 @@ impl Drop for SuspendedProcess {
 /// environment on every spawn is deliberate: a cached answer could not be
 /// changed between the tests in one process.
 fn force_console_agent() -> bool {
-    env::var_os("AGENTERM_FORCE_CONSOLE_AGENT").is_some_and(|value| value == "1")
+    env::var_os("FORCE_CONSOLE_AGENT").is_some_and(|value| value == "1")
 }
 
 /// Answers "which backend will this machine use" without opening a session.
@@ -1660,10 +1660,7 @@ pub(crate) fn backend_report() -> crate::pty::BackendReport {
     if force_console_agent() {
         return crate::pty::BackendReport {
             kind: "console-agent",
-            detail: format!(
-                "forced by AGENTERM_FORCE_CONSOLE_AGENT=1 ({})",
-                describe_build()
-            ),
+            detail: format!("forced by FORCE_CONSOLE_AGENT=1 ({})", describe_build()),
         };
     }
     if conpty::is_available() {

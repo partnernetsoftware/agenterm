@@ -14,8 +14,10 @@ pub use crate::selected::pty::{ChildCommand, PtyChild, PtyMaster, login_shell_ar
 /// the two sides come apart: a blanket product rename once rewrote a copy of
 /// this literal in a test, which no compiler could catch and which silently
 /// disabled the journeys guarding this backend.
-#[cfg(windows)]
-pub const CONSOLE_AGENT_ARGUMENT: &str = crate::selected::console_agent::AGENT_ARGUMENT;
+///
+/// `None` where this platform has no console agent: the answer is the
+/// selection's, not a `cfg` in this file.
+pub const CONSOLE_AGENT_ARGUMENT: Option<&str> = crate::selected::CONSOLE_AGENT_ARGUMENT;
 
 /// Which PTY backend this machine will actually get, and why.
 ///
@@ -35,16 +37,15 @@ pub struct BackendReport {
 /// Reports the backend without opening one.
 #[must_use]
 pub fn backend_report() -> BackendReport {
-    #[cfg(windows)]
-    {
-        crate::selected::pty::backend_report()
-    }
-    #[cfg(not(windows))]
-    {
-        BackendReport {
-            kind: "unix-pty",
-            detail: String::new(),
-        }
+    crate::selected::pty_backend_report()
+}
+
+/// The report every platform without a second backend answers: the one
+/// PTY it has. `selected.rs` decides who answers; no `cfg` lives here.
+pub(crate) fn single_backend_report(kind: &'static str) -> BackendReport {
+    BackendReport {
+        kind,
+        detail: String::new(),
     }
 }
 
@@ -58,15 +59,7 @@ pub fn backend_report() -> BackendReport {
 /// arguments. Always `None` off Windows.
 #[must_use]
 pub fn run_if_console_agent(arguments: &[String]) -> Option<i32> {
-    #[cfg(windows)]
-    {
-        crate::selected::console_agent::run_if_agent(arguments)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = arguments;
-        None
-    }
+    crate::selected::run_if_console_agent(arguments)
 }
 
 const PTY_SHUTDOWN_QUEUE_CAPACITY: usize = 64;

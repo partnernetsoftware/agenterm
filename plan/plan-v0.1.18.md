@@ -898,7 +898,7 @@ con 已是独立 package、有独立 CI 与独立对齐门，不再是"主程序
     - **后端差异必须封死在 `PtySession` 字节流契约之下**:agent 负责把缓冲区差异合成 VT,
       adapter 之上的任何代码都不应知道跑的是哪个后端。
   **已实现并验证(2026-08-22)**:`adapters/windows/console_agent.rs`。
-  - 按能力选后端(`conpty::is_available()`),`AGENTERM_FORCE_CONSOLE_AGENT=1` 可在新系统上
+  - 按能力选后端(`conpty::is_available()`),`FORCE_CONSOLE_AGENT=1`（原 `AGENTERM_FORCE_CONSOLE_AGENT`，平台 crate 不得带产品前缀，2026-08-30 改名） 可在新系统上
     强制走旧后端——否则这条路只有旧机器能跑到,等于没有覆盖。
   - agent = `agenterm-con` 自身 re-exec(`--agenterm-console-agent`),无第三方二进制。
     `agenterm.exe` 也接了同一入口。
