@@ -319,9 +319,8 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         | E::Trap(_)
         | E::HostArgument(_)
         | E::PropertyOfNonObject(_)
-        | E::NotAFunction(_) => {
-            ScriptFailureCategory::Script
-        }
+        | E::NotAFunction(_)
+        | E::NoPrimitiveForm(_) => ScriptFailureCategory::Script,
         _ => ScriptFailureCategory::Configuration,
     };
     ScriptEngineError {

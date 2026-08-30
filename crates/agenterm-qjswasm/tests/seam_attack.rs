@@ -352,21 +352,20 @@ fn a_killed_slot_is_a_typed_refusal_and_its_id_is_never_recycled() {
 /// the kind of claim that survives a refactor as a comment and not as a fact.
 /// Three different failure classes are run through it here.
 ///
-/// The trapping source is a call to a non-callable value. It used to be
-/// `"2" * 2`, a String-to-Number coercion, which the `f21f0f2` bump implemented
-/// (ba143c5) -- it now returns `Number(4.0)`, so it stopped producing the trap
-/// this test needs. What is under test is the accounting, not the fault.
+/// The trapping guest is a hand-written `unreachable`. It used to be `"2" * 2`,
+/// a String-to-Number coercion, which the `f21f0f2` bump implemented (ba143c5);
+/// then a call on a non-function, named at a4e12fd; then `"" + {}`, named at
+/// the bump after it. Every stop a `.qjs` program can reach now has a name, so
+/// the nameless trap has to be written by hand. What is under test is the
+/// accounting, not the fault.
 #[test]
 fn live_slots_accounting_holds_across_traps_and_every_run_once_failure() {
+    let bytes = wasm(r#"(module (func (export "main") (unreachable)))"#);
     let mut eng = Engine::new();
-    let slot = eng
-        // A stop the engine cannot name yet (ToString of an object, tinyvm
-        // PRD A11); calling a non-function was the example until a4e12fd.
-        .spawn(Guest::Qjs("let o = {}; return \"\" + o;"), None)
-        .expect("spawn");
+    let slot = eng.spawn(Guest::Wasm(&bytes), None).expect("spawn");
     let err = eng
         .call(slot, "main", &[])
-        .expect_err("a value with no ToString traps");
+        .expect_err("an unreachable traps");
     assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
     assert_eq!(eng.live_slots(), 1, "a trap must not retire the slot");
     assert!(

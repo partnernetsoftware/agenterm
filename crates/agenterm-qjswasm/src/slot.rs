@@ -351,6 +351,14 @@ impl Slot {
                     };
                     return QjswasmError::NotAFunction(callee);
                 }
+                // The ninth: which kind of value had no string or number form.
+                Some(tinyvm_qjs::GuestFault::NoPrimitiveForm) => {
+                    let kind = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_no_primitive_form(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::NoPrimitiveForm(kind);
+                }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
                 // record a *fifth* reason at the same word. Falling through to
                 // `classify` stays the right default -- a reason this build

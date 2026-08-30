@@ -749,24 +749,57 @@ fn arithmetic_is_binary64_so_division_by_zero_is_infinity() {
 ///
 /// It used to be `"2" * 2`, a String-to-Number coercion. The `f21f0f2` bump
 /// implemented all three ECMA-262 string conversions (ba143c5), so that source
-/// now evaluates to `Number(4.0)` and stopped testing anything. The doc comment
-/// it carried predicted exactly this and said to swap the source: what this
-/// test protects is the *classification* of a run-time fault, not any
-/// particular gap in the language.
+/// now evaluates to `Number(4.0)` and stopped testing anything. Then it was a
+/// call on a non-function, named at a4e12fd; then `"" + {}`, named at the
+/// bump after it. Every stop a `.qjs` program can reach now has a name, which
+/// is the goal -- so the nameless trap this test classifies is a hand-written
+/// guest whose `main` is an `unreachable`, the one shape that can never carry
+/// a reason. What this test protects is the *classification* of a bare
+/// run-time fault, not any particular gap in the language.
 #[test]
 fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
+    let bytes =
+        wat::parse_str(r#"(module (func (export "main") (unreachable)))"#).expect("fixture");
     let mut eng = engine();
     let err = eng
-        // `"" + {}` is the one runtime stop this engine still cannot name:
-        // ToString of an object needs 7.1.1 ToPrimitive and there is no
-        // prototype to carry it (tinyvm PRD A11). Calling a non-function was
-        // this test's example until a4e12fd named it.
-        .run_once(Guest::Qjs("let o = {}; return \"\" + o;"), None, "main", &[])
-        .expect_err("a value with no ToString traps rather than proceeding");
+        .run_once(Guest::Wasm(&bytes), None, "main", &[])
+        .expect_err("an unreachable traps rather than proceeding");
     assert!(
         matches!(err, QjswasmError::Trap(_)),
-        "expected a trap from a compiled guest, got {err:?}"
+        "expected a trap from a bare unreachable, got {err:?}"
     );
+}
+
+/// ToString or ToNumber of an Object, an Array or a function is a *named*
+/// refusal at this face, with the kind. ECMA-262 would answer `[object
+/// Object]`; this engine never converts one quietly (a value silently becoming
+/// that text in a command line is the footgun), and until the bump after
+/// a4e12fd the stop was a bare trap that this test's neighbour used as its
+/// example. The class is `Script`: the script's own doing, and
+/// `JSON.stringify` is the spelling that says what was meant.
+#[test]
+fn a_value_with_no_primitive_form_is_named_with_its_kind() {
+    let mut eng = engine();
+    for (source, kind) in [
+        ("let o = {}; return \"\" + o;", "an Object"),
+        ("let a = [1]; return a * 2;", "an Array"),
+        (
+            "let f = function () { return 1; }; return f + 1;",
+            "a function",
+        ),
+    ] {
+        let err = eng
+            .run_once(Guest::Qjs(source), None, "main", &[])
+            .expect_err("no quiet conversion");
+        assert!(
+            matches!(&err, QjswasmError::NoPrimitiveForm(Some(k)) if k == kind),
+            "{source}: expected NoPrimitiveForm({kind:?}), got {err:?}"
+        );
+        assert!(
+            err.to_string().contains(kind) && err.to_string().contains("JSON.stringify"),
+            "{err}"
+        );
+    }
 }
 
 /// An uncaught `throw` is its own answer, and specifically **not** the trap the
@@ -1260,14 +1293,20 @@ fn the_prd_states_the_revision_this_build_pins() {
 fn a_call_on_a_non_function_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
-        .run_once(Guest::Qjs("let a = [1]; return a.concat([2]).length;"), None, "main", &[])
+        .run_once(
+            Guest::Qjs("let a = [1]; return a.concat([2]).length;"),
+            None,
+            "main",
+            &[],
+        )
         .expect_err("calling a missing method stops the script");
     assert!(
         matches!(&err, QjswasmError::NotAFunction(Some(callee)) if callee == "concat"),
         "expected the callee named, got {err:?}"
     );
     assert!(
-        err.to_string().starts_with("the script called `concat`, which is not a function"),
+        err.to_string()
+            .starts_with("the script called `concat`, which is not a function"),
         "{err}"
     );
     assert_eq!(

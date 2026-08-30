@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "a4e12fd";
+pub const UPSTREAM_TINYVM_REV: &str = "380fb5c";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -637,6 +637,12 @@ pub enum QjswasmError {
     /// other TypeError, which a script that can catch does catch; uncaught,
     /// the engine names the callee. The script's own doing.
     NotAFunction(Option<String>),
+    /// The script asked for the string or number form of an Object, an Array
+    /// or a function -- `"" + o`, `o * 2`, `o[k]` with an Object key. ECMA-262
+    /// would answer `[object Object]`; this engine never converts one quietly,
+    /// and names the kind. The script's own doing; `JSON.stringify` is the
+    /// spelling that says what was meant.
+    NoPrimitiveForm(Option<String>),
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -703,6 +709,7 @@ impl std::fmt::Debug for QjswasmError {
                 f.debug_tuple("PropertyOfNonObject").field(key).finish()
             }
             Self::NotAFunction(callee) => f.debug_tuple("NotAFunction").field(callee).finish(),
+            Self::NoPrimitiveForm(kind) => f.debug_tuple("NoPrimitiveForm").field(kind).finish(),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -739,6 +746,13 @@ impl std::fmt::Display for QjswasmError {
             ),
             Self::NotAFunction(None) => f.write_str(
                 "the script called a value that is not a function (TypeError)",
+            ),
+            Self::NoPrimitiveForm(Some(kind)) => write!(
+                f,
+                "the script used {kind} where a String or a Number was needed; this engine never converts                  one quietly -- write `JSON.stringify(x)` for its text, or pick the property you meant"
+            ),
+            Self::NoPrimitiveForm(None) => f.write_str(
+                "the script used an Object, an Array or a function where a String or a Number was needed;                  this engine never converts one quietly -- write `JSON.stringify(x)` for its text",
             ),
             Self::HostArgument(Some((host, position))) => write!(
                 f,
