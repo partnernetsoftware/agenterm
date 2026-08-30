@@ -92,6 +92,9 @@ pub struct ScriptEngineError {
     /// Reaches the caller as the result's `stdout` next to the failure, so a
     /// gate script's STEP lines are not lost exactly on the runs that matter.
     pub stdout: String,
+    /// What the failed run cost, when the engine counts: a failed wait is
+    /// the run whose bill matters most (A1.12).
+    pub cost: Option<ScriptCost>,
 }
 
 impl From<String> for ScriptEngineError {
@@ -100,6 +103,7 @@ impl From<String> for ScriptEngineError {
             message,
             category: ScriptFailureCategory::Configuration,
             stdout: String::new(),
+            cost: None,
         }
     }
 }
@@ -321,6 +325,19 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         message: error.to_string(),
         category,
         stdout: String::new(),
+        cost: None,
+    }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn script_cost(cost: agenterm_qjswasm::Cost) -> ScriptCost {
+    ScriptCost {
+        steps: cost.steps,
+        peak_call_depth: cost.peak_call_depth,
+        peak_activation_slots: cost.peak_activation_slots,
+        host_ops: cost.host_ops,
+        host_bytes: cost.host_bytes,
+        waited_ms: cost.waited_ms,
     }
 }
 
@@ -970,6 +987,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
             .map_err(|e| {
                 let mut error = qjs_engine_error(e);
                 error.stdout = engine.take_failed_stdout();
+                error.cost = engine.take_failed_cost().map(script_cost);
                 error
             })?;
 

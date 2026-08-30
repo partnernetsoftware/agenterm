@@ -1170,3 +1170,26 @@ fn waiting_is_billed_apart_from_computing() {
     assert_eq!(computed.host_ops, 0);
     assert!(computed.steps > 1000);
 }
+
+/// A call that fails keeps its bill on the engine, beside its stdout: a
+/// failed wait is exactly the run whose bill matters.
+#[test]
+fn a_failed_call_keeps_its_bill() {
+    let mut eng = Engine::with_tool_door(Budget::default());
+    let err = eng
+        .run_once(
+            Guest::Qjs("time_sleep_ms(30); throw \"after the wait\";"),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("the throw is uncaught");
+    assert!(matches!(err, QjswasmError::UncaughtThrow(_)), "got {err:?}");
+    let cost = eng
+        .take_failed_cost()
+        .expect("the run happened, so it cost");
+    assert_eq!(cost.host_ops, 1, "{cost:?}");
+    assert!(cost.waited_ms >= 25, "{cost:?}");
+    assert!(cost.steps > 0, "{cost:?}");
+    assert_eq!(eng.take_failed_cost(), None, "read once, like stdout");
+}

@@ -58,4 +58,4 @@
 账单说等待只占墙钟 8%，≈15M 步/秒的步数是 JSON 与记账的真计算；128M 默认对两条旅程是 2.5× 余量，
 不是错的单位。`process.wait` 不加事件等待（§4 第二条按账单否决）。
 **与规格不符**：§1 的 `fleet_call` 字节只记了成功答复；`tool.*` 的参数字节没记（各操作自己读参数，门看不到长度），
-`host_bytes` 因此是下界。**未回答**：失败调用的账单（worker 错误路径不带 `cost`）——下一片。
+`host_bytes` 因此是下界。**已回答（同晚）**：失败调用的账单——槽留 `failed_cost`（与 `failed_stdout` 同一机制），`ScriptEngineError` / `ScriptFailure` 带 `cost`，信封里失败也有账。

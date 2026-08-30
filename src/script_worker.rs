@@ -571,6 +571,7 @@ fn execute_with_cancellation_and_broker(
             // Printed before the failure: it belongs to this run's stdout,
             // next to the failure, not lost with it.
             result.stdout = std::mem::take(&mut failure.stdout);
+            result.cost = failure.cost.take().map(|cost| *cost);
             result.exit_class = match failure.category {
                 ScriptFailureCategory::Configuration => ScriptExitClass::Configuration,
                 ScriptFailureCategory::Limit => ScriptExitClass::Limit,
@@ -886,6 +887,7 @@ fn engine_execution_error(
     // without this function knowing any engine's wording.
     let mut failed = failure(backend_code, error.message, error.category);
     failed.stdout = error.stdout;
+    failed.cost = error.cost.map(Box::new);
     failed
 }
 
@@ -914,6 +916,7 @@ fn failure(
         message: message.into(),
         category,
         stdout: String::new(),
+        cost: None,
     }
 }
 

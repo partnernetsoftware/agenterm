@@ -245,6 +245,10 @@ pub struct ScriptFailure {
     pub code: String,
     pub message: String,
     pub category: ScriptFailureCategory,
+    /// The failed run's bill, when the engine counts (A1.12). Boxed so the
+    /// failure stays a small `Err` on every `Result` that carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<Box<ScriptCost>>,
     /// What the script printed before failing; moved into the result's
     /// `stdout` by the worker and never serialised here -- the envelope
     /// already has a place for stdout.

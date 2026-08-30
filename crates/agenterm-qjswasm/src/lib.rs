@@ -538,6 +538,19 @@ pub struct SlotId {
     index: u64,
 }
 
+/// What one call cost, on either path. An [`Outcome`] carries these lines;
+/// a call that failed keeps them on the slot, because a failed wait is
+/// exactly the run whose bill matters (PRD_02_36 A1.12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cost {
+    pub steps: u64,
+    pub peak_call_depth: usize,
+    pub peak_activation_slots: usize,
+    pub host_ops: u64,
+    pub host_bytes: u64,
+    pub waited_ms: u64,
+}
+
 /// One call's result plus its deterministic cost, so "is this script
 /// expensive?" is measurable rather than a guess.
 #[derive(Clone, Debug)]
@@ -855,6 +868,8 @@ impl From<CompileError> for QjswasmError {
 pub struct Engine {
     /// See [`Engine::take_failed_stdout`].
     failed_stdout: String,
+    /// The bill of the call that last failed, kept for the same reason.
+    failed_cost: Option<Cost>,
     budget: Budget,
     /// Whether slots here get the `tool.*` door. Set only by
     /// [`with_tool_door`](Self::with_tool_door), never by a guest.
@@ -895,6 +910,7 @@ impl Engine {
             tool_args: Vec::new(),
             slots: Vec::new(),
             failed_stdout: String::new(),
+            failed_cost: None,
             id: NEXT_ENGINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             next_index: 0,
         }
@@ -1029,6 +1045,7 @@ impl Engine {
         let outcome = s.call(entry, args, &self.budget);
         if outcome.is_err() {
             self.failed_stdout = s.take_failed_stdout();
+            self.failed_cost = s.take_failed_cost();
         }
         outcome
     }
@@ -1039,6 +1056,12 @@ impl Engine {
     /// after a successful call or a second take.
     pub fn take_failed_stdout(&mut self) -> String {
         std::mem::take(&mut self.failed_stdout)
+    }
+
+    /// What the call that last failed cost, if it ran at all -- read once,
+    /// like [`take_failed_stdout`](Self::take_failed_stdout).
+    pub fn take_failed_cost(&mut self) -> Option<Cost> {
+        self.failed_cost.take()
     }
 
     /// Spawn, call, and reclaim. The common path for a one-shot guest.

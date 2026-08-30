@@ -19,7 +19,7 @@
 //! buffer, and its captured bridge closure in one move.
 
 use crate::host::{self, HostState};
-use crate::{Budget, FleetBridgeFn, JsValue, Outcome, QjswasmError, Value};
+use crate::{Budget, Cost, FleetBridgeFn, JsValue, Outcome, QjswasmError, Value};
 
 /// Which calling convention this slot's entry points speak.
 ///
@@ -45,11 +45,16 @@ pub(crate) struct Slot {
     /// What the last failed call printed before it failed. The `Result`
     /// face has no room for it, so it waits here for [`Engine::take_failed_stdout`].
     failed_stdout: String,
+    failed_cost: Option<Cost>,
 }
 
 impl Slot {
     pub(crate) fn take_failed_stdout(&mut self) -> String {
         std::mem::take(&mut self.failed_stdout)
+    }
+
+    pub(crate) fn take_failed_cost(&mut self) -> Option<Cost> {
+        self.failed_cost.take()
     }
 
     pub(crate) fn load(
@@ -72,6 +77,7 @@ impl Slot {
             door,
             convention,
             failed_stdout: String::new(),
+            failed_cost: None,
         })
     }
 
@@ -128,6 +134,14 @@ impl Slot {
                 // The call failed after the guest printed: keep it for the
                 // engine to hand out, since the error face cannot carry it.
                 self.failed_stdout = stdout;
+                self.failed_cost = Some(Cost {
+                    steps,
+                    peak_call_depth,
+                    peak_activation_slots,
+                    host_ops,
+                    host_bytes,
+                    waited_ms,
+                });
                 return Err(self.explain(fault));
             }
         };
