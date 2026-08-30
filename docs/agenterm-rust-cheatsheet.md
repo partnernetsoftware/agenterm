@@ -1300,17 +1300,19 @@ and missing values. Keep live service discovery best-effort in the adapter and
 prove actual desktop integration only in a matching-host smoke environment that
 explicitly owns that service.
 
-## Ordinary CI must own Candidate's static workflow contracts
+## An active cheap gate must own Candidate's static workflow contracts
 
-Do not let a release Candidate be the first lane that runs an integration test
-which only parses workflow or release-policy source. Candidate may repeat that
-contract, but the ordinary push quality job must run its named integration test
-first. The same rule applies to deterministic build/task contract tests that
-need no release artifact, such as target-pruning argument and source-order
-checks. Keep command assertions exact enough to preserve semantic switches such
-as `--ignored`; updating the production workflow and its parser assertion is
-one coherent change. This prevents a cheap deterministic mismatch from wasting
-the stress-inclusive qualification lane before failing.
+Do not let an expensive release Candidate be the first place that parses its
+workflow or release-policy source. When ordinary push CI is active, its quality
+job owns that integration test. When those workflows are deliberately parked
+as `.disabled`, the local lint/release rehearsal must retain the same parser
+contract and Candidate must be self-contained rather than waiting for runs that
+GitHub cannot create. Never preserve a prerequisite merely because its filename
+survives as archived source. The same rule applies to deterministic build/task
+contracts that need no release artifact, such as target-pruning arguments and
+source order. Keep assertions exact enough to preserve semantic switches;
+update production workflow and parser assertion in one coherent change. This
+prevents a cheap mismatch from wasting the stress-inclusive lane.
 
 ## Linux AT-SPI publish must reconnect
 

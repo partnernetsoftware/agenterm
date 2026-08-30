@@ -28,7 +28,7 @@ if (tag_status !== 1) {
   throw "internal-version-git-tags";
 }
 
-const release = rh.read_text(rh.join(repo, "scripts/rh/release.rh"));
+const release = rh.read_text(rh.join(repo, "scripts/qjs/release.qjs"));
 const workflow = rh.read_text(rh.join(repo, ".github/workflows/candidate.yml"));
 const release_rejects = release.includes("version != \"0.1.7\"");
 const workflow_rejects_ps = workflow.includes("expected -eq 'v0.1.7'");

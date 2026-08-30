@@ -7,6 +7,16 @@ static PROMOTION: LazyLock<String> =
 static INTEGRITY: LazyLock<String> = LazyLock::new(|| {
     include_str!("../.github/workflows/release-integrity.yml").replace("\r\n", "\n")
 });
+static RELEASE_POLICY: LazyLock<String> =
+    LazyLock::new(|| include_str!("../release-policy.json").replace("\r\n", "\n"));
+static PREFLIGHT_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/preflight.qjs").replace("\r\n", "\n"));
+static INTERNAL_VERSION_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/internal-version-policy.qjs").replace("\r\n", "\n")
+});
+static AUTOMATION_AUDIT_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/cross-platform-automation-audit.qjs").replace("\r\n", "\n")
+});
 static GIT_ATTRIBUTES: LazyLock<String> =
     LazyLock::new(|| include_str!("../.gitattributes").replace("\r\n", "\n"));
 
@@ -26,13 +36,64 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(CANDIDATE.contains("[[ \"$SOURCE_SHA\" =~ ^[0-9a-f]{40}$ ]]"));
     assert!(CANDIDATE.contains("[[ \"$GITHUB_SHA\" == \"$SOURCE_SHA\" ]]"));
     assert!(CANDIDATE.contains("git merge-base --is-ancestor"));
-    assert!(
-        CANDIDATE.contains("for workflow in ci-agenterm.yml ci-libagenterm.yml ci-chassis.yml")
-    );
-    assert!(CANDIDATE.contains("workflows/$workflow/runs?head_sha=$SOURCE_SHA&status=success"));
+    assert!(!CANDIDATE.contains("workflows/$workflow/runs?head_sha=$SOURCE_SHA"));
+    assert!(!CANDIDATE.contains("for workflow in ci-agenterm.yml"));
+    assert!(CANDIDATE.contains("name: Verify exact current main source"));
     assert!(CANDIDATE.contains("ref: ${{ inputs.source_sha }}"));
     assert!(CANDIDATE.contains("AGENTERM_CANDIDATE_SOURCE_SHA: ${{ inputs.source_sha }}"));
     assert!(CANDIDATE.contains("git switch -C main \"%SOURCE_SHA%\""));
+}
+
+#[test]
+fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
+    for contract in [
+        "\"native_six_cell\": true",
+        "\"chassis_product\": true",
+        "\"experimental_ape\": false",
+        "\"windows\": \"off\"",
+        "\"linux\": \"off\"",
+        "\"macos\": \"unsigned-preview\"",
+        "\"executable_compression\": \"off\"",
+        "\"windows_final_candidate_bytes\": \"required\"",
+    ] {
+        assert!(
+            RELEASE_POLICY.contains(contract),
+            "missing release policy: {contract}"
+        );
+    }
+    assert!(CANDIDATE.contains("name: Resolve checked-in release policy"));
+    assert!(CANDIDATE.contains("needs: [build, runtime]"));
+
+    let runtime = CANDIDATE
+        .split_once("\n  runtime:\n")
+        .and_then(|(_, tail)| tail.split_once("\n  aggregate:\n"))
+        .map(|(runtime, _)| runtime)
+        .expect("one runtime job before aggregate");
+    for runner in [
+        "windows-2025",
+        "windows-11-arm",
+        "ubuntu-24.04",
+        "ubuntu-24.04-arm",
+        "macos-15",
+        "macos-15-intel",
+    ] {
+        assert!(runtime.contains(runner), "missing runtime runner: {runner}");
+    }
+    assert!(runtime.contains("candidate-part-${{ matrix.platform_id }}"));
+    assert!(runtime.contains("Scan final Windows Candidate bytes with Defender"));
+    assert!(runtime.contains("Prove Linux bundle closure in package-free Ubuntu"));
+    assert!(!runtime.contains("actions/checkout"));
+    assert!(!runtime.contains("cargo "));
+}
+
+#[test]
+fn release_policy_owners_reference_living_qjs_and_parked_ci_paths() {
+    for owner in [PREFLIGHT_QJS.as_str(), INTERNAL_VERSION_QJS.as_str()] {
+        assert!(owner.contains("scripts/qjs/release.qjs"));
+        assert!(!owner.contains("scripts/rh/release.rh"));
+    }
+    assert!(AUTOMATION_AUDIT_QJS.contains(".github/workflows/ci-agenterm.yml.disabled"));
+    assert!(!AUTOMATION_AUDIT_QJS.contains("read_repo(\".github/workflows/ci-agenterm.yml\")"));
 }
 
 #[test]

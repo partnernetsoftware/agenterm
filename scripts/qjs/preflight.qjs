@@ -344,7 +344,7 @@ if (version !== "0.1.7") {
       policy_passed = 0;
       policy_detail = "Internal-only v0.1.7 must have no local v0.1.7 tag.";
     } else {
-      const release = rh.read_text(rh.join(repo, "scripts/rh/release.rh"));
+      const release = rh.read_text(rh.join(repo, "scripts/qjs/release.qjs"));
       const workflow = rh.read_text(rh.join(repo, ".github/workflows/candidate.yml"));
       if (!release.includes("version != \"0.1.7\"")) {
         policy_passed = 0;

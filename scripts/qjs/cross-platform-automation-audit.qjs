@@ -138,7 +138,7 @@ for (const task of manifest.tasks) {
 }
 rh.require(check_task_count === 1, "cross_platform_check_task_platforms");
 
-const ci_source = read_repo(".github/workflows/ci-agenterm.yml");
+const ci_source = read_repo(".github/workflows/ci-agenterm.yml.disabled");
 for (const target of [
   "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc",
   "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",

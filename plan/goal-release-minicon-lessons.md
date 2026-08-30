@@ -42,6 +42,9 @@ archives, explicit signing policy, and final-byte reputation checks.
     - [ ] retain only bounded evidence and reclaim failed/stale staging trees
     - [x] Candidate no longer waits for three ordinary workflows that are
       parked as `.disabled`; its own exact-SHA qualification is self-contained
+    - [x] Rust/QJS workflow-policy owners read the active Candidate, checked-in
+      release policy and deliberately parked `.disabled` CI source; no living
+      gate dereferences removed Rhai or nonexistent workflow paths
   - [ ] evidence and delivery
     - [ ] Candidate manifest proves six cells, sizes, hashes, provenance and court receipts
     - [ ] Promotion only publishes the manifest allowlist after explicit human approval
