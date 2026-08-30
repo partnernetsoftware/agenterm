@@ -2786,6 +2786,9 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
         if let Some(value) = budget.max_string_bytes {
             declared_options.push(("--max-string-bytes", value));
         }
+        if let Some(value) = budget.max_host_operations {
+            declared_options.push(("--max-host-operations", value));
+        }
         for (option, declared) in declared_options {
             let selected = match option_value(arguments, option) {
                 Some(value) => match value.parse::<u64>() {
@@ -2810,10 +2813,15 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
             translated.push(option.to_owned());
             translated.push(selected.to_string());
         }
-        for option in ["--max-collection-items", "--max-string-bytes"] {
+        for option in [
+            "--max-collection-items",
+            "--max-string-bytes",
+            "--max-host-operations",
+        ] {
             let declared = match option {
                 "--max-collection-items" => budget.max_collection_items,
                 "--max-string-bytes" => budget.max_string_bytes,
+                "--max-host-operations" => budget.max_host_operations,
                 _ => unreachable!(),
             };
             if declared.is_none()
@@ -2830,6 +2838,7 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
             "--max-output-bytes",
             "--max-collection-items",
             "--max-string-bytes",
+            "--max-host-operations",
         ] {
             if let Some(value) = option_value(arguments, option) {
                 translated.push(option.to_owned());
@@ -3917,6 +3926,7 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
             | "--max-collection-items"
             | "--max-string-bytes"
             | "--max-output-bytes"
+            | "--max-host-operations"
             | "--max-source-bytes"
             | "--cwd"
             | "--project-root"

@@ -173,6 +173,30 @@ impl ScriptBudgets {
     }
 }
 
+/// What one run cost, in the units the engine's own budget is denominated in.
+///
+/// Deliberately the counters a *budget* is made of and not a wall clock:
+/// these are deterministic for a given artifact and input, so two runs of the
+/// same module report the same numbers and a receipt is comparable across
+/// machines. A duration is not, which is why there is not one here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptCost {
+    pub steps: u64,
+    pub peak_call_depth: usize,
+    pub peak_activation_slots: usize,
+    /// Host operations (`tool.*`, `fleet_call`) -- what `steps` cannot see.
+    #[serde(default)]
+    pub host_ops: u64,
+    /// Bytes across the door in those operations.
+    #[serde(default)]
+    pub host_bytes: u64,
+    /// Wall-clock milliseconds spent waiting in the host. The one line here
+    /// that is not deterministic, kept because it is the line that tells a
+    /// polling script from a computing one (PRD_02_36 A1.12).
+    #[serde(default)]
+    pub waited_ms: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptBrokerRequest {
     pub operation: String,
@@ -287,6 +311,11 @@ pub struct ScriptResult {
     pub value: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<ScriptFailure>,
+    /// What the run cost in the engine's own units, when the engine counts
+    /// (qjswasm does; absent is "not counted", never "free"). This is the
+    /// receipt A1.12 asks for: `steps` beside `host_ops` and `waited_ms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<ScriptCost>,
     pub duration_ms: u64,
 }
 

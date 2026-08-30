@@ -72,29 +72,7 @@ pub struct ScriptInvocationResult {
     pub cost: Option<ScriptCost>,
 }
 
-/// What one run cost, in the units the engine's own budget is denominated in.
-///
-/// Deliberately the counters a *budget* is made of and not a wall clock:
-/// these are deterministic for a given artifact and input, so two runs of the
-/// same module report the same numbers and a receipt is comparable across
-/// machines. A duration is not, which is why there is not one here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-pub struct ScriptCost {
-    pub steps: u64,
-    pub peak_call_depth: usize,
-    pub peak_activation_slots: usize,
-    /// Host operations (`tool.*`, `fleet_call`) -- what `steps` cannot see.
-    #[serde(default)]
-    pub host_ops: u64,
-    /// Bytes across the door in those operations.
-    #[serde(default)]
-    pub host_bytes: u64,
-    /// Wall-clock milliseconds spent waiting in the host. The one line here
-    /// that is not deterministic, kept because it is the line that tells a
-    /// polling script from a computing one (PRD_02_36 A1.12).
-    #[serde(default)]
-    pub waited_ms: u64,
-}
+pub use crate::script_protocol::ScriptCost;
 
 /// Unified error type. Every engine's typed error used to collapse to a bare
 /// `String` here -- design §2.2 "哪里不吸收" called that lossy but not a new

@@ -116,6 +116,11 @@ pub struct ScriptTaskBudget {
     pub max_collection_items: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_string_bytes: Option<u64>,
+    /// Host operations (`tool.*`, broker calls) the task may make per run --
+    /// the budget a polling or command-per-file script actually spends
+    /// (A1.12). Absent means the protocol default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_host_operations: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -481,6 +486,13 @@ fn validate_task_contract(contract: &ScriptTaskContract) -> Result<(), String> {
         .is_some_and(|value| value == 0 || value > hard_limits.string_bytes as u64)
     {
         return Err("task_contract_budget_max_string_bytes: expected 1..8388608".to_owned());
+    }
+    if contract
+        .budget
+        .max_host_operations
+        .is_some_and(|value| value == 0 || value > hard_limits.host_operations as u64)
+    {
+        return Err("task_contract_budget_max_host_operations: expected 1..1000000".to_owned());
     }
     Ok(())
 }

@@ -662,6 +662,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
                 "--max-collection-items",
                 "--max-string-bytes",
                 "--max-output-bytes",
+                "--max-host-operations",
                 "--max-source-bytes",
                 "--cwd",
                 "--project-root",

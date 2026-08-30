@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::script_protocol::ScriptCost;
 #[cfg(test)]
 use crate::script_protocol::ScriptProfile;
 use crate::script_protocol::{
@@ -554,15 +555,17 @@ fn execute_with_cancellation_and_broker(
         stdout: String::new(),
         value: None,
         failure: None,
+        cost: None,
         duration_ms: 0,
     };
     let execution = execute_inner(&invocation, cancellation, broker);
     match execution {
-        Ok((stdout, value)) => {
+        Ok((stdout, value, cost)) => {
             result.ok = true;
             result.exit_class = ScriptExitClass::Success;
             result.stdout = stdout;
             result.value = value;
+            result.cost = cost;
         }
         Err(mut failure) => {
             // Printed before the failure: it belongs to this run's stdout,
@@ -589,7 +592,7 @@ fn execute_inner(
     invocation: &ScriptInvocation,
     _cancellation: Option<Arc<AtomicBool>>,
     broker: Option<BrokerClient>,
-) -> Result<(String, Option<serde_json::Value>), ScriptFailure> {
+) -> Result<(String, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
     // `invocation_temp_root` used to be installed here as the rh host's
     // per-invocation `rh::runtime::temp_dir`. That host left with the engine
     // on 2026-08-29; the field stays in the protocol for the engines that
@@ -620,7 +623,7 @@ fn execute_inner(
         ));
     }
     if invocation.operation == ScriptOperation::Api {
-        return Ok((String::new(), Some(crate::script_catalog::catalog())));
+        return Ok((String::new(), Some(crate::script_catalog::catalog()), None));
     }
 
     // Shared invocation options + fleet_bridge, built once (Trait-M3: this
@@ -777,20 +780,20 @@ fn dispatch_via_engine(
     source: &str,
     options: &crate::script_engine::ScriptInvocationOptions,
     fleet_bridge: Option<crate::script_engine::ScriptFleetBridgeFn>,
-) -> Result<(String, Option<serde_json::Value>), ScriptFailure> {
+) -> Result<(String, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
     let backend_code = format!("{}_backend", engine.backend_id().as_str());
     match operation {
         ScriptOperation::Check => {
             engine
                 .check(source, options)
                 .map_err(|error| configuration_error(backend_code, error))?;
-            Ok((String::new(), None))
+            Ok((String::new(), None, None))
         }
         ScriptOperation::Run | ScriptOperation::Eval => {
             let result = engine
                 .execute(source, options, fleet_bridge)
                 .map_err(|error| engine_execution_error(&backend_code, error))?;
-            Ok((result.stdout, result.value))
+            Ok((result.stdout, result.value, result.cost))
         }
         // Unreachable in practice: `execute_inner` short-circuits
         // `ScriptOperation::Api` before any backend dispatch (see the
@@ -855,6 +858,7 @@ fn protocol_failure_for(
         stdout: String::new(),
         value: None,
         failure: Some(protocol_error(code, message)),
+        cost: None,
         duration_ms: 0,
     }
 }
