@@ -69,6 +69,13 @@
 //! measure time spent in the host. A panic inside a tool operation is caught
 //! and reported as [`QjswasmError::Door`], never dressed up as status `1` --
 //! `src/host.rs` explains why those are different answers.
+//!
+//! Every operation is one `host_ops` on the call's bill, charged at
+//! `bind_metered` before it runs, together with the bytes of its string
+//! arguments; what it parks is charged as `host_bytes` when parked. So the
+//! bill counts both directions through the door, and `tool_result()` --
+//! which only moves an answer already paid for -- adds operations but no
+//! bytes.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -333,6 +340,29 @@ pub(crate) fn declarations() -> Vec<HostFn> {
             },
         },
     ]
+}
+
+/// The raw parameter positions that carry a byte length -- the second word
+/// of every `StrPtrLen` in `field`'s declaration. `bind_metered` sums these
+/// into `host_bytes`, so the bill charges what a script *sends* through the
+/// door as well as what it collects; `tool_result`'s landing buffer is not a
+/// send and is not on the list.
+pub(crate) fn argument_length_slots(field: &str) -> Vec<usize> {
+    let Some(decl) = declarations().into_iter().find(|d| d.field == field) else {
+        return Vec::new();
+    };
+    let mut raw = 0;
+    let mut slots = Vec::new();
+    for param in &decl.params {
+        match param {
+            HostParam::StrPtrLen => {
+                slots.push(raw + 1);
+                raw += 2;
+            }
+            HostParam::I32 | HostParam::F64 => raw += 1,
+        }
+    }
+    slots
 }
 
 /// One slot's tool-door state, shared by its closures.
@@ -1441,6 +1471,10 @@ fn answer(
     } else {
         (status, payload)
     };
+    // The operation and its arguments went on the bill in `bind_metered`;
+    // what is parked here is the other direction, and it is billed as
+    // parked -- the capped refusal, when that is what the script will read.
+    s.meter.borrow_mut().answered(payload.len());
     s.result = payload;
     Ok(vec![Val::I32(status)])
 }
@@ -1454,23 +1488,21 @@ fn direct(
     run: impl FnOnce() -> Result<i32, String>,
 ) -> Result<Vec<Val>, WasmError> {
     state.borrow_mut().calls.push(format!("{DOOR}.{op}"));
-    // The operation itself went on the bill in `bind_metered`; what is
-    // counted here is the parked answer's size, and the wait if it waited.
+    // The operation and its arguments went on the bill in `bind_metered`;
+    // what is counted here is the diagnostic if one is parked, and the wait
+    // if it waited. The previous operation's parked answer is not re-billed
+    // for still being there.
     let meter = Rc::clone(&state.borrow().meter);
     let started = Instant::now();
     let outcome = contain(
         &format!("the tool door panicked while serving `{DOOR}.{op}`"),
         run,
     );
-    {
-        let mut meter = meter.borrow_mut();
-        meter.answered(state.borrow().result.len());
-        // Only the operations that *wait* put their wall clock on the bill:
-        // a file read is compute the step budget cannot see, but it is not
-        // the idle time A1.12 wants separated out.
-        if WAITING_OPS.contains(&op) {
-            meter.waited(started.elapsed());
-        }
+    // Only the operations that *wait* put their wall clock on the bill:
+    // a file read is compute the step budget cannot see, but it is not
+    // the idle time A1.12 wants separated out.
+    if WAITING_OPS.contains(&op) {
+        meter.borrow_mut().waited(started.elapsed());
     }
     match outcome {
         Ok(Ok(value)) => Ok(vec![Val::I32(value)]),
@@ -1480,6 +1512,7 @@ fn direct(
             Err(WasmError::Trap(crate::host::CANCELLED))
         }
         Ok(Err(message)) => {
+            meter.borrow_mut().answered(message.len());
             state.borrow_mut().result = message.into_bytes();
             Ok(vec![Val::I32(-1)])
         }
@@ -1915,6 +1948,19 @@ fn finish_child(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bill reads string lengths off the raw arguments by position, so
+    /// the positions have to follow the declaration exactly: two words per
+    /// string, one per number, the landing buffer of the fetch not counted.
+    #[test]
+    fn argument_length_slots_follow_the_declaration() {
+        assert_eq!(argument_length_slots("fs.exists"), vec![1]);
+        assert_eq!(argument_length_slots("fs.write"), vec![1, 3]);
+        assert_eq!(argument_length_slots("process.window_key"), vec![2]);
+        assert_eq!(argument_length_slots("time.sleep_ms"), Vec::<usize>::new());
+        assert_eq!(argument_length_slots("result"), Vec::<usize>::new());
+        assert_eq!(argument_length_slots("no.such"), Vec::<usize>::new());
+    }
 
     /// The declarations and the raw signatures describe one door -- the same
     /// derivation `host.rs` performs for the fleet door.

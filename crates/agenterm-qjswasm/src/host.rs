@@ -560,12 +560,17 @@ pub(crate) fn check_declarations(
     Ok(())
 }
 
-/// Bind one door function, tolerating a guest that never imported it.
 /// [`bind`], with the operation on the call's bill first: one host
-/// operation charged to `meter` before `f` runs, and the call refused with
-/// [`HOST_OPS_EXHAUSTED`] once [`Budget::max_host_ops`] is spent. Every
-/// `tool.*` import goes through this; `agenterm.*` charges by hand, since
-/// `print` is output and not a host operation.
+/// operation and its argument bytes charged to `meter` before `f` runs, and
+/// the call refused with [`HOST_OPS_EXHAUSTED`] once [`Budget::max_host_ops`]
+/// is spent. Every `tool.*` import goes through this; `agenterm.*` charges
+/// by hand, since `print` is output and not a host operation.
+///
+/// The argument bytes are read off the raw `i32`s by position: the door's
+/// declaration says which parameters are `(ptr, len)` pairs, so the bill
+/// sees every string a script hands the host without each operation
+/// having to report what it read. A negative length is charged as nothing
+/// and left for the operation's own `guest_slice` to refuse.
 pub(crate) fn bind_metered<F>(
     module: &mut tinyvm::WasmModule,
     meter: &Rc<RefCell<Meter>>,
@@ -577,8 +582,20 @@ where
     F: Fn(&[Val], &mut [u8]) -> Result<Vec<Val>, WasmError> + 'static,
 {
     let meter = Rc::clone(meter);
+    let length_slots = if door == tool::DOOR {
+        tool::argument_length_slots(field)
+    } else {
+        Vec::new()
+    };
     bind(module, door, field, move |args, memory| {
-        meter.borrow_mut().charge(0).map_err(WasmError::Trap)?;
+        let bytes: usize = length_slots
+            .iter()
+            .filter_map(|&slot| match args.get(slot) {
+                Some(Val::I32(len)) => usize::try_from(*len).ok(),
+                _ => None,
+            })
+            .sum();
+        meter.borrow_mut().charge(bytes).map_err(WasmError::Trap)?;
         f(args, memory)
     })
 }

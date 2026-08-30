@@ -59,5 +59,23 @@
 **判决**：§3 的判据成立——四个数写得出来。**推翻预期的地方**：来源假设是「步数被 25 ms 轮询烧掉」，
 账单说等待只占墙钟 8%，≈15M 步/秒的步数是 JSON 与记账的真计算；128M 默认对两条旅程是 2.5× 余量，
 不是错的单位。`process.wait` 不加事件等待（§4 第二条按账单否决）。
-**与规格不符**：§1 的 `fleet_call` 字节只记了成功答复；`tool.*` 的参数字节没记（各操作自己读参数，门看不到长度），
+**与规格不符（已在 §6 修正）**：§1 的 `fleet_call` 字节只记了成功答复；`tool.*` 的参数字节没记（各操作自己读参数，门看不到长度），
 `host_bytes` 因此是下界。**已回答（同晚）**：失败调用的账单——槽留 `failed_cost`（与 `failed_stdout` 同一机制），`ScriptEngineError` / `ScriptFailure` 带 `cost`，信封里失败也有账。
+
+## 6. 参数字节上账（2026-08-30 深夜）
+
+门看得到长度：`tool::declarations()` 说了每个操作哪些参数是 `StrPtrLen`，`bind_metered` 按位置从原始 `i32` 里读出各个 `len`
+（`tool::argument_length_slots`），与那一次操作一起 `charge`。`tool_result` 的落地缓冲不是发送，不在表里。
+
+顺手发现 §5 的 `host_bytes` 两个方向都记错了：`answer()`（停放文本的 29 个操作）**从未**记停放的字节，而 `direct()`（答 `i32` 的操作）
+每次都把**上一个**停放的答复再记一遍。现在 `answer()` 记停放的载荷（含被上限替换的拒绝句），`direct()` 只记它自己停放的诊断。
+`tests/tool_door.rs::bytes_through_the_door_are_billed_in_both_directions` 钉：`fs_exists(p)` = `len(p)`；
+`fs_read_to_string(p); tool_result(); fs_exists(p)` = `2·len(p) + 5`（`tool_result` 加两次操作、零字节）。
+
+| 旅程 | steps | host_ops | host_bytes | waited_ms | heap_pages | 墙钟 ms |
+|---|---|---|---|---|---|---|
+| server-smoke | 31 739 529 | 1 123 | **886 437** | 232 | 45（第二次：31 893 163 / 1 127 / 886 444 / 291） | 3 246 |
+| wake-smoke | 48 912 831 | 1 145 | **1 143 930** | 239 | 63（第二次：49 034 477 / 1 141 / 1 143 898 / 237） | 3 487 |
+
+与 §5 比：server-smoke 510 KB → 886 KB，wake-smoke 359 KB → 1.14 MB——旧数既漏（答复）又重（陈旧答复），
+新数两次跑只差 7–32 字节（环境答复的长度）。`host_bytes` 不再是下界。

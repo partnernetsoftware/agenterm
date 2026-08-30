@@ -1155,6 +1155,52 @@ fn host_operations_are_counted_and_capped() {
     );
 }
 
+/// `host_bytes` is both directions through the door: the string arguments
+/// a script sends, charged where the operation is, and the answer it parks,
+/// charged when parked. Collecting an answer moves bytes already paid for,
+/// and an operation that parks nothing does not re-bill whatever the
+/// previous one left parked.
+#[test]
+fn bytes_through_the_door_are_billed_in_both_directions() {
+    let scratch = Scratch::new("bill");
+    let path = scratch.path("h.txt");
+    std::fs::write(&path, b"hello").expect("write");
+    let path_len = path.to_string_lossy().len() as u64;
+
+    let sent_only = run_tool(&format!("return fs_exists({p});", p = js(&path)));
+    assert_eq!(sent_only.host_ops, 1, "{sent_only:?}");
+    assert_eq!(sent_only.host_bytes, path_len, "{sent_only:?}");
+
+    let both = run_tool(&format!(
+        "fs_read_to_string({p}); let t = tool_result(); fs_exists({p}); return t;",
+        p = js(&path)
+    ));
+    assert_eq!(string_of(&both), "hello");
+    // read, result_len, result, exists
+    assert_eq!(both.host_ops, 4, "{both:?}");
+    assert_eq!(both.host_bytes, 2 * path_len + 5, "{both:?}");
+
+    let written = run_tool(&format!(
+        "return fs_write({p}, \"abcdefghij\");",
+        p = js(&path)
+    ));
+    assert_eq!(written.host_bytes, path_len + 10, "{written:?}");
+
+    // A refusal is parked like an answer and billed like one.
+    let missing = scratch.path("missing.txt");
+    let refused = run_tool(&format!(
+        "fs_remove_file({p}); return tool_result();",
+        p = js(&missing)
+    ));
+    let diagnostic = string_of(&refused);
+    assert!(diagnostic.contains("fs.remove_file"), "{diagnostic}");
+    assert_eq!(
+        refused.host_bytes,
+        missing.to_string_lossy().len() as u64 + diagnostic.len() as u64,
+        "{refused:?}"
+    );
+}
+
 /// Waiting is on the bill as wall-clock time, separately from steps: a
 /// script that sleeps 30 ms reports at least that, and a script that only
 /// computes reports none.
