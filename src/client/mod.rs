@@ -4007,20 +4007,32 @@ fn run_wait_events(arguments: &[String]) -> i32 {
 }
 
 fn resolve_stable_wait_target(selector: &str) -> Result<String> {
-    let response = send_ipc_request(vec![
-        "display-message".to_owned(),
-        "-p".to_owned(),
-        "-t".to_owned(),
-        selector.to_owned(),
-        "#{window_id}".to_owned(),
-    ])?;
-    if !response.ok || !response.output.trim().starts_with('@') {
-        anyhow::bail!(
-            "wait target could not be resolved to a stable tab ID: {}",
-            response.error
-        );
+    // `wait-ui` is a wait: a selector that names a tab the server has
+    // announced but not yet listed (`new-window -d` answers its `@id` before
+    // the tab is visible to `display-message`) is retried for a bounded
+    // moment instead of failing the whole wait on the first "can't find
+    // pane". working-context-smoke met exactly that window on 2026-08-30.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let response = send_ipc_request(vec![
+            "display-message".to_owned(),
+            "-p".to_owned(),
+            "-t".to_owned(),
+            selector.to_owned(),
+            "#{window_id}".to_owned(),
+        ])?;
+        if response.ok && response.output.trim().starts_with('@') {
+            return Ok(response.output.trim().to_owned());
+        }
+        let not_yet = !response.ok && response.error.contains("can't find pane");
+        if !not_yet || Instant::now() >= deadline {
+            anyhow::bail!(
+                "wait target could not be resolved to a stable tab ID: {}",
+                response.error
+            );
+        }
+        thread::sleep(Duration::from_millis(20));
     }
-    Ok(response.output.trim().to_owned())
 }
 
 fn fetch_ui_wait_snapshot() -> Result<(String, serde_json::Value)> {

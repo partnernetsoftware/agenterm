@@ -33,6 +33,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     client::{no_activate_from_environment, resolved_ipc_endpoint},
+    ui_command::{UI_CLIENT_COMMAND_FOCUS, UI_CLIENT_COMMAND_SHOW_NO_ACTIVATE},
     commands::{alternate_screen_wheel_bytes, option_value, screenshot_output_path},
     control_dispatch::{ControlHost, dispatch_shared_command, resolve_target_position},
     event_journal::{EventJournal, EventKind},
@@ -4430,6 +4431,41 @@ impl UnixApp {
         let command = envelope.request.args.first().map(String::as_str);
         let response = match dispatch_shared_command(self, &envelope.request.args) {
             Some(response) => response,
+            // The launcher handoff's two UI-client commands: a second launcher
+            // asks the running GUI to show itself, with or without taking the
+            // foreground, and exits. The Windows frontend answers both; until
+            // 2026-08-30 this one answered "does not implement", so a
+            // no-activate launcher opened a second window instead of handing
+            // off (startup-smoke step 2).
+            None if command == Some(UI_CLIENT_COMMAND_SHOW_NO_ACTIVATE) => {
+                if let Some(window) = self.window.clone() {
+                    window.set_minimized(false);
+                    window.set_visible(true);
+                    IpcResponse::success("")
+                } else {
+                    IpcResponse::typed_failure(
+                        "window is not available to show",
+                        "ui_window_activation_failed",
+                        "availability",
+                        true,
+                    )
+                }
+            }
+            None if command == Some(UI_CLIENT_COMMAND_FOCUS) => {
+                if let Some(window) = self.window.clone() {
+                    window.set_minimized(false);
+                    window.set_visible(true);
+                    window.focus();
+                    IpcResponse::success("")
+                } else {
+                    IpcResponse::typed_failure(
+                        "window is not available for activation",
+                        "ui_window_activation_failed",
+                        "availability",
+                        true,
+                    )
+                }
+            }
             None if command == Some("save-workspace") => match self.persist_workspace() {
                 Ok(()) => IpcResponse::success(workspace_path().display().to_string()),
                 Err(error) => IpcResponse::typed_failure(

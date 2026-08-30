@@ -276,6 +276,9 @@ try {
     "startup_cli_guidance:" + guidance_stderr
   );
 
+  // The launcher names itself in its usage line: `agenterm.exe` on Windows,
+  // `agenterm` elsewhere (the original smoke was Windows-only).
+  const gui_executable_name = windows ? "agenterm.exe" : "agenterm";
   const argument_error = harness.start(harness.configured_spec(context, gui_exe, ["--address"]));
   owned_children.push(argument_error);
   const argument_output = wait_for_exit(argument_error, 1000, "startup_argument_error_timeout", waited);
@@ -284,7 +287,7 @@ try {
     !argument_output.success
       && argument_output.stdout === ""
       && argument_stderr.includes("AgenTerm GUI argument error")
-      && argument_stderr.includes("agenterm.exe --address requires HOST:PORT")
+      && argument_stderr.includes(gui_executable_name + " --address requires HOST:PORT")
       && argument_stderr.includes("agenterm cli -h"),
     "startup_argument_error:" + argument_stderr
   );
