@@ -1033,6 +1033,14 @@ String 上没有的属性都裸 trap，而且程序别处有没有 `.length` 还
   死了（助手少传一个参数），文件一字未动——第四次踩「编辑静默无效」。本段由紧随其后的
   提交补上；教训还是那条：提交前看 `git diff --cached --stat` 里有没有那个文件的行数。
 
+### 自验（2026-08-30 收尾）
+
+**旅程计分板**（macOS，`--profile tool`，默认预算 128M 步 / 64 MiB 堆）：server-smoke **PASS**、wake-smoke **PASS**、theme-smoke **PASS**（1G 步下；默认 128M 也够，它要 ≈108M）；startup-smoke 过了窗口事实与 stderr 活读，停在第 2 步之后的产品面；unix-frontend 过了四步，第 5 步是 macOS 上的无出口轮询；workbench 停在 macOS 适配器的指针拒绝（平台）；cli-smoke 停在第 4 步的产品面（GUI 自带 IPC）；native-ipc / fleet / working-context 各停在 A1.5 点名的产品缺口。**门口一个都不剩**：今天开的是 `process.platform_facts`、七个 `process.window_*`、`image.inspect_png`（门的声明 34 → 41 → 42）。
+
+**引擎侧**同日上游六个提交，pin 跟到 `7ad771f`：三层价格（拼接 6.7×、引号串 3×、`.length` 9×）、两处「第一个真脚本」照出的老洞（被调者捕获转发、`JSON` 当值配闭包）。上游三条腿 1043/0、315/0、iOS exit 0；本仓 package 197/0、lib 720/2（平台对）、routing 14/0、全仓 118 行 31 败（逐名同基线）。
+
+**还开着的**：GC（bump 堆的垃圾让长旅程要 64 MiB 以上——unix-frontend 的第 5 步即便有 GC 也是轮询无出口，先归产品）；`stringify` 逐节点常数（上游 A9 表）；A1.5 的产品停点（不在 qjswasm 里）；两个未迁入口 `cu-windows-smoke`（Windows 专用）与 `script-http-fixture`（要 TCP 门，已决定不开）。
+
 ### 自验（2026-08-29 收尾，按「待办清单」A 区逐条）
 
 | 行 | 状态 | 证据 |
