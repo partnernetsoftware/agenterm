@@ -62,6 +62,11 @@ qjswasm 在这里的角色：**每一片的黑盒证据都是一段 `.qjs`**（�
 
 - cu：`invoke --window H --name PAT|--node PATH <action>`（press / set-value / select-option / set-checked / set-expanded / increment / decrement）经 platform `perform_node_action` / `set_node_text`；`verify --window H --expect '[{role,name,checked,value,…}]'`；`wait` 加 `--expect`。
 - 不变量落地（PRD 31）：动作不 activate/raise；目标歧义或缺 action → typed 拒绝；每个动作答 `verified|unverified` + 收据。
+- 契约层的准备（读过 `contract/accessibility_tree.rs` 后）：今天 `AccessibilityNodeAction` 只有 `Click` / `Focus`。片 2 先把它扩成
+  `Press / SetValue(String) / SelectOption(String) / SetChecked(bool) / SetExpanded(bool) / Increment / Decrement`，每个平台各自映射
+  （macOS：`AXPress` / `AXValue` 写 / 子项 `AXPress` / 期望态 = 读→不同才 press→回读 / `AXIncrement` `AXDecrement`；Linux AT-SPI `Action` + `EditableText`；
+  Windows UIA Invoke / Value / Toggle / ExpandCollapse / SelectionItem），缺映射的平台答 typed `unsupported`——这是 mcu「desired-state 幂等」教训的落点：
+  `set-checked true` 在已勾选时是 no-op + `verified`，不是再按一次。
 - 旅程：cu-macos-smoke 加一段——`invoke ... set-value` 写 TextEdit 文本，`verify --expect` 回读；再 `invoke press` 一个 checkbox 并回读 checked。
 
 ### 片 3 —— 后台 `menu`、`focused`、`observe`，与 PRD 32 的 `frame` 事务合流
