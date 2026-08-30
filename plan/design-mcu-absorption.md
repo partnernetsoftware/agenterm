@@ -51,7 +51,10 @@ mcu 的教训之一正是「一条入口」。
 qjswasm 在这里的角色：**每一片的黑盒证据都是一段 `.qjs`**（像 `cu-windows-smoke.qjs` 那样，`--profile tool`，
 `process.command` 调 `agenterm-cu --json`），旅程越写越多，引擎的账单/取消/命名拒绝就越被真实脚本练到。
 
-### 片 1 —— macOS `current` 的默认环有界、有证据（先只读）
+### 片 1 —— macOS `current` 的默认环有界、有证据（先只读）—— **已落地 `5abb85ee`（2026-08-30 深夜）**
+
+验收（评审者本机重跑）：`cu-macos-smoke.qjs` `success`，7 STEP / 6 EVIDENCE，固件被 SIGTERM 回收无孤儿；账单 `steps 6.97M / host_ops 182 / host_bytes 40 KB / waited 0 / heap 8 页`。
+意外：TextEdit 不能当固件（系统 App 直接 exec 被 launch constraints SIGKILL，`open -a` 把 pid 交给 LaunchServices）→ 用编译的 Cocoa 固件 `examples/objc/agenterm_ax_fixture.m`；旧适配器读的是不存在的 `AXActions` 属性，所以 `actions` 一直空；ABI 升到 1.12（`agt_a11y_tree_snapshot_bounded`）。
 
 - platform：macOS `tree_for_window` 已经活着；补 node budget（1..20000，遍历期与 depth 同时生效）与 `truncated` 标记；把 AX 的 `AXActionNames` 填进节点 `actions`（今天全空）；`capability_status` 报 TCC 未授权为 typed `denied` + 修复路径，而不是空树。
 - cu：`windows` 输出稳定句柄（PID + `_AXUIElementGetWindow` 号）与 inventory 过滤；`tree --depth N --max-nodes N --flat`；新动词 `query`（role/text/identifier/actionable/within 过滤 + 分页）。
