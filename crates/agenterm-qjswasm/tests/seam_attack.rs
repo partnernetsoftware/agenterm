@@ -360,11 +360,13 @@ fn a_killed_slot_is_a_typed_refusal_and_its_id_is_never_recycled() {
 fn live_slots_accounting_holds_across_traps_and_every_run_once_failure() {
     let mut eng = Engine::new();
     let slot = eng
-        .spawn(Guest::Qjs("let f = 1; return f();"), None)
+        // A stop the engine cannot name yet (ToString of an object, tinyvm
+        // PRD A11); calling a non-function was the example until a4e12fd.
+        .spawn(Guest::Qjs("let o = {}; return \"\" + o;"), None)
         .expect("spawn");
     let err = eng
         .call(slot, "main", &[])
-        .expect_err("calling a non-callable value traps");
+        .expect_err("a value with no ToString traps");
     assert!(matches!(err, QjswasmError::Trap(_)), "got {err:?}");
     assert_eq!(eng.live_slots(), 1, "a trap must not retire the slot");
     assert!(

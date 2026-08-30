@@ -343,6 +343,14 @@ impl Slot {
                     };
                     return QjswasmError::PropertyOfNonObject(key);
                 }
+                // The eighth: the callee's name, for a call on a non-function.
+                Some(tinyvm_qjs::GuestFault::NotAFunction) => {
+                    let callee = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_not_a_function(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::NotAFunction(callee);
+                }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
                 // record a *fifth* reason at the same word. Falling through to
                 // `classify` stays the right default -- a reason this build

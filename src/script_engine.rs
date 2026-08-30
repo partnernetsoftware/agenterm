@@ -315,7 +315,11 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
     use agenterm_qjswasm::QjswasmError as E;
     let category = match &error {
         E::Budget(_) => ScriptFailureCategory::Limit,
-        E::UncaughtThrow(_) | E::Trap(_) | E::HostArgument(_) | E::PropertyOfNonObject(_) => {
+        E::UncaughtThrow(_)
+        | E::Trap(_)
+        | E::HostArgument(_)
+        | E::PropertyOfNonObject(_)
+        | E::NotAFunction(_) => {
             ScriptFailureCategory::Script
         }
         _ => ScriptFailureCategory::Configuration,

@@ -757,8 +757,12 @@ fn arithmetic_is_binary64_so_division_by_zero_is_infinity() {
 fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
     let mut eng = engine();
     let err = eng
-        .run_once(Guest::Qjs("let f = 1; return f();"), None, "main", &[])
-        .expect_err("calling a non-callable value traps rather than proceeding");
+        // `"" + {}` is the one runtime stop this engine still cannot name:
+        // ToString of an object needs 7.1.1 ToPrimitive and there is no
+        // prototype to carry it (tinyvm PRD A11). Calling a non-function was
+        // this test's example until a4e12fd named it.
+        .run_once(Guest::Qjs("let o = {}; return \"\" + o;"), None, "main", &[])
+        .expect_err("a value with no ToString traps rather than proceeding");
     assert!(
         matches!(err, QjswasmError::Trap(_)),
         "expected a trap from a compiled guest, got {err:?}"
@@ -1244,5 +1248,30 @@ fn the_prd_states_the_revision_this_build_pins() {
         stated, pinned,
         "prd/PRD_02_36_agenterm_qjswasm.md says the current pin is `{stated}` but \
          Cargo.toml pins `{pinned}`; update the chain in the same change as the pin"
+    );
+}
+
+/// A call on a non-function names the callee since tinyvm a4e12fd; it was
+/// "guest trapped: unreachable executed", which is what a lint that wrote
+/// `[...].concat(x)` -- a method this engine does not have -- died with.
+/// A script that can catch gets the TypeError instead and never reaches the
+/// engine face as an error.
+#[test]
+fn a_call_on_a_non_function_is_named_at_the_engine_face() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(Guest::Qjs("let a = [1]; return a.concat([2]).length;"), None, "main", &[])
+        .expect_err("calling a missing method stops the script");
+    assert!(
+        matches!(&err, QjswasmError::NotAFunction(Some(callee)) if callee == "concat"),
+        "expected the callee named, got {err:?}"
+    );
+    assert!(
+        err.to_string().starts_with("the script called `concat`, which is not a function"),
+        "{err}"
+    );
+    assert_eq!(
+        returns("let a = [1]; try { a.concat([2]); } catch (e) { return e; } return \"ran\";"),
+        JsValue::Str("TypeError: concat is not a function".into())
     );
 }
