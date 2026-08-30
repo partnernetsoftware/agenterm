@@ -61,7 +61,10 @@ qjswasm 在这里的角色：**每一片的黑盒证据都是一段 `.qjs`**（�
 - 旅程：`scripts/qjs/cu-macos-smoke.qjs`——启动一个 owned 固件 App（TextEdit 或 agenterm 自己的窗口），`windows` 找到它，`query --role AXTextArea` 命中，`tree` 截断标记在 `--max-nodes 5` 下为 true。
 - 判据：旅程 PASS + 一条 `verified` 的观察收据；`capabilities` 在无 TCC 时答 `denied` 而不是空树。
 
-### 片 2 —— `invoke` + `verify`（写，先 fail-closed）
+### 片 2 —— `invoke` + `verify`（写，先 fail-closed）—— **已落地 `26142e3e`（2026-08-31 凌晨）**
+
+验收（评审者本机重跑）：`cu-macos-smoke.qjs` `success`，12 STEP / 11 EVIDENCE，无孤儿；账单 `steps 20.5M / host_ops 327 / host_bytes 117 KB / waited 0 / heap 22 页`。
+落地形状：契约 `AccessibilityNodeAction` 九个动作、状态双向（`checked/unchecked/mixed`、`expanded/collapsed`）；macOS 只在 `AXActionNames` 列出时才 press，`AXValue` 写要 `IsAttributeSettable` + 回读；ABI 1.13 `agt_a11y_node_invoke`；cu 新码 `ambiguous`；PRD 31 三条 leaf 按旅程证明的范围翻 `[x]`（键焦/鼠标不变量未读、`degraded/needs-privilege` 未练到）。
 
 - cu：`invoke --window H --name PAT|--node PATH <action>`（press / set-value / select-option / set-checked / set-expanded / increment / decrement）经 platform `perform_node_action` / `set_node_text`；`verify --window H --expect '[{role,name,checked,value,…}]'`；`wait` 加 `--expect`。
 - 不变量落地（PRD 31）：动作不 activate/raise；目标歧义或缺 action → typed 拒绝；每个动作答 `verified|unverified` + 收据。
