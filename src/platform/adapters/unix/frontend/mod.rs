@@ -4226,7 +4226,12 @@ impl UnixApp {
                     id: saved_tab.id,
                     index: saved_tab.index,
                     parent_id: saved_tab.parent_id,
-                    title: None,
+                    // The name the tab was given survives the restart, as the
+                    // headless server already restores it; until 2026-08-30
+                    // this passed `None` and a restored tab was called after
+                    // its command again (working-context-smoke found its
+                    // persisted tab missing by name).
+                    title: (!saved_tab.title.is_empty()).then(|| saved_tab.title.clone()),
                     command_line: saved_tab.command_line.clone(),
                     tab_environment: Vec::new(),
                     session_name: self.session_name.clone(),
