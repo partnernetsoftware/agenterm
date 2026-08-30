@@ -432,16 +432,20 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
   rh.require(rh.sha256_file(workflow_path) === workflow_sha256, "candidate_workflow_hash");
   const cargo_path = rh.join(source_root, "Cargo.lock");
   const artifact_path = rh.join(source_root, "scripts/artifacts.json");
+  const release_policy_path = rh.join(source_root, "release-policy.json");
   const gate_path = rh.join(source_root, "scripts/qualification-gates.json");
   require_file(cargo_path, "candidate_cargo_lock_missing");
   const cargo_hash = rh.sha256_file(cargo_path);
   require_file(artifact_path, "candidate_artifact_manifest_missing");
   const artifact_hash = rh.sha256_file(artifact_path);
+  require_file(release_policy_path, "candidate_release_policy_missing");
+  const release_policy_hash = rh.sha256_file(release_policy_path);
   require_file(gate_path, "candidate_gate_manifest_missing");
   const gate_hash = rh.sha256_file(gate_path);
   rh.require(
     inputs.cargo_lock_sha256 === cargo_hash
       && inputs.artifact_manifest_sha256 === artifact_hash
+      && inputs.release_policy_sha256 === release_policy_hash
       && inputs.gate_manifest_sha256 === gate_hash,
     "candidate_source_input_hash"
   );

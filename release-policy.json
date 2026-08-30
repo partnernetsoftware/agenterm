@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "version": "0.1.16",
+  "assets": {
+    "native_six_cell": true,
+    "chassis_product": true,
+    "experimental_ape": false
+  },
+  "signing": {
+    "windows": "off",
+    "linux": "off",
+    "macos": "unsigned-preview"
+  },
+  "executable_compression": "off",
+  "reputation": {
+    "windows_final_candidate_bytes": "planned"
+  }
+}

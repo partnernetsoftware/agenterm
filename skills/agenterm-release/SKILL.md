@@ -16,6 +16,9 @@ Read these repository-owned contracts before acting:
    `.github/workflows/release-integrity.yml`.
 4. `scripts/qjs/release.qjs`, `scripts/qjs/candidate-verify.qjs`,
    `scripts/qjs/candidate-aggregate.qjs`, and `agenterm.tasks.json`.
+5. `release-policy.json`; signing mode is checked-in source identity. Missing
+   credentials must fail a `required` mode and must never select unsigned mode
+   implicitly.
 
 Read `references/github-auth-and-dispatch.md` when authentication, workflow
 dispatch, monitoring, rate limits, or human approval is involved.

@@ -30,7 +30,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [~] macOS direct-download releases use Apple distribution trust rather than
   asking users to bypass Gatekeeper
   - [x] macOS stable assets are an explicit signed-release lane controlled by
-    repository variable `ENABLE_SIGNED_MACOS_RELEASE`; while it is not `true`,
+    checked-in `release-policy.json`; while `signing.macos` is
+    `unsigned-preview`,
     the workflow may publish Windows/Linux stable assets plus a separately
     named `-unsigned-preview` macOS channel, but never emits an unsigned macOS
     archive under a stable filename
@@ -50,10 +51,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       `Privacy & Security → Open Anyway` path after hash verification, and
       explicitly reject global Gatekeeper disablement or recursive quarantine
       removal
-  - [x] once that lane is enabled, the tag workflow fails closed without a
-    Developer ID Application certificate and App Store Connect notarization
-    key, signs every declared Mach-O independently with hardened runtime plus
-    a secure timestamp, verifies each signature, packages macOS as a ZIP
+  - [x] once that policy is changed to `required`, the Candidate workflow
+    fails closed without a Developer ID Application certificate and App Store
+    Connect notarization key, signs every declared Mach-O independently with
+    hardened runtime plus a secure timestamp, verifies each signature,
+    packages macOS as a ZIP
     accepted by `notarytool`, and publishes only after Apple returns `Accepted`
     - repository Actions secrets are
       `APPLE_DEVELOPER_ID_P12_BASE64`,

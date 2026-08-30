@@ -61,6 +61,7 @@ rh.require(
 );
 const cargo_path = rh.join(source_root, "Cargo.lock");
 const artifact_path = rh.join(source_root, "scripts/artifacts.json");
+const release_policy_path = rh.join(source_root, "release-policy.json");
 const gate_path = rh.join(source_root, "scripts/qualification-gates.json");
 const sbom_name = "agenterm-" + metadata_version + "-sbom.spdx.json";
 const receipt_name = "qualification-receipt.json";
@@ -72,6 +73,8 @@ candidate.require_file(cargo_path, "candidate_cargo_lock_missing");
 const cargo_hash = rh.sha256_file(cargo_path);
 candidate.require_file(artifact_path, "candidate_artifact_manifest_missing");
 const artifact_hash = rh.sha256_file(artifact_path);
+candidate.require_file(release_policy_path, "candidate_release_policy_missing");
+const release_policy_hash = rh.sha256_file(release_policy_path);
 candidate.require_file(sbom_path, "candidate_sbom_missing");
 const sbom_hash = rh.sha256_file(sbom_path);
 
@@ -167,6 +170,7 @@ const manifest = {
   inputs: {
     cargo_lock_sha256: cargo_hash,
     artifact_manifest_sha256: artifact_hash,
+    release_policy_sha256: release_policy_hash,
     gate_manifest_sha256: gate_hash
   },
   qualification: { name: receipt_name, size: receipt_size, sha256: receipt_hash },

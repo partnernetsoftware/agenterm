@@ -21,7 +21,9 @@ archives, explicit signing policy, and final-byte reputation checks.
     - [ ] Windows courts execute the final PE bytes, not pre-package binaries
     - [ ] macOS courts cover arm64 and real Intel runner/Rosetta evidence distinctly
   - [ ] provider-neutral signing policy
-    - [ ] explicit `unsigned` / `signed` mode; missing credentials never silently choose policy
+    - [x] checked-in `release-policy.json` explicitly selects unsigned preview
+      or required macOS signing; missing credentials never silently choose policy
+    - [~] Windows/Linux modes are explicit `off`; Azure Artifact Signing adapter remains
     - [ ] signing changes bytes only before Candidate sealing
     - [ ] receipt binds pre-sign and final SHA-256 plus timestamp evidence
   - [ ] final-byte reputation court
@@ -73,6 +75,9 @@ flowchart LR
   the Candidate summary so size drift is visible before Promotion.
 - The Candidate Linux legs extract the public archives and reject the known XKB
   transitive-dependency leak before those archives reach the sealed byte set.
+- `release-policy.json` is hashed into the Candidate manifest. It selects the
+  macOS signing lane from source control and records Windows/Linux signing plus
+  executable-compression policy without relying on absent secrets as choices.
 - `.github/workflows/candidate.yml` and `.github/workflows/release.yml` remain
   the Candidate and Promotion authorities. Remaining unchecked leaves are not
   release claims.

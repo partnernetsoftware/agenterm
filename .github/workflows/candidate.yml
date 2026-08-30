@@ -20,6 +20,8 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      signed_macos: ${{ steps.release_policy.outputs.signed_macos }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -49,6 +51,28 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Resolve checked-in release policy
+        id: release_policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          test "$(jq -r .schema_version release-policy.json)" = 1
+          test "$(jq -r .version release-policy.json)" = "$version"
+          test "$(jq -r .assets.native_six_cell release-policy.json)" = true
+          test "$(jq -r .assets.chassis_product release-policy.json)" = true
+          test "$(jq -r .assets.experimental_ape release-policy.json)" = false
+          test "$(jq -r .signing.windows release-policy.json)" = off
+          test "$(jq -r .signing.linux release-policy.json)" = off
+          test "$(jq -r .executable_compression release-policy.json)" = off
+          macos_mode="$(jq -r .signing.macos release-policy.json)"
+          case "$macos_mode" in
+            required) signed_macos=true ;;
+            unsigned-preview) signed_macos=false ;;
+            *) echo "Unsupported macOS signing policy: $macos_mode" >&2; exit 1 ;;
+          esac
+          echo "signed_macos=$signed_macos" >>"$GITHUB_OUTPUT"
 
   build:
     needs: preflight
@@ -387,7 +411,7 @@ jobs:
       - name: Import Apple Developer ID credentials
         if: >-
           startsWith(matrix.platform_id, 'macos-') &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         env:
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
@@ -466,10 +490,10 @@ jobs:
       - name: Report macOS unsigned preview channel
         if: >-
           startsWith(matrix.platform_id, 'macos-') &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE != 'true'
+          needs.preflight.outputs.signed_macos != 'true'
         run: |
           echo "Signed macOS stable publishing is disabled; this job will produce a visibly labeled unsigned preview."
-          echo "Set ENABLE_SIGNED_MACOS_RELEASE=true only after all Developer ID and notarization secrets are configured."
+          echo "Set release-policy.json signing.macos=required only after all Developer ID and notarization secrets are configured."
 
       - name: Generate deterministic macOS SPDX inventory
         if: startsWith(matrix.platform_id, 'macos-')
@@ -487,7 +511,7 @@ jobs:
       - name: Sign macOS ARM64 clients
         if: >-
           matrix.platform_id == 'macos-aarch64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         run: |
           ./scripts/sign-macos-release.sh \
             aarch64 target/aarch64-apple-darwin/release
@@ -495,7 +519,7 @@ jobs:
       - name: Package macOS ARM64 release
         if: >-
           matrix.platform_id == 'macos-aarch64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         env:
           AGENTERM_BOOTSTRAP_TASK: package-client-release
         run: |
@@ -506,7 +530,7 @@ jobs:
       - name: Notarize macOS ARM64 release
         if: >-
           matrix.platform_id == 'macos-aarch64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         run: |
           set -euo pipefail
           VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
@@ -536,7 +560,7 @@ jobs:
       - name: Package macOS ARM64 unsigned preview
         if: >-
           matrix.platform_id == 'macos-aarch64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE != 'true'
+          needs.preflight.outputs.signed_macos != 'true'
         env:
           AGENTERM_BOOTSTRAP_TASK: package-client-release
         run: |
@@ -554,7 +578,7 @@ jobs:
       - name: Sign macOS x86_64 clients
         if: >-
           matrix.platform_id == 'macos-x86_64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         run: |
           ./scripts/sign-macos-release.sh \
             x86_64 target/x86_64-apple-darwin/release
@@ -562,7 +586,7 @@ jobs:
       - name: Package macOS x86_64 release
         if: >-
           matrix.platform_id == 'macos-x86_64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         env:
           AGENTERM_BOOTSTRAP_TASK: package-client-release
         run: |
@@ -573,7 +597,7 @@ jobs:
       - name: Notarize macOS x86_64 release
         if: >-
           matrix.platform_id == 'macos-x86_64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE == 'true'
+          needs.preflight.outputs.signed_macos == 'true'
         run: |
           set -euo pipefail
           VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
@@ -603,7 +627,7 @@ jobs:
       - name: Package macOS x86_64 unsigned preview
         if: >-
           matrix.platform_id == 'macos-x86_64' &&
-          vars.ENABLE_SIGNED_MACOS_RELEASE != 'true'
+          needs.preflight.outputs.signed_macos != 'true'
         env:
           AGENTERM_BOOTSTRAP_TASK: package-client-release
         run: |
@@ -660,7 +684,7 @@ jobs:
         shell: bash
         env:
           PLATFORM_ID: ${{ matrix.platform_id }}
-          SIGNED_MACOS: ${{ vars.ENABLE_SIGNED_MACOS_RELEASE }}
+          SIGNED_MACOS: ${{ needs.preflight.outputs.signed_macos }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
