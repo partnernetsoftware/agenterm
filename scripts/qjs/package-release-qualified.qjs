@@ -62,6 +62,8 @@ const provenance = {
   notarized: false,
   artifact: archive_name,
   sha256: archive_hash,
+  payload_uncompressed_bytes: result.payload_uncompressed_bytes,
+  archive_bytes: result.archive_bytes,
   source_commit: receipt.provenance.git_head,
   source_tag: "v" + version,
   artifact_manifest_sha256: receipt.provenance.artifact_manifest_sha256,

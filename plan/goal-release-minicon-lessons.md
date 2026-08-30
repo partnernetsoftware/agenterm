@@ -74,6 +74,8 @@ flowchart LR
 
 - `scripts/qjs/package-client-release.qjs` owns fresh staging and records both
   uncompressed payload and compressed archive sizes in provenance.
+- The independently qualified Windows x86_64 packager emits the same size
+  contract; Candidate validation therefore treats all six native cells alike.
 - `scripts/qjs/candidate-aggregate.qjs` carries payload size evidence into the
   sealed manifest; `scripts/qjs/lib/release_candidate.qjs` verifies it.
 - `.github/workflows/candidate.yml` publishes the six raw/archive byte pairs in

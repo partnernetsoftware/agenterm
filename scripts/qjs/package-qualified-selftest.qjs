@@ -274,6 +274,12 @@ const release_manifest = rh.parse_file(release_directory + "/package-manifest.js
 const release_archive_exists = rh.exists(release_archive);
 const release_archive_hash = rh.sha256_file(release_archive);
 const release_result_hash = "" + release_result.archive_sha256;
+rh.require(
+  release_result.payload_uncompressed_bytes > 0
+    && release_result.archive_bytes > 0
+    && release_result.archive_bytes === rh.metadata(release_archive).len,
+  "package_selftest_release_size_evidence"
+);
 assert_ok(
   release_result.dry_run === false
     && release_manifest.dry_run === false

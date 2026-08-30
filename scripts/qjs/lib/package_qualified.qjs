@@ -285,6 +285,10 @@ function build_package_mode(repo_value, receipt_value, output_value, dry_run) {
   const staged_manifest = rh.join(staging, "package-manifest.json");
   rh.atomic_write(staged_manifest, rh.stringify_pretty(package_manifest) + "\n");
   members.push("package-manifest.json");
+  let payload_uncompressed_bytes = rh.metadata(staged_manifest).len;
+  for (const entry of payload) {
+    payload_uncompressed_bytes = payload_uncompressed_bytes + rh.metadata("" + entry.path).len;
+  }
 
   let archive_suffix = "";
   if (dry_run) { archive_suffix = "-dry-run"; }
@@ -295,11 +299,14 @@ function build_package_mode(repo_value, receipt_value, output_value, dry_run) {
   const external_manifest = rh.join(run_directory, "package-manifest.json");
   rh.copy(staged_manifest, external_manifest);
   const archive_hash = rh.sha256_file(archive);
+  const archive_bytes = rh.metadata(archive).len;
   const result = {
     schema_version: 1,
     dry_run: dry_run,
     archive: archive_name,
     archive_sha256: archive_hash,
+    payload_uncompressed_bytes: payload_uncompressed_bytes,
+    archive_bytes: archive_bytes,
     package_manifest: "package-manifest.json",
     qualified_head: head
   };
