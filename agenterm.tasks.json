@@ -55,6 +55,1394 @@
     }
   },
   "contracts": {
+    "build": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "native-binaries",
+        "build-metadata"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.build"
+      ]
+    },
+    "clean-locked-artifacts": {
+      "inputs": [
+        "artifact-manifest",
+        "staging-directory"
+      ],
+      "outputs": [
+        "clean-staging-directory"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.clean-locked-artifacts"
+      ]
+    },
+    "check": {
+      "inputs": [
+        "source-tree",
+        "task-manifest",
+        "qualification-gate-manifest"
+      ],
+      "outputs": [
+        "gate-results",
+        "quality-timing",
+        "qualification-receipt"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch",
+        "loopback"
+      ],
+      "evidence": [
+        "task.check"
+      ]
+    },
+    "timing-summary": {
+      "inputs": [
+        "quality-timing"
+      ],
+      "outputs": [
+        "quality-timing-markdown"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.timing-summary"
+      ]
+    },
+    "performance-samples": {
+      "inputs": [
+        "exact-source",
+        "compiler-cache-strategy"
+      ],
+      "outputs": [
+        "three-ordered-quick-samples",
+        "compiler-cache-statistics"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.performance-samples"
+      ]
+    },
+    "performance-summary": {
+      "inputs": [
+        "three-ordered-quick-samples",
+        "compiler-cache-statistics"
+      ],
+      "outputs": [
+        "typed-performance-summary"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.performance-summary"
+      ]
+    },
+    "release": {
+      "inputs": [
+        "clean-source",
+        "qualification-receipt",
+        "candidate-workflow",
+        "promotion-workflow"
+      ],
+      "outputs": [
+        "release-rehearsal",
+        "promotion-instructions"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch",
+        "loopback"
+      ],
+      "evidence": [
+        "task.release"
+      ]
+    },
+    "candidate-aggregate": {
+      "inputs": [
+        "exact-source",
+        "candidate-metadata",
+        "six-platform-assets",
+        "qualification-receipt"
+      ],
+      "outputs": [
+        "candidate-manifest"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.candidate-aggregate"
+      ]
+    },
+    "candidate-verify": {
+      "inputs": [
+        "exact-source",
+        "candidate-manifest",
+        "sealed-candidate-assets"
+      ],
+      "outputs": [
+        "verified-candidate-identity"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.candidate-verify"
+      ]
+    },
+    "build-releases-index": {
+      "inputs": [
+        "candidate-manifest",
+        "sealed-candidate-assets"
+      ],
+      "outputs": [
+        "releases-index"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.build-releases-index"
+      ]
+    },
+    "bootstrap-info": {
+      "inputs": [
+        "source-tree",
+        "toolchain"
+      ],
+      "outputs": [
+        "bootstrap-facts"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.bootstrap-info"
+      ]
+    },
+    "artifact-verification": {
+      "inputs": [
+        "staged-binaries",
+        "build-metadata",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "artifact-verification-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.artifact-verification"
+      ]
+    },
+    "build-identity": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "build-identity"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.build-identity"
+      ]
+    },
+    "harness-cleanup-selftest": {
+      "inputs": [
+        "script-runtime"
+      ],
+      "outputs": [
+        "cleanup-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.harness-cleanup-selftest"
+      ]
+    },
+    "diagnostic-bundle-selftest": {
+      "inputs": [
+        "staged-binaries",
+        "script-runtime"
+      ],
+      "outputs": [
+        "diagnostic-proof"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.diagnostic-bundle-selftest"
+      ]
+    },
+    "qualification-selftest": {
+      "inputs": [
+        "qualification-gate-manifest",
+        "script-runtime"
+      ],
+      "outputs": [
+        "qualification-boundary-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.qualification-selftest"
+      ]
+    },
+    "package-qualified": {
+      "inputs": [
+        "qualification-receipt",
+        "qualified-binaries",
+        "sbom"
+      ],
+      "outputs": [
+        "dry-run-archive",
+        "package-manifest"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.package-qualified"
+      ]
+    },
+    "package-release-qualified": {
+      "inputs": [
+        "qualification-receipt",
+        "qualified-binaries",
+        "sbom"
+      ],
+      "outputs": [
+        "release-archive",
+        "package-manifest"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.package-release-qualified"
+      ]
+    },
+    "package-qualified-selftest": {
+      "inputs": [
+        "package-module",
+        "script-runtime"
+      ],
+      "outputs": [
+        "package-boundary-proof"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576,
+        "max_string_bytes": 8388608
+      },
+      "network": [],
+      "evidence": [
+        "task.package-qualified-selftest"
+      ]
+    },
+    "working-context-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "working-context-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.working-context-smoke"
+      ]
+    },
+    "theme-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "theme-evidence",
+        "png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.theme-smoke"
+      ]
+    },
+    "workbench-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "workbench-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.workbench-smoke"
+      ]
+    },
+    "control-center-smoke": {
+      "inputs": [
+        "staged-control-center",
+        "isolated-settings"
+      ],
+      "outputs": [
+        "control-center-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.control-center-smoke"
+      ]
+    },
+    "stage-cu-windows-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm"
+      ],
+      "outputs": [
+        "staged-agenterm-cu",
+        "staged-libagenterm"
+      ],
+      "budget": {
+        "timeout_ms": 10000,
+        "max_operations": 10000,
+        "max_output_bytes": 65536
+      },
+      "network": [],
+      "evidence": [
+        "task.stage-cu-windows-smoke"
+      ]
+    },
+    "control-center-macos-smoke": {
+      "inputs": [
+        "staged-control-center",
+        "isolated-settings",
+        "isolated-native-ipc"
+      ],
+      "outputs": [
+        "control-center-macos-evidence",
+        "retina-png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.control-center-macos-smoke"
+      ]
+    },
+    "control-center-linux-smoke": {
+      "inputs": [
+        "built-control-center",
+        "isolated-settings",
+        "isolated-native-ipc",
+        "display-session"
+      ],
+      "outputs": [
+        "control-center-linux-evidence",
+        "renderer-owned-png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.control-center-linux-smoke"
+      ]
+    },
+    "unix-frontend-linux-smoke": {
+      "inputs": [
+        "built-unix-frontend",
+        "isolated-workspace",
+        "isolated-native-ipc",
+        "x11-session"
+      ],
+      "outputs": [
+        "unix-frontend-linux-evidence",
+        "renderer-owned-png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.unix-frontend-linux-smoke"
+      ]
+    },
+    "unix-frontend-macos-smoke": {
+      "inputs": [
+        "built-unix-frontend",
+        "isolated-workspace",
+        "isolated-native-ipc",
+        "desktop-session"
+      ],
+      "outputs": [
+        "unix-frontend-macos-evidence",
+        "renderer-owned-png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.unix-frontend-macos-smoke"
+      ]
+    },
+    "agenterm-net-research": {
+      "inputs": [
+        "research-source",
+        "research-cargo-lock"
+      ],
+      "outputs": [
+        "libp2p-cid-block-store-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch",
+        "loopback"
+      ],
+      "evidence": [
+        "task.agenterm-net-research"
+      ]
+    },
+    "fleet-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "fleet-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.fleet-smoke"
+      ]
+    },
+    "server-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "server-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.server-smoke"
+      ]
+    },
+    "native-ipc-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace",
+        "isolated-instance-directory"
+      ],
+      "outputs": [
+        "native-ipc-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.native-ipc-smoke"
+      ]
+    },
+    "native-ipc-compat-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "published-release-hash-catalog",
+        "isolated-workspace",
+        "isolated-instance-directory"
+      ],
+      "outputs": [
+        "published-native-ipc-compatibility-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 360000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch",
+        "loopback"
+      ],
+      "evidence": [
+        "task.native-ipc-compat-smoke"
+      ]
+    },
+    "wake-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "wake-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "fleet.wake-coalescing",
+        "ux-parity.wake-coalescing"
+      ]
+    },
+    "startup-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "startup-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.startup-smoke"
+      ]
+    },
+    "cli-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "cli-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.cli-smoke"
+      ]
+    },
+    "script-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "script-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 1200000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576,
+        "max_string_bytes": 8388608
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.script-smoke"
+      ]
+    },
+    "remote-ui-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "remote-ui-evidence",
+        "png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 1200000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.remote-ui-smoke"
+      ]
+    },
+    "remote-ui-upgrade-smoke": {
+      "inputs": [
+        "current-gui",
+        "alternate-gui",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "upgrade-evidence",
+        "png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.remote-ui-upgrade-smoke"
+      ]
+    },
+    "platform-ux-parity-smoke": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "platform-ux-parity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 360000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.platform-ux-parity-smoke"
+      ]
+    },
+    "platform-ux-parity-smoke-linux": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "platform-ux-parity-linux-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 360000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.platform-ux-parity-smoke-linux"
+      ]
+    },
+    "platform-ux-parity-smoke-macos": {
+      "inputs": [
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "platform-ux-parity-macos-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 360000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.platform-ux-parity-smoke-macos"
+      ]
+    },
+    "mcp-conformance": {
+      "inputs": [
+        "candidate-mcp",
+        "staged-binaries",
+        "isolated-workspace"
+      ],
+      "outputs": [
+        "mcp-conformance-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.mcp-conformance"
+      ]
+    },
+    "migration-audit": {
+      "inputs": [
+        "source-tree",
+        "migration-ledger"
+      ],
+      "outputs": [
+        "migration-audit-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.migration-audit"
+      ]
+    },
+    "install-libagenterm": {
+      "inputs": [
+        "libagenterm-windows-artifacts",
+        "install-prefix"
+      ],
+      "outputs": [
+        "libagenterm-windows-install-tree"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.install-libagenterm"
+      ]
+    },
+    "lint": {
+      "inputs": [
+        "source-tree",
+        "task-manifest"
+      ],
+      "outputs": [
+        "lint-results"
+      ],
+      "budget": {
+        "timeout_ms": 600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576,
+        "max_string_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.lint"
+      ]
+    },
+    "prepare-target-clean": {
+      "inputs": [
+        "source-tree",
+        "cargo-target"
+      ],
+      "outputs": [
+        "cleanup-authorization"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.prepare-target-clean"
+      ]
+    },
+    "prune-target-incremental": {
+      "inputs": [
+        "source-tree",
+        "cargo-target",
+        "rustc-session-locks"
+      ],
+      "outputs": [
+        "incremental-cache-prune-report"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.prune-target-incremental"
+      ]
+    },
+    "preflight": {
+      "inputs": [
+        "source-tree",
+        "release-remote",
+        "release-workflow"
+      ],
+      "outputs": [
+        "preflight-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.preflight"
+      ]
+    },
+    "preflight-benchmark": {
+      "inputs": [
+        "source-tree",
+        "preflight-task"
+      ],
+      "outputs": [
+        "preflight-benchmark-report"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.preflight-benchmark"
+      ]
+    },
+    "prd-alignment": {
+      "inputs": [
+        "prd-tree",
+        "alignment-contract",
+        "public-catalogs"
+      ],
+      "outputs": [
+        "prd-alignment-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576,
+        "max_string_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.prd-alignment"
+      ]
+    },
+    "stage-artifact": {
+      "inputs": [
+        "source-artifact",
+        "staging-directory"
+      ],
+      "outputs": [
+        "staged-artifact"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.stage-artifact"
+      ]
+    },
+    "supply-chain": {
+      "inputs": [
+        "cargo-lock",
+        "cargo-metadata",
+        "license-policy"
+      ],
+      "outputs": [
+        "sbom",
+        "supply-chain-report"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576,
+        "max_collection_items": 100000,
+        "max_string_bytes": 8388608
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.supply-chain"
+      ]
+    },
+    "stage-build": {
+      "inputs": [
+        "built-binaries",
+        "build-identity",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "staged-binaries",
+        "build-metadata"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.stage-build"
+      ]
+    },
+    "target-report": {
+      "inputs": [
+        "cargo-target"
+      ],
+      "outputs": [
+        "target-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.target-report"
+      ]
+    },
+    "validate-artifact-manifest": {
+      "inputs": [
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "manifest-validation"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.validate-artifact-manifest"
+      ]
+    },
+    "write-build-metadata": {
+      "inputs": [
+        "build-identity",
+        "staged-binaries",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "build-metadata"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.write-build-metadata"
+      ]
+    },
+    "internal-version-policy": {
+      "inputs": [
+        "source-tree",
+        "release-version"
+      ],
+      "outputs": [
+        "version-policy-result"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.internal-version-policy"
+      ]
+    },
+    "verify-docs-site": {
+      "inputs": [
+        "docs-site",
+        "product-metadata"
+      ],
+      "outputs": [
+        "docs-site-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.verify-docs-site"
+      ]
+    },
+    "readme-examples": {
+      "inputs": [
+        "readme",
+        "staged-binaries",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "readme-example-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.readme-examples"
+      ]
+    },
+    "client-build": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest",
+        "target-triple"
+      ],
+      "outputs": [
+        "target-client-binaries"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.client-build"
+      ]
+    },
+    "client-build-all": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "target-client-binaries"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.client-build-all"
+      ]
+    },
+    "six-cell-qualify": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "target-client-binaries"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.six-cell-qualify"
+      ]
+    },
+    "client-clippy": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest",
+        "target-triple"
+      ],
+      "outputs": [
+        "target-clippy-result"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch"
+      ],
+      "evidence": [
+        "task.client-clippy"
+      ]
+    },
+    "client-smoke": {
+      "inputs": [
+        "target-client-binaries",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "client-entrypoint-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.client-smoke"
+      ]
+    },
+    "rh-aot-smoke": {
+      "inputs": [
+        "target-client-binaries",
+        "rh-fixture"
+      ],
+      "outputs": [
+        "rh-aot-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.rh-aot-smoke"
+      ]
+    },
+    "rh-native-task-probe": {
+      "inputs": [
+        "rh-native-task-runtime"
+      ],
+      "outputs": [
+        "native-entry-value",
+        "native-pack-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.rh-native-task-probe"
+      ]
+    },
+    "package-client-release": {
+      "inputs": [
+        "target-client-binaries",
+        "artifact-manifest",
+        "platform-adapters"
+      ],
+      "outputs": [
+        "platform-release-archive",
+        "archive-provenance",
+        "archive-checksum"
+      ],
+      "budget": {
+        "timeout_ms": 600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.package-client-release"
+      ]
+    },
+    "cross-platform-automation-audit": {
+      "inputs": [
+        "workflow-sources",
+        "shell-adapters",
+        "artifact-manifest"
+      ],
+      "outputs": [
+        "automation-ownership-report"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 10000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cross-platform-automation-audit"
+      ]
+    },
+    "fresh-clone-rehearsal": {
+      "inputs": [
+        "clean-main-source",
+        "origin-remote",
+        "release-entrypoint",
+        "qualification-receipt-contract"
+      ],
+      "outputs": [
+        "fresh-clone-rehearsal-evidence",
+        "qualified-package-facts"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [
+        "dependency_fetch",
+        "loopback"
+      ],
+      "evidence": [
+        "task.fresh-clone-rehearsal"
+      ]
+    },
     "lua-build-identity": {
       "inputs": [
         "source-tree",
@@ -93,6 +1481,1398 @@
     }
   },
   "tasks": [
+    {
+      "id": "build",
+      "description": "Build and stage AgenTerm through one native Script lifecycle",
+      "entry": "scripts/qjs/build.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "build-identity",
+        "stage-build",
+        "target-report",
+        "prepare-target-clean",
+        "prune-target-incremental"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "clean-locked-artifacts",
+      "description": "Remove stale locked and explicitly obsolete staged executables",
+      "entry": "scripts/qjs/clean-locked-artifacts.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "check",
+      "description": "Run quick, ordinary, or release qualification and emit an exact receipt when stress is included",
+      "entry": "scripts/qjs/check.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "lint",
+        "migration-audit",
+        "prd-alignment",
+        "artifact-verification",
+        "mcp-conformance",
+        "supply-chain",
+        "verify-docs-site",
+        "readme-examples"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "timing-summary",
+      "description": "Validate one quality-timing report and append a bounded Markdown job summary",
+      "entry": "scripts/qjs/timing-summary.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "performance-samples",
+      "description": "Run three ordered cold-to-warm Quick samples for the isolated Windows performance experiment",
+      "entry": "scripts/qjs/performance-samples.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "performance-summary",
+      "description": "Validate and aggregate three isolated Quick timing samples without claiming release qualification",
+      "entry": "scripts/qjs/performance-summary.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "release",
+      "description": "Validate or locally rehearse an exact candidate and direct publication through the candidate-bound Promotion workflow",
+      "entry": "scripts/qjs/release.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [
+        "check",
+        "preflight",
+        "package-release-qualified"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "candidate-aggregate",
+      "description": "Seal one exact-SHA six-platform release Candidate manifest from a closed payload",
+      "entry": "scripts/qjs/candidate-aggregate.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [
+        "supply-chain"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "candidate-verify",
+      "description": "Verify one exact-SHA Candidate manifest, qualification receipt, and every payload byte",
+      "entry": "scripts/qjs/candidate-verify.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "build-releases-index",
+      "description": "Derive pure machine-readable releases.json from a sealed candidate manifest and provenance",
+      "entry": "scripts/qjs/build-releases-index.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "bootstrap-info",
+      "description": "Report the repository, Git, Cargo, Rust and Script Runtime bootstrap identity",
+      "entry": "scripts/qjs/bootstrap-info.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "artifact-verification",
+      "description": "Verify staged executable roles, hashes, budgets, provenance, and offline catalogs",
+      "entry": "scripts/qjs/artifact-verification.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "validate-artifact-manifest"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "build-identity",
+      "description": "Freeze source revision, dirty state, and build-input hashes into a batch environment",
+      "entry": "scripts/qjs/build-identity.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "harness-cleanup-selftest",
+      "description": "Prove exact Rhai smoke-harness child ownership, cleanup evidence, and original-failure retention",
+      "entry": "scripts/qjs/harness-cleanup-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "diagnostic-bundle-selftest",
+      "description": "Prove retained CLI, GUI, and Script failure bundles are bounded, private, identity-checked, and orphan-free",
+      "entry": "scripts/qjs/diagnostic-bundle-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.com",
+        "dist/agenterm.exe",
+        "dist/agenterm.exe"
+      ],
+      "dependencies": [
+        "theme-smoke",
+        "script-smoke"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "qualification-selftest",
+      "description": "Prove qualification manifests, results, provenance, and diagnostics fail closed",
+      "entry": "scripts/qjs/qualification-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "package-qualified",
+      "description": "Create a byte-qualified offline Windows package dry run",
+      "entry": "scripts/qjs/package-qualified.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/qualification/receipt.json",
+        "target/qualification/package-dry-run"
+      ],
+      "dependencies": [
+        "check"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "package-release-qualified",
+      "description": "Stage public Windows release assets from byte-qualified candidate inputs",
+      "entry": "scripts/qjs/package-release-qualified.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/qualification/receipt.json",
+        "dist"
+      ],
+      "dependencies": [
+        "check"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "package-qualified-selftest",
+      "description": "Prove the offline package boundary accepts only qualified bytes",
+      "entry": "scripts/qjs/package-qualified-selftest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "working-context-smoke",
+      "description": "Prove redacted launch proxy facts and persistent workspace metadata through an isolated GUI restart",
+      "entry": "scripts/qjs/working-context-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "theme-smoke",
+      "description": "Prove theme preview, native-key rollback, persistence, PTY continuity, and visibly distinct rendering",
+      "entry": "scripts/qjs/theme-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "workbench-smoke",
+      "description": "Prove physical inline tab editing, archived Proxy chrome, and compact deep-tree geometry",
+      "entry": "scripts/qjs/workbench-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "control-center-smoke",
+      "description": "Prove the isolated Control Center offline contract, typed stable-ID navigation, PID reuse, no-activate launch, renderer failure isolation, Human GUI detach isolation, stale-owner recovery, and orphan-free cleanup",
+      "entry": "scripts/qjs/control-center-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm-cc.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "stage-cu-windows-smoke",
+      "description": "Stage the exact nonempty agenterm-cu.exe and agenterm.dll pair for the Windows public smoke without shell-specific automation",
+      "entry": "scripts/qjs/stage-cu-windows-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "target/release/agenterm-cu.exe",
+        "target/abi-release/agenterm.dll",
+        "dist"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "control-center-macos-smoke",
+      "description": "Prove caller-selected native IPC, renderer-owned Retina evidence, no-activate/focus reuse, server epochs, and process isolation on macOS",
+      "entry": "scripts/qjs/control-center-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm-cc",
+        "dist/agenterm",
+        "dist/agenterm"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "control-center-linux-smoke",
+      "description": "Prove caller-selected native IPC, renderer-owned PNG evidence, focus/reuse, server epochs, renderer replacement, and process isolation on Linux",
+      "entry": "scripts/qjs/control-center-linux-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/x86_64-unknown-linux-gnu/debug/agenterm-cc",
+        "target/x86_64-unknown-linux-gnu/debug/agenterm",
+        "target/x86_64-unknown-linux-gnu/debug/agenterm"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "unix-frontend-linux-smoke",
+      "description": "Prove the Linux X11 AgenTerm workbench, native activation, renderer-owned PNG, asynchronous clipboard paste, stale cancellation, and cleanup",
+      "entry": "scripts/qjs/unix-frontend-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "unix-frontend-macos-smoke",
+      "description": "Prove the macOS AgenTerm workbench, native activation, renderer-owned PNG, asynchronous clipboard paste, stale cancellation, and cleanup",
+      "entry": "scripts/qjs/unix-frontend-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "agenterm-net-research",
+      "description": "Validate the isolated research-only libp2p, CID, temporary block-store, and process-cleanup loop",
+      "entry": "scripts/qjs/agenterm-net-research.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "fleet-smoke",
+      "description": "Prove Fleet discovery, event causality, scoped launch context, Mux safety, restart truth, and optional concurrent journal load",
+      "entry": "scripts/qjs/fleet-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.com",
+        "--skip-event-load"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "server-smoke",
+      "description": "Prove split headless server ownership, leases, PTY state, receipts, events, persistence, and native window absence",
+      "entry": "scripts/qjs/server-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "native-ipc-smoke",
+      "description": "Prove isolated native named-pipe or Unix-socket selection, selector precedence, mixed schema discovery, typed server-list rows, and explicit legacy TCP compatibility",
+      "entry": "scripts/qjs/native-ipc-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "native-ipc-compat-smoke",
+      "description": "Download exact published v0.1.10/v0.1.11 bytes and prove TCP migration plus native IPC upgrade and rollback against staged HEAD",
+      "entry": "scripts/qjs/native-ipc-compat-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "wake-smoke",
+      "description": "Prove coalesced server wake delivery across concurrent IPC, PTY output, and an expired raw mutation",
+      "entry": "scripts/qjs/wake-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "startup-smoke",
+      "description": "Prove no-activate native first-window startup, asynchronous terminal readiness, handoff, and nonblocking GUI guidance",
+      "entry": "scripts/qjs/startup-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com",
+        "1000"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "cli-smoke",
+      "description": "Prove public typed control, UI bridge, PTY, screenshots, remain-on-exit, and explicit close",
+      "entry": "scripts/qjs/cli-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "script-smoke",
+      "description": "Prove the unrestricted Script Runtime API, binary framing, supervision, Fleet, named tasks, HTTP, filesystem lifecycle, and audit privacy",
+      "entry": "scripts/qjs/script-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.com",
+        "dist/agenterm.exe",
+        "dist/agenterm.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "remote-ui-smoke",
+      "description": "Prove replaceable GUI detach, physical workbench behavior, clipboard, server-fault isolation, and in-place reconnect",
+      "entry": "scripts/qjs/remote-ui-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "remote-ui-upgrade-smoke",
+      "description": "Prove real GUI byte upgrade and rollback against one stable server, PTY, lease, and scrollback",
+      "entry": "scripts/qjs/remote-ui-upgrade-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "target/release-fast/agenterm.exe",
+        "dist/agenterm.exe",
+        "dist/agenterm.com"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "platform-ux-parity-smoke",
+      "description": "Run startup + platform-native UX parity smoke and emit cross-platform parity evidence",
+      "entry": "scripts/qjs/platform-ux-parity-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm.exe",
+        "dist/agenterm.com",
+        "windows"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "platform-ux-parity-smoke-linux",
+      "description": "Run startup + embedded-linux frontend parity smoke and emit cross-platform parity evidence",
+      "entry": "scripts/qjs/platform-ux-parity-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm",
+        "dist/agenterm",
+        "linux"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "platform-ux-parity-smoke-macos",
+      "description": "Run startup + embedded-macOS frontend parity smoke and emit cross-platform parity evidence",
+      "entry": "scripts/qjs/platform-ux-parity-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm",
+        "dist/agenterm",
+        "macos"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "mcp-conformance",
+      "description": "Prove the public MCP lifecycle, same-source projection, bounded wait, fault recovery, privacy, and GUI/server/PTY isolation",
+      "entry": "scripts/qjs/mcp-conformance.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback"
+      ]
+    },
+    {
+      "id": "migration-audit",
+      "description": "Enforce the frozen PowerShell inventory and reject PowerShell or batch business-logic drift",
+      "entry": "scripts/qjs/powershell-migration-audit.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "install-libagenterm",
+      "description": "Install Windows libagenterm artifacts into an MSVC-style prefix",
+      "entry": "scripts/qjs/install-libagenterm.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "lint",
+      "description": "Run static, Rust, and production Rhai repository lint without PowerShell",
+      "entry": "scripts/qjs/lint.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "migration-audit"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "prepare-target-clean",
+      "description": "Validate an exact repository-local Cargo target and install its cache tag",
+      "entry": "scripts/qjs/prepare-target-clean.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "prune-target-incremental",
+      "description": "Prune obsolete finalized rustc incremental sessions under the exact repository debug target",
+      "entry": "scripts/qjs/prune-target-incremental.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "preflight",
+      "description": "Run the read-only repository release preflight and publish its JSON report",
+      "entry": "scripts/qjs/preflight.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [
+        "migration-audit",
+        "validate-artifact-manifest"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "preflight-benchmark",
+      "description": "Measure public preflight worker startup and report p95 latency",
+      "entry": "scripts/qjs/preflight-benchmark.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [
+        "preflight"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "prd-alignment",
+      "description": "Align PRD modules and shipped evidence with the public CLI, protocol, and Mux catalogs",
+      "entry": "scripts/qjs/prd-alignment.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "dist/agenterm"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "stage-artifact",
+      "description": "Stage one AgenTerm executable while preserving an in-use Windows image",
+      "entry": "scripts/qjs/stage-artifact.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "supply-chain",
+      "description": "Validate locked Cargo licenses and write deterministic SPDX evidence",
+      "entry": "scripts/qjs/supply-chain.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "stage-build",
+      "description": "Stage the validated executable set and publish frozen build provenance",
+      "entry": "scripts/qjs/stage-build.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [
+        "build-identity",
+        "clean-locked-artifacts",
+        "stage-artifact",
+        "write-build-metadata"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "target-report",
+      "description": "Report bounded Cargo target inventory and cleanup eligibility",
+      "entry": "scripts/qjs/target-report.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "validate-artifact-manifest",
+      "description": "Validate the canonical local Windows executable manifest",
+      "entry": "scripts/qjs/validate-artifact-manifest.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "scripts/artifacts.json"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "write-build-metadata",
+      "description": "Write staged or platform-target executable provenance from frozen source and input identities",
+      "entry": "scripts/qjs/write-build-metadata.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [
+        "build-identity",
+        "validate-artifact-manifest"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "internal-version-policy",
+      "description": "Reject publication of an internal-only product version",
+      "entry": "scripts/qjs/internal-version-policy.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "verify-docs-site",
+      "description": "Verify the bilingual documentation site, preview safety, and asset contract",
+      "entry": "scripts/qjs/verify-docs-site.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "docs"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "readme-examples",
+      "description": "Verify README artifact roles and public command examples against offline catalogs",
+      "entry": "scripts/qjs/readme-examples.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "dist"
+      ],
+      "dependencies": [
+        "artifact-verification"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "client-build",
+      "description": "Build one manifest-defined cross-platform client set with Cargo or cargo-xwin",
+      "entry": "scripts/qjs/build.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "--clients-only"
+      ],
+      "dependencies": [
+        "build-identity",
+        "validate-artifact-manifest"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "client-build-all",
+      "description": "Build all six architecture cells from one host in one invocation",
+      "entry": "scripts/qjs/build-all.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "six-cell-qualify",
+      "description": "Build all six architecture cells and run each cell's runtime smoke where it can execute",
+      "entry": "scripts/qjs/six-cell-qualify.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "client-clippy",
+      "description": "Clippy one manifest-defined cross-platform client set with Cargo or cargo-xwin",
+      "entry": "scripts/qjs/build.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "--clients-only",
+        "--action",
+        "clippy"
+      ],
+      "dependencies": [
+        "validate-artifact-manifest"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "client-smoke",
+      "description": "Probe manifest-defined offline client entrypoints for one platform",
+      "entry": "scripts/qjs/client-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "client-build"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "rh-aot-smoke",
+      "description": "Prove rh-0 check, AOT pack build, native_hash receipt, and dlopen entry smoke",
+      "entry": "scripts/qjs/rh-aot-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "client-build"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "rh-native-task-probe",
+      "description": "Prove one manifest-owned .rh task executes as a native pack without whole-script compatibility",
+      "entry": "scripts/qjs/native-task-probe.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "package-client-release",
+      "description": "Package one manifest-defined cross-platform client release with provenance",
+      "entry": "scripts/qjs/package-client-release.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "client-build",
+        "supply-chain"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cross-platform-automation-audit",
+      "description": "Reject duplicated Cargo executable lists and package rules in shell and workflows",
+      "entry": "scripts/qjs/cross-platform-automation-audit.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "fresh-clone-rehearsal",
+      "description": "Rehearse the exact release candidate from an artifact-free owned clone and retain process-tree evidence",
+      "entry": "scripts/qjs/fresh-clone-rehearsal.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn",
+        "network_loopback",
+        "git_mutation"
+      ]
+    },
     {
       "id": "lua-build-identity",
       "description": "Lua production task: freeze build identity into batch env file",

@@ -940,7 +940,7 @@ agenterm-qjswasm                                        [~]
 │   │   └── 27 个未证入口按原因分桶补证                              [ ] Windows 产物 / dist / 任务表 / 步数（slice 已落地 6b9464a）
 │   │   ├── 合并 ≠ 合对：同名导出两次、自测钉死 CLI 旧句子        [x] 2a157706 修；见记忆宫殿末段
 │   │   ├── 合并后 workspace 1983 / 31，与基线逐名相同            [x] 零新增
-│   ├── 8 个 qualification 门 → .qjs，重新点亮 39 条门           [ ] bootstrap / CI 已指向不存在的任务
+│   ├── 8 个 qualification 门 → .qjs，重新点亮 39 条门           [~] 2026-08-30：`agenterm.tasks.json` 从 2 条回到 72 条（70 条 rh 时代任务登记到同名 `.qjs`，`profile: tool`——任务表新认这个词；`cu-windows-smoke` 无 `.qjs`，不登记）；bootstrap / CI 的 `task run check|build|release|candidate-*|…` 于是有了目标；`check --quick` 在 macOS 上的结果见 A1.5 尾
 │   ├── tool.* 门接到 CLI                                      [x] A1.6，2026-08-29
 │   ├── process.platform_facts + window_* 七操作（平台 crate 契约）  [x] 19365bb4，2026-08-30；四条 GUI 旅程的门口
 │   └── image.inspect_png（宽高 / 像素数 / 平均亮度）                [x] 2026-08-30；unix-frontend 第 3 步、theme 两处比较的门口；42 个声明

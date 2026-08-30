@@ -740,7 +740,12 @@ fn validate_description(value: &str) -> Result<(), String> {
 }
 
 fn validate_profile(value: &str) -> Result<(), String> {
-    if matches!(value, "local" | "pure" | "observe") {
+    // `tool` is the one profile that is not a synonym of `local`: a task
+    // that declares it runs with the `tool.*` door (filesystem, processes,
+    // environment), exactly as `script run --profile tool` would. The 70
+    // qualification tasks re-registered on their `.qjs` entries on
+    // 2026-08-30 declare it; nothing reaches the door without the word.
+    if matches!(value, "local" | "pure" | "observe" | "tool") {
         Ok(())
     } else {
         Err(format!("task_profile: unknown profile {value}"))

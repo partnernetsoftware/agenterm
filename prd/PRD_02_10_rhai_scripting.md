@@ -235,6 +235,15 @@ lua or qjs binding at all, and 9 of the 29 that do send a params object
 
 ## What went dark on 2026-08-29
 
+> **2026-08-30 update.** `agenterm.tasks.json` is back to 72 tasks: the 70
+> rh-era tasks whose `.qjs` port exists are registered on it with
+> `profile: tool` (the manifest vocabulary gained that word; nothing reaches
+> the `tool.*` door without it), so `task run check|lint|build|release` and
+> the CI's `candidate-*` / `promotion-identity` / `timing-summary` /
+> `performance-*` steps have targets again. `cu-windows-smoke` has no port
+> and is not registered. What each gate does under `check` on macOS is
+> tracked in PRD 02.36 A1.5.
+
 rh ran the whole build/qualify/release pipeline, and nothing else did. Moving
 it out turned every one of those off. This is the list; each item stays dark
 until its `.qjs` port lands (PRD 02.36 A1.2/A1.3: `path.qjs`, then the
