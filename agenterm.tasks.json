@@ -1303,6 +1303,26 @@
         "task.six-cell-qualify"
       ]
     },
+    "package-six-cell-delivery": {
+      "inputs": [
+        "source-tree",
+        "cargo-lock",
+        "artifact-manifest",
+        "target-client-binaries"
+      ],
+      "outputs": [
+        "dist-release-artifacts"
+      ],
+      "budget": {
+        "timeout_ms": 3600000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.package-six-cell-delivery"
+      ]
+    },
     "client-clippy": {
       "inputs": [
         "source-tree",
@@ -2718,6 +2738,28 @@
         "."
       ],
       "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "package-six-cell-delivery",
+      "description": "Package six native release archives with SHA-256 sidecars and optional experimental APE launcher",
+      "entry": "scripts/qjs/package-six-cell-delivery.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [
+        "client-build-all"
+      ],
       "platforms": [
         "windows",
         "linux",
