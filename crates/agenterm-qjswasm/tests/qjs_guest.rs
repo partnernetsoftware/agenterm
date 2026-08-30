@@ -930,25 +930,26 @@ fn a_value_with_no_primitive_form_is_named_with_its_kind() {
 /// tinyvm d2e66b3 the guest trapped bare (or, if the program said `.length`
 /// somewhere, as a nameless capability boundary), and every migrated script
 /// that reached `slice` reported "guest trapped: unreachable executed"
-/// (`slice` has since landed; `substring` stands in as the missing one).
+/// (`slice` and then `substring` have since landed; `padStart` stands in as
+/// the missing one).
 #[test]
 fn a_missing_string_method_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
         .run_once(
-            Guest::Qjs("let s = \"abc\"; return s.substring(0, 2);"),
+            Guest::Qjs("let s = \"abc\"; return s.padStart(5, \" \");"),
             None,
             "main",
             &[],
         )
         .expect_err("a property this engine lacks stops the script");
     assert!(
-        matches!(&err, QjswasmError::UnsupportedMethod(Some(name)) if name == "substring"),
+        matches!(&err, QjswasmError::UnsupportedMethod(Some(name)) if name == "padStart"),
         "expected the property to be named, got {err:?}"
     );
     assert_eq!(
         err.to_string(),
-        "this engine does not support `substring` on a String yet; the script reached it at run time"
+        "this engine does not support `padStart` on a String yet; the script reached it at run time"
     );
 }
 
