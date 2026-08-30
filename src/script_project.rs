@@ -1083,6 +1083,11 @@ mod tests {
             .cloned()
             .unwrap();
         manifest_value["tasks"] = serde_json::json!([first_check]);
+        // ... and a contract with no task is a refusal of its own.
+        manifest_value["contracts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("broken");
         fs::write(
             &manifest,
             serde_json::to_vec_pretty(&manifest_value).unwrap(),
