@@ -841,6 +841,7 @@ fn finding_7_the_returned_string_is_bounded_by_no_host_side_cap() {
         // A1.12: host operations are capped like steps; generous here so the
         // seam under test is the one named above.
         max_host_ops: 4096,
+        cancel: None,
     };
     let source = "let s = \"0123456789abcdef\"; let i = 0; \
                   while (i < 16) { s = s + s; i = i + 1; } return s;";

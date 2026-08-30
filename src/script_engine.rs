@@ -51,6 +51,9 @@ pub struct ScriptInvocationOptions {
     /// `ScriptProfile::Tool` and nothing else; every other engine ignores it,
     /// because only qjswasm has a second door to open.
     pub tool_door: bool,
+    /// Set by the worker when a cancel frame names this invocation: the
+    /// engine ends the call at its next host wait or operation.
+    pub cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// Unified invocation result. `value` is `Option<serde_json::Value>` for
@@ -308,6 +311,7 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
     use agenterm_qjswasm::QjswasmError as E;
     let category = match &error {
         E::Budget(_) => ScriptFailureCategory::Limit,
+        E::Cancelled => ScriptFailureCategory::Cancelled,
         E::UncaughtThrow(_)
         | E::Trap(_)
         | E::HostArgument(_)
@@ -349,6 +353,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
         budget.limits.max_steps = budgets.operations;
         budget.max_host_ops = budgets.host_operations;
     }
+    budget.cancel = options.cancellation.clone();
     // The guest heap is a bump allocator with no collector: everything a
     // script parses or concatenates stays until the call ends. tinyvm's
     // default of 256 pages (16 MiB) stopped unix-frontend-smoke at its fifth

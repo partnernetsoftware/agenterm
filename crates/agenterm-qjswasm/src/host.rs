@@ -72,6 +72,10 @@ use std::time::{Duration, Instant};
 /// core's `&'static str` into the budget's name.
 pub(crate) const HOST_OPS_EXHAUSTED: &str = "agenterm: host operation budget exhausted";
 
+/// The trap a door raises when [`Budget::cancel`] was set; read back through
+/// [`HostState::take_cancelled`].
+pub(crate) const CANCELLED: &str = "agenterm: cancelled by the host";
+
 /// One call's host-side bill, shared by the `agenterm.*` and `tool.*` doors.
 ///
 /// Three counters and a cap. Charged at the door *before* the operation
@@ -83,23 +87,49 @@ pub(crate) struct Meter {
     waited: Duration,
     max_ops: usize,
     refused: Option<&'static str>,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    cancelled: bool,
 }
 
 impl Meter {
-    pub(crate) fn new(max_ops: usize) -> Self {
+    pub(crate) fn new(
+        max_ops: usize,
+        cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Self {
         Self {
             ops: 0,
             bytes: 0,
             waited: Duration::ZERO,
             max_ops,
             refused: None,
+            cancel,
+            cancelled: false,
         }
+    }
+
+    /// `Err` once the embedder has asked for the call to end; the caller
+    /// traps with [`CANCELLED`] and `slot.rs` reads the reason back.
+    pub(crate) fn check_cancel(&mut self) -> Result<(), &'static str> {
+        if self
+            .cancel
+            .as_ref()
+            .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            self.cancelled = true;
+            return Err(CANCELLED);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn take_cancelled(&mut self) -> bool {
+        std::mem::take(&mut self.cancelled)
     }
 
     /// One more operation carrying `bytes` of arguments. `Err` when the cap
     /// is already spent: the operation must not run, and the caller traps
     /// with [`HOST_OPS_EXHAUSTED`].
     pub(crate) fn charge(&mut self, bytes: usize) -> Result<(), &'static str> {
+        self.check_cancel()?;
         if self.ops >= self.max_ops as u64 {
             self.refused = Some("max_host_ops");
             return Err(HOST_OPS_EXHAUSTED);
@@ -319,6 +349,12 @@ impl HostState {
         self.meter.borrow_mut().take_refusal()
     }
 
+    /// Whether this call ended because [`Budget::cancel`] was set -- read
+    /// before the door fault, since a cancel is neither a defect nor a budget.
+    pub(crate) fn take_cancelled(&self) -> bool {
+        self.meter.borrow_mut().take_cancelled()
+    }
+
     pub(crate) fn take_fault(&self) -> Option<String> {
         self.pending
             .borrow_mut()
@@ -352,7 +388,10 @@ pub(crate) fn install(
     tool: Option<Vec<String>>,
 ) -> Result<HostState, QjswasmError> {
     check_declarations(module, tool.is_some())?;
-    let meter = Rc::new(RefCell::new(Meter::new(budget.max_host_ops)));
+    let meter = Rc::new(RefCell::new(Meter::new(
+        budget.max_host_ops,
+        budget.cancel.clone(),
+    )));
     let tool = match tool {
         Some(args) => Some(tool::install(module, budget, args, Rc::clone(&meter))?),
         None => None,

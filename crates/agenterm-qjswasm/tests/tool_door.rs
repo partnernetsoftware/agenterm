@@ -1194,3 +1194,57 @@ fn a_failed_call_keeps_its_bill() {
     assert!(cost.steps > 0, "{cost:?}");
     assert_eq!(eng.take_failed_cost(), None, "read once, like stdout");
 }
+
+/// A cancel set while the guest sleeps ends the call within a slice, as
+/// `Cancelled` -- its own class, neither the script's doing nor a budget --
+/// and the bill still says how long it actually waited.
+#[test]
+fn a_cancel_ends_a_sleep_within_a_slice() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let flag = Arc::new(AtomicBool::new(false));
+    let budget = Budget {
+        cancel: Some(Arc::clone(&flag)),
+        ..Budget::default()
+    };
+    let setter = Arc::clone(&flag);
+    let hand = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        setter.store(true, Ordering::Relaxed);
+    });
+    let started = std::time::Instant::now();
+    let mut eng = Engine::with_tool_door(budget);
+    let err = eng
+        .run_once(
+            Guest::Qjs("time_sleep_ms(5000); return 1;"),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("the sleep is cut short");
+    hand.join().expect("setter thread");
+    assert!(matches!(err, QjswasmError::Cancelled), "got {err:?}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1500),
+        "{:?}",
+        started.elapsed()
+    );
+    let cost = eng.take_failed_cost().expect("it ran");
+    assert!(cost.waited_ms >= 50 && cost.waited_ms < 1500, "{cost:?}");
+}
+
+/// A cancel already set ends the call at the first host operation, before
+/// it runs.
+#[test]
+fn a_cancel_already_set_stops_at_the_first_operation() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    let budget = Budget {
+        cancel: Some(Arc::new(AtomicBool::new(true))),
+        ..Budget::default()
+    };
+    let err = Engine::with_tool_door(budget)
+        .run_once(Guest::Qjs("time_now_ms(); return 1;"), None, "main", &[])
+        .expect_err("cancelled before the first operation");
+    assert!(matches!(err, QjswasmError::Cancelled), "got {err:?}");
+}

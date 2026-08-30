@@ -378,6 +378,14 @@ pub struct Budget {
     /// A1.12). Exceeding this ends the call as [`QjswasmError::Budget`]
     /// (`"max_host_ops"`), the same class as running out of steps.
     pub max_host_ops: usize,
+    /// Set by the embedder to end the call at the next host operation or
+    /// wait: `time.sleep_ms` sleeps in slices and looks; `process.wait` /
+    /// `process.command` look between polls of the child; every `tool.*`
+    /// and `fleet_call` entry looks before running. The call then ends as
+    /// [`QjswasmError::Cancelled`]. Pure compute is not interrupted -- the
+    /// step budget bounds that -- which is why this is a flag the doors
+    /// read and not a signal. `None` means no one can cancel.
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl std::fmt::Debug for Budget {
@@ -391,6 +399,8 @@ impl std::fmt::Debug for Budget {
             .field("max_stdout_bytes", &self.max_stdout_bytes)
             .field("max_bridge_result_bytes", &self.max_bridge_result_bytes)
             .field("max_result_string_bytes", &self.max_result_string_bytes)
+            .field("max_host_ops", &self.max_host_ops)
+            .field("cancellable", &self.cancel.is_some())
             .finish()
     }
 }
@@ -403,6 +413,7 @@ impl Default for Budget {
             max_bridge_result_bytes: 1 << 20,
             max_result_string_bytes: 1 << 20,
             max_host_ops: 4096,
+            cancel: None,
         }
     }
 }
@@ -706,6 +717,11 @@ pub enum QjswasmError {
     /// on a String, which the specification ignores). Never silently; the
     /// script's own doing, and the sentence says what was written.
     InvalidWrite(Option<String>),
+    /// The embedder set [`Budget::cancel`] while the guest was in a host
+    /// wait or between host operations; the call ended there. Not the
+    /// script's doing and not a budget: the class the worker already has
+    /// for a cancel frame, produced for the first time here.
+    Cancelled,
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -783,6 +799,7 @@ impl std::fmt::Debug for QjswasmError {
             Self::NotAFunction(callee) => f.debug_tuple("NotAFunction").field(callee).finish(),
             Self::NoPrimitiveForm(kind) => f.debug_tuple("NoPrimitiveForm").field(kind).finish(),
             Self::InvalidWrite(what) => f.debug_tuple("InvalidWrite").field(what).finish(),
+            Self::Cancelled => f.write_str("Cancelled"),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -891,6 +908,7 @@ impl std::fmt::Display for QjswasmError {
                  a value that has none)",
             ),
             Self::Budget(what) => write!(f, "budget exhausted: {what}"),
+            Self::Cancelled => f.write_str("cancelled by the host while waiting"),
             Self::Door(what) => write!(f, "host door: {what}"),
             Self::NoSuchSlot(SlotId { engine, index }) => {
                 write!(f, "no such slot: {index} in engine {engine}")

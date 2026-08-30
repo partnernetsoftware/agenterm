@@ -310,6 +310,9 @@ impl Slot {
     /// answer for three situations at once (an ordinary fault, a module with
     /// no memory, a call that never started) and none of them is a throw.
     fn explain(&self, fault: tinyvm::WasmError) -> QjswasmError {
+        if self.door.take_cancelled() {
+            return QjswasmError::Cancelled;
+        }
         if let Some(budget) = self.door.take_budget_refusal() {
             return QjswasmError::Budget(budget);
         }

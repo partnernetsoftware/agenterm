@@ -359,6 +359,8 @@ pub(crate) struct ToolState {
     locks: Vec<Option<std::fs::File>>,
     /// The call's host-side bill, shared with the `agenterm.*` door.
     meter: Rc<RefCell<crate::host::Meter>>,
+    /// `Budget::cancel`, for the operations that wait.
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// One spawned child, by handle index. A waited child keeps its pid and
@@ -497,6 +499,7 @@ pub(crate) fn install(
         children: Vec::new(),
         locks: Vec::new(),
         meter: Rc::clone(&meter),
+        cancel: budget.cancel.clone(),
     }));
 
     // ---- fs ---------------------------------------------------------------
@@ -732,6 +735,7 @@ pub(crate) fn install(
         "process.status",
         move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let cancel = state.borrow().cancel.clone();
             direct(&state, "process.status", || {
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.status: the spec is not valid: {e}"))?;
@@ -749,7 +753,14 @@ pub(crate) fn install(
                             let _ = child.wait();
                             return Err("process.status: timed out".to_string());
                         }
-                        Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+                        Ok(None) => {
+                            // A cancel kills the child too: no orphans.
+                            if cancellable_sleep(&cancel, Duration::from_millis(5)).is_err() {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                return Err(CANCELLED_MARK.to_string());
+                            }
+                        }
                         Err(e) => return Err(format!("process.status: {e}")),
                     }
                 }
@@ -790,10 +801,11 @@ pub(crate) fn install(
         "process.command",
         move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let cancel = state.borrow().cancel.clone();
             answer(&state, "process.command", || {
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.command: the spec is not valid: {e}"))?;
-                run_command(spec, max_capture)
+                run_command(spec, max_capture, &cancel)
             })
         },
     )?;
@@ -811,10 +823,11 @@ pub(crate) fn install(
         "process.command_stdout",
         move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let cancel = state.borrow().cancel.clone();
             answer(&state, "process.command_stdout", || {
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.command_stdout: the spec is not valid: {e}"))?;
-                let envelope = run_command(spec, max_capture)?;
+                let envelope = run_command(spec, max_capture, &cancel)?;
                 let parsed: serde_json::Value = serde_json::from_str(&envelope)
                     .map_err(|e| format!("process.command_stdout: {e}"))?;
                 if parsed["success"].as_bool() == Some(true) {
@@ -878,9 +891,10 @@ pub(crate) fn install(
         "time.sleep_ms",
         move |args, _memory| {
             let ms = arg(args, 0)?;
+            let cancel = state.borrow().cancel.clone();
             direct(&state, "time.sleep_ms", || {
                 let ms = u64::try_from(ms).map_err(|_| "time.sleep_ms: negative".to_string())?;
-                std::thread::sleep(Duration::from_millis(ms.min(60_000)));
+                cancellable_sleep(&cancel, Duration::from_millis(ms.min(60_000)))?;
                 Ok(0)
             })
         },
@@ -974,6 +988,7 @@ pub(crate) fn install(
         move |args, _memory| {
             let h = arg(args, 0)?;
             let timeout_ms = arg(args, 1)?;
+            let cancel = state.borrow().cancel.clone();
             answer(&state, "process.wait", || {
                 let index = usize::try_from(h).ok();
                 // Take the child out for the wait; the slot holds its pid and,
@@ -1013,7 +1028,7 @@ pub(crate) fn install(
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),
                 };
-                let answer = finish_child(child, timeout);
+                let answer = finish_child(child, timeout, &cancel);
                 {
                     let mut s = state.borrow_mut();
                     if let Some(Handle::Done { answer: kept, .. }) =
@@ -1407,6 +1422,11 @@ fn answer(
         run,
     ) {
         Ok(Ok(text)) => (STATUS_OK, text.into_bytes()),
+        Ok(Err(message)) if message == CANCELLED_MARK => {
+            let meter = Rc::clone(&state.borrow().meter);
+            let _ = meter.borrow_mut().check_cancel();
+            return Err(WasmError::Trap(crate::host::CANCELLED));
+        }
         Ok(Err(message)) => (STATUS_ERR, message.into_bytes()),
         Err(panic) => {
             state.borrow_mut().fault = Some(panic);
@@ -1454,6 +1474,11 @@ fn direct(
     }
     match outcome {
         Ok(Ok(value)) => Ok(vec![Val::I32(value)]),
+        Ok(Err(message)) if message == CANCELLED_MARK => {
+            // The wait saw the flag; record it the way `charge` would have.
+            let _ = meter.borrow_mut().check_cancel();
+            Err(WasmError::Trap(crate::host::CANCELLED))
+        }
         Ok(Err(message)) => {
             state.borrow_mut().result = message.into_bytes();
             Ok(vec![Val::I32(-1)])
@@ -1463,6 +1488,31 @@ fn direct(
             Err(WasmError::Trap(TOOL_PANICKED))
         }
     }
+}
+
+/// What a waiting operation returns when [`Meter::check_cancel`] said stop
+/// mid-wait: `direct` / `answer` turn it into the [`CANCELLED`] trap instead
+/// of a parked error string, so the script cannot catch its way past a
+/// cancel.
+const CANCELLED_MARK: &str = "\0agenterm-cancelled";
+
+/// Sleep at most `total`, in slices, and stop early when the embedder asks.
+fn cancellable_sleep(
+    cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    total: Duration,
+) -> Result<(), String> {
+    let started = Instant::now();
+    while started.elapsed() < total {
+        if cancel
+            .as_ref()
+            .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            return Err(CANCELLED_MARK.to_string());
+        }
+        let left = total - started.elapsed();
+        std::thread::sleep(left.min(Duration::from_millis(25)));
+    }
+    Ok(())
 }
 
 /// The `tool.*` operations whose time is waiting rather than computing.
@@ -1695,10 +1745,14 @@ struct CommandSpec {
 /// by a signal -- and `success` is then false. Captured streams are UTF-8 with
 /// U+FFFD for anything else, like `print`; binary output cannot cross a door
 /// that carries text.
-fn run_command(spec: CommandSpec, max_capture: usize) -> Result<String, String> {
+fn run_command(
+    spec: CommandSpec,
+    max_capture: usize,
+    cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<String, String> {
     let timeout = spec.timeout_ms.map(Duration::from_millis);
     let child = spawn_command(&spec, true)?;
-    wait_child(child, timeout, max_capture)
+    wait_child(child, timeout, max_capture, cancel)
 }
 
 /// Spawn per the spec with both streams piped and stdin fed on its own
@@ -1780,6 +1834,7 @@ fn wait_child(
     mut child: std::process::Child,
     timeout: Option<Duration>,
     max_capture: usize,
+    cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
     let drains = Drains::start(&mut child, max_capture);
     finish_child(
@@ -1793,6 +1848,7 @@ fn wait_child(
             read_stderr: 0,
         },
         timeout,
+        cancel,
     )
 }
 
@@ -1800,7 +1856,11 @@ fn wait_child(
 /// of *now*; the whole capture comes back, whatever `process.read` handed
 /// out before. A child the spawn deadline already killed reports
 /// `timed_out`.
-fn finish_child(mut running: Running, timeout: Option<Duration>) -> Result<String, String> {
+fn finish_child(
+    mut running: Running,
+    timeout: Option<Duration>,
+    cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<String, String> {
     let (stdout, stderr) = (running.drains.stdout.take(), running.drains.stderr.take());
     let mut child = running.child;
     let mut timed_out = running.killed_by_deadline;
@@ -1813,7 +1873,14 @@ fn finish_child(mut running: Running, timeout: Option<Duration>) -> Result<Strin
                 let _ = child.kill();
                 break child.wait().ok();
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+            Ok(None) => {
+                // A cancel kills the child too: no orphans.
+                if cancellable_sleep(cancel, Duration::from_millis(5)).is_err() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(CANCELLED_MARK.to_string());
+                }
+            }
             Err(e) => return Err(format!("process.wait: {e}")),
         }
     };
@@ -1929,7 +1996,7 @@ mod tests {
             stderr_path: None,
         };
         let started = Instant::now();
-        let json = run_command(spec, 1 << 20).expect("the command ran");
+        let json = run_command(spec, 1 << 20, &None).expect("the command ran");
         assert!(
             started.elapsed() < Duration::from_secs(10),
             "the timeout was honoured"

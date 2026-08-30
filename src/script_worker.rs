@@ -591,7 +591,7 @@ fn execute_with_cancellation_and_broker(
 
 fn execute_inner(
     invocation: &ScriptInvocation,
-    _cancellation: Option<Arc<AtomicBool>>,
+    cancellation: Option<Arc<AtomicBool>>,
     broker: Option<BrokerClient>,
 ) -> Result<(String, Option<serde_json::Value>, Option<ScriptCost>), ScriptFailure> {
     // `invocation_temp_root` used to be installed here as the rh host's
@@ -632,6 +632,7 @@ fn execute_inner(
     // §1.4/§2.4). `fleet_bridge` wraps `BrokerClient::call_json("fleet.call",
     // ...)`.
     let options = crate::script_engine::ScriptInvocationOptions {
+        cancellation,
         project_root: invocation
             .project_root
             .as_ref()
@@ -1164,6 +1165,75 @@ mod tests {
         assert_eq!(frame_result(&frames[0]).value, Some(serde_json::json!(42)));
         assert_eq!(frames[1].frame_id, "frame-two");
         assert_eq!(frame_result(&frames[1]).value, Some(serde_json::json!(42)));
+    }
+
+    /// A cancel frame that names a running invocation ends it at its next
+    /// host wait or operation, and the result frame says `cancelled` -- the
+    /// class the protocol had for it all along but never produced: until now
+    /// the flag was set and nothing read it, and the host deadline was what
+    /// actually stopped the worker.
+    ///
+    /// With a `Cursor` for input both frames are available at once, so the
+    /// flag is usually set before the guest reaches `time_sleep_ms` and the
+    /// call ends at that first operation; the engine's own test
+    /// (`tool_door.rs`) is the one that cuts a sleep mid-way. What this pins
+    /// is the frame -> flag -> engine -> class path, and that an 8 s sleep
+    /// does not run.
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn framed_worker_cancels_a_running_wait() {
+        let mut sleepy = invocation(ScriptOperation::Eval, "time_sleep_ms(8000); return 1;");
+        sleepy.invocation_id = "sleepy".to_owned();
+        sleepy.profile = ScriptProfile::Tool;
+        let invoke = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "invoke".to_owned(),
+            payload: ScriptFramePayload::Invoke(sleepy),
+        };
+        let cancel = ScriptFrame {
+            frame_version: SCRIPT_FRAME_VERSION,
+            frame_id: "cancel".to_owned(),
+            payload: ScriptFramePayload::Cancel {
+                invocation_id: "sleepy".to_owned(),
+            },
+        };
+        let mut input = encoded_frame(&invoke);
+        input.extend(encoded_frame(&cancel));
+        // The concurrent worker -- the one the real process runs -- reads
+        // the cancel frame while the invocation's thread is still asleep;
+        // the sequential `process_framed_stream` would only see it after.
+        #[derive(Clone)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("sink").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let sink = Sink(Arc::new(Mutex::new(Vec::new())));
+        let started = std::time::Instant::now();
+        process_concurrent_framed_worker(Cursor::new(input), sink.clone()).expect("framed stream");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(4),
+            "the cancel must cut the 8 s sleep short: {:?}",
+            started.elapsed()
+        );
+        let output = sink.0.lock().expect("sink").clone();
+        let frames = decoded_frames(&output);
+        let result = frames
+            .iter()
+            .find(|f| f.frame_id == "invoke")
+            .map(frame_result)
+            .expect("the invocation answers");
+        assert_eq!(result.exit_class, ScriptExitClass::Cancelled, "{result:?}");
+        assert!(
+            result.cost.as_ref().is_some_and(|c| c.waited_ms < 4000),
+            "the bill says how long it really waited: {:?}",
+            result.cost
+        );
     }
 
     #[cfg(feature = "script-qjswasm")]
