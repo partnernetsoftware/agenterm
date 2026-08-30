@@ -28,8 +28,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::script_backend::ScriptBackend;
-use crate::script_protocol::ScriptFailureCategory;
 use crate::script_protocol::ScriptBudgets;
+use crate::script_protocol::ScriptFailureCategory;
 
 // ---------------------------------------------------------------------
 // §2.2 — shared types
@@ -107,7 +107,11 @@ pub struct ScriptEngineError {
 
 impl From<String> for ScriptEngineError {
     fn from(message: String) -> Self {
-        Self { message, category: ScriptFailureCategory::Configuration, stdout: String::new() }
+        Self {
+            message,
+            category: ScriptFailureCategory::Configuration,
+            stdout: String::new(),
+        }
     }
 }
 
@@ -295,7 +299,6 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 // §4 Trait-M2 — per-engine thin adapters
 // ---------------------------------------------------------------------
 
-
 #[cfg(feature = "script-qjswasm")]
 /// The engine budget for one invocation. `--max-operations` is the only CLI
 /// budget the core enforces itself (as the step ceiling per top-level call);
@@ -317,7 +320,11 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         }
         _ => ScriptFailureCategory::Configuration,
     };
-    ScriptEngineError { message: error.to_string(), category, stdout: String::new() }
+    ScriptEngineError {
+        message: error.to_string(),
+        category,
+        stdout: String::new(),
+    }
 }
 
 #[cfg(feature = "script-qjswasm")]
@@ -423,7 +430,10 @@ fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + u
 /// project root.
 #[cfg(feature = "script-qjswasm")]
 fn qjs_roots(options: &ScriptInvocationOptions) -> Vec<PathBuf> {
-    [options.entry_dir.clone(), options.project_root.clone()].into_iter().flatten().collect()
+    [options.entry_dir.clone(), options.project_root.clone()]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 #[cfg(feature = "script-qjswasm")]
@@ -437,7 +447,11 @@ fn qjs_arguments(arguments: Option<&Value>) -> Vec<String> {
         .map(|items| {
             items
                 .iter()
-                .map(|item| item.as_str().map(str::to_owned).unwrap_or_else(|| item.to_string()))
+                .map(|item| {
+                    item.as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| item.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -845,7 +859,9 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // Rooted at the corpus directory, so `import "lib/x"` resolves the
         // way `run` resolves it for an entry in that directory.
         let resolve = qjs_module_resolver(&[dir.to_path_buf()]);
-        Some(agenterm_qjswasm::corpus_scan::scan_directory_with(dir, &resolve))
+        Some(agenterm_qjswasm::corpus_scan::scan_directory_with(
+            dir, &resolve,
+        ))
     }
 
     /// A top-level `return`, whose value is the script's ECMA-262 completion

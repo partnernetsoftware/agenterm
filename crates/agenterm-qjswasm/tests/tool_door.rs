@@ -230,7 +230,9 @@ fn fs_metadata_reports_a_modification_time() {
         file.display()
     );
     let out = run_tool(&source);
-    let got: u64 = string_of(&out).parse().unwrap_or_else(|_| panic!("not a number: {out:?}"));
+    let got: u64 = string_of(&out)
+        .parse()
+        .unwrap_or_else(|_| panic!("not a number: {out:?}"));
     assert!(
         got.abs_diff(now_ms) < 60_000,
         "modified_ms {got} should be within a minute of now {now_ms}"
@@ -404,8 +406,14 @@ fn process_command_can_send_its_streams_to_files() {
     );
     let out = run_tool(&source);
     assert_eq!(string_of(&out), "0||", "{out:?}");
-    assert_eq!(std::fs::read_to_string(&out_path).expect("stdout file"), "out");
-    assert_eq!(std::fs::read_to_string(&err_path).expect("stderr file"), "err");
+    assert_eq!(
+        std::fs::read_to_string(&out_path).expect("stdout file"),
+        "out"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&err_path).expect("stderr file"),
+        "err"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -838,14 +846,22 @@ fn sha256_file_fingerprints_the_bytes_on_disk() {
     let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
     let wasm = agenterm_qjswasm::compile_qjs_tool(&source).expect("compiles");
     let out = engine
-        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .run_once(
+            agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+            None,
+            "main",
+            &[],
+        )
         .expect("runs");
     let got = match out.values.first() {
         Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
         other => panic!("expected a string, got {other:?}"),
     };
     // sha256("abc"), the vector every implementation is checked against.
-    assert_eq!(got, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    assert_eq!(
+        got,
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -869,7 +885,12 @@ fn a_spawned_child_can_be_watched_killed_and_waited() {
     let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
     let wasm = agenterm_qjswasm::compile_qjs_tool(source).expect("compiles");
     let out = engine
-        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .run_once(
+            agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+            None,
+            "main",
+            &[],
+        )
         .expect("runs");
     let got = match out.values.first() {
         Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
@@ -904,7 +925,12 @@ fn an_unwaited_child_is_killed_with_the_slot() {
     let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
     let wasm = agenterm_qjswasm::compile_qjs_tool(&source).expect("compiles");
     let out = engine
-        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .run_once(
+            agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+            None,
+            "main",
+            &[],
+        )
         .expect("runs");
     let got = match out.values.first() {
         Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
@@ -940,7 +966,12 @@ fn a_command_spec_can_remove_an_inherited_variable() {
     let mut engine = agenterm_qjswasm::Engine::with_tool_door(agenterm_qjswasm::Budget::default());
     let wasm = agenterm_qjswasm::compile_qjs_tool(source).expect("compiles");
     let out = engine
-        .run_once(agenterm_qjswasm::Guest::CompiledQjs(&wasm), None, "main", &[])
+        .run_once(
+            agenterm_qjswasm::Guest::CompiledQjs(&wasm),
+            None,
+            "main",
+            &[],
+        )
         .expect("runs");
     let got = match out.values.first() {
         Some(agenterm_qjswasm::Value::Js(agenterm_qjswasm::JsValue::Str(s))) => s.clone(),
@@ -971,8 +1002,18 @@ fn process_platform_facts_answers_the_hosts_view_of_a_windowless_child() {
             + "|" + (typeof facts.top_level_window_title);
         "#,
     );
-    assert_eq!(string_of(&out), "0|boolean|false|0|number|false|string", "{out:?}");
-    assert!(out.tool_calls.iter().any(|c| c == "tool.process.platform_facts"), "{:?}", out.tool_calls);
+    assert_eq!(
+        string_of(&out),
+        "0|boolean|false|0|number|false|string",
+        "{out:?}"
+    );
+    assert!(
+        out.tool_calls
+            .iter()
+            .any(|c| c == "tool.process.platform_facts"),
+        "{:?}",
+        out.tool_calls
+    );
 }
 
 /// A key the contract does not name is refused by name before any window is
@@ -995,9 +1036,20 @@ fn process_window_key_refuses_unknown_keys_and_windowless_children_by_name() {
     let text = string_of(&out);
     let parts: Vec<&str> = text.split("||").collect();
     assert_eq!(parts.len(), 3, "{text}");
-    assert!(parts[0].starts_with("-1|process.window_key: no key named `Meta` (process_window_key_invalid)"), "{text}");
-    assert!(parts[1].starts_with("-1|process.window_key: ") && parts[1].contains("process_window_not_found"), "{text}");
-    assert!(parts[2].starts_with("-1|process.window_key: no child with handle 99"), "{text}");
+    assert!(
+        parts[0]
+            .starts_with("-1|process.window_key: no key named `Meta` (process_window_key_invalid)"),
+        "{text}"
+    );
+    assert!(
+        parts[1].starts_with("-1|process.window_key: ")
+            && parts[1].contains("process_window_not_found"),
+        "{text}"
+    );
+    assert!(
+        parts[2].starts_with("-1|process.window_key: no child with handle 99"),
+        "{text}"
+    );
 }
 
 /// The pointer and control ops parse their JSON spec and refuse an unknown
@@ -1019,8 +1071,14 @@ fn process_window_pointer_control_and_resize_refuse_by_name() {
     let text = string_of(&out);
     let parts: Vec<&str> = text.split("||").collect();
     assert_eq!(parts.len(), 4, "{text}");
-    assert!(parts[0].starts_with("-1|process.window_pointer: no action named `tap`"), "{text}");
-    assert!(parts[1].starts_with("1|process.window_control: no op named `hover`"), "{text}");
+    assert!(
+        parts[0].starts_with("-1|process.window_pointer: no action named `tap`"),
+        "{text}"
+    );
+    assert!(
+        parts[1].starts_with("1|process.window_control: no op named `hover`"),
+        "{text}"
+    );
     assert!(parts[2].starts_with("-1|process.window_resize: "), "{text}");
     assert!(parts[3].starts_with("1|process.window_rect: "), "{text}");
 }
@@ -1051,9 +1109,16 @@ fn image_inspect_png_answers_dimensions_samples_and_mean_luma() {
         let b = image_inspect_png({q}); let refusal = tool_result();
         return "" + a + "|" + facts.width + "x" + facts.height + "|" + facts.samples + "|" + facts.luminance + "|" + b + "|" + refusal;
         "#,
-        p = js(&path), q = js(&not_png)
+        p = js(&path),
+        q = js(&not_png)
     ));
     let text = string_of(&out);
-    assert!(text.starts_with("0|4x2|8|127.5|1|image.inspect_png: `"), "{text}");
-    assert!(text.contains("not.png`: not a PNG this engine can read"), "{text}");
+    assert!(
+        text.starts_with("0|4x2|8|127.5|1|image.inspect_png: `"),
+        "{text}"
+    );
+    assert!(
+        text.contains("not.png`: not a PNG this engine can read"),
+        "{text}"
+    );
 }

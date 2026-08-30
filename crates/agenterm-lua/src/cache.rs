@@ -158,7 +158,12 @@ mod cache_dir_tests {
         let dir = cache_dir();
         assert!(dir.is_absolute(), "{}", dir.display());
         let cwd = std::env::current_dir().expect("cwd");
-        assert!(!dir.starts_with(&cwd), "{} is under {}", dir.display(), cwd.display());
+        assert!(
+            !dir.starts_with(&cwd),
+            "{} is under {}",
+            dir.display(),
+            cwd.display()
+        );
         assert!(dir.ends_with("AgenTerm/lua-cache"), "{}", dir.display());
     }
 }

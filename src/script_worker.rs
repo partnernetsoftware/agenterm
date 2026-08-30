@@ -637,7 +637,10 @@ fn execute_inner(
         // resolves first.
         entry_dir: {
             let label = std::path::Path::new(&invocation.source_label);
-            label.is_file().then(|| label.parent().map(std::path::Path::to_path_buf)).flatten()
+            label
+                .is_file()
+                .then(|| label.parent().map(std::path::Path::to_path_buf))
+                .flatten()
         },
         arguments: serde_json::to_value(&invocation.arguments).ok(),
         budgets: Some(invocation.budgets.clone()),
@@ -867,7 +870,10 @@ fn configuration_error(code: impl Into<String>, message: impl Into<String>) -> S
     )),
     allow(dead_code)
 )]
-fn engine_execution_error(backend_code: &str, error: crate::script_engine::ScriptEngineError) -> ScriptFailure {
+fn engine_execution_error(
+    backend_code: &str,
+    error: crate::script_engine::ScriptEngineError,
+) -> ScriptFailure {
     // rh's `rh_fail: process_*` / `child_*` codes used to be reclassified as
     // `Child` failures here by sniffing the message. That engine left on
     // 2026-08-29; the engines that remain say their class in the type, so

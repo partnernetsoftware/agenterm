@@ -33,7 +33,6 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     client::{no_activate_from_environment, resolved_ipc_endpoint},
-    ui_command::{UI_CLIENT_COMMAND_FOCUS, UI_CLIENT_COMMAND_SHOW_NO_ACTIVATE},
     commands::{alternate_screen_wheel_bytes, option_value, screenshot_output_path},
     control_dispatch::{ControlHost, dispatch_shared_command, resolve_target_position},
     event_journal::{EventJournal, EventKind},
@@ -58,6 +57,7 @@ use crate::{
         TERMINAL_PASTE_LIMIT_BYTES, normalize_composer_paste, normalize_terminal_paste,
         terminal_paste_bytes,
     },
+    ui_command::{UI_CLIENT_COMMAND_FOCUS, UI_CLIENT_COMMAND_SHOW_NO_ACTIVATE},
     ui_geometry::{
         ScrollbarHit, TERMINAL_SCROLLBAR_WIDTH, TreeRowActionDensity, TreeRowMode,
         WHEEL_ROWS_PER_NOTCH, WorkspaceToolbarLayout, composer_geometry, pixel_rect_json,

@@ -204,14 +204,30 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         // rh's `rh::crypto::sha256_file`, which the build-identity library
         // needs to fingerprint `Cargo.lock` and the artifact manifest. Lower
         // hex, 64 chars, through the two-pass fetch like every other string.
-        decl("crypto.sha256_file", vec![HostParam::StrPtrLen], HostResult::I32),
+        decl(
+            "crypto.sha256_file",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
         // The three the shared `test_harness` and `artifact_files` libraries
         // reach for that the first cut of the door did not have. Same shape
         // as `fs.remove_file`: status in, diagnostic (if any) via
         // `tool_result`, nothing parked on success.
-        decl("fs.remove_dir_all", vec![HostParam::StrPtrLen], HostResult::I32),
-        decl("fs.rename", vec![HostParam::StrPtrLen, HostParam::StrPtrLen], HostResult::I32),
-        decl("fs.copy", vec![HostParam::StrPtrLen, HostParam::StrPtrLen], HostResult::I32),
+        decl(
+            "fs.remove_dir_all",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "fs.rename",
+            vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "fs.copy",
+            vec![HostParam::StrPtrLen, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
         // Wall-clock milliseconds since the epoch, as decimal text through the
         // two-pass fetch: the value does not fit an i32 and this door carries
         // text, so `Number(tool_result())` is the script's spelling. The one
@@ -239,24 +255,72 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("process.spawn", vec![HostParam::StrPtrLen], HostResult::I32),
         decl("process.state", vec![HostParam::I32], HostResult::I32),
         decl("process.kill", vec![HostParam::I32], HostResult::I32),
-        decl("process.wait", vec![HostParam::I32, HostParam::I32], HostResult::I32),
+        decl(
+            "process.wait",
+            vec![HostParam::I32, HostParam::I32],
+            HostResult::I32,
+        ),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
-        decl("process.platform_facts", vec![HostParam::I32], HostResult::I32),
-        decl("process.window_key", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
-        decl("process.window_pointer", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
-        decl("process.window_message", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
-        decl("process.window_resize", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
-        decl("process.window_rect", vec![HostParam::I32, HostParam::I32], HostResult::I32),
-        decl("process.window_control", vec![HostParam::I32, HostParam::StrPtrLen], HostResult::I32),
-        decl("image.inspect_png", vec![HostParam::StrPtrLen], HostResult::I32),
-        decl("process.read", vec![HostParam::I32, HostParam::I32], HostResult::I32),
+        decl(
+            "process.platform_facts",
+            vec![HostParam::I32],
+            HostResult::I32,
+        ),
+        decl(
+            "process.window_key",
+            vec![HostParam::I32, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "process.window_pointer",
+            vec![HostParam::I32, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "process.window_message",
+            vec![HostParam::I32, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "process.window_resize",
+            vec![HostParam::I32, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "process.window_rect",
+            vec![HostParam::I32, HostParam::I32],
+            HostResult::I32,
+        ),
+        decl(
+            "process.window_control",
+            vec![HostParam::I32, HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "image.inspect_png",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "process.read",
+            vec![HostParam::I32, HostParam::I32],
+            HostResult::I32,
+        ),
         // `symlink_metadata` does not follow the link, so `is_symlink` is
         // answerable -- rh's gates use it to refuse a manifest that is a link.
         // `process.status` is `command` without capture: exit code only, for
         // the 15 call sites that run a tool for its side effect and would
         // otherwise pay to buffer output nobody reads.
-        decl("fs.symlink_metadata", vec![HostParam::StrPtrLen], HostResult::I32),
-        decl("process.status", vec![HostParam::StrPtrLen], HostResult::I32),
+        decl(
+            "fs.symlink_metadata",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
+        decl(
+            "process.status",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
         HostFn {
             name: "tool_result".to_string(),
             module: DOOR.to_string(),
@@ -299,7 +363,10 @@ pub(crate) struct ToolState {
 /// "handle N was already waited" in every group that waits its own server.
 enum Handle {
     Running(Running),
-    Done { pid: u32, answer: Result<String, String> },
+    Done {
+        pid: u32,
+        answer: Result<String, String>,
+    },
 }
 
 /// A child that has not been waited: its drains run from the moment it is
@@ -374,10 +441,15 @@ impl Drains {
 
     /// Bytes from `from` onward, as text; and where the buffer ends now.
     fn since(buf: &Option<Arc<Mutex<Vec<u8>>>>, from: usize) -> (String, usize) {
-        let Some(buf) = buf else { return (String::new(), from) };
+        let Some(buf) = buf else {
+            return (String::new(), from);
+        };
         let b = buf.lock().map(|b| b.clone()).unwrap_or_default();
         let end = b.len().max(from);
-        (String::from_utf8_lossy(&b[from.min(b.len())..]).into_owned(), end)
+        (
+            String::from_utf8_lossy(&b[from.min(b.len())..]).into_owned(),
+            end,
+        )
     }
 }
 
@@ -456,28 +528,36 @@ pub(crate) fn install(
     // on the file (created if absent), or -1 when another holder has it.
     // `fs.unlock(handle)` releases it; dropping the state releases the rest.
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "fs.try_lock_exclusive", move |args, memory| {
-        let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        direct(&state, "fs.try_lock_exclusive", || {
-            let path = utf8(path)?;
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(path)
-                .map_err(|e| format!("fs.try_lock_exclusive `{path}`: {e}"))?;
-            match file.try_lock() {
-                Ok(()) => {
-                    let mut s = state.borrow_mut();
-                    s.locks.push(Some(file));
-                    i32::try_from(s.locks.len() - 1).map_err(|_| "fs.try_lock_exclusive: too many locks".to_string())
+    bind(
+        module,
+        DOOR,
+        "fs.try_lock_exclusive",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            direct(&state, "fs.try_lock_exclusive", || {
+                let path = utf8(path)?;
+                let file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(path)
+                    .map_err(|e| format!("fs.try_lock_exclusive `{path}`: {e}"))?;
+                match file.try_lock() {
+                    Ok(()) => {
+                        let mut s = state.borrow_mut();
+                        s.locks.push(Some(file));
+                        i32::try_from(s.locks.len() - 1)
+                            .map_err(|_| "fs.try_lock_exclusive: too many locks".to_string())
+                    }
+                    Err(std::fs::TryLockError::WouldBlock) => Ok(-1),
+                    Err(std::fs::TryLockError::Error(e)) => {
+                        Err(format!("fs.try_lock_exclusive `{path}`: {e}"))
+                    }
                 }
-                Err(std::fs::TryLockError::WouldBlock) => Ok(-1),
-                Err(std::fs::TryLockError::Error(e)) => Err(format!("fs.try_lock_exclusive `{path}`: {e}")),
-            }
-        })
-    })?;
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
     bind(module, DOOR, "fs.unlock", move |args, _memory| {
@@ -511,7 +591,8 @@ pub(crate) fn install(
                 .append(true)
                 .open(path)
                 .map_err(|e| format!("fs.append `{path}`: {e}"))?;
-            file.write_all(text).map_err(|e| format!("fs.append `{path}`: {e}"))?;
+            file.write_all(text)
+                .map_err(|e| format!("fs.append `{path}`: {e}"))?;
             Ok(String::new())
         })
     })?;
@@ -555,7 +636,8 @@ pub(crate) fn install(
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         answer(&state, "fs.remove_dir_all", || {
             let path = utf8(path)?;
-            std::fs::remove_dir_all(path).map_err(|e| format!("fs.remove_dir_all `{path}`: {e}"))?;
+            std::fs::remove_dir_all(path)
+                .map_err(|e| format!("fs.remove_dir_all `{path}`: {e}"))?;
             Ok(String::new())
         })
     })?;
@@ -672,21 +754,26 @@ pub(crate) fn install(
     // command succeeded; otherwise the parked bytes are the usual envelope
     // (`exit_code`, `stderr`, `timed_out`) so the failure is still legible.
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.command_stdout", move |args, memory| {
-        let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
-        answer(&state, "process.command_stdout", || {
-            let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.command_stdout: the spec is not valid: {e}"))?;
-            let envelope = run_command(spec, max_capture)?;
-            let parsed: serde_json::Value = serde_json::from_str(&envelope)
-                .map_err(|e| format!("process.command_stdout: {e}"))?;
-            if parsed["success"].as_bool() == Some(true) {
-                Ok(parsed["stdout"].as_str().unwrap_or_default().to_string())
-            } else {
-                Err(envelope)
-            }
-        })
-    })?;
+    bind(
+        module,
+        DOOR,
+        "process.command_stdout",
+        move |args, memory| {
+            let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            answer(&state, "process.command_stdout", || {
+                let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.command_stdout: the spec is not valid: {e}"))?;
+                let envelope = run_command(spec, max_capture)?;
+                let parsed: serde_json::Value = serde_json::from_str(&envelope)
+                    .map_err(|e| format!("process.command_stdout: {e}"))?;
+                if parsed["success"].as_bool() == Some(true) {
+                    Ok(parsed["stdout"].as_str().unwrap_or_default().to_string())
+                } else {
+                    Err(envelope)
+                }
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
     bind(module, DOOR, "process.id", move |_args, _memory| {
@@ -760,7 +847,8 @@ pub(crate) fn install(
                 read_stdout: 0,
                 read_stderr: 0,
             }));
-            i32::try_from(s.children.len() - 1).map_err(|_| "process.spawn: too many children".to_string())
+            i32::try_from(s.children.len() - 1)
+                .map_err(|_| "process.spawn: too many children".to_string())
         })
     })?;
 
@@ -792,7 +880,10 @@ pub(crate) fn install(
         direct(&state, "process.kill", || {
             let mut s = state.borrow_mut();
             match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
-                Some(Handle::Running(r)) => { let _ = r.child.kill(); Ok(0) }
+                Some(Handle::Running(r)) => {
+                    let _ = r.child.kill();
+                    Ok(0)
+                }
                 Some(Handle::Done { .. }) => Ok(0),
                 None => Err(format!("process.kill: no child with handle {h}")),
             }
@@ -818,7 +909,10 @@ pub(crate) fn install(
                         let pid = r.child.id();
                         let taken = std::mem::replace(
                             slot,
-                            Handle::Done { pid, answer: Err(format!("process.wait: handle {h} is being waited")) },
+                            Handle::Done {
+                                pid,
+                                answer: Err(format!("process.wait: handle {h} is being waited")),
+                            },
                         );
                         match taken {
                             Handle::Running(r) => r,
@@ -830,7 +924,9 @@ pub(crate) fn install(
             // The wait's own timeout, capped by whatever is left of the
             // spawn deadline.
             let timeout = u64::try_from(timeout_ms).ok().map(Duration::from_millis);
-            let remaining = child.deadline.map(|d| d.saturating_sub(child.started.elapsed()));
+            let remaining = child
+                .deadline
+                .map(|d| d.saturating_sub(child.started.elapsed()));
             let timeout = match (timeout, remaining) {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (a, b) => a.or(b),
@@ -838,7 +934,9 @@ pub(crate) fn install(
             let answer = finish_child(child, timeout);
             {
                 let mut s = state.borrow_mut();
-                if let Some(Handle::Done { answer: kept, .. }) = index.and_then(|i| s.children.get_mut(i)) {
+                if let Some(Handle::Done { answer: kept, .. }) =
+                    index.and_then(|i| s.children.get_mut(i))
+                {
                     *kept = answer.clone();
                 }
             }
@@ -870,22 +968,27 @@ pub(crate) fn install(
     // the contract types, and answers the contract's typed error as
     // `<op>: <message> (<code>[, <cause>])`.
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.platform_facts", move |args, _memory| {
-        let h = arg(args, 0)?;
-        answer(&state, "process.platform_facts", || {
-            let pid = child_pid(&state.borrow(), h, "process.platform_facts")?;
-            let f = agenterm_platform::process_window::facts(pid);
-            Ok(serde_json::json!({
-                "top_level_window_supported": f.supported,
-                "top_level_window_present": f.present,
-                "top_level_window_id": f.window_id,
-                "top_level_window_title": f.title,
-                "foreground_window_id": f.foreground_window_id,
-                "top_level_window_is_foreground": f.is_foreground,
+    bind(
+        module,
+        DOOR,
+        "process.platform_facts",
+        move |args, _memory| {
+            let h = arg(args, 0)?;
+            answer(&state, "process.platform_facts", || {
+                let pid = child_pid(&state.borrow(), h, "process.platform_facts")?;
+                let f = agenterm_platform::process_window::facts(pid);
+                Ok(serde_json::json!({
+                    "top_level_window_supported": f.supported,
+                    "top_level_window_present": f.present,
+                    "top_level_window_id": f.window_id,
+                    "top_level_window_title": f.title,
+                    "foreground_window_id": f.foreground_window_id,
+                    "top_level_window_is_foreground": f.is_foreground,
+                })
+                .to_string())
             })
-            .to_string())
-        })
-    })?;
+        },
+    )?;
 
     let state = Rc::clone(&shared);
     bind(module, DOOR, "process.window_key", move |args, memory| {
@@ -901,52 +1004,68 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.window_pointer", move |args, memory| {
-        let h = arg(args, 0)?;
-        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
-        direct(&state, "process.window_pointer", || {
-            let pid = child_pid(&state.borrow(), h, "process.window_pointer")?;
-            let spec: PointerSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.window_pointer: the spec is not valid: {e}"))?;
-            let action = pointer_action_named(&spec.action)?;
-            agenterm_platform::process_window::pointer(pid, action, spec.x, spec.y)
-                .map_err(|e| window_error("process.window_pointer", e))?;
-            Ok(STATUS_OK)
-        })
-    })?;
+    bind(
+        module,
+        DOOR,
+        "process.window_pointer",
+        move |args, memory| {
+            let h = arg(args, 0)?;
+            let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+            direct(&state, "process.window_pointer", || {
+                let pid = child_pid(&state.borrow(), h, "process.window_pointer")?;
+                let spec: PointerSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.window_pointer: the spec is not valid: {e}"))?;
+                let action = pointer_action_named(&spec.action)?;
+                agenterm_platform::process_window::pointer(pid, action, spec.x, spec.y)
+                    .map_err(|e| window_error("process.window_pointer", e))?;
+                Ok(STATUS_OK)
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.window_message", move |args, memory| {
-        let h = arg(args, 0)?;
-        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
-        answer(&state, "process.window_message", || {
-            let pid = child_pid(&state.borrow(), h, "process.window_message")?;
-            let spec: MessageSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.window_message: the spec is not valid: {e}"))?;
-            let message = agenterm_platform::contract::process_window::ProcessWindowMessage {
-                message: spec.message,
-                wparam: usize::try_from(spec.wparam).map_err(|_| "process.window_message: wparam is negative".to_string())?,
-                lparam: spec.lparam,
-            };
-            let result = agenterm_platform::process_window::message(pid, message)
-                .map_err(|e| window_error("process.window_message", e))?;
-            Ok(serde_json::json!({ "result": result }).to_string())
-        })
-    })?;
+    bind(
+        module,
+        DOOR,
+        "process.window_message",
+        move |args, memory| {
+            let h = arg(args, 0)?;
+            let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+            answer(&state, "process.window_message", || {
+                let pid = child_pid(&state.borrow(), h, "process.window_message")?;
+                let spec: MessageSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.window_message: the spec is not valid: {e}"))?;
+                let message = agenterm_platform::contract::process_window::ProcessWindowMessage {
+                    message: spec.message,
+                    wparam: usize::try_from(spec.wparam)
+                        .map_err(|_| "process.window_message: wparam is negative".to_string())?,
+                    lparam: spec.lparam,
+                };
+                let result = agenterm_platform::process_window::message(pid, message)
+                    .map_err(|e| window_error("process.window_message", e))?;
+                Ok(serde_json::json!({ "result": result }).to_string())
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.window_resize", move |args, memory| {
-        let h = arg(args, 0)?;
-        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
-        direct(&state, "process.window_resize", || {
-            let pid = child_pid(&state.borrow(), h, "process.window_resize")?;
-            let spec: ResizeSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.window_resize: the spec is not valid: {e}"))?;
-            agenterm_platform::process_window::resize(pid, spec.width, spec.height)
-                .map_err(|e| window_error("process.window_resize", e))?;
-            Ok(STATUS_OK)
-        })
-    })?;
+    bind(
+        module,
+        DOOR,
+        "process.window_resize",
+        move |args, memory| {
+            let h = arg(args, 0)?;
+            let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+            direct(&state, "process.window_resize", || {
+                let pid = child_pid(&state.borrow(), h, "process.window_resize")?;
+                let spec: ResizeSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.window_resize: the spec is not valid: {e}"))?;
+                agenterm_platform::process_window::resize(pid, spec.width, spec.height)
+                    .map_err(|e| window_error("process.window_resize", e))?;
+                Ok(STATUS_OK)
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
     bind(module, DOOR, "process.window_rect", move |args, _memory| {
@@ -965,26 +1084,49 @@ pub(crate) fn install(
     })?;
 
     let state = Rc::clone(&shared);
-    bind(module, DOOR, "process.window_control", move |args, memory| {
-        let h = arg(args, 0)?;
-        let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
-        answer(&state, "process.window_control", || {
-            let pid = child_pid(&state.borrow(), h, "process.window_control")?;
-            let spec: ControlSpec = serde_json::from_str(utf8(spec)?)
-                .map_err(|e| format!("process.window_control: the spec is not valid: {e}"))?;
-            use agenterm_platform::process_window as w;
-            let err = |e| window_error("process.window_control", e);
-            let answer = match spec.op.as_str() {
-                "exists" => { w::control_exists(pid, spec.id).map_err(err)?; serde_json::json!({}) }
-                "visible" => serde_json::json!({ "visible": w::control_visible(pid, spec.id).map_err(err)? }),
-                "text" => serde_json::json!({ "text": w::control_text(pid, spec.id).map_err(err)? }),
-                "set_text" => { w::control_set_text(pid, spec.id, spec.text.as_deref().unwrap_or_default()).map_err(err)?; serde_json::json!({}) }
-                "click" => { w::control_click(pid, spec.id).map_err(err)?; serde_json::json!({}) }
-                other => return Err(format!("process.window_control: no op named `{other}`; exists, visible, text, set_text, click")),
-            };
-            Ok(answer.to_string())
-        })
-    })?;
+    bind(
+        module,
+        DOOR,
+        "process.window_control",
+        move |args, memory| {
+            let h = arg(args, 0)?;
+            let spec = guest_slice(memory, arg(args, 1)?, arg(args, 2)?)?;
+            answer(&state, "process.window_control", || {
+                let pid = child_pid(&state.borrow(), h, "process.window_control")?;
+                let spec: ControlSpec = serde_json::from_str(utf8(spec)?)
+                    .map_err(|e| format!("process.window_control: the spec is not valid: {e}"))?;
+                use agenterm_platform::process_window as w;
+                let err = |e| window_error("process.window_control", e);
+                let answer = match spec.op.as_str() {
+                    "exists" => {
+                        w::control_exists(pid, spec.id).map_err(err)?;
+                        serde_json::json!({})
+                    }
+                    "visible" => {
+                        serde_json::json!({ "visible": w::control_visible(pid, spec.id).map_err(err)? })
+                    }
+                    "text" => {
+                        serde_json::json!({ "text": w::control_text(pid, spec.id).map_err(err)? })
+                    }
+                    "set_text" => {
+                        w::control_set_text(pid, spec.id, spec.text.as_deref().unwrap_or_default())
+                            .map_err(err)?;
+                        serde_json::json!({})
+                    }
+                    "click" => {
+                        w::control_click(pid, spec.id).map_err(err)?;
+                        serde_json::json!({})
+                    }
+                    other => {
+                        return Err(format!(
+                            "process.window_control: no op named `{other}`; exists, visible, text, set_text, click"
+                        ));
+                    }
+                };
+                Ok(answer.to_string())
+            })
+        },
+    )?;
 
     // `image.inspect_png(path)`: rh's `rh::image::inspect_png`, which the GUI
     // journeys use to read the evidence screenshots they took back -- not the
@@ -1026,9 +1168,13 @@ pub(crate) fn install(
                     let (mut err, end_err) = Drains::since(&r.drains.stderr, r.read_stderr);
                     // Hand out at most `max_bytes` of each, on char boundaries.
                     let cut = |t: &mut String, from: usize| -> usize {
-                        if t.len() <= max_bytes { return from + t.len(); }
+                        if t.len() <= max_bytes {
+                            return from + t.len();
+                        }
                         let mut at = max_bytes;
-                        while !t.is_char_boundary(at) { at -= 1; }
+                        while !t.is_char_boundary(at) {
+                            at -= 1;
+                        }
                         t.truncate(at);
                         from + at
                     };
@@ -1039,9 +1185,15 @@ pub(crate) fn install(
                         Ok(None) => "running",
                         Err(_) => "unknown",
                     };
-                    Ok(serde_json::json!({ "stdout": out, "stderr": err, "state": state_text }).to_string())
+                    Ok(
+                        serde_json::json!({ "stdout": out, "stderr": err, "state": state_text })
+                            .to_string(),
+                    )
                 }
-                Some(Handle::Done { .. }) => Ok(serde_json::json!({ "stdout": "", "stderr": "", "state": "exited" }).to_string()),
+                Some(Handle::Done { .. }) => Ok(
+                    serde_json::json!({ "stdout": "", "stderr": "", "state": "exited" })
+                        .to_string(),
+                ),
                 None => Err(format!("process.read: no child with handle {h}")),
             }
         })
@@ -1063,10 +1215,13 @@ pub(crate) fn install(
         answer(&state, "crypto.sha256_file", || {
             use sha2::Digest as _;
             let path = utf8(path)?;
-            let bytes = std::fs::read(path)
-                .map_err(|e| format!("crypto.sha256_file `{path}`: {e}"))?;
+            let bytes =
+                std::fs::read(path).map_err(|e| format!("crypto.sha256_file `{path}`: {e}"))?;
             let digest = sha2::Sha256::digest(&bytes);
-            Ok(digest.iter().map(|b| format!("{b:02x}")).collect::<String>())
+            Ok(digest
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>())
         })
     })?;
 
@@ -1085,7 +1240,12 @@ pub(crate) fn install(
                 .ok()
                 .and_then(|i| s.args.get(i))
                 .cloned()
-                .ok_or_else(|| format!("arg: index {index} out of range; arg_count() is {}", s.args.len()))
+                .ok_or_else(|| {
+                    format!(
+                        "arg: index {index} out of range; arg_count() is {}",
+                        s.args.len()
+                    )
+                })
         })
     })?;
 
@@ -1223,9 +1383,13 @@ struct PngFacts {
 fn inspect_png(reader: impl std::io::Read) -> Result<PngFacts, String> {
     let mut decoder = png::Decoder::new(reader);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = decoder.read_info().map_err(|e| format!("not a PNG this engine can read: {e}"))?;
+    let mut reader = decoder
+        .read_info()
+        .map_err(|e| format!("not a PNG this engine can read: {e}"))?;
     let mut buf = vec![0u8; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).map_err(|e| format!("cannot decode the image: {e}"))?;
+    let info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| format!("cannot decode the image: {e}"))?;
     let bytes = &buf[..info.buffer_size()];
     let channels = match info.color_type {
         png::ColorType::Grayscale => 1,
@@ -1249,7 +1413,11 @@ fn inspect_png(reader: impl std::io::Read) -> Result<PngFacts, String> {
         width: info.width,
         height: info.height,
         samples,
-        luminance: if samples == 0 { 0.0 } else { total / samples as f64 },
+        luminance: if samples == 0 {
+            0.0
+        } else {
+            total / samples as f64
+        },
     })
 }
 
@@ -1263,7 +1431,10 @@ fn child_pid(s: &ToolState, h: i32, op: &str) -> Result<u32, String> {
     }
 }
 
-fn window_error(op: &str, e: agenterm_platform::contract::process_window::ProcessWindowError) -> String {
+fn window_error(
+    op: &str,
+    e: agenterm_platform::contract::process_window::ProcessWindowError,
+) -> String {
     match e.cause {
         Some(cause) => format!("{op}: {} ({}, {cause})", e.message, e.code),
         None => format!("{op}: {} ({})", e.message, e.code),
@@ -1271,7 +1442,9 @@ fn window_error(op: &str, e: agenterm_platform::contract::process_window::Proces
 }
 
 /// rh's key names, exactly as the journeys spell them.
-fn window_key_named(name: &str) -> Result<agenterm_platform::contract::process_window::ProcessWindowKey, String> {
+fn window_key_named(
+    name: &str,
+) -> Result<agenterm_platform::contract::process_window::ProcessWindowKey, String> {
     use agenterm_platform::contract::process_window::ProcessWindowKey as K;
     Ok(match name {
         "Backspace" => K::Backspace,
@@ -1286,11 +1459,17 @@ fn window_key_named(name: &str) -> Result<agenterm_platform::contract::process_w
         "Right" => K::Right,
         "Tab" => K::Tab,
         "Up" => K::Up,
-        other => return Err(format!("process.window_key: no key named `{other}` (process_window_key_invalid)")),
+        other => {
+            return Err(format!(
+                "process.window_key: no key named `{other}` (process_window_key_invalid)"
+            ));
+        }
     })
 }
 
-fn pointer_action_named(name: &str) -> Result<agenterm_platform::contract::process_window::ProcessWindowPointerAction, String> {
+fn pointer_action_named(
+    name: &str,
+) -> Result<agenterm_platform::contract::process_window::ProcessWindowPointerAction, String> {
     use agenterm_platform::contract::process_window::ProcessWindowPointerAction as A;
     Ok(match name {
         "click" => A::Click,
@@ -1299,7 +1478,11 @@ fn pointer_action_named(name: &str) -> Result<agenterm_platform::contract::proce
         "move-held" => A::MoveHeld,
         "up" => A::Up,
         "capture-changed" => A::CaptureChanged,
-        other => return Err(format!("process.window_pointer: no action named `{other}` (process_window_pointer_action_invalid)")),
+        other => {
+            return Err(format!(
+                "process.window_pointer: no action named `{other}` (process_window_pointer_action_invalid)"
+            ));
+        }
     })
 }
 
@@ -1412,14 +1595,16 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Chil
         })
         .stdout(match &spec.stdout_path {
             Some(path) => Stdio::from(
-                std::fs::File::create(path).map_err(|e| format!("process: creating stdout_path `{path}`: {e}"))?,
+                std::fs::File::create(path)
+                    .map_err(|e| format!("process: creating stdout_path `{path}`: {e}"))?,
             ),
             None if capture => Stdio::piped(),
             None => Stdio::null(),
         })
         .stderr(match &spec.stderr_path {
             Some(path) => Stdio::from(
-                std::fs::File::create(path).map_err(|e| format!("process: creating stderr_path `{path}`: {e}"))?,
+                std::fs::File::create(path)
+                    .map_err(|e| format!("process: creating stderr_path `{path}`: {e}"))?,
             ),
             None if capture => Stdio::piped(),
             None => Stdio::null(),
@@ -1497,7 +1682,11 @@ fn finish_child(mut running: Running, timeout: Option<Duration>) -> Result<Strin
         buf.lock().map(|b| b.clone()).unwrap_or_default()
     };
     let (stdout, stderr) = (collect(stdout), collect(stderr));
-    let exit_code = if timed_out { None } else { status.and_then(|s| s.code()) };
+    let exit_code = if timed_out {
+        None
+    } else {
+        status.and_then(|s| s.code())
+    };
     let success = !timed_out && status.is_some_and(|s| s.success());
     Ok(serde_json::json!({
         "exit_code": exit_code,
@@ -1577,7 +1766,6 @@ mod tests {
             .expect_err("`timeout` is not a field");
         assert!(err.to_string().contains("timeout"), "{err}");
     }
-
 
     #[cfg(unix)]
     #[test]

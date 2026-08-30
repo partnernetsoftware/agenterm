@@ -421,20 +421,50 @@ fn the_array_claims_in_this_crates_own_copy() {
 #[test]
 fn the_method_claims_in_this_crates_own_copy() {
     // "字符串：trim、indexOf"
-    assert_eq!(returns("return \"  ab  \".trim();"), JsValue::Str("ab".into()));
-    assert_eq!(returns("return \"abc\".indexOf(\"b\");"), JsValue::Number(1.0));
-    assert_eq!(returns("return \"abc\".indexOf(\"z\");"), JsValue::Number(-1.0));
+    assert_eq!(
+        returns("return \"  ab  \".trim();"),
+        JsValue::Str("ab".into())
+    );
+    assert_eq!(
+        returns("return \"abc\".indexOf(\"b\");"),
+        JsValue::Number(1.0)
+    );
+    assert_eq!(
+        returns("return \"abc\".indexOf(\"z\");"),
+        JsValue::Number(-1.0)
+    );
     // 空白集合是整个 ECMA-262 12.2 + 12.3，不是「看起来像空格」。
-    assert_eq!(returns("return \"\u{3000}ab\u{2003}\".trim();"), JsValue::Str("ab".into()));
+    assert_eq!(
+        returns("return \"\u{3000}ab\u{2003}\".trim();"),
+        JsValue::Str("ab".into())
+    );
     // 位置是 UTF-16 码元，与 `.length` 对得上。
-    assert_eq!(returns("return \"caf\u{e9}x\".indexOf(\"x\");"), JsValue::Number(4.0));
+    assert_eq!(
+        returns("return \"caf\u{e9}x\".indexOf(\"x\");"),
+        JsValue::Number(4.0)
+    );
 
     // "数组：push、pop、map"
-    assert_eq!(returns("let a = [1, 2]; return a.push(3);"), JsValue::Number(3.0));
-    assert_eq!(returns("let a = [1, 2]; a.push(3); return a[2];"), JsValue::Number(3.0));
-    assert_eq!(returns("let a = [1, 2, 3]; return a.pop();"), JsValue::Number(3.0));
-    assert_eq!(returns("let a = [1]; a.pop(); return a.length;"), JsValue::Number(0.0));
-    assert_eq!(returns("let a = [1, 2]; return a.map(x => x + 1)[1];"), JsValue::Number(3.0));
+    assert_eq!(
+        returns("let a = [1, 2]; return a.push(3);"),
+        JsValue::Number(3.0)
+    );
+    assert_eq!(
+        returns("let a = [1, 2]; a.push(3); return a[2];"),
+        JsValue::Number(3.0)
+    );
+    assert_eq!(
+        returns("let a = [1, 2, 3]; return a.pop();"),
+        JsValue::Number(3.0)
+    );
+    assert_eq!(
+        returns("let a = [1]; a.pop(); return a.length;"),
+        JsValue::Number(0.0)
+    );
+    assert_eq!(
+        returns("let a = [1, 2]; return a.map(x => x + 1)[1];"),
+        JsValue::Number(3.0)
+    );
     // 回调能捕获外层绑定，且 map 可链。
     assert_eq!(
         returns("let k = 10; let a = [1]; return a.map(x => x + k)[0];"),
@@ -471,9 +501,18 @@ fn the_string_length_claim_in_this_crates_own_copy() {
     // "`"ab".length` 现在给正确答案，数的是 UTF-16 码元不是 UTF-8 字节"
     assert_eq!(returns("return \"ab\".length;"), JsValue::Number(2.0));
     assert_eq!(returns("return \"\".length;"), JsValue::Number(0.0));
-    assert_eq!(returns("return \"caf\u{e9}\".length;"), JsValue::Number(4.0));
-    assert_eq!(returns("return \"\u{1f600}\".length;"), JsValue::Number(2.0));
-    assert_eq!(returns("let s = \"abc\"; return s.length;"), JsValue::Number(3.0));
+    assert_eq!(
+        returns("return \"caf\u{e9}\".length;"),
+        JsValue::Number(4.0)
+    );
+    assert_eq!(
+        returns("return \"\u{1f600}\".length;"),
+        JsValue::Number(2.0)
+    );
+    assert_eq!(
+        returns("let s = \"abc\"; return s.length;"),
+        JsValue::Number(3.0)
+    );
     assert_eq!(returns("return `a${1}b`.length;"), JsValue::Number(3.0));
 
     // "那是一条臂，不是原型链：其它属性仍然 trap，而且是故意不给 undefined"
@@ -514,10 +553,22 @@ fn the_string_length_claim_in_this_crates_own_copy() {
 #[test]
 fn the_arrow_claims_in_this_crates_own_copy() {
     // "括号参数表、单参数免括号、空参数表"
-    assert_eq!(returns("let f = (x) => x + 1; return f(1);"), JsValue::Number(2.0));
-    assert_eq!(returns("let f = x => x * 3; return f(4);"), JsValue::Number(12.0));
-    assert_eq!(returns("let f = () => 7; return f();"), JsValue::Number(7.0));
-    assert_eq!(returns("let f = (a, b) => a * b; return f(3, 4);"), JsValue::Number(12.0));
+    assert_eq!(
+        returns("let f = (x) => x + 1; return f(1);"),
+        JsValue::Number(2.0)
+    );
+    assert_eq!(
+        returns("let f = x => x * 3; return f(4);"),
+        JsValue::Number(12.0)
+    );
+    assert_eq!(
+        returns("let f = () => 7; return f();"),
+        JsValue::Number(7.0)
+    );
+    assert_eq!(
+        returns("let f = (a, b) => a * b; return f(3, 4);"),
+        JsValue::Number(12.0)
+    );
 
     // "简洁体就是它的 return，块体是普通函数体"
     assert_eq!(
@@ -526,18 +577,30 @@ fn the_arrow_claims_in_this_crates_own_copy() {
     );
 
     // "捕获也能用"——箭头是函数表达式，所以闭包那套原样适用。
-    assert_eq!(returns("function mk(n) { return () => n; } return mk(6)();"), JsValue::Number(6.0));
+    assert_eq!(
+        returns("function mk(n) { return () => n; } return mk(6)();"),
+        JsValue::Number(6.0)
+    );
     assert_eq!(
         returns("let f = (x) => (y) => x + y; return f(1)(2);"),
         JsValue::Number(3.0)
     );
 
     // "分组括号还是分组括号"——覆盖文法没有把它吃掉。
-    assert_eq!(returns("let g = (n) => n; return (1 + 2) * g(3);"), JsValue::Number(9.0));
+    assert_eq!(
+        returns("let g = (n) => n; return (1 + 2) * g(3);"),
+        JsValue::Number(9.0)
+    );
 
     // 与本仓已有的其它特性合用。
-    assert_eq!(returns("let f = (a) => a[1]; return f([1, 2, 3]);"), JsValue::Number(2.0));
-    assert_eq!(returns("let f = (x) => `v${x}`; return f(3);"), JsValue::Str("v3".into()));
+    assert_eq!(
+        returns("let f = (a) => a[1]; return f([1, 2, 3]);"),
+        JsValue::Number(2.0)
+    );
+    assert_eq!(
+        returns("let f = (x) => `v${x}`; return f(3);"),
+        JsValue::Str("v3".into())
+    );
 }
 
 /// The template-literal claims this crate's own copy makes, executed.
@@ -567,9 +630,18 @@ fn the_template_claims_in_this_crates_own_copy() {
     assert_eq!(returns("return `${1}${2}`;"), JsValue::Str("12".into()));
 
     // "替换里可以写任何表达式，包括带花括号的"
-    assert_eq!(returns("return `${ { a: 7 }.a }`;"), JsValue::Str("7".into()));
-    assert_eq!(returns("return `${[1, 2].length}`;"), JsValue::Str("2".into()));
-    assert_eq!(returns("return `a${`b${1}`}c`;"), JsValue::Str("ab1c".into()));
+    assert_eq!(
+        returns("return `${ { a: 7 }.a }`;"),
+        JsValue::Str("7".into())
+    );
+    assert_eq!(
+        returns("return `${[1, 2].length}`;"),
+        JsValue::Str("2".into())
+    );
+    assert_eq!(
+        returns("return `a${`b${1}`}c`;"),
+        JsValue::Str("ab1c".into())
+    );
 
     // The shape `fleet.qjs` actually hand-rolls: `throw "fleet " + opId + ...`.
     // A template must mean exactly what the concatenation meant.
@@ -718,7 +790,12 @@ fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
 fn a_missing_string_method_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
-        .run_once(Guest::Qjs("let s = \"abc\"; return s.substring(0, 2);"), None, "main", &[])
+        .run_once(
+            Guest::Qjs("let s = \"abc\"; return s.substring(0, 2);"),
+            None,
+            "main",
+            &[],
+        )
         .expect_err("a property this engine lacks stops the script");
     assert!(
         matches!(&err, QjswasmError::UnsupportedMethod(Some(name)) if name == "substring"),
@@ -737,13 +814,22 @@ fn a_missing_string_method_is_named_at_the_engine_face() {
 fn a_host_argument_of_the_wrong_type_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
-        .run_once(Guest::Qjs("let s = \"abc\"; print(s.length);"), None, "main", &[])
+        .run_once(
+            Guest::Qjs("let s = \"abc\"; print(s.length);"),
+            None,
+            "main",
+            &[],
+        )
         .expect_err("a Number where print wants a String stops the script");
     assert!(
         matches!(&err, QjswasmError::HostArgument(Some((host, 1))) if host == "print"),
         "expected print#1 named, got {err:?}"
     );
-    assert!(err.to_string().starts_with("host function `print` needs a String for argument 1"), "{err}");
+    assert!(
+        err.to_string()
+            .starts_with("host function `print` needs a String for argument 1"),
+        "{err}"
+    );
 }
 
 /// `undefined.x` names the key since tinyvm 1707721; it was "guest trapped:
@@ -753,22 +839,40 @@ fn a_host_argument_of_the_wrong_type_is_named_at_the_engine_face() {
 fn a_property_read_off_undefined_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
-        .run_once(Guest::Qjs("let o = {}; let f = o.missing; return f.name;"), None, "main", &[])
+        .run_once(
+            Guest::Qjs("let o = {}; let f = o.missing; return f.name;"),
+            None,
+            "main",
+            &[],
+        )
         .expect_err("reading off undefined stops the script");
     assert!(
         matches!(&err, QjswasmError::PropertyOfNonObject(Some(key)) if key == "name"),
         "expected the key named, got {err:?}"
     );
-    assert!(err.to_string().starts_with("the script read `name` off a value that has no properties"), "{err}");
+    assert!(
+        err.to_string()
+            .starts_with("the script read `name` off a value that has no properties"),
+        "{err}"
+    );
 }
 
 /// `slice` itself answers since tinyvm 6b9464a: code-unit positions, negative
 /// indices, the harness's truncation shape.
 #[test]
 fn slice_answers_on_code_units() {
-    assert_eq!(returns("return \"abcdef\".slice(1, 3);"), JsValue::Str("bc".into()));
-    assert_eq!(returns("return \"abcdef\".slice(-2);"), JsValue::Str("ef".into()));
-    assert_eq!(returns("return \"caf\u{e9}x\".slice(3, 4);"), JsValue::Str("\u{e9}".into()));
+    assert_eq!(
+        returns("return \"abcdef\".slice(1, 3);"),
+        JsValue::Str("bc".into())
+    );
+    assert_eq!(
+        returns("return \"abcdef\".slice(-2);"),
+        JsValue::Str("ef".into())
+    );
+    assert_eq!(
+        returns("return \"caf\u{e9}x\".slice(3, 4);"),
+        JsValue::Str("\u{e9}".into())
+    );
 }
 
 #[test]

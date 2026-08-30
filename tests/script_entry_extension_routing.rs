@@ -45,7 +45,9 @@ const AGENTERM_BIN: &str = env!("CARGO_BIN_EXE_agenterm");
 static CLI_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn cli_slot() -> std::sync::MutexGuard<'static, ()> {
-    CLI_SLOT.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    CLI_SLOT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Run the CLI with `AGENTERM_SCRIPT_BACKEND` either removed or set, and
@@ -274,7 +276,9 @@ fn pack_build_routes_by_extension() {
     // And the artifact runs by its extension, with no environment variable:
     // `.wasm` is qjswasm's compiled form (A5, decided 2026-08-30).
     let mut run = Command::new(AGENTERM_BIN);
-    run.args(["cli", "script", "run"]).arg(out_dir.join("t.wasm")).env_remove("AGENTERM_SCRIPT_BACKEND");
+    run.args(["cli", "script", "run"])
+        .arg(out_dir.join("t.wasm"))
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
     let out = run.output().expect("the CLI binary runs");
     assert!(
         out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "3",
@@ -377,7 +381,8 @@ fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
     );
 
     let mut with = Command::new(AGENTERM_BIN);
-    with.args(["cli", "script", "run", "--profile", "tool"]).arg(&entry);
+    with.args(["cli", "script", "run", "--profile", "tool"])
+        .arg(&entry);
     with.current_dir(&dir).env_remove("AGENTERM_SCRIPT_BACKEND");
     let out = with.output().expect("the CLI binary runs");
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -389,7 +394,9 @@ fn a_tool_script_reaches_the_machine_only_under_the_tool_profile() {
 
     let mut without = Command::new(AGENTERM_BIN);
     without.args(["cli", "script", "run"]).arg(&entry);
-    without.current_dir(&dir).env_remove("AGENTERM_SCRIPT_BACKEND");
+    without
+        .current_dir(&dir)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
     let out = without.output().expect("the CLI binary runs");
     let combined = format!(
         "{}{}",
@@ -468,7 +475,8 @@ fn the_first_migrated_task_script_validates_the_real_manifest() {
     // readable by the host, and this is the line every migrated gate script
     // exists to print when it fails.
     assert!(
-        !out.status.success() && combined.contains("artifact_manifest_name_invalid:agenterm-x1.exe"),
+        !out.status.success()
+            && combined.contains("artifact_manifest_name_invalid:agenterm-x1.exe"),
         "a digit in the role must be refused by name; got {combined}"
     );
     // And the class: the script threw, so the failure is the script's, not
@@ -498,14 +506,23 @@ fn what_a_script_printed_before_it_failed_reaches_stdout() {
     let _slot = cli_slot();
     let dir = std::env::temp_dir().join(format!("agenterm-stdout-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let script = write(&dir, "steps.qjs", "print(\"STEP 1\");\nprint(\"STEP 2\");\nthrow \"boom\";\n");
+    let script = write(
+        &dir,
+        "steps.qjs",
+        "print(\"STEP 1\");\nprint(\"STEP 2\");\nthrow \"boom\";\n",
+    );
     let mut run = Command::new(AGENTERM_BIN);
-    run.args(["cli", "script", "run"]).arg(&script).env_remove("AGENTERM_SCRIPT_BACKEND");
+    run.args(["cli", "script", "run"])
+        .arg(&script)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
     let out = run.output().expect("the CLI binary runs");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "a throw fails the run");
-    assert_eq!(stdout, "STEP 1\nSTEP 2\n", "stdout={stdout} stderr={stderr}");
+    assert_eq!(
+        stdout, "STEP 1\nSTEP 2\n",
+        "stdout={stdout} stderr={stderr}"
+    );
     assert!(
         stderr.contains("nothing caught it: boom") && !stderr.contains("STEP"),
         "the failure is on stderr, the steps are not; stderr={stderr}"
@@ -524,8 +541,16 @@ fn a_project_root_widens_resolution_and_does_not_replace_the_entry_directory() {
     let other = dir.join("elsewhere");
     std::fs::create_dir_all(dir.join("lib")).expect("temp dir");
     std::fs::create_dir_all(&other).expect("temp dir");
-    write(&dir.join("lib"), "x.qjs", "export function answer() { return 41 + 1; }\n");
-    let entry = write(&dir, "entry.qjs", "import * as x from \"lib/x\";\nprint(\"\" + x.answer());\n");
+    write(
+        &dir.join("lib"),
+        "x.qjs",
+        "export function answer() { return 41 + 1; }\n",
+    );
+    let entry = write(
+        &dir,
+        "entry.qjs",
+        "import * as x from \"lib/x\";\nprint(\"\" + x.answer());\n",
+    );
     let mut run = Command::new(AGENTERM_BIN);
     run.args(["cli", "script", "run", "--project-root"])
         .arg(&other)
@@ -568,7 +593,9 @@ fn the_operations_budget_reaches_the_guest_and_exhaustion_is_a_limit() {
     );
 
     let mut fed = Command::new(AGENTERM_BIN);
-    fed.args(["cli", "script", "run"]).arg(&script).env_remove("AGENTERM_SCRIPT_BACKEND");
+    fed.args(["cli", "script", "run"])
+        .arg(&script)
+        .env_remove("AGENTERM_SCRIPT_BACKEND");
     let out = fed.output().expect("the CLI binary runs");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -599,7 +626,15 @@ fn the_guest_heap_ceiling_is_1024_pages_and_the_env_knob_moves_it() {
 
     let mut roomy = Command::new(AGENTERM_BIN);
     roomy
-        .args(["cli", "script", "run", "--max-operations", "1000000000", "--timeout-ms", "120000"])
+        .args([
+            "cli",
+            "script",
+            "run",
+            "--max-operations",
+            "1000000000",
+            "--timeout-ms",
+            "120000",
+        ])
         .arg(&script)
         .env_remove("AGENTERM_SCRIPT_BACKEND")
         .env_remove("AGENTERM_QJS_MAX_MEMORY_PAGES");
@@ -613,7 +648,15 @@ fn the_guest_heap_ceiling_is_1024_pages_and_the_env_knob_moves_it() {
 
     let mut cramped = Command::new(AGENTERM_BIN);
     cramped
-        .args(["cli", "script", "run", "--max-operations", "1000000000", "--timeout-ms", "120000"])
+        .args([
+            "cli",
+            "script",
+            "run",
+            "--max-operations",
+            "1000000000",
+            "--timeout-ms",
+            "120000",
+        ])
         .arg(&script)
         .env_remove("AGENTERM_SCRIPT_BACKEND")
         .env("AGENTERM_QJS_MAX_MEMORY_PAGES", "256");

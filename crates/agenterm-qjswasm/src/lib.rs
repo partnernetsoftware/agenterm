@@ -690,9 +690,13 @@ impl std::fmt::Debug for QjswasmError {
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
             Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
             Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
-            Self::UnsupportedMethod(name) => f.debug_tuple("UnsupportedMethod").field(name).finish(),
+            Self::UnsupportedMethod(name) => {
+                f.debug_tuple("UnsupportedMethod").field(name).finish()
+            }
             Self::HostArgument(at) => f.debug_tuple("HostArgument").field(at).finish(),
-            Self::PropertyOfNonObject(key) => f.debug_tuple("PropertyOfNonObject").field(key).finish(),
+            Self::PropertyOfNonObject(key) => {
+                f.debug_tuple("PropertyOfNonObject").field(key).finish()
+            }
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),

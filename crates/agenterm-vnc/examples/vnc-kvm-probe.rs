@@ -104,7 +104,11 @@ fn read_png(path: &Path) -> Result<Canvas, Box<dyn std::error::Error>> {
     let mut rgba = vec![0u8; reader.output_buffer_size()];
     let info = reader.next_frame(&mut rgba)?;
     rgba.truncate(info.buffer_size());
-    Ok(Canvas { width: info.width as u16, height: info.height as u16, rgba })
+    Ok(Canvas {
+        width: info.width as u16,
+        height: info.height as u16,
+        rgba,
+    })
 }
 
 fn changed_pixels(before: &Canvas, after: &Canvas) -> usize {
@@ -163,7 +167,13 @@ async fn capture(
     canvas: &mut Canvas,
 ) -> Result<(), Box<dyn std::error::Error>> {
     session.request_full_refresh()?;
-    settle(canvas, frames, Duration::from_millis(1200), Duration::from_secs(8)).await;
+    settle(
+        canvas,
+        frames,
+        Duration::from_millis(1200),
+        Duration::from_secs(8),
+    )
+    .await;
     Ok(())
 }
 
@@ -208,11 +218,18 @@ enum Step {
 fn parse_steps(script: &str) -> Result<Vec<Step>, Box<dyn std::error::Error>> {
     let mut steps = Vec::new();
     for raw in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-        let (verb, rest) = raw.split_once(':').ok_or_else(|| format!("bad step {raw:?}"))?;
+        let (verb, rest) = raw
+            .split_once(':')
+            .ok_or_else(|| format!("bad step {raw:?}"))?;
         steps.push(match verb {
             "click" => {
-                let (x, y) = rest.split_once(',').ok_or_else(|| format!("bad click {rest:?}"))?;
-                Step::Click { x: x.trim().parse()?, y: y.trim().parse()? }
+                let (x, y) = rest
+                    .split_once(',')
+                    .ok_or_else(|| format!("bad click {rest:?}"))?;
+                Step::Click {
+                    x: x.trim().parse()?,
+                    y: y.trim().parse()?,
+                }
             }
             "type" => Step::Type(rest.to_string()),
             "key" => Step::Key(u32::from_str_radix(rest.trim_start_matches("0x"), 16)?),
@@ -287,9 +304,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while index < raw.len() {
         if raw[index] == "--steps" {
             index += 1;
-            steps_script = Some(
-                raw.get(index).ok_or("--steps needs a script")?.clone(),
-            );
+            steps_script = Some(raw.get(index).ok_or("--steps needs a script")?.clone());
         } else {
             positional.push(raw[index].clone());
         }
@@ -334,11 +349,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut canvas = before;
         let responded = run_steps(&session, &mut frames, &mut canvas, &steps, &out_dir).await?;
         session.disconnect().await;
-        println!("probe: {responded}/{} steps produced a visible change", steps.len());
+        println!(
+            "probe: {responded}/{} steps produced a visible change",
+            steps.len()
+        );
         if responded == 0 {
-            return Err(
-                "probe: no step changed the screen; the UI never saw these actions".into(),
-            );
+            return Err("probe: no step changed the screen; the UI never saw these actions".into());
         }
         return Ok(());
     }

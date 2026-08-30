@@ -176,7 +176,12 @@ fn a_qjs_script_drives_a_real_fleet_operation() {
 
     let mut engine = Engine::new();
     let outcome = engine
-        .run_once(Guest::CompiledQjs(&compiled(&script)), Some(bridge), "main", &[])
+        .run_once(
+            Guest::CompiledQjs(&compiled(&script)),
+            Some(bridge),
+            "main",
+            &[],
+        )
         .expect("a .qjs script must reach the host door through the real binding");
 
     let captured = seen.lock().expect("bridge capture");
@@ -231,7 +236,12 @@ fn a_numeric_fleet_payload_survives_the_trip() {
 
     let mut engine = Engine::new();
     engine
-        .run_once(Guest::CompiledQjs(&compiled(&script)), Some(bridge), "main", &[])
+        .run_once(
+            Guest::CompiledQjs(&compiled(&script)),
+            Some(bridge),
+            "main",
+            &[],
+        )
         .expect("a numeric operation runs");
 
     let captured = seen.lock().expect("bridge capture");
@@ -273,7 +283,12 @@ fn a_refused_operation_throws_and_is_catchable() {
 
     let mut engine = Engine::new();
     let outcome = engine
-        .run_once(Guest::CompiledQjs(&compiled(&script)), Some(refusing), "main", &[])
+        .run_once(
+            Guest::CompiledQjs(&compiled(&script)),
+            Some(refusing),
+            "main",
+            &[],
+        )
         .expect("a caught refusal is not a failure");
 
     let Some(Value::Js(JsValue::Str(caught))) = outcome.values.first() else {
