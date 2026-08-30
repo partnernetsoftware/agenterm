@@ -92,11 +92,12 @@ export function parse_file(p) {
   return JSON.parse(read_text(p));
 }
 
-// rh wrote pretty JSON; every reader parses it back, so compact is the same
-// document. The engine has no `space` argument yet, and this is where that
-// would be spelled if it ever mattered.
+// rh wrote pretty JSON (serde's two-space shape). The engine's `space`
+// argument (tinyvm `1f86bbc`) answers the same bytes serde does at every
+// gap, so this is pretty again after a compact interlude; every reader
+// parses it back either way.
 export function stringify_pretty(v) {
-  return JSON.stringify(v);
+  return JSON.stringify(v, null, 2);
 }
 
 // ---- process ------------------------------------------------------------
@@ -197,14 +198,14 @@ export function sha256_file(p) {
 // Pure helpers for rh spellings the engine has no direct form for. Each is
 // here because two or more of the migrated entries needed it.
 
-// rh's `type_of(x) == "array"` / `"map"`. The engine has no `Array` global,
-// so an array is an object with a numeric `length`.
+// rh's `type_of(x) == "array"` / `"map"`, over `Array.isArray` (tinyvm
+// `c9df46f`); a map is any other non-null object.
 export function is_array(v) {
-  return typeof v === "object" && v !== null && typeof v.length === "number";
+  return Array.isArray(v);
 }
 
 export function is_map(v) {
-  return typeof v === "object" && v !== null && typeof v.length !== "number";
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 // rh's integer `/` (truncating toward zero) without `Math.*`.
@@ -212,15 +213,20 @@ export function int_div(a, b) {
   return (a - (a % b)) / b;
 }
 
-// rh's `arr.contains(v)` for arrays: the engine has no `indexOf` on arrays.
+// rh's `arr.contains(v)` for arrays: `includes` (tinyvm `c9df46f`).
 export function array_has(arr, v) {
-  for (const item of arr) { if (item === v) { return true; } }
-  return false;
+  return arr.includes(v);
 }
 
-// "Every character of `text` is in `alphabet`": the engine has neither `s[i]`
-// nor `split("")`, so delete each allowed character and check nothing is
-// left (the same trick artifact_manifest.qjs uses for its role names).
+// "Every character of `text` is in `alphabet`": delete each allowed
+// character and check nothing is left (the same trick artifact_manifest.qjs
+// uses for its role names). Kept after the engine grew `charCodeAt` / `s[i]`
+// (tinyvm `fb1a1a6`) because it is the cheaper spelling, measured
+// 2026-08-31: a 64-hex check is 52k steps this way and 93k-113k as a
+// per-position walk (charCodeAt + a code array, a 128-entry table, or
+// `s[i]` + an object table); ten digits 11k vs 18k. Each character access
+// is a prefab call; sixteen `replaceAll` passes are not. `ascii_bytes`
+// below went the other way (see there).
 export function only_chars(text, alphabet) {
   let rest = text;
   for (const c of alphabet) { rest = rest.replaceAll(c, ""); }
@@ -442,36 +448,19 @@ export function rfc3339_from_ms(ms) {
     + pad_left(secs_of_day % 60, 2) + "Z";
 }
 
-// Printable ASCII in code order (32..126), so a byte value can be found by
-// `startsWith` without character access: the engine has no charCodeAt, no
-// `s[i]`, and no for-of over a string.
-export const ASCII_PRINTABLE = [
-  " ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
-  "@", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
-  "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\", "]", "^", "_",
-  "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
-  "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "{", "|", "}", "~"
-];
-
-// rh's `rh::bytes::from_text` for printable-ASCII text: peel the first
-// character by `startsWith` + first-occurrence `replace` (which is at index
-// 0 exactly when startsWith held). Anything else is refused, not guessed.
+// rh's `rh::bytes::from_text` for printable-ASCII text: one `charCodeAt`
+// per position (tinyvm `fb1a1a6`); anything outside 32..126 is refused,
+// not guessed. Measured 2026-08-31 against the 95-entry `startsWith` +
+// `replace` peel it replaces: 36k steps for a 40-byte text instead of
+// 1.1M, and a 300-byte text finishes (the peel hit the host deadline).
 export function ascii_bytes(text) {
+  const value = "" + text;
   const bytes = [];
-  let rest = "" + text;
-  while (rest !== "") {
-    let found = false;
-    for (let i = 0; i < ASCII_PRINTABLE.length; i = i + 1) {
-      const c = ASCII_PRINTABLE[i];
-      if (rest.startsWith(c)) {
-        bytes.push(32 + i);
-        rest = rest.replace(c, "");
-        found = true;
-        break;
-      }
-    }
-    if (!found) { throw "ascii_bytes: text has a character outside printable ASCII"; }
+  const count = value.length;
+  for (let i = 0; i < count; i = i + 1) {
+    const code = value.charCodeAt(i);
+    if (code < 32 || code > 126) { throw "ascii_bytes: text has a character outside printable ASCII"; }
+    bytes.push(code);
   }
   return bytes;
 }
@@ -536,25 +525,14 @@ export function fnv1a64_hex(text) {
   return hex4(h[3]) + hex4(h[2]) + hex4(h[1]) + hex4(h[0]);
 }
 
-// Insertion sort of strings by `<`, rebuilding the array: the engine has no
-// `sort` and no `splice`.
+// A sorted copy of an array of strings by `<`: the engine's `sort` (tinyvm
+// `eb95e42`; stable, in place, default order = the code-unit order `<`
+// uses) over a `concat` copy, so the caller's array stays as it was.
 export function sort_strings(values) {
-  let ordered = [];
-  for (const value of values) {
-    const next = [];
-    let inserted = false;
-    for (const existing of ordered) {
-      if (!inserted && value < existing) { next.push(value); inserted = true; }
-      next.push(existing);
-    }
-    if (!inserted) { next.push(value); }
-    ordered = next;
-  }
-  return ordered;
+  return [].concat(values).sort();
 }
 
 // rh's `list.contains(v)` spelled for the scripts that kept a 0/1 result.
 export function list_has_value(list, value) {
-  for (const item of list) { if (item === value) { return 1; } }
-  return 0;
+  return list.includes(value) ? 1 : 0;
 }

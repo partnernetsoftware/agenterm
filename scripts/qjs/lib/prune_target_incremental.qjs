@@ -314,34 +314,6 @@ export function has_working_tree(root, depth) {
   return 0;
 }
 
-// Merge sort by `<` over index ranges: the engine has no `sort` (and no
-// array `slice`), and a root can hold up to 100000 records, which insertion
-// sort would not finish in budget.
-function sort_range(values, start, end) {
-  if (end - start <= 1) {
-    const one = [];
-    if (end - start === 1) { one.push(values[start]); }
-    return one;
-  }
-  const middle = start + rh.int_div(end - start, 2);
-  const left = sort_range(values, start, middle);
-  const right = sort_range(values, middle, end);
-  const merged = [];
-  let i = 0;
-  let j = 0;
-  while (i < left.length && j < right.length) {
-    if (right[j] < left[i]) { merged.push(right[j]); j = j + 1; }
-    else { merged.push(left[i]); i = i + 1; }
-  }
-  while (i < left.length) { merged.push(left[i]); i = i + 1; }
-  while (j < right.length) { merged.push(right[j]); j = j + 1; }
-  return merged;
-}
-
-function sort_records(values) {
-  return sort_range(values, 0, values.length);
-}
-
 // `full-tree-metadata-v1`, as src/incremental_wrapper.rs derives it: one
 // record per entry, `kind|relative|len|modified_ms` (the root is `d|.|..`),
 // byte-sorted, serialized as a JSON string array, sha256 in lower hex.
@@ -377,7 +349,10 @@ function tree_metadata_digest(root, maximum_entries, scratch_path) {
       records.push(kind + "|" + relative + "|" + metadata.len + "|" + metadata.modified_ms);
     }
   }
-  const serialized = JSON.stringify(sort_records(records));
+  // The engine's `sort` (tinyvm `eb95e42`): default order is the code-unit
+  // order `<` gives, which is what the merge sort it replaced compared by;
+  // 3.3x cheaper on 1 000 strings, and a root can hold 100 000 records.
+  const serialized = JSON.stringify(records.sort());
   rh.write_text(scratch_path, serialized);
   const digest = rh.sha256_file(scratch_path);
   rh.try_remove_file(scratch_path);

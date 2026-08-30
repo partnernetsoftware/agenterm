@@ -679,23 +679,17 @@ function freeze_identity(worker, repo, scratch, sequence) {
   return { environment: environment, sequence: sequence + 1 };
 }
 
-// The completed gates by duration, longest first (insertion sort; the
-// engine has no `sort`).
+// The completed gates by duration, longest first; equal durations keep
+// lane order, as the insertion sort here did (the engine's `sort` is
+// stable, tinyvm `eb95e42`).
 function slowest_gates(timing) {
-  let ordered = [];
+  const completed = [];
   for (const gate of timing.gates) {
     const status = "" + gate.status;
     if (status !== "passed" && status !== "failed") { continue; }
-    const next = [];
-    let inserted = false;
-    for (const existing of ordered) {
-      if (!inserted && gate.duration_ms > existing.duration_ms) { next.push(gate); inserted = true; }
-      next.push(existing);
-    }
-    if (!inserted) { next.push(gate); }
-    ordered = next;
+    completed.push(gate);
   }
-  return ordered;
+  return completed.sort((a, b) => b.duration_ms - a.duration_ms);
 }
 
 // The smoke gates in the order the full lane runs them (and skips them).

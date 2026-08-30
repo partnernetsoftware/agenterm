@@ -13,9 +13,9 @@
 // Changed, each on purpose:
 //   - `rh::runtime::atomic_write` is `write_atomic` here: fs_write to a
 //     sibling temp then fs_rename, which is what rh's did.
-//   - `stringify_pretty` is plain `JSON.stringify`: every consumer parses it
-//     back (24 places) and none reads it by eye in a gate; the engine has no
-//     space argument yet, and compact JSON is not a different document.
+//   - `stringify_pretty` is `JSON.stringify(v, null, 2)` again since
+//     2026-08-31 (the engine grew `space`); every consumer parses it back
+//     (24 places), so the compact interlude was not a different document.
 //   - a command's `output` is the door's JSON: {exit_code, success, stdout,
 //     stderr, timed_out}; rh's `stdout_text()` is `.stdout` here.
 //   - long-lived children are door handles (process_spawn / _state / _kill /

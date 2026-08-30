@@ -205,3 +205,33 @@ server-smoke −3.09M（−11.9%），与 §7 估的 102 × 32k ≈ 3.3M 相符�
 要再降一个量级得改解析器的结构（首字节分派内联、成员路径不经 `__obj_find`、缓冲预留一次写引号和整段），是一项不是一刀；这里记下价，不动。
 `__jp_ws` 裸换行（第 3 项）同理，见 §7.4。
 
+
+## 8. 脚本侧退役（2026-08-31，pin `1f86bbc`）
+
+tinyvm A12 四批落地后，`scripts/qjs/**` 里为引擎缺口手写的工具改走引擎方法，导出名与签名不变、调用点未改：
+`rh_compat.qjs` 的 `is_array` / `is_map` → `Array.isArray`，`array_has` / `list_has_value` → `includes`，`sort_strings` → `[].concat(v).sort()`（仍是副本），
+`ascii_bytes` → 逐位 `charCodeAt`（95 项 `ASCII_PRINTABLE` 表删除），`stringify_pretty` → `JSON.stringify(v, null, 2)`（rh 当年就是 serde 的两空格；引擎的 `json_space.rs` 与 serde 每个 gap 逐字节相符，语料里没有逐字节比对这些文件的读者）；
+`check.qjs::slowest_gates` 与 `prune_target_incremental.qjs` 的两份手写排序 → `sort`（稳定；比较器 `(a, b) => b.duration_ms - a.duration_ms` 复现「平局保持车道序」，默认序与 `<` 同一码元序）；
+`cu-macos-smoke.qjs` 的 `invoke_arguments` / `path_text` → `concat` / `join`；`build-all.qjs` 的 `tail_of` 与前缀剥离 → `substring`（尾巴回到 rh 的「最后 N 个字符」）。
+
+| 旅程 | steps 前 | steps 后 | Δ | STEP/EVIDENCE | host_ops | host_bytes | waited_ms | 墙钟 ms |
+|---|---|---|---|---|---|---|---|---|
+| server-smoke | 22 143 700（第二次 22 147 658） | **22 121 222** | −22k（−0.1%） | 7/1 → 7/1 | 527 | 890 201 | 274 | 2 665 |
+| wake-smoke | 36 178 921（第二次 36 177 798） | **34 369 473** | −1.81M（−5.0%） | 3/2 → 3/2 | 511 | 1 144 950 | 265 | 2 479 |
+| cu-macos-smoke | 74 121 887 | **74 029 205** | −93k（−0.13%） | 21/20 → 21/20 | 261 | 444 717 | 820 | 14 119 |
+
+同一套二进制前后各跑（`target/debug/agenterm` 按 pin `1f86bbc` 构建；cu 旅程先 `agenterm-abi --profile abi-dev` 拷 dylib 再 `agenterm-cu`），`exit_class` 均 `success`，`pgrep agenterm_ax_fixture` 空。
+wake-smoke 的 1.8M 全在 `array_has(client_waited, client)`——它在轮询循环里，for-of 手写 `contains` 换成 `includes`（未命中 52 步/元素）；server-smoke 与 cu 只在握手/形状检查处碰到退役的工具，所以只降了零头。三条都没升。
+
+**留下的一个：`only_chars`**（`preflight` / `qualification.valid_id` / `prune` 的字母表检查）。量了四种逐位拼法，都比「把每个允许字符 `replaceAll` 掉再看剩没剩」贵：
+
+| 64 位 hex，200 次 | 步 | 10 位数字，200 次 | 步 |
+|---|---|---|---|
+| `replaceAll` 删字（现状） | **10.50M** | 现状 | **2.23M** |
+| `charCodeAt` + 码值数组 `includes` | 18.59M | | 3.65M |
+| `charCodeAt` + 128 项查表 | 19.32M | | 9.34M |
+| `charAt` + 字母表数组 `includes` | 20.81M | | 2.46M |
+| `s[i]` + 对象表 | 22.68M | | — |
+
+每次字符访问是一次 prefab 调用（≈1.3k 步，含从串头走到位），十六趟 `replaceAll` 反而便宜。`ascii_bytes` 是反例：95 项 `startsWith` + `replace` 的剥皮对 40 字节的 workload 串 1.1M 步，`charCodeAt` 36k；300 字节的旧拼法撞宿主 deadline，新拼法 8.4M/20 次。
+`xor16` / `int_div` / `floor_div` / `parse_int` / `pad_left` / `hex4` / `fnv1a64_hex` / `rfc3339_*` / `int_of` 等引擎的位运算 / `Math` / `parseInt` 批次落地再退。

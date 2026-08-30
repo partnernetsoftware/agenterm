@@ -15,9 +15,10 @@
 //     same way and the timing consumers (timing-summary.qjs) read it back as
 //     null already.
 //   - `valid_id` walked the id one character at a time with `sub_string`;
-//     this engine has no character access, so the same rule is spelled as
-//     "nothing survives deleting the allowed characters" plus a check that
-//     no two separators touch. Same accept/reject set.
+//     here the same rule is spelled as "nothing survives deleting the
+//     allowed characters" (`rh_compat.only_chars`, kept over the engine's
+//     newer `charCodeAt` because it measures cheaper -- see there) plus a
+//     check that no two separators touch. Same accept/reject set.
 //   - the workload fingerprint was rh's `rh::hash::fnv1a64(...)`, a signed
 //     int; here it is `rh_compat.fnv1a64_hex` of the same JSON, 16 hex
 //     digits. Same hash, spelled the way the product's PayloadFingerprint
@@ -26,7 +27,8 @@
 //     written document by copying the object without them (no `delete`
 //     here) and hands back the live object unchanged, which is what rh's
 //     remove-write-restore amounted to.
-//   - `stringify_pretty` is compact JSON, as every other port writes it.
+//   - `stringify_pretty` is two-space pretty JSON again (engine `space`,
+//     2026-08-31), as rh wrote it.
 
 import * as rh from "lib/rh_compat";
 import * as path from "lib/path";

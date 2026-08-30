@@ -274,12 +274,10 @@ function focused_window_handle(run_directory, executable) {
   return int_at(focused.data.windows[0], "handle");
 }
 
-// argv for one invoke: the engine has no Array.prototype.concat.
+// argv for one invoke.
 function invoke_arguments(grant, handle_text, selector, action_and_value) {
-  const arguments_list = ["--target", "current", "--grant", grant, "invoke", "--window", handle_text];
-  for (const item of selector) { arguments_list.push(item); }
-  for (const item of action_and_value) { arguments_list.push(item); }
-  return arguments_list;
+  const prefix = ["--target", "current", "--grant", grant, "invoke", "--window", handle_text];
+  return prefix.concat(selector, action_and_value);
 }
 
 // One authorized invoke whose reply must be ok; returns the receipt `data`.
@@ -323,15 +321,11 @@ function verify_reply(run_directory, executable, handle_text, expect) {
   );
 }
 
-// `File/Do Thing` from an item's path array (the engine has no Array.join).
+// `File/Do Thing` from an item's path array.
 function path_text(item) {
-  let text = "";
-  let first = true;
-  for (const segment of item.path) {
-    text = first ? text_of(segment) : text + "/" + text_of(segment);
-    first = false;
-  }
-  return text;
+  const segments = [];
+  for (const segment of item.path) { segments.push(text_of(segment)); }
+  return segments.join("/");
 }
 
 function menu_inspect(run_directory, executable, handle_text, extra) {

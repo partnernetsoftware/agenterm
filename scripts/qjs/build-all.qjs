@@ -37,22 +37,12 @@ const cells = [
   { target: "x86_64-pc-windows-msvc",    driver: "cargo-xwin",     glibc: "" }
 ];
 
-// rh kept the last `limit` characters. This engine has no substring
-// operation, so the tail is whole trailing lines that fit in `limit` --
-// the same diagnostic, cut at a line instead of mid-line.
+// rh kept the last `limit` characters; so does this (`substring`, tinyvm
+// `fb1a1a6`).
 function tail_of(text, limit) {
   const value = ("" + text).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
   if (value.length <= limit) { return value; }
-  const lines = value.split("\n");
-  let tail = "";
-  let i = lines.length - 1;
-  while (i >= 0) {
-    const candidate = i === lines.length - 1 ? lines[i] : lines[i] + "\n" + tail;
-    if (candidate.length > limit) { break; }
-    tail = candidate;
-    i = i - 1;
-  }
-  return tail;
+  return value.substring(value.length - limit);
 }
 
 // The `client-build` stdout ends with a "Built client artifacts" block whose
@@ -65,9 +55,7 @@ function artifact_paths(stdout_text) {
   for (const line of text.split("\n")) {
     const candidate = "" + line;
     if (candidate.startsWith("  /") || candidate.startsWith("  \\")) {
-      // No substring in this engine: the first "  " is the indent, so
-      // removing the first occurrence drops exactly the two-character prefix.
-      paths.push(candidate.replace("  ", ""));
+      paths.push(candidate.substring(2));
     }
   }
   return paths;

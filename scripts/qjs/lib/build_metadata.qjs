@@ -18,7 +18,8 @@
 //     and kept the seconds part plus "Z". The door's only clock is
 //     `time.now_ms`, so the same `YYYY-MM-DDTHH:MM:SSZ` text is computed
 //     here from epoch milliseconds (civil-from-days, all integer).
-//   - `stringify_pretty` is `JSON.stringify`: every reader parses it back.
+//   - `stringify_pretty` is two-space pretty JSON (engine `space`); every
+//     reader parses it back.
 
 import * as rh from "lib/rh_compat";
 import * as artifact_manifest from "lib/artifact_manifest";
