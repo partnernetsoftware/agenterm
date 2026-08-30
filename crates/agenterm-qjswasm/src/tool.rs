@@ -389,6 +389,10 @@ pub(crate) struct ToolState {
     locks: Vec<Option<std::fs::File>>,
     /// The call's host-side bill, shared with the `agenterm.*` door.
     meter: Rc<RefCell<crate::host::Meter>>,
+    /// `Budget::fixed_clock_ms`: the origin `time.now_ms` answers from,
+    /// and how far the script's own sleeps have moved it. `None` is the
+    /// wall clock.
+    clock: Option<(u64, u64)>,
     /// `Budget::cancel`, for the operations that wait.
     cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -529,6 +533,7 @@ pub(crate) fn install(
         children: Vec::new(),
         locks: Vec::new(),
         meter: Rc::clone(&meter),
+        clock: budget.fixed_clock_ms.map(|origin| (origin, 0)),
         cancel: budget.cancel.clone(),
     }));
 
@@ -922,9 +927,16 @@ pub(crate) fn install(
         move |args, _memory| {
             let ms = arg(args, 0)?;
             let cancel = state.borrow().cancel.clone();
+            let clock = Rc::clone(&state);
             direct(&state, "time.sleep_ms", || {
                 let ms = u64::try_from(ms).map_err(|_| "time.sleep_ms: negative".to_string())?;
-                cancellable_sleep(&cancel, Duration::from_millis(ms.min(60_000)))?;
+                let ms = ms.min(60_000);
+                cancellable_sleep(&cancel, Duration::from_millis(ms))?;
+                // The replay clock moves by what was asked, not by what the
+                // OS delivered: that is the part a second run repeats.
+                if let Some((_, slept)) = &mut clock.borrow_mut().clock {
+                    *slept += ms;
+                }
                 Ok(0)
             })
         },
@@ -1363,11 +1375,14 @@ pub(crate) fn install(
         DOOR,
         "time.now_ms",
         move |_args, _memory| {
-            answer(&state, "time.now_ms", || {
-                std::time::SystemTime::now()
+            let clock = state.borrow().clock;
+            answer(&state, "time.now_ms", || match clock {
+                // A replay clock: the origin plus what the script slept.
+                Some((origin, slept)) => Ok((origin + slept).to_string()),
+                None => std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis().to_string())
-                    .map_err(|e| format!("time.now_ms: {e}"))
+                    .map_err(|e| format!("time.now_ms: {e}")),
             })
         },
     )?;

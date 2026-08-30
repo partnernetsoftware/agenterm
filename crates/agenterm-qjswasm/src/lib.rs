@@ -388,6 +388,16 @@ pub struct Budget {
     /// -- the step budget bounds that -- which is why this is a flag the
     /// doors read and not a signal. `None` means no one can cancel.
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// A clock the script can replay against. `Some(origin)` makes
+    /// `time.now_ms` answer `origin` plus the milliseconds the script has
+    /// *asked* to sleep so far, instead of the wall clock: two runs of the
+    /// same script read the same times, and a script that waits by polling
+    /// `now_ms` around `sleep_ms` still terminates, because its own sleeps
+    /// move the clock. Nothing else moves it -- a child's run, a bridge
+    /// round trip -- since those are the non-determinism a replay is
+    /// meant to hold still. The sleeps themselves still happen. `None` is
+    /// the wall clock.
+    pub fixed_clock_ms: Option<u64>,
 }
 
 impl std::fmt::Debug for Budget {
@@ -403,6 +413,7 @@ impl std::fmt::Debug for Budget {
             .field("max_result_string_bytes", &self.max_result_string_bytes)
             .field("max_host_ops", &self.max_host_ops)
             .field("cancellable", &self.cancel.is_some())
+            .field("fixed_clock_ms", &self.fixed_clock_ms)
             .finish()
     }
 }
@@ -416,6 +427,7 @@ impl Default for Budget {
             max_result_string_bytes: 1 << 20,
             max_host_ops: 4096,
             cancel: None,
+            fixed_clock_ms: None,
         }
     }
 }

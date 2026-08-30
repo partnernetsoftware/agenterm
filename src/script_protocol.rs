@@ -242,6 +242,12 @@ pub struct ScriptInvocation {
     pub budgets: ScriptBudgets,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation: Option<Value>,
+    /// A replay clock for the guest: `time.now_ms` answers this origin plus
+    /// the script's own `sleep_ms` requests instead of the wall clock. Not
+    /// a budget -- it bounds nothing -- so it is beside them, and absent by
+    /// default so an older client's envelope still reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_clock_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

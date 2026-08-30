@@ -1201,6 +1201,47 @@ fn bytes_through_the_door_are_billed_in_both_directions() {
     );
 }
 
+/// `Budget::fixed_clock_ms` is a clock a script can be replayed against:
+/// `time.now_ms` answers the origin, moved only by the script's own
+/// `sleep_ms` requests, so two runs read the same times and a poll-until
+/// loop written around the clock still ends.
+#[test]
+fn a_fixed_clock_makes_time_replayable() {
+    let budget = || Budget {
+        fixed_clock_ms: Some(1_700_000_000_000),
+        ..Budget::default()
+    };
+    let script = r#"
+        time_now_ms(); let a = tool_result();
+        time_sleep_ms(30);
+        time_now_ms(); let b = tool_result();
+        let start = Number(a); let n = 0;
+        while (Number(b) - start < 100) { time_sleep_ms(10); n = n + 1; time_now_ms(); b = tool_result(); }
+        return a + "|" + b + "|" + n;
+    "#;
+    let run = |budget: Budget| {
+        let out = Engine::with_tool_door(budget)
+            .run_once(Guest::Qjs(script), None, "main", &[])
+            .expect("runs");
+        (string_of(&out), out.waited_ms)
+    };
+    let (first, waited) = run(budget());
+    assert_eq!(first, "1700000000000|1700000000100|7");
+    assert!(waited >= 90, "the sleeps still happened: {waited}");
+    let (second, _) = run(budget());
+    assert_eq!(second, first, "a replay reads the same clock");
+    // The wall clock does not answer the origin.
+    let wall = Engine::with_tool_door(Budget::default())
+        .run_once(
+            Guest::Qjs("time_now_ms(); return tool_result();"),
+            None,
+            "main",
+            &[],
+        )
+        .expect("runs");
+    assert_ne!(string_of(&wall), "1700000000000");
+}
+
 /// Waiting is on the bill as wall-clock time, separately from steps: a
 /// script that sleeps 30 ms reports at least that, and a script that only
 /// computes reports none.

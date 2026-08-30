@@ -687,6 +687,7 @@ fn execute_inner(
         arguments: serde_json::to_value(&invocation.arguments).ok(),
         budgets: Some(invocation.budgets.clone()),
         tool_door: invocation.profile == crate::script_protocol::ScriptProfile::Tool,
+        fixed_clock_ms: invocation.fixed_clock_ms,
     };
     let fleet_bridge: Option<crate::script_engine::ScriptFleetBridgeFn> =
         broker.as_ref().map(|broker| {
@@ -984,6 +985,7 @@ mod tests {
             arguments: Vec::new(),
             budgets: ScriptBudgets::default(),
             observation: None,
+            fixed_clock_ms: None,
         }
     }
 

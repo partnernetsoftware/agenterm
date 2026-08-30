@@ -328,7 +328,7 @@ fn script_help_text() -> &'static str {
          AGENTERM_SCRIPT_BACKEND overrides it. There is no default engine.\n\
          Options: --timeout-ms N --max-operations N --max-collection-items N \
          --max-string-bytes N --max-output-bytes N --max-source-bytes N \
-         --max-host-operations N --project-root DIR --manifest FILE --json"
+         --max-host-operations N --fixed-clock-ms N --project-root DIR --manifest FILE --json"
 }
 
 fn write_script_stdout(text: &str) -> std::result::Result<(), i32> {
@@ -1955,6 +1955,19 @@ fn run_script_command_with_context(
             }
         }
     }
+    // Not a budget: a replay clock. The guest's `time.now_ms` answers this
+    // origin plus its own sleeps, so a journey can be re-run against the
+    // same times it read the first time.
+    let mut fixed_clock_ms = None;
+    if let Some(value) = option_value(arguments, "--fixed-clock-ms") {
+        match value.parse::<u64>() {
+            Ok(value) => fixed_clock_ms = Some(value),
+            Err(_) => {
+                cli_eprintln!("script --fixed-clock-ms must be a non-negative integer");
+                return 2;
+            }
+        }
+    }
     if let Some(value) = option_value(arguments, "--max-output-bytes") {
         match value.parse::<usize>() {
             Ok(value) if (1..=hard_limits.output_bytes).contains(&value) => {
@@ -2232,6 +2245,7 @@ fn run_script_command_with_context(
         arguments: script_arguments,
         budgets,
         observation,
+        fixed_clock_ms,
     };
     let executable = match script_worker_executable() {
         Ok(executable) => executable,

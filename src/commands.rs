@@ -663,6 +663,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
                 "--max-string-bytes",
                 "--max-output-bytes",
                 "--max-host-operations",
+                "--fixed-clock-ms",
                 "--max-source-bytes",
                 "--cwd",
                 "--project-root",

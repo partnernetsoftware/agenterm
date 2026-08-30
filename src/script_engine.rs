@@ -54,6 +54,9 @@ pub struct ScriptInvocationOptions {
     /// Set by the worker when a cancel frame names this invocation: the
     /// engine ends the call at its next host wait or operation.
     pub cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// `ScriptInvocation::fixed_clock_ms`: the replay clock, when one was
+    /// asked for. Only the qjswasm engine has a clock to fix.
+    pub fixed_clock_ms: Option<u64>,
 }
 
 /// Unified invocation result. `value` is `Option<serde_json::Value>` for
@@ -354,6 +357,7 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
         budget.max_host_ops = budgets.host_operations;
     }
     budget.cancel = options.cancellation.clone();
+    budget.fixed_clock_ms = options.fixed_clock_ms;
     // The guest heap is a bump allocator with no collector: everything a
     // script parses or concatenates stays until the call ends. tinyvm's
     // default of 256 pages (16 MiB) stopped unix-frontend-smoke at its fifth

@@ -816,7 +816,14 @@ fn a_module_refused_in_a_function_names_the_function() {
         .run_once(Guest::Wasm(&lined), None, "main", &[])
         .expect_err("still a type mismatch");
     assert!(
-        matches!(&err, QjswasmError::LoadInFunction { index: 1, line: Some(7), .. }),
+        matches!(
+            &err,
+            QjswasmError::LoadInFunction {
+                index: 1,
+                line: Some(7),
+                ..
+            }
+        ),
         "got {err:?}"
     );
     assert_eq!(

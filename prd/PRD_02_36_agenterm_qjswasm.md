@@ -627,6 +627,7 @@ flowchart TD
 | A1.12 | **预算按宿主操作计，不只按 wasm 步** | grok 评审（`prd/review-qjswasm-2026-08-30-grok.md` §4）：一天里默认从 1M 抬到 128M，抬的原因全是记账 CLI + `JSON.stringify` + 25 ms 轮询在烧步数；一个在 macOS 上注定失败的等待照样烧步。步数是防失控 CPU 的护栏，不该是 agent 脚本的账本。另：协议里 `wall_time_ms` 默认 **2 000 ms**（`script_protocol.rs:118`），与 128M 步（≈13 s）互相不认识 | **第一片已做（2026-08-30，`plan/design-host-op-budget.md`）**：门里一只 `Meter`（`host.rs`），每个 `tool.*` 在 `bind_metered` 处、`fleet_call` 在桥前各记一次；`host_bytes` 记参数与停放的答复；`waited_ms` 只记会等的四个操作（`sleep_ms` / `process.wait` / `process.command*`）与桥的往返。上限 `Budget.max_host_ops`（协议 `host_operations` 默认 4 096、硬顶 1M、`--max-host-operations`），超了是 `Budget("max_host_ops")`、类别 `limit`。账单 `ScriptCost` 多三行 `host_ops / host_bytes / waited_ms`，并且**第一次到达 CLI**：worker 的 `ScriptResult` 此前根本不带 `cost`（连 `steps` 都只在进程内可见），现在 `--json` 信封里有 `cost`（实测 3 次 `time_now_ms` + `sleep_ms(40)`：`steps 444 / host_ops 4 / host_bytes 13 / waited_ms 42`）；任务契约可声明 `max_host_operations`。**量了两条旅程（同晚）**：server-smoke `steps 31.6M / host_ops 1 127 / host_bytes 510 KB / waited 267 ms`（墙钟 3 216 ms）；wake-smoke `48.9M / 1 149 / 359 KB / 245 ms`（3 480 ms）。**发现与 grok 的假设相反**：等待只占墙钟 8%，步数是真算（JSON + 记账，≈15M 步/秒），不是轮询烧掉的；所以 128M 默认对旅程是「够用 2.5×」而不是「在撒谎」，`process.wait` 暂不需要事件等待。**失败的调用也有账（同晚）**：槽像留 `failed_stdout` 一样留 `failed_cost`，`ScriptEngineError` / `ScriptFailure` 各带 `cost`，信封里失败也有账（实测 `sleep_ms(30); throw`：`steps 55 / host_ops 1 / waited_ms 31`）。账单第四个数 **`heap_pages`**（同晚）：调用结束时的线性内存页数，对着 `max_memory_pages`（1024）看——server-smoke **45 页（2.9 MiB）**、wake-smoke **63 页（4 MiB）**，unix-frontend 曾撞的 256 页默认在这两条上是 4–6× 余量。**参数字节上账（同日深夜，设计页 §6）**：`bind_metered` 按声明位置读出每个 `StrPtrLen` 的 `len` 与操作一起记；顺手修了 `host_bytes` 的两处错账——`answer()` 从未记停放的字节、`direct()` 每次重记上一个停放的答复——复测 server-smoke `host_bytes` 510 KB → **886 KB**、wake-smoke 359 KB → **1.14 MB**，其余三数不变；`host_bytes` 不再是下界。**未做**：三条旅程剩 workbench（macOS 指针拒绝）没量 |
 | A1.13 | **门的系统调用下沉到平台 crate，门只留权限** | 同评审 §1：`tool.rs` 直接调 `std::fs::*` 23 处、进程 spawn/kill/read 也在引擎 crate；窗口操作已经是「平台 crate 出机制、门出翻译」的形状，文件与进程不是。`agenterm-platform` 本来就替 GUI 拥有这些适配器 | 把 fs / process 的机制移到 `agenterm-platform`（已有 `filesystem*.rs` / `process_spawn.rs`），`tool.rs` 只剩「谁能开这扇门」+ JSON ↔ 契约类型的翻译；边界测试可以像今天抓 `cfg` 一样抓 `std::fs::`。**2026-08-30 晚读过尺寸后的决定：先不动。** 23 处 `std::fs::` 每处约 10 行（越界检查 + utf8 + 一个 std 调用 + 错误句 + 上限），搬走的是位置不是语义，平台 crate 里也没有第二个消费者；process 那边的 `Handle` 管理约 250 行才是真机制，等 fleet 的 Windows `pipe:` 或第二个门（`net` profile）出现时一起搬，届时边界测试再抓 `std::fs::`。A1.12 的账单（`bind_metered`）已经是门里唯一横切所有操作的地方，搬的时候它是切口 |
 | A1.14 | **取消能打断等待** | grok 评审 §7.2：GUI 没了，`time.sleep_ms` / 子进程等待照睡。实况更差一层：worker 收到 Cancel 帧只是把一个 `AtomicBool` 置位，`execute_inner` 把它当 `_cancellation` 丢掉，真正停下 worker 的是宿主截止（`host_hard_timeout`）；协议里的 `cancelled` 类别从未被产生过 | **已做（2026-08-30 晚）**：`Budget.cancel: Option<Arc<AtomicBool>>` 穿到门里——`time.sleep_ms` 按 ≤25 ms 切片睡并看旗，`process.status` / `process.wait` / `process.command*` 在轮询子进程之间看旗（取消时连子进程一起杀，不留孤儿），每个 `tool.*` / `fleet_call` 入口先看旗；看到即 `QjswasmError::Cancelled`（新变体，类别 `cancelled`，第一次真的产生），账单照留（`waited_ms` 是真等了多久）。worker 把已有的旗穿进 `ScriptInvocationOptions.cancellation`。测试：引擎侧 60 ms 后置旗切断 5 s 睡眠；worker 侧 Cancel 帧让 8 s 睡眠的调用答 `cancelled`（`framed_worker_cancels_a_running_wait`）。**桥的等待也看旗（同日深夜）**：worker 的 `BrokerClient` 不再一次 `recv_timeout` 等满 `wait_time_ms`，改成 ≤25 ms 切片、每片看同一面旗，看到即提前答 `broker_request_cancelled`；门在桥答复后再看一次旗，看到即 `Cancelled`（答复不停放，脚本不能把它当 status 1 接住）。测试：引擎侧桥 40 ms 后置旗答复→`Cancelled`、账单 `host_ops 1 / waited_ms ≥ 35`（`a_cancel_seen_by_the_bridge_ends_the_call`）；worker 侧 Cancel 帧在 BrokerRequest 帧写出**之后**才送入（分段的 reader，`Cursor` 会让调用在入口就停、根本进不了等待），8 s 的 broker 等待 0.04 s 答 `cancelled`（`framed_worker_cancels_a_running_bridge_wait`；去掉切片实测等满 8.01 s）。**没做**：纯计算不被打断（步数护栏兜底） |
+| A1.15 | **可回放的确定性时间** | grok 评审 §7.5：只有 `time.now_ms`，回放一条旅程时脚本读到的时间每次不同（run 目录名、超时判断都挂在它上面） | **已做（2026-08-30 深夜）**：`Budget.fixed_clock_ms: Option<u64>` → 门里 `time.now_ms` 答**原点 + 脚本自己请求过的 `sleep_ms` 之和**，而不是墙钟；只有脚本自己的睡眠推动它（子进程、桥的往返都不推——那正是回放要按住的非确定性），睡眠本身照睡。两次跑同一脚本读到同样的时间，围着时钟写的 `while (now - start < 100) sleep(10)` 照样结束（引擎测试 `a_fixed_clock_makes_time_replayable`：`1700000000000|1700000000100|7` 两次一致）。协议 `ScriptInvocation.fixed_clock_ms`（`serde(default)`，不是预算，放在预算旁边），`ScriptInvocationOptions.fixed_clock_ms`，CLI `--fixed-clock-ms N`。**未做**：任务契约里没有对应字段；`process.*` 的时间戳（`platform_facts` 等）不受它影响 |
 | ~~A2~~ | ~~决定 `.qjs` 与 `.rh` 的关系~~ | **政委已答**：归档 rh，体系转 `.qjs` | 已闭合，展开成 A1 |
 | ~~A3~~ | ~~下游既有失败逐条归因~~ **已归因（2026-08-29，rh 移出后 31 条）** | **五族，无一是本产品线代码缺陷**：`executor` ×11 = `agenterm-cu` 无障碍树，本机无可用显示；lua `stdlib` ×8 = `process_spawn: No such file or directory`，环境缺二进制；`platform::boundary_tests` ×2 = windows cfg 放错层，`3b63c87a` 引入；`script_cli_verb_parity` ×9 = **feature 条件**——带三个 feature 跑 **11/0**，默认 feature 的 workspace 跑不到引擎别名；vnc-rs doctest ×1 = 第三方 | 判据仍是失败**集合**逐名不变；带 feature 的 `--lib` + parity 是第二条口径，不可省 |
 | ~~A4~~ | ~~Status 行上门~~ **已上门（`bc1a22d5`）** | `the_prd_states_the_revision_this_build_pins`：读本文件版本链末尾的粗体「当前 pin」，与 `Cargo.toml` 的 tinyvm rev 比对；不一致则 `cargo test -p agenterm-qjswasm` 红 | 已闭合；抬 pin 时**同一提交**改版本链，否则门响 |
@@ -783,12 +784,12 @@ agenterm-qjswasm                                        [~]
 │   │   ├── 不用它的程序逐字节不变                               [x] 四种程序 Δ 全 0
 │   │   ├── 记录（metadata / read_dir / command spec）以 JSON 过门 [x] spec 拒未知字段
 │   │   ├── process.command 有界：60 s 默认超时即杀、两管排干、捕获封顶 [x]
-│   │   ├── 二进制读写 / symlink_metadata / 锁句柄 / stringify_pretty [ ] 点名不在这扇门里
+│   │   ├── 二进制读写 / symlink_metadata / 锁句柄 / stringify_pretty [~] `fs.symlink_metadata`、`fs.try_lock_exclusive` / `fs.unlock` 已在门里（第三波）；二进制读写、stringify_pretty 仍点名不在
 │   │   └── 接到 CLI（谁能开：qualification / CI）              [x] A1.6，`--profile tool` 是唯一开门方式
 │   ├── 数字字面量：整个 DecimalLiteral 文法                  [x] rev ab29522
 │   │   ├── 1.5 · .5 · 1. · 1e3 · 2E2 · 1.5e-3                [x]
 │   │   ├── 超出 i32 / 超出 2^53 的整数                        [x] 取最近 double
-│   │   └── 十六 / 八 / 二进制 / 数字分隔符                     [ ] 各自的文法
+│   │   └── 十六 / 八 / 二进制 / 数字分隔符                     [~] `0x`/`0o`/`0b` 已落地（上游 b7e757c，`tests/radix_literals.rs`）；数字分隔符 `1_000` 未做
 │   ├── 模板字面量                                          [x] rev 653cebe
 │   │   ├── `` `abc` `` / `` `a${x}b` `` / 任意嵌套            [x]
 │   │   ├── 替换取 ToString（`` `${1}${2}` `` 是 "12"）        [x]
@@ -950,12 +951,12 @@ agenterm-qjswasm                                        [~]
 ├── agent 脚本引擎还缺的（grok 评审 2026-08-30 §7 点名）          [ ]
 │   ├── 宿主操作 / 等待节拍预算（A1.12）                            [x] 计数+上限+账单到 CLI（成功与失败都有）；两条旅程：等待仅 8%，步数是真算
 │   ├── 取消能打断等待（A1.14）                                     [x] `Budget.cancel` 穿到门；`cancelled` 类别第一次被产生；桥的等待也看旗
-│   ├── GUI 退出时取消 sleep / child wait                           [ ] 现在等到超时
+│   ├── GUI 退出时取消 sleep / child wait                           [x] A1.14：Cancel 帧 → `Budget.cancel`，sleep / child wait / 桥的等待都在一片内停
 │   ├── `env.get` 的脱敏类别                                        [ ] 现为裸门
-│   ├── 可回放的确定性时间                                          [ ] 只有 `time.now_ms`
+│   ├── 可回放的确定性时间                                          [x] `--fixed-clock-ms N`：`time.now_ms` 答原点 + 脚本自己请求的 `sleep_ms` 之和（A1.15）
 │   ├── 槽跨 agent 轮次的生命周期                                   [ ] 一次调用 vs 常驻实例；bump 堆让常驻变成泄漏
 │   ├── 并发客人 / 共享内存                                          [ ] 单解释器（上游 P2）
-│   ├── 带 span 的编译期错误（A7 那类 validation）                   [~] 函数名有了（`LoadInFunction`，pin 6e074ed）；行号仍无
+│   ├── 带 span 的编译期错误（A7 那类 validation）                   [x] 函数名 + 源码行（`LoadInFunction { line }`，`qjs.lines` 段，pin d0db3eb）；`.qjs` 前端自己的语法错误早就带字节偏移
 │   └── 网络                                                        [–] 有意不开：沙箱/工具/`net` 是三个 import 模块，按名在装载期拒绝
 │
 └── 归档 agenterm-wasmcore                                [x] 2026-08-28
