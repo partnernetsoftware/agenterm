@@ -1073,6 +1073,16 @@ mod tests {
             serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
         manifest_value["contracts"]["check"]["env_allow"] =
             serde_json::json!(["GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY"]);
+        // The fixture lists `check` twice on purpose (a duplicate stays
+        // visible and cannot resolve); this test wants the one that resolves.
+        let first_check = manifest_value["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "check")
+            .cloned()
+            .unwrap();
+        manifest_value["tasks"] = serde_json::json!([first_check]);
         fs::write(
             &manifest,
             serde_json::to_vec_pretty(&manifest_value).unwrap(),
