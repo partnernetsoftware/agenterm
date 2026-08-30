@@ -43,3 +43,19 @@
 
 - 不按「每个宿主操作扣 N 步」把两种单位换算成一种：换算率没有依据，且会让步数护栏失真。
 - 不改 25 ms 轮询脚本本身；先量，再决定是否给 `process.wait` 加事件等待。
+
+## 5. 回填（2026-08-30 晚）
+
+| 旅程 | steps | host_ops | host_bytes | waited_ms | 墙钟 ms |
+|---|---|---|---|---|---|
+| server-smoke | 31 557 629 | 1 127 | 509 876 | 267 | 3 216 |
+| wake-smoke | 48 867 366 | 1 149 | 359 051 | 245 | 3 480 |
+
+命令：`agenterm cli script run scripts/qjs/<journey>.qjs --profile tool --timeout-ms 300000 --max-operations 1000000000 --json -- <repo> <server_exe> <cli_exe>`，
+`target/debug/agenterm`（f336e626）。
+
+**判决**：§3 的判据成立——四个数写得出来。**推翻预期的地方**：来源假设是「步数被 25 ms 轮询烧掉」，
+账单说等待只占墙钟 8%，≈15M 步/秒的步数是 JSON 与记账的真计算；128M 默认对两条旅程是 2.5× 余量，
+不是错的单位。`process.wait` 不加事件等待（§4 第二条按账单否决）。
+**与规格不符**：§1 的 `fleet_call` 字节只记了成功答复；`tool.*` 的参数字节没记（各操作自己读参数，门看不到长度），
+`host_bytes` 因此是下界。**未回答**：失败调用的账单（worker 错误路径不带 `cost`）——下一片。
