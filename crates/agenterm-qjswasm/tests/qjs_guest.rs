@@ -1394,31 +1394,37 @@ fn the_prd_states_the_revision_this_build_pins() {
 
 /// A call on a non-function names the callee since tinyvm a4e12fd; it was
 /// "guest trapped: unreachable executed", which is what a lint that wrote
-/// `[...].concat(x)` -- a method this engine does not have -- died with.
-/// A script that can catch gets the TypeError instead and never reaches the
-/// engine face as an error.
+/// `[...].concat(x)` -- a method this engine did not have then -- died
+/// with. `concat` landed in c9df46f (2026-08-31), so `splice` stands in
+/// as the method the engine still lacks. A script that can catch gets the
+/// TypeError instead and never reaches the engine face as an error.
 #[test]
 fn a_call_on_a_non_function_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
         .run_once(
-            Guest::Qjs("let a = [1]; return a.concat([2]).length;"),
+            Guest::Qjs("let a = [1]; return a.splice(0).length;"),
             None,
             "main",
             &[],
         )
         .expect_err("calling a missing method stops the script");
     assert!(
-        matches!(&err, QjswasmError::NotAFunction(Some(callee)) if callee == "concat"),
+        matches!(&err, QjswasmError::NotAFunction(Some(callee)) if callee == "splice"),
         "expected the callee named, got {err:?}"
     );
     assert!(
         err.to_string()
-            .starts_with("the script called `concat`, which is not a function"),
+            .starts_with("the script called `splice`, which is not a function"),
         "{err}"
     );
     assert_eq!(
-        returns("let a = [1]; try { a.concat([2]); } catch (e) { return e; } return \"ran\";"),
-        JsValue::Str("TypeError: concat is not a function".into())
+        returns("let a = [1]; try { a.splice(0); } catch (e) { return e; } return \"ran\";"),
+        JsValue::Str("TypeError: splice is not a function".into())
+    );
+    // And what used to die here now answers.
+    assert_eq!(
+        returns("let a = [1]; return a.concat([2]).join(\"+\");"),
+        JsValue::Str("1+2".into())
     );
 }
