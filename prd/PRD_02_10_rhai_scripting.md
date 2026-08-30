@@ -242,7 +242,10 @@ lua or qjs binding at all, and 9 of the 29 that do send a params object
 > the CI's `candidate-*` / `promotion-identity` / `timing-summary` /
 > `performance-*` steps have targets again. `cu-windows-smoke` has no port
 > and is not registered. What each gate does under `check` on macOS is
-> tracked in PRD 02.36 A1.5.
+> tracked in PRD 02.36 A1.5. Later the same day the bootstrap lane's `check
+> --quick` passed all eight of its gates on macOS (`script-qjswasm` became a
+> default feature so the flagless bootstrap worker carries the engine; the
+> step contracts scaled x10 for an engine that counts wasm instructions).
 
 rh ran the whole build/qualify/release pipeline, and nothing else did. Moving
 it out turned every one of those off. This is the list; each item stays dark
