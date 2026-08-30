@@ -651,29 +651,39 @@ fn the_template_claims_in_this_crates_own_copy() {
     assert_eq!(templated, JsValue::Str("fleet tabs.list: 2".into()));
 }
 
-/// The two array claims the README states as **traps**, which the corpus above
-/// cannot hold because a trap is not a returned value.
+/// The two array claims the README states as **refusals**, which the corpus
+/// above cannot hold because a refusal is not a returned value.
 ///
 /// Both are deliberate answers and not accidents, so both are pinned: a
 /// dropped write and a fabricated method result are each a wrong answer that
-/// looks like a right one, which is the failure this engine refuses.
+/// looks like a right one, which is the failure this engine refuses. They
+/// were bare traps until tinyvm afc1e34; now a non-index write on an Array
+/// says so (`InvalidWrite`), and the absent method stays a trap of its own
+/// kind.
 #[test]
 fn the_array_claims_that_are_traps() {
-    for source in [
-        // "非索引属性写会 trap"
-        "let a = [1]; a.foo = 2; return 0;",
-        "let a = [1]; a.length = 0; return 0;",
+    for (source, named) in [
+        // "非索引属性写会拒绝" -- `foo` and `length` are both non-index keys here.
+        ("let a = [1]; a.foo = 2; return 0;", true),
+        ("let a = [1]; a.length = 0; return 0;", true),
         // "调用它 trap" -- an absent method read as `undefined`, then called.
-        "return [1, 2].map(1);",
+        ("return [1, 2].map(1);", false),
     ] {
         let mut eng = engine();
         let err = eng
             .run_once(Guest::Qjs(source), None, "main", &[])
-            .expect_err("this is one of the README's trap claims");
-        assert!(
-            matches!(err, QjswasmError::Trap(_)),
-            "{source:?}: expected a trap, got {err:?}"
-        );
+            .expect_err("this is one of the README's refusal claims");
+        if named {
+            assert!(
+                matches!(&err, QjswasmError::InvalidWrite(Some(what)) if what.starts_with("an Array key")),
+                "{source:?}: expected the named refusal, got {err:?}"
+            );
+        } else {
+            assert!(
+                matches!(err, QjswasmError::Trap(_) | QjswasmError::NotAFunction(_)),
+                "{source:?}: expected a trap, got {err:?}"
+            );
+        }
     }
 }
 
@@ -768,6 +778,41 @@ fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
         matches!(err, QjswasmError::Trap(_)),
         "expected a trap from a bare unreachable, got {err:?}"
     );
+}
+
+/// The last two kinds of stop a `.qjs` program can reach are named at this
+/// face too (tinyvm A11 b/c/d): a refused write is the script's own doing,
+/// class `Script`; `split("")` and a mid-surrogate `slice` are boundaries of
+/// the representation and stay `CapabilityBoundary`, now saying which.
+#[test]
+fn a_refused_write_and_a_named_boundary_are_named_here_too() {
+    let mut eng = engine();
+    let err = eng
+        .run_once(
+            Guest::Qjs("let a = [1]; a[\"x\"] = 2; return a.length;"),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("a non-index key on an Array is refused");
+    assert!(
+        matches!(&err, QjswasmError::InvalidWrite(Some(what)) if what.starts_with("an Array key")),
+        "got {err:?}"
+    );
+    assert!(err.to_string().contains("integer indices"), "{err}");
+    let err = eng
+        .run_once(
+            Guest::Qjs("return \"ab\".split(\"\").length;"),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("split by the empty string is a boundary");
+    assert!(
+        matches!(&err, QjswasmError::CapabilityBoundary(Some(which)) if which == "split with an empty separator"),
+        "got {err:?}"
+    );
+    assert!(err.to_string().contains("real separator"), "{err}");
 }
 
 /// ToString or ToNumber of an Object, an Array or a function is a *named*

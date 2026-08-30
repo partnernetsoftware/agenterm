@@ -312,7 +312,11 @@ impl Slot {
                 // does not know why", which for a capability boundary sends
                 // the reader looking for a defect that is not there.
                 Some(tinyvm_qjs::GuestFault::CapabilityBoundary) => {
-                    return QjswasmError::CapabilityBoundary;
+                    let which = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_capability_name(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::CapabilityBoundary(which);
                 }
                 // The fifth reason, and the first that carries a name: the
                 // guest wrote the property's record where the thrown String
@@ -358,6 +362,14 @@ impl Slot {
                         _ => None,
                     };
                     return QjswasmError::NoPrimitiveForm(kind);
+                }
+                // The tenth: what a refused write wrote.
+                Some(tinyvm_qjs::GuestFault::InvalidWrite) => {
+                    let what = match self.instance.memory_at(0) {
+                        Ok(Some(view)) => tinyvm_qjs::guest_invalid_write(&view),
+                        _ => None,
+                    };
+                    return QjswasmError::InvalidWrite(what);
                 }
                 // `GuestFault` is `#[non_exhaustive]`: a later upstream may
                 // record a *fifth* reason at the same word. Falling through to

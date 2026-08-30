@@ -320,7 +320,8 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         | E::HostArgument(_)
         | E::PropertyOfNonObject(_)
         | E::NotAFunction(_)
-        | E::NoPrimitiveForm(_) => ScriptFailureCategory::Script,
+        | E::NoPrimitiveForm(_)
+        | E::InvalidWrite(_) => ScriptFailureCategory::Script,
         _ => ScriptFailureCategory::Configuration,
     };
     ScriptEngineError {

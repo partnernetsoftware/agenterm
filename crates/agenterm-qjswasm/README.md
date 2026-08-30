@@ -62,7 +62,7 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
   `typeof []` 是 `"object"`，`[]` 是真值，`===` 是引用相等。**上一版说「数组还没有」，
   已作废。**
   三条边界照实说：**字符串 key 不是索引**（`a["0"]` 是 `undefined`，而 ECMA-262
-  10.4.2.1 读元素 0——具名分歧）；**非索引属性写会 trap**（`a.foo = 1`，密集向量里
+  10.4.2.1 读元素 0——具名分歧）；**非索引属性写是有名字的拒绝**（`a.foo = 1` → `InvalidWrite("an Array key that is not an index below 16777216")`，tinyvm afc1e34 之前是无名 trap；密集向量里
   没地方放，丢掉比 trap 更糟）。**上一版说「没有任何数组方法」，已作废**——见下条。
 - **语句**：`let` / `const` / `var`（真作用域 + 文本可判定的 TDZ）、块、`if`/`else`、
   `while`、三段式 `for`、`return`、`throw`、`try`/`catch`/`finally`，以及脚本的

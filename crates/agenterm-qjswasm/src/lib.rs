@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "380fb5c";
+pub const UPSTREAM_TINYVM_REV: &str = "afc1e34";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -613,7 +613,12 @@ pub enum QjswasmError {
     /// answering `undefined` would be a wrong answer wearing a right answer's
     /// clothes -- the engine refuses instead, and this is that refusal
     /// arriving with a name.
-    CapabilityBoundary,
+    ///
+    /// Since tinyvm's A11 the guest can say *which* boundary when it is one
+    /// of the two its representation cannot cross -- `split("")`, a `slice`
+    /// boundary inside a surrogate pair -- and `None` is the older, unnamed
+    /// String-property arm.
+    CapabilityBoundary(Option<String>),
     /// The script read a String property this engine does not have --
     /// `"ab".substring`, say -- and the guest named it before stopping. An engine
     /// boundary like [`CapabilityBoundary`](Self::CapabilityBoundary), reached
@@ -643,6 +648,12 @@ pub enum QjswasmError {
     /// and names the kind. The script's own doing; `JSON.stringify` is the
     /// spelling that says what was meant.
     NoPrimitiveForm(Option<String>),
+    /// The script wrote where this engine refuses to: a key that is not an
+    /// index on an Array (`a["x"] = 1` -- ECMA-262 would hang a named
+    /// property on it), or a property on a value that has none (`s[0] = "x"`
+    /// on a String, which the specification ignores). Never silently; the
+    /// script's own doing, and the sentence says what was written.
+    InvalidWrite(Option<String>),
     /// A core budget was exhausted.
     Budget(&'static str),
     /// A contract at the host boundary was violated: one of the `agenterm.*`
@@ -700,7 +711,9 @@ impl std::fmt::Debug for QjswasmError {
             Self::Load(e) => f.debug_tuple("Load").field(&e.message()).finish(),
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
             Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
-            Self::CapabilityBoundary => f.write_str("CapabilityBoundary"),
+            Self::CapabilityBoundary(which) => {
+                f.debug_tuple("CapabilityBoundary").field(which).finish()
+            }
             Self::UnsupportedMethod(name) => {
                 f.debug_tuple("UnsupportedMethod").field(name).finish()
             }
@@ -710,6 +723,7 @@ impl std::fmt::Debug for QjswasmError {
             }
             Self::NotAFunction(callee) => f.debug_tuple("NotAFunction").field(callee).finish(),
             Self::NoPrimitiveForm(kind) => f.debug_tuple("NoPrimitiveForm").field(kind).finish(),
+            Self::InvalidWrite(what) => f.debug_tuple("InvalidWrite").field(what).finish(),
             Self::Budget(what) => f.debug_tuple("Budget").field(what).finish(),
             Self::Door(what) => f.debug_tuple("Door").field(what).finish(),
             Self::NoSuchSlot(id) => f.debug_tuple("NoSuchSlot").field(id).finish(),
@@ -768,10 +782,24 @@ impl std::fmt::Display for QjswasmError {
             Self::UnsupportedMethod(None) => f.write_str(
                 "this engine does not support a String property the script asked for, and could not read back which"
             ),
-            Self::CapabilityBoundary => write!(
+            Self::CapabilityBoundary(Some(which)) => write!(
+                f,
+                "the script asked for {which}, which this engine cannot represent (UTF-8 has no lone \
+                 surrogate); split by a real separator, or slice at a character boundary"
+            ),
+            Self::CapabilityBoundary(None) => write!(
                 f,
                 "the script reached something this engine does not have yet; \
                  the only String property it answers is `length`"
+            ),
+            Self::InvalidWrite(Some(what)) => write!(
+                f,
+                "the script wrote {what}; this engine never accepts such a write quietly -- an Array \
+                 takes integer indices, and only an Object or an Array takes properties"
+            ),
+            Self::InvalidWrite(None) => f.write_str(
+                "the script wrote where this engine refuses to (a non-index Array key, or a property on \
+                 a value that has none)",
             ),
             Self::Budget(what) => write!(f, "budget exhausted: {what}"),
             Self::Door(what) => write!(f, "host door: {what}"),
