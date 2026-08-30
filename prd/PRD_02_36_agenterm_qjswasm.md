@@ -769,7 +769,7 @@ agenterm-qjswasm                                        [~]
 │   │   ├── try/catch/finally + throw（自编码展开）           [x] rev f21f0f2
 │   │   ├── 函数是值（存 / 传 / 返回 / 间接调用）              [x] rev f21f0f2
 │   │   ├── JSON.parse / JSON.stringify                     [x] rev f21f0f2
-│   │   └── GC                                             [ ] 现为 bump + 整体丢弃
+│   │   └── GC                                             [ ] 现为 bump + 整体丢弃；2026-08-30 量过：两条旅程一次调用 45–63 页，且产品面没有跨轮持有的槽（REPL 已删），区域 bump 无消费者，D 区候选不动
 │   ├── `.qjs` 调 agenterm.* 门                              [x] 2026-08-25
 │   │   ├── print / fleet_call / fleet_result 按名字可调      [x] 三条声明发四个 import
 │   │   ├── 只有真被写到的名字才成为 import                    [x] `return 1+1;` import 表为空
