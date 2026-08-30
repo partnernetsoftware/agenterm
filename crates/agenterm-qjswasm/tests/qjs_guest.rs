@@ -804,6 +804,25 @@ fn a_module_refused_in_a_function_names_the_function() {
         err.to_string(),
         "loading wasm: validation: type mismatch in function `broken` (#1)"
     );
+    // With the `qjs.lines` section the compiler writes beside the names --
+    // appended by hand here, since the compiler never emits a body that
+    // fails validation -- the face also says which line the author wrote
+    // the function on: index 1 on line 7.
+    let mut lined = bytes.clone();
+    lined.extend_from_slice(&[0, 15, 9]);
+    lined.extend_from_slice(b"qjs.lines");
+    lined.extend_from_slice(&[2, 0, 3, 1, 7]);
+    let err = engine()
+        .run_once(Guest::Wasm(&lined), None, "main", &[])
+        .expect_err("still a type mismatch");
+    assert!(
+        matches!(&err, QjswasmError::LoadInFunction { index: 1, line: Some(7), .. }),
+        "got {err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "loading wasm: validation: type mismatch in function `broken` (#1) (line 7)"
+    );
     // A `.qjs` guest's functions carry the script's names: a failure inside
     // `helper` would be reported as such. (No such failure is known today --
     // this pins the channel, not a defect.)

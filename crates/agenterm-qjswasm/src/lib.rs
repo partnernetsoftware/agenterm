@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "6e074ed";
+pub const UPSTREAM_TINYVM_REV: &str = "d0db3eb";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -629,14 +629,17 @@ pub enum QjswasmError {
     /// Rejected before execution: not wasm, malformed, or over a declared limit.
     Load(tinyvm::WasmError),
     /// Rejected while validating one function's body, and the module said
-    /// which: the function index (imports first) and its `name`-section name
-    /// -- for a `.qjs` guest, the script's own function name, which the
-    /// compiler writes for every function. "validation: type mismatch" with
-    /// no location once sent an author to bisect a 900-line script.
+    /// which: the function index (imports first), its `name`-section name
+    /// and, when the module has a `qjs.lines` section, the source line --
+    /// for a `.qjs` guest, the script's own function name and the line the
+    /// author wrote it on, which the compiler writes for every function.
+    /// "validation: type mismatch" with no location once sent an author to
+    /// bisect a 900-line script.
     LoadInFunction {
         error: tinyvm::WasmError,
         index: u32,
         name: Option<String>,
+        line: Option<u32>,
     },
     /// The guest trapped during execution.
     Trap(tinyvm::WasmError),
@@ -780,11 +783,17 @@ impl std::fmt::Debug for QjswasmError {
             Self::Compile(e) => f.debug_tuple("Compile").field(e).finish(),
             Self::Load(e) => f.debug_tuple("Load").field(&e.message()).finish(),
 
-            Self::LoadInFunction { error, index, name } => f
+            Self::LoadInFunction {
+                error,
+                index,
+                name,
+                line,
+            } => f
                 .debug_struct("LoadInFunction")
                 .field("error", error)
                 .field("index", index)
                 .field("name", name)
+                .field("line", line)
                 .finish(),
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
             Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
@@ -822,6 +831,7 @@ impl QjswasmError {
                 error: refused.error,
                 index: site.index,
                 name: site.name,
+                line: site.line,
             },
             None => Self::Load(refused.error),
         }
@@ -836,17 +846,22 @@ impl std::fmt::Display for QjswasmError {
             Self::LoadInFunction {
                 error,
                 index,
-                name: Some(name),
-            } => write!(
-                f,
-                "loading wasm: {} in function `{name}` (#{index})",
-                error.message()
-            ),
-            Self::LoadInFunction {
-                error,
-                index,
-                name: None,
-            } => write!(f, "loading wasm: {} in function #{index}", error.message()),
+                name,
+                line,
+            } => {
+                match name {
+                    Some(name) => write!(
+                        f,
+                        "loading wasm: {} in function `{name}` (#{index})",
+                        error.message()
+                    )?,
+                    None => write!(f, "loading wasm: {} in function #{index}", error.message())?,
+                }
+                match line {
+                    Some(line) => write!(f, " (line {line})"),
+                    None => Ok(()),
+                }
+            }
             Self::Trap(e) => write!(f, "guest trapped: {}", e.message()),
             Self::UncaughtThrow(Some(message)) => {
                 write!(f, "the script threw and nothing caught it: {message}")
