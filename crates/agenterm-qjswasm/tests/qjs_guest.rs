@@ -807,11 +807,11 @@ fn a_module_refused_in_a_function_names_the_function() {
     // With the `qjs.lines` section the compiler writes beside the names --
     // appended by hand here, since the compiler never emits a body that
     // fails validation -- the face also says which line the author wrote
-    // the function on: index 1 on line 7.
+    // the function on, and the column: index 1 at line 7, column 12.
     let mut lined = bytes.clone();
-    lined.extend_from_slice(&[0, 15, 9]);
+    lined.extend_from_slice(&[0, 17, 9]);
     lined.extend_from_slice(b"qjs.lines");
-    lined.extend_from_slice(&[2, 0, 3, 1, 7]);
+    lined.extend_from_slice(&[2, 0, 3, 1, 1, 7, 12]);
     let err = engine()
         .run_once(Guest::Wasm(&lined), None, "main", &[])
         .expect_err("still a type mismatch");
@@ -821,6 +821,7 @@ fn a_module_refused_in_a_function_names_the_function() {
             QjswasmError::LoadInFunction {
                 index: 1,
                 line: Some(7),
+                column: Some(12),
                 ..
             }
         ),
@@ -828,7 +829,7 @@ fn a_module_refused_in_a_function_names_the_function() {
     );
     assert_eq!(
         err.to_string(),
-        "loading wasm: validation: type mismatch in function `broken` (#1) (line 7)"
+        "loading wasm: validation: type mismatch in function `broken` (#1) (line 7, column 12)"
     );
     // A `.qjs` guest's functions carry the script's names: a failure inside
     // `helper` would be reported as such. (No such failure is known today --

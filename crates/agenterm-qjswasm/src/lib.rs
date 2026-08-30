@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "8d3f4c5";
+pub const UPSTREAM_TINYVM_REV: &str = "37dfc34";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -652,6 +652,9 @@ pub enum QjswasmError {
         index: u32,
         name: Option<String>,
         line: Option<u32>,
+        /// The 1-based column on that line, in UTF-16 code units the way an
+        /// editor counts; `None` with `line`.
+        column: Option<u32>,
     },
     /// The guest trapped during execution.
     Trap(tinyvm::WasmError),
@@ -800,12 +803,14 @@ impl std::fmt::Debug for QjswasmError {
                 index,
                 name,
                 line,
+                column,
             } => f
                 .debug_struct("LoadInFunction")
                 .field("error", error)
                 .field("index", index)
                 .field("name", name)
                 .field("line", line)
+                .field("column", column)
                 .finish(),
             Self::Trap(e) => f.debug_tuple("Trap").field(&e.message()).finish(),
             Self::UncaughtThrow(m) => f.debug_tuple("UncaughtThrow").field(m).finish(),
@@ -844,6 +849,7 @@ impl QjswasmError {
                 index: site.index,
                 name: site.name,
                 line: site.line,
+                column: site.column,
             },
             None => Self::Load(refused.error),
         }
@@ -860,6 +866,7 @@ impl std::fmt::Display for QjswasmError {
                 index,
                 name,
                 line,
+                column,
             } => {
                 match name {
                     Some(name) => write!(
@@ -869,9 +876,12 @@ impl std::fmt::Display for QjswasmError {
                     )?,
                     None => write!(f, "loading wasm: {} in function #{index}", error.message())?,
                 }
-                match line {
-                    Some(line) => write!(f, " (line {line})"),
-                    None => Ok(()),
+                match (line, column) {
+                    (Some(line), Some(column)) => {
+                        write!(f, " (line {line}, column {column})")
+                    }
+                    (Some(line), None) => write!(f, " (line {line})"),
+                    _ => Ok(()),
                 }
             }
             Self::Trap(e) => write!(f, "guest trapped: {}", e.message()),
