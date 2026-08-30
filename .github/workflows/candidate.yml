@@ -100,7 +100,7 @@ jobs:
             runner: ubuntu-latest
             timeout_minutes: 30
           - platform_id: linux-aarch64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             timeout_minutes: 30
           - platform_id: macos-aarch64
             runner: macos-latest
@@ -363,7 +363,7 @@ jobs:
           ./scripts/bootstrap.sh \
             "$VERSION" linux x86_64 target/x86_64-unknown-linux-gnu/release
 
-      - name: Install Linux ARM64 cross linker
+      - name: Install Linux ARM64 native packaging dependencies
         if: matrix.platform_id == 'linux-aarch64'
         run: |
           sudo apt-get update
@@ -861,8 +861,8 @@ jobs:
               libraries=(/court/lib/*.so*)
               test "${#libraries[@]}" -gt 0
               for library in "${libraries[@]}"; do
-                missing="$(LD_LIBRARY_PATH=/court/lib ldd "$library" |
-                  grep "not found" || true)"
+                report="$(LD_LIBRARY_PATH=/court/lib ldd "$library")"
+                missing="$(grep "not found" <<<"$report" || true)"
                 if test -n "$missing"; then
                   echo "$library: $missing" >&2
                   exit 1

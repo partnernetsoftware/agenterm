@@ -22,6 +22,8 @@ archives, explicit signing policy, and final-byte reputation checks.
       `libxkbcommon-x11.so.0 → libxcb-xkb.so.1` transitive edge, then a pinned
       package-free Ubuntu container runs `ldd` over every bundled library and
       executes the packaged CLI without installing runtime or `-dev` packages
+    - [x] Linux aarch64 is packaged on a native ARM runner, so host package
+      discovery cannot silently copy x86_64 GUI libraries into the ARM archive
     - [ ] Windows courts execute the final PE bytes, not pre-package binaries
     - [ ] macOS courts cover arm64 and real Intel runner/Rosetta evidence distinctly
   - [ ] provider-neutral signing policy
