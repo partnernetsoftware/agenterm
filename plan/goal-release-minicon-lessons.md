@@ -30,6 +30,9 @@ archives, explicit signing policy, and final-byte reputation checks.
     - [x] checked-in `release-policy.json` explicitly selects unsigned preview
       or required macOS signing; missing credentials never silently choose policy
     - [~] Windows/Linux modes are explicit `off`; Azure Artifact Signing adapter remains
+      - [x] redacted enrollment state, protected configuration and first-signature
+        court are durable in the release skill; no review/intake state is
+        misreported as a usable certificate
     - [ ] signing changes bytes only before Candidate sealing
     - [ ] receipt binds pre-sign and final SHA-256 plus timestamp evidence
   - [ ] final-byte reputation court

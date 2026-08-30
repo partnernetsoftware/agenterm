@@ -9,6 +9,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   evidence, six execute-only courts, slim-Linux dependency proof, explicit
   signing policy, and reputation checks over final Candidate bytes. AgenTerm's
   exact-SHA Candidate → no-rebuild Promotion authority remains unchanged.
+- [~] company Windows signing is prepared but not claimed: Azure Artifact
+  Signing organization review and the SignPath Foundation application remain
+  pending, `release-policy.json` keeps Windows signing `off`, and the redacted
+  activation/first-signature court is owned by
+  `skills/agenterm-release/references/company-signing-enrollment.md`.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
 - [x] size-optimized release profile and enforced 4 MiB GUI plus 2 MiB

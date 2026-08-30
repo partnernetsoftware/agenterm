@@ -22,6 +22,8 @@ Read these repository-owned contracts before acting:
 
 Read `references/github-auth-and-dispatch.md` when authentication, workflow
 dispatch, monitoring, rate limits, or human approval is involved.
+Read `references/company-signing-enrollment.md` before changing signing policy,
+provider configuration, signature receipts, or final-byte reputation courts.
 
 Treat the current files and remote run state as authoritative. Do not infer the
 delivery topology from an older release or from Git push behavior.
