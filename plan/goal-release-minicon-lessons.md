@@ -89,3 +89,7 @@ flowchart LR
 - The Candidate runtime matrix uses native Windows, Linux, and macOS runners
   for both x86_64 and aarch64. Aggregate cannot seal bytes unless all six
   downloaded archives pass hash and packaged-binary execution.
+- `scripts/qjs/release.qjs` rejects a Candidate workflow that loses the
+  execute-only runtime job, six native runner identities, Defender gate,
+  checked-in policy, aggregate dependency, or accidentally adds checkout/Cargo
+  to the runtime section.

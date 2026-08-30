@@ -186,12 +186,26 @@ const promotion_path = rh.join(repo, ".github/workflows/release.yml");
 const candidate_path = rh.join(repo, ".github/workflows/candidate.yml");
 const promotion = rh.read_text(promotion_path);
 const candidate = rh.read_text(candidate_path);
+const runtime_parts = candidate.split("\n  runtime:\n");
+require_ok(runtime_parts.length === 2, "release_candidate_runtime_job_count");
+const aggregate_parts = runtime_parts[1].split("\n  aggregate:\n");
+require_ok(aggregate_parts.length === 2, "release_candidate_aggregate_job_count");
+const runtime_job = aggregate_parts[0];
 require_ok(
   candidate.includes("workflow_dispatch:")
     && candidate.includes("source_sha:")
     && candidate.includes("check.cmd --release --include-stress")
     && candidate.includes("expected == \"v0.1.7\"")
-    && candidate.includes("release-candidate-${{ github.run_id }}"),
+    && candidate.includes("release-candidate-${{ github.run_id }}")
+    && candidate.includes("needs: [build, runtime]")
+    && candidate.includes("release-policy.json")
+    && runtime_job.includes("candidate-part-${{ matrix.platform_id }}")
+    && runtime_job.includes("windows-11-arm")
+    && runtime_job.includes("ubuntu-24.04-arm")
+    && runtime_job.includes("macos-15-intel")
+    && runtime_job.includes("Defender")
+    && !runtime_job.includes("actions/checkout")
+    && !runtime_job.includes("cargo "),
   "release_candidate_workflow_contract"
 );
 require_ok(
