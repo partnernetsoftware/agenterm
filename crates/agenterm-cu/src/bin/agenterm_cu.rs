@@ -453,14 +453,27 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
-            if node.is_none() && index.is_none() && name.is_none() && identifier.is_none() {
+            let focused = take_switch(&mut args, "--focused");
+            if node.is_none()
+                && index.is_none()
+                && name.is_none()
+                && identifier.is_none()
+                && !focused
+            {
                 return usage_err(
-                    "invoke requires one of --node PATH, --index N, --name PAT [--role ROLE], --identifier ID",
+                    "invoke requires one of --node PATH, --index N, --name PAT [--role ROLE], --identifier ID, --focused [--role ROLE]",
+                );
+            }
+            if focused
+                && (node.is_some() || index.is_some() || name.is_some() || identifier.is_some())
+            {
+                return usage_err(
+                    "invoke --focused addresses the focused control; combine it only with --role",
                 );
             }
             if let Some(stray) = args.iter().find(|arg| arg.starts_with("--")) {
                 return usage_err(format!(
-                    "invoke accepts only --window H --node PATH | --index N | --name PAT [--role ROLE] | --identifier ID, then <action> [VALUE]; unexpected {stray:?}"
+                    "invoke accepts only --window H --node PATH | --index N | --name PAT [--role ROLE] | --identifier ID | --focused [--role ROLE], then <action> [VALUE]; unexpected {stray:?}"
                 ));
             }
             let Some(action_raw) = args.first().cloned() else {
@@ -500,6 +513,203 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
                 action,
                 value,
+                focused,
+            }
+        }
+        "menu" => {
+            // `menu inspect` / `menu invoke`: closed shapes, background only.
+            let Some(sub) = args.first().cloned() else {
+                return usage_err("menu requires a subcommand: inspect | invoke");
+            };
+            args.remove(0);
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err(format!("menu {sub} requires --window <handle>")),
+                Err(message) => return usage_err(message),
+            };
+            match sub.as_str() {
+                "inspect" => {
+                    let depth = match flag_parsed::<u32>(&mut args, "--depth") {
+                        Ok(value) => value,
+                        Err(message) => return usage_err(message),
+                    };
+                    let max_nodes = match flag_parsed::<usize>(&mut args, "--max-nodes") {
+                        Ok(value) => value,
+                        Err(message) => return usage_err(message),
+                    };
+                    let title = match flag_text(&mut args, "--title") {
+                        Ok(value) => value,
+                        Err(message) => return usage_err(message),
+                    };
+                    let exact = take_switch(&mut args, "--exact");
+                    if exact && title.is_none() {
+                        return usage_err("menu inspect --exact requires --title");
+                    }
+                    let enabled = match flag_text(&mut args, "--enabled") {
+                        Ok(Some(raw)) => match raw.as_str() {
+                            "true" => Some(true),
+                            "false" => Some(false),
+                            _ => return usage_err("menu inspect --enabled takes true or false"),
+                        },
+                        Ok(None) => None,
+                        Err(message) => return usage_err(message),
+                    };
+                    let offset = match flag_parsed::<usize>(&mut args, "--offset") {
+                        Ok(value) => value,
+                        Err(message) => return usage_err(message),
+                    };
+                    let max = match flag_parsed::<usize>(&mut args, "--max") {
+                        Ok(value) => value,
+                        Err(message) => return usage_err(message),
+                    };
+                    if !args.is_empty() {
+                        return usage_err(format!(
+                            "menu inspect accepts only --window H --depth N --max-nodes N --title T [--exact] \
+                             --enabled true|false --offset N --max N; unexpected {:?}",
+                            args[0]
+                        ));
+                    }
+                    Command::MenuInspect {
+                        target,
+                        window,
+                        depth,
+                        max_nodes,
+                        title,
+                        exact,
+                        enabled,
+                        offset,
+                        max,
+                    }
+                }
+                "invoke" => {
+                    let path = match flag_text(&mut args, "--path") {
+                        Ok(Some(raw)) => match agenterm_cu::observe::parse_menu_path(&raw) {
+                            Ok(path) => path,
+                            Err(message) => return usage_err(message),
+                        },
+                        Ok(None) => {
+                            return usage_err(
+                                "menu invoke requires --path 'Menu/Item' (or a JSON array of titles)",
+                            );
+                        }
+                        Err(message) => return usage_err(message),
+                    };
+                    if !args.is_empty() {
+                        return usage_err(format!(
+                            "menu invoke accepts only --window H --path PATH; unexpected {:?}",
+                            args[0]
+                        ));
+                    }
+                    Command::MenuInvoke {
+                        target,
+                        window,
+                        path,
+                    }
+                }
+                other => {
+                    return usage_err(format!(
+                        "unknown menu subcommand {other:?}; expected inspect | invoke"
+                    ));
+                }
+            }
+        }
+        "focused" => {
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("focused requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            let role = match flag_text(&mut args, "--role") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max_value_bytes = match flag_parsed::<usize>(&mut args, "--max-value-bytes") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "focused accepts only --window H --role R --max-value-bytes N; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Focused {
+                target,
+                window,
+                role,
+                max_value_bytes,
+            }
+        }
+        "observe" => {
+            let window = match flag_parsed::<isize>(&mut args, "--window") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("observe requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            // `--duration` is seconds (fractions allowed); `--duration-ms` is exact.
+            let seconds = match flag_parsed::<f64>(&mut args, "--duration") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let millis = match flag_parsed::<u64>(&mut args, "--duration-ms") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let duration_ms = match (seconds, millis) {
+                (Some(_), Some(_)) => {
+                    return usage_err("observe accepts --duration or --duration-ms, not both");
+                }
+                (Some(seconds), None) => {
+                    if !seconds.is_finite() || seconds <= 0.0 || seconds > 120.0 {
+                        return usage_err("observe --duration must be within (0, 120] seconds");
+                    }
+                    (seconds * 1000.0).round() as u64
+                }
+                (None, Some(millis)) => millis,
+                (None, None) => {
+                    return usage_err("observe requires --duration S (or --duration-ms N)");
+                }
+            };
+            let depth = match flag_parsed::<u32>(&mut args, "--depth") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max_nodes = match flag_parsed::<usize>(&mut args, "--max-nodes") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max_events = match flag_parsed::<usize>(&mut args, "--max-events") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let notifications = match flag_text(&mut args, "--notification") {
+                Ok(Some(raw)) => match agenterm_cu::observe::parse_notifications(&raw) {
+                    Ok(list) => list,
+                    Err(message) => return usage_err(message),
+                },
+                Ok(None) => Vec::new(),
+                Err(message) => return usage_err(message),
+            };
+            let interval_ms = match flag_parsed::<u64>(&mut args, "--interval-ms") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "observe accepts only --window H --duration S | --duration-ms N --depth N --max-nodes N \
+                     --max-events N --notification A,B --interval-ms N; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Observe {
+                target,
+                window,
+                duration_ms,
+                depth,
+                max_nodes,
+                max_events,
+                notifications,
+                interval_ms,
             }
         }
         "verify" => {
@@ -1495,7 +1705,8 @@ Commands:
                               bounded, filtered flat node list with visited /
                               matched / returned / truncated; roles accept AXTextArea
                               or text-area; an unknown flag fails before the walk
-  invoke --window HANDLE (--node PATH | --index N | --name PAT [--role ROLE] | --identifier ID)
+  invoke --window HANDLE (--node PATH | --index N | --name PAT [--role ROLE] | --identifier ID
+                          | --focused [--role ROLE])
          <press | set-value TEXT | select-option NAME | set-checked true|false
           | set-expanded true|false | increment | decrement>
                               one semantic a11y action; never activates or raises
@@ -1504,7 +1715,38 @@ Commands:
                               offer -> "unsupported". set-checked / set-expanded are
                               desired states (already there = verified no-op). The
                               reply carries verified true|false with the reason and a
-                              receipt (target, node, action, before / after state)
+                              receipt (target, node, action, before / after state).
+                              --focused acts on the application's own focused control
+                              (what `focused` reports), bound by id / role / identifier
+                              in the same tree read; --role narrows it ("unverified"
+                              when the focused control has another role)
+  menu inspect --window HANDLE [--depth N] [--max-nodes N] [--title T [--exact]]
+               [--enabled true|false] [--offset N] [--max N]
+                              the application's menu bar read in the background (never
+                              opens a menu, never activates): items with exact title
+                              paths, depth (0 = bar items, default 1, <= 8), enabled /
+                              checked / has_submenu; node budget 1..5000; counts
+                              visited / matched / returned / truncated
+  menu invoke --window HANDLE --path 'Menu/Item' | '["Menu","Item"]'
+                              press one menu item by exact path in the background; every
+                              segment must be exactly one enabled item before anything is
+                              pressed ("a11y_menu_item_not_found" / "..._ambiguous" /
+                              "..._disabled"), the last must be a leaf ("..._not_leaf"),
+                              a bare menu is "invalid_input"; verified by mark read-back
+                              / tree diff
+  focused --window HANDLE [--role ROLE] [--max-value-bytes N]
+                              the application's own focused control inside the window
+                              (id / role / name / identifier / states / value preview),
+                              read without the foreground; --role binds the expected
+                              role ("unverified" on mismatch); default preview 4096
+                              bytes, 0 keeps only value_bytes
+  observe --window HANDLE (--duration S | --duration-ms N) [--depth N] [--max-nodes N]
+          [--max-events N] [--notification A,B] [--interval-ms N]
+                              bounded event stream by poll-diff over the same bounded
+                              tree: ValueChanged / TitleChanged / StateChanged /
+                              FocusChanged / Created / Destroyed with monotonic seq and
+                              t_ms; stops at --max-events (<= 5000, default 200) with
+                              truncated true; reports polls / emitted / filtered / stopped
   verify --window HANDLE --expect '[{{"node"|"index"|"name"[+"role"]|"identifier"|"role",
                                      "value"?, "checked"?, "expanded"?, "focused"?}}, ...]'
                               one tree read; all met -> ok + verified, a mismatch ->

@@ -579,6 +579,7 @@ impl Executor {
                 role,
                 action,
                 value,
+                focused,
                 ..
             } => invoke_payload(
                 *window,
@@ -588,9 +589,57 @@ impl Executor {
                     name: name.clone(),
                     identifier: identifier.clone(),
                     role: role.clone(),
+                    focused: *focused,
                 },
                 *action,
                 value.as_deref(),
+            ),
+            Command::MenuInspect {
+                window,
+                depth,
+                max_nodes,
+                title,
+                exact,
+                enabled,
+                offset,
+                max,
+                ..
+            } => menu_inspect_payload(
+                *window,
+                *depth,
+                *max_nodes,
+                observe::MenuFilter {
+                    title: title.clone(),
+                    exact: *exact,
+                    enabled: *enabled,
+                },
+                *offset,
+                *max,
+            ),
+            Command::MenuInvoke { window, path, .. } => menu_invoke_payload(*window, path),
+            Command::Focused {
+                window,
+                role,
+                max_value_bytes,
+                ..
+            } => focused_payload(*window, role.as_deref(), *max_value_bytes),
+            Command::Observe {
+                window,
+                duration_ms,
+                depth,
+                max_nodes,
+                max_events,
+                notifications,
+                interval_ms,
+                ..
+            } => observe_payload(
+                *window,
+                *duration_ms,
+                *depth,
+                *max_nodes,
+                *max_events,
+                notifications,
+                *interval_ms,
             ),
             Command::Verify { window, expect, .. } => verify_payload(*window, expect),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
@@ -799,6 +848,17 @@ fn capabilities_payload() -> serde_json::Value {
                 serde_json::json!({ "status": "unsupported", "reason": reason }),
             ),
         };
+    // The background verbs (menu bar, App-local focused control) are mapped
+    // on macOS only; elsewhere the platform answers typed unsupported, and
+    // the declaration says so instead of copying the tree status.
+    let background_verb = if cfg!(target_os = "macos") {
+        tree_verb.clone()
+    } else {
+        serde_json::json!({
+            "status": "unsupported",
+            "reason": "background menu / focused-control mechanisms are mapped on macOS AX only",
+        })
+    };
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -825,6 +885,10 @@ fn capabilities_payload() -> serde_json::Value {
             "query": tree_verb,
             "invoke": tree_verb,
             "verify": tree_verb,
+            "menu-inspect": background_verb,
+            "menu-invoke": background_verb,
+            "focused": background_verb,
+            "observe": tree_verb,
         },
         "mapping": {
             "windows": "libagenterm agt_window_enumerate",
@@ -836,7 +900,7 @@ fn capabilities_payload() -> serde_json::Value {
             "screenshot": "none — shared agenterm.dll (milestone 46)",
             "input_degraded": "none — shared agenterm.dll (milestone 46)",
             "rdp_live": "rdp tier is placeholder; never declared available on current",
-            "macos_ax_live": "macOS AX observe (windows / tree / query) and semantic actuation (invoke / verify) are proven by scripts/qjs/cu-macos-smoke.qjs; destructive actions are not offered",
+            "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused) and the poll-diff observation stream (observe) are proven by scripts/qjs/cu-macos-smoke.qjs; destructive actions are not offered; AX notifications are not subscribed (observe is poll-diff)",
         }
     })
 }
@@ -3173,11 +3237,52 @@ fn invoke_payload(
         ));
     }
     let node_action = invoke_action(action, value)?;
+    // `--focused`: the platform names the application's own focused control
+    // first; the tree read that follows must still show the same identity
+    // (id, role, identifier) at that path, so PID + window + focused
+    // identity are bound in one observation before anything is pressed.
+    let focused_identity = if spec.focused {
+        if spec.node.is_some()
+            || spec.index.is_some()
+            || spec.name.is_some()
+            || spec.identifier.is_some()
+        {
+            return Err(invalid_input(
+                "--focused addresses the focused control; combine it only with --role".into(),
+            ));
+        }
+        Some(focused_control(window, spec.role.as_deref())?.1)
+    } else {
+        None
+    };
     let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
-    let target = {
-        let flat = observe::flatten(&before);
-        let hit = observe::resolve_target(&flat, &spec).map_err(target_error)?;
-        hit.node.clone()
+    let target = match &focused_identity {
+        Some(focused) => {
+            let Some(now) = observe::node_by_id(&before, &focused.id) else {
+                return Err(CuError::new(
+                    "a11y_node_recycled",
+                    format!(
+                        "the focused control at {} is not in the window tree any more",
+                        focused.id
+                    ),
+                ));
+            };
+            if now.role != focused.role || now.identifier != focused.identifier {
+                return Err(CuError::new(
+                    "a11y_node_recycled",
+                    format!(
+                        "the focused control at {} changed identity between reads ({} {:?} -> {} {:?})",
+                        focused.id, focused.role, focused.identifier, now.role, now.identifier
+                    ),
+                ));
+            }
+            now.clone()
+        }
+        None => {
+            let flat = observe::flatten(&before);
+            let hit = observe::resolve_target(&flat, &spec).map_err(target_error)?;
+            hit.node.clone()
+        }
     };
     if let Some(required) = required_node_action(action)
         && !target
@@ -3321,6 +3426,305 @@ fn invoke_payload(
         return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
     }
     Ok(receipt)
+}
+
+// ---------------------------------------------------------------------------
+// Background menus, the App-local focused control, and the observation
+// stream (slice 3 of plan/design-mcu-absorption.md).
+// ---------------------------------------------------------------------------
+
+fn menu_budget(
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+) -> Result<mechanism::TreeBudget, CuError> {
+    observe::validate_menu_budget(depth, max_nodes).map_err(invalid_input)?;
+    Ok(mechanism::TreeBudget {
+        max_depth: Some(observe::menu_node_depth(
+            depth.unwrap_or(observe::DEFAULT_MENU_DEPTH),
+        )),
+        max_nodes: Some(max_nodes.unwrap_or(observe::DEFAULT_MENU_NODE_BUDGET)),
+    })
+}
+
+/// Background menu inventory: the application's menu bar walked under a
+/// menu-level / node budget, flattened to items with exact title paths.
+fn menu_inspect_payload(
+    window: isize,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    filter: observe::MenuFilter,
+    offset: Option<usize>,
+    max: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "menu inspect requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    let budget = menu_budget(depth, max_nodes)?;
+    let page = observe::Page::new(offset, max).map_err(invalid_input)?;
+    let tree =
+        mechanism::menu_tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let items = observe::menu_items(&tree);
+    let (hits, counts) = observe::menu_query(&items, &filter, page, tree.truncated);
+    let rows = serde_json::to_value(&hits)
+        .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    Ok(serde_json::json!({
+        "addressing": "menu-path",
+        "mechanism": "libagenterm",
+        "backend": tree.backend,
+        "window": window,
+        "budget": {
+            "depth": depth.unwrap_or(observe::DEFAULT_MENU_DEPTH),
+            "max_nodes": max_nodes.unwrap_or(observe::DEFAULT_MENU_NODE_BUDGET),
+        },
+        "filter": {
+            "title": filter.title,
+            "exact": filter.exact,
+            "enabled": filter.enabled,
+        },
+        "nodes_visited": tree.visited,
+        "visited": counts.visited,
+        "matched": counts.matched,
+        "returned": counts.returned,
+        "offset": counts.offset,
+        "truncated": counts.truncated,
+        "scan_truncated": counts.scan_truncated,
+        "page_truncated": counts.page_truncated,
+        "items": rows,
+    }))
+}
+
+/// Press one menu item by exact title path in the background, verified by
+/// the item's mark read-back and a whole-window tree diff.
+fn menu_invoke_payload(window: isize, path: &[String]) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "menu invoke requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    if path.len() < 2 || path.iter().any(String::is_empty) {
+        return Err(invalid_input(
+            "menu invoke needs --path with a menu title and at least one non-empty item title"
+                .into(),
+        ));
+    }
+    let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let receipt = mechanism::invoke_menu_path(Some(window), path).map_err(map_mechanism_err)?;
+    let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let tree_changed = observe::tree_changed(&before, &after);
+    let mark_changed = receipt.mark_before != receipt.mark_after;
+    let (method, reason) = if mark_changed {
+        ("mark-readback", None)
+    } else if tree_changed {
+        ("tree-diff", None)
+    } else {
+        ("tree-diff", Some("no_observable_change"))
+    };
+    Ok(serde_json::json!({
+        "addressing": "menu-path",
+        "mechanism": "libagenterm",
+        "backend": before.backend,
+        "window": window,
+        "path": path,
+        "action": "press",
+        "performed": true,
+        "verified": reason.is_none(),
+        "verification": { "method": method, "reason": reason },
+        "mark_before": receipt.mark_before,
+        "mark_after": receipt.mark_after,
+        "tree_changed": tree_changed,
+        "nodes_before": before.returned,
+        "nodes_after": after.returned,
+    }))
+}
+
+/// The application's own focused control inside `window`, role-bound when
+/// the caller names one (a mismatch is typed `unverified`, never a guess).
+fn focused_control(
+    window: isize,
+    role: Option<&str>,
+) -> Result<(String, mechanism::A11yNode), CuError> {
+    let tree = mechanism::focused_node(Some(window)).map_err(map_mechanism_err)?;
+    let backend = tree.backend;
+    let Some(node) = tree.nodes.into_iter().next() else {
+        return Err(CuError::new(
+            "a11y_focus_unavailable",
+            "the platform returned no focused control",
+        ));
+    };
+    if let Some(wanted) = role
+        && observe::normalize_role(&node.role) != observe::normalize_role(wanted)
+    {
+        return Err(CuError::new(
+            "unverified",
+            format!(
+                "the focused control is {} {:?} (identifier {}), not role {wanted:?}",
+                node.role,
+                node.name,
+                node.identifier.as_deref().unwrap_or("none")
+            ),
+        )
+        .with_detail(serde_json::json!({ "observed": observe::node_state_json(&node) })));
+    }
+    Ok((backend, node))
+}
+
+/// `focused --window H [--role R] [--max-value-bytes N]`.
+fn focused_payload(
+    window: isize,
+    role: Option<&str>,
+    max_value_bytes: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "focused requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    observe::validate_max_value_bytes(max_value_bytes).map_err(invalid_input)?;
+    let max_value_bytes = max_value_bytes.unwrap_or(observe::DEFAULT_MAX_VALUE_BYTES);
+    let (backend, node) = focused_control(window, role)?;
+    let full = node.text.clone().unwrap_or_default();
+    let (preview, cut) = observe::preview_value(&full, max_value_bytes);
+    let adapter_truncated = node.states.iter().any(|state| state == "text-truncated");
+    let mut state = observe::node_state_json(&node);
+    state["bounds"] = serde_json::to_value(&node.bounds).unwrap_or(serde_json::Value::Null);
+    state["actions"] = serde_json::json!(node.actions);
+    state["text"] = serde_json::Value::Null;
+    Ok(serde_json::json!({
+        "addressing": "focused-control",
+        "mechanism": "libagenterm",
+        "backend": backend,
+        "window": window,
+        "role_bound": role,
+        "node": state,
+        "value": preview,
+        "value_bytes": full.len(),
+        "value_truncated": cut || adapter_truncated,
+        "max_value_bytes": max_value_bytes,
+    }))
+}
+
+/// `observe`: poll the bounded tree and emit the semantic differences
+/// between consecutive walks as a monotonic, filtered, bounded stream. AX
+/// notifications are not subscribed (the platform crate wires no
+/// AXObserver); the reply says `mode: "poll-diff"`.
+#[allow(clippy::too_many_arguments)]
+fn observe_payload(
+    window: isize,
+    duration_ms: u64,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    max_events: Option<usize>,
+    notifications: &[String],
+    interval_ms: Option<u64>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "observe requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    observe::validate_observe(duration_ms, max_events, interval_ms).map_err(invalid_input)?;
+    let budget = tree_budget(depth, max_nodes)?;
+    let max_events = max_events.unwrap_or(observe::DEFAULT_OBSERVE_EVENTS);
+    let interval =
+        Duration::from_millis(interval_ms.unwrap_or(observe::DEFAULT_OBSERVE_INTERVAL_MS));
+    let wanted: Vec<String> = if notifications.is_empty() {
+        observe::OBSERVE_NOTIFICATIONS
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect()
+    } else {
+        let mut merged = Vec::new();
+        for raw in notifications {
+            for name in observe::parse_notifications(raw).map_err(invalid_input)? {
+                if !merged.contains(&name) {
+                    merged.push(name);
+                }
+            }
+        }
+        merged
+    };
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(duration_ms);
+    let mut previous =
+        mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let backend = previous.backend.clone();
+    let mut events: Vec<serde_json::Value> = Vec::new();
+    let mut seq = 0u64;
+    let mut filtered = 0usize;
+    let mut polls = 1usize;
+    let mut poll_errors = 0usize;
+    let mut last_poll_error: Option<serde_json::Value> = None;
+    let mut stopped = "deadline";
+    let mut truncated = false;
+    loop {
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
+        polls += 1;
+        let current = match mechanism::tree_for_window_bounded(Some(window), budget) {
+            Ok(tree) => tree,
+            Err(mechanism::MechanismError::Unsupported { reason }) => {
+                return Err(map_mechanism_err(mechanism::MechanismError::Unsupported {
+                    reason,
+                }));
+            }
+            Err(error) => {
+                let error = map_mechanism_err(error);
+                if error.code == "denied" {
+                    return Err(error);
+                }
+                poll_errors += 1;
+                last_poll_error = Some(error_payload(&error));
+                continue;
+            }
+        };
+        let t_ms = started.elapsed().as_millis() as u64;
+        for event in observe::diff_events(&previous, &current) {
+            if !wanted.iter().any(|name| name == event.notification) {
+                filtered += 1;
+                continue;
+            }
+            if events.len() >= max_events {
+                truncated = true;
+                stopped = "max-events";
+                break;
+            }
+            let mut value = serde_json::to_value(&event)
+                .map_err(|error| CuError::new("serialize", error.to_string()))?;
+            value["seq"] = serde_json::json!(seq);
+            value["t_ms"] = serde_json::json!(t_ms);
+            seq += 1;
+            events.push(value);
+        }
+        previous = current;
+        if truncated {
+            break;
+        }
+    }
+    Ok(serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "backend": backend,
+        "mode": "poll-diff",
+        "window": window,
+        "duration_ms": duration_ms,
+        "elapsed_ms": started.elapsed().as_millis() as u64,
+        "interval_ms": interval.as_millis() as u64,
+        "budget": budget_json(depth, max_nodes),
+        "notifications": wanted,
+        "max_events": max_events,
+        "polls": polls,
+        "poll_errors": poll_errors,
+        "last_poll_error": last_poll_error,
+        "emitted": events.len(),
+        "filtered": filtered,
+        "truncated": truncated,
+        "stopped": stopped,
+        "events": events,
+    }))
 }
 
 /// One expectation checked against one flattened tree.

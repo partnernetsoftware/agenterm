@@ -15,6 +15,12 @@
 //! (`AXRaise` is never sent), moves the pointer, or posts a CGEvent; a node
 //! that does not offer an action answers a typed `Unsupported`. No
 //! screenshot fallback and no silent reuse of AT-SPI or UIA.
+//!
+//! Slice 3 adds the background half of the same discipline: the
+//! application's `AXMenuBar` is walked and a menu path is pressed without
+//! opening a menu on screen or activating the app (`menu_tree_for_window` /
+//! `invoke_menu_path`), and the application's own `AXFocusedUIElement` is
+//! read back as a window-relative node (`focused_node_for_window`).
 
 #![cfg(target_os = "macos")]
 
@@ -24,8 +30,8 @@ use std::time::{Duration, Instant};
 
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
+    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
+    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
 };
 
 type CfTypeRef = *const c_void;
@@ -73,6 +79,10 @@ const AX_ERROR_ATTRIBUTE_UNSUPPORTED: i32 = -25205;
 const AX_ERROR_CANNOT_COMPLETE: i32 = -25204;
 const AX_ERROR_NOT_IMPLEMENTED: i32 = -25208;
 const AX_ERROR_NO_VALUE: i32 = -25212;
+
+/// How many `AXParent` hops a focused element may be below its window
+/// before the adapter stops looking for the window.
+const MAX_FOCUS_ANCESTORS: usize = 64;
 
 const AX_VALUE_CGPOINT: u32 = 1;
 const AX_VALUE_CGSIZE: u32 = 2;
@@ -147,6 +157,7 @@ unsafe extern "C" {
         settable: *mut u8,
     ) -> i32;
     fn CFNumberCreate(alloc: CfTypeRef, the_type: CfIndex, value_ptr: *const c_void) -> CfTypeRef;
+    fn CFEqual(a: CfTypeRef, b: CfTypeRef) -> u8;
     static kCFBooleanTrue: CfTypeRef;
 }
 
@@ -398,7 +409,6 @@ pub(crate) fn tree_for_window(
         .max_depth
         .map(|depth| depth as usize)
         .unwrap_or(MAX_DEPTH);
-    let mut truncated = false;
     let mut budget = Budget::new(SNAPSHOT_TIMEOUT);
     let roots = resolve_roots(window_handle, &mut budget)?;
     if roots.is_empty() {
@@ -411,6 +421,20 @@ pub(crate) fn tree_for_window(
         ));
     }
 
+    let (nodes, truncated) = walk_bounded(roots, max_nodes, max_depth, &mut budget)?;
+    finish_tree(window_handle, nodes, truncated)
+}
+
+/// Breadth-first walk of `roots` under the node / depth budget, reading each
+/// element once. Returns the nodes in walk order and whether a budget cut
+/// the walk short.
+fn walk_bounded(
+    roots: Vec<CfOwned>,
+    max_nodes: usize,
+    max_depth: usize,
+    budget: &mut Budget,
+) -> Result<(Vec<AccessibilityNode>, bool), AccessibilityTreeError> {
+    let mut truncated = false;
     let mut nodes = Vec::new();
     let mut queue: VecDeque<(CfOwned, String, Option<String>, usize)> = VecDeque::new();
     for (index, root) in roots.into_iter().enumerate() {
@@ -433,7 +457,7 @@ pub(crate) fn tree_for_window(
             ));
         }
 
-        let node = match read_node(element.as_ax(), id.clone(), parent_id.clone(), &mut budget) {
+        let node = match read_node(element.as_ax(), id.clone(), parent_id.clone(), budget) {
             Ok(node) => node,
             Err(error) if parent_id.is_some() && is_snapshot_branch_loss(&error) => continue,
             Err(error) => return Err(error),
@@ -441,7 +465,7 @@ pub(crate) fn tree_for_window(
         budget.account_node(&node)?;
         nodes.push(node);
 
-        let children = match copy_children(element.as_ax(), &mut budget) {
+        let children = match copy_children(element.as_ax(), budget) {
             Ok(children) => children,
             Err(error) if parent_id.is_some() && is_snapshot_branch_loss(&error) => continue,
             Err(error) => return Err(error),
@@ -470,6 +494,14 @@ pub(crate) fn tree_for_window(
         }
     }
 
+    Ok((nodes, truncated))
+}
+
+fn finish_tree(
+    window_handle: Option<isize>,
+    nodes: Vec<AccessibilityNode>,
+    truncated: bool,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
     if nodes.is_empty() {
         return Err(AccessibilityTreeError::failed(
             "a11y_tree_empty",
@@ -495,6 +527,283 @@ pub(crate) fn tree_for_window(
 }
 
 pub(crate) fn drain_bus() {}
+
+/// The application element that owns `handle`, plus its pid.
+fn application_for_handle(
+    handle: isize,
+    budget: &mut Budget,
+) -> Result<(CfOwned, u32), AccessibilityTreeError> {
+    budget.check()?;
+    let pid = owner_pid(handle)?;
+    let app = unsafe { AXUIElementCreateApplication(pid as i32) };
+    let app = CfOwned::from_create(app as CfTypeRef).ok_or_else(|| {
+        AccessibilityTreeError::failed(
+            "a11y_backend_failed",
+            "AXUIElementCreateApplication returned null",
+        )
+    })?;
+    Ok((app, pid))
+}
+
+fn require_handle(
+    window_handle: Option<isize>,
+    what: &str,
+) -> Result<isize, AccessibilityTreeError> {
+    window_handle.ok_or_else(|| {
+        AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("{what} needs a window handle to name the application"),
+        )
+    })
+}
+
+/// The application's `AXMenuBar` element, or a typed failure when the
+/// application publishes none.
+fn menu_bar_for_handle(
+    handle: isize,
+    budget: &mut Budget,
+) -> Result<(CfOwned, u32), AccessibilityTreeError> {
+    let (app, pid) = application_for_handle(handle, budget)?;
+    let Some(bar) = copy_attribute(app.as_ax(), "AXMenuBar", budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_menu_unavailable",
+            format!("pid {pid} publishes no AXMenuBar"),
+        ));
+    };
+    Ok((bar, pid))
+}
+
+/// Walk the menu bar of the application owning `window_handle` under
+/// `budget`, without opening a menu on screen or activating the
+/// application: AppKit publishes a closed menu's `AXMenu` / `AXMenuItem`
+/// children through AX. Node ids are rooted at the menu bar (`/0`), a
+/// separate id space from the window tree.
+pub(crate) fn menu_tree_for_window(
+    window_handle: Option<isize>,
+    budget_request: AccessibilityTreeBudget,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    require_trusted()?;
+    let handle = require_handle(window_handle, "menu walk")?;
+    let max_nodes = budget_request.max_nodes.unwrap_or(MAX_NODES);
+    let max_depth = budget_request
+        .max_depth
+        .map(|depth| depth as usize)
+        .unwrap_or(MAX_DEPTH);
+    let mut budget = Budget::new(SNAPSHOT_TIMEOUT);
+    let (bar, _pid) = menu_bar_for_handle(handle, &mut budget)?;
+    let (nodes, truncated) = walk_bounded(vec![bar], max_nodes, max_depth, &mut budget)?;
+    finish_tree(window_handle, nodes, truncated)
+}
+
+/// The unique `AXMenu` child of a menu bar item / menu item, or `None`
+/// when the item opens no submenu.
+fn submenu_of(
+    item: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<CfOwned>, AccessibilityTreeError> {
+    let mut menus: Vec<CfOwned> = Vec::new();
+    for child in copy_children(item, budget)? {
+        let role = attribute_string(child.as_ax(), "AXRole", budget)?.unwrap_or_default();
+        if normalize_role(&role) == "menu" {
+            menus.push(child);
+        }
+    }
+    Ok(menus.into_iter().next())
+}
+
+/// Resolve `path` (menu bar item title, then item titles) segment by
+/// segment, requiring exactly one enabled match at each level. Every
+/// refusal happens before anything is pressed.
+fn resolve_menu_path(
+    bar: AxUiElementRef,
+    path: &[String],
+    budget: &mut Budget,
+) -> Result<CfOwned, AccessibilityTreeError> {
+    let mut container = CfOwned::retain(bar as CfTypeRef).ok_or_else(|| {
+        AccessibilityTreeError::failed("a11y_backend_failed", "menu bar element is null")
+    })?;
+    let mut current: Option<CfOwned> = None;
+    for (level, segment) in path.iter().enumerate() {
+        budget.check()?;
+        let walked = path[..level].join("/");
+        if level > 0 {
+            let item = current
+                .take()
+                .expect("a resolved item precedes every later level");
+            container = submenu_of(item.as_ax(), budget)?.ok_or_else(|| {
+                AccessibilityTreeError::failed(
+                    "a11y_menu_item_not_found",
+                    format!("menu item {walked:?} opens no submenu"),
+                )
+            })?;
+        }
+        let mut hits: Vec<CfOwned> = Vec::new();
+        for child in copy_children(container.as_ax(), budget)? {
+            let title = attribute_string(child.as_ax(), "AXTitle", budget)?.unwrap_or_default();
+            if &title == segment {
+                hits.push(child);
+            }
+        }
+        let scope = if walked.is_empty() {
+            "the menu bar".to_owned()
+        } else {
+            format!("menu {walked:?}")
+        };
+        let item = match hits.len() {
+            1 => hits.pop().expect("one hit"),
+            0 => {
+                return Err(AccessibilityTreeError::failed(
+                    "a11y_menu_item_not_found",
+                    format!("no item titled {segment:?} in {scope}"),
+                ));
+            }
+            count => {
+                return Err(AccessibilityTreeError::failed(
+                    "a11y_menu_item_ambiguous",
+                    format!("{count} items titled {segment:?} in {scope}; refusing to guess"),
+                ));
+            }
+        };
+        if attribute_bool(item.as_ax(), "AXEnabled", budget)? == Some(false) {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_menu_item_disabled",
+                format!("menu item {segment:?} in {scope} is disabled"),
+            ));
+        }
+        current = Some(item);
+    }
+    Ok(current.expect("a non-empty path resolves to an item"))
+}
+
+fn menu_mark(
+    item: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<String>, AccessibilityTreeError> {
+    Ok(attribute_string(item, "AXMenuItemMarkChar", budget)?.filter(|mark| !mark.is_empty()))
+}
+
+/// Press the menu item at `path` in the application owning `window_handle`
+/// without opening a menu or activating the application. The path must
+/// name at least a menu and one item (pressing a bare menu bar item would
+/// open it on screen), every segment must resolve to exactly one enabled
+/// item, and the final item must be a leaf (`a11y_menu_item_not_leaf`
+/// otherwise). The receipt carries the item's mark before and after.
+pub(crate) fn invoke_menu_path(
+    window_handle: Option<isize>,
+    path: &[String],
+) -> Result<AccessibilityMenuReceipt, AccessibilityTreeError> {
+    require_trusted()?;
+    let handle = require_handle(window_handle, "menu invoke")?;
+    if path.len() < 2 || path.iter().any(|segment| segment.is_empty()) {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            "a menu path needs a menu title and at least one non-empty item title",
+        ));
+    }
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let (bar, _pid) = menu_bar_for_handle(handle, &mut budget)?;
+    let item = resolve_menu_path(bar.as_ax(), path, &mut budget)?;
+    if submenu_of(item.as_ax(), &mut budget)?.is_some() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_menu_item_not_leaf",
+            format!(
+                "menu item {:?} opens a submenu; name one of its items",
+                path.join("/")
+            ),
+        ));
+    }
+    let mark_before = menu_mark(item.as_ax(), &mut budget)?;
+    perform_named_action(item.as_ax(), "AXPress", &mut budget)?;
+    // Re-resolve rather than trust the pressed element: a menu that
+    // rebuilt itself publishes fresh elements.
+    let mark_after = match resolve_menu_path(bar.as_ax(), path, &mut budget) {
+        Ok(again) => menu_mark(again.as_ax(), &mut budget)?,
+        Err(_) => None,
+    };
+    Ok(AccessibilityMenuReceipt {
+        mark_before,
+        mark_after,
+    })
+}
+
+/// The window-relative child-index path of `element`, found by walking
+/// `AXParent` up to `window` and locating each hop in its parent's
+/// `AXChildren` (`CFEqual`). `None` when `window` is not an ancestor.
+fn path_below_window(
+    window: AxUiElementRef,
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<String>, AccessibilityTreeError> {
+    let mut chain: Vec<CfOwned> = Vec::new();
+    let mut current = CfOwned::retain(element as CfTypeRef).ok_or_else(|| {
+        AccessibilityTreeError::failed("a11y_backend_failed", "focused element is null")
+    })?;
+    let mut hops = 0usize;
+    loop {
+        budget.check()?;
+        if unsafe { CFEqual(current.as_ptr(), window as CfTypeRef) } != 0 {
+            break;
+        }
+        hops += 1;
+        if hops > MAX_FOCUS_ANCESTORS {
+            return Ok(None);
+        }
+        let Some(parent) = copy_attribute(current.as_ax(), "AXParent", budget)? else {
+            return Ok(None);
+        };
+        chain.push(current);
+        current = parent;
+    }
+    // `current` is the window; `chain` holds element .. child-of-window.
+    let mut id = String::from("/0");
+    let mut parent = current;
+    for hop in chain.into_iter().rev() {
+        budget.check()?;
+        let children = copy_children(parent.as_ax(), budget)?;
+        let Some(index) = children
+            .iter()
+            .position(|child| unsafe { CFEqual(child.as_ptr(), hop.as_ptr()) } != 0)
+        else {
+            return Ok(None);
+        };
+        id.push('/');
+        id.push_str(&index.to_string());
+        parent = hop;
+    }
+    Ok(Some(id))
+}
+
+/// The application's own focused element (`AXFocusedUIElement`) as a node
+/// whose id is the child-index path below `window_handle`'s AX window —
+/// the same numbering `tree` uses — without requiring the application to
+/// be frontmost. No focused element is `a11y_focus_unavailable`; a focused
+/// element outside that window is `a11y_focus_outside_window`.
+pub(crate) fn focused_node_for_window(
+    window_handle: Option<isize>,
+) -> Result<AccessibilityNode, AccessibilityTreeError> {
+    require_trusted()?;
+    let handle = require_handle(window_handle, "focused read")?;
+    let mut budget = Budget::new(SNAPSHOT_TIMEOUT);
+    let window = ax_element_for_handle(handle, &mut budget)?;
+    let (app, pid) = application_for_handle(handle, &mut budget)?;
+    let Some(focused) = copy_attribute(app.as_ax(), "AXFocusedUIElement", &mut budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_focus_unavailable",
+            format!("pid {pid} publishes no AXFocusedUIElement"),
+        ));
+    };
+    let Some(id) = path_below_window(window.as_ax(), focused.as_ax(), &mut budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_focus_outside_window",
+            format!("pid {pid}'s focused element is not inside window {handle}"),
+        ));
+    };
+    let parent_id = id
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.to_owned())
+        .filter(|parent| !parent.is_empty());
+    read_node(focused.as_ax(), id, parent_id, &mut budget)
+}
 
 /// Perform one semantic action on the element at `node_id` (a child-index
 /// path from the window root, as `tree` numbers it). Resolution happens at
@@ -1495,6 +1804,11 @@ fn read_node(
         Some(false) => states.push("collapsed".to_owned()),
         None => {}
     }
+    // A menu item's check mark (`AXMenuItemMarkChar`) is its checked state;
+    // an unmarked item reports nothing, since most items are never markable.
+    if role == "menu-item" && menu_mark(element, budget)?.is_some() {
+        states.push("checked".to_owned());
+    }
     let actions = read_actions(element, budget)?;
 
     Ok(AccessibilityNode {
@@ -1702,8 +2016,11 @@ fn read_states(
     bounds: &AccessibilityBounds,
 ) -> Result<Vec<String>, AccessibilityTreeError> {
     let mut states = Vec::new();
-    if attribute_bool(element, "AXEnabled", budget)?.unwrap_or(true) {
-        states.push("enabled".to_owned());
+    // Both directions, like the two-way control states: `disabled` is a
+    // read `false`, its absence means AXEnabled was not published.
+    match attribute_bool(element, "AXEnabled", budget)? {
+        Some(false) => states.push("disabled".to_owned()),
+        _ => states.push("enabled".to_owned()),
     }
     // Presence of AXFocused means the element participates in focus; the
     // boolean value is the current focus state.

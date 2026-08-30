@@ -226,6 +226,78 @@ pub enum Command {
         action: InvokeAction,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<String>,
+        /// Address the application's own focused control (the node
+        /// `focused` reports) instead of naming one; `role` may narrow it.
+        /// PID, window and focused identity are bound in one observation
+        /// before the action.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        focused: bool,
+    },
+    /// Background menu-bar inventory of the application owning `window`
+    /// (macOS `AXMenuBar`, read without opening a menu or activating the
+    /// app). `depth` counts menu levels (0 = bar items only, 1 = their
+    /// items, default 1, at most 8); `max_nodes` bounds the walk
+    /// (1..=5000). `title` is a case-insensitive substring unless `exact`;
+    /// `enabled` filters on the item state. `offset` / `max` page the
+    /// items; the reply reports `visited / matched / returned / truncated`.
+    MenuInspect {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        exact: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+    },
+    /// Press the menu item at `path` (menu title, then item titles, exact)
+    /// in the background: every segment must resolve to exactly one
+    /// enabled item before anything is pressed, the last must be a leaf,
+    /// and the reply carries `verified` (tree diff / mark read-back).
+    MenuInvoke {
+        target: TargetRef,
+        window: isize,
+        path: Vec<String>,
+    },
+    /// The application's own focused control inside `window` (identity,
+    /// role, value preview), read without requiring the foreground. `role`
+    /// binds the expected role (mismatch is typed `unverified`);
+    /// `max_value_bytes` bounds the value preview (default 4096).
+    Focused {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_value_bytes: Option<usize>,
+    },
+    /// A bounded, filtered event stream over the same bounded tree for
+    /// `duration_ms`: the tree is polled every `interval_ms` and diffed
+    /// (ValueChanged / TitleChanged / StateChanged / FocusChanged /
+    /// Created / Destroyed), events carry a monotonic `seq` and `t_ms`,
+    /// and the stream stops at `max_events` with `truncated: true`.
+    Observe {
+        target: TargetRef,
+        window: isize,
+        duration_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        notifications: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
     },
     /// Read one tree and check every expectation against it. All met is
     /// `ok` with per-item results; a known mismatch is typed `unverified`;
@@ -540,6 +612,10 @@ impl Command {
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
+            Self::MenuInspect { .. } => "menu-inspect".into(),
+            Self::MenuInvoke { .. } => "menu-invoke".into(),
+            Self::Focused { .. } => "focused".into(),
+            Self::Observe { .. } => "observe".into(),
             Self::Verify { .. } => "verify".into(),
             Self::Screenshot { .. } => "screenshot".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
@@ -570,6 +646,10 @@ impl Command {
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
+            | Self::MenuInspect { target, .. }
+            | Self::MenuInvoke { target, .. }
+            | Self::Focused { target, .. }
+            | Self::Observe { target, .. }
             | Self::Verify { target, .. }
             | Self::Screenshot { target, .. }
             | Self::PointerMove { target, .. }
@@ -597,6 +677,7 @@ impl Command {
         match self {
             Self::PointerMove { .. }
             | Self::Invoke { .. }
+            | Self::MenuInvoke { .. }
             | Self::Click { .. }
             | Self::Focus { .. }
             | Self::SendText { .. }
@@ -798,6 +879,7 @@ mod tests {
             role: Some("AXCheckBox".into()),
             action: InvokeAction::SetChecked,
             value: Some("true".into()),
+            focused: false,
         };
         assert_eq!(invoke.verb(), "invoke");
         assert_eq!(invoke.required_grant(), Grant::Actuate);
@@ -849,6 +931,70 @@ mod tests {
                 "expect": [{ "identifier": "fixture-check", "checked": true }]
             })
         );
+    }
+
+    #[test]
+    fn background_verbs_have_grants_and_closed_wire_shapes() {
+        let inspect = Command::MenuInspect {
+            target: TargetRef::Current,
+            window: 7,
+            depth: Some(2),
+            max_nodes: None,
+            title: Some("Do".into()),
+            exact: false,
+            enabled: Some(true),
+            offset: None,
+            max: Some(20),
+        };
+        assert_eq!(inspect.verb(), "menu-inspect");
+        assert_eq!(inspect.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&inspect).expect("serialize"),
+            serde_json::json!({
+                "verb": "menu-inspect", "target": "current", "window": 7,
+                "depth": 2, "title": "Do", "enabled": true, "max": 20
+            })
+        );
+        let invoke = Command::MenuInvoke {
+            target: TargetRef::Ssh,
+            window: 7,
+            path: vec!["File".into(), "Do Thing".into()],
+        };
+        assert_eq!(invoke.verb(), "menu-invoke");
+        assert_eq!(invoke.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&invoke).expect("serialize"),
+            serde_json::json!({
+                "verb": "menu-invoke", "target": "ssh", "window": 7,
+                "path": ["File", "Do Thing"]
+            })
+        );
+        let focused = Command::Focused {
+            target: TargetRef::Current,
+            window: 7,
+            role: Some("AXTextField".into()),
+            max_value_bytes: Some(0),
+        };
+        assert_eq!(focused.verb(), "focused");
+        assert_eq!(focused.required_grant(), Grant::Observe);
+        let observe: Command = serde_json::from_value(serde_json::json!({
+            "verb": "observe", "target": "current", "window": 7, "duration_ms": 1500,
+            "notifications": ["ValueChanged"], "max_events": 50
+        }))
+        .expect("deserialize");
+        assert!(matches!(
+            observe,
+            Command::Observe { window: 7, duration_ms: 1500, max_events: Some(50), ref notifications, .. }
+                if notifications == &["ValueChanged".to_owned()]
+        ));
+        assert_eq!(observe.required_grant(), Grant::Observe);
+        // A pre-1.14 invoke wire form still decodes with `focused` false.
+        let older: Command = serde_json::from_value(serde_json::json!({
+            "verb": "invoke", "target": "current", "window": 7,
+            "identifier": "fixture-press", "action": "press"
+        }))
+        .expect("deserialize");
+        assert!(matches!(older, Command::Invoke { focused: false, .. }));
     }
 
     #[test]

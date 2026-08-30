@@ -947,6 +947,17 @@ pub fn tree_for_window_bounded(
         let status = unsafe { f(handle, &mut count) };
         map_status("agt_a11y_tree_snapshot", status)?;
     }
+    read_snapshot(window, count, bounded_abi)
+}
+
+/// Read the thread-local snapshot the library just filled: metadata, then
+/// every node. `bounded_abi` selects the ABI 1.12 metadata and identifier
+/// reads.
+fn read_snapshot(
+    window: Option<isize>,
+    count: usize,
+    bounded_abi: bool,
+) -> Result<A11yTree, MechanismError> {
     let backend = read_meta_string(dynlib::AGT_A11Y_META_BACKEND)?;
     let root_id = read_meta_string(dynlib::AGT_A11Y_META_ROOT_ID)?;
     let (truncated, visited, returned) = if bounded_abi {
@@ -971,6 +982,112 @@ pub fn tree_for_window_bounded(
         visited,
         returned,
     })
+}
+
+/// Typed `Unsupported` unless the loaded library is ABI 1.14 or later.
+fn require_menu_focus_abi(what: &str) -> Result<(), MechanismError> {
+    let (major, minor) = loaded_abi_version()?;
+    if major == 1 && minor >= dynlib::MENU_FOCUS_ABI_MINOR {
+        return Ok(());
+    }
+    Err(MechanismError::Unsupported {
+        reason: format!(
+            "{what} requires ABI 1.{}, loaded library reports {major}.{minor}",
+            dynlib::MENU_FOCUS_ABI_MINOR
+        ),
+    })
+}
+
+fn abi_budget(budget: TreeBudget) -> (i32, u32) {
+    (
+        budget
+            .max_depth
+            .and_then(|depth| i32::try_from(depth).ok())
+            .unwrap_or(dynlib::AGT_A11Y_DEPTH_DEFAULT),
+        budget
+            .max_nodes
+            .and_then(|nodes| u32::try_from(nodes).ok())
+            .unwrap_or(dynlib::AGT_A11Y_NODES_DEFAULT),
+    )
+}
+
+/// Background menu-bar walk of the application owning `window` (ABI 1.14
+/// `agt_a11y_menu_snapshot`): the same node shape as `tree`, rooted at the
+/// menu bar. Never opens a menu or activates the application.
+pub fn menu_tree_for_window_bounded(
+    window: Option<isize>,
+    budget: TreeBudget,
+) -> Result<A11yTree, MechanismError> {
+    require_menu_focus_abi("menu inspect")?;
+    let handle = window.unwrap_or(0);
+    let (max_depth, max_nodes) = abi_budget(budget);
+    let mut count = 0usize;
+    let f = call_sym::<MenuSnapshot>(b"agt_a11y_menu_snapshot")?;
+    let status = unsafe { f(handle, max_depth, max_nodes, &mut count) };
+    map_status("agt_a11y_menu_snapshot", status)?;
+    read_snapshot(window, count, true)
+}
+
+/// What the library observed on a pressed menu item: its check mark before
+/// the press and after the path resolved again (`None` = unmarked).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MenuReceipt {
+    pub mark_before: Option<char>,
+    pub mark_after: Option<char>,
+}
+
+/// Press the menu item at `path` in the background (ABI 1.14
+/// `agt_a11y_menu_invoke`). Refusals (`a11y_menu_item_not_found` /
+/// `a11y_menu_item_ambiguous` / `a11y_menu_item_disabled` /
+/// `a11y_menu_item_not_leaf`) happen before anything is pressed.
+pub fn invoke_menu_path(
+    window: Option<isize>,
+    path: &[String],
+) -> Result<MenuReceipt, MechanismError> {
+    require_menu_focus_abi("menu invoke")?;
+    let handle = window.unwrap_or(0);
+    let mut payload = Vec::new();
+    for segment in path {
+        if segment.contains('\0') {
+            return Err(MechanismError::Failed {
+                code: "invalid_input".into(),
+                message: "a menu title cannot contain NUL".into(),
+            });
+        }
+        payload.extend_from_slice(segment.as_bytes());
+        payload.push(0);
+    }
+    let f = call_sym::<MenuInvoke>(b"agt_a11y_menu_invoke")?;
+    let mut before = 0u32;
+    let mut after = 0u32;
+    let status = unsafe {
+        f(
+            handle,
+            payload.as_ptr(),
+            payload.len(),
+            &mut before,
+            &mut after,
+        )
+    };
+    map_status("agt_a11y_menu_invoke", status)?;
+    let mark = |scalar: u32| (scalar != 0).then(|| char::from_u32(scalar)).flatten();
+    Ok(MenuReceipt {
+        mark_before: mark(before),
+        mark_after: mark(after),
+    })
+}
+
+/// The application's own focused control inside `window` as a one-node
+/// tree (ABI 1.14 `agt_a11y_focused_snapshot`); the node id is its path in
+/// the window tree, so `invoke --node` can address it.
+pub fn focused_node(window: Option<isize>) -> Result<A11yTree, MechanismError> {
+    require_menu_focus_abi("focused")?;
+    let handle = window.unwrap_or(0);
+    let mut count = 0usize;
+    let f = call_sym::<FocusedSnapshot>(b"agt_a11y_focused_snapshot")?;
+    let status = unsafe { f(handle, &mut count) };
+    map_status("agt_a11y_focused_snapshot", status)?;
+    read_snapshot(window, count, true)
 }
 
 fn read_meta_count(field: i32) -> Result<usize, MechanismError> {
@@ -1686,6 +1803,9 @@ type DrainBus = unsafe extern "C" fn() -> i32;
 type LastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type TreeSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type TreeSnapshotBounded = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
+type MenuSnapshot = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
+type MenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
+type FocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type MetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32;
 type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;

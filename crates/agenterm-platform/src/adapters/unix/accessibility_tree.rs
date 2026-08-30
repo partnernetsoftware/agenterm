@@ -5,8 +5,8 @@
 
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree,
-    AccessibilityTreeBudget, AccessibilityTreeError,
+    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
+    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
 };
 
 pub(crate) fn capability_status() -> CapabilityStatus {
@@ -19,6 +19,32 @@ pub(crate) fn tree_for_window(
     _window_handle: Option<isize>,
     _budget: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "accessibility-tree not wired on this unix host".into(),
+    })
+}
+
+pub(crate) fn menu_tree_for_window(
+    _window_handle: Option<isize>,
+    _budget: AccessibilityTreeBudget,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "accessibility-tree not wired on this unix host".into(),
+    })
+}
+
+pub(crate) fn invoke_menu_path(
+    _window_handle: Option<isize>,
+    _path: &[String],
+) -> Result<AccessibilityMenuReceipt, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "accessibility-tree not wired on this unix host".into(),
+    })
+}
+
+pub(crate) fn focused_node_for_window(
+    _window_handle: Option<isize>,
+) -> Result<AccessibilityNode, AccessibilityTreeError> {
     Err(AccessibilityTreeError::Unsupported {
         reason: "accessibility-tree not wired on this unix host".into(),
     })

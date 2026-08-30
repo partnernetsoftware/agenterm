@@ -88,6 +88,19 @@ agenterm-cu (28)
   `screen`, and whether quantized / clamped adjustment ran.
 - [ ] `wait` already owned by [29](PRD_02_29_cu_command_surface.md) is the
   only legal way to observe completion. Workflows must not sleep.
+- [ ] `frame` transaction leaf (absorbed as a shape from `moltbaby/skills/mcu`
+  `frame` / `maximize`, 2026-08-30; not started): `window-place --action
+  frame --window HANDLE --x X --y Y --width W --height H` would be one more
+  closed action id on this verb, not a new verb. Mapping onto the existing
+  apply pipeline: the requested rect replaces the geometry step (no
+  Spectacle cycle), then the same preflight (ABI 1.10 role / support /
+  constraint query), the same quantize-and-clamp, the same single AX
+  position+size write, the same independent bounds read-back and the same
+  grant / audit / receipt path; a partial apply restores the whole previous
+  frame before failing typed, and the reply is the `before` / `after` /
+  `screen` record every other action already returns. Undo history would
+  record it like any action. Nothing here needs new platform mechanism;
+  it is deferred only because no journey asks for an arbitrary frame yet.
 
 ## Geometry contract (must match Spectacle 1.2)
 

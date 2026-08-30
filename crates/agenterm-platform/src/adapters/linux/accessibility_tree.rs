@@ -25,8 +25,8 @@ use zbus::zvariant::OwnedObjectPath;
 
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
+    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
+    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
 };
 
 const MAX_NODES: usize = 1_000;
@@ -157,6 +157,35 @@ pub(crate) fn tree_for_window(
 /// Keep the shared a11y-bus connection pumping until the toolkit finishes
 /// emitting events from the last keystroke. Exiting immediately after XTest
 /// closes the socket under those events and Chrome's renderer tree dies.
+pub(crate) fn menu_tree_for_window(
+    _window_handle: Option<isize>,
+    _budget: AccessibilityTreeBudget,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "Linux AT-SPI2 background menu / focused-context mechanisms are not mapped yet"
+            .into(),
+    })
+}
+
+pub(crate) fn invoke_menu_path(
+    _window_handle: Option<isize>,
+    _path: &[String],
+) -> Result<AccessibilityMenuReceipt, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "Linux AT-SPI2 background menu / focused-context mechanisms are not mapped yet"
+            .into(),
+    })
+}
+
+pub(crate) fn focused_node_for_window(
+    _window_handle: Option<isize>,
+) -> Result<AccessibilityNode, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "Linux AT-SPI2 background menu / focused-context mechanisms are not mapped yet"
+            .into(),
+    })
+}
+
 pub(crate) fn drain_bus() {
     if cached_connection().is_none() {
         return;

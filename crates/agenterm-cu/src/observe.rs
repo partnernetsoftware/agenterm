@@ -358,6 +358,10 @@ pub struct TargetSpec {
     pub identifier: Option<String>,
     /// Either role spelling; showing nodes only when it stands alone.
     pub role: Option<String>,
+    /// The application's own focused control (resolved by the executor
+    /// through the platform, then bound by id / role / identifier in the
+    /// same tree read); only `role` may accompany it.
+    pub focused: bool,
 }
 
 impl TargetSpec {
@@ -368,6 +372,7 @@ impl TargetSpec {
             name: expectation.name.clone(),
             identifier: expectation.identifier.clone(),
             role: expectation.role.clone(),
+            focused: false,
         }
     }
 
@@ -379,6 +384,7 @@ impl TargetSpec {
             "name": self.name,
             "identifier": self.identifier,
             "role": self.role,
+            "focused": self.focused,
         })
     }
 
@@ -398,6 +404,9 @@ impl TargetSpec {
         }
         if let Some(role) = &self.role {
             parts.push(format!("role {role:?}"));
+        }
+        if self.focused {
+            parts.push("the focused control".to_owned());
         }
         parts.join(" and ")
     }
@@ -430,11 +439,17 @@ pub fn resolve_target<'a>(
     flat: &'a [FlatNode<'a>],
     spec: &TargetSpec,
 ) -> Result<&'a FlatNode<'a>, TargetError> {
+    if spec.focused {
+        return Err(TargetError::Invalid(
+            "--focused is resolved through the platform's focused control, not a tree search"
+                .to_owned(),
+        ));
+    }
     let searching = spec.name.is_some() || spec.identifier.is_some() || spec.role.is_some();
     let exact = spec.node.is_some() as u8 + spec.index.is_some() as u8;
     if exact == 0 && !searching {
         return Err(TargetError::Invalid(
-            "a target needs --node, --index, --name [--role], --identifier [--role] or --role"
+            "a target needs --node, --index, --name [--role], --identifier [--role], --role or --focused [--role]"
                 .to_owned(),
         ));
     }
@@ -644,6 +659,433 @@ pub fn numeric_text(node: &A11yNode) -> Option<f64> {
     node.text.as_deref()?.trim().parse().ok()
 }
 
+// ---------------------------------------------------------------------------
+// Background menus (`menu inspect` / `menu invoke`).
+// ---------------------------------------------------------------------------
+
+/// Deepest menu level a caller may name (0 = bar items only).
+pub const MAX_MENU_DEPTH: u32 = 8;
+/// Menu level when `--depth` is absent: the items of every top-level menu.
+pub const DEFAULT_MENU_DEPTH: u32 = 1;
+/// Largest menu walk budget a caller may name.
+pub const MAX_MENU_NODE_BUDGET: usize = 5_000;
+/// Menu walk budget when `--max-nodes` is absent.
+pub const DEFAULT_MENU_NODE_BUDGET: usize = 1_000;
+
+/// Typed `invalid_input` text for an out-of-range menu budget.
+pub fn validate_menu_budget(depth: Option<u32>, max_nodes: Option<usize>) -> Result<(), String> {
+    if let Some(depth) = depth
+        && depth > MAX_MENU_DEPTH
+    {
+        return Err(format!(
+            "--depth must be 0..={MAX_MENU_DEPTH} menu levels, got {depth}"
+        ));
+    }
+    if let Some(max_nodes) = max_nodes
+        && (max_nodes == 0 || max_nodes > MAX_MENU_NODE_BUDGET)
+    {
+        return Err(format!(
+            "--max-nodes must be 1..={MAX_MENU_NODE_BUDGET}, got {max_nodes}"
+        ));
+    }
+    Ok(())
+}
+
+/// The node depth of a menu level: the bar is node depth 0, a bar item 1,
+/// its `AXMenu` 2, an item 3, a submenu 4, its item 5, ... so menu level
+/// `n` (0 = bar items) is node depth `1 + 2n`.
+pub fn menu_node_depth(menu_depth: u32) -> u32 {
+    1 + 2 * menu_depth
+}
+
+fn is_menu_item_role(role: &str) -> bool {
+    matches!(normalize_role(role).as_str(), "menubaritem" | "menuitem")
+}
+
+fn is_menu_role(role: &str) -> bool {
+    normalize_role(role) == "menu"
+}
+
+/// One menu item as `menu inspect` lists it: its exact title path from the
+/// bar, its menu level (0 = a bar item), state and whether it opens a
+/// submenu. `id` is the node id in the menu walk (a separate id space
+/// from the window tree).
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct MenuItem {
+    pub index: usize,
+    pub id: String,
+    pub path: Vec<String>,
+    pub title: String,
+    pub depth: u32,
+    pub enabled: bool,
+    pub checked: bool,
+    pub has_submenu: bool,
+}
+
+/// Flatten a menu walk into items in walk order. `AXMenu` containers and
+/// the bar itself are structure, not items.
+pub fn menu_items(tree: &A11yTree) -> Vec<MenuItem> {
+    let by_id: std::collections::HashMap<&str, &A11yNode> = tree
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    let mut has_menu_child: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for node in &tree.nodes {
+        if is_menu_role(&node.role)
+            && let Some(parent) = node.parent_id.as_deref()
+        {
+            has_menu_child.insert(parent);
+        }
+    }
+    let mut items = Vec::new();
+    for node in &tree.nodes {
+        if !is_menu_item_role(&node.role) {
+            continue;
+        }
+        // Titles of the item ancestors (skipping menus), nearest last.
+        let mut path = vec![node.name.clone()];
+        let mut depth = 0u32;
+        let mut cursor = node.parent_id.as_deref();
+        while let Some(parent_id) = cursor {
+            let Some(parent) = by_id.get(parent_id) else {
+                break;
+            };
+            if is_menu_item_role(&parent.role) {
+                path.push(parent.name.clone());
+                depth += 1;
+            }
+            cursor = parent.parent_id.as_deref();
+        }
+        path.reverse();
+        items.push(MenuItem {
+            index: items.len(),
+            id: node.id.clone(),
+            path,
+            title: node.name.clone(),
+            depth,
+            enabled: !has_state(node, "disabled"),
+            checked: has_state(node, "checked"),
+            has_submenu: has_menu_child.contains(node.id.as_str()),
+        });
+    }
+    items
+}
+
+/// The filter half of `menu inspect`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MenuFilter {
+    /// Case-insensitive substring of the title, or the exact title.
+    pub title: Option<String>,
+    pub exact: bool,
+    pub enabled: Option<bool>,
+}
+
+impl MenuFilter {
+    pub fn matches(&self, item: &MenuItem) -> bool {
+        if let Some(title) = &self.title {
+            let hit = if self.exact {
+                &item.title == title
+            } else {
+                item.title
+                    .to_lowercase()
+                    .contains(title.to_lowercase().as_str())
+            };
+            if !hit {
+                return false;
+            }
+        }
+        if self.enabled.is_some_and(|enabled| enabled != item.enabled) {
+            return false;
+        }
+        true
+    }
+}
+
+/// Filter and page menu items.
+pub fn menu_query<'a>(
+    items: &'a [MenuItem],
+    filter: &MenuFilter,
+    page: Page,
+    scan_truncated: bool,
+) -> (Vec<&'a MenuItem>, ListCounts) {
+    let matched: Vec<&MenuItem> = items.iter().filter(|item| filter.matches(item)).collect();
+    let (returned, page_truncated) = page.apply(&matched);
+    let counts = ListCounts {
+        visited: items.len(),
+        matched: matched.len(),
+        returned: returned.len(),
+        offset: page.offset,
+        truncated: scan_truncated || page_truncated,
+        scan_truncated,
+        page_truncated,
+    };
+    (returned.to_vec(), counts)
+}
+
+/// Parse `--path`: a JSON array of titles (`["File","Save…"]`) when it
+/// starts with `[`, otherwise `/`-separated titles. At least a menu and
+/// one item, none empty.
+pub fn parse_menu_path(raw: &str) -> Result<Vec<String>, String> {
+    let segments: Vec<String> = if raw.trim_start().starts_with('[') {
+        serde_json::from_str(raw)
+            .map_err(|error| format!("--path JSON must be an array of titles: {error}"))?
+    } else {
+        raw.split('/').map(str::to_owned).collect()
+    };
+    if segments.len() < 2 {
+        return Err(
+            "--path needs a menu title and at least one item title (File/Save or [\"File\",\"Save\"])"
+                .to_owned(),
+        );
+    }
+    if segments.iter().any(|segment| segment.is_empty()) {
+        return Err("--path has an empty title segment".to_owned());
+    }
+    Ok(segments)
+}
+
+// ---------------------------------------------------------------------------
+// Observation stream (`observe`): poll-diff over two bounded walks.
+// ---------------------------------------------------------------------------
+
+/// Longest observation window.
+pub const MAX_OBSERVE_DURATION_MS: u64 = 120_000;
+/// Most events one `observe` may emit.
+pub const MAX_OBSERVE_EVENTS: usize = 5_000;
+/// Events emitted when `--max-events` is absent.
+pub const DEFAULT_OBSERVE_EVENTS: usize = 200;
+/// Shortest and default poll interval.
+pub const MIN_OBSERVE_INTERVAL_MS: u64 = 20;
+pub const DEFAULT_OBSERVE_INTERVAL_MS: u64 = 50;
+/// The notification vocabulary, in the spelling the reply uses.
+pub const OBSERVE_NOTIFICATIONS: [&str; 6] = [
+    "ValueChanged",
+    "TitleChanged",
+    "StateChanged",
+    "FocusChanged",
+    "Created",
+    "Destroyed",
+];
+
+/// Typed `invalid_input` text for out-of-range observe bounds.
+pub fn validate_observe(
+    duration_ms: u64,
+    max_events: Option<usize>,
+    interval_ms: Option<u64>,
+) -> Result<(), String> {
+    if duration_ms == 0 || duration_ms > MAX_OBSERVE_DURATION_MS {
+        return Err(format!(
+            "--duration must be within 1..={MAX_OBSERVE_DURATION_MS} ms, got {duration_ms} ms"
+        ));
+    }
+    if let Some(max_events) = max_events
+        && (max_events == 0 || max_events > MAX_OBSERVE_EVENTS)
+    {
+        return Err(format!(
+            "--max-events must be 1..={MAX_OBSERVE_EVENTS}, got {max_events}"
+        ));
+    }
+    if let Some(interval_ms) = interval_ms
+        && (interval_ms < MIN_OBSERVE_INTERVAL_MS || interval_ms > duration_ms)
+    {
+        return Err(format!(
+            "--interval-ms must be {MIN_OBSERVE_INTERVAL_MS}..=duration, got {interval_ms}"
+        ));
+    }
+    Ok(())
+}
+
+/// Parse `--notification A,B`: each name matches the vocabulary case-
+/// insensitively, with an `AX` prefix and the AX spellings
+/// (`AXFocusedUIElementChanged`, `AXUIElementDestroyed`) accepted.
+pub fn parse_notifications(raw: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for item in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        let key = normalize_role(item);
+        let hit = match key.as_str() {
+            "focuseduielementchanged" | "focused" => Some("FocusChanged"),
+            "uielementdestroyed" => Some("Destroyed"),
+            _ => OBSERVE_NOTIFICATIONS
+                .iter()
+                .copied()
+                .find(|name| normalize_role(name) == key),
+        };
+        match hit {
+            Some(name) if !out.iter().any(|have| have == name) => out.push(name.to_owned()),
+            Some(_) => {}
+            None => {
+                return Err(format!(
+                    "unknown notification {item:?}; expected one of {}",
+                    OBSERVE_NOTIFICATIONS.join(", ")
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// One observed change between two walks of the same window.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct ObserveEvent {
+    pub notification: &'static str,
+    pub node: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<&'static str>,
+    pub before: serde_json::Value,
+    pub after: serde_json::Value,
+}
+
+fn event_node(node: &A11yNode) -> serde_json::Value {
+    serde_json::json!({
+        "id": node.id,
+        "role": node.role,
+        "name": node.name,
+        "identifier": node.identifier,
+    })
+}
+
+fn states_without_focus(node: &A11yNode) -> Vec<&str> {
+    node.states
+        .iter()
+        .map(String::as_str)
+        .filter(|state| {
+            !state.eq_ignore_ascii_case("focused") && !state.eq_ignore_ascii_case("focusable")
+        })
+        .collect()
+}
+
+/// Every semantic difference between `before` and `after`, in `before`
+/// walk order for nodes present in both or gone, then `after` walk order
+/// for new nodes. Bounds are ignored (layout is not a semantic change).
+pub fn diff_events(before: &A11yTree, after: &A11yTree) -> Vec<ObserveEvent> {
+    let after_by_id: std::collections::HashMap<&str, &A11yNode> = after
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    let before_ids: std::collections::HashSet<&str> =
+        before.nodes.iter().map(|node| node.id.as_str()).collect();
+    let mut events = Vec::new();
+    for was in &before.nodes {
+        let Some(now) = after_by_id.get(was.id.as_str()) else {
+            events.push(ObserveEvent {
+                notification: "Destroyed",
+                node: event_node(was),
+                field: None,
+                before: node_state_json(was),
+                after: serde_json::Value::Null,
+            });
+            continue;
+        };
+        if was.role != now.role {
+            // A different control now sits at this path: report it as a
+            // replacement rather than a value change of the old one.
+            events.push(ObserveEvent {
+                notification: "Destroyed",
+                node: event_node(was),
+                field: None,
+                before: node_state_json(was),
+                after: serde_json::Value::Null,
+            });
+            events.push(ObserveEvent {
+                notification: "Created",
+                node: event_node(now),
+                field: None,
+                before: serde_json::Value::Null,
+                after: node_state_json(now),
+            });
+            continue;
+        }
+        if was.text != now.text {
+            events.push(ObserveEvent {
+                notification: "ValueChanged",
+                node: event_node(now),
+                field: Some("text"),
+                before: serde_json::json!(was.text),
+                after: serde_json::json!(now.text),
+            });
+        }
+        if was.name != now.name {
+            events.push(ObserveEvent {
+                notification: "TitleChanged",
+                node: event_node(now),
+                field: Some("name"),
+                before: serde_json::json!(was.name),
+                after: serde_json::json!(now.name),
+            });
+        }
+        if focused_state(was) != focused_state(now) {
+            events.push(ObserveEvent {
+                notification: "FocusChanged",
+                node: event_node(now),
+                field: Some("focused"),
+                before: focused_state(was).json(),
+                after: focused_state(now).json(),
+            });
+        }
+        if states_without_focus(was) != states_without_focus(now) {
+            events.push(ObserveEvent {
+                notification: "StateChanged",
+                node: event_node(now),
+                field: Some("states"),
+                before: serde_json::json!(states_without_focus(was)),
+                after: serde_json::json!(states_without_focus(now)),
+            });
+        }
+    }
+    for now in &after.nodes {
+        if !before_ids.contains(now.id.as_str()) {
+            events.push(ObserveEvent {
+                notification: "Created",
+                node: event_node(now),
+                field: None,
+                before: serde_json::Value::Null,
+                after: node_state_json(now),
+            });
+        }
+    }
+    events
+}
+
+// ---------------------------------------------------------------------------
+// Value previews (`focused --max-value-bytes`).
+// ---------------------------------------------------------------------------
+
+/// Preview bytes when `--max-value-bytes` is absent.
+pub const DEFAULT_MAX_VALUE_BYTES: usize = 4_096;
+/// Largest preview a caller may name.
+pub const MAX_VALUE_BYTES_CEILING: usize = 1_048_576;
+
+/// Typed `invalid_input` text for an out-of-range preview bound.
+pub fn validate_max_value_bytes(max_value_bytes: Option<usize>) -> Result<(), String> {
+    if let Some(bytes) = max_value_bytes
+        && bytes > MAX_VALUE_BYTES_CEILING
+    {
+        return Err(format!(
+            "--max-value-bytes must be 0..={MAX_VALUE_BYTES_CEILING}, got {bytes}"
+        ));
+    }
+    Ok(())
+}
+
+/// The first `max_bytes` of `text` at a char boundary, and whether it was
+/// cut. `0` keeps only the byte count (empty preview, cut when non-empty).
+pub fn preview_value(text: &str, max_bytes: usize) -> (String, bool) {
+    if text.len() <= max_bytes {
+        return (text.to_owned(), false);
+    }
+    let mut cut = max_bytes;
+    while !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    (text[..cut].to_owned(), true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -745,6 +1187,187 @@ mod tests {
             resolve_target(&flat, &mixed),
             Err(TargetError::Invalid(_))
         ));
+    }
+
+    fn menu_node(
+        id: &str,
+        parent: Option<&str>,
+        role: &str,
+        name: &str,
+        states: &[&str],
+    ) -> A11yNode {
+        let mut node = node(id, role, name, &["click"]);
+        node.parent_id = parent.map(str::to_owned);
+        node.states = states.iter().map(|state| (*state).to_owned()).collect();
+        node
+    }
+
+    #[test]
+    fn menu_items_carry_paths_levels_states_and_submenus() {
+        let t = tree(
+            vec![
+                menu_node("/0", None, "menu-bar", "", &["enabled"]),
+                menu_node("/0/0", Some("/0"), "menu-bar-item", "File", &["enabled"]),
+                menu_node("/0/0/0", Some("/0/0"), "menu", "File", &["enabled"]),
+                menu_node(
+                    "/0/0/0/0",
+                    Some("/0/0/0"),
+                    "menu-item",
+                    "Do Thing",
+                    &["enabled"],
+                ),
+                menu_node(
+                    "/0/0/0/1",
+                    Some("/0/0/0"),
+                    "menu-item",
+                    "Disabled Thing",
+                    &["disabled"],
+                ),
+                menu_node(
+                    "/0/0/0/2",
+                    Some("/0/0/0"),
+                    "menu-item",
+                    "More",
+                    &["enabled"],
+                ),
+                menu_node("/0/0/0/2/0", Some("/0/0/0/2"), "menu", "More", &["enabled"]),
+                menu_node(
+                    "/0/0/0/2/0/0",
+                    Some("/0/0/0/2/0"),
+                    "menu-item",
+                    "Deeper",
+                    &["enabled", "checked"],
+                ),
+            ],
+            true,
+        );
+        let items = menu_items(&t);
+        let paths: Vec<String> = items.iter().map(|item| item.path.join("/")).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "File",
+                "File/Do Thing",
+                "File/Disabled Thing",
+                "File/More",
+                "File/More/Deeper"
+            ]
+        );
+        assert_eq!(items[0].depth, 0);
+        assert!(items[0].has_submenu);
+        assert_eq!(items[1].depth, 1);
+        assert!(!items[1].has_submenu && items[1].enabled && !items[1].checked);
+        assert!(!items[2].enabled);
+        assert!(items[3].has_submenu);
+        assert_eq!(items[4].depth, 2);
+        assert!(items[4].checked);
+        assert_eq!(menu_node_depth(0), 1);
+        assert_eq!(menu_node_depth(2), 5);
+
+        let exact = MenuFilter {
+            title: Some("Do Thing".into()),
+            exact: true,
+            enabled: None,
+        };
+        let (hits, counts) = menu_query(&items, &exact, Page::new(None, None).unwrap(), true);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "/0/0/0/0");
+        assert!(counts.truncated && counts.scan_truncated && !counts.page_truncated);
+        let disabled = MenuFilter {
+            title: Some("thing".into()),
+            exact: false,
+            enabled: Some(false),
+        };
+        let (hits, counts) =
+            menu_query(&items, &disabled, Page::new(None, Some(1)).unwrap(), false);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].title, "Disabled Thing");
+        assert_eq!((counts.visited, counts.matched, counts.returned), (5, 1, 1));
+        assert!(!counts.truncated);
+
+        assert_eq!(
+            parse_menu_path("File/Do Thing").unwrap(),
+            vec!["File", "Do Thing"]
+        );
+        assert_eq!(
+            parse_menu_path(r#"["File","Open Quickly…"]"#).unwrap(),
+            vec!["File", "Open Quickly…"]
+        );
+        assert!(parse_menu_path("File").is_err());
+        assert!(parse_menu_path("File//X").is_err());
+        assert!(validate_menu_budget(Some(9), None).is_err());
+        assert!(validate_menu_budget(None, Some(0)).is_err());
+        assert!(validate_menu_budget(Some(8), Some(5000)).is_ok());
+    }
+
+    #[test]
+    fn observe_diff_names_every_change_and_filters_parse() {
+        let mut field = showing(node("/0/1", "text-field", "", &[]), &["focusable"]);
+        field.text = Some("seed".into());
+        let label = showing(node("/0/2", "static-text", "menu idle", &[]), &[]);
+        let gone = showing(node("/0/3", "button", "Gone", &["click"]), &[]);
+        let before = tree(
+            vec![
+                node("/0", "window", "w", &[]),
+                field.clone(),
+                label.clone(),
+                gone,
+            ],
+            false,
+        );
+
+        let mut field_after = field.clone();
+        field_after.text = Some("written".into());
+        field_after.states.push("focused".into());
+        let mut label_after = label.clone();
+        label_after.name = "did thing 1".into();
+        let mut checked = showing(node("/0/4", "check-box", "New", &["click"]), &["checked"]);
+        checked.identifier = Some("new-box".into());
+        let after = tree(
+            vec![
+                node("/0", "window", "w", &[]),
+                field_after,
+                label_after,
+                checked,
+            ],
+            false,
+        );
+        let events = diff_events(&before, &after);
+        let kinds: Vec<(&str, &str)> = events
+            .iter()
+            .map(|event| (event.notification, event.node["id"].as_str().unwrap_or("")))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("ValueChanged", "/0/1"),
+                ("FocusChanged", "/0/1"),
+                ("TitleChanged", "/0/2"),
+                ("Destroyed", "/0/3"),
+                ("Created", "/0/4"),
+            ]
+        );
+        assert_eq!(events[0].before, serde_json::json!("seed"));
+        assert_eq!(events[0].after, serde_json::json!("written"));
+        assert_eq!(events[1].before, serde_json::json!(false));
+        assert_eq!(events[1].after, serde_json::json!(true));
+        assert!(diff_events(&after, &after).is_empty());
+
+        assert_eq!(
+            parse_notifications("valuechanged, AXFocusedUIElementChanged,ValueChanged").unwrap(),
+            vec!["ValueChanged", "FocusChanged"]
+        );
+        assert!(parse_notifications("Moved").is_err());
+        assert!(validate_observe(0, None, None).is_err());
+        assert!(validate_observe(1000, Some(0), None).is_err());
+        assert!(validate_observe(1000, None, Some(5)).is_err());
+        assert!(validate_observe(1000, Some(50), Some(100)).is_ok());
+
+        assert_eq!(preview_value("héllo", 2), ("h".to_owned(), true));
+        assert_eq!(preview_value("héllo", 3), ("hé".to_owned(), true));
+        assert_eq!(preview_value("héllo", 0), (String::new(), true));
+        assert_eq!(preview_value("", 0), (String::new(), false));
+        assert_eq!(preview_value("abc", 3), ("abc".to_owned(), false));
     }
 
     #[test]

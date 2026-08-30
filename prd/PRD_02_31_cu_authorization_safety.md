@@ -48,10 +48,16 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   the journey reads `windows --focused true` before the actuation section
   (set-value, set-checked, press, increment, decrement, select-option and
   every refusal) and after it, requiring the same focused window handle
-  and never the fixture's. Not proven here: keyboard focus and pointer
-  position (the journey does not read them; macOS has no
-  `pointer-position` yet), `focus` itself (mapped to `AXFocused`, not in
-  the journey), Linux / Windows, and remote tiers.
+  and never the fixture's. Cut 3.51 (slice 3, 2026-08-30) extends the same
+  proof to `menu invoke` (a background `AXPress` on the application's menu
+  bar; the focused window handle is read before and after the menu STEP),
+  to `focus` / `invoke --focused` (the STEP "focus moves the first
+  responder to the text field ..." moves focus *inside* the fixture only —
+  `focused` reads it back — while the user's focused window stays the
+  same) and to the observation STEP. Not proven here: keyboard focus of
+  the user's application and pointer position (the journey does not read
+  them; macOS has no `pointer-position` yet), Linux / Windows, and remote
+  tiers.
 - [x] refusals use one typed vocabulary across every tier: `unsupported`
   (backend lacks the capability), `degraded` (a weaker path was used and says
   so), `denied` (authorization or OS permission), `needs-privilege` (an
@@ -65,7 +71,14 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `ambiguous` (with `count`) for two showing matches; `a11y_node_not_found`
   for none; `unverified` for a `verify` mismatch; `timeout` (carrying the
   last observation) for `wait --expect`; `usage` / `invalid_input` for a
-  malformed action or value. `denied` for a missing Accessibility
+  malformed action or value. Cut 3.51 adds the background vocabulary, all
+  journey-proven: `a11y_menu_item_not_found` / `a11y_menu_item_ambiguous`
+  / `a11y_menu_item_disabled` / `a11y_menu_item_not_leaf` (every one
+  refused before anything is pressed), `refused` for `menu invoke` under
+  an observe-only grant, `unverified` for a `focused` / `invoke --focused`
+  role binding the focused control does not meet, `usage` for `--focused`
+  mixed with another selector or an unknown `observe` notification, and
+  `invalid_input` for an out-of-range menu depth. `denied` for a missing Accessibility
   permission is pure-tested (cut 3.49), not live; `degraded` and
   `needs-privilege` are not exercised by this journey (no coordinate path
   and no elevation exists on the macOS actuation path); Linux / Windows /
@@ -82,10 +95,14 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `node` id / role / name / identifier / index, `action`, `value`,
   `performed`, `before` / `after` node state); a mechanism failure returns
   the receipt in `error.detail.receipt` (the `select-option Omega` case).
-  The receipt survives the process only as the command's JSON stdout and
-  the existing actuate audit record — a crash-persistent effect receipt
-  written before the action is not built. `click` / `focus` / `send-text`
-  and the older verbs still answer without `verified`.
+  Cut 3.51: `menu invoke` answers the same way (`verified` by mark
+  read-back or a whole-window tree diff, `mark_before` / `mark_after`,
+  `no_observable_change` when neither moved) and `invoke --focused`
+  carries the focused identity it bound in `target` / `node`. The receipt
+  survives the process only as the command's JSON stdout and the existing
+  actuate audit record — a crash-persistent effect receipt written before
+  the action is not built. `click` / `focus` / `send-text` and the older
+  verbs still answer without `verified`.
 - [ ] a destructive action (close, quit, delete, overwrite) requires an exact
   target reference, a prior snapshot of the state it changes and a checkable
   postcondition; without all three it is refused typed. `invoke` offers no

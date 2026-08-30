@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 13
+#define AGT_ABI_MINOR 14
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -497,6 +497,45 @@ agt_status agt_a11y_node_perform(intptr_t window_handle, const char* node_id,
 agt_status agt_a11y_node_invoke(intptr_t window_handle, const char* node_id,
                                   agt_a11y_action_kind action, const uint8_t* value,
                                   size_t value_len);
+
+/* ABI 1.14: capture the menu bar of the application owning `window_handle`
+ * (macOS AXMenuBar -> AXMenuBarItem -> AXMenu -> AXMenuItem) under the same
+ * budget sentinels as agt_a11y_tree_snapshot_bounded, WITHOUT opening a menu
+ * on screen or activating the application. The snapshot replaces the
+ * thread-local one and is read through agt_a11y_tree_node /
+ * agt_a11y_node_string / agt_a11y_tree_meta_string; ids are rooted at the
+ * menu bar ("/0"), a separate id space from the window tree. A menu item's
+ * states carry "enabled" / "disabled" and "checked" when it shows a mark.
+ * window_handle 0 -> AGT_FAILED{code="invalid_input"}; an application without
+ * a menu bar -> "a11y_menu_unavailable"; hosts without the mechanism ->
+ * AGT_UNSUPPORTED. */
+agt_status agt_a11y_menu_snapshot(intptr_t window_handle, int32_t max_depth,
+                                  uint32_t max_nodes, size_t* out_node_count);
+
+/* ABI 1.14: press one menu item in the background. `path` is `path_len` bytes
+ * of UTF-8 holding NUL-terminated segments ("File\0Save\0"): the menu bar
+ * item title, then item titles, each matched exactly. path == NULL with
+ * path_len > 0 -> "bad_pointer"; non-UTF-8 -> "bad_encoding"; fewer than two
+ * segments or an empty one -> "invalid_input" (pressing a bare menu bar item
+ * would open it on screen). Every segment must resolve to exactly one enabled
+ * item BEFORE anything is pressed ("a11y_menu_item_not_found" /
+ * "a11y_menu_item_ambiguous" / "a11y_menu_item_disabled") and the last must
+ * be a leaf ("a11y_menu_item_not_leaf"). *out_mark_before / *out_mark_after
+ * (either may be NULL) receive the item's check mark as a Unicode scalar, 0
+ * when unmarked, read before the press and after the path resolved again.
+ * Never activates the application. */
+agt_status agt_a11y_menu_invoke(intptr_t window_handle, const uint8_t* path,
+                                size_t path_len, uint32_t* out_mark_before,
+                                uint32_t* out_mark_after);
+
+/* ABI 1.14: capture the application's OWN focused control (macOS
+ * AXFocusedUIElement) as a one-node snapshot whose id is the control's
+ * child-index path below `window_handle`'s window - the same numbering
+ * agt_a11y_tree_snapshot uses - without requiring the application to be
+ * frontmost. *out_node_count is 1 on success. No focused element ->
+ * AGT_FAILED{code="a11y_focus_unavailable"}; one outside that window ->
+ * "a11y_focus_outside_window"; window_handle 0 -> "invalid_input". */
+agt_status agt_a11y_focused_snapshot(intptr_t window_handle, size_t* out_node_count);
 
 /* Write UTF-8 text through the host accessibility text interface
  * (Linux: AT-SPI EditableText SetTextContents / InsertText). `node_id`

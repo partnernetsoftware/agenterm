@@ -1,9 +1,9 @@
 //! Accessibility / control-tree facade.
 
 pub use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityNode, AccessibilityNodeAction, AccessibilitySelection,
-    AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError, MAX_TREE_DEPTH_BUDGET,
-    MAX_TREE_NODE_BUDGET,
+    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
+    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
+    MAX_TREE_DEPTH_BUDGET, MAX_TREE_NODE_BUDGET,
 };
 
 /// `Available` when the host stack can be walked now. A stack that exists but
@@ -39,6 +39,45 @@ pub fn perform_node_action(
     action: AccessibilityNodeAction,
 ) -> Result<(), AccessibilityTreeError> {
     crate::selected::accessibility_tree::perform_node_action(window_handle, node_id, action)
+}
+
+/// Walk the menu bar of the application owning `window_handle` under
+/// `budget` (macOS: `AXMenuBar` → `AXMenuBarItem` → `AXMenu` → `AXMenuItem`)
+/// without opening a menu on screen or activating the application. Node
+/// ids are rooted at the menu bar (`/0`), a separate id space from the
+/// window tree. Hosts without a background menu mechanism answer typed
+/// `Unsupported`.
+pub fn menu_tree_for_window(
+    window_handle: Option<isize>,
+    budget: AccessibilityTreeBudget,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    budget.validate()?;
+    crate::selected::accessibility_tree::menu_tree_for_window(window_handle, budget)
+}
+
+/// Press the menu item at `path` (menu title, then item titles, exact) in
+/// the application owning `window_handle`, in the background. Every
+/// segment must resolve to exactly one enabled item before anything is
+/// pressed (`a11y_menu_item_not_found` / `a11y_menu_item_ambiguous` /
+/// `a11y_menu_item_disabled`), the last one must be a leaf
+/// (`a11y_menu_item_not_leaf`), and a one-segment path is `invalid_input`
+/// because pressing a bare menu bar item would open it on screen.
+pub fn invoke_menu_path(
+    window_handle: Option<isize>,
+    path: &[String],
+) -> Result<AccessibilityMenuReceipt, AccessibilityTreeError> {
+    crate::selected::accessibility_tree::invoke_menu_path(window_handle, path)
+}
+
+/// The application's own focused control (macOS: `AXFocusedUIElement`) as
+/// a node whose id is its child-index path below `window_handle`'s window,
+/// read without requiring the application to be frontmost. No focused
+/// element is `a11y_focus_unavailable`; one outside that window is
+/// `a11y_focus_outside_window`.
+pub fn focused_node_for_window(
+    window_handle: Option<isize>,
+) -> Result<AccessibilityNode, AccessibilityTreeError> {
+    crate::selected::accessibility_tree::focused_node_for_window(window_handle)
 }
 
 /// Write `text` through the host accessibility text interface (Linux:

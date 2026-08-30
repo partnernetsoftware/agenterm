@@ -153,10 +153,89 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   "invoke press advances the count label; wait --expect and verify read it
   on another node" (`wait --expect` met and `timeout` with the last
   observed value).
-- [ ] second batch: `focused --window HANDLE` (App-local focused control,
-  read and targeted write, never requiring the foreground), `observe` (a
-  bounded, filtered event stream over the same tree), and `menu inspect /
-  invoke` for a background application's menu bar (macOS first).
+- [x] second batch (slice 3 of `plan/design-mcu-absorption.md`, 2026-08-30,
+  macOS `current` live; Linux / Windows answer typed `unsupported` from the
+  platform, compile-checked only):
+  - `menu inspect --window HANDLE [--depth N] [--max-nodes N] [--title T
+    [--exact]] [--enabled true|false] [--offset N] [--max N]` reads the
+    application's menu bar in the background through the a11y contract
+    (ABI 1.14 `agt_a11y_menu_snapshot`: macOS `AXMenuBar` → `AXMenuBarItem`
+    → `AXMenu` → `AXMenuItem`) without opening a menu on screen or
+    activating the app. `--depth` counts menu levels (0 = bar items only,
+    default 1, at most 8) and `--max-nodes` (1..5000, default 1000) bounds
+    the walk *during* traversal; items carry the exact title `path`, `depth`,
+    `enabled` / `checked` (mark) / `has_submenu` (as far as the walk
+    reached), and the reply carries `nodes_visited / visited / matched /
+    returned / truncated` with `scan_truncated` / `page_truncated` split out.
+    The CLI shape is closed. Evidence: `cu-macos-smoke` STEP "menu inspect
+    reads the background menu bar and finds File/Do Thing without opening
+    it" (`cu.macos-ax-menu-inspect`: `File/Do Thing` enabled at depth 1,
+    `File/Disabled Thing` disabled, two `File/Twin Thing`, `File/More`
+    with a submenu, `File/More/Deeper Thing` at depth 2, `--title
+    "Do Thing" --exact`, `--enabled false`, `--depth 0 --max-nodes 3`
+    truncated, `--depth 9` `invalid_input`, unknown flag `usage`).
+  - `menu invoke --window HANDLE --path 'Menu/Item' | '["Menu","Item"]'`
+    (Actuate grant) presses the exact item by title path (ABI 1.14
+    `agt_a11y_menu_invoke`): the platform resolves every segment to exactly
+    one *enabled* item before pressing anything — `a11y_menu_item_not_found`
+    / `a11y_menu_item_ambiguous` / `a11y_menu_item_disabled` — the last must
+    be a leaf (`a11y_menu_item_not_leaf`), and a bare menu is `usage` /
+    `invalid_input` because pressing it would open it on screen. The reply
+    carries `verified` (mark read-back when the mark changed, otherwise a
+    whole-window tree diff; `no_observable_change` when neither moved) and
+    `mark_before` / `mark_after`. Evidence: `cu-macos-smoke` STEP "menu
+    invoke presses File/Do Thing in the background; the label changes and
+    the focused window does not" (`cu.macos-ax-menu-invoke`: `File/Do
+    Thing` sets `fixture-menu-label` to `did thing 1` read by `verify`,
+    `["File","More","Deeper Thing"]` to `deeper thing`, the five refusals
+    above plus `--grant observe` → `refused`, the label unchanged after
+    them, and the focused window handle the same before and after and
+    never the fixture).
+  - `focused --window HANDLE [--role ROLE] [--max-value-bytes N]` returns
+    the application's own focused control (ABI 1.14
+    `agt_a11y_focused_snapshot`: macOS `AXFocusedUIElement`, read without
+    requiring the foreground) as a node whose `id` is its path in the same
+    window tree `query` numbers, with role / name / identifier / states /
+    `focused`, a value preview bounded by `--max-value-bytes` (default
+    4096; `0` keeps only `value_bytes`) and `value_truncated`. `--role`
+    binds the expected role: a mismatch is typed `unverified` carrying the
+    observed control, never a guess. No focused element is
+    `a11y_focus_unavailable`; one outside the window is
+    `a11y_focus_outside_window`. `invoke --window HANDLE --focused [--role
+    ROLE] <action>` writes to that control only after binding PID + window
+    + focused identity (id, role, identifier) in the same tree read
+    (`a11y_node_recycled` when the identity moved between reads; `--focused`
+    with another selector is `usage`). Evidence: `cu-macos-smoke` STEP
+    "focus moves the first responder to the text field and focused / invoke
+    --focused bind it" (`cu.macos-ax-focused`: the fixture's initial focus is
+    the `AXTextArea`, `focus --node` moves it to the `AXTextField`, `focused
+    --role AXTextField --max-value-bytes 2` answers `wr` / `value_bytes 13`
+    / truncated, `verify` reads `focused: true` / `false` on the two nodes,
+    `--role AXButton` is `unverified`, `invoke --focused --role AXTextField
+    set-value` is verified on the field, `--focused --role AXButton` is
+    `unverified`, `--focused --identifier` is `usage`). This is also the
+    first journey proof of `focus` on macOS.
+  - `observe --window HANDLE (--duration S | --duration-ms N) [--depth N]
+    [--max-nodes N] [--max-events N] [--notification A,B] [--interval-ms
+    N]` emits a bounded, filtered event stream over the same bounded tree.
+    The platform crate wires no AX notification observer, so the stream is
+    a **poll-diff** (`mode: "poll-diff"`, default interval 50 ms, at least
+    20 ms): every semantic difference between consecutive walks becomes an
+    event — `ValueChanged` / `TitleChanged` / `StateChanged` /
+    `FocusChanged` / `Created` / `Destroyed` (bounds ignored) — with a
+    monotonic `seq` and `t_ms`, the node identity and `before` / `after`.
+    `--notification` filters (AX spellings accepted; an unknown name is
+    `usage`), `--max-events` (default 200, at most 5000) ends the stream
+    early with `truncated: true` and `stopped: "max-events"`, and the reply
+    counts `polls / poll_errors / emitted / filtered`. Duration is at most
+    120 s. Evidence: `cu-macos-smoke` STEP "observe --duration 1.5 captures
+    the ValueChanged of a set-value issued while it runs"
+    (`cu.macos-ax-observe`: the observer is a second `agenterm-cu` spawned
+    through the door while the script issues `invoke set-value`, the reply
+    holds exactly that `ValueChanged` on `fixture-field` with the old and
+    new value, `seq` / `t_ms` monotonic, `stopped: "deadline"`; a second
+    observer with `--max-events 1` stops on the first of two writes with
+    `truncated: true`; `--notification Moved` is `usage`).
 - [ ] browser pages are reached through the platform's own web accessibility
   area (`role` WebArea and its descendants) on the same loop; no browser
   extension, native-messaging bridge or devtools protocol is adopted.

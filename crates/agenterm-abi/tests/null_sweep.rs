@@ -160,6 +160,9 @@ type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usiz
 type A11yNodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type A11yNodePerform = unsafe extern "C" fn(isize, *const c_char, i32) -> i32;
 type A11yNodeInvoke = unsafe extern "C" fn(isize, *const c_char, i32, *const u8, usize) -> i32;
+type A11yMenuSnapshot = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
+type A11yMenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
+type A11yFocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type A11yNodeSetText = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
 type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
@@ -801,6 +804,39 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<A11yNodeInvoke> = unsafe { sym(lib, b"agt_a11y_node_invoke") };
                 unsafe { CallResult::Status(f(0, c"/0".as_ptr(), 3, std::ptr::null(), 1)) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_menu_snapshot[window_handle=0,max_depth=-1,max_nodes=0,out_node_count=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yMenuSnapshot> = unsafe { sym(lib, b"agt_a11y_menu_snapshot") };
+                unsafe { CallResult::Status(f(0, -1, 0, std::ptr::null_mut())) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_menu_invoke[window_handle=0,path=NULL,len=1,marks=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yMenuInvoke> = unsafe { sym(lib, b"agt_a11y_menu_invoke") };
+                unsafe {
+                    CallResult::Status(f(
+                        0,
+                        std::ptr::null(),
+                        1,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    ))
+                }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_focused_snapshot[window_handle=0,out_node_count=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yFocusedSnapshot> =
+                    unsafe { sym(lib, b"agt_a11y_focused_snapshot") };
+                unsafe { CallResult::Status(f(0, std::ptr::null_mut())) }
             }),
         },
         SweepCase {

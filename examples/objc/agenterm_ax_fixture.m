@@ -25,6 +25,18 @@
  *     `fixture-twin-b`) so a `--name` that matches both is a proven
  *     ambiguity refusal.
  *
+ * Slice 3 (background menus, focused control, observation) adds:
+ *   - a main menu the fixture never shows (accessory apps have no menu bar
+ *     on screen): `File` with `Do Thing` (advances AXStaticText
+ *     `fixture-menu-label` from `menu idle` to `did thing 1`, ...),
+ *     `Disabled Thing` (no action: AppKit auto-disables it), two items both
+ *     titled `Twin Thing` (an ambiguous path), and a `More` submenu holding
+ *     `Deeper Thing` (sets the label to `deeper thing`); read and pressed
+ *     through the application's AXMenuBar without activating the app;
+ *   - the AXTextField `fixture-field` doubles as the focusable control:
+ *     `focus` makes it the window's first responder without key focus
+ *     leaving the user's application, and `focused` reads it back.
+ *
  * System applications cannot stand in: since macOS 13 a directly exec'd
  * system app binary is killed by launch constraints, and `open -a` hands the
  * process to LaunchServices, so its pid is not the spawner's to kill.
@@ -56,8 +68,12 @@ static void handle_terminate(int signal_number) {
  * the press has an observable postcondition on a different node. */
 @interface AgentermFixtureController : NSObject
 @property(nonatomic, strong) NSTextField *pressCount;
+@property(nonatomic, strong) NSTextField *menuLabel;
 @property(nonatomic, assign) int presses;
+@property(nonatomic, assign) int things;
 - (void)press:(id)sender;
+- (void)doThing:(id)sender;
+- (void)deeperThing:(id)sender;
 @end
 
 @implementation AgentermFixtureController
@@ -65,6 +81,15 @@ static void handle_terminate(int signal_number) {
     (void)sender;
     self.presses = self.presses + 1;
     [self.pressCount setStringValue:[NSString stringWithFormat:@"pressed %d", self.presses]];
+}
+- (void)doThing:(id)sender {
+    (void)sender;
+    self.things = self.things + 1;
+    [self.menuLabel setStringValue:[NSString stringWithFormat:@"did thing %d", self.things]];
+}
+- (void)deeperThing:(id)sender {
+    (void)sender;
+    [self.menuLabel setStringValue:@"deeper thing"];
 }
 @end
 
@@ -158,6 +183,66 @@ int main(int argc, const char *argv[]) {
         [twinB setBezelStyle:NSBezelStyleRounded];
         [twinB setAccessibilityIdentifier:@"fixture-twin-b"];
         [content addSubview:twinB];
+
+        /* Slice 3: the menu postcondition label. */
+        NSTextField *menuLabel =
+            [[NSTextField alloc] initWithFrame:NSMakeRect(240.0, 24.0, 280.0, 24.0)];
+        [menuLabel setStringValue:@"menu idle"];
+        [menuLabel setEditable:NO];
+        [menuLabel setBezeled:NO];
+        [menuLabel setDrawsBackground:NO];
+        [menuLabel setSelectable:NO];
+        [menuLabel setAccessibilityIdentifier:@"fixture-menu-label"];
+        [content addSubview:menuLabel];
+        controller.menuLabel = menuLabel;
+        controller.things = 0;
+
+        /* Slice 3: a main menu that is never displayed (accessory policy)
+         * but is fully reachable through the application's AXMenuBar. Items
+         * with a target that responds are auto-enabled; `Disabled Thing`
+         * has no action, so AppKit keeps it disabled. */
+        NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
+        NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle:@"agenterm-ax-fixture"
+                                                         action:nil
+                                                  keyEquivalent:@""];
+        NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"agenterm-ax-fixture"];
+        [appMenu addItemWithTitle:@"About Fixture" action:nil keyEquivalent:@""];
+        [appItem setSubmenu:appMenu];
+        [mainMenu addItem:appItem];
+        NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:@"File"
+                                                          action:nil
+                                                   keyEquivalent:@""];
+        NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+        NSMenuItem *doThing = [[NSMenuItem alloc] initWithTitle:@"Do Thing"
+                                                         action:@selector(doThing:)
+                                                  keyEquivalent:@""];
+        [doThing setTarget:controller];
+        [fileMenu addItem:doThing];
+        [fileMenu addItemWithTitle:@"Disabled Thing" action:nil keyEquivalent:@""];
+        NSMenuItem *twinThingA = [[NSMenuItem alloc] initWithTitle:@"Twin Thing"
+                                                            action:@selector(doThing:)
+                                                     keyEquivalent:@""];
+        [twinThingA setTarget:controller];
+        [fileMenu addItem:twinThingA];
+        NSMenuItem *twinThingB = [[NSMenuItem alloc] initWithTitle:@"Twin Thing"
+                                                            action:@selector(doThing:)
+                                                     keyEquivalent:@""];
+        [twinThingB setTarget:controller];
+        [fileMenu addItem:twinThingB];
+        NSMenuItem *moreItem = [[NSMenuItem alloc] initWithTitle:@"More"
+                                                          action:nil
+                                                   keyEquivalent:@""];
+        NSMenu *moreMenu = [[NSMenu alloc] initWithTitle:@"More"];
+        NSMenuItem *deeper = [[NSMenuItem alloc] initWithTitle:@"Deeper Thing"
+                                                        action:@selector(deeperThing:)
+                                                 keyEquivalent:@""];
+        [deeper setTarget:controller];
+        [moreMenu addItem:deeper];
+        [moreItem setSubmenu:moreMenu];
+        [fileMenu addItem:moreItem];
+        [fileItem setSubmenu:fileMenu];
+        [mainMenu addItem:fileItem];
+        [app setMainMenu:mainMenu];
 
         NSButton *button =
             [[NSButton alloc] initWithFrame:NSMakeRect(20.0, 24.0, 180.0, 40.0)];

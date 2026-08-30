@@ -89,10 +89,11 @@ use std::time::{Duration, Instant};
 
 use agenterm_platform::CapabilityStatus;
 use agenterm_platform::accessibility_tree::{
-    AccessibilityNodeAction, AccessibilityTreeBudget, AccessibilityTreeError, drain_bus,
-    get_node_caret_offset, get_node_extents, get_node_selection, get_node_text,
-    last_text_write_via, perform_node_action, scroll_node, send_node_keys, set_node_caret_offset,
-    set_node_selection, set_node_text, tree_for_window_bounded,
+    AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
+    drain_bus, focused_node_for_window, get_node_caret_offset, get_node_extents,
+    get_node_selection, get_node_text, invoke_menu_path, last_text_write_via, menu_tree_for_window,
+    perform_node_action, scroll_node, send_node_keys, set_node_caret_offset, set_node_selection,
+    set_node_text, tree_for_window_bounded,
 };
 use agenterm_platform::clipboard::{get_text, has_unicode_text, set_text};
 use agenterm_platform::desktop_host::{
@@ -273,7 +274,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 13);
+abi_version!(1, 14);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3185,6 +3186,13 @@ fn map_a11y_error(operation: &'static CStr, error: AccessibilityTreeError) -> ag
                 "a11y_action_timeout" => c"a11y_action_timeout",
                 "a11y_option_not_found" => c"a11y_option_not_found",
                 "a11y_option_ambiguous" => c"a11y_option_ambiguous",
+                "a11y_menu_unavailable" => c"a11y_menu_unavailable",
+                "a11y_menu_item_not_found" => c"a11y_menu_item_not_found",
+                "a11y_menu_item_ambiguous" => c"a11y_menu_item_ambiguous",
+                "a11y_menu_item_disabled" => c"a11y_menu_item_disabled",
+                "a11y_menu_item_not_leaf" => c"a11y_menu_item_not_leaf",
+                "a11y_focus_unavailable" => c"a11y_focus_unavailable",
+                "a11y_focus_outside_window" => c"a11y_focus_outside_window",
                 "a11y_text_limit" => c"a11y_text_limit",
                 "a11y_text_read_only" => c"a11y_text_read_only",
                 "a11y_text_unavailable" => c"a11y_text_unavailable",
@@ -3301,13 +3309,17 @@ fn with_snapshot_node(
     })
 }
 
-/// Shared body of the two snapshot exports: walk under `budget`, replace the
+/// Shared body of the snapshot exports: `walk` under `budget`, replace the
 /// thread-local snapshot, publish the node count.
 fn a11y_snapshot_into(
     operation: &'static CStr,
     window_handle: isize,
     budget: AccessibilityTreeBudget,
     out_node_count: *mut usize,
+    walk: fn(
+        Option<isize>,
+        AccessibilityTreeBudget,
+    ) -> Result<AccessibilityTree, AccessibilityTreeError>,
 ) -> agt_status {
     if out_node_count.is_null() {
         record_error(operation, c"bad_pointer", "out_node_count is null");
@@ -3321,7 +3333,7 @@ fn a11y_snapshot_into(
     } else {
         Some(window_handle)
     };
-    let tree = match tree_for_window_bounded(filter, budget) {
+    let tree = match walk(filter, budget) {
         Ok(t) => t,
         Err(e) => return map_a11y_error(operation, e),
     };
@@ -3353,6 +3365,7 @@ pub extern "C" fn agt_a11y_tree_snapshot(
             window_handle,
             AccessibilityTreeBudget::default(),
             out_node_count,
+            tree_for_window_bounded,
         )
     })) {
         Ok(s) => s,
@@ -3381,15 +3394,13 @@ pub extern "C" fn agt_a11y_tree_snapshot_bounded(
     out_node_count: *mut usize,
 ) -> agt_status {
     match catch_unwind(AssertUnwindSafe(|| {
-        let budget = AccessibilityTreeBudget {
-            max_depth: (max_depth != AGT_A11Y_DEPTH_DEFAULT).then_some(max_depth.max(0) as u32),
-            max_nodes: (max_nodes != AGT_A11Y_NODES_DEFAULT).then_some(max_nodes as usize),
-        };
+        let budget = a11y_budget_from_abi(max_depth, max_nodes);
         a11y_snapshot_into(
             c"agt_a11y_tree_snapshot_bounded",
             window_handle,
             budget,
             out_node_count,
+            tree_for_window_bounded,
         )
     })) {
         Ok(s) => s,
@@ -3398,6 +3409,224 @@ pub extern "C" fn agt_a11y_tree_snapshot_bounded(
                 c"agt_a11y_tree_snapshot_bounded",
                 c"panic",
                 "panic in agt_a11y_tree_snapshot_bounded",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// Budget from the ABI sentinels (`max_depth` < 0 / `max_nodes` == 0 keep
+/// the adapter defaults).
+fn a11y_budget_from_abi(max_depth: i32, max_nodes: u32) -> AccessibilityTreeBudget {
+    AccessibilityTreeBudget {
+        max_depth: (max_depth != AGT_A11Y_DEPTH_DEFAULT).then_some(max_depth.max(0) as u32),
+        max_nodes: (max_nodes != AGT_A11Y_NODES_DEFAULT).then_some(max_nodes as usize),
+    }
+}
+
+/// ABI 1.14: capture the menu bar of the application owning
+/// `window_handle` (macOS `AXMenuBar` → `AXMenuBarItem` → `AXMenu` →
+/// `AXMenuItem`) under the same budget sentinels as
+/// `agt_a11y_tree_snapshot_bounded`, without opening a menu on screen or
+/// activating the application. The snapshot replaces the thread-local one
+/// and is read through the same node exports; ids are rooted at the menu
+/// bar (`/0`), a separate id space from the window tree. `window_handle`
+/// 0 → `AGT_FAILED{code="invalid_input"}` (a menu bar belongs to one
+/// application); an application without one → `a11y_menu_unavailable`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_menu_snapshot(
+    window_handle: isize,
+    max_depth: i32,
+    max_nodes: u32,
+    out_node_count: *mut usize,
+) -> agt_status {
+    match catch_unwind(AssertUnwindSafe(|| {
+        a11y_snapshot_into(
+            c"agt_a11y_menu_snapshot",
+            window_handle,
+            a11y_budget_from_abi(max_depth, max_nodes),
+            out_node_count,
+            menu_tree_for_window,
+        )
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_menu_snapshot",
+                c"panic",
+                "panic in agt_a11y_menu_snapshot",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// The focused control as a one-node tree, so the snapshot readers serve
+/// it. The backend label comes from a depth-0 walk of the same window.
+fn focused_tree_for_window(
+    window_handle: Option<isize>,
+    _budget: AccessibilityTreeBudget,
+) -> Result<AccessibilityTree, AccessibilityTreeError> {
+    let node = focused_node_for_window(window_handle)?;
+    let label = tree_for_window_bounded(
+        window_handle,
+        AccessibilityTreeBudget {
+            max_depth: Some(0),
+            max_nodes: Some(1),
+        },
+    )?;
+    Ok(AccessibilityTree {
+        backend: label.backend,
+        window_handle,
+        root_id: node.id.clone(),
+        nodes: vec![node],
+        truncated: false,
+        visited: 1,
+        returned: 1,
+    })
+}
+
+/// ABI 1.14: capture the application's own focused control (macOS
+/// `AXFocusedUIElement`) as a one-node snapshot whose id is the control's
+/// child-index path below `window_handle`'s window — the same numbering
+/// `agt_a11y_tree_snapshot` uses — without requiring the application to be
+/// frontmost. `*out_node_count` is 1 on success. No focused element →
+/// `AGT_FAILED{code="a11y_focus_unavailable"}`; one outside that window →
+/// `a11y_focus_outside_window`; `window_handle` 0 → `invalid_input`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_focused_snapshot(
+    window_handle: isize,
+    out_node_count: *mut usize,
+) -> agt_status {
+    match catch_unwind(AssertUnwindSafe(|| {
+        a11y_snapshot_into(
+            c"agt_a11y_focused_snapshot",
+            window_handle,
+            AccessibilityTreeBudget::default(),
+            out_node_count,
+            focused_tree_for_window,
+        )
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_focused_snapshot",
+                c"panic",
+                "panic in agt_a11y_focused_snapshot",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.14: press the menu item at `path` in the application owning
+/// `window_handle`, in the background (never opens a menu on screen, never
+/// activates the application). `path` is `path_len` bytes of UTF-8 holding
+/// NUL-terminated segments (`"File\0Save\0"`): the menu bar item title,
+/// then item titles, each matched exactly. `path == NULL` with a non-zero
+/// `path_len` → `bad_pointer`; non-UTF-8 → `bad_encoding`; fewer than two
+/// segments or an empty one → `invalid_input` (pressing a bare menu bar
+/// item would open it). Every segment must resolve to exactly one enabled
+/// item before anything is pressed (`a11y_menu_item_not_found` /
+/// `a11y_menu_item_ambiguous` / `a11y_menu_item_disabled`) and the last
+/// must be a leaf (`a11y_menu_item_not_leaf`). `*out_mark_before` /
+/// `*out_mark_after` (may be NULL) receive the item's check mark as a
+/// Unicode scalar, 0 when unmarked, read before the press and after the
+/// path was resolved again.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_menu_invoke(
+    window_handle: isize,
+    path: *const u8,
+    path_len: usize,
+    out_mark_before: *mut u32,
+    out_mark_after: *mut u32,
+) -> agt_status {
+    fn inner(
+        window_handle: isize,
+        path: *const u8,
+        path_len: usize,
+        out_mark_before: *mut u32,
+        out_mark_after: *mut u32,
+    ) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if path.is_null() && path_len > 0 {
+            record_error(
+                c"agt_a11y_menu_invoke",
+                c"bad_pointer",
+                "path is null with path_len > 0",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let raw: &[u8] = if path_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(path, path_len) }
+        };
+        let text = match std::str::from_utf8(raw) {
+            Ok(text) => text,
+            Err(_) => {
+                record_error(
+                    c"agt_a11y_menu_invoke",
+                    c"bad_encoding",
+                    "path is not UTF-8",
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let segments: Vec<String> = text
+            .split('\0')
+            .filter(|segment| !segment.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if segments.len() < 2 {
+            record_error(
+                c"agt_a11y_menu_invoke",
+                c"invalid_input",
+                "path needs a menu title and at least one item title, NUL-terminated",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let filter = if window_handle == 0 {
+            None
+        } else {
+            Some(window_handle)
+        };
+        let receipt = match invoke_menu_path(filter, &segments) {
+            Ok(receipt) => receipt,
+            Err(e) => return map_a11y_error(c"agt_a11y_menu_invoke", e),
+        };
+        let scalar = |mark: Option<String>| -> u32 {
+            mark.and_then(|mark| mark.chars().next())
+                .map_or(0, u32::from)
+        };
+        if !out_mark_before.is_null() {
+            unsafe { *out_mark_before = scalar(receipt.mark_before) };
+        }
+        if !out_mark_after.is_null() {
+            unsafe { *out_mark_after = scalar(receipt.mark_after) };
+        }
+        agt_status::AGT_OK
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(
+            window_handle,
+            path,
+            path_len,
+            out_mark_before,
+            out_mark_after,
+        )
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_menu_invoke",
+                c"panic",
+                "panic in agt_a11y_menu_invoke",
             );
             agt_status::AGT_FAILED
         }

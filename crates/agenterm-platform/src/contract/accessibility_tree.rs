@@ -34,8 +34,9 @@ pub struct AccessibilityNode {
     pub parent_id: Option<String>,
     pub role: String,
     pub name: String,
-    /// Backend states, lower-case. Besides the observe vocabulary (`enabled`,
-    /// `focusable`, `focused`, `showing`, `visible`, `selected`) an adapter
+    /// Backend states, lower-case. Besides the observe vocabulary (`enabled`
+    /// / `disabled`, `focusable`, `focused`, `showing`, `visible`,
+    /// `selected`) an adapter
     /// that can read a two-way control state reports **both directions** so
     /// a caller can tell "off" from "not observable": `checked` /
     /// `unchecked` / `mixed`, and `expanded` / `collapsed`. A node carrying
@@ -77,6 +78,16 @@ pub struct AccessibilityTree {
     /// copy the metadata do not have to count).
     #[cfg_attr(feature = "serde", serde(default))]
     pub returned: usize,
+}
+
+/// What `invoke_menu_path` observed on the pressed menu item: its check
+/// mark (`AXMenuItemMarkChar` on macOS) before the press and after the
+/// item was resolved again. `None` is "no mark", not "unreadable".
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct AccessibilityMenuReceipt {
+    pub mark_before: Option<String>,
+    pub mark_after: Option<String>,
 }
 
 /// Largest node budget a caller may request. Above this the walk is not a

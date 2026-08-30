@@ -75,7 +75,15 @@ qjswasm 在这里的角色：**每一片的黑盒证据都是一段 `.qjs`**（�
   `set-checked true` 在已勾选时是 no-op + `verified`，不是再按一次。
 - 旅程：cu-macos-smoke 加一段——`invoke ... set-value` 写 TextEdit 文本，`verify --expect` 回读；再 `invoke press` 一个 checkbox 并回读 checked。
 
-### 片 3 —— 后台 `menu`、`focused`、`observe`，与 PRD 32 的 `frame` 事务合流
+### 片 3 —— 后台 `menu`、`focused`、`observe`，与 PRD 32 的 `frame` 事务合流 —— **已落地（2026-08-30 深夜，待评审者重跑）**
+
+落地形状：ABI 1.14 三个后台导出（`agt_a11y_menu_snapshot` / `agt_a11y_menu_invoke` / `agt_a11y_focused_snapshot`，都复用既有节点读取器）；
+macOS 适配器读 `AXMenuBar`、逐段按 `AXTitle` 唯一解析并在 `AXPress` 前拒绝禁用/歧义/非叶子，`AXFocusedUIElement` 经 `AXParent` 链 + `CFEqual`
+算回窗口树里的子索引路径；`observe` 是 cu 侧对有界树的 poll-diff（平台层没有接 AXObserver，回复写明 `mode: "poll-diff"`）；
+`invoke --focused` 在同一次树读里绑定 PID + 窗口 + focused 身份。旅程加四段 STEP（`cu.macos-ax-menu-inspect` / `menu-invoke` / `focused` / `observe`），
+观察者是经门 `process_spawn` 的第二个 `agenterm-cu`；本机首跑 `success`，16 STEP / 15 EVIDENCE，`steps 39.96M / host_ops 196 / host_bytes 257 KB / waited 804 ms / heap 37 页`，11.4 s。
+意外：accessory App 的主菜单 AppKit 会自动补 Apple / Services 等项（菜单栏 75 节点）；`menu inspect --depth 0` 下 `has_submenu` 只反映已走到的层。
+PRD 32 的 `frame` 只写成 `[ ]` leaf + 一段映射（沿用既有 apply pipeline），没有代码。
 
 - 每个动词一行 PRD 29 leaf + 一段旅程。
 - 两条面的边界（2026-08-30 读过门的实现后定）：qjs 门的 `process.window_{key,pointer,rect,control}` 是**按 PID + 数字控件 id 的原始窗口操作**

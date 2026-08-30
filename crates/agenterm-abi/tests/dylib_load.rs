@@ -224,6 +224,8 @@ type A11yTreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type A11yNodePerform = unsafe extern "C" fn(isize, *const c_char, i32) -> i32;
 type A11yNodeInvoke = unsafe extern "C" fn(isize, *const c_char, i32, *const u8, usize) -> i32;
+type A11yMenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
+type A11yFocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type A11yNodeSetText = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
 type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
@@ -1596,6 +1598,62 @@ fn a11y_node_perform_rejects_null_node_id() {
     assert!(
         msg.contains("bad_pointer"),
         "expected code \"bad_pointer\" in error, got: {msg}"
+    );
+}
+
+/// ABI 1.14: `agt_a11y_menu_invoke` NULL path → bad_pointer, a one-segment
+/// path → invalid_input (before any application is touched), and
+/// `agt_a11y_focused_snapshot` with window 0 → invalid_input; hosts without
+/// an a11y stack answer AGT_UNSUPPORTED.
+#[test]
+fn a11y_menu_and_focused_exports_refuse_malformed_input_typed() {
+    let lib = load();
+    let query: Symbol<CapabilityQuery> = unsafe { sym(lib, b"agt_capability_query") };
+    let cap = unsafe { query(AGT_CAP_ACCESSIBILITY_TREE) };
+    let menu: Symbol<A11yMenuInvoke> = unsafe { sym(lib, b"agt_a11y_menu_invoke") };
+    let st = unsafe {
+        menu(
+            0,
+            std::ptr::null(),
+            1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if cap == AGT_UNSUPPORTED {
+        eprintln!("SKIP (no a11y stack): AGT_CAP_ACCESSIBILITY_TREE unsupported");
+        assert_eq!(st, AGT_UNSUPPORTED, "expected AGT_UNSUPPORTED, got {st}");
+        return;
+    }
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("bad_pointer"),
+        "expected code \"bad_pointer\" in error, got: {msg}"
+    );
+    let one = b"File\0";
+    let mut before = 7u32;
+    let mut after = 7u32;
+    let st = unsafe { menu(0, one.as_ptr(), one.len(), &mut before, &mut after) };
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("invalid_input"),
+        "expected code \"invalid_input\" in error, got: {msg}"
+    );
+    assert_eq!(
+        (before, after),
+        (7, 7),
+        "marks must be untouched on refusal"
+    );
+    let focused: Symbol<A11yFocusedSnapshot> = unsafe { sym(lib, b"agt_a11y_focused_snapshot") };
+    let mut count = 0usize;
+    let st = unsafe { focused(0, &mut count) };
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("invalid_input"),
+        "expected code \"invalid_input\" in error, got: {msg}"
     );
 }
 

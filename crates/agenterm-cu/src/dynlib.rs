@@ -240,6 +240,10 @@ pub const POINTER_POSITION_ABI_MINOR: u16 = 11;
 pub const TREE_BUDGET_ABI_MINOR: u16 = 12;
 /// ABI 1.13: `agt_a11y_node_invoke` and the `invoke` action kinds.
 pub const NODE_INVOKE_ABI_MINOR: u16 = 13;
+/// ABI 1.14: `agt_a11y_menu_snapshot` / `agt_a11y_menu_invoke` /
+/// `agt_a11y_focused_snapshot` (background menus and the App-local focused
+/// control).
+pub const MENU_FOCUS_ABI_MINOR: u16 = 14;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

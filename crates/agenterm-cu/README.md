@@ -63,7 +63,10 @@ receipt remains open until it runs on a controlled input desktop.
 | Window list | Win32 `EnumWindows` | X11 `_NET_CLIENT_LIST` | `AXUIElement` application windows |
 | Control tree | **UIA** (`IUIAutomation`) | **AT-SPI2** (`org.a11y.atspi.*` on D-Bus) | **AX** (`NSAccessibility`) — `windows` / `tree` / `query` **live** (`cu-macos-smoke`); bounded walk, `AXActionNames`, `AXIdentifier` |
 | Node identity | automation id + runtime id + bounds | path id (`/0/2/5`) + role + name + bounds | child-index path + role + title + bounds + identifier (`backend:"ax"`) |
-| Node click/focus | `InvokePattern` / `LegacyIAccessible` | AT-SPI `Action` (`click`/`press`, else default `DoAction(0)`); no Action → Component `GetExtents` + `GenerateMouseEvent`; focus is `focus` / `Component::grab_focus` | `AXPress` / `AXFocused` (mapped; not journey-proven) — `AXRaise` is never sent |
+| Node click/focus | `InvokePattern` / `LegacyIAccessible` | AT-SPI `Action` (`click`/`press`, else default `DoAction(0)`); no Action → Component `GetExtents` + `GenerateMouseEvent`; focus is `focus` / `Component::grab_focus` | `AXPress` (mapped; not journey-proven) / `AXFocused` (**live**, `cu-macos-smoke` slice 3) — `AXRaise` is never sent |
+| Background menus (`menu inspect` / `menu invoke`) | typed `unsupported` (UIA menu bar not mapped) | typed `unsupported` (AT-SPI menu bar not mapped) | **live** (`cu-macos-smoke`): `AXMenuBar` walk, title path resolved per segment, `AXPress` on the leaf, mark read-back — ABI 1.14 `agt_a11y_menu_snapshot` / `agt_a11y_menu_invoke`; never opens a menu, never activates |
+| App-local focused control (`focused` / `invoke --focused`) | typed `unsupported` | typed `unsupported` | **live** (`cu-macos-smoke`): `AXFocusedUIElement` as a window-tree node — ABI 1.14 `agt_a11y_focused_snapshot` |
+| Event stream (`observe`) | poll-diff over the UIA tree (not live-proven) | poll-diff over the AT-SPI tree (not live-proven) | **live** (`cu-macos-smoke`): poll-diff over the bounded AX tree (no AXObserver) |
 | `invoke` (press / set-value / select-option / set-checked / set-expanded / increment / decrement) | `Invoke` / `Value.SetValue` / `Toggle` (desired state); others typed `unsupported` | `Action` press / `EditableText` set-value; others typed `unsupported` | **live** (`cu-macos-smoke`): `AXPress`, `AXValue` write + read-back, pop-up option `AXPress`, desired-state `AXValue` 0/1 / `AXExpanded`, `AXIncrement` / `AXDecrement` — ABI 1.13 `agt_a11y_node_invoke` |
 | Text entry | `ValuePattern` / `SendInput` | AT-SPI `EditableText` (`SetTextContents` / `InsertText`) for `--name`; `Text` + toolkit set-value when EditableText is absent (Chrome AX, WebKitGTK eval helper); `input-inject` only without `--name` | `AXValue` write with read-back (`invoke set-value`, `send-text --name`) |
 | Screenshot | GDI native capture | typed `unsupported` (no OCR substitute) | typed `unsupported` (planned) |
@@ -141,7 +144,40 @@ Verification per action: `set-value` / `select-option` compare the node's
 value; `set-checked` / `set-expanded` compare the state; `increment` /
 `decrement` require the numeric value to change; `press` is verified by a
 whole-tree diff (the count label changed) and is `verified: false` with
-`no_observable_change` when nothing did. Linux maps `press` / `set-value`
+`no_observable_change` when nothing did.
+
+The background half (slice 3, same journey, same fixture extended with a
+never-shown main menu) never activates the application either:
+
+```bash
+# the application's menu bar, read without opening a menu: exact title paths,
+# enabled / checked / has_submenu, menu-level depth (0 = bar items, <= 8) and a
+# node budget (<= 5000) applied during the walk, counts + truncated
+agenterm-cu --target current --grant observe menu inspect --window "$HANDLE" --depth 2 --title "Do Thing" --exact
+# press one item by exact path; every segment must be exactly one enabled item
+# before anything is pressed (a11y_menu_item_not_found / _ambiguous /
+# _disabled), the last must be a leaf (_not_leaf), a bare menu is usage
+agenterm-cu --target current --grant actuate menu invoke --window "$HANDLE" --path 'File/Do Thing'
+agenterm-cu --target current --grant actuate menu invoke --window "$HANDLE" --path '["File","More","Deeper Thing"]'
+
+# the application's own focused control (AXFocusedUIElement) as a node of the
+# same window tree, with a bounded value preview; --role binds the expected
+# role ("unverified" on mismatch)
+agenterm-cu --target current --grant observe focused --window "$HANDLE" --role AXTextField --max-value-bytes 2
+# write to it only after binding PID + window + focused identity in one read
+agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --focused --role AXTextField set-value "typed into focus"
+
+# a bounded, filtered event stream by poll-diff over the bounded tree
+# (ValueChanged / TitleChanged / StateChanged / FocusChanged / Created /
+# Destroyed, monotonic seq + t_ms, stops at --max-events with truncated:true)
+agenterm-cu --target current --grant observe observe --window "$HANDLE" --duration 1.5 --notification ValueChanged --max-events 50
+```
+
+`observe` is a poll-diff (default 50 ms interval), not an AXObserver
+subscription; the reply says `mode: "poll-diff"` and counts `polls` /
+`poll_errors` / `emitted` / `filtered`. In the journey the observer is a
+second `agenterm-cu` spawned through the qjs door while the script issues
+the `set-value` it must capture. Linux maps `press` / `set-value`
 and Windows `press` / `set-value` / `set-checked` through the same verb; the
 rest answer typed `unsupported` there (compile-checked, no live evidence).
 

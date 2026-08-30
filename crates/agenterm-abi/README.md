@@ -297,6 +297,13 @@ SELECT_OPTION / SET_CHECKED / SET_EXPANDED / INCREMENT / DECREMENT，带 UTF-8
 值载荷；SET_CHECKED / SET_EXPANDED 是期望态、幂等），`agt_a11y_node_perform`
 额外接受不带值的新 kind；macOS 适配器落地 `AXPress` / `AXValue` 写 / 子项
 `AXPress` / `AXIncrement` / `AXDecrement`，从不 `AXRaise` 或激活 App。
+ABI 1.14 增加后台三件：`agt_a11y_menu_snapshot`（按窗口所属 App 的
+`AXMenuBar` 走有界快照，不打开菜单、不激活；节点 id 以菜单栏为根 `/0`，
+菜单项 states 带 `enabled` / `disabled` 与有勾选标记时的 `checked`）、
+`agt_a11y_menu_invoke`（NUL 分隔的标题路径逐段唯一解析、禁用/歧义/非叶子在
+`AXPress` 前拒绝，回传按前后的勾选标记）、`agt_a11y_focused_snapshot`
+（App 自己的 `AXFocusedUIElement` 作为单节点快照，id 是它在该窗口树里的
+子索引路径，不要求 App 在前台）。
 
 `agt_build_id()` 返回 `<crate 版本>+abi.<major>.<minor>`
 （例如 `0.1.16+abi.1.1`），在**编译期**由 `CARGO_PKG_VERSION` 与

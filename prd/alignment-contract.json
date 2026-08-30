@@ -62,6 +62,19 @@
       ]
     },
     {
+      "id": "computer-use.macos-current-background",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "macOS `current` background verbs are live",
+      "evidence_ids": [
+        "cu.macos-ax-menu-inspect",
+        "cu.macos-ax-menu-invoke",
+        "cu.macos-ax-focused",
+        "cu.macos-ax-observe"
+      ]
+    },
+    {
       "id": "control-center.native-projection",
       "kind": "behavior",
       "status": "partial",

@@ -14,7 +14,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
 ## Target family
 
-Branch status (cut 3.50 — macOS AX semantic actuation live: `invoke` /
+Branch status (cut 3.51 — macOS AX background verbs live: `menu inspect` /
+`menu invoke` / `focused` / `invoke --focused` / `observe` through ABI 1.14;
+3.50 macOS AX semantic actuation live: `invoke` /
 `verify` / `wait --expect` through ABI 1.13; 3.49 macOS AX observe live with
 bounded walk, action names and typed permission denial; 3.48 Linux `tree`
 cross-tier conformance;
@@ -22,7 +24,7 @@ cross-tier conformance;
 
 | Target | Status | Notes |
 |--------|--------|-------|
-| `current` | **[x]** | Local in-process; Linux/Windows evidence held; macOS AX observe (3.49) and semantic actuation `invoke` / `verify` (3.50) proven (`cu-macos-smoke`); `capabilities` names `data.target:"current"` + live libagenterm status; Linux `tree` cross-tier proven (3.48) |
+| `current` | **[x]** | Local in-process; Linux/Windows evidence held; macOS AX observe (3.49), semantic actuation `invoke` / `verify` (3.50) and background `menu` / `focused` / `observe` (3.51) proven (`cu-macos-smoke`); `capabilities` names `data.target:"current"` + live libagenterm status; Linux `tree` cross-tier proven (3.48) |
 | `ssh` | **[x]** | OpenSSH exec of remote `--target current`; `capabilities` restores public/`data.target:"ssh"`; Linux `tree` cross-tier proven (3.48) |
 | `vnc` | **[x]** | RFB + local `--target current` worker; `capabilities` restores public/`data.target:"vnc"`; Linux `tree` cross-tier proven (3.48) |
 | `rdp` | **[~]** | PLACEHOLDER: parseable; `capabilities` declares transport placeholder/unavailable + `tree` unsupported with zero I/O; other authorized commands typed `rdp_unavailable`. Transport/session/live evidence empty |
@@ -165,6 +167,33 @@ cross-tier conformance;
   `focus` on macOS (mapped to `AXPress` / `AXFocused` in the adapter but
   not in the journey), destructive actions (none is offered), Linux /
   Windows live evidence for the new verbs.
+- [x] macOS `current` background verbs are live (cut 3.51, 2026-08-30, slice
+  3 of `plan/design-mcu-absorption.md` — background menus, the App-local
+  focused control and the observation stream):
+  `menu inspect` / `menu invoke` read and press the application's
+  `AXMenuBar` through `libagenterm` ABI 1.14 (`agt_a11y_menu_snapshot` /
+  `agt_a11y_menu_invoke`) without opening a menu on screen or activating
+  the app; `focused` / `invoke --focused` read and write the application's
+  own `AXFocusedUIElement` (`agt_a11y_focused_snapshot`) as a node in the
+  same window tree without requiring the foreground; `observe` is a
+  poll-diff event stream over the bounded tree (no AXObserver is wired in
+  the platform crate — the reply says `mode: "poll-diff"`). Evidence is
+  `scripts/qjs/cu-macos-smoke.qjs` against the fixture extended with a
+  never-shown main menu (`File` → `Do Thing` / `Disabled Thing` / two `Twin
+  Thing` / `More` → `Deeper Thing`, label `fixture-menu-label`): STEP "menu
+  inspect reads the background menu bar and finds File/Do Thing without
+  opening it" (`cu.macos-ax-menu-inspect`), STEP "menu invoke presses
+  File/Do Thing in the background; the label changes and the focused window
+  does not" (`cu.macos-ax-menu-invoke`), STEP "focus moves the first
+  responder to the text field and focused / invoke --focused bind it"
+  (`cu.macos-ax-focused` — also the first journey proof of `focus` on
+  macOS), STEP "observe --duration 1.5 captures the ValueChanged of a
+  set-value issued while it runs" (`cu.macos-ax-observe`; the observer is a
+  second `agenterm-cu` spawned through the door). The focused window handle
+  is the same before and after every actuating section and never the
+  fixture. Not claimed: AX notifications (`observe` is poll-diff), `click`
+  on macOS, Linux / Windows for the background verbs (their adapters
+  answer typed `unsupported`).
 ## Platform accessibility backends
 
 This branch is the **native accessibility stack** that backs structured
@@ -185,7 +214,8 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys)
     ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); separate from rdp
     ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
-    ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; click/focus mapped, not journey-proven
+    ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; focus journey-proven in 3.51, click mapped only
+    ├── macOS AX background           [x] menu inspect / invoke, focused / invoke --focused, observe (poll-diff) live (cut 3.51, cu-macos-smoke): AXMenuBar walk + AXPress, AXFocusedUIElement; no AXObserver
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
@@ -559,6 +589,23 @@ Canonical host mapping (approved product vocabulary):
   action, unobservable state, missing target and observe-only grant are
   typed refusals" (2026-08-30). Never `AXRaise`, never a CGEvent, never a
   screenshot or `--coords` fallback.
+- [x] AX background verbs on `current` (cut 3.51): `menu inspect` walks the
+  application's `AXMenuBar` (`AXMenuBarItem` → `AXMenu` → `AXMenuItem`)
+  under a menu-level / node budget — AppKit publishes a closed menu's items
+  through AX, so nothing opens on screen and the app is never activated —
+  reporting `enabled` / `disabled` and `checked` (`AXMenuItemMarkChar`) per
+  item; `menu invoke` resolves the title path segment by segment
+  (`AXTitle`, exact), refuses a missing / duplicate / disabled segment and
+  a non-leaf item before `AXPress`, presses the leaf and re-resolves it to
+  read the mark back. `focused` reads the application's
+  `AXFocusedUIElement`, walks `AXParent` up to the window and locates each
+  hop in its parent's `AXChildren` (`CFEqual`) so the node carries its
+  window-tree path id; a focused element outside the window is typed
+  (`a11y_focus_outside_window`). `observe` is cu-side poll-diff over
+  `tree_for_window_bounded`; no `AXObserver` is registered. Live evidence:
+  `cu-macos-smoke` STEPs "menu inspect ...", "menu invoke ...", "focus
+  moves the first responder ...", "observe --duration 1.5 ..." (2026-08-30).
+  Never `AXRaise`, never a CGEvent, never activation.
 
 ### Degraded fallbacks (never silent)
 
@@ -672,6 +719,35 @@ Canonical host mapping (approved product vocabulary):
   `unsupported` (`node_action_missing`); `--grant observe` is `refused`;
   the focused window handle is unchanged across the section and is never
   the fixture.
+- [x] **macOS AX `current` background verbs (cut 3.51) — live evidence held.**
+  The same journey, same fixture (extended with a never-shown main menu),
+  same run (2026-08-30) emits `cu.macos-ax-menu-inspect`,
+  `cu.macos-ax-menu-invoke`, `cu.macos-ax-focused`, `cu.macos-ax-observe`.
+  Canonical argv:
+
+  ```sh
+  agenterm-cu --target current --grant observe menu inspect --window "$HANDLE" --depth 2 --title "Do Thing" --exact
+  agenterm-cu --target current --grant actuate menu invoke --window "$HANDLE" --path 'File/Do Thing'
+  agenterm-cu --target current --grant observe verify --window "$HANDLE" --expect '[{"identifier":"fixture-menu-label","value":"did thing 1"}]'
+  agenterm-cu --target current --grant observe focused --window "$HANDLE" --role AXTextField --max-value-bytes 2
+  agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --focused --role AXTextField set-value "typed into focus"
+  agenterm-cu --target current --grant observe observe --window "$HANDLE" --duration 1.5 --notification ValueChanged --max-events 50
+  ```
+
+  Required replies: `menu inspect` lists `File/Do Thing` enabled and
+  `File/Disabled Thing` disabled with counts and `truncated` under
+  `--max-nodes 3`; `menu invoke` is `verified: true` and the label reads
+  `did thing 1` on an independent `verify`, while `File/Twin Thing` →
+  `a11y_menu_item_ambiguous`, `File/Disabled Thing` →
+  `a11y_menu_item_disabled`, `File/Nowhere` → `a11y_menu_item_not_found`,
+  `File/More` → `a11y_menu_item_not_leaf`, `File` → `usage`, `--grant
+  observe` → `refused`; `focused` names the field with `value_bytes` and
+  `value_truncated`, `--role AXButton` is `unverified`; `invoke --focused`
+  is verified on that field; the `observe` reply (`mode: "poll-diff"`)
+  holds the `ValueChanged` of the `set-value` issued while it ran with
+  monotonic `seq` / `t_ms`, and `--max-events 1` stops early with
+  `truncated: true`; the focused window handle is unchanged across every
+  section and is never the fixture.
 - [x] **macOS AX `current` observe (cut 3.49) — live evidence held.**
   `scripts/qjs/cu-macos-smoke.qjs` (task `cu-macos-smoke`, host-native gate,
   `--profile tool`) passed on a real macOS desktop on 2026-08-30 and emits
