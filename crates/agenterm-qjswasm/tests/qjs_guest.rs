@@ -780,6 +780,42 @@ fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
     );
 }
 
+/// A module refused while validating a function body says which function,
+/// by the name the compiler wrote into the `name` section. Until tinyvm
+/// 3e21027's successor this face said "loading wasm: validation: type
+/// mismatch" and nothing else, and the author bisected (PRD A7).
+#[test]
+fn a_module_refused_in_a_function_names_the_function() {
+    let bytes = wat::parse_str(
+        r#"(module
+             (func $fine (result i32) (i32.const 1))
+             (func $broken (result i32) (i64.const 1))
+             (export "main" (func $broken)))"#,
+    )
+    .expect("well-formed text");
+    let err = engine()
+        .run_once(Guest::Wasm(&bytes), None, "main", &[])
+        .expect_err("the i64 result is a type mismatch");
+    assert!(
+        matches!(&err, QjswasmError::LoadInFunction { index: 1, name: Some(name), .. } if name == "broken"),
+        "got {err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "loading wasm: validation: type mismatch in function `broken` (#1)"
+    );
+    // A `.qjs` guest's functions carry the script's names: a failure inside
+    // `helper` would be reported as such. (No such failure is known today --
+    // this pins the channel, not a defect.)
+    assert!(
+        matches!(
+            validate_wasm(&bytes),
+            Err(QjswasmError::LoadInFunction { .. })
+        ),
+        "the static gate reports it the same way"
+    );
+}
+
 /// The last two kinds of stop a `.qjs` program can reach are named at this
 /// face too (tinyvm A11 b/c/d): a refused write is the script's own doing,
 /// class `Script`; `split("")` and a mid-surrogate `slice` are boundaries of
