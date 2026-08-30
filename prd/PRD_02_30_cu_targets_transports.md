@@ -115,6 +115,14 @@ Branch status (cut 3.48 — Linux `tree` cross-tier conformance; 3.47 per-target
 - [ ] first-platform delivery is explicit and does not imply the others. A tier
   or platform is claimed only with its own evidence.
 
+- [~] macOS `current` observation is live on this host as of 2026-08-30:
+  `windows` returns stable handles and `tree --window H` returns a real AX
+  tree (`backend: ax`, `degraded: false`, node id/role/name/bounds/states)
+  through `libagenterm`; what is missing is the evidence (no journey yet),
+  the node budget / truncation flag, per-node actions (today always empty),
+  and a typed `denied` with the repair path when Accessibility permission is
+  absent. Actuation (`invoke`) is not started. The macOS journey is
+  `scripts/qjs/cu-macos-smoke.qjs` (plan: design-mcu-absorption.md, slice 1).
 ## Platform accessibility backends
 
 This branch is the **native accessibility stack** that backs structured

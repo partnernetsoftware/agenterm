@@ -35,6 +35,21 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [ ] a denied action fails typed and locally. It never partially executes, and
   it never falls back to a lower-fidelity path that achieves the same effect.
 
+- [ ] a background action never steals the foreground application, its
+  keyboard focus or the real pointer position; an explicit `focus` may only
+  move focus *inside* the addressed application. A target that cannot be
+  reached without doing so fails closed with a typed refusal -- there is no
+  silent fallback to global input or implicit privilege.
+- [ ] refusals use one typed vocabulary across every tier: `unsupported`
+  (backend lacks the capability), `degraded` (a weaker path was used and says
+  so), `denied` (authorization or OS permission), `needs-privilege` (an
+  elevation would be required and was not attempted).
+- [ ] delivery is not success: every actuation result carries `verified`
+  (the postcondition was read back) or `unverified`, and a receipt naming
+  target, node, action and observed state survives the process.
+- [ ] a destructive action (close, quit, delete, overwrite) requires an exact
+  target reference, a prior snapshot of the state it changes and a checkable
+  postcondition; without all three it is refused typed.
 ## Audit
 
 - [ ] every authorized action produces an observable record identifying target,

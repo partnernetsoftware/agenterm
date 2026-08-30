@@ -118,6 +118,21 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   slice. When this product and AgenTerm are mature enough to replace the
   skill, `skills/mcu` archives and agents depend on this product line.
   Provenance: [14](PRD_02_14_research_provenance.md) (lessons, not a TS copy).
+- [~] absorbed from that skill on 2026-08-30 (review and slices in
+  [plan/design-mcu-absorption.md](../plan/design-mcu-absorption.md)): its
+  default control loop `windows -> bounded query/tree -> invoke <selector>`,
+  `verify --expect`, bounded tree acquisition (depth and node budget during
+  traversal, truncation flagged), stable window handles with inventory
+  filters, and its four invariants (background never steals the foreground,
+  key focus or the real pointer; unsupported is fail-closed, never a silent
+  global-input or sudo fallback; delivery is not success, every action says
+  `verified` / `unverified`; destructive actions need an exact target, a
+  prior snapshot and a checkable postcondition). Its shell / PTY / job /
+  process domains are AgenTerm itself and the `.qjs` tool door, and stay out
+  of cu; simulator, storage, device, network, power, privilege broker and the
+  helper protocol are not absorbed. Each slice is proven by a `.qjs` journey
+  (`scripts/qjs/cu-macos-smoke.qjs`, first) so the script engine is exercised
+  by real computer-use scripts.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

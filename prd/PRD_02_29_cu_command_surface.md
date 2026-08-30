@@ -45,6 +45,37 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   press/release/move/click/drag; wheel; keyboard text and named keys; clipboard
   read/write; file transfer in both directions; **named window placement**
   (`window-place`, owned by [32](PRD_02_32_cu_window_placement.md)).
+- [ ] the default control loop is `windows` -> bounded `query` / `tree` ->
+  `invoke`, with `verify --expect` closing the loop (absorbed from
+  `moltbaby/skills/mcu`, 2026-08-30). `elements`-style flat numbering is a
+  secondary path (`tree --flat`, the same flatten index `invoke --index`
+  uses); screenshots are the last resort, never the default.
+- [ ] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
+  [--text T | --text-exact T] [--identifier ID] [--actionable] [--within
+  X,Y,W,H] [--offset N] [--max N]` returns a flat, bounded, filtered node list
+  with the same node identity `tree` uses, plus `visited / matched / returned
+  / truncated` counts. Depth and node budget apply *during* traversal; an
+  unbounded tree is never built first.
+- [ ] `tree` and `query` carry each node's available actions (`press`,
+  `set-value`, `increment`, ...) from the platform a11y backend; an empty
+  action list means the backend reported none, never that it was not asked.
+- [ ] `invoke --window HANDLE (--node PATH | --name PAT [--role ROLE])
+  <action> [VALUE]` performs one semantic action (`press`, `set-value`,
+  `select-option`, `set-checked`, `set-expanded`, `increment`, `decrement`)
+  through the a11y backend without activating or raising the window; an
+  ambiguous or missing target and a missing action are typed refusals, and
+  every result is marked `verified` (the state was read back) or
+  `unverified`.
+- [ ] `verify --window HANDLE --expect '[{"role":..,"name":..,"checked":..,
+  "value":..}]'` and `wait ... --expect ...` read the same fields `query`
+  reports and fail closed on an unknown state.
+- [ ] second batch: `focused --window HANDLE` (App-local focused control,
+  read and targeted write, never requiring the foreground), `observe` (a
+  bounded, filtered event stream over the same tree), and `menu inspect /
+  invoke` for a background application's menu bar (macOS first).
+- [ ] browser pages are reached through the platform's own web accessibility
+  area (`role` WebArea and its descendants) on the same loop; no browser
+  extension, native-messaging bridge or devtools protocol is adopted.
 - [ ] every command carries an explicit target reference and returns a typed
   result. There is no ambient "current target" that a caller can forget to set.
 - [ ] verb spellings converge with the existing AgenTerm surfaces where the
