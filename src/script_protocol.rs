@@ -195,6 +195,10 @@ pub struct ScriptCost {
     /// polling script from a computing one (PRD_02_36 A1.12).
     #[serde(default)]
     pub waited_ms: u64,
+    /// Guest heap at the end of the run, in 64 KiB pages -- the number
+    /// `AGENTERM_QJS_MAX_MEMORY_PAGES` bounds.
+    #[serde(default)]
+    pub heap_pages: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

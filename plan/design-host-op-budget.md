@@ -46,10 +46,12 @@
 
 ## 5. 回填（2026-08-30 晚）
 
-| 旅程 | steps | host_ops | host_bytes | waited_ms | 墙钟 ms |
-|---|---|---|---|---|---|
-| server-smoke | 31 557 629 | 1 127 | 509 876 | 267 | 3 216 |
-| wake-smoke | 48 867 366 | 1 149 | 359 051 | 245 | 3 480 |
+| 旅程 | steps | host_ops | host_bytes | waited_ms | heap_pages | 墙钟 ms |
+|---|---|---|---|---|---|---|
+| server-smoke | 31 557 629 | 1 127 | 509 876 | 267 | 45（第二次跑：31 560 640 步 / 266 ms） | 3 216 |
+| wake-smoke | 48 867 366 | 1 149 | 359 051 | 245 | 63（第二次跑：48 804 793 步 / 253 ms） | 3 480 |
+
+两次跑的步数相差 0.01%–0.13%（环境答复的字节数不同），`waited_ms` 相差 1–8 ms：账单在墙钟之外是稳定的。
 
 命令：`agenterm cli script run scripts/qjs/<journey>.qjs --profile tool --timeout-ms 300000 --max-operations 1000000000 --json -- <repo> <server_exe> <cli_exe>`，
 `target/debug/agenterm`（f336e626）。

@@ -1169,6 +1169,7 @@ fn waiting_is_billed_apart_from_computing() {
     assert_eq!(computed.waited_ms, 0, "{computed:?}");
     assert_eq!(computed.host_ops, 0);
     assert!(computed.steps > 1000);
+    assert!(computed.heap_pages >= 1, "{computed:?}");
 }
 
 /// A call that fails keeps its bill on the engine, beside its stdout: a

@@ -105,6 +105,7 @@ impl Slot {
         let steps = self.instance.last_steps();
         let peak_call_depth = self.instance.last_peak_call_depth();
         let peak_activation_slots = self.instance.last_peak_activation_slots();
+        let heap_pages = self.instance.memory_pages();
 
         // Drain stdout unconditionally, including on the error paths below.
         //
@@ -141,6 +142,7 @@ impl Slot {
                     host_ops,
                     host_bytes,
                     waited_ms,
+                    heap_pages,
                 });
                 return Err(self.explain(fault));
             }
@@ -168,6 +170,7 @@ impl Slot {
             host_ops,
             host_bytes,
             waited_ms,
+            heap_pages,
         })
     }
 

@@ -549,6 +549,7 @@ pub struct Cost {
     pub host_ops: u64,
     pub host_bytes: u64,
     pub waited_ms: u64,
+    pub heap_pages: usize,
 }
 
 /// One call's result plus its deterministic cost, so "is this script
@@ -583,6 +584,12 @@ pub struct Outcome {
     /// it is what separates "computed a lot" from "waited a lot", which
     /// `steps` alone cannot tell apart.
     pub waited_ms: u64,
+    /// Guest linear memory at the end of the call, in 64 KiB pages. The
+    /// heap is a bump allocator that only grows, so on a slot that is
+    /// called again this is the high-water mark so far, and against
+    /// `Budget::limits.max_memory_pages` it is the fourth number a budget is
+    /// made of.
+    pub heap_pages: usize,
 }
 
 /// The repository-wide fleet bridge shape, reused verbatim. This crate exposes

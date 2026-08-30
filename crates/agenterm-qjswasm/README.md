@@ -337,8 +337,9 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 `spawn` / `call` 分开，因为 tinyvm 的 `Instance` 是**持久**的：装一次、调多次，
 每次顶层调用拿一份新鲜的 `max_steps` 预算。一次性客人用 `run_once`。
 
-每次调用回报确定性成本（`steps` / `peak_call_depth` / `peak_activation_slots`），
-所以「这个脚本贵不贵」是可度量的，不是靠猜。
+每次调用回报成本（`steps` / `peak_call_depth` / `peak_activation_slots` / `host_ops` /
+`host_bytes` / `waited_ms` / `heap_pages`；失败的调用留在 `Engine::take_failed_cost`），
+所以「这个脚本贵不贵」「是算得多还是等得久」是可度量的，不是靠猜。
 
 ## 隔离与预算
 
