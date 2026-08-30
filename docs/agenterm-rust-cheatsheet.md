@@ -555,11 +555,14 @@ cannot prove code hidden behind another target's `cfg`.
 
 - A successful Linux compile does not prove dynamically loaded GUI runtime
   libraries exist in the test image. X11 journeys using winit under Xvfb need
-  the `libxkbcommon-x11` runtime (`libxkbcommon-x11-0` on Ubuntu); otherwise
-  event-loop creation can abort before the product exposes its control endpoint.
-  Preserve child stderr in black-box launch harnesses so a missing `dlopen`
-  dependency is reported as the first failure instead of a generic startup
-  timeout or signal.
+  either the host `libxkbcommon-x11` runtime (`libxkbcommon-x11-0` on Ubuntu)
+  or the product's bundled copy: `src/linux_startup.rs` embeds
+  `libxkbcommon-x11.so.0` and `libxcb-xkb.so.1` (see `vendor/linux/`) and
+  re-execs once with `LD_LIBRARY_PATH` when the host omits them. Without either
+  source, event-loop creation can abort before the product exposes its control
+  endpoint. Preserve child stderr in black-box launch harnesses so a missing
+  `dlopen` dependency is reported as the first failure instead of a generic
+  startup timeout or signal.
 - Unix IPC black-box fixtures must create their runtime parent first and set it
   to mode `0700` before launching the product. A default temp directory created
   under umask `022` is commonly `0755`; the product must reject that endpoint as

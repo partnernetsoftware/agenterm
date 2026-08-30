@@ -78,4 +78,23 @@ fn main() {
             println!("cargo:rustc-link-arg-bin={bin}={resource_path}");
         }
     }
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        let arch = std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo must provide arch");
+        for (environment, soname) in [
+            ("AGENTERM_BUNDLED_XKB_X11_PATH", "libxkbcommon-x11.so.0"),
+            ("AGENTERM_BUNDLED_XCB_XKB_PATH", "libxcb-xkb.so.1"),
+        ] {
+            let vendor = format!("vendor/linux/{arch}/{soname}");
+            println!("cargo:rerun-if-changed={vendor}");
+            let bytes = std::fs::read(&vendor).unwrap_or_else(|error| {
+                panic!("missing bundled Linux XKB library at {vendor}: {error}")
+            });
+            assert!(
+                !bytes.is_empty(),
+                "bundled Linux XKB library at {vendor} is empty"
+            );
+            println!("cargo:rustc-env={environment}={vendor}");
+        }
+    }
 }

@@ -633,6 +633,12 @@ pub(crate) fn run_gui_entry_result() -> GuiLaunchResult {
         return GuiLaunchResult::StartupFailed("no graphical display was detected".to_owned());
     }
 
+    #[cfg(target_os = "linux")]
+    if let Err(message) = crate::linux_startup::preflight() {
+        eprintln!("AgenTerm GUI failed: {message}");
+        return GuiLaunchResult::StartupFailed(message);
+    }
+
     match run_gui(no_activate, selected_image) {
         Ok(()) => GuiLaunchResult::Launched,
         Err(error) => {
