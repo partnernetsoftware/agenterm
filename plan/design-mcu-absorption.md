@@ -66,7 +66,11 @@ qjswasm 在这里的角色：**每一片的黑盒证据都是一段 `.qjs`**（�
 
 ### 片 3 —— 后台 `menu`、`focused`、`observe`，与 PRD 32 的 `frame` 事务合流
 
-- 每个动词一行 PRD 29 leaf + 一段旅程；此时把 qjs 门的 `process.window_*` 评估收敛：要么门调用 cu 的 `Command`，要么 PRD 28 明写两条面各自的边界。
+- 每个动词一行 PRD 29 leaf + 一段旅程。
+- 两条面的边界（2026-08-30 读过门的实现后定）：qjs 门的 `process.window_{key,pointer,rect,control}` 是**按 PID + 数字控件 id 的原始窗口操作**
+  （`agenterm_platform::process_window`），存在的理由是旅程要驱动 **agenterm 自己的窗口**做产品自检；cu 的动词是**面向 agent 的 a11y 语义面**，
+  驱动任意 App。不合并：门保留自检原语，旅程要碰第三方 App 的语义树时经 `process.command` 调 `agenterm-cu --json`（cu-macos-smoke 就是这么写的）。
+  PRD 28「边界」写一句；门不再新增 window 原语。
 
 ## 3. 不做 / 明确排除
 
