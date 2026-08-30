@@ -2410,7 +2410,7 @@ fn run_script_command_with_context(
         if !result.stdout.is_empty() {
             print!("{}", result.stdout);
             if !result.stdout.ends_with('\n') {
-                print!("\n");
+                println!();
             }
         }
         cli_eprintln!(
@@ -5065,6 +5065,8 @@ mod tests {
     /// one they have. `agenterm-qjswasm`'s own suite holds
     /// `UPSTREAM_TINYVM_REV` to the two pins in its `Cargo.toml`, so what is
     /// printed here cannot go stale silently.
+    // The pushes below are gated on features one by one, which is the point.
+    #[allow(clippy::vec_init_then_push)]
     #[test]
     fn every_engine_names_itself_and_the_compiled_one_names_its_pin() {
         use crate::script_backend::ScriptBackend;

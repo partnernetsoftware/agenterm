@@ -20,7 +20,7 @@
 //     this driver names (the archived agenterm.tasks.json at 6a12d8f0^,
 //     `.` spelled as the absolute repo) and runs
 //     `WORKER cli script run --profile tool --timeout-ms N --max-operations
-//     100000000 REPO/scripts/qjs/ENTRY.qjs -- FIXED... EXTRA...` with the
+//     1000000000 REPO/scripts/qjs/ENTRY.qjs -- FIXED... EXTRA...` with the
 //     repo as the child's directory. No `--project-root`: measured
 //     2026-08-29 at a56afd0c, it makes `lib/rh_compat` unresolvable for the
 //     child (fixed on main by c538685d; the cwd spelling works on both).
@@ -176,7 +176,10 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
     "cli", "script", "run",
     "--profile", "tool",
     "--timeout-ms", "" + timeout_ms,
-    "--max-operations", "100000000",
+    // 1G, the engine's hard cap: rh's 100M was AST-level steps, this engine
+    // counts wasm instructions, and prd-alignment alone measures ~356M on
+    // 2026-08-30. The wall-clock timeout beside it is the runaway guard.
+    "--max-operations", "1000000000",
     path.join(repo, "scripts/qjs/" + entry + ".qjs"),
     "--"
   ];
@@ -597,15 +600,17 @@ function resolve_artifact_verification_mode(release) {
   return release !== 0 ? "release" : "development";
 }
 
+// prd-alignment measures ~21 s on this engine (2026-08-30, its scans on the
+// host); rh gave it 10 s. 120 s below, twice the room.
 function quick_prd_alignment_spec(unix_bootstrap, bootstrap_worker, repo, quick_native_bin_root) {
   if (unix_bootstrap !== 0) {
     return direct_task(
-      bootstrap_worker, repo, "prd-alignment", 10000,
+      bootstrap_worker, repo, "prd-alignment", 120000,
       [repo, path.join(quick_native_bin_root, "agenterm")],
       empty_environment(), 0
     );
   }
-  return task(bootstrap_worker, repo, "prd-alignment", 10000, [], empty_environment(), 0);
+  return task(bootstrap_worker, repo, "prd-alignment", 120000, [], empty_environment(), 0);
 }
 
 // ---- evidence declarations -----------------------------------------------

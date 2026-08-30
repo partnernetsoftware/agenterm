@@ -298,7 +298,7 @@ impl NativeStream {
                 "this host native IPC adapter accepts only Unix sockets",
             ));
         };
-        if path.as_bytes().len() > unix_socket_path_limit() {
+        if path.len() > unix_socket_path_limit() {
             return Err(IpcTransportError::new(
                 IpcTransportErrorCode::InvalidEndpoint,
                 endpoint.to_string(),

@@ -1,9 +1,9 @@
+import * as rh from "lib/rh_compat";
 // Keep the PRD modules, shipped evidence contract, and public catalogs aligned.
 //
 // Args:
 //   REPO [CLI_EXE]
 // Ported from scripts/rh/prd-alignment.rh; runs under `--profile tool`.
-import * as rh from "lib/rh_compat";
 
 function well_formed_name(name, code) {
   rh.require(name !== "", code + ":" + name);
@@ -111,25 +111,72 @@ const detail_documents = [];
 for (const linked_name of linked) {
   detail_documents.push(rh.read_text(rh.join(detail_directory, "" + linked_name)).toLowerCase());
 }
+const root_status_lines = status_lines(root_document);
+const detail_status_lines = [];
+for (const detail_document of detail_documents) { detail_status_lines.push(status_lines(detail_document)); }
 
-function mentioned_anywhere(needle) {
-  if (root_document.includes(needle)) { return true; }
-  for (const detail_document of detail_documents) {
-    if (detail_document.includes(needle)) { return true; }
+// The corpus's tokens -- every run of `[a-z0-9._-]`, lowercased, from the
+// same files -- gathered once by the host. A public name that is a token
+// is mentioned; one that is not falls back to the substring search rh
+// did, so the answer is rh's answer, and the 729 KB x hundreds-of-names
+// scan (past 1G steps on this engine, 2026-08-30) runs only for the rare
+// name that is not a whole token.
+const corpus_files = [prd_path];
+for (const linked_name of linked) { corpus_files.push(rh.join(detail_directory, "" + linked_name)); }
+// Which of a list of names the corpus mentions, asked of the host in one
+// pipeline: `grep -o -F -f <names>` prints every occurrence of any name as
+// a substring, case-insensitively, over the same files -- rh's `includes`
+// question exactly -- and `sort -u` leaves the distinct names that matched.
+// rh asked per name with a substring scan of 729 KB of text; on this
+// engine that was past 1G steps for the public command list alone
+// (2026-08-30), and so was a token map (this engine's object is a linear
+// record) and a token array scanned per name.
+const mention_names_path = rh.join(repo, ".prd-alignment.names.tmp");
+function mentioned_set(names) {
+  let listing = "";
+  for (const name of names) { listing = listing + ("" + name).toLowerCase() + "\n"; }
+  rh.atomic_write(mention_names_path, listing);
+  let files = "";
+  for (const file of corpus_files) { files = files + " '" + file + "'"; }
+  const code = rh.command_stdout_file(
+    "sh",
+    ["-c", "grep -o -h -i -F -f '" + mention_names_path + "'" + files + " | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort -u"],
+    stdout_path,
+    { cwd: repo, timeout_ms: 60000 }
+  );
+  rh.require(code === 0 || code === 1, "prd_alignment_mentions:" + code);
+  const found = {};
+  for (const line of rh.read_text(stdout_path).split("\n")) {
+    const key = line.trim();
+    if (key !== "") { found[key] = true; }
   }
-  return false;
+  rh.try_remove_file(mention_names_path);
+  return found;
 }
 
-function status_line_found(document, declaration, partial) {
+function mentioned_in(set, needle) {
+  return set[("" + needle).toLowerCase()] === true;
+}
+
+
+// The status lines of a document -- `- [x] …` and `- [~] …`, trimmed --
+// split out once. rh split every document again for every capability
+// (69 capabilities x 729 KB of PRD text on 2026-08-30, past 1G steps on
+// this engine); the check only ever reads these lines, so they are the
+// only lines kept.
+function status_lines(document) {
+  const lines = [];
   for (const source_line of document.split("\n")) {
     const line = source_line.trim();
-    if (line.includes(declaration)) {
-      if (partial) {
-        if (line.startsWith("- [~]")) { return true; }
-      } else {
-        if (line.startsWith("- [x]")) { return true; }
-      }
-    }
+    if (line.startsWith("- [x]") || line.startsWith("- [~]")) { lines.push(line); }
+  }
+  return lines;
+}
+
+function status_line_found(lines, declaration, partial) {
+  const marker = partial ? "- [~]" : "- [x]";
+  for (const line of lines) {
+    if (line.startsWith(marker) && line.includes(declaration)) { return true; }
   }
   return false;
 }
@@ -182,10 +229,10 @@ for (const capability of capabilities) {
   }
   const declaration = ("" + capability.prd).toLowerCase();
   const partial = capability.status === "partial";
-  let status_found = status_line_found(root_document, declaration, partial);
-  for (const detail_document of detail_documents) {
+  let status_found = status_line_found(root_status_lines, declaration, partial);
+  for (const lines of detail_status_lines) {
     if (!status_found) {
-      status_found = status_line_found(detail_document, declaration, partial);
+      status_found = status_line_found(lines, declaration, partial);
     }
   }
   rh.require(status_found, "prd_alignment_status_line:" + capability.id);
@@ -233,7 +280,9 @@ for (const gate of host_native_manifest.gates) {
   );
   evidence_gates.push(gate);
 }
-const rh_dir = rh.join(repo, "scripts/rh");
+// The evidence suites live at scripts/qjs/<suite>.qjs since 2026-08-29;
+// the check reads their source for the evidence ids they emit.
+const suite_dir = rh.join(repo, "scripts/qjs");
 for (const gate of evidence_gates) {
   const suite_name = "" + gate.id;
   let effective_suite = suite_name;
@@ -243,9 +292,9 @@ for (const gate of evidence_gates) {
       effective_suite = suite_override;
     }
   }
-  const rh_path = rh.join(rh_dir, effective_suite + ".rh");
-  rh.require(rh.exists(rh_path), "prd_alignment_evidence_suite_missing:" + gate.id);
-  const suite_source = rh.read_text(rh_path);
+  const suite_path = rh.join(suite_dir, effective_suite + ".qjs");
+  rh.require(rh.exists(suite_path), "prd_alignment_evidence_suite_missing:" + gate.id);
+  const suite_source = rh.read_text(suite_path);
   for (const evidence_id of gate.evidence) {
     const evidence_key = "" + evidence_id;
     well_formed_name(evidence_key, "prd_alignment_evidence_id");
@@ -324,8 +373,9 @@ for (const source_line of catalog_text.split("\n")) {
     }
   }
 }
+const public_mentions = mentioned_set(public_name_keys);
 for (const name of public_name_keys) {
-  rh.require(mentioned_anywhere(name), "prd_alignment_public_command_missing:" + name);
+  rh.require(mentioned_in(public_mentions, name), "prd_alignment_public_command_missing:" + name);
 }
 for (const root_name of contract.planned_command_roots) {
   const planned_root = "" + root_name;
@@ -490,13 +540,12 @@ for (const expected_item of expected_unsupported) {
   );
   unsupported_pos = unsupported_pos + 1;
 }
-for (const name of supported_mux) {
-  const mux_name = "" + name;
-  rh.require(mentioned_anywhere(mux_name), "prd_alignment_mux_command_missing:" + mux_name);
-}
-for (const name of unsupported_mux) {
-  const mux_name = "" + name;
-  rh.require(mentioned_anywhere(mux_name), "prd_alignment_mux_command_missing:" + mux_name);
+const mux_names = [];
+for (const name of supported_mux) { mux_names.push("" + name); }
+for (const name of unsupported_mux) { mux_names.push("" + name); }
+const mux_mentions = mentioned_set(mux_names);
+for (const mux_name of mux_names) {
+  rh.require(mentioned_in(mux_mentions, mux_name), "prd_alignment_mux_command_missing:" + mux_name);
 }
 
 rh.try_remove_file(stdout_path);

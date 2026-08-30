@@ -67,7 +67,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -87,7 +87,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -108,7 +108,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -128,7 +128,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -147,7 +147,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -167,7 +167,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -188,7 +188,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -211,7 +211,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -230,7 +230,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -248,7 +248,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -266,7 +266,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -285,7 +285,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -304,7 +304,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -321,7 +321,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -339,7 +339,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -359,7 +359,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -379,7 +379,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -399,7 +399,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -417,7 +417,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576,
         "max_string_bytes": 8388608
       },
@@ -436,7 +436,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -457,7 +457,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -477,7 +477,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -497,7 +497,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -516,7 +516,7 @@
       ],
       "budget": {
         "timeout_ms": 10000,
-        "max_operations": 10000,
+        "max_operations": 100000,
         "max_output_bytes": 65536
       },
       "network": [],
@@ -536,7 +536,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -557,7 +557,7 @@
       ],
       "budget": {
         "timeout_ms": 180000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -578,7 +578,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -599,7 +599,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -617,7 +617,7 @@
       ],
       "budget": {
         "timeout_ms": 600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -638,7 +638,7 @@
       ],
       "budget": {
         "timeout_ms": 600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -658,7 +658,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -679,7 +679,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -701,7 +701,7 @@
       ],
       "budget": {
         "timeout_ms": 360000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -722,7 +722,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -743,7 +743,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -763,7 +763,7 @@
       ],
       "budget": {
         "timeout_ms": 600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -783,7 +783,7 @@
       ],
       "budget": {
         "timeout_ms": 1200000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576,
         "max_string_bytes": 8388608
       },
@@ -805,7 +805,7 @@
       ],
       "budget": {
         "timeout_ms": 1200000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -827,7 +827,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -847,7 +847,7 @@
       ],
       "budget": {
         "timeout_ms": 360000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -867,7 +867,7 @@
       ],
       "budget": {
         "timeout_ms": 360000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -887,7 +887,7 @@
       ],
       "budget": {
         "timeout_ms": 360000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -908,7 +908,7 @@
       ],
       "budget": {
         "timeout_ms": 600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -928,7 +928,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -946,7 +946,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -964,7 +964,7 @@
       ],
       "budget": {
         "timeout_ms": 600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576,
         "max_string_bytes": 1048576
       },
@@ -985,7 +985,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1004,7 +1004,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1023,7 +1023,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1041,7 +1041,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1060,7 +1060,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576,
         "max_string_bytes": 1048576
       },
@@ -1079,7 +1079,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1099,7 +1099,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576,
         "max_collection_items": 100000,
         "max_string_bytes": 8388608
@@ -1123,7 +1123,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1140,7 +1140,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1157,7 +1157,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1176,7 +1176,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1194,7 +1194,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1212,7 +1212,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1231,7 +1231,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1251,7 +1251,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -1272,7 +1272,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -1293,7 +1293,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -1315,7 +1315,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -1335,7 +1335,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1353,7 +1353,7 @@
       ],
       "budget": {
         "timeout_ms": 300000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1371,7 +1371,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1392,7 +1392,7 @@
       ],
       "budget": {
         "timeout_ms": 600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1411,7 +1411,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1432,7 +1432,7 @@
       ],
       "budget": {
         "timeout_ms": 3600000,
-        "max_operations": 100000000,
+        "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [
@@ -1454,7 +1454,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
@@ -1471,7 +1471,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 10000000,
+        "max_operations": 100000000,
         "max_output_bytes": 1048576
       },
       "network": [],
