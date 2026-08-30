@@ -13,6 +13,6 @@
   },
   "executable_compression": "off",
   "reputation": {
-    "windows_final_candidate_bytes": "planned"
+    "windows_final_candidate_bytes": "required"
   }
 }

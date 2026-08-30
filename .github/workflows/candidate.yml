@@ -66,6 +66,7 @@ jobs:
           test "$(jq -r .signing.windows release-policy.json)" = off
           test "$(jq -r .signing.linux release-policy.json)" = off
           test "$(jq -r .executable_compression release-policy.json)" = off
+          test "$(jq -r .reputation.windows_final_candidate_bytes release-policy.json)" = required
           macos_mode="$(jq -r .signing.macos release-policy.json)"
           case "$macos_mode" in
             required) signed_macos=true ;;
@@ -805,6 +806,27 @@ jobs:
             throw "runtime_version_probe_failed: $output"
           }
           "PASS ${{ matrix.platform_id }} $actualHash $output"
+
+      - name: Scan final Windows Candidate bytes with Defender
+        if: matrix.family == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mpcmd = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          if (-not (Test-Path $mpcmd)) {
+            $platformRoot = "$env:ProgramData\Microsoft\Windows Defender\Platform"
+            $mpcmd = Get-ChildItem $platformRoot -Filter MpCmdRun.exe -File -Recurse |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $mpcmd -or -not (Test-Path $mpcmd)) {
+            throw 'defender_cli_missing'
+          }
+          & $mpcmd -Scan -ScanType 3 -File (Resolve-Path runtime).Path -DisableRemediation
+          if ($LASTEXITCODE -ne 0) {
+            throw "defender_final_candidate_scan_failed:$LASTEXITCODE"
+          }
+          "DEFENDER PASS ${{ matrix.platform_id }}"
 
       - name: Execute final Linux archive
         if: matrix.family == 'linux'

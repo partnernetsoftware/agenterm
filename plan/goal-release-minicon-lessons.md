@@ -30,7 +30,8 @@ archives, explicit signing policy, and final-byte reputation checks.
     - [ ] signing changes bytes only before Candidate sealing
     - [ ] receipt binds pre-sign and final SHA-256 plus timestamp evidence
   - [ ] final-byte reputation court
-    - [ ] Defender scans exact Windows Candidate files
+    - [x] Defender scans the exact extracted Windows Candidate files on both
+      native ISA runners, after archive SHA verification and execution
     - [ ] no UPX or opaque executable compression in public assets
     - [ ] third-party heuristic results are qualification evidence, not an installer dependency
   - [ ] delivery latency and cleanup
