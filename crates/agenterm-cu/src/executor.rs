@@ -1534,7 +1534,10 @@ fn windows_payload(
     let (stacking, stacking_reason) = match mechanism::window_enumerate::stacking() {
         Ok(rows) => (rows, None),
         Err(mechanism::MechanismError::Unsupported { reason }) => (Vec::new(), Some(reason)),
-        Err(error) => (Vec::new(), Some(format!("{error:?}"))),
+        // A reason a caller reads, not a Debug rendering of the enum.
+        Err(mechanism::MechanismError::Failed { code, message }) => {
+            (Vec::new(), Some(format!("{code}: {message}")))
+        }
     };
     let row_json = |window: &WindowInfo| observe::window_row_json_with_stacking(window, &stacking);
     let rows = serde_json::Value::Array(windows.iter().map(row_json).collect());
@@ -1723,15 +1726,131 @@ fn orderwin_payload(
         OrderRelation::Above => window,
         OrderRelation::Below => relative,
     };
+    // Snapshot the order first: the reply has to be able to show what
+    // actually moved, and a window manager that declines to restack has to
+    // be distinguishable from one that had nothing to do.
+    let before = order_snapshot(window, relative);
     mechanism::window_op::show(raised, mechanism::window_op::SHOW).map_err(map_mechanism_err)?;
-    Ok(serde_json::json!({
+    // Restacking is a *request* to the window manager, applied (or refused)
+    // asynchronously -- the same reason `app hide` has to poll before the
+    // windows are gone. Sending it is not evidence that it happened, so
+    // read the order back rather than reporting success from the send.
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let mut after = order_snapshot(window, relative);
+    loop {
+        if after.holds(relation) || Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(25));
+        after = order_snapshot(window, relative);
+    }
+    let payload = serde_json::json!({
         "mechanism": "libagenterm",
         "via": "native-window-show",
         "relation": relation.as_str(),
         "window": window,
         "relative": relative,
         "raised": raised,
-    }))
+        "before": before.json(),
+        "after": after.json(),
+    });
+    match after.verdict(relation) {
+        OrderVerdict::Holds => Ok(payload),
+        // The host cannot report a stacking order at all, so nothing here
+        // can confirm or deny the move. Say that, rather than letting the
+        // absence of a contradiction read as success.
+        OrderVerdict::Unverifiable(reason) => {
+            let mut payload = payload;
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("verified".into(), serde_json::json!(false));
+                object.insert("verification".into(), serde_json::json!({
+                    "method": "stacking-readback",
+                    "reason": reason,
+                }));
+            }
+            Ok(payload)
+        }
+        OrderVerdict::Refused => Err(CuError::new(
+            "window_order_not_applied",
+            format!(
+                "the window manager did not place {window} {} {relative}; the order is unchanged",
+                relation.as_str()
+            ),
+        )
+        .with_detail(payload)),
+    }
+}
+
+/// The two handles' places in the front-to-back order, or why they are not
+/// readable. `z_index` 0 is frontmost.
+struct OrderSnapshot {
+    window: Option<u32>,
+    relative: Option<u32>,
+    reason: Option<String>,
+}
+
+enum OrderVerdict {
+    Holds,
+    Refused,
+    Unverifiable(String),
+}
+
+impl OrderSnapshot {
+    fn holds(&self, relation: OrderRelation) -> bool {
+        let (Some(window), Some(relative)) = (self.window, self.relative) else {
+            return false;
+        };
+        match relation {
+            OrderRelation::Above => window < relative,
+            OrderRelation::Below => window > relative,
+        }
+    }
+
+    fn verdict(&self, relation: OrderRelation) -> OrderVerdict {
+        if self.holds(relation) {
+            return OrderVerdict::Holds;
+        }
+        if let Some(reason) = &self.reason {
+            return OrderVerdict::Unverifiable(reason.clone());
+        }
+        match (self.window, self.relative) {
+            (Some(_), Some(_)) => OrderVerdict::Refused,
+            _ => OrderVerdict::Unverifiable(
+                "one of the two windows is no longer in the stacking order".to_owned(),
+            ),
+        }
+    }
+
+    fn json(&self) -> serde_json::Value {
+        serde_json::json!({ "window_z": self.window, "relative_z": self.relative })
+    }
+}
+
+fn order_snapshot(window: isize, relative: isize) -> OrderSnapshot {
+    match mechanism::window_enumerate::stacking() {
+        Ok(rows) => {
+            let z = |handle: isize| {
+                rows.iter()
+                    .find(|row| row.handle == handle)
+                    .map(|row| row.z_index)
+            };
+            OrderSnapshot {
+                window: z(window),
+                relative: z(relative),
+                reason: None,
+            }
+        }
+        Err(mechanism::MechanismError::Unsupported { reason }) => OrderSnapshot {
+            window: None,
+            relative: None,
+            reason: Some(reason),
+        },
+        Err(mechanism::MechanismError::Failed { code, message }) => OrderSnapshot {
+            window: None,
+            relative: None,
+            reason: Some(format!("{code}: {message}")),
+        },
+    }
 }
 
 fn displays_payload() -> Result<serde_json::Value, CuError> {

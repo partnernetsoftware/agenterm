@@ -3,7 +3,8 @@
 use x11rb::{
     connection::Connection,
     protocol::xproto::{
-        Atom, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask, StackMode,
+        Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
+        StackMode,
         Window,
     },
 };
@@ -60,11 +61,72 @@ pub(crate) fn show(
     }
     let conn = connect()?;
     let window = window_id(handle)?;
+    // A managed window is reparented into a window-manager frame, and
+    // SubstructureRedirect means ConfigureWindow on the client window is
+    // not an order to the X server -- it is a request the WM is free to
+    // drop. Openbox drops it, so the raise silently did nothing.
+    //
+    // `_NET_RESTACK_WINDOW` is the EWMH message for this exact case: a
+    // pager restacking a window it does not own, without touching focus
+    // (unlike `_NET_ACTIVE_WINDOW`). Source indication 2 is "pager",
+    // sibling 0 is "no sibling", and detail `Above` raises to the top.
+    // ConfigureWindow stays as the fallback for an unmanaged window or a
+    // WM that does not advertise the message.
+    if wm_supports(&conn, b"_NET_RESTACK_WINDOW").unwrap_or(false) {
+        let restack = atom(&conn, b"_NET_RESTACK_WINDOW")?;
+        return send_root_message(
+            &conn,
+            window,
+            restack,
+            [2, 0, u32::from(StackMode::ABOVE), 0, 0],
+        );
+    }
     let aux = ConfigureWindowAux::new().stack_mode(StackMode::ABOVE);
     conn.configure_window(window, &aux)
         .map_err(|error| failed(format!("ConfigureWindow(raise) send failed: {error}")))?;
+    sync(&conn)
+}
+
+/// Whether the running window manager advertises `name` in `_NET_SUPPORTED`.
+///
+/// A WM that does not list a message is entitled to ignore it, so asking
+/// first is what keeps the fallback path honest rather than sending both
+/// and hoping.
+fn wm_supports(
+    conn: &x11rb::rust_connection::RustConnection,
+    name: &[u8],
+) -> Result<bool, WindowOpError> {
+    let root = root_of(conn)?;
+    let supported = atom(conn, b"_NET_SUPPORTED")?;
+    let wanted = atom(conn, name)?;
+    let reply = conn
+        .get_property(false, root, supported, AtomEnum::ATOM, 0, 1024)
+        .map_err(|error| failed(format!("_NET_SUPPORTED request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_SUPPORTED reply failed: {error}")))?;
+    Ok(reply
+        .value32()
+        .is_some_and(|mut atoms| atoms.any(|atom| atom == wanted)))
+}
+
+/// Wait until the server has actually processed everything sent so far.
+///
+/// `flush` only pushes bytes toward the socket. Every one of these calls
+/// returns immediately afterwards, and the connection is dropped on the way
+/// out -- and a request that the server has not processed by then is simply
+/// lost. Measured on openbox: an `_NET_RESTACK_WINDOW` sent, flushed and
+/// dropped never restacked anything, while the identical message on a
+/// connection that stayed open did. A round trip (`GetInputFocus` is the
+/// classic no-op for this) forces the server to have handled the request
+/// before this function returns, which is also what makes it honest to
+/// return `Ok`.
+fn sync(conn: &x11rb::rust_connection::RustConnection) -> Result<(), WindowOpError> {
     conn.flush()
-        .map_err(|error| failed(format!("ConfigureWindow(raise) flush failed: {error}")))?;
+        .map_err(|error| failed(format!("X11 flush failed: {error}")))?;
+    conn.get_input_focus()
+        .map_err(|error| failed(format!("X11 sync request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("X11 sync reply failed: {error}")))?;
     Ok(())
 }
 
@@ -106,9 +168,7 @@ fn send_root_message(
         event,
     )
     .map_err(|error| failed(format!("EWMH client message send failed: {error}")))?;
-    conn.flush()
-        .map_err(|error| failed(format!("EWMH client message flush failed: {error}")))?;
-    Ok(())
+    sync(conn)
 }
 
 pub(crate) fn move_window(
@@ -127,9 +187,7 @@ pub(crate) fn move_window(
         .height(height.max(1));
     conn.configure_window(window, &aux)
         .map_err(|error| failed(format!("ConfigureWindow send failed: {error}")))?;
-    conn.flush()
-        .map_err(|error| failed(format!("ConfigureWindow flush failed: {error}")))?;
-    Ok(())
+    sync(&conn)
 }
 
 pub(crate) fn window_rect(handle: isize) -> Result<WindowBounds, WindowOpError> {
