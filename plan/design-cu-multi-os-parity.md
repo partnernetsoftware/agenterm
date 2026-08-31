@@ -185,7 +185,7 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 
 | 片 | 提交 | 状态 |
 |---|---|---|
-| A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（`cu-macos-smoke` **23 STEP / 22 EVIDENCE**，81.3M 步 / 287 ops / 73 页；前台句柄与真实指针不动，无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
+| A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（片 A 当时 23 STEP / 22 EVIDENCE；这条旅程后来长到 **27 STEP / 26 EVIDENCE**，96.7M 步 / 85 页，前台句柄与真实指针始终不动、无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
 | O App 生命周期（控制半） | 见下 | **已落地**：`hide` 后窗口从 inventory 消失但进程还在；`show` 必须按 pid（句柄已经不存在了）；`quit` 无三件套 / 错 pid 都是 `not_performed` 拒绝，带齐了则按下 `ax_fixture/Quit ax_fixture` 并回读进程消失、退出码 0 |
 | N 权限报告面 | 见下 | **已落地**：修复路径本来埋在 `tree` 动词里（要先知道是树被拒才找得到），现在一级；macOS 同一份 Accessibility 授权还管所有输入动词，gates 列出全部 24 个；没有权限模型的宿主写 `model: none` 而不是空集 |
 | M Linux 截图 + Space 归属 | 见下 | **已落地**：Linux `GetImage` 只认 24/32 位 TrueColor，别的 visual typed 拒绝（不乱解释字节）、64 MiB 像素上限；Space 归属每行带 `spaces`，旅程校验它的 id 都在 `spaces` 清单里 |
@@ -199,4 +199,14 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 | F 网页 AX + unlock poke | 见下 | **已落地**：`cu-macos-web-smoke` 6 STEP / 6 EVIDENCE（5.58M 步 / 80 ops / 5 页），WebArea 树、`scroll` 正向（链接 y 1955→905）、网页 `invoke press`/`set-value`、未聚焦写入 fail-closed |
 | B Windows | 见下 | **已落地（映射，未真机）**：`set-expanded`/`select-option`/`increment`/`decrement`/`scroll`/`get-extents`/`focused` + 快照补 `expanded`/`collapsed`；**选区/插入点走 TextPattern**（文档区间量 UTF-16 偏移，`Select()` 后回读）；五个新 pattern/接口的 vtable 槽位全部单测钉死 |
 | C Linux | 见下 | **已落地（映射，未真机）**：五个动作 + `focused` + `checked`/`unchecked`/`mixed`、`expanded`/`collapsed` 双向状态词；两条平台单测；linux/aarch64 两个 target `check` + `clippy` 干净 |
-| D cu 层 | — | 未开工 |
+| D cu 层 | 并进 K / M | **已落地**：`close` 三平台都有原生关闭控件（片 K 补上 Linux）；`orderwin` 三平台（片 K 补 Linux，不动焦点）；`screenshot` Win GDI + Linux X11（片 M），macOS 是系统拿走了 API；`capabilities` 逐平台如实报，不再硬编码 Linux 拒绝 |
+
+### 还剩什么（2026-09-01，本轮结束时）
+
+| 项 | 为什么还在 |
+|---|---|
+| Linux / Windows **真机证据** | 本仓没有那两台机器。所有映射都交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 一律 `[~] mapped`，`capabilities` 写 `mode: tree-search` / `state-search` 不冒充 |
+| macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
+| 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
+| `apps --all` + `app launch` | 绑在一起才有用；`launch` 要新一层机制，且 macOS `open -a` 把 pid 交给 LaunchServices，旅程收不回自己起的东西 |
+| `scroll` 在 Cocoa 上的正向证据 | AppKit 不发布 `AXScrollToVisible`（三种控件都量过）；正向证据在网页旅程里 |
