@@ -62,6 +62,7 @@ const declared_evidence = [
   "cu.macos-ax-observe",
   "cu.macos-ax-observe-notifications",
   "cu.macos-ax-click",
+  "cu.macos-ax-screenshot",
   "cu.macos-ax-frame",
   "cu.macos-ax-destructive-refusals",
   "cu.macos-ax-destructive-close",
@@ -496,7 +497,13 @@ try {
   ensure(
     text_at(capabilities, "data.permissions.accessibility.grant.status") === "granted"
       && capabilities.data.permissions.accessibility.gates.length > 10
-      && text_at(capabilities, "data.permissions.screen_recording.grant.status") === "not_required",
+      // Window capture works now, so Screen Recording really is required.
+      // The report says the grant gates the verb and where to fix it; it
+      // does not claim to know whether it is held, because the capture API
+      // reports "no permission" and "window is gone" identically.
+      && text_at(capabilities, "data.permissions.screen_recording.grant.status") === "required"
+      && text_at(capabilities, "data.permissions.screen_recording.grant.repair") !== ""
+      && text_at(capabilities, "data.verbs.screenshot.status") === "available",
     "cu_macos_smoke_permissions:" + JSON.stringify(capabilities.data.permissions)
   );
   let gates_input = 0;
@@ -1356,6 +1363,43 @@ try {
   ensure(
     focused_after_click === focused_before && focused_after_click !== fixture_handle,
     "cu_macos_smoke_click_foreground_stolen:before=" + focused_before + ":after=" + focused_after_click
+  );
+
+  print("STEP screenshot captures the fixture window's own pixels through the symbol the SDK dropped, sized in device pixels rather than points");
+  // `CGWindowListCreateImage` is gone from the SDK -- the compiler refuses
+  // it -- but it is still in the framework and still captures, so it is
+  // reached by dlsym the way SkyLight already is. The reply reports the
+  // *device* pixel size, which on a Retina display is the window's points
+  // times the backing scale: reporting the point size would describe an
+  // image nobody wrote.
+  const shot_path = rh.join(run_directory, "fixture.png");
+  const shot = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "screenshot",
+    "--out", shot_path, "--window", handle_text
+  ]);
+  const shot_row = fixture_window_row(run_directory, executable, fixture_pid, fixture_title);
+  const scale_w = int_at(shot, "data.output_width") / int_at(shot_row, "bounds.width");
+  const scale_h = int_at(shot, "data.output_height") / int_at(shot_row, "bounds.height");
+  ensure(
+    scale_w === scale_h && scale_w >= 1 && scale_w === Math.round(scale_w),
+    "cu_macos_smoke_shot_scale:" + JSON.stringify(shot.data) + JSON.stringify(shot_row.bounds)
+  );
+  ensure(direct_file(shot_path), "cu_macos_smoke_shot_missing");
+  // A capture of a real window compresses to far more than a flat image,
+  // which is what an obsoleted stub returning blank pixels would give.
+  ensure(
+    rh.metadata(shot_path).len > 5000,
+    "cu_macos_smoke_shot_empty:" + rh.metadata(shot_path).len
+  );
+  // A handle that is not a window refuses typed rather than capturing the
+  // desktop instead.
+  const shot_refused = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "screenshot",
+    "--out", rh.join(run_directory, "nope.png"), "--window", "999999999"
+  ]);
+  ensure(
+    !flag_at(shot_refused, "ok"),
+    "cu_macos_smoke_shot_bad_handle:" + JSON.stringify(shot_refused)
   );
 
   print("STEP window-place --action frame moves the fixture window to a requested rect in one transaction and the inventory reads it back");
@@ -2261,6 +2305,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-focused");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe-notifications");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-click");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-frame");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-refusals");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-close");

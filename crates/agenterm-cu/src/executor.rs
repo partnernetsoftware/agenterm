@@ -41,6 +41,10 @@ use crate::{
 /// `denied` reply so an agent can relay the repair path without guessing.
 pub const ACCESSIBILITY_REPAIR_PATH: &str = "System Settings > Privacy & Security > Accessibility: enable the process that runs agenterm-cu (or its parent terminal / launcher), then rerun";
 
+/// Where a person turns on the grant window capture needs. Separate from
+/// the Accessibility one: macOS gates reading a window's pixels on Screen
+/// Recording, and granting one does not grant the other.
+pub const SCREEN_RECORDING_REPAIR_PATH: &str = "System Settings > Privacy & Security > Screen & System Audio Recording: enable the process that runs agenterm-cu (or its parent terminal / launcher), then rerun";
 pub struct Executor {
     auth: Authorization,
     ssh: Option<SshEndpoint>,
@@ -1099,26 +1103,16 @@ fn capabilities_payload() -> serde_json::Value {
         declaration
     };
     // The Screenshot capability covers the PNG *writer*, which every host
-    // has. Capturing a window's pixels is a separate mechanism, and macOS
-    // does not have one this build can call: `CGWindowListCreateImage` was
-    // obsoleted in macOS 15.0 and removed from the SDK, and its
-    // replacement needs the Screen Recording grant. Declaring the verb
-    // `available` from the writer's status would promise a capture that
-    // always fails.
-    // Linux captures with X11 GetImage (cut 3.58) and Windows with GDI;
-    // only macOS has no route left.
-    let screenshot_verb = if cfg!(target_os = "macos") {
-        serde_json::json!({
-            "status": "unsupported",
-            "group": "capture",
-            "reason": "native window capture needs ScreenCaptureKit; CGWindowListCreateImage was obsoleted in macOS 15.0",
-        })
-    } else {
-        capability_verb(
-            mechanism::Capability::Screenshot,
-            serde_json::json!({ "group": "capture" }),
-        )
-    };
+    // has. Capturing a window's pixels is a separate mechanism, and every
+    // host now has one: Linux X11 GetImage, Windows GDI, and macOS
+    // `CGWindowListCreateImage` resolved by dlsym -- removed from the SDK
+    // in 15.0 but still in the framework and still capturing, measured.
+    // The verb's status therefore comes from the mechanism like every
+    // other verb, instead of a hardcoded refusal that outlived its reason.
+    let screenshot_verb = capability_verb(
+        mechanism::Capability::Screenshot,
+        serde_json::json!({ "group": "capture" }),
+    );
     let pointer_inject_verb = capability_verb(
         mechanism::Capability::InputInject,
         serde_json::json!({ "scope": "desktop", "group": "pointer" }),
@@ -1164,10 +1158,17 @@ fn capabilities_payload() -> serde_json::Value {
                     "close", "unlock", "pointer-move", "pointer-position",
                 ],
             },
+            // Screen Recording really is required now that window capture
+            // works, and this does not claim to know whether it is held:
+            // the capture API reports "no permission" and "the window is
+            // gone" the same way, so the honest report is that the grant
+            // gates the verb, with where to fix it -- not a guess at its
+            // state dressed as a reading.
             "screen_recording": {
                 "grant": {
-                    "status": "not_required",
-                    "reason": "no capture path exists on this host: CGWindowListCreateImage was obsoleted in macOS 15.0 and ScreenCaptureKit is not wired",
+                    "status": "required",
+                    "reason": "window capture reads the window's pixels; macOS gates that on Screen Recording",
+                    "repair": SCREEN_RECORDING_REPAIR_PATH,
                 },
                 "gates": ["screenshot"],
             },
