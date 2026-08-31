@@ -376,6 +376,45 @@ macOS 和 Linux 一直没暴露，因为那两个后端没产生环——**这�
 
 修完真机复验：`menu inspect` **166 ms** 返回真实条目。
 
+## 8. 片 Y：Windows 旅程跑通，路上是四个真 bug
+
+「跑了几个动词」和「有一条能重跑的旅程」不是一回事。把 `cu-windows-smoke` 真正跑起来，
+挡在路上的四件事**没有一件是测试脚手架的小毛病**：
+
+**1. 节点 id 被截断成了碰撞。** `agt_a11y_node` 里 `id` / `parent_id` 是 64 字节定长数组
+外加 `*_truncated` 标志，而 cu **把标志忽略了**。被截断的 id 不是「短了一点的 id」，
+是**错的 id**：前 64 字节相同的两个节点会变成同一个节点。UIA 的 runtime path 很长，于是
+六个非客户区元素（标题栏、系统菜单、最小化/最大化/关闭）塌成一个 id，其中五个**成了自己的父节点**
+——**这才是 §7 那个 2 GB 死循环的真正根因**，我当时加的环护栏只是治了症状。macOS 的 id 是
+`/0/1`、Linux 是 `/0/0/0/3`，都短，所以两边永远看不见。ABI 1.22 在既有的 node-string 导出上
+加了 `AGT_A11Y_STR_ID` / `AGT_A11Y_STR_PARENT_ID`（**纯增量，所以是 minor bump**），
+cu 改走和其它字符串同一条两段式读取；对着老库遇到截断则是 typed 拒绝，而不是交出一个碰撞。
+
+**2. qjs 的路径层根本不知道 Windows 存在。** `absolute` / `join` 只把开头的 `/` 当绝对路径，
+于是盘符路径被接到自己后面——`C:\agtrun/C:\agtrun/...`——**任何旅程都过不了「建运行目录」这一步**。
+这条规则在 `scripts/qjs/lib` 里有**三份拷贝**（rh_compat、path.qjs、test_harness），
+而 `new_context` 用的偏偏是第三份，所以只改前两份等于没改。盘符只有在冒号后面跟分隔符或字符串结尾时才算数，
+免得把 POSIX 上一个真叫 `a:b` 的文件当成盘符。
+
+**3. `process_present` 去调 `ps`。** Windows 上没有 `ps`，所以它对**任何** pid 都答「不在」。
+后果不只是「进程还活着」测不了——**「没有留下孤儿进程」这条清理断言在 Windows 上恒真通过**。
+一条不可能失败的检查不是检查。现在那边用 `tasklist`，并且读输出而不是退出码
+（`tasklist` 无论过滤有没有命中都退 0）。
+
+**4. 固件得先存在。** 旧旅程要在客户机里**编译**一个 Win32 固件，而这里没有任何客户机有工具链
+——这本身就是它从没跑过的原因之一。新固件是 WinForms（PowerShell 直接跑，不用编译器），
+并且用**经典 `MainMenu`（真 HMENU）而不是 `MenuStrip`**：实测这台机器上，MenuStrip 关着的时候
+**只发布菜单栏、一个条目都不发布**，而真 HMENU 会把栏上的条目发布出来。
+
+旅程钉的是读数：id 全局唯一且没有自环、菜单遍历会终止、`window-place` 没有 actuate 时被拒且
+**没动窗口**、截图尺寸等于窗口、close 闸只带走第二个窗口而进程和第一个窗口都还在。
+它也如实钉住了那条限制：**关着的 Win32 下拉菜单不发布子项**，而这个产品不会为了让菜单看起来更丰富
+就把它在屏幕上打开。
+
+替换掉的是 2026-08 移植进来、从未运行过的那一版。继承：自有固件、按名字驱动、window-place 的拒绝与生效、
+只关自己的窗口。**没有继承、也不声称**：staged-host 自检、持久化 grant 走查、剪贴板对照
+（它依赖的 door op 不存在）、window-place 审计读取。
+
 ### 还剩什么（2026-09-01，本轮结束时）
 
 | 项 | 为什么还在 |
@@ -384,7 +423,7 @@ macOS 和 Linux 一直没暴露，因为那两个后端没产生环——**这�
 从 `pressed 0` 变 `pressed 1`；`set-checked true` performed+verified、再来一次 performed=false
 仍 verified、`false` 又变回来；`focus`/`focused`/`get-text`/`query --role` 都通；`windows` 的
 `z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下）。**片 S 再加菜单栏**，把后台菜单和树几何也真跑了：**又抓到六个**（见 §3）——盲写的片 J 没有一条是对的 |
-| ~~Windows **真机证据**~~ **已跑** | 前两版这里先写「没有那台机器」（错），再写「机器有、进不去」（也不准）。**真正的答案在隔壁项目里**：`minicon` 有 `scripts/utm-court.sh` + `utm-courts.json`，把这两台 Windows 虚拟机登记成 `automation_state: ready`、`adapter: qemu-guest-agent`——**代理走 virtio-serial，不是 TCP**，所以我之前扫 22/3389/5985 全关是在错的地方找。用它自带的 `start` / `wait-ready` / `push` / `exec` / `pull`：`cargo-xwin` 交叉编译的 `agenterm-cu.exe` + `agenterm.dll` 推进客户机，**跑起来了**。客户机是 Windows on ARM（11 26200，注册表 `PROCESSOR_ARCHITECTURE=ARM64`；guest agent 自己是 x64 仿真进程，所以环境变量报 AMD64，别信那个）。guest agent 在 session 0，看不见桌面（`windows` 返回空），所以用一次性计划任务 (`schtasks /ru <user> /it`) 落到交互 session 1 里跑。**结果：`windows` / `tree`（backend `uia`）/ `focused` / `screenshot` / `get-extents` 全部真机通过**，`get-extents` 还如实报了 `a11y_node_ambiguous` 数出 3 个同名节点。**并且立刻抓到一个真 bug**——见 §7 |
+| ~~Windows **真机证据**~~ **已有注册旅程** | `cu-windows-smoke` **11 STEP / 11 EVIDENCE**，Windows on ARM 上连跑两次通过（见 §8）。之前三版这里依次写过「没有那台机器」「机器有、进不去」「跑了几个动词」——前两句都是错的，第三句不够。入口在隔壁 `minicon` 的 `scripts/utm-court.sh`（适配器是 **QEMU guest agent，走 virtio-serial 不走 TCP**，所以扫端口注定一无所获）|
 | macOS `orderwin` | 两条路都实测过。`AXRaise` 是应用内排序，对不在前台的应用改不了全局 z 序（实测 z=1 请求到最前反而变成 z=2）。**SkyLight 私有 SPI 也试了**——本仓早就用 SkyLight 做 Space 归属，所以加载路径是现成的：`SLSOrderWindow` / `CGSOrderWindow` / `SLSSetWindowLevel` 全都 present，用本进程的 connection id 对**别的应用**的窗口调用，返回 **1000 = `kCGErrorIllegalArgument`**，顺序纹丝不动。窗口服务器不接受跨 connection 的排序。cu 不会为此激活应用，所以带着实测到的前后 z 值 typed 拒绝 |
 | ~~Linux `app hide` / `show`~~ **已做** | 原来的理由是「用逐个窗口图标化冒充应用级隐藏，是另一个动作套同一个名字」。那是个**诚实性**顾虑，而它是可以答的：现在对**进程拥有的每一个**顶层窗口发 ICCCM `WM_CHANGE_STATE`（而不是句柄指的那一个），并且**回读**——WM 不干就 typed 拒绝而不是把请求当结果。顺带暴露了 cu 里一处 macOS 形状的判据：hide 原本靠「窗口从 inventory 消失」验证，X11 是留在列表里标 `_NET_WM_STATE_HIDDEN`，于是能用的 Linux hide 被判 `verified: false`（还白等满 2.5 秒）。现在「消失」和「最小化」都算收起，5 ms 判定 |
 | ~~Linux `send-keys`~~ **已做** | 节点不发布 AT-SPI `DeviceEventListener`。但 macOS 因为另一个原因（键盘事件只送给前台应用，而这里从不激活）早就给出了答案：**执行这个和弦所*意味着*的那个动作**（`enter` 就是 `AXConfirm`）。AT-SPI 里那个动作就是节点自己的默认动作，`invoke` 早就在解析它。所以设备路径仍是首选，接口不存在时 `enter` 落到节点动作上；`esc` 仍然 typed 拒绝——AT-SPI 没有它的拼法，硬映射一个「看着像取消」的东西比拒绝更糟 |

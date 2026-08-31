@@ -1007,8 +1007,8 @@ Canonical host mapping (approved product vocabulary):
   for nothing. `capabilities` now declares `close` from the window-op
   capability on every host instead of hard-coding a Linux refusal.
 - [x] background menus on Linux (cut 3.58), executed against a GTK menu
-  bar and pinned by `cu-linux-smoke`; [x] executed on Windows too
-  (2026-09-01). The `cargo-xwin` build of `agenterm-cu.exe` +
+  bar and pinned by `cu-linux-smoke`; [x] pinned on Windows by
+  `cu-windows-smoke` (11 steps / 11 evidence ids, 2026-09-01). The `cargo-xwin` build of `agenterm-cu.exe` +
   `agenterm.dll` for `aarch64-pc-windows-msvc` runs on a Windows-on-ARM
   guest (11 26200) reached through the sibling `minicon` project's
   `scripts/utm-court.sh`, whose adapter is the QEMU guest agent over

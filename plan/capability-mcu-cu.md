@@ -17,15 +17,18 @@ connection 的外部窗口返回 `kCGErrorIllegalArgument`（两条都实测过�
 （前者对进程的每个窗口做 ICCCM 图标化并回读，后者把 `enter` 落到节点的默认动作上，
 和 macOS 的 `AXConfirm` 同一个道理）。
 
-**Windows 已经真跑了**。入口一直都在，只是在隔壁项目里：`minicon` 的
+**Windows 有自己的注册旅程了**：`cu-windows-smoke`，**11 STEP / 11 EVIDENCE**，
+Windows on ARM 上连跑两次通过。入口一直都在，只是在隔壁项目里：`minicon` 的
 `scripts/utm-court.sh` 把这两台 Windows 虚拟机登记为 `qemu-guest-agent` 适配器——
 **代理走 virtio-serial 而不是 TCP**，所以扫端口当然什么都扫不到。用它的
 `start`/`wait-ready`/`push`/`exec`/`pull` 把 `cargo-xwin` 编出来的
 `agenterm-cu.exe` + `agenterm.dll` 推进去执行（客户机是 Windows on ARM 11 26200；
 guest agent 在 session 0 看不见桌面，所以用一次性计划任务落到交互 session）。
 `windows` / `tree`(uia) / `focused` / `screenshot` / `menu inspect` / `get-extents`
-全部真机通过。**第一次跑就抓到一个死循环**（`menu_items` 的祖先遍历没有环护栏，
-2 GB 不返回）——而那是我当天自己写进去的。
+全部真机通过。**一路抓到五个真 bug**：`menu_items` 的祖先遍历没有环护栏（2 GB 不返回，我当天自己写进去的）；
+而它的**根因**是节点 id 被 ABI 的 64 字节定长字段截断成碰撞、五个节点成了自己的父节点
+（ABI 1.22 加了整 id 的读取路径）；qjs 路径层不认盘符，导致任何旅程都建不出运行目录；
+`process_present` 调 `ps`，在 Windows 上让「无孤儿」断言恒真通过；以及固件必须不依赖客户机里的编译器。
 
 **Linux 已经上真机，而且有自己的注册旅程了**（本机 lima VM + `zig cc` 交叉链接 +
 Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke`，20 STEP / 20 EVIDENCE，连跑多次稳定。
