@@ -1,10 +1,11 @@
 //! Linux X11 placement preflight.
 //!
-//! X11 owns numeric size hints and window-manager allowed actions. A stable
-//! XID-to-AT-SPI top-level role join is not yet available in the platform
-//! crate, so role remains explicitly `Unknown`; callers must not actuate it as
-//! an ordinary frame. Pure Wayland is unsupported rather than routed through
-//! an X11 or synthetic accessibility fallback.
+//! X11 owns numeric size hints, window-manager allowed actions, and the
+//! window's own declared type. The role comes from `_NET_WM_WINDOW_TYPE`
+//! rather than from an AT-SPI join: it is a first-class EWMH property the
+//! toolkit sets, not the synthetic frame the accessibility-tree X11 fallback
+//! produces. Pure Wayland is unsupported rather than routed through an X11
+//! or synthetic accessibility fallback.
 
 use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt as _};
 
@@ -89,13 +90,54 @@ pub(crate) fn inspect(
     Ok(PlacementWindowInfo {
         handle,
         process_id: actual_pid,
-        // Do not reuse the synthetic frame produced by accessibility-tree's
-        // X11 fallback. It is geometry evidence, not a real AT-SPI role.
-        role: PlacementRole::Unknown,
+        role: window_role(&connection, window)?,
         movable,
         resizable,
         constraints,
     })
+}
+
+/// The window's role, read from `_NET_WM_WINDOW_TYPE`.
+///
+/// This is not the synthetic frame the accessibility-tree X11 fallback
+/// produces -- that one is geometry evidence and must not be actuated as a
+/// role. `_NET_WM_WINDOW_TYPE` is a first-class EWMH property the toolkit
+/// sets itself, and it is the same question macOS answers from
+/// `AXSubrole`. Leaving the role `Unknown` here is what made `window-place`
+/// refuse every Linux window as ineligible.
+///
+/// The property is a list, most-preferred first, so the first type this
+/// understands wins. When it is absent EWMH fixes the answer rather than
+/// leaving it open: a managed window with `WM_TRANSIENT_FOR` set is a
+/// dialog, and one without it is normal. A window carrying only types this
+/// does not recognise is `Other`, which does not permit placement -- an
+/// unrecognised type is not an ordinary frame.
+fn window_role(
+    connection: &x11rb::rust_connection::RustConnection,
+    window: u32,
+) -> Result<PlacementRole, WindowPlacementError> {
+    let type_atom = intern(connection, b"_NET_WM_WINDOW_TYPE")?;
+    let types = property_u32s(connection, window, type_atom, AtomEnum::ATOM.into(), 16)?;
+    if types.is_empty() {
+        let transient = intern(connection, b"WM_TRANSIENT_FOR")?;
+        let owner = property_u32s(connection, window, transient, AtomEnum::WINDOW.into(), 1)?;
+        return Ok(if owner.is_empty() {
+            PlacementRole::Standard
+        } else {
+            PlacementRole::Dialog
+        });
+    }
+    let normal = intern(connection, b"_NET_WM_WINDOW_TYPE_NORMAL")?;
+    let dialog = intern(connection, b"_NET_WM_WINDOW_TYPE_DIALOG")?;
+    for candidate in types {
+        if candidate == normal {
+            return Ok(PlacementRole::Standard);
+        }
+        if candidate == dialog {
+            return Ok(PlacementRole::Dialog);
+        }
+    }
+    Ok(PlacementRole::Other)
 }
 
 fn pure_wayland() -> bool {

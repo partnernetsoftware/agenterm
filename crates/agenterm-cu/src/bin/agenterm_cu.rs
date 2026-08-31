@@ -2339,8 +2339,12 @@ Commands:
            (or SpectacleWindowAction* constants)
   orderwin --window HANDLE --relation above|below --relative HANDLE
                               MCU relative z-order: above raises --window, below
-                              raises --relative (native show / macOS AXRaise).
-                              Linux window-op raise is typed unsupported.
+                              raises --relative, then reads the order back and
+                              answers from what it read: window_order_not_applied
+                              when the raise did not take. Linux raises with the
+                              EWMH _NET_RESTACK_WINDOW (no focus change); macOS
+                              AXRaise cannot reorder a background application's
+                              windows, so it refuses rather than activating it.
 
 All replies are JSON on stdout: {{"ok":bool,"target":..,"command":..,"data":..,"error":..}}
 "#

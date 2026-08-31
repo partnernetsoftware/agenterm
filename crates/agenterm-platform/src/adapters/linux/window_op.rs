@@ -171,6 +171,34 @@ fn send_root_message(
     sync(conn)
 }
 
+/// The window manager's decoration thickness on the left and top, from
+/// `_NET_FRAME_EXTENTS`. Absent (no window manager, or an undecorated
+/// window) is zero, not an error: an undecorated window's frame *is* its
+/// client rect.
+fn frame_extents(conn: &x11rb::rust_connection::RustConnection, window: Window) -> (i32, i32) {
+    let Ok(extents) = atom(conn, b"_NET_FRAME_EXTENTS") else {
+        return (0, 0);
+    };
+    let Ok(cookie) = conn.get_property(false, window, extents, AtomEnum::CARDINAL, 0, 4) else {
+        return (0, 0);
+    };
+    let Ok(reply) = cookie.reply() else {
+        return (0, 0);
+    };
+    let Some(values) = reply.value32() else {
+        return (0, 0);
+    };
+    let values: Vec<u32> = values.collect();
+    // left, right, top, bottom
+    match (values.first(), values.get(2)) {
+        (Some(&left), Some(&top)) => (
+            i32::try_from(left).unwrap_or(0),
+            i32::try_from(top).unwrap_or(0),
+        ),
+        _ => (0, 0),
+    }
+}
+
 pub(crate) fn move_window(
     handle: isize,
     x: i32,
@@ -180,9 +208,17 @@ pub(crate) fn move_window(
 ) -> Result<(), WindowOpError> {
     let conn = connect()?;
     let window = u32::try_from(handle).map_err(|_| failed("window handle is not a valid XID"))?;
+    // A ConfigureRequest with the default NorthWest gravity names where the
+    // *frame* goes, but every reader here reports the client rect (that is
+    // what TranslateCoordinates answers). Asking for 400,300 therefore put
+    // the client at 401,320 under openbox -- offset by the titlebar -- and
+    // the read-back could never equal the request. Subtracting the frame's
+    // own extents makes the client land where the caller asked, so the
+    // verification is an equality rather than an approximation.
+    let (frame_left, frame_top) = frame_extents(&conn, window);
     let aux = ConfigureWindowAux::new()
-        .x(x)
-        .y(y)
+        .x(x - frame_left)
+        .y(y - frame_top)
         .width(width.max(1))
         .height(height.max(1));
     conn.configure_window(window, &aux)
@@ -198,9 +234,21 @@ pub(crate) fn window_rect(handle: isize) -> Result<WindowBounds, WindowOpError> 
         .map_err(|error| failed(format!("GetGeometry send failed: {error}")))?
         .reply()
         .map_err(|error| failed(format!("GetGeometry failed: {error}")))?;
+    // GetGeometry answers in the *parent's* coordinates, and a reparenting
+    // window manager makes the parent its own frame -- so the raw x/y is
+    // the client's offset inside the titlebar (1, 20 under openbox), not a
+    // screen position. Every other Linux reader here already translates to
+    // the root; this one did not, so `window-place` reported a window as
+    // sitting at (1, 20) no matter where on the screen it actually was.
+    let root = root_of(&conn)?;
+    let origin = conn
+        .translate_coordinates(window, root, 0, 0)
+        .map_err(|error| failed(format!("TranslateCoordinates send failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("TranslateCoordinates failed: {error}")))?;
     Ok(WindowBounds {
-        x: i32::from(geom.x),
-        y: i32::from(geom.y),
+        x: i32::from(origin.dst_x),
+        y: i32::from(origin.dst_y),
         width: u32::from(geom.width),
         height: u32::from(geom.height),
     })
