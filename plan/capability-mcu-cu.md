@@ -17,7 +17,7 @@ MCU 对 cua-driver 的桌面对照仍在 MCU `CAPABILITY-TREE.md`。本文件只
 machine-control
 ├── 默认环 windows → 有界 query/tree → invoke → verify/wait
 │   MCU [✓] mac 真机；L/W 合约
-│   cu  [✓] mac cu-macos-smoke；L/W 同拼写、部分 mapping
+│   cu  [✓] mac cu-macos-smoke；windows-watch poll-diff；apps running-only；L/W 同拼写
 ├── 不变量 后台不抢前景 / fail-closed / 投递≠成功 / destructive 三件套
 │   MCU [✓] helper+receipt
 │   cu  [✓] grant observe|actuate + receipts + close 闸（mac 旅程）
@@ -48,7 +48,7 @@ machine-control
 
 | 族 | MCU | agenterm-cu | 状态 |
 |---|---|---|---|
-| 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N` | **句柄拼写对齐**（2026-08-31）；cu 仍缺 Space/occlusion/`watch` |
+| 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N`；`windows-watch` poll-diff；`apps` 运行中窗口聚合 | **句柄+watch+running apps**；仍缺 Space/occlusion/已安装未运行 |
 | 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query --selector` 与 `invoke --selector` 接受 `Role[idx] / Role@title / *@title / #desc`；其余 filter/budget 保留 | **拼写与作用域对齐**；真实三平台旅程仍待补 |
 | empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；`unlock` 只重读并分类，明确 `poked:false` | **诚实 partial**；尚未映射 `AXManualAccessibility` poke |
 | 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | 原 7 动作 live；另 5 个 MCU 拼写可解析但在 ABI 未映射时 typed `unsupported` | **无 silent unknown**；不可把可解析误报为已实现 |
@@ -77,7 +77,7 @@ machine-control
 2. [~] `unlock` 动词与重读分类已做；真正的闲置 Chromium 只读 poke（depth≥8 hit-test / `AXManualAccessibility`）仍未映射。
 3. ~~`query --selector` / `invoke --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`；query 作用域=命中节点+子孙，invoke 绑定唯一节点）。
 4. [~] `invoke` 已接受 `set-selected`、`set-selection`、`scroll-to`、`cancel`、`show-default-ui` 拼写；ABI 未映射前一律 typed `unsupported`，不算行为完成。
-5. ~~orderwin/spaces/watch~~ 动词 typed（`orderwin`/`spaces`/`windows-watch`）。
+5. [✓] `windows-watch` poll-diff（appeared/disappeared/changed）；`apps` running-only。`orderwin`/`spaces` 仍 typed。
 6. ~~`--to`~~ `pointer-move` 必填 `--to desktop`。
 7. ~~page-js~~ typed + `backend=debugger-runtime-evaluate`；禁 `eval(`。
 

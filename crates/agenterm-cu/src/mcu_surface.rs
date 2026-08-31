@@ -3,7 +3,7 @@
 //! Every MCU command group is either live on this host or typed
 //! `unsupported`/`denied` with a reason. Silent absence is a defect.
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// One MCU CAPABILITY-TREE group this binary must answer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,8 +116,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "setup",
     "doctor",
     "permissions",
-    "windows-watch",
-    "apps",
     "unlock",
     "orderwin",
     "spaces",
@@ -143,6 +141,32 @@ pub fn is_align_verb(verb: &str) -> bool {
     ALIGN_VERBS.contains(&verb)
 }
 
+/// Map a CLI verb (`pty`, `windows-watch`) to the MCU group id (`shell-pty-job`).
+pub fn group_id_for_verb(verb: &str) -> &'static str {
+    GROUPS
+        .iter()
+        .find(|group| group.verbs.contains(&verb))
+        .map(|group| group.id)
+        .unwrap_or("unknown")
+}
+
+/// Align-CLI verbs that are typed-only (not a dedicated live command).
+/// `unlock` has `Command::Unlock`; `windows-watch` / `apps` are live.
+pub fn is_typed_only_verb(verb: &str) -> bool {
+    is_align_verb(verb) && verb != "unlock"
+}
+
+fn typed_only_reason(verb: &str) -> &'static str {
+    match verb {
+        "orderwin" => "orderwin is not mapped; use window-place",
+        "spaces" => "spaces inventory is not mapped",
+        _ => {
+            let group = group_id_for_verb(verb);
+            group_status(group, host_os()).1
+        }
+    }
+}
+
 fn tree_live(os: &str) -> bool {
     matches!(os, "macos" | "linux" | "windows")
 }
@@ -158,7 +182,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             if tree_live(os) {
                 (
                     "available",
-                    "windows live; windows-watch/apps typed on this binary",
+                    "windows / windows-watch (poll-diff) / apps (running-only) live",
                 )
             } else {
                 ("unsupported", "window enumerate not mapped on this OS")
@@ -319,6 +343,16 @@ pub fn typed_reason(group: &str) -> String {
     format!("{status}: {reason}")
 }
 
+/// Reason for a CLI Align verb. Looks up the MCU group; never "unknown MCU group"
+/// for verbs listed on a Group.
+pub fn typed_reason_for_verb(verb: &str) -> String {
+    if is_typed_only_verb(verb) {
+        format!("unsupported: {}", typed_only_reason(verb))
+    } else {
+        typed_reason(group_id_for_verb(verb))
+    }
+}
+
 pub fn host_os() -> &'static str {
     if cfg!(target_os = "macos") {
         "macos"
@@ -331,20 +365,57 @@ pub fn host_os() -> &'static str {
 
 pub fn verb_declaration(verb: &str) -> Value {
     let os = host_os();
-    let group = GROUPS
-        .iter()
-        .find(|g| g.verbs.contains(&verb))
-        .map(|g| g.id)
-        .unwrap_or(verb);
-    let (status, reason) = group_status(group, os);
+    let group = group_id_for_verb(verb);
     if verb == "page-js" {
         return json!({
             "status": "unsupported",
             "backend": crate::observe::page_js_backend(),
             "reason": crate::observe::page_js_unsupported_reason(),
+            "group": group,
+            "os": os,
         });
     }
-    json!({ "status": status, "reason": reason, "group": group, "os": os })
+    if verb == "windows-watch" {
+        let (status, reason) = group_status(group, os);
+        return json!({
+            "status": status,
+            "mode": "poll-diff",
+            "reason": if status == "available" {
+                "poll-diff over windows inventory; not AXObserver"
+            } else {
+                reason
+            },
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
+    if verb == "apps" {
+        let (status, reason) = group_status(group, os);
+        return json!({
+            "status": status,
+            "running_only": true,
+            "reason": if status == "available" {
+                "running apps from windows; installed-not-running is not mapped"
+            } else {
+                reason
+            },
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
+    if is_typed_only_verb(verb) {
+        return json!({
+            "status": "unsupported",
+            "reason": typed_only_reason(verb),
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
+    let (status, reason) = group_status(group, os);
+    json!({ "status": status, "reason": reason, "group": group, "os": os, "verb": verb })
 }
 
 /// Merge MCU group verbs into a capabilities `verbs` object.
@@ -357,8 +428,10 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
             map.insert((*verb).to_owned(), verb_declaration(verb));
         }
     }
-    if !map.contains_key("unlock") {
-        map.insert("unlock".into(), verb_declaration("unlock"));
+    for verb in ["windows-watch", "apps", "unlock"] {
+        if !map.contains_key(verb) {
+            map.insert(verb.to_owned(), verb_declaration(verb));
+        }
     }
     json!(map)
 }
@@ -399,5 +472,26 @@ mod tests {
         assert!(matrix.contains("simulator\twindows\tunsupported\t"));
         assert!(is_align_verb("pty") && is_align_verb("unlock"));
         assert!(!is_align_verb("query"));
+        assert_eq!(group_id_for_verb("pty"), "shell-pty-job");
+        assert_eq!(group_id_for_verb("windows-watch"), "discover");
+        assert_eq!(group_id_for_verb("orderwin"), "geometry");
+        let pty = typed_reason_for_verb("pty");
+        assert!(!pty.contains("unknown MCU group"), "{pty}");
+        assert!(pty.contains("PTY") || pty.contains("job"), "{pty}");
+        let watch = verb_declaration("windows-watch");
+        assert_eq!(watch["mode"], "poll-diff");
+        assert_eq!(watch["group"], "discover");
+        assert_ne!(watch["reason"], "");
+        assert_eq!(verb_declaration("apps")["running_only"], true);
+        for verb in ["orderwin", "spaces"] {
+            let decl = verb_declaration(verb);
+            assert_eq!(decl["status"], "unsupported", "{verb}");
+            assert!(!decl["reason"]
+                .as_str()
+                .unwrap_or("")
+                .contains("unknown MCU group"));
+        }
+        assert!(!is_align_verb("windows-watch"));
+        assert!(!is_align_verb("apps"));
     }
 }

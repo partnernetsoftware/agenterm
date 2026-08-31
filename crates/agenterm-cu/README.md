@@ -24,7 +24,7 @@ Orchestrator agents (not humans staring at pixels) should run:
 
 ```text
 loop until goal:
-  observe structured state (windows, control tree, typed capabilities)
+  observe structured state (windows, windows-watch, running apps, control tree, typed capabilities)
   act by structured identity (window + node path, or window + accessible name)
     click / focus / send-text / paste / send-keys all take --name, so no step parses node ids
   wait on observable conditions with bounded timeouts — never sleep

@@ -3,6 +3,8 @@
 //! `visited / matched / returned / truncated` counts. No mechanism calls live
 //! here, so every rule is unit-tested without a desktop.
 
+use std::collections::BTreeMap;
+
 use crate::command::Expectation;
 use crate::mechanism::window_enumerate::WindowInfo;
 use crate::mechanism::{A11yNode, A11yTree};
@@ -629,6 +631,170 @@ pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
         "bounds": window.bounds,
         "focused": window.focused,
         "minimized": window.minimized,
+    })
+}
+
+/// One poll-diff event over two `windows` inventories.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WindowWatchEvent<'a> {
+    pub kind: &'static str,
+    pub window: &'a WindowInfo,
+    pub fields: Vec<&'static str>,
+}
+
+fn window_changed_fields(before: &WindowInfo, after: &WindowInfo) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    if before.title != after.title {
+        fields.push("title");
+    }
+    if before.app_name != after.app_name {
+        fields.push("app_name");
+    }
+    if before.process_id != after.process_id {
+        fields.push("process_id");
+    }
+    if before.bounds != after.bounds {
+        fields.push("bounds");
+    }
+    if before.focused != after.focused {
+        fields.push("focused");
+    }
+    if before.minimized != after.minimized {
+        fields.push("minimized");
+    }
+    fields
+}
+
+/// Diff two window inventories by native handle. Order is disappeared,
+/// changed, appeared — matching MCU watch (lifecycle then field change).
+pub fn diff_window_inventory<'a>(
+    before: &'a [WindowInfo],
+    after: &'a [WindowInfo],
+) -> Vec<WindowWatchEvent<'a>> {
+    let mut previous = BTreeMap::new();
+    for window in before {
+        previous.insert(window.handle, window);
+    }
+    let mut current = BTreeMap::new();
+    for window in after {
+        current.insert(window.handle, window);
+    }
+    let mut events = Vec::new();
+    for (handle, window) in &previous {
+        if !current.contains_key(handle) {
+            events.push(WindowWatchEvent {
+                kind: "disappeared",
+                window,
+                fields: Vec::new(),
+            });
+        }
+    }
+    for (handle, window) in &current {
+        match previous.get(handle) {
+            None => events.push(WindowWatchEvent {
+                kind: "appeared",
+                window,
+                fields: Vec::new(),
+            }),
+            Some(was) => {
+                let fields = window_changed_fields(was, window);
+                if !fields.is_empty() {
+                    events.push(WindowWatchEvent {
+                        kind: "changed",
+                        window,
+                        fields,
+                    });
+                }
+            }
+        }
+    }
+    events
+}
+
+pub fn window_watch_event_json(
+    seq: u64,
+    t_ms: u64,
+    event: &WindowWatchEvent<'_>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "seq": seq,
+        "t_ms": t_ms,
+        "kind": event.kind,
+        "handle": event.window.handle,
+        "ref": window_stable_ref(event.window),
+        "title": event.window.title,
+        "process_id": event.window.process_id,
+        "app_name": event.window.app_name,
+        "fields": event.fields,
+    })
+}
+
+/// Running apps from a window inventory. Installed-but-not-running is not
+/// in this list.
+pub fn running_apps_json(windows: &[WindowInfo]) -> serde_json::Value {
+    let mut by_app: BTreeMap<String, (Vec<u32>, Vec<serde_json::Value>)> = BTreeMap::new();
+    for window in windows {
+        let entry = by_app.entry(window.app_name.clone()).or_default();
+        if !entry.0.contains(&window.process_id) {
+            entry.0.push(window.process_id);
+        }
+        entry.1.push(window_row_json(window));
+    }
+    serde_json::Value::Array(
+        by_app
+            .into_iter()
+            .map(|(app_name, (mut pids, wins))| {
+                pids.sort_unstable();
+                serde_json::json!({
+                    "app_name": app_name,
+                    "pids": pids,
+                    "window_count": wins.len(),
+                    "windows": wins,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// `windows-watch` bounds. `duration_ms == 0` means one extra sample.
+pub fn validate_windows_watch(
+    duration_ms: u64,
+    max_events: Option<usize>,
+    interval_ms: Option<u64>,
+) -> Result<(), String> {
+    if duration_ms > MAX_OBSERVE_DURATION_MS {
+        return Err(format!(
+            "--duration-ms must be 0..={MAX_OBSERVE_DURATION_MS}, got {duration_ms}"
+        ));
+    }
+    if let Some(max_events) = max_events
+        && (max_events == 0 || max_events > MAX_OBSERVE_EVENTS)
+    {
+        return Err(format!(
+            "--max-events must be 1..={MAX_OBSERVE_EVENTS}, got {max_events}"
+        ));
+    }
+    if let Some(interval_ms) = interval_ms {
+        if duration_ms == 0 {
+            if interval_ms > MAX_OBSERVE_DURATION_MS {
+                return Err(format!(
+                    "--interval-ms must be 0..={MAX_OBSERVE_DURATION_MS}, got {interval_ms}"
+                ));
+            }
+        } else if interval_ms < MIN_OBSERVE_INTERVAL_MS || interval_ms > duration_ms {
+            return Err(format!(
+                "--interval-ms must be {MIN_OBSERVE_INTERVAL_MS}..=duration, got {interval_ms}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn windows_watch_interval_ms(duration_ms: u64, interval_ms: Option<u64>) -> u64 {
+    interval_ms.unwrap_or(if duration_ms == 0 {
+        0
+    } else {
+        DEFAULT_OBSERVE_INTERVAL_MS
     })
 }
 
@@ -2108,6 +2274,35 @@ mod tests {
         assert!(parse_window_token("0").is_err());
         assert!(parse_window_token("#9").is_err());
         assert!(parse_window_token("Nope").is_err());
+    }
+
+    #[test]
+    fn window_watch_diff_and_running_apps() {
+        let a = window(1, 100, "TextEdit", "a.txt", false);
+        let b = window(2, 200, "Brave Origin", "Chat", true);
+        let a2 = window(1, 100, "TextEdit", "b.txt", true);
+        let c = window(3, 300, "Finder", "Desktop", false);
+        let before = [a.clone(), b.clone()];
+        let after = [a2.clone(), c.clone()];
+        let events = diff_window_inventory(&before, &after);
+        let kinds: Vec<_> = events.iter().map(|e| e.kind).collect();
+        assert!(kinds.contains(&"disappeared"));
+        assert!(kinds.contains(&"appeared"));
+        assert!(kinds.contains(&"changed"));
+        let changed = events.iter().find(|e| e.kind == "changed").unwrap();
+        assert_eq!(changed.window.handle, 1);
+        assert!(changed.fields.contains(&"title"));
+        assert!(changed.fields.contains(&"focused"));
+        let apps = running_apps_json(&[a, b, a2]);
+        assert_eq!(apps.as_array().unwrap().len(), 2);
+        assert_eq!(apps[0]["app_name"], "Brave Origin");
+        assert_eq!(apps[1]["app_name"], "TextEdit");
+        assert_eq!(apps[1]["window_count"], 2);
+        assert_eq!(apps[1]["pids"], serde_json::json!([100]));
+        validate_windows_watch(0, Some(10), Some(0)).unwrap();
+        assert!(validate_windows_watch(1, Some(0), None).is_err());
+        assert_eq!(windows_watch_interval_ms(0, None), 0);
+        assert_eq!(windows_watch_interval_ms(200, None), DEFAULT_OBSERVE_INTERVAL_MS);
     }
 
     #[test]

@@ -329,6 +329,58 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 max,
             }
         }
+        "windows-watch" => {
+            let pid = match flag_parsed::<u32>(&mut args, "--pid") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let app = match flag_text(&mut args, "--app") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let title = match flag_text(&mut args, "--title") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let duration_ms = match flag_parsed::<u64>(&mut args, "--duration-ms") {
+                Ok(value) => value.unwrap_or(0),
+                Err(message) => return usage_err(message),
+            };
+            let interval_ms = match flag_parsed::<u64>(&mut args, "--interval-ms") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let max_events = match flag_parsed::<usize>(&mut args, "--max-events") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "windows-watch accepts only --pid N --app SUB --title SUB \
+                     --duration-ms N --interval-ms N --max-events N; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::WindowsWatch {
+                target,
+                pid,
+                app,
+                title,
+                duration_ms,
+                interval_ms,
+                max_events,
+            }
+        }
+        "apps" => {
+            let running = take_switch(&mut args, "--running");
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "apps accepts only --running; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Apps { target, running }
+        }
         "tree" => {
             let window = flag_window_opt(&mut args);
             let depth = match flag_parsed::<u32>(&mut args, "--depth") {
@@ -1888,6 +1940,14 @@ Commands:
           [--offset N] [--max N]
                               bare: the window array; with any filter/page flag:
                               {{windows, visited, matched, returned, offset, truncated}}
+  windows-watch [--pid N] [--app SUB] [--title SUB] [--duration-ms N] [--interval-ms N]
+                [--max-events N]
+                              poll-diff over the windows inventory (appeared /
+                              disappeared / changed + field list). Not AXObserver.
+                              --duration-ms 0 (default) takes one extra sample.
+  apps [--running]
+                              running apps from top-level windows (pids + window
+                              count). installed-not-running is not mapped.
   tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat]
                               depth (root=0, <=64) and node budget (1..20000) apply
                               while the platform walks; reply carries truncated /
@@ -2331,7 +2391,14 @@ mod tests {
             "pty".into(),
         ]);
         assert_eq!(reply.command, "pty");
-        assert_eq!(reply.error.expect("typed").code, "unsupported");
+        let err = reply.error.expect("typed");
+        assert_eq!(err.code, "unsupported");
+        assert!(!err.message.contains("unknown MCU group"), "{}", err.message);
+        assert!(
+            err.message.contains("PTY") || err.message.contains("job"),
+            "{}",
+            err.message
+        );
         let sim = dispatch(vec![
             "--target".into(),
             "current".into(),
@@ -2341,6 +2408,32 @@ mod tests {
         ]);
         assert_eq!(sim.command, "simulator");
         assert_eq!(sim.error.expect("typed").code, "unsupported");
+        let watch = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "windows-watch".into(),
+            "--duration-ms".into(),
+            "0".into(),
+            "--interval-ms".into(),
+            "0".into(),
+        ]);
+        assert_eq!(watch.command, "windows-watch");
+        assert_ne!(watch.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""), "usage");
+        if watch.ok {
+            assert_eq!(watch.data.as_ref().unwrap()["mode"], "poll-diff");
+        }
+        let apps = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "apps".into(),
+            "--running".into(),
+        ]);
+        assert_eq!(apps.command, "apps");
+        assert_ne!(apps.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""), "usage");
     }
 
     #[test]

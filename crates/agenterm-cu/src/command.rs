@@ -186,6 +186,30 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
     },
+    /// Poll-diff over the `windows` inventory (`appeared` / `disappeared` /
+    /// `changed`). Not AXObserver. `duration_ms == 0` takes one extra sample.
+    WindowsWatch {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "is_zero_u64")]
+        duration_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
+    },
+    /// Running apps derived from top-level windows. Installed-but-not-running
+    /// is not mapped (`running_only` in the reply).
+    Apps {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        running: bool,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -704,11 +728,17 @@ fn default_clicks() -> u32 {
     1
 }
 
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
+}
+
 impl Command {
     pub fn verb(&self) -> String {
         match self {
             Self::Capabilities { .. } => "capabilities".into(),
             Self::Windows { .. } => "windows".into(),
+            Self::WindowsWatch { .. } => "windows-watch".into(),
+            Self::Apps { .. } => "apps".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -748,6 +778,8 @@ impl Command {
         match self {
             Self::Capabilities { target, .. }
             | Self::Windows { target, .. }
+            | Self::WindowsWatch { target, .. }
+            | Self::Apps { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -959,6 +991,19 @@ mod tests {
             serde_json::to_value(&bare).expect("serialize"),
             serde_json::json!({ "verb": "windows", "target": "current" })
         );
+        let watch: Command = serde_json::from_value(serde_json::json!({
+            "verb": "windows-watch",
+            "target": "current"
+        }))
+        .expect("deserialize");
+        assert_eq!(watch.verb(), "windows-watch");
+        assert_eq!(watch.required_grant(), Grant::Observe);
+        let apps = Command::Apps {
+            target: TargetRef::Current,
+            running: true,
+        };
+        assert_eq!(apps.verb(), "apps");
+        assert_eq!(apps.required_grant(), Grant::Observe);
         let filtered = Command::Windows {
             target: TargetRef::Current,
             pid: Some(4242),

@@ -553,6 +553,27 @@ impl Executor {
                 *offset,
                 *max,
             ),
+            Command::WindowsWatch {
+                pid,
+                app,
+                title,
+                duration_ms,
+                interval_ms,
+                max_events,
+                ..
+            } => windows_watch_payload(
+                observe::WindowFilter {
+                    pid: *pid,
+                    app: app.clone(),
+                    title: title.clone(),
+                    focused: None,
+                    minimized: None,
+                },
+                *duration_ms,
+                *interval_ms,
+                *max_events,
+            ),
+            Command::Apps { .. } => apps_payload(),
             Command::Tree {
                 window,
                 depth,
@@ -679,10 +700,11 @@ impl Executor {
             Command::Unlock { window, .. } => unlock_payload(*window),
             Command::Align { group, .. } => Err(CuError::new(
                 "unsupported",
-                crate::mcu_surface::typed_reason(group),
+                crate::mcu_surface::typed_reason_for_verb(group),
             )
             .with_detail(serde_json::json!({
-                "group": group,
+                "verb": group,
+                "group": crate::mcu_surface::group_id_for_verb(group),
                 "os": crate::mcu_surface::host_os(),
             }))),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
@@ -973,6 +995,17 @@ fn capabilities_payload() -> serde_json::Value {
         },
         "verbs": {
             "capabilities": { "status": "available" },
+            "windows": { "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase() },
+            "windows-watch": {
+                "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase(),
+                "mode": "poll-diff",
+                "group": "discover",
+            },
+            "apps": {
+                "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase(),
+                "running_only": true,
+                "group": "discover",
+            },
             "tree": tree_verb,
             "query": tree_verb,
             "invoke": tree_verb,
@@ -1219,6 +1252,85 @@ fn windows_payload(
         "offset": counts.offset,
         "truncated": counts.truncated,
         "windows": rows,
+    }))
+}
+
+fn filtered_windows(
+    filter: &observe::WindowFilter,
+) -> Result<Vec<WindowInfo>, CuError> {
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    Ok(windows
+        .into_iter()
+        .filter(|window| filter.matches(window))
+        .collect())
+}
+
+fn apps_payload() -> Result<serde_json::Value, CuError> {
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    Ok(serde_json::json!({
+        "mechanism": "libagenterm",
+        "running_only": true,
+        "installed": false,
+        "apps": observe::running_apps_json(&windows),
+    }))
+}
+
+fn windows_watch_payload(
+    filter: observe::WindowFilter,
+    duration_ms: u64,
+    interval_ms: Option<u64>,
+    max_events: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    observe::validate_windows_watch(duration_ms, max_events, interval_ms).map_err(invalid_input)?;
+    let max_events = max_events.unwrap_or(observe::DEFAULT_OBSERVE_EVENTS);
+    let interval =
+        Duration::from_millis(observe::windows_watch_interval_ms(duration_ms, interval_ms));
+    let started = Instant::now();
+    let mut previous = filtered_windows(&filter)?;
+    let mut events = Vec::new();
+    let mut seq = 0u64;
+    let mut polls = 1usize;
+    let mut truncated = false;
+    let extra_once = duration_ms == 0;
+    let deadline = started + Duration::from_millis(duration_ms);
+    loop {
+        if extra_once {
+            if !interval.is_zero() {
+                thread::sleep(interval);
+            }
+        } else {
+            if Instant::now() >= deadline {
+                break;
+            }
+            thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
+        }
+        polls += 1;
+        let current = filtered_windows(&filter)?;
+        let batch = observe::diff_window_inventory(&previous, &current);
+        let t_ms = started.elapsed().as_millis() as u64;
+        for event in batch {
+            seq += 1;
+            events.push(observe::window_watch_event_json(seq, t_ms, &event));
+            if events.len() >= max_events {
+                truncated = true;
+                break;
+            }
+        }
+        previous = current;
+        if truncated || extra_once {
+            break;
+        }
+    }
+    Ok(serde_json::json!({
+        "mechanism": "libagenterm",
+        "mode": "poll-diff",
+        "polls": polls,
+        "emitted": events.len(),
+        "truncated": truncated,
+        "duration_ms": duration_ms,
+        "interval_ms": interval.as_millis() as u64,
+        "events": events,
+        "windows": previous.iter().map(observe::window_row_json).collect::<Vec<_>>(),
     }))
 }
 
@@ -7076,6 +7188,14 @@ mod tests {
         let tsv = data["alignment_tsv"].as_str().unwrap_or("");
         assert!(tsv.contains("shell-pty-job\tlinux\tunsupported\t"));
         assert!(!tsv.contains("still-gap"));
+        assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
+        assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");
+        assert_eq!(data["verbs"]["apps"]["running_only"], true);
+        assert_eq!(data["verbs"]["apps"]["group"], "discover");
+        assert_eq!(data["verbs"]["orderwin"]["status"], "unsupported");
+        assert_eq!(data["verbs"]["spaces"]["status"], "unsupported");
+        assert_ne!(data["verbs"]["windows-watch"]["status"], "");
+        assert_ne!(data["verbs"]["apps"]["status"], "");
         // Must not declare live RDP or unproven Mac AX as available.
         assert!(data["gaps"]["rdp_live"].as_str().is_some());
         assert!(data["gaps"]["macos_ax_live"].as_str().is_some());
@@ -7083,6 +7203,65 @@ mod tests {
         assert!(
             !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
             "current mapping must not claim live RDP: {mapping}"
+        );
+    }
+
+    #[test]
+    fn align_pty_and_windows_watch_use_group_reason_not_unknown() {
+        let exec = observe_executor();
+        let pty = exec.execute(&Command::Align {
+            target: TargetRef::Current,
+            group: "pty".into(),
+        });
+        assert!(!pty.ok);
+        assert_eq!(pty.command, "pty");
+        let err = pty.error.as_ref().expect("typed");
+        assert_eq!(err.code, "unsupported");
+        assert!(
+            !err.message.contains("unknown MCU group"),
+            "{}",
+            err.message
+        );
+        assert_eq!(err.detail.as_ref().unwrap()["group"], "shell-pty-job");
+        assert_eq!(err.detail.as_ref().unwrap()["verb"], "pty");
+        let watch = exec.execute(&Command::WindowsWatch {
+            target: TargetRef::Current,
+            pid: None,
+            app: None,
+            title: None,
+            duration_ms: 0,
+            interval_ms: Some(0),
+            max_events: Some(10),
+        });
+        if watch.ok {
+            let data = watch.data.as_ref().expect("watch data");
+            assert_eq!(data["mode"], "poll-diff");
+            assert!(data["events"].is_array());
+            assert!(data["windows"].is_array());
+        } else {
+            let werr = watch.error.as_ref().expect("typed");
+            assert_ne!(werr.code, "usage");
+            assert!(!werr.message.contains("unknown MCU group"));
+        }
+        let apps = exec.execute(&Command::Apps {
+            target: TargetRef::Current,
+            running: true,
+        });
+        if apps.ok {
+            let data = apps.data.as_ref().expect("apps data");
+            assert_eq!(data["running_only"], true);
+            assert_eq!(data["installed"], false);
+            assert!(data["apps"].is_array());
+        } else {
+            assert_ne!(apps.error.as_ref().unwrap().code, "usage");
+        }
+        let order = exec.execute(&Command::Align {
+            target: TargetRef::Current,
+            group: "orderwin".into(),
+        });
+        assert_eq!(
+            order.error.as_ref().unwrap().detail.as_ref().unwrap()["group"],
+            "geometry"
         );
     }
 
