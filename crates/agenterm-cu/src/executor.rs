@@ -1950,6 +1950,21 @@ fn send_keys(
     Ok(serde_json::json!({ "keys": keys }))
 }
 
+/// What the local backend actually did to deliver a chord. Linux and
+/// Windows put the keys on the wire (AT-SPI `DeviceEventController`, UIA
+/// focus + `SendInput`); macOS cannot hand a keystroke to an application it
+/// refuses to activate, so it performs the AX action the chord *means*
+/// (`AXConfirm` / `AXCancel`) and must not claim a key was delivered. This
+/// names the mechanism of the local target only -- a remote worker sends
+/// its own label back in its reply.
+fn local_key_delivery_via() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "ax-action"
+    } else {
+        "device-event"
+    }
+}
+
 fn send_keys_to_node(
     keys: &str,
     window: Option<isize>,
@@ -1964,7 +1979,7 @@ fn send_keys_to_node(
         "window": window,
         "action": "send-keys",
         "keys": keys,
-        "via": "device-event",
+        "via": local_key_delivery_via(),
     });
     attach_name_match(&mut payload, &resolved);
     Ok(payload)
@@ -1989,7 +2004,7 @@ fn send_keys_to_focused_node(
                 "window": window,
                 "action": "send-keys",
                 "keys": keys,
-                "via": "device-event",
+                "via": local_key_delivery_via(),
             });
             attach_name_match(&mut payload, &resolved);
             Ok(payload)

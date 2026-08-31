@@ -89,6 +89,9 @@ const AX_VALUE_CGSIZE: u32 = 2;
 /// `kAXValueCFRangeType`: how AX carries a text selection / insertion point.
 const AX_VALUE_CFRANGE: u32 = 4;
 
+/// Longest chord accepted, mirroring the Windows adapter's bound.
+const MAX_KEYS_BYTES: usize = 256;
+
 const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
 const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
@@ -1468,16 +1471,69 @@ pub(crate) fn last_text_write_via() -> &'static str {
     "ax-value"
 }
 
+/// Deliver one chord to a node, semantically.
+///
+/// macOS has no way to hand a keystroke to an application that is not the
+/// active one. This was measured, not assumed: an accessory app whose
+/// window is ordered front reports `keyWindow = no`, and key events posted
+/// to its pid with `CGEventPostToPid` never reach its `sendEvent:` at all.
+/// The only route that would work is activating the application first,
+/// which is exactly the invariant this adapter exists to keep -- and a
+/// global `CGEventPost` would be worse, landing the chord in whatever the
+/// user happens to be typing in.
+///
+/// So the chords that have an AX action equivalent are delivered as that
+/// action -- `enter` / `return` as `AXConfirm` and `esc` / `escape` as
+/// `AXCancel`, which is what those keys *mean* to a control -- and every
+/// other chord is refused typed rather than posted into the void. Text
+/// belongs in `set-value` / `send-text`, which writes through AX and reads
+/// back.
 pub(crate) fn send_node_keys(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _keys: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
+    keys: &str,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS delivers a chord to a node only by posting CGEvents to the owning process; \
-                 this adapter posts no events, so there is no semantic AX equivalent here"
-            .into(),
-    })
+    require_trusted()?;
+    if keys.len() > MAX_KEYS_BYTES {
+        return Err(limit_error(
+            "a11y_key_limit",
+            format!("key chord exceeds {MAX_KEYS_BYTES} UTF-8 bytes"),
+        ));
+    }
+    let Some(action) = semantic_action_for_chord(keys) else {
+        // Typed `Failed`, not `Unsupported`: the ABI collapses the latter
+        // to "mechanism unavailable on this host", which would hide the
+        // one thing the caller needs -- that *this chord* has no AX
+        // equivalent while `enter` and `escape` do.
+        return Err(AccessibilityTreeError::failed(
+            "a11y_key_unavailable",
+            format!(
+                "macOS delivers {keys:?} only to the active application, and this adapter never \
+                 activates one; only chords with an AX action equivalent (enter, escape) are \
+                 mapped. Use send-text / invoke set-value for text."
+            ),
+        ));
+    };
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    match perform_named_action(element.as_ax(), action, &mut budget) {
+        Err(AccessibilityTreeError::Unsupported { reason }) => Err(AccessibilityTreeError::failed(
+            "a11y_key_unavailable",
+            reason,
+        )),
+        other => other,
+    }
+}
+
+/// The AX action a chord means, or `None` when it means nothing AX can say.
+/// Modifiers rule the chord out: `cmd+enter` is not `AXConfirm`, it is a
+/// different command the control never hears about.
+fn semantic_action_for_chord(keys: &str) -> Option<&'static str> {
+    match keys.trim().to_ascii_lowercase().as_str() {
+        "enter" | "return" => Some("AXConfirm"),
+        "esc" | "escape" => Some("AXCancel"),
+        _ => None,
+    }
 }
 
 /// `AXScrollToVisible` on the resolved node — the AX spelling of AT-SPI

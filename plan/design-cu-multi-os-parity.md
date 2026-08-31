@@ -27,7 +27,7 @@
 
 | 机制 | macOS AX | Linux | Windows UIA |
 |---|---|---|---|
-| `send_node_keys` | ✗（focus + CGEventPostToPid） | ✓ | ✓ focus + input-inject |
+| `send_node_keys` | **✓ 语义映射** `enter`→AXConfirm / `escape`→AXCancel，其余 typed（见下） | ✓ | ✓ focus + input-inject |
 | `scroll_node` | **✓** AXScrollToVisible | ✓ | **✓ 已映射** ScrollItem.ScrollIntoView |
 | `get_node_extents` | **✓** AXPosition+AXSize | ✓ | **✓ 已映射** BoundingRectangle 独立重读 |
 | `set/get_node_selection` | **✓** AXSelectedTextRange | ✓ | ✗（TextPattern.GetSelection / Select）——留片 G |
@@ -80,8 +80,15 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
    Chromium / WebKit 的网页内容发布（实测一个 Brave 窗口 130 个节点）。所以正向证据需要
    一个旅程自己拥有的网页目标——固件里塞一个 `WKWebView`（`loadHTMLString`，不联网）
    同时还能把 **WebArea 网页 AX** 这条 mcu 对照里的 `[~]` 补成自有证据，记为片 F。
-2. **`send-keys` 仍 typed。** macOS 把和弦送给某个节点只能向属主进程投 CGEvent，
-   本适配器不投任何事件。它和 macOS 指针注入是同一个缺口，一起放片 E。
+2. ~~**`send-keys` 仍 typed**~~ **已解决，但结论和预期相反**（片 E，2026-08-31）：
+   先按「focus + `CGEventPostToPid`」实现，真机不生效——**量出来的原因**是
+   accessory app 的 `orderFrontRegardless` 窗口 `keyWindow = no`，投给 pid 的键事件
+   连它的 `sendEvent:` 都进不去（写了一个只打印收到的键事件的探针 app 确认）。
+   macOS 根本没有「把键给一个非活跃 App」这条路；激活它就破坏后台不变量，
+   全局 `CGEventPost` 更糟（落到用户正在打字的地方）。所以改成**语义映射**：
+   `enter`→`AXConfirm`、`escape`→`AXCancel`，其余和弦 typed 拒绝并写明这条约束，
+   回复里 `via` 是 `ax-action` 而不是 `device-event`——不能读成「键送到了」。
+   **macOS 指针注入仍是缺口**（只接了读），`pointer-move`/`pointer-click` 保持 typed。
 
 **诚实条款**：B/C 片在本机只能交叉编译。凡未在真机跑过的映射，`capabilities` 与本页都写 `mapped`（已映射未验证），**不写 `available`**，也不在 PRD 里翻 `[x]`。
 
@@ -89,7 +96,7 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 
 | 片 | 提交 | 状态 |
 |---|---|---|
-| A macOS 节点读写 | 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` 真机通过（`cu-macos-smoke` 22 STEP / 21 EVIDENCE，80.2M 步 / 274 ops / 72 页）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
+| A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（`cu-macos-smoke` **23 STEP / 22 EVIDENCE**，81.3M 步 / 287 ops / 73 页；前台句柄与真实指针不动，无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
 | B Windows | 见下 | **已落地（映射，未真机）**：`set-expanded`/`select-option`/`increment`/`decrement`/`scroll`/`get-extents`/`focused` + 快照补 `expanded`/`collapsed`；三个新 pattern 的 vtable 槽位全部单测钉死 |
 | C Linux | 见下 | **已落地（映射，未真机）**：五个动作 + `focused` + `checked`/`unchecked`/`mixed`、`expanded`/`collapsed` 双向状态词；两条平台单测；linux/aarch64 两个 target `check` + `clippy` 干净 |
 | D cu 层 | — | 未开工 |

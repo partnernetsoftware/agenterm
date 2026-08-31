@@ -243,6 +243,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; focus journey-proven in 3.51, click mapped only
     ├── macOS AX background           [x] menu inspect / invoke, focused / invoke --focused, observe (poll-diff) live (cut 3.51, cu-macos-smoke): AXMenuBar walk + AXPress, AXFocusedUIElement; no AXObserver
     ├── macOS AX node text/geometry   [x] get-extents / select / get-selection / set-caret / get-caret live (cut 3.53, cu-macos-smoke): AXPosition+AXSize, AXSelectedTextRange; scroll maps to AXScrollToVisible, which AppKit does not publish
+    ├── macOS AX semantic send-keys   [x] enter -> AXConfirm, escape -> AXCancel live (cut 3.53, cu-macos-smoke); every other chord typed: macOS delivers keys only to the active app (measured), and cu never activates
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
@@ -720,9 +721,25 @@ Canonical host mapping (approved product vocabulary):
   publish it (measured: 130 nodes of one Brave window). Positive evidence
   therefore needs a web target the journey owns, which it does not have
   yet.
-- [ ] macOS `send-keys` to a node stays typed `unsupported`: delivering a
-  chord means posting CGEvents to the owning process, and this adapter
-  posts no events. It is the same gap as macOS pointer *injection*.
+- [x] AX `send-keys` to a node on `current` (cut 3.53) is **semantic, not
+  synthetic**. macOS has no way to hand a keystroke to an application that
+  is not the active one; this was measured rather than assumed -- an
+  accessory app whose window is ordered front reports `keyWindow = no`, and
+  key events posted to its pid with `CGEventPostToPid` never reach its
+  `sendEvent:`. Activating the app would break the background invariant and
+  a global `CGEventPost` would land the chord in whatever the user is
+  typing in, so the adapter maps the chords that have an AX action
+  equivalent -- `enter` / `return` to `AXConfirm`, `esc` / `escape` to
+  `AXCancel` -- and refuses every other chord typed
+  (`a11y_key_unavailable`, naming the constraint). A modifier rules a chord
+  out: `cmd+enter` is a different command, not a confirm. The reply says
+  `via: "ax-action"`, never `device-event`, so it cannot read as "a key was
+  delivered". Live evidence: `cu-macos-smoke` STEP "send-keys enter
+  performs the AX action the chord means and its postcondition advances"
+  (2026-08-31) -- the fixture's `NSTextField` action fires and its label
+  advances, with the frontmost window and the real pointer unchanged.
+- [ ] macOS pointer *injection* is still unmapped (only the read is wired),
+  so `pointer-move` / `pointer-click` stay typed on this platform.
 
 ### Degraded fallbacks (never silent)
 

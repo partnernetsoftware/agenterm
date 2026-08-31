@@ -80,8 +80,11 @@ static void handle_terminate(int signal_number) {
 @property(nonatomic, strong) NSTextField *pressCount;
 @property(nonatomic, strong) NSTextField *menuLabel;
 @property(nonatomic, assign) int presses;
+@property(nonatomic, strong) NSTextField *confirmCount;
 @property(nonatomic, assign) int things;
+@property(nonatomic, assign) int confirms;
 - (void)press:(id)sender;
+- (void)confirmField:(id)sender;
 - (void)doThing:(id)sender;
 - (void)deeperThing:(id)sender;
 @end
@@ -100,6 +103,11 @@ static void handle_terminate(int signal_number) {
 - (void)deeperThing:(id)sender {
     (void)sender;
     [self.menuLabel setStringValue:@"deeper thing"];
+}
+- (void)confirmField:(id)sender {
+    (void)sender;
+    self.confirms = self.confirms + 1;
+    [self.confirmCount setStringValue:[NSString stringWithFormat:@"confirmed %d", self.confirms]];
 }
 @end
 
@@ -265,6 +273,25 @@ int main(int argc, const char *argv[]) {
         [button setTarget:controller];
         [button setAction:@selector(press:)];
         [content addSubview:button];
+
+        /* Slice 5: the postcondition for `send-keys enter`. macOS cannot
+         * hand a keystroke to an application that is not active, so cu maps
+         * the chords that have an AX action equivalent -- `enter` is
+         * `AXConfirm`, which is what NSTextField's action means. Added last
+         * so every AX child index the earlier slices resolve stays put. */
+        NSTextField *confirmCount =
+            [[NSTextField alloc] initWithFrame:NSMakeRect(20.0, 80.0, 200.0, 24.0)];
+        [confirmCount setStringValue:@"confirmed 0"];
+        [confirmCount setEditable:NO];
+        [confirmCount setBezeled:NO];
+        [confirmCount setDrawsBackground:NO];
+        [confirmCount setSelectable:NO];
+        [confirmCount setAccessibilityIdentifier:@"fixture-confirm-count"];
+        [content addSubview:confirmCount];
+        controller.confirmCount = confirmCount;
+        controller.confirms = 0;
+        [field setTarget:controller];
+        [field setAction:@selector(confirmField:)];
 
         /* Slice 4: the second, closable window `close` acts on. */
         NSRect second_frame = NSMakeRect(760.0, 160.0, 320.0, 200.0);

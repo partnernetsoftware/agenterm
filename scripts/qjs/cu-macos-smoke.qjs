@@ -11,7 +11,10 @@
 // the node-level text and geometry verbs Linux and Windows already carried
 // (`get-extents`, `select` / `get-selection`, `set-caret` / `get-caret`)
 // now live on AX, plus the typed `scroll` refusal that names the actions
-// the node does offer.
+// the node does offer, and `send-keys` as the AX action a chord means
+// (`enter` is `AXConfirm`) with a typed refusal for every chord that has
+// no AX equivalent -- macOS delivers a keystroke only to the active
+// application, and this journey never activates one.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -63,6 +66,7 @@ const declared_evidence = [
   "cu.macos-ax-destructive-close",
   "cu.macos-ax-receipts",
   "cu.macos-ax-node-text-geometry",
+  "cu.macos-ax-send-keys",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -142,6 +146,15 @@ function run_cu_json(run_directory, executable, arguments) {
     "cu_macos_smoke_cli_reply:" + JSON.stringify(document)
   );
   return document;
+}
+
+// The text of one fixture node, by AX identifier (which is also its name).
+function node_text(run_directory, executable, handle_text, identifier) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-text",
+    "--window", handle_text, "--name", identifier
+  ]);
+  return text_at(reply, "data.text");
 }
 
 // One agenterm-cu call whose reply is returned as parsed, ok or not.
@@ -1612,6 +1625,49 @@ try {
     "cu_macos_smoke_selection_unavailable:" + JSON.stringify(no_text_selection)
   );
 
+  print("STEP send-keys enter performs the AX action the chord means and its postcondition advances; a chord with no AX equivalent is a typed refusal, not a keystroke into the void");
+  const confirms_before = node_text(run_directory, executable, handle_text, "fixture-confirm-count");
+  const confirm_chord = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-keys",
+    "--window", handle_text, "--name", "fixture-field", "--", "enter"
+  ]);
+  // `ax-action`, not `device-event`: macOS cannot hand a keystroke to an
+  // application it refuses to activate, so the reply must not claim a key
+  // was delivered when an AX action was performed instead.
+  ensure(
+    text_at(confirm_chord, "data.via") === "ax-action"
+      && text_at(confirm_chord, "data.keys") === "enter"
+      && text_at(confirm_chord, "data.matched.identifier") === "fixture-field",
+    "cu_macos_smoke_send_keys_enter:" + JSON.stringify(confirm_chord.data)
+  );
+  const confirms_after = node_text(run_directory, executable, handle_text, "fixture-confirm-count");
+  ensure(
+    confirms_before === "confirmed 0" && confirms_after === "confirmed 1",
+    "cu_macos_smoke_send_keys_postcondition:" + confirms_before + "->" + confirms_after
+  );
+  // A chord the control does not offer, and a chord no AX action means at
+  // all, are two different refusals and both name what is missing.
+  const no_cancel = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-keys",
+    "--window", handle_text, "--name", "fixture-field", "--", "escape"
+  ]);
+  ensure(
+    !flag_at(no_cancel, "ok")
+      && text_at(no_cancel, "error.code") === "a11y_key_unavailable"
+      && text_at(no_cancel, "error.message").indexOf("AXCancel") >= 0,
+    "cu_macos_smoke_send_keys_no_cancel:" + JSON.stringify(no_cancel)
+  );
+  const no_equivalent = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-keys",
+    "--window", handle_text, "--name", "fixture-field", "--", "z"
+  ]);
+  ensure(
+    !flag_at(no_equivalent, "ok")
+      && text_at(no_equivalent, "error.code") === "a11y_key_unavailable"
+      && text_at(no_equivalent, "error.message").indexOf("active application") >= 0,
+    "cu_macos_smoke_send_keys_no_equivalent:" + JSON.stringify(no_equivalent)
+  );
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -1695,6 +1751,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-refus
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-close");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-receipts");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-node-text-geometry");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-send-keys");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");
