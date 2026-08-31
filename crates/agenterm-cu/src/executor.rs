@@ -958,6 +958,43 @@ fn capabilities_payload() -> serde_json::Value {
     let status = |capability: mechanism::Capability| {
         format!("{:?}", mechanism::capability_status(capability))
     };
+    // The *verb* status is one stable word. `status()` above is the
+    // capability's Debug form, which for `Available` happens to lowercase
+    // into "available" and for anything else lowercases into the whole
+    // struct -- `unsupported { reason: "host adapter unavailable" }` was
+    // being published as a status value. Nothing on macOS could show that,
+    // because every capability there is Available; running on Linux did.
+    let verb_status = |capability: mechanism::Capability| -> &'static str {
+        match mechanism::capability_status(capability) {
+            mechanism::CapabilityStatus::Available => "available",
+            mechanism::CapabilityStatus::Unsupported { .. } => "unsupported",
+            mechanism::CapabilityStatus::Failed { .. } => "failed",
+        }
+    };
+    // The reason, when there is one, belongs in its own field rather than
+    // smuggled into the word a caller matches on.
+    let verb_reason = |capability: mechanism::Capability| -> Option<String> {
+        match mechanism::capability_status(capability) {
+            mechanism::CapabilityStatus::Available => None,
+            mechanism::CapabilityStatus::Unsupported { reason } => Some(reason),
+            mechanism::CapabilityStatus::Failed { code, message } => {
+                Some(format!("{code}: {message}"))
+            }
+        }
+    };
+    let capability_verb = |capability: mechanism::Capability, extra: serde_json::Value| {
+        let mut declaration = serde_json::json!({ "status": verb_status(capability) });
+        if let (Some(object), Some(reason)) = (declaration.as_object_mut(), verb_reason(capability))
+        {
+            object.insert("reason".into(), serde_json::json!(reason));
+        }
+        if let (Some(object), Some(extra)) = (declaration.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        declaration
+    };
     // ABI 1.12: the a11y capability answers three ways. `Denied` is an OS
     // permission the caller can repair (macOS Accessibility); it is neither
     // "unsupported" (no adapter) nor an empty tree.
@@ -1025,7 +1062,7 @@ fn capabilities_payload() -> serde_json::Value {
     // Linux the EWMH `_NET_CLOSE_WINDOW` request. All three are requests,
     // not kills -- which is exactly why the gate reads the handle back
     // instead of trusting the call.
-    let close_verb = serde_json::json!({ "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase() });
+    let close_verb = capability_verb(mechanism::Capability::WindowOp, serde_json::json!({}));
     // Reading the pointer is an observation on every host, and it stays
     // available even where injection is not: the read never posts an event,
     // so it must not be gated behind the injection capability.
@@ -1074,16 +1111,15 @@ fn capabilities_payload() -> serde_json::Value {
             "reason": "native window capture needs ScreenCaptureKit; CGWindowListCreateImage was obsoleted in macOS 15.0",
         })
     } else {
-        serde_json::json!({
-            "status": status(mechanism::Capability::Screenshot).to_ascii_lowercase(),
-            "group": "capture",
-        })
+        capability_verb(
+            mechanism::Capability::Screenshot,
+            serde_json::json!({ "group": "capture" }),
+        )
     };
-    let pointer_inject_verb = serde_json::json!({
-        "status": status(mechanism::Capability::InputInject).to_ascii_lowercase(),
-        "scope": "desktop",
-        "group": "pointer",
-    });
+    let pointer_inject_verb = capability_verb(
+        mechanism::Capability::InputInject,
+        serde_json::json!({ "scope": "desktop", "group": "pointer" }),
+    );
     // One place to look for "what am I not allowed to do, and how is that
     // fixed". `setup` / `doctor` / `permissions` stay typed -- the wizard
     // is MCU's -- but the *reporting* has to be complete, and until now the
@@ -1161,14 +1197,13 @@ fn capabilities_payload() -> serde_json::Value {
         },
         "verbs": {
             "capabilities": { "status": "available" },
-            "windows": { "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase() },
-            "windows-watch": {
-                "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase(),
-                "mode": "poll-diff",
-                "group": "discover",
-            },
+            "windows": capability_verb(mechanism::Capability::WindowEnumerate, serde_json::json!({})),
+            "windows-watch": capability_verb(
+                mechanism::Capability::WindowEnumerate,
+                serde_json::json!({ "mode": "poll-diff", "group": "discover" }),
+            ),
             "apps": {
-                "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase(),
+                "status": verb_status(mechanism::Capability::WindowEnumerate),
                 // `running_only` describes the *default*, not a limit:
                 // `--all` adds the installed-but-not-running half where the
                 // host can enumerate it.
@@ -1185,11 +1220,10 @@ fn capabilities_payload() -> serde_json::Value {
             "focused": focused_verb,
             "observe": observe_verb,
             "close": close_verb,
-            "orderwin": {
-                "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase(),
-                "group": "geometry",
-                "mode": "raise",
-            },
+            "orderwin": capability_verb(
+                mechanism::Capability::WindowOp,
+                serde_json::json!({ "group": "geometry", "mode": "raise" }),
+            ),
             "screenshot": screenshot_verb,
             "receipts": { "status": "available" },
             // `hide` / `show` need an application-level hidden state, which
@@ -1220,11 +1254,10 @@ fn capabilities_payload() -> serde_json::Value {
             "displays": crate::mcu_surface::verb_declaration("displays"),
             "pointer-position": pointer_position_verb,
             "pointer-move": pointer_inject_verb,
-            "send-keys": {
-                "status": status(mechanism::Capability::InputInject).to_ascii_lowercase(),
-                "scope": "desktop",
-                "group": "input",
-            },
+            "send-keys": capability_verb(
+                mechanism::Capability::InputInject,
+                serde_json::json!({ "scope": "desktop", "group": "input" }),
+            ),
         },
         "permissions": permissions,
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),

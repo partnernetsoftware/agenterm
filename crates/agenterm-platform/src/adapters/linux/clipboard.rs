@@ -502,9 +502,11 @@ fn probe_xsel_has_text() -> bool {
 /// needed -- the same probe that decides "is there text on the clipboard"
 /// already reads it. Names are passed through as the session spelled them.
 pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
-    let helpers: &[&[&str]] = match Backend::probe() {
-        backend if backend.wayland_read() => &[WL_PASTE_TYPES],
-        _ => &[XCLIP_TARGETS, XSEL_TARGETS],
+    let facts = ClipboardBackendFacts::probe();
+    let helpers: &[&[&str]] = if facts.wayland_read() {
+        &[WL_PASTE_TYPES]
+    } else {
+        &[XCLIP_TARGETS, XSEL_TARGETS]
     };
     let mut last: Option<ClipboardError> = None;
     for helper in helpers {
