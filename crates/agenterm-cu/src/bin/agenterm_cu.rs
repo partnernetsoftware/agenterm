@@ -403,11 +403,20 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
+            let selector = match flag_text(&mut args, "--selector") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if let Some(raw) = selector.as_deref()
+                && let Err(message) = agenterm_cu::observe::parse_selector(raw)
+            {
+                return usage_err(message);
+            }
             if !args.is_empty() {
                 return usage_err(format!(
                     "query accepts only --window H --depth N --max-nodes N --role R,R \
                      --text T | --text-exact T --identifier ID --actionable \
-                     --within X,Y,W,H --offset N --max N; unexpected {:?}",
+                     --within X,Y,W,H --offset N --max N --selector PATH; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -424,6 +433,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 within,
                 offset,
                 max,
+                selector,
             }
         }
         "invoke" => {
@@ -1826,6 +1836,7 @@ Commands:
                               in walk order — the same identity query reports
   query --window HANDLE|App#N [--depth N] [--max-nodes N] [--role R,R] [--text T | --text-exact T]
         [--identifier ID] [--actionable] [--within X,Y,W,H] [--offset N] [--max N]
+        [--selector PATH]   MCU Role[idx] / Role@title / *@title / #desc; scopes to that subtree
                               bounded, filtered flat node list with visited /
                               matched / returned / truncated; roles accept AXTextArea
                               or text-area; an unknown flag fails before the walk
@@ -2230,5 +2241,22 @@ mod tests {
         if let Some(error) = reply.error {
             assert_ne!(error.code, "usage");
         }
+    }
+
+    #[test]
+    fn query_selector_invalid_is_usage() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "query".into(),
+            "--window".into(),
+            "1".into(),
+            "--selector".into(),
+            "!!!".into(),
+        ]);
+        assert_eq!(reply.command, "usage");
+        assert_eq!(reply.error.expect("usage").code, "usage");
     }
 }

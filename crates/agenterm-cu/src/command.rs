@@ -212,6 +212,10 @@ pub enum Command {
         offset: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
+        /// MCU path: `Role[idx] / Role@title / *@title / #description`.
+        /// Scopes the query to that node and its descendants.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
     },
     /// One semantic action on one node of `window` through the platform
     /// a11y backend, never activating or raising the window. Exactly one of
@@ -866,6 +870,7 @@ mod tests {
             within: Some([0, 0, 900, 700]),
             offset: Some(2),
             max: Some(10),
+            selector: None,
         };
         assert_eq!(command.verb(), "query");
         assert_eq!(command.target(), TargetRef::Vnc);

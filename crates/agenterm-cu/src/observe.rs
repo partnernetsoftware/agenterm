@@ -394,6 +394,196 @@ pub fn query<'a>(
     (returned.to_vec(), counts)
 }
 
+/// One MCU selector segment: `Role[idx]`, `Role@title`, `*@title`, `#desc`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectorSegment {
+    pub role: Option<String>,
+    pub index: usize,
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+const MAX_SELECTOR_SEGMENTS: usize = 32;
+
+/// Parse MCU `tree`/`query`/`invoke` selector grammar. Split on `/`.
+pub fn parse_selector(raw: &str) -> Result<Vec<SelectorSegment>, String> {
+    let segments: Vec<&str> = raw
+        .split('/')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    if segments.is_empty() {
+        return Err("selector is empty".to_owned());
+    }
+    if segments.len() > MAX_SELECTOR_SEGMENTS {
+        return Err(format!("selector exceeds {MAX_SELECTOR_SEGMENTS} segments"));
+    }
+    segments.into_iter().map(parse_selector_segment).collect()
+}
+
+fn parse_selector_segment(segment: &str) -> Result<SelectorSegment, String> {
+    if let Some(description) = segment.strip_prefix('#') {
+        if description.is_empty() {
+            return Err("description selector cannot be empty".to_owned());
+        }
+        return Ok(SelectorSegment {
+            role: None,
+            index: 0,
+            title: None,
+            description: Some(description.to_owned()),
+        });
+    }
+    let at = segment.find('@');
+    let bracket = segment.find('[');
+    let role_end = match (bracket, at) {
+        (Some(b), Some(a)) => b.min(a),
+        (Some(b), None) => b,
+        (None, Some(a)) => a,
+        (None, None) => segment.len(),
+    };
+    let role_raw = segment[..role_end].trim();
+    let role = if role_raw == "*" {
+        None
+    } else if role_raw.is_empty()
+        || !role_raw
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        || !role_raw
+            .chars()
+            .all(|ch| ch.is_ascii_alphabetic() || ch == ' ' || ch == '_' || ch == '-')
+    {
+        return Err(format!("invalid selector segment: {segment}"));
+    } else {
+        Some(role_raw.to_owned())
+    };
+    let rest = &segment[role_end..];
+    let (index, title) = if let Some(after_bracket) = rest.strip_prefix('[') {
+        let close = after_bracket
+            .find(']')
+            .ok_or_else(|| format!("invalid selector segment: {segment}"))?;
+        let number = &after_bracket[..close];
+        let index: usize = number
+            .parse()
+            .map_err(|_| format!("invalid selector segment: {segment}"))?;
+        if index > 100_000 {
+            return Err("selector index is too large".to_owned());
+        }
+        let tail = after_bracket[close + 1..].trim_start();
+        let title = tail.strip_prefix('@').map(str::to_owned);
+        if !tail.is_empty() && title.is_none() {
+            return Err(format!("invalid selector segment: {segment}"));
+        }
+        (index, title)
+    } else if let Some(title) = rest.strip_prefix('@') {
+        (0, Some(title.to_owned()))
+    } else if rest.is_empty() {
+        (0, None)
+    } else {
+        return Err(format!("invalid selector segment: {segment}"));
+    };
+    Ok(SelectorSegment {
+        role,
+        index,
+        title,
+        description: None,
+    })
+}
+
+fn selector_role_matches(have: &str, want: &str) -> bool {
+    normalize_role(have) == normalize_role(want)
+}
+
+fn selector_child_matches(node: &A11yNode, seg: &SelectorSegment) -> bool {
+    if let Some(want) = &seg.role
+        && !selector_role_matches(&node.role, want)
+    {
+        return false;
+    }
+    if let Some(title) = &seg.title {
+        let in_name = node.name.contains(title);
+        let in_id = node
+            .identifier
+            .as_deref()
+            .is_some_and(|id| id.contains(title));
+        if !in_name && !in_id {
+            return false;
+        }
+    }
+    if let Some(description) = &seg.description {
+        let in_id = node
+            .identifier
+            .as_deref()
+            .is_some_and(|id| id.contains(description));
+        if !in_id && !node.name.contains(description) {
+            return false;
+        }
+    }
+    true
+}
+
+fn children_of<'a>(tree: &'a A11yTree, parent_id: &str) -> Vec<&'a A11yNode> {
+    tree.nodes
+        .iter()
+        .filter(|node| node.parent_id.as_deref() == Some(parent_id))
+        .collect()
+}
+
+/// Walk MCU selector from `tree.root_id`. Each segment indexes matching
+/// children (same-role sibling), not the flatten list.
+pub fn walk_selector<'a>(
+    tree: &'a A11yTree,
+    selector: &str,
+) -> Result<Option<&'a A11yNode>, String> {
+    let path = parse_selector(selector)?;
+    let Some(mut current) = tree.nodes.iter().find(|node| node.id == tree.root_id) else {
+        return Ok(None);
+    };
+    for segment in &path {
+        let matched: Vec<&A11yNode> = children_of(tree, &current.id)
+            .into_iter()
+            .filter(|kid| selector_child_matches(kid, segment))
+            .collect();
+        let Some(next) = matched.get(segment.index).copied() else {
+            return Ok(None);
+        };
+        current = next;
+    }
+    Ok(Some(current))
+}
+
+fn subtree_ids(tree: &A11yTree, root_id: &str) -> Vec<String> {
+    let mut ids = vec![root_id.to_owned()];
+    let mut i = 0;
+    while i < ids.len() {
+        let parent = ids[i].clone();
+        for child in children_of(tree, &parent) {
+            if !ids.iter().any(|id| id == &child.id) {
+                ids.push(child.id.clone());
+            }
+        }
+        i += 1;
+    }
+    ids
+}
+
+/// Restrict a flatten list to the MCU selector hit and its descendants.
+/// Parse errors are `Err`; a miss is an empty vec.
+pub fn query_selector_scope<'a>(
+    tree: &'a A11yTree,
+    flat: &'a [FlatNode<'a>],
+    selector: &str,
+) -> Result<Vec<&'a FlatNode<'a>>, String> {
+    let Some(hit) = walk_selector(tree, selector)? else {
+        return Ok(Vec::new());
+    };
+    let ids = subtree_ids(tree, &hit.id);
+    Ok(flat
+        .iter()
+        .filter(|entry| ids.iter().any(|id| id == &entry.node.id))
+        .collect())
+}
+
 /// MCU-style stable window spelling `App#handle` (spaces in the app name
 /// allowed). `--window` still accepts a bare integer.
 pub fn window_stable_ref(window: &WindowInfo) -> String {
@@ -1922,6 +2112,41 @@ mod tests {
         assert!(parse_window_token("0").is_err());
         assert!(parse_window_token("#9").is_err());
         assert!(parse_window_token("Nope").is_err());
+    }
+
+    #[test]
+    fn query_selector_walks_role_index_and_title() {
+        let mut group = node("/0/0", "AXGroup", "", &[]);
+        group.parent_id = Some("/0".into());
+        let mut web = node("/0/0/0", "AXWebArea", "Exact Reply", &[]);
+        web.parent_id = Some("/0/0".into());
+        web.states.push("showing".into());
+        let mut other = node("/0/0/1", "AXButton", "reload", &["AXPress"]);
+        other.parent_id = Some("/0/0".into());
+        let t = tree(
+            vec![node("/0", "AXWindow", "w", &[]), group, web, other],
+            false,
+        );
+        assert_eq!(
+            parse_selector("AXGroup[0] / AXWebArea[0]").unwrap().len(),
+            2
+        );
+        let hit = walk_selector(&t, "AXGroup[0] / AXWebArea[0]")
+            .unwrap()
+            .expect("webarea");
+        assert_eq!(hit.role, "AXWebArea");
+        assert_eq!(hit.name, "Exact Reply");
+        let titled = walk_selector(&t, "AXGroup[0] / *@Exact")
+            .unwrap()
+            .expect("title");
+        assert_eq!(titled.role, "AXWebArea");
+        let flat = flatten(&t);
+        let scoped = query_selector_scope(&t, &flat, "AXGroup[0] / AXWebArea[0]").unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].node.role, "AXWebArea");
+        assert!(parse_selector("").is_err());
+        assert!(parse_selector("!!!").is_err());
+        assert!(walk_selector(&t, "AXMissing[0]").unwrap().is_none());
     }
 
     #[test]

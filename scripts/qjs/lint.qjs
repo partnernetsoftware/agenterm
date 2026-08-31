@@ -1,7 +1,7 @@
 // Fail-fast repository lint without a PowerShell dependency.
 //
 // Args:
-//   REPO [WORKER] [all|static|rust|rh] [--json] [--self-test]
+//   REPO [WORKER] [all|static|rust|qjs] [--json] [--self-test]
 // Ported from scripts/rh/lint.rh; runs under `--profile tool`.
 import * as rh from "lib/rh_compat";
 
@@ -43,7 +43,7 @@ while (index < args.length) {
     json = 1;
   } else if (value === "--self-test") {
     internal_selftest = 1;
-  } else if (value === "all" || value === "static" || value === "rust" || value === "rh") {
+  } else if (value === "all" || value === "static" || value === "rust" || value === "qjs") {
     mode = value;
   } else if (value === "--worker") {
     rh.require(index + 1 < args.length, "lint_worker_value_missing");
@@ -208,38 +208,38 @@ if (internal_selftest === 1) {
     }
   }
 
-  if (mode === "all" || mode === "rh") {
+  if (mode === "all" || mode === "qjs") {
     rh.require(
       rh.exists(worker) && rh.metadata(worker).is_file,
       "lint_worker_missing:" + worker
     );
     const manifest_code = rh.command_stdout_file(
       "git",
-      ["-C", repo, "ls-files", "--", "scripts/rh/*.rh"],
+      ["-C", repo, "ls-files", "--", "scripts/qjs/*.qjs"],
       stdout_path,
       { cwd: repo, timeout_ms: 10000 }
     );
-    rh.require(manifest_code === 0, "lint_rh_files_git");
-    const rh_files = [];
+    rh.require(manifest_code === 0, "lint_qjs_files_git");
+    const qjs_files = [];
     for (const source_line of rh.read_text(stdout_path).split("\n")) {
       const relative_path = source_line.trim();
       if (relative_path !== "") {
-        rh_files.push(relative_path);
+        qjs_files.push(relative_path);
       }
     }
-    rh.require(rh_files.length > 0, "lint_rh_files_empty");
+    rh.require(qjs_files.length > 0, "lint_qjs_files_empty");
     rh.write_text(
       manifest_path,
       JSON.stringify({
         schema_version: 1,
-        kind: "agenterm-rh-check-manifest",
-        files: rh_files
+        kind: "agenterm-qjs-check-manifest",
+        files: qjs_files
       }) + "\n"
     );
 
-    const check_code = rh.command_stdout_file(worker, check_many_args(manifest_path), stdout_path, check_options);
-    if (check_code !== 0) {
-      throw "Rh lint errors:\n" + rh.read_text(stdout_path);
+    const check_output = rh.command(worker, check_many_args(manifest_path), check_options);
+    if (!check_output.success) {
+      throw "QJS lint errors:\n" + check_output.stderr + check_output.stdout;
     }
   }
 }

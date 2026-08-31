@@ -572,6 +572,7 @@ impl Executor {
                 within,
                 offset,
                 max,
+                selector,
                 ..
             } => query_payload(
                 *window,
@@ -588,6 +589,7 @@ impl Executor {
                 text.is_some() && text_exact.is_some(),
                 *offset,
                 *max,
+                selector.as_deref(),
             ),
             Command::Invoke {
                 window,
@@ -1088,6 +1090,7 @@ fn query_payload(
     text_and_text_exact: bool,
     offset: Option<usize>,
     max: Option<usize>,
+    selector: Option<&str>,
 ) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
@@ -1104,7 +1107,13 @@ fn query_payload(
     let tree =
         mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
     let flat = observe::flatten(&tree);
-    let (hits, counts) = observe::query(&flat, &filter, page, tree.truncated);
+    let scoped: Vec<&observe::FlatNode<'_>> = if let Some(selector) = selector {
+        observe::query_selector_scope(&tree, &flat, selector).map_err(invalid_input)?
+    } else {
+        flat.iter().collect()
+    };
+    let owned: Vec<observe::FlatNode<'_>> = scoped.into_iter().cloned().collect();
+    let (hits, counts) = observe::query(&owned, &filter, page, tree.truncated);
     let nodes = serde_json::to_value(&hits)
         .map_err(|error| CuError::new("serialize", error.to_string()))?;
     Ok(serde_json::json!({
@@ -1122,6 +1131,7 @@ fn query_payload(
             "identifier": filter.identifier,
             "actionable": filter.actionable,
             "within": filter.within,
+            "selector": selector,
         },
         "visited": counts.visited,
         "matched": counts.matched,
@@ -6930,6 +6940,7 @@ mod tests {
                     within: None,
                     offset: None,
                     max,
+                    selector: None,
                 })
             };
         let no_window = query(0, None, None, None);

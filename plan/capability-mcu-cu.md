@@ -75,7 +75,7 @@ machine-control
 
 1. ~~稳定句柄 `App#n`~~ **已做**：`windows[].ref` + `--window App#N`（仍同时接受整数；未做 live app 前缀核验）。
 2. `unlock` / 闲置 Chromium 只读 poke（depth≥8 hit-test），不仅 `next_actions` 字符串。
-3. `query --selector` 或等价 path，少让 agent 手拼 `--node /0/2/5`。
+3. ~~`query --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`，作用域=命中节点+子孙；`invoke` 仍走 `--node/--name/--index`）。
 4. `invoke` 补 MCU 已证动作：`set-selected`、`set-selection`、`scroll-to`、`cancel`。
 5. `orderwin` / `windows watch` / Space 只读。
 6. `--to` 必填的局部输入哨兵（防漏写变全局）。

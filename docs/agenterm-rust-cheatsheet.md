@@ -72,6 +72,13 @@ A build with many enabled features is weak evidence. Cargo unifies features, so
 another dependency can accidentally make an undeclared module, OS import, or
 optional crate available.
 
+When a shared error changes from `String` to a typed record, search all gated
+consumers for string-only operations (`is_empty`, `contains`, direct equality),
+then compile `--all-targets --all-features`. Default-feature tests can leave an
+entire integration test uncompiled and falsely green. Assertions that own the
+diagnostic text should read the record's message field explicitly; do not add
+string-like methods to the error type merely to preserve stale test syntax.
+
 For a new or changed facade, run its isolated graph:
 
 ```powershell
