@@ -168,6 +168,7 @@ type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
 type A11yNodeSendKeys = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
 type A11yManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
+type A11yApplicationSetHidden = unsafe extern "C" fn(u32, i32) -> i32;
 type ClipboardTypes = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type A11yObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
 type A11yObserveEventString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
@@ -917,6 +918,15 @@ fn null_group() -> Vec<SweepCase> {
                 let f: Symbol<A11yObserveEventTime> =
                     unsafe { sym(lib, b"agt_a11y_observe_event_time_ms") };
                 unsafe { CallResult::Status(f(0, std::ptr::null_mut())) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_application_set_hidden[process_id=0]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yApplicationSetHidden> =
+                    unsafe { sym(lib, b"agt_a11y_application_set_hidden") };
+                unsafe { CallResult::Status(f(0, 1)) }
             }),
         },
         SweepCase {

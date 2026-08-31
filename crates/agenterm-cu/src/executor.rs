@@ -696,6 +696,21 @@ impl Executor {
             Command::PageJs {
                 expression, port, ..
             } => page_js_payload(expression.as_deref(), *port),
+            Command::App {
+                window,
+                action,
+                snapshot,
+                expect,
+                pid,
+                ..
+            } => app_payload(
+                *window,
+                *action,
+                *snapshot,
+                expect.as_deref(),
+                *pid,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::Spaces { .. } => spaces_payload(),
             Command::Displays { .. } => displays_payload(),
             Command::Unlock { window, .. } => unlock_payload(*window),
@@ -1171,6 +1186,20 @@ fn capabilities_payload() -> serde_json::Value {
             },
             "screenshot": screenshot_verb,
             "receipts": { "status": "available" },
+            // `hide` / `show` need an application-level hidden state, which
+            // only macOS has; `quit` needs the application's own Quit menu
+            // item, so it rides the menu verb's own status.
+            "app": {
+                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "app",
+                "actions": {
+                    "hide": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                    "show": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                    "quit": if cfg!(target_os = "macos") { "available" } else { "mapped" },
+                },
+                "quit_mechanism": "the application's own Quit menu item, pressed in the background; never a signal",
+                "destructive": ["quit"],
+            },
             "page-js": {
                 "status": "available",
                 "backend": observe::page_js_backend(),
@@ -4714,6 +4743,251 @@ fn window_identity_json(row: &WindowInfo) -> serde_json::Value {
 /// background. Order: gate → exact target bound in one inventory read →
 /// prior snapshot → receipt reserved → close → postcondition read back
 /// (absent from the inventory) → receipt completed → reply.
+/// `app hide|show|quit` on the application owning `window`.
+///
+/// `hide` / `show` are the application stepping aside and back: nothing is
+/// closed, and asking for the state it is already in performs nothing.
+/// `quit` ends an application, so it carries the same three-part gate as
+/// `close` -- an exact target, a prior snapshot, and a checkable
+/// postcondition -- and its mechanism is the application's **own Quit menu
+/// item**, pressed in the background. A signal would be a kill, not a
+/// quit: the application would lose its chance to run its shutdown path
+/// and ask about unsaved work.
+fn app_payload(
+    window: isize,
+    action: crate::command::AppAction,
+    snapshot: bool,
+    expect: Option<&str>,
+    pid: Option<u32>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    use crate::command::AppAction;
+    if window == 0 && pid.is_none() {
+        return Err(invalid_input(
+            "app requires --window <handle> (a non-zero handle from `windows`) or --pid <n>".into(),
+        ));
+    }
+    if action.is_destructive() && window == 0 {
+        return Err(invalid_input(
+            "app quit requires --window <handle>: the gate needs an exact target and a prior snapshot of it".into(),
+        ));
+    }
+    if !action.is_destructive() {
+        if snapshot || expect.is_some() {
+            return Err(invalid_input(format!(
+                "app {} takes no --snapshot / --expect; those belong to the destructive quit",
+                action.as_str()
+            )));
+        }
+        let hidden = matches!(action, AppAction::Hide);
+        // Hiding takes the application's windows out of the inventory, so
+        // `show` cannot be addressed by a handle that no longer resolves:
+        // it needs the pid, which outlives the hide. `hide` accepts either
+        // and looks the pid up while the window is still there.
+        let process_id = match (pid, hidden) {
+            (Some(pid), _) => pid,
+            (None, true) => {
+                let windows = mechanism::window_enumerate::enumerate_top_level()
+                    .map_err(map_mechanism_err)?;
+                let Some(row) = windows.iter().find(|row| row.handle == window) else {
+                    return Err(CuError::new(
+                        "window_not_found",
+                        format!("no top-level window with handle {window}"),
+                    ));
+                };
+                row.process_id
+            }
+            (None, false) => {
+                return Err(invalid_input(
+                    "app show needs --pid: hiding removed the application's windows, so a window handle no longer names it".into(),
+                ));
+            }
+        };
+        mechanism::set_application_hidden(process_id, hidden).map_err(map_mechanism_err)?;
+        // Read the inventory back: a hidden application's windows stop
+        // being enumerable, which is the observable half of the verb.
+        //
+        // Polled, not sampled once. The adapter already waited for
+        // `AXHidden` to read back, but the window server drops the windows
+        // from its own list a beat later -- a single read right after the
+        // write catches the old inventory and reports a working hide as
+        // unverified.
+        let started = Instant::now();
+        let mut listed = usize::MAX;
+        while started.elapsed() < CLOSE_READBACK {
+            let windows =
+                mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+            listed = windows
+                .iter()
+                .filter(|row| row.process_id == process_id)
+                .count();
+            if (listed == 0) == hidden {
+                break;
+            }
+            thread::sleep(CLOSE_READBACK_POLL);
+        }
+        return Ok(serde_json::json!({
+            "addressing": "process-id",
+            "mechanism": "libagenterm",
+            "process_id": process_id,
+            "action": action.as_str(),
+            "performed": true,
+            "windows_listed": listed,
+            "verified": (listed == 0) == hidden,
+            "verification": {
+                "method": "window-inventory-by-pid",
+                "elapsed_ms": started.elapsed().as_millis(),
+            },
+        }));
+    }
+    destructive_gate(window, snapshot, expect)?;
+    let not_performed = |error: CuError| {
+        let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
+        detail["effect"] = serde_json::json!("not_performed");
+        error.with_detail(detail)
+    };
+    let windows = mechanism::window_enumerate::enumerate_top_level()
+        .map_err(map_mechanism_err)
+        .map_err(not_performed)?;
+    let Some(row) = windows.iter().find(|item| item.handle == window) else {
+        return Err(not_performed(CuError::new(
+            "window_not_found",
+            format!("no top-level window with handle {window}"),
+        )));
+    };
+    if let Some(pid) = pid
+        && row.process_id != pid
+    {
+        return Err(not_performed(
+            CuError::new(
+                "window_identity_mismatch",
+                format!(
+                    "window {window} belongs to pid {} not {pid}; refusing to quit another process",
+                    row.process_id
+                ),
+            )
+            .with_detail(
+                serde_json::json!({ "expected": { "pid": pid }, "observed": window_identity_json(row) }),
+            ),
+        ));
+    }
+    let identity = window_identity_json(row);
+    let application = row.app_name.clone();
+    let target_pid = row.process_id;
+    let tree = mechanism::tree_for_window_bounded(
+        Some(window),
+        mechanism::TreeBudget {
+            max_depth: Some(CLOSE_SNAPSHOT_DEPTH),
+            max_nodes: Some(CLOSE_SNAPSHOT_NODES),
+        },
+    )
+    .map_err(map_mechanism_err)
+    .map_err(not_performed)?;
+    let snapshot_json = serde_json::json!({
+        "backend": tree.backend,
+        "budget": { "depth": CLOSE_SNAPSHOT_DEPTH, "max_nodes": CLOSE_SNAPSHOT_NODES },
+        "visited": tree.visited,
+        "returned": tree.returned,
+        "truncated": tree.truncated,
+        "nodes": tree.nodes.iter().map(snapshot_node_json).collect::<Vec<_>>(),
+    });
+    // The application's own Quit item, by the two spellings a menu bar
+    // uses. Resolved through the same background menu path `menu invoke`
+    // uses, so a missing / duplicated / disabled item refuses there with
+    // nothing pressed.
+    let candidates = [
+        vec![application.clone(), format!("Quit {application}")],
+        vec![application.clone(), "Quit".to_owned()],
+    ];
+    let ticket = receipts.reserve(
+        "app-quit",
+        window,
+        serde_json::json!({
+            "action": "quit",
+            "window_identity": identity,
+            "postcondition": "gone",
+            "before": { "present": true, "nodes": tree.returned },
+            "snapshot": snapshot_json,
+        }),
+    )?;
+    let started = Instant::now();
+    let mut mechanism_error = None;
+    let mut pressed_path: Option<Vec<String>> = None;
+    for path in &candidates {
+        match mechanism::invoke_menu_path(Some(window), path) {
+            Ok(_) => {
+                pressed_path = Some(path.clone());
+                mechanism_error = None;
+                break;
+            }
+            Err(error) => mechanism_error = Some(map_mechanism_err(error)),
+        }
+    }
+    // Postcondition: no window of that process is left in the inventory.
+    let mut polls = 0usize;
+    let mut present = true;
+    let mut readback_error = None;
+    while started.elapsed() < CLOSE_READBACK {
+        polls += 1;
+        match mechanism::window_enumerate::enumerate_top_level() {
+            Ok(now) => present = now.iter().any(|item| item.process_id == target_pid),
+            Err(error) => {
+                readback_error = Some(map_mechanism_err(error));
+                break;
+            }
+        }
+        if !present || mechanism_error.is_some() {
+            break;
+        }
+        thread::sleep(CLOSE_READBACK_POLL);
+    }
+    let verified = !present && mechanism_error.is_none() && readback_error.is_none();
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if present {
+        Some("application_still_present")
+    } else {
+        None
+    };
+    let verification = serde_json::json!({
+        "method": "window-inventory-by-pid",
+        "reason": reason,
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis(),
+        "menu_path": pressed_path,
+    });
+    receipts.complete(
+        &ticket,
+        "app-quit",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": mechanism_error.is_none(),
+            "after": { "present": present },
+            "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
+    if let Some(error) = mechanism_error.or(readback_error) {
+        return Err(error);
+    }
+    Ok(serde_json::json!({
+        "addressing": "window-handle",
+        "mechanism": "libagenterm",
+        "backend": tree.backend,
+        "window": window,
+        "target": identity,
+        "action": "quit",
+        "postcondition": "gone",
+        "performed": true,
+        "verified": verified,
+        "verification": verification,
+        "snapshot": snapshot_json,
+    }))
+}
+
 fn close_payload(
     window: isize,
     pid: Option<u32>,

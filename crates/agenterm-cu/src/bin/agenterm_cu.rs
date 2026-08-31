@@ -1130,6 +1130,54 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
+        "app" => {
+            let action_text = flag_value(&mut args, "--action")
+                .or_else(|| {
+                    args.first()
+                        .cloned()
+                        .filter(|first| !first.starts_with("--"))
+                })
+                .unwrap_or_default();
+            if !action_text.is_empty() && args.first() == Some(&action_text) {
+                args.remove(0);
+            }
+            let Some(action) = agenterm_cu::command::AppAction::parse(&action_text) else {
+                return usage_err("app requires hide | show | quit (or --action <one of them>)");
+            };
+            let window = match flag_window(&mut args) {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let pid = match flag_parsed::<u32>(&mut args, "--pid") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            // `show` has no window to name -- hiding removed them -- so the
+            // pid stands in. Every other action still wants a handle.
+            if window.is_none() && pid.is_none() {
+                return usage_err("app requires --window <handle> or --pid <n>");
+            }
+            let window = window.unwrap_or(0);
+            let snapshot = take_switch(&mut args, "--snapshot");
+            let expect = match flag_text(&mut args, "--expect") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "app accepts only <hide|show|quit> --window H [--pid N] [--snapshot --expect gone]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::App {
+                target,
+                window,
+                action,
+                snapshot,
+                expect,
+                pid,
+            }
+        }
         "orderwin" => {
             let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,

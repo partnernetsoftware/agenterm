@@ -90,11 +90,11 @@ use std::time::{Duration, Instant};
 use agenterm_platform::CapabilityStatus;
 use agenterm_platform::accessibility_tree::{
     AccessibilityEvent, AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget,
-    AccessibilityTreeError, drain_bus, focused_node_for_window, get_node_caret_offset,
-    get_node_extents, get_node_selection, get_node_text, invoke_menu_path, last_text_write_via,
-    menu_tree_for_window, observe_window, perform_node_action, poke_manual_accessibility,
-    scroll_node, send_node_keys, set_node_caret_offset, set_node_selection, set_node_text,
-    tree_for_window_bounded,
+    AccessibilityTreeError, ApplicationVisibility, drain_bus, focused_node_for_window,
+    get_node_caret_offset, get_node_extents, get_node_selection, get_node_text, invoke_menu_path,
+    last_text_write_via, menu_tree_for_window, observe_window, perform_node_action,
+    poke_manual_accessibility, scroll_node, send_node_keys, set_application_visibility,
+    set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
 };
 use agenterm_platform::clipboard::{available_types, get_text, has_unicode_text, set_text};
 use agenterm_platform::desktop_host::{
@@ -275,7 +275,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 19);
+abi_version!(1, 20);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -4483,6 +4483,58 @@ pub extern "C" fn agt_a11y_node_scroll(window_handle: isize, node_id: *const c_c
                 c"agt_a11y_node_scroll",
                 c"panic",
                 "panic in agt_a11y_node_scroll",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.20: hide or unhide an application by **pid** (`hidden != 0`
+/// hides). macOS writes `AXHidden` on the application element.
+///
+/// A pid rather than a window handle, and the mechanism forces that:
+/// hiding takes the application's windows out of the inventory, so a
+/// handle-addressed unhide would have nothing left to resolve.
+///
+/// This is the application-level verb, not a window one: hiding steps the
+/// whole application aside and its windows stop being enumerable, which is
+/// different from minimizing a window and different again from closing
+/// one. Nothing is destroyed. Idempotent -- already being in the requested
+/// state is `AGT_OK` with nothing performed. A host with no
+/// application-level hidden state answers `AGT_UNSUPPORTED` rather than
+/// hiding windows one by one, which would be a different action wearing
+/// the same name. `process_id` 0 → `invalid_input`.
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_application_set_hidden(process_id: u32, hidden: i32) -> agt_status {
+    fn inner(process_id: u32, hidden: i32) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if process_id == 0 {
+            record_error(
+                c"agt_a11y_application_set_hidden",
+                c"invalid_input",
+                "process id 0 does not name an application",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let visibility = if hidden != 0 {
+            ApplicationVisibility::Hidden
+        } else {
+            ApplicationVisibility::Shown
+        };
+        match set_application_visibility(process_id, visibility) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(e) => map_a11y_error(c"agt_a11y_application_set_hidden", e),
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(process_id, hidden))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_application_set_hidden",
+                c"panic",
+                "panic in agt_a11y_application_set_hidden",
             );
             agt_status::AGT_FAILED
         }

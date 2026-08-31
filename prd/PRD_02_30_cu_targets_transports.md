@@ -778,6 +778,39 @@ Canonical host mapping (approved product vocabulary):
   backing store. That is the protocol's property, not something this can
   paper over, and it is one more reason a screenshot never replaces the
   tree.
+- [x] `app hide | show | quit` on `current` (cut 3.59, ABI 1.20
+  `agt_a11y_application_set_hidden`): the application-level verbs, as
+  distinct from the window-level ones. `hide` / `show` write `AXHidden` on
+  the application element -- the app steps aside as a whole and its
+  windows stop being enumerable, which is neither minimizing a window nor
+  closing one, and the process stays alive. `quit` is destructive and
+  carries the **same three-part gate as `close`** (exact target, prior
+  snapshot, checkable postcondition), writes a crash-persistent receipt,
+  and its mechanism is the application's **own Quit menu item** pressed in
+  the background: a signal would be a kill, and the application would
+  never run its shutdown path or ask about unsaved work.
+  Two things the implementation settled that the design had wrong. **The
+  visibility verbs address by pid, not window handle** -- hiding removes
+  the application's windows from the inventory, so a handle-addressed
+  unhide has nothing left to resolve; `show` therefore requires `--pid`
+  and `hide` accepts either. And **the inventory read-back has to poll**:
+  the adapter waits for `AXHidden` itself, but the window server drops the
+  windows a beat later, so a single read right after the write reports a
+  working hide as unverified (measured: it settles in ~56 ms).
+  Live evidence: `cu-macos-smoke` STEP "app hide / show step a second
+  owned fixture aside and back, and app quit ends it through its own Quit
+  menu item behind the destructive gate" (2026-09-01) -- a second fixture
+  is hidden (windows gone, process alive), shown again, refused twice
+  (`refused` with no gate, `window_identity_mismatch` with a wrong pid,
+  both `not_performed` and both leaving it running), then quit through
+  `ax_fixture/Quit ax_fixture` with the process read back gone and exit
+  code 0.
+- [ ] `apps --all` (installed but not running) and `app launch` are still
+  unbuilt, deliberately and together: listing installed applications is a
+  dead end without a `launch` to feed it, and `launch` needs a new
+  mechanism layer whose macOS route has a known trap -- `open -a` hands
+  the pid to LaunchServices, so a journey cannot reap what it started
+  (measured in slice 1).
 - [x] each `windows` row names the managed Spaces it sits on (cut 3.58,
   macOS SkyLight `SLSCopySpacesForWindows`, read-only). The Space
   *inventory* says which Spaces exist; this says where a given window

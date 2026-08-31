@@ -64,7 +64,7 @@ use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
-    AccessibilityTreeError,
+    AccessibilityTreeError, ApplicationVisibility,
 };
 use crate::contract::input_inject::InputInjectError;
 
@@ -496,6 +496,18 @@ pub(crate) fn observe_window(
     Err(AccessibilityTreeError::Unsupported {
         reason: "UI Automation event subscription is not wired; the caller falls back to poll-diff"
             .into(),
+    })
+}
+
+/// No application-level hidden state on this backend: hiding here is a
+/// window operation, and answering an application verb with a per-window
+/// one would be a different action wearing the same name.
+pub(crate) fn set_application_visibility(
+    _process_id: u32,
+    _visibility: ApplicationVisibility,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "UI Automation has no application-level hidden state; hiding is a per-window ShowWindow operation here".into(),
     })
 }
 

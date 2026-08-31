@@ -253,6 +253,19 @@ int main(int argc, const char *argv[]) {
                                                   keyEquivalent:@""];
         NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"agenterm-ax-fixture"];
         [appMenu addItemWithTitle:@"About Fixture" action:nil keyEquivalent:@""];
+        /* Slice 7: the application's own Quit item, which is what `app
+         * quit` presses. A signal would be a kill, not a quit -- the
+         * application would never run its own shutdown path. AppKit shows
+         * the first menu under the *process* name whatever this menu is
+         * titled, so the item is built from that name and the menu path an
+         * agent writes is the ordinary `<process>/Quit <process>`. */
+        NSString *processTitle = [[NSProcessInfo processInfo] processName];
+        NSMenuItem *quitItem = [[NSMenuItem alloc]
+            initWithTitle:[NSString stringWithFormat:@"Quit %@", processTitle]
+                   action:@selector(terminate:)
+            keyEquivalent:@""];
+        [quitItem setTarget:NSApp];
+        [appMenu addItem:quitItem];
         [appItem setSubmenu:appMenu];
         [mainMenu addItem:appItem];
         NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:@"File"
@@ -288,6 +301,7 @@ int main(int argc, const char *argv[]) {
         [fileMenu addItem:moreItem];
         [fileItem setSubmenu:fileMenu];
         [mainMenu addItem:fileItem];
+
         [app setMainMenu:mainMenu];
 
         NSButton *button =

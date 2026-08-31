@@ -1194,6 +1194,26 @@ pub fn poke_manual_accessibility(window: isize) -> Result<(), MechanismError> {
     Ok(())
 }
 
+/// Hide or unhide an application by pid (ABI 1.20).
+///
+/// The application-level verb: hiding steps the whole app aside, which is
+/// neither minimizing a window nor closing one. Idempotent.
+pub fn set_application_hidden(process_id: u32, hidden: bool) -> Result<(), MechanismError> {
+    let (major, minor) = loaded_abi_version()?;
+    if major != 1 || minor < dynlib::APPLICATION_HIDDEN_ABI_MINOR {
+        return Err(MechanismError::Unsupported {
+            reason: format!(
+                "application hide requires ABI 1.{}, loaded library reports {major}.{minor}",
+                dynlib::APPLICATION_HIDDEN_ABI_MINOR
+            ),
+        });
+    }
+    let f = call_sym::<ApplicationSetHidden>(b"agt_a11y_application_set_hidden")?;
+    let status = unsafe { f(process_id, i32::from(hidden)) };
+    map_status("agt_a11y_application_set_hidden", status)?;
+    Ok(())
+}
+
 /// One event the backend itself reported.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct A11yEvent {
@@ -2008,6 +2028,7 @@ type MenuSnapshot = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
 type MenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
 type FocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type ManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
+type ApplicationSetHidden = unsafe extern "C" fn(u32, i32) -> i32;
 type ObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
 type ObserveEventString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type ObserveEventTime = unsafe extern "C" fn(usize, *mut u64) -> i32;

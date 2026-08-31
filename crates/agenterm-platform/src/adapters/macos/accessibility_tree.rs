@@ -32,7 +32,7 @@ use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
-    AccessibilityTreeError, MAX_OBSERVE_EVENTS,
+    AccessibilityTreeError, ApplicationVisibility, MAX_OBSERVE_EVENTS,
 };
 
 type CfTypeRef = *const c_void;
@@ -746,6 +746,67 @@ pub(crate) fn observe_window(
     }
     unsafe { CFRunLoopRemoveSource(run_loop, source, kCFRunLoopDefaultMode) };
     Ok(sink.events)
+}
+
+/// Desired `AXHidden` on the application element, named by pid: read it,
+/// write only on a difference, read it back.
+///
+/// A pid and not a window handle because hiding takes the application's
+/// windows out of the inventory -- a handle-addressed unhide would have
+/// nothing left to resolve.
+///
+/// Hiding is the application stepping aside, not a window closing, so
+/// nothing here touches a window and nothing is destroyed. Already being
+/// in the requested state is success with no action performed, the same
+/// rule the desired-state node actions follow.
+pub(crate) fn set_application_visibility(
+    process_id: u32,
+    visibility: ApplicationVisibility,
+) -> Result<(), AccessibilityTreeError> {
+    require_trusted()?;
+    let desired = matches!(visibility, ApplicationVisibility::Hidden);
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let pid = process_id;
+    let application =
+        CfOwned::from_create(unsafe { AXUIElementCreateApplication(pid as i32) as CfTypeRef })
+            .ok_or_else(|| {
+                AccessibilityTreeError::failed(
+                    "a11y_connect_failed",
+                    format!("AXUIElementCreateApplication({pid}) returned null"),
+                )
+            })?;
+    let element = application.as_ax();
+    if attribute_bool(element, "AXHidden", &mut budget)? == Some(desired) {
+        return Ok(());
+    }
+    if !attribute_settable(element, "AXHidden", &mut budget)? {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "the application does not accept AXHidden (it may be an accessory with nothing to hide)",
+        ));
+    }
+    let value = CfOwned::from_create(unsafe {
+        CFNumberCreate(
+            std::ptr::null(),
+            K_CF_NUMBER_SINT32 as CfIndex,
+            &(i32::from(desired)) as *const i32 as *const c_void,
+        )
+    })
+    .ok_or_else(|| {
+        AccessibilityTreeError::failed("a11y_backend_failed", "CFNumberCreate returned null")
+    })?;
+    set_attribute(element, "AXHidden", value.as_ptr(), &mut budget)?;
+    if wait_for_readback(&mut budget, |budget| {
+        Ok(attribute_bool(element, "AXHidden", budget)? == Some(desired))
+    })? {
+        Ok(())
+    } else {
+        Err(no_effect(
+            "AXHidden",
+            if desired { "true" } else { "false" },
+            if desired { "false" } else { "true" },
+        ))
+    }
 }
 
 pub(crate) fn poke_manual_accessibility(

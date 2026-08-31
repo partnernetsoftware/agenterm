@@ -114,6 +114,19 @@ pub struct AccessibilityEvent {
     pub t_ms: u64,
 }
 
+/// Desired hidden state for the *application* owning a window, as opposed
+/// to one of its windows.
+///
+/// Hiding an application is not minimizing its windows: the app steps out
+/// of the way as a whole and its windows stop being enumerable, which is
+/// what "get this out of the foreground without closing anything" means.
+/// macOS spells it `AXHidden` on the application element.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApplicationVisibility {
+    Hidden,
+    Shown,
+}
+
 /// Largest number of events one bounded observation may collect.
 pub const MAX_OBSERVE_EVENTS: usize = 5_000;
 

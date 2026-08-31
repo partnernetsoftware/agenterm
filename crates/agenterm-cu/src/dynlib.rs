@@ -271,6 +271,8 @@ pub const WINDOW_STACKING_ABI_MINOR: u16 = 17;
 pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
 /// ABI 1.19: `agt_clipboard_types` (what the clipboard is carrying).
 pub const CLIPBOARD_TYPES_ABI_MINOR: u16 = 19;
+/// ABI 1.20: `agt_a11y_application_set_hidden` (application-level hide).
+pub const APPLICATION_HIDDEN_ABI_MINOR: u16 = 20;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

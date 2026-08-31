@@ -33,6 +33,40 @@ pub enum InvokeAction {
     ShowDefaultUi,
 }
 
+/// What `app` does to the application owning the named window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppAction {
+    Hide,
+    Show,
+    Quit,
+}
+
+impl AppAction {
+    pub fn parse(raw: &str) -> Option<Self> {
+        Some(match raw.trim() {
+            "hide" => Self::Hide,
+            "show" => Self::Show,
+            "quit" => Self::Quit,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hide => "hide",
+            Self::Show => "show",
+            Self::Quit => "quit",
+        }
+    }
+
+    /// `quit` ends an application; the gate applies to it and to nothing
+    /// else here.
+    pub fn is_destructive(self) -> bool {
+        matches!(self, Self::Quit)
+    }
+}
+
 /// MCU `orderwin TARGET above|below RELATIVE`: above raises target, below
 /// raises relative.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -653,6 +687,27 @@ pub enum Command {
         relation: OrderRelation,
         relative: isize,
     },
+    /// Application-level lifecycle for the app owning `window`.
+    ///
+    /// `hide` / `show` step the whole application aside and back, which is
+    /// neither minimizing a window nor closing one. `quit` is destructive
+    /// and carries the same three-part gate as `close`: it presses the
+    /// application's own Quit menu item and reads the process back.
+    App {
+        target: TargetRef,
+        window: isize,
+        action: AppAction,
+        /// `quit` only: the prior bounded snapshot the gate requires.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        snapshot: bool,
+        /// `quit` only: the checkable postcondition (`gone`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+        /// `quit` only: the pid the window must belong to, bound in the
+        /// same inventory read.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+    },
     /// macOS managed Space inventory (SkyLight read SPI). Linux/Windows typed.
     Spaces {
         target: TargetRef,
@@ -822,6 +877,7 @@ impl Command {
             Self::Wait { .. } => "wait".into(),
             Self::WindowPlace { .. } => "window-place".into(),
             Self::OrderWin { .. } => "orderwin".into(),
+            Self::App { .. } => "app".into(),
             Self::Spaces { .. } => "spaces".into(),
             Self::Displays { .. } => "displays".into(),
             Self::Close { .. } => "close".into(),
@@ -866,6 +922,7 @@ impl Command {
             | Self::Wait { target, .. }
             | Self::WindowPlace { target, .. }
             | Self::OrderWin { target, .. }
+            | Self::App { target, .. }
             | Self::Spaces { target, .. }
             | Self::Displays { target, .. }
             | Self::Close { target, .. }
@@ -892,7 +949,8 @@ impl Command {
             | Self::SetCaret { .. }
             | Self::WindowPlace { .. }
             | Self::OrderWin { .. }
-            | Self::Close { .. } => crate::auth::Grant::Actuate,
+            | Self::Close { .. }
+            | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }
     }

@@ -8,7 +8,7 @@
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
 **还差什么（2026-09-01）**：读富内容（图片/文件字节）仍未做，只报类型；
-「已安装但没在跑」的 App 列不出来（cu 没有 `launch` 动词，价值也低）；截图 macOS 被系统拿走；
+`apps --all`（已安装未运行）与 `app launch` 仍未做——两个绑在一起才有用，且 macOS `open -a` 把 pid 交给 LaunchServices、旅程收不回来；截图 macOS 被系统拿走；
 Linux/Windows 的新动词全部**只交叉编译过没上真机**——本仓没有那两台机器，PRD leaf 一律写 `[~] mapped`。
 
 图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做。非桌面组在 cu 上必须 typed，不许静默缺失。
@@ -79,6 +79,7 @@ machine-control
 | 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` 里有**一级 `permissions` 块**：授权状态 + 修复路径 + **被它卡住的 24 个动词**（含输入类——macOS 同一份 Accessibility 授权也管投事件）；`setup`/`doctor`/`permissions` 仍 typed | **报告面对齐**；向导有意留给 MCU |
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
+| App 生命周期 | `app launch/quit/hide/show` | **`app hide/show/quit` 已做**（mac live）：`hide`/`show` 写应用级 `AXHidden` 且按 **pid** 寻址（隐藏后句柄就不存在了）；`quit` 按下应用**自己的 Quit 菜单项**并配 `close` 那套三件套 + 收据，**不是信号**；`launch` 未做 | **控制半对齐**；`launch` 与 `apps --all` 一起留着 |
 | 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `pty`/`job`/`process`/… **typed unsupported** | 无静默 unknown；live 仍 MCU |
 
 ## 2. 互相该补的缺口（文档已点名，实现另立项）

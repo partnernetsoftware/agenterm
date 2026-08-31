@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 19
+#define AGT_ABI_MINOR 20
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -592,6 +592,18 @@ agt_status agt_a11y_node_send_keys(intptr_t window_handle, const char* node_id,
  * A host with no such mechanism answers AGT_UNSUPPORTED; window_handle 0 is
  * invalid_input. */
 agt_status agt_a11y_manual_accessibility_poke(intptr_t window_handle);
+
+/* ABI 1.20: hide (hidden != 0) or unhide an application by PID. A pid and
+ * not a window handle because hiding takes the application's windows out
+ * of the inventory -- a handle-addressed unhide would have nothing left to
+ * resolve. This is the APPLICATION-level verb: hiding steps the whole
+ * app aside and its windows stop being enumerable, which is different from
+ * minimizing a window and different again from closing one. Nothing is
+ * destroyed. Idempotent. A host with no application-level hidden state
+ * answers AGT_UNSUPPORTED rather than hiding windows one by one, which
+ * would be a different action wearing the same name. process_id 0 is
+ * invalid_input. */
+agt_status agt_a11y_application_set_hidden(uint32_t process_id, int32_t hidden);
 
 /* ABI 1.18: watch one window for duration_ms, collecting the events the
  * BACKEND ITSELF reports (macOS AXObserver) instead of the differences

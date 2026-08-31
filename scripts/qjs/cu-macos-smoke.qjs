@@ -70,6 +70,7 @@ const declared_evidence = [
   "cu.macos-ax-send-keys",
   "cu.macos-ax-mcu-actions",
   "cu.macos-ax-stacking",
+  "cu.macos-ax-app-lifecycle",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -1920,6 +1921,99 @@ try {
     );
   }
 
+  print("STEP app hide / show step a second owned fixture aside and back, and app quit ends it through its own Quit menu item behind the destructive gate");
+  // A second fixture, so nothing here disturbs the one the rest of the
+  // journey is still using.
+  const victim = harness.start({
+    program: fixture_executable,
+    args: [],
+    current_dir: run_directory,
+    timeout_ms: 30000
+  });
+  const victim_pid = harness.spawned_pid(victim);
+  const victim_title = "agenterm-ax-fixture-" + victim_pid;
+  const victim_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "10000", "--window-title-contains", victim_title
+  ]);
+  ensure(flag_at(victim_wait, "data.met"), "cu_macos_smoke_app_victim_not_ready");
+  const victim_row = fixture_window_row(run_directory, executable, victim_pid, victim_title);
+  ensure(victim_row !== null, "cu_macos_smoke_app_victim_window");
+  const victim_handle = "" + int_at(victim_row, "handle");
+
+  // Hiding is the application stepping aside: its windows stop being
+  // enumerable, which is neither minimizing nor closing.
+  const hidden = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "hide", "--window", victim_handle
+  ]);
+  ensure(
+    flag_at(hidden, "data.verified") && int_at(hidden, "data.windows_listed") === 0
+      && int_at(hidden, "data.process_id") === victim_pid,
+    "cu_macos_smoke_app_hide:" + JSON.stringify(hidden.data)
+  );
+  // The process is still there -- hidden is not closed.
+  ensure(harness.process_present(victim_pid) !== 0, "cu_macos_smoke_app_hide_killed_it");
+  // `show` cannot take a window handle: hiding removed the windows, so the
+  // pid is the only thing left that names the application.
+  const show_without_pid = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "show", "--window", victim_handle
+  ]);
+  ensure(
+    !flag_at(show_without_pid, "ok")
+      && text_at(show_without_pid, "error.code") === "invalid_input",
+    "cu_macos_smoke_app_show_by_handle:" + JSON.stringify(show_without_pid)
+  );
+  const shown = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "show", "--pid", "" + victim_pid
+  ]);
+  ensure(
+    flag_at(shown, "data.verified") && int_at(shown, "data.windows_listed") >= 1,
+    "cu_macos_smoke_app_show:" + JSON.stringify(shown.data)
+  );
+
+  // The destructive gate, exactly as `close` applies it.
+  const quit_ungated = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "quit", "--window", victim_handle
+  ]);
+  ensure(
+    !flag_at(quit_ungated, "ok") && text_at(quit_ungated, "error.code") === "refused"
+      && text_at(quit_ungated, "error.detail.effect") === "not_performed",
+    "cu_macos_smoke_app_quit_ungated:" + JSON.stringify(quit_ungated)
+  );
+  const quit_wrong_pid = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "quit",
+    "--window", victim_handle, "--pid", "1", "--snapshot", "--expect", "gone"
+  ]);
+  ensure(
+    !flag_at(quit_wrong_pid, "ok")
+      && text_at(quit_wrong_pid, "error.code") === "window_identity_mismatch"
+      && text_at(quit_wrong_pid, "error.detail.effect") === "not_performed",
+    "cu_macos_smoke_app_quit_wrong_pid:" + JSON.stringify(quit_wrong_pid)
+  );
+  ensure(harness.process_present(victim_pid) !== 0, "cu_macos_smoke_app_refusal_killed_it");
+
+  const quit = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "quit",
+    "--window", victim_handle, "--pid", "" + victim_pid, "--snapshot", "--expect", "gone"
+  ]);
+  // The mechanism is the application's own Quit item, named in the reply:
+  // a signal would be a kill, and the app would never run its own shutdown.
+  ensure(
+    flag_at(quit, "data.verified") && flag_at(quit, "data.performed")
+      && text_at(quit, "data.verification.method") === "window-inventory-by-pid"
+      && quit.data.verification.menu_path.length === 2,
+    "cu_macos_smoke_app_quit:" + JSON.stringify(quit.data)
+  );
+  let victim_exited = 0;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(victim) === "exited") { victim_exited = 1; break; }
+    harness.sleep_ms(25);
+  }
+  ensure(victim_exited !== 0, "cu_macos_smoke_app_quit_process_lingers");
+  const victim_output = harness.wait(victim, 2000);
+  ensure(victim_output.exit_code === 0, "cu_macos_smoke_app_quit_exit:" + victim_output.exit_code);
+  ensure(harness.process_present(victim_pid) === 0, "cu_macos_smoke_app_quit_orphan");
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -2007,6 +2101,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-node-text-geometr
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-send-keys");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-mcu-actions");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-stacking");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-lifecycle");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");

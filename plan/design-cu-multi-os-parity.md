@@ -63,6 +63,7 @@ instead"）。替代品 ScreenCaptureKit 是 block 异步 API，且要另一份 
 | **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
 | **F** | 网页 AX：`unlock`（`AXManualAccessibility` poke，ABI 1.15）+ 自有 `WKWebView` 固件 + `scroll` 正向证据 | `cu-macos-web-smoke.qjs` 真机通过 |
+| **O** | `app hide/show/quit`（ABI 1.20；`quit` 走应用自己的 Quit 菜单项 + `close` 那套三件套） | `cu-macos-smoke` 27 STEP / 26 EVIDENCE 真机通过 |
 | **N** | `capabilities` 的一级 `permissions` 块：状态 + 修复路径 + 被卡住的动词清单 | 旅程断言（含 `pointer-move` 也在 accessibility 的 gates 里） |
 | **M** | Linux 截图（X11 `GetImage` → 共用 PNG writer）+ 逐窗 Space 归属（SkyLight，无需 ABI） | 交叉编译 + clippy；Space 归属有旅程交叉校验 |
 | **L** | 剪贴板类型清单（ABI 1.19）：三平台各用原生枚举，不归一化名字 | 本机实测（PNG 在剪贴板时 `text` 空而 `types` 有 9 项）；无旅程步（旅程不该写用户剪贴板） |
@@ -135,26 +136,38 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 
 **诚实条款**：B/C 片在本机只能交叉编译。凡未在真机跑过的映射，`capabilities` 与本页都写 `mapped`（已映射未验证），**不写 `available`**，也不在 PRD 里翻 `[x]`。
 
-## 1.5 还剩一批：App 生命周期（`apps --all` + `app launch/quit/hide/show`）
+## 1.5 App 生命周期（片 O：`hide`/`show`/`quit` 已做；`apps --all` + `launch` 未做）
 
-这是 [`design-mcu-absorption.md`](design-mcu-absorption.md) §1 里唯一没做的「第三批」。
-**没有在本轮硬塞进去**，因为 `quit` 是破坏性动词，要配 PRD 31 的三件套 + 收据 + 固件旅程，
-在一轮长会话的末尾赶出来会比这份仓库其余部分做得糙。设计先写在这，谁接手都能照着做。
+[`design-mcu-absorption.md`](design-mcu-absorption.md) §1 的「第三批」。**控制那半已经做了**
+（`app hide|show|quit`，见下面片 O）；**发现那半（`apps --all`）与 `launch` 没做**，
+理由在下一段。下面的机制表与纪律就是片 O 照着落的。
 
-### 为什么 `apps --all` 不能单独做
+### 片 O 实做时冒出来的两个东西（设计里没预料到）
 
-「列出已安装但没在跑的 App」本身对 agent 是死路：cu 没有 `launch`，列出来也用不上。
-它的价值全在「列 → 起」这条链上，所以要么整批做，要么都不做——本轮选后者，并把判断写进
-[`capability-mcu-cu.md`](capability-mcu-cu.md) 的「还差什么」，不装作是遗漏。
+1. **`show` 不能按窗口句柄寻址。** 隐藏会把这个 App 的窗口从 inventory 里拿掉，
+   于是「取消隐藏」时那个句柄已经解析不了了——第一版就是这么写的，真机直接失败。
+   所以平台函数改成收 **pid**（pid 活得比句柄久），`app show` 必须给 `--pid`，
+   `app hide` 两个都收（趁窗口还在的时候自己查 pid）。
+2. **隐藏的回读必须轮询。** 适配器已经等到 `AXHidden` 读回来了，但 window server
+   要慢一拍才把窗口从自己的列表里删掉——写完立刻读一次，会把一个成功的 hide 报成 unverified。
+   现在按 `close` 的做法轮询（实测 56 ms 落定）。
+
+### 为什么 `apps --all` + `launch` 仍然没做
+
+「列出已安装但没在跑的 App」对 agent 是死路：cu 没有 `launch`，列出来也用不上。
+它的价值全在「列 → 起」这条链上，而 `launch` 要新一层机制（LaunchServices / `.desktop`
+的 `Exec=` / `ShellExecuteExW`），且 macOS 那条路有个已知坑：`open -a` 把 pid 交给
+LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所以这两个一起留着，
+判断写进 [`capability-mcu-cu.md`](capability-mcu-cu.md) 的「还差什么」，不装作是遗漏。
 
 ### 机制（三平台）
 
 | 动作 | macOS | Linux | Windows |
 |---|---|---|---|
-| 列已安装 | 扫 `/Applications`、`/System/Applications`（含 `Utilities`）、`~/Applications` 的 `*.app` | XDG `applications` 目录的 `*.desktop`（`Name=` 要解析） | 开始菜单 `*.lnk`（用户 + 全局两处） |
-| `launch` | `LSOpenCFURLRef` / `open -a` —— 注意 `open -a` 把 pid 交给 LaunchServices，**旅程杀不掉**（片 1 踩过） | `.desktop` 的 `Exec=`，经 `process_spawn` | `ShellExecuteExW` |
-| `quit` | 目标进程的 AX 菜单 `Quit`（后台、可回读），**不是 SIGKILL** | `_NET_CLOSE_WINDOW` 逐窗（已接） | 逐窗 `WM_CLOSE`（已接） |
-| `hide`/`show` | `AXHidden` 写应用元素 | `_NET_WM_STATE_HIDDEN` / `ConfigureWindow`（raise 已接） | `ShowWindow(SW_MINIMIZE/SW_RESTORE)` |
+| 列已安装（**未做**） | 扫 `/Applications`、`/System/Applications`（含 `Utilities`）、`~/Applications` 的 `*.app` | XDG `applications` 目录的 `*.desktop`（`Name=` 要解析） | 开始菜单 `*.lnk`（用户 + 全局两处） |
+| `launch`（**未做**） | `LSOpenCFURLRef` / `open -a` —— 注意 `open -a` 把 pid 交给 LaunchServices，**旅程杀不掉**（片 1 踩过） | `.desktop` 的 `Exec=`，经 `process_spawn` | `ShellExecuteExW` |
+| `quit`（**已做**） | 目标应用**自己的 Quit 菜单项**（后台按下、按 pid 回读），**不是信号** | 同机制未接（`_NET_CLOSE_WINDOW` 是逐窗的，不是退应用） | 同上 |
+| `hide`/`show`（**已做**） | `AXHidden` 写应用元素，**按 pid** | 没有应用级隐藏态（那是窗口操作），typed | 同上，typed |
 
 ### 纪律（照片 4 的 `close`）
 
@@ -165,7 +178,7 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 
 ### 判据
 
-一条 `cu-macos-app-smoke.qjs`：起自有固件 → `apps --all` 里能按名字找到它 → `hide` 后
+**已达成**（并进 `cu-macos-smoke` 而不是单开一条）：起第二个自有固件 → `apps --all` 里能按名字找到它 → `hide` 后
 `windows` 读不到、`show` 后读得到 → `quit` 走三件套并回读进程消失 → 无孤儿、前台窗口与真实指针不变。
 
 ## 2. 状态
@@ -173,6 +186,7 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 | 片 | 提交 | 状态 |
 |---|---|---|
 | A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（`cu-macos-smoke` **23 STEP / 22 EVIDENCE**，81.3M 步 / 287 ops / 73 页；前台句柄与真实指针不动，无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
+| O App 生命周期（控制半） | 见下 | **已落地**：`hide` 后窗口从 inventory 消失但进程还在；`show` 必须按 pid（句柄已经不存在了）；`quit` 无三件套 / 错 pid 都是 `not_performed` 拒绝，带齐了则按下 `ax_fixture/Quit ax_fixture` 并回读进程消失、退出码 0 |
 | N 权限报告面 | 见下 | **已落地**：修复路径本来埋在 `tree` 动词里（要先知道是树被拒才找得到），现在一级；macOS 同一份 Accessibility 授权还管所有输入动词，gates 列出全部 24 个；没有权限模型的宿主写 `model: none` 而不是空集 |
 | M Linux 截图 + Space 归属 | 见下 | **已落地**：Linux `GetImage` 只认 24/32 位 TrueColor，别的 visual typed 拒绝（不乱解释字节）、64 MiB 像素上限；Space 归属每行带 `spaces`，旅程校验它的 id 都在 `spaces` 清单里 |
 | L 剪贴板类型 | 见下 | **已落地**：mac `clipboard info` / Linux 复用 TARGETS 探针 / Win `EnumClipboardFormats`（按系统给的优先序）；`types_available: false` 与「空清单」是两回事 |

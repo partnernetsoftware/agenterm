@@ -3,7 +3,8 @@
 pub use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
-    AccessibilityTreeError, MAX_OBSERVE_EVENTS, MAX_TREE_DEPTH_BUDGET, MAX_TREE_NODE_BUDGET,
+    AccessibilityTreeError, ApplicationVisibility, MAX_OBSERVE_EVENTS, MAX_TREE_DEPTH_BUDGET,
+    MAX_TREE_NODE_BUDGET,
 };
 
 /// `Available` when the host stack can be walked now. A stack that exists but
@@ -220,6 +221,24 @@ pub fn observe_window(
     max_events: usize,
 ) -> Result<Vec<AccessibilityEvent>, AccessibilityTreeError> {
     crate::selected::accessibility_tree::observe_window(window_handle, duration, max_events)
+}
+
+/// Hide or unhide an application, named by **pid**.
+///
+/// A pid rather than a window handle, and that is forced by the mechanism:
+/// hiding removes the application's windows from the inventory, so a
+/// handle-addressed unhide could never find its target again. The pid
+/// outlives the hide; the handle does not.
+///
+/// This is the application-level verb, not a window one -- hiding steps
+/// the whole app out of the way, which is different from minimizing a
+/// window and different again from closing it. Idempotent, and never a
+/// substitute for `close`.
+pub fn set_application_visibility(
+    process_id: u32,
+    visibility: ApplicationVisibility,
+) -> Result<(), AccessibilityTreeError> {
+    crate::selected::accessibility_tree::set_application_visibility(process_id, visibility)
 }
 
 pub fn drain_bus() {
