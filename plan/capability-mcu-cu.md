@@ -7,7 +7,7 @@
 | 纪律 | 吸收**命令集与分层教训**，不搬 TypeScript / helper protocol-v40 |
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js` |
 
-图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做 · **不进 cu** = 归 MCU 实验室或 AgenTerm 其它面（tabs/PTY/`process.*`）。
+图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做。非桌面组在 cu 上必须 typed，不许静默缺失。
 
 MCU 对 cua-driver 的桌面对照仍在 MCU `CAPABILITY-TREE.md`。本文件只对 **MCU ↔ cu**。
 
@@ -29,7 +29,7 @@ machine-control
 │   cu  [~] page-js 动词在：typed unsupported，backend=debugger-runtime-evaluate
 ├── 浏览器扩展 / Native Messaging / tab 生命周期
 │   MCU [✓] 实验室
-│   cu  **不进 cu**（日常网页走 AX）
+│   cu  [~] `browser` typed unsupported（日常网页走 AX）
 ├── 窗几何 / 关窗
 │   MCU [✓] frame/orderwin/close/maximize…
 │   cu  [✓] window-place（Spectacle+frame）+ close 三件套（mac）
@@ -38,7 +38,7 @@ machine-control
 │   cu  [~] click/focus/send-text/keys/scroll/pointer-*；pointer-move 强制 `--to desktop`
 ├── shell / PTY / job / process / device / privilege / Simulator
 │   MCU [✓/~] 实验室正殿外
-│   cu  **不进 cu**
+│   cu  [~] 同名动词 typed unsupported（capabilities 可查）
 └── 远程目标
     MCU [ ] 本机为主
     cu  [~] --target current|ssh|vnc；rdp 占位 rdp_unavailable
@@ -58,13 +58,13 @@ machine-control
 | App-local 焦点 | `focused <pid>` | `focused --window` / `invoke --focused` mac live | **对齐 mac** |
 | 事件 | `observe` AXObserver；`query --watch` | `observe` poll-diff（明写非 AXObserver） | cu **弱一档** |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
-| 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place` Spectacle + `frame` | cu **缺** `orderwin`/raise/minimize/restore 独立动词 |
+| 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close` live；`orderwin`/`spaces` typed | 无静默缺命令 |
 | 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported` | 防止漏写目标静默变成全局输入 |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI；mac/linux typed unsupported | MCU 实验室更完整 |
 | 网页 JS | `page read --js` / `browser read --js` | `page-js` typed unsupported | **诚实缺口**；勿假装 AX 能 eval |
-| 浏览器桥 | `browser *` MV3 + CDP | **不进 cu** | 实验室保留 |
-| 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` | cu 无 TCC 向导；denied 带 repair 路径 |
+| 浏览器桥 | `browser *` MV3 + CDP | `browser` typed unsupported | 日常网页仍 AX |
+| 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` + typed `setup`/`doctor`/`permissions` | 无 TCC 向导 |
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
 | 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `pty`/`job`/`process`/… **typed unsupported** | 无静默 unknown；live 仍 MCU |
@@ -77,9 +77,9 @@ machine-control
 2. [~] `unlock` 动词与重读分类已做；真正的闲置 Chromium 只读 poke（depth≥8 hit-test / `AXManualAccessibility`）仍未映射。
 3. ~~`query --selector` / `invoke --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`；query 作用域=命中节点+子孙，invoke 绑定唯一节点）。
 4. [~] `invoke` 已接受 `set-selected`、`set-selection`、`scroll-to`、`cancel`、`show-default-ui` 拼写；ABI 未映射前一律 typed `unsupported`，不算行为完成。
-5. `orderwin` / `windows watch` / Space 只读。
-6. `--to` 必填的局部输入哨兵（防漏写变全局）。
-7. 真 `page-js`：debugger `Runtime.evaluate`，不是 MAIN `eval(`。
+5. ~~orderwin/spaces/watch~~ 动词 typed（`orderwin`/`spaces`/`windows-watch`）。
+6. ~~`--to`~~ `pointer-move` 必填 `--to desktop`。
+7. ~~page-js~~ typed + `backend=debugger-runtime-evaluate`；禁 `eval(`。
 
 **MCU 树应承认 cu 已产品化（勿再写「迁入 [ ]」）**
 
