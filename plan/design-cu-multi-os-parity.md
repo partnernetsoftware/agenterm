@@ -135,6 +135,39 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 
 **诚实条款**：B/C 片在本机只能交叉编译。凡未在真机跑过的映射，`capabilities` 与本页都写 `mapped`（已映射未验证），**不写 `available`**，也不在 PRD 里翻 `[x]`。
 
+## 1.5 还剩一批：App 生命周期（`apps --all` + `app launch/quit/hide/show`）
+
+这是 [`design-mcu-absorption.md`](design-mcu-absorption.md) §1 里唯一没做的「第三批」。
+**没有在本轮硬塞进去**，因为 `quit` 是破坏性动词，要配 PRD 31 的三件套 + 收据 + 固件旅程，
+在一轮长会话的末尾赶出来会比这份仓库其余部分做得糙。设计先写在这，谁接手都能照着做。
+
+### 为什么 `apps --all` 不能单独做
+
+「列出已安装但没在跑的 App」本身对 agent 是死路：cu 没有 `launch`，列出来也用不上。
+它的价值全在「列 → 起」这条链上，所以要么整批做，要么都不做——本轮选后者，并把判断写进
+[`capability-mcu-cu.md`](capability-mcu-cu.md) 的「还差什么」，不装作是遗漏。
+
+### 机制（三平台）
+
+| 动作 | macOS | Linux | Windows |
+|---|---|---|---|
+| 列已安装 | 扫 `/Applications`、`/System/Applications`（含 `Utilities`）、`~/Applications` 的 `*.app` | XDG `applications` 目录的 `*.desktop`（`Name=` 要解析） | 开始菜单 `*.lnk`（用户 + 全局两处） |
+| `launch` | `LSOpenCFURLRef` / `open -a` —— 注意 `open -a` 把 pid 交给 LaunchServices，**旅程杀不掉**（片 1 踩过） | `.desktop` 的 `Exec=`，经 `process_spawn` | `ShellExecuteExW` |
+| `quit` | 目标进程的 AX 菜单 `Quit`（后台、可回读），**不是 SIGKILL** | `_NET_CLOSE_WINDOW` 逐窗（已接） | 逐窗 `WM_CLOSE`（已接） |
+| `hide`/`show` | `AXHidden` 写应用元素 | `_NET_WM_STATE_HIDDEN` / `ConfigureWindow`（raise 已接） | `ShowWindow(SW_MINIMIZE/SW_RESTORE)` |
+
+### 纪律（照片 4 的 `close`）
+
+`quit` 与 `close` 同级：**精确目标 + 前置快照 + 可验证后置条件**，缺一即 typed `refused`
+且 `effect: not_performed`；每次动作一张崩溃持久收据；回读进程是否真的没了，不信调用返回值。
+`launch` 不是破坏性动词但**必须可回收**：旅程只起自有固件，且要能 SIGTERM 收掉——
+所以 macOS 那条路不能用 `open -a`。
+
+### 判据
+
+一条 `cu-macos-app-smoke.qjs`：起自有固件 → `apps --all` 里能按名字找到它 → `hide` 后
+`windows` 读不到、`show` 后读得到 → `quit` 走三件套并回读进程消失 → 无孤儿、前台窗口与真实指针不变。
+
 ## 2. 状态
 
 | 片 | 提交 | 状态 |
