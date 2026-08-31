@@ -648,6 +648,10 @@ pub enum Command {
     Spaces {
         target: TargetRef,
     },
+    /// MCU `displays`: native screen inventory (`agt_screen_list`).
+    Displays {
+        target: TargetRef,
+    },
     /// The destructive verb (PRD_02_31): close one top-level window in the
     /// background through the platform's own close control (macOS
     /// `AXCloseButton` + `AXPress`, Windows `WM_CLOSE`). The three-part gate
@@ -810,6 +814,7 @@ impl Command {
             Self::WindowPlace { .. } => "window-place".into(),
             Self::OrderWin { .. } => "orderwin".into(),
             Self::Spaces { .. } => "spaces".into(),
+            Self::Displays { .. } => "displays".into(),
             Self::Close { .. } => "close".into(),
             Self::Receipts { .. } => "receipts".into(),
             Self::PageJs { .. } => "page-js".into(),
@@ -853,6 +858,7 @@ impl Command {
             | Self::WindowPlace { target, .. }
             | Self::OrderWin { target, .. }
             | Self::Spaces { target, .. }
+            | Self::Displays { target, .. }
             | Self::Close { target, .. }
             | Self::Receipts { target, .. }
             | Self::PageJs { target, .. }

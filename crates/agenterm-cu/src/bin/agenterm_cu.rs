@@ -287,7 +287,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
     args.remove(0);
 
     let command = match verb.as_str() {
-        "capabilities" => Command::Capabilities { target },
+        "capabilities" | "caps" => Command::Capabilities { target },
         "windows" => {
             let pid = match flag_parsed::<u32>(&mut args, "--pid") {
                 Ok(value) => value,
@@ -1391,6 +1391,33 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
             Command::Spaces { target }
         }
+        "displays" => {
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "displays accepts no arguments; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Displays { target }
+        }
+        "cursor" => {
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "cursor accepts no arguments; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::PointerPosition { target }
+        }
+        "clip" => {
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "clip with no text is clipboard-read; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::ClipboardRead { target }
+        }
         "page-js" => {
             let window = match flag_window(&mut args) {
                 Ok(value) => value,
@@ -2069,6 +2096,10 @@ Commands:
                               unsupported with backend debugger-runtime-evaluate.
   spaces                      macOS SkyLight managed Space inventory (read-only).
                               linux/windows typed unsupported.
+  displays                    native screen frames via agt_screen_list (MCU 系统).
+  cursor                      alias of pointer-position
+  clip                        alias of clipboard-read (observe text only)
+  caps                        alias of capabilities
   screenshot --out PATH [--window HANDLE]
   pointer-move --x X --y Y moves to absolute screen coordinates without any
                               press/release/click/drag/wheel side effect
@@ -2520,6 +2551,27 @@ mod tests {
             "1".into(),
         ]);
         assert_eq!(missing.command, "usage");
+        for (verb, command) in [
+            ("caps", "capabilities"),
+            ("displays", "displays"),
+            ("cursor", "pointer-position"),
+            ("clip", "clipboard-read"),
+        ] {
+            let reply = dispatch(vec![
+                "--target".into(),
+                "current".into(),
+                "--grant".into(),
+                "observe".into(),
+                verb.into(),
+            ]);
+            assert_eq!(reply.command, command, "{verb}");
+            assert_ne!(
+                reply.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+                "usage",
+                "{verb} must not be unknown: {:?}",
+                reply.error
+            );
+        }
     }
 
     #[test]

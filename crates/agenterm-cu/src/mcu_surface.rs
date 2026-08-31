@@ -51,7 +51,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "geometry",
-        verbs: &["window-place", "close", "orderwin", "spaces"],
+        verbs: &["window-place", "close", "orderwin", "spaces", "displays"],
     },
     Group {
         id: "shell-pty-job",
@@ -226,12 +226,12 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             if os == "linux" {
                 (
                     "available",
-                    "window-place live where mapped; orderwin/close/spaces typed",
+                    "window-place live where mapped; displays live; orderwin/close/spaces typed",
                 )
             } else if tree_live(os) {
                 (
                     "available",
-                    "window-place/close; orderwin raise; spaces SkyLight read on macos",
+                    "window-place/close/displays; orderwin raise; spaces SkyLight read on macos",
                 )
             } else {
                 ("unsupported", "window geometry not mapped")
@@ -371,6 +371,23 @@ pub fn verb_declaration(verb: &str) -> Value {
             "verb": verb,
         });
     }
+    if verb == "displays" {
+        let (status, reason) = if tree_live(os) {
+            (
+                "available",
+                "agt_screen_list native frames (top-origin); not MCU scale/rotation",
+            )
+        } else {
+            ("unsupported", "screen enumeration is not mapped on this OS")
+        };
+        return json!({
+            "status": status,
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if verb == "spaces" {
         let (status, reason) = if os == "macos" {
             (
@@ -468,7 +485,7 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
             map.insert((*verb).to_owned(), verb_declaration(verb));
         }
     }
-    for verb in ["windows-watch", "apps", "orderwin", "spaces", "unlock"] {
+    for verb in ["windows-watch", "apps", "orderwin", "spaces", "displays", "unlock"] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
         }
@@ -532,6 +549,8 @@ mod tests {
             assert_eq!(spaces["status"], "unsupported");
         }
         assert!(!is_align_verb("spaces"));
+        assert_eq!(group_id_for_verb("displays"), "geometry");
+        assert_eq!(verb_declaration("displays")["status"], "available");
         let order = verb_declaration("orderwin");
         assert_eq!(order["mode"], "raise");
         assert_eq!(order["group"], "geometry");

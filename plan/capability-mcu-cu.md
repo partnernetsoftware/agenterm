@@ -58,7 +58,7 @@ machine-control
 | App-local 焦点 | `focused <pid>` | `focused --window` / `invoke --focused` mac live | **对齐 mac** |
 | 事件 | `observe` AXObserver；`query --watch` | `observe` poll-diff（明写非 AXObserver） | cu **弱一档** |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
-| 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close` live；`orderwin` raise（mac AXRaise / Win Show；linux typed）；`spaces` macOS SkyLight 只读 | **orderwin/spaces 无 silent unknown** |
+| 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close`/`displays` live；`orderwin` raise；`spaces` macOS SkyLight 只读 | **orderwin/spaces/displays 无 silent unknown** |
 | 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported` | 防止漏写目标静默变成全局输入 |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI；mac/linux typed unsupported | MCU 实验室更完整 |

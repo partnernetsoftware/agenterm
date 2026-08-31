@@ -695,6 +695,7 @@ impl Executor {
                 expression, port, ..
             } => page_js_payload(expression.as_deref(), *port),
             Command::Spaces { .. } => spaces_payload(),
+            Command::Displays { .. } => displays_payload(),
             Command::Unlock { window, .. } => unlock_payload(*window),
             Command::Align { group, .. } => Err(CuError::new(
                 "unsupported",
@@ -1032,6 +1033,7 @@ fn capabilities_payload() -> serde_json::Value {
                 "reason": observe::page_js_unsupported_reason(),
             },
             "spaces": crate::mcu_surface::verb_declaration("spaces"),
+            "displays": crate::mcu_surface::verb_declaration("displays"),
             "pointer-position": pointer_position_verb,
         },
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
@@ -1407,6 +1409,21 @@ fn orderwin_payload(
         "window": window,
         "relative": relative,
         "raised": raised,
+    }))
+}
+
+fn displays_payload() -> Result<serde_json::Value, CuError> {
+    let screens = mechanism::window_enumerate::list_screens().map_err(map_mechanism_err)?;
+    Ok(serde_json::json!({
+        "mechanism": "libagenterm",
+        "via": "agt_screen_list",
+        "displays": screens.iter().enumerate().map(|(index, screen)| serde_json::json!({
+            "index": index,
+            "primary": screen.primary,
+            "frame": screen.frame,
+            "workArea": screen.visible,
+        })).collect::<Vec<_>>(),
+        "returned": screens.len(),
     }))
 }
 
@@ -7432,6 +7449,8 @@ mod tests {
         assert_eq!(data["verbs"]["page-js"]["mode"], "cdp");
         assert_eq!(data["verbs"]["invoke"]["actions"]["set-selection"], "mapped");
         assert_eq!(data["verbs"]["invoke"]["actions"]["cancel"], "typed");
+        assert_eq!(data["verbs"]["displays"]["group"], "geometry");
+        assert_eq!(data["verbs"]["displays"]["status"], "available");
         assert_eq!(data["verbs"]["spaces"]["group"], "geometry");
         if cfg!(target_os = "macos") {
             assert_eq!(data["verbs"]["spaces"]["status"], "available");
@@ -7448,6 +7467,21 @@ mod tests {
             !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
             "current mapping must not claim live RDP: {mapping}"
         );
+    }
+
+    #[test]
+    fn displays_lists_native_screens() {
+        let reply = observe_executor().execute(&Command::Displays {
+            target: TargetRef::Current,
+        });
+        assert_eq!(reply.command, "displays");
+        if reply.ok {
+            let data = reply.data.as_ref().expect("displays");
+            assert_eq!(data["via"], "agt_screen_list");
+            assert!(data["displays"].is_array());
+        } else {
+            assert_ne!(reply.error.as_ref().unwrap().code, "usage");
+        }
     }
 
     #[test]
