@@ -44,6 +44,8 @@ const declared_evidence = [
   "cu.linux-atspi-window-place",
   "cu.linux-atspi-orderwin",
   "cu.linux-atspi-minimized",
+  "cu.linux-atspi-send-keys",
+  "cu.linux-atspi-app-lifecycle",
   "cu.linux-atspi-app-inventory",
   "cu.linux-atspi-destructive-close",
   "cu.linux-atspi-refusal-reasons",
@@ -518,6 +520,30 @@ try {
     "cu_linux_smoke_shot_empty:" + rh.metadata(shot_path).len
   );
 
+  print("STEP send-keys performs the action the chord means, because AT-SPI publishes no key interface here; a chord with no such meaning is a typed refusal rather than a keystroke into the void");
+  // The same answer macOS gives for a different reason: it delivers a
+  // keystroke only to the active application and this never activates one,
+  // so `enter` is the AX action `AXConfirm`. GTK publishes no
+  // DeviceEventListener at all, and the AT-SPI spelling of that action is
+  // the node's own default action.
+  const keys_before = label_text(run_directory, executable, handle_text, "pressed ");
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-keys",
+    "--window", handle_text, "--name", "Fixture Press", "--", "enter"
+  ]);
+  ensure(
+    label_text(run_directory, executable, handle_text, "pressed ") !== keys_before,
+    "cu_linux_smoke_send_keys_no_effect:" + keys_before
+  );
+  const keys_refused = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-keys",
+    "--window", handle_text, "--name", "Fixture Press", "--", "esc"
+  ]);
+  ensure(
+    !flag_at(keys_refused, "ok") && text_at(keys_refused, "error.code") === "a11y_key_unavailable",
+    "cu_linux_smoke_send_keys_esc:" + JSON.stringify(keys_refused)
+  );
+
   print("STEP window-place frame puts the window exactly where it was asked, which is an equality only because the request compensates for the window manager's own frame and the read-back is in root coordinates");
   const placed = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "window-place",
@@ -584,6 +610,30 @@ try {
     "cu_linux_smoke_minimized_filter:" + JSON.stringify(minimized_filter.data)
   );
 
+  print("STEP app hide puts every window the process owns away and app show brings them all back, verified from the inventory rather than from the request");
+  // AT-SPI2 has no application-level hidden flag, so this is the operation
+  // the desktop itself means: every top-level window of the process is
+  // iconified. It is only honest because it acts on all of them and reads
+  // the result back. What "away" looks like also differs by host -- macOS
+  // stops listing a hidden application's windows, X11 keeps them listed and
+  // marks them hidden -- so absent and minimized both count.
+  const hidden = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "hide", "--window", handle_text
+  ]);
+  ensure(
+    flag_at(hidden, "data.verified") && int_at(hidden, "data.windows_on_screen") === 0,
+    "cu_linux_smoke_app_hide:" + JSON.stringify(hidden.data)
+  );
+  // Hiding is not closing and not killing: the process is still there.
+  ensure(harness.process_present(fixture_pid) !== 0, "cu_linux_smoke_app_hide_killed_it");
+  const shown = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "show", "--pid", "" + fixture_pid
+  ]);
+  ensure(
+    flag_at(shown, "data.verified") && int_at(shown, "data.windows_on_screen") === 2,
+    "cu_linux_smoke_app_show:" + JSON.stringify(shown.data)
+  );
+
   print("STEP apps --all lists applications no window can reveal, read from the XDG desktop entries, and names the join behind its running flag");
   const apps = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "apps", "--all"
@@ -603,14 +653,17 @@ try {
   }
 
   print("STEP a refusal names the mechanism that is missing, in the adapter's own words rather than one sentence for every reason");
-  const hide_refusal = run_cu_reply(run_directory, executable, [
-    "--target", "current", "--grant", "observe,actuate", "app", "hide", "--window", handle_text
+  // `unlock` is the clearest case left: the poke has no analogue on this
+  // backend, and the adapter says so in its own words. Before the reason
+  // was plumbed through `AGT_UNSUPPORTED` every such answer read "mechanism
+  // unavailable on this host", which named nothing.
+  const poke = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "unlock", "--window", handle_text
   ]);
   ensure(
-    !flag_at(hide_refusal, "ok")
-      && text_at(hide_refusal, "error.code") === "unsupported"
-      && text_at(hide_refusal, "error.message").indexOf("AT-SPI2") >= 0,
-    "cu_linux_smoke_hide_reason:" + JSON.stringify(hide_refusal)
+    flag_at(poke, "data.poked") === false
+      && text_at(poke, "data.reason").indexOf("AT-SPI") >= 0,
+    "cu_linux_smoke_poke_reason:" + JSON.stringify(poke.data)
   );
   const launch_refusal = run_cu_reply(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "app", "launch",
@@ -719,6 +772,8 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-place");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-minimized");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-send-keys");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-app-lifecycle");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-app-inventory");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-destructive-close");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-refusal-reasons");

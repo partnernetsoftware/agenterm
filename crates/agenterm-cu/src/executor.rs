@@ -5073,24 +5073,31 @@ fn app_payload(
             }
         };
         mechanism::set_application_hidden(process_id, hidden).map_err(map_mechanism_err)?;
-        // Read the inventory back: a hidden application's windows stop
-        // being enumerable, which is the observable half of the verb.
+        // Read the inventory back, because what "put away" looks like is
+        // not the same on every host and neither shape is the definition.
+        // macOS stops enumerating a hidden application's windows at all;
+        // X11 keeps them listed and marks them `_NET_WM_STATE_HIDDEN`.
+        // Checking only for "gone" reported a working Linux hide as
+        // unverified, so a window still on screen is what fails this --
+        // absent and minimized both count as away.
         //
-        // Polled, not sampled once. The adapter already waited for
-        // `AXHidden` to read back, but the window server drops the windows
-        // from its own list a beat later -- a single read right after the
-        // write catches the old inventory and reports a working hide as
-        // unverified.
+        // Polled, not sampled once: the adapter already waited for the
+        // state to settle, but the window server updates its own list a
+        // beat later, and a single read right after the write catches the
+        // old inventory.
         let started = Instant::now();
         let mut listed = usize::MAX;
+        let mut on_screen = usize::MAX;
         while started.elapsed() < CLOSE_READBACK {
             let windows =
                 mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-            listed = windows
+            let mine: Vec<_> = windows
                 .iter()
                 .filter(|row| row.process_id == process_id)
-                .count();
-            if (listed == 0) == hidden {
+                .collect();
+            listed = mine.len();
+            on_screen = mine.iter().filter(|row| !row.minimized).count();
+            if (on_screen == 0) == hidden {
                 break;
             }
             thread::sleep(CLOSE_READBACK_POLL);
@@ -5102,7 +5109,8 @@ fn app_payload(
             "action": action.as_str(),
             "performed": true,
             "windows_listed": listed,
-            "verified": (listed == 0) == hidden,
+            "windows_on_screen": on_screen,
+            "verified": (on_screen == 0) == hidden,
             "verification": {
                 "method": "window-inventory-by-pid",
                 "elapsed_ms": started.elapsed().as_millis(),

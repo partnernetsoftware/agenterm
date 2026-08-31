@@ -450,16 +450,192 @@ pub(crate) fn observe_window(
     })
 }
 
-/// No application-level hidden state on this backend: hiding here is a
-/// window operation, and answering an application verb with a per-window
-/// one would be a different action wearing the same name.
+/// Put the whole application aside, or bring it back.
+///
+/// AT-SPI2 has no application-level hidden flag the way macOS AX does, so
+/// this is the operation the desktop itself means by hiding an
+/// application: every top-level window the process owns is iconified
+/// (ICCCM `WM_CHANGE_STATE` with `IconicState`) or mapped again. That is a
+/// per-window mechanism answering an application verb, which is only
+/// honest because it does two things: it acts on *all* of the process's
+/// windows rather than the one a handle names, and it reads the result
+/// back -- a window manager that declines leaves the windows where they
+/// were and this refuses typed rather than reporting the request as the
+/// outcome.
+///
+/// A process with no mapped top-level window is `a11y_app_not_found`: there
+/// is nothing to put aside, which is different from having failed to.
 pub(crate) fn set_application_visibility(
-    _process_id: u32,
-    _visibility: ApplicationVisibility,
+    process_id: u32,
+    visibility: ApplicationVisibility,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "AT-SPI2 has no application-level hidden state; hiding is a window-manager operation here".into(),
-    })
+    let hide = matches!(visibility, ApplicationVisibility::Hidden);
+    let windows = application_windows(process_id)?;
+    if windows.is_empty() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_app_not_found",
+            format!("process {process_id} owns no top-level window on this display"),
+        ));
+    }
+    for window in &windows {
+        set_window_iconified(*window, hide)?;
+    }
+    // The window manager applies this asynchronously, so the answer comes
+    // from the state it settles on, not from the request having been sent.
+    let deadline = std::time::Instant::now() + Duration::from_millis(1_500);
+    loop {
+        let settled = windows
+            .iter()
+            .all(|window| window_is_iconified(*window) == hide);
+        if settled {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_app_visibility_not_applied",
+                format!(
+                    "the window manager left process {process_id}'s windows {} after the request",
+                    if hide { "on screen" } else { "put away" }
+                ),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Every top-level window in `_NET_CLIENT_LIST` owned by `process_id`.
+fn application_windows(process_id: u32) -> Result<Vec<u32>, AccessibilityTreeError> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+
+    let (connection, screen) = x11rb::connect(None)
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    let root = connection
+        .setup()
+        .roots
+        .get(screen)
+        .map(|item| item.root)
+        .ok_or_else(|| {
+            AccessibilityTreeError::failed("a11y_backend_failed", "configured X11 screen is missing")
+        })?;
+    let intern = |name: &[u8]| -> Result<u32, AccessibilityTreeError> {
+        connection
+            .intern_atom(false, name)
+            .map_err(|error| {
+                AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+            })?
+            .reply()
+            .map(|reply| reply.atom)
+            .map_err(|error| {
+                AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+            })
+    };
+    let client_list = intern(b"_NET_CLIENT_LIST")?;
+    let wm_pid = intern(b"_NET_WM_PID")?;
+    let listing = connection
+        .get_property(false, root, client_list, AtomEnum::WINDOW, 0, 1024)
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?
+        .reply()
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    let mut owned = Vec::new();
+    for window in listing.value32().into_iter().flatten() {
+        let Ok(cookie) = connection.get_property(false, window, wm_pid, AtomEnum::CARDINAL, 0, 1)
+        else {
+            continue;
+        };
+        let Ok(reply) = cookie.reply() else { continue };
+        if reply.value32().and_then(|mut it| it.next()) == Some(process_id) {
+            owned.push(window);
+        }
+    }
+    Ok(owned)
+}
+
+/// ICCCM `WM_CHANGE_STATE` to `IconicState`, or a map to bring it back.
+fn set_window_iconified(window: u32, iconify: bool) -> Result<(), AccessibilityTreeError> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{ClientMessageEvent, ConnectionExt as _, EventMask};
+
+    const ICONIC_STATE: u32 = 3;
+    let (connection, screen) = x11rb::connect(None)
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    let root = connection
+        .setup()
+        .roots
+        .get(screen)
+        .map(|item| item.root)
+        .ok_or_else(|| {
+            AccessibilityTreeError::failed("a11y_backend_failed", "configured X11 screen is missing")
+        })?;
+    if iconify {
+        let atom = connection
+            .intern_atom(false, b"WM_CHANGE_STATE")
+            .map_err(|error| {
+                AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+            })?
+            .reply()
+            .map_err(|error| {
+                AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+            })?
+            .atom;
+        let event = ClientMessageEvent::new(32, window, atom, [ICONIC_STATE, 0, 0, 0, 0]);
+        connection
+            .send_event(
+                false,
+                root,
+                EventMask::SUBSTRUCTURE_NOTIFY | EventMask::SUBSTRUCTURE_REDIRECT,
+                event,
+            )
+            .map_err(|error| {
+                AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+            })?;
+    } else {
+        connection.map_window(window).map_err(|error| {
+            AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+        })?;
+    }
+    // Round-trip before returning: `flush` alone loses a request the server
+    // has not processed by the time the connection is dropped.
+    connection
+        .flush()
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    connection
+        .get_input_focus()
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?
+        .reply()
+        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    Ok(())
+}
+
+/// Whether the window manager currently reports the window as put away.
+fn window_is_iconified(window: u32) -> bool {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+
+    let Ok((connection, _)) = x11rb::connect(None) else {
+        return false;
+    };
+    let Ok(state_cookie) = connection.intern_atom(false, b"_NET_WM_STATE") else {
+        return false;
+    };
+    let Ok(state) = state_cookie.reply() else {
+        return false;
+    };
+    let Ok(hidden_cookie) = connection.intern_atom(false, b"_NET_WM_STATE_HIDDEN") else {
+        return false;
+    };
+    let Ok(hidden) = hidden_cookie.reply() else {
+        return false;
+    };
+    let Ok(cookie) = connection.get_property(false, window, state.atom, AtomEnum::ATOM, 0, 32)
+    else {
+        return false;
+    };
+    let Ok(reply) = cookie.reply() else {
+        return false;
+    };
+    reply
+        .value32()
+        .is_some_and(|mut states| states.any(|item| item == hidden.atom))
 }
 
 pub(crate) fn poke_manual_accessibility(
@@ -1499,8 +1675,41 @@ async fn send_node_keys_async(
     }
     let object = resolve_path(&conn, &selected, &indices).await?;
     let proxy = open_bus_object(&conn, &object).await?;
-    invoke_device_keys(&proxy, &synth).await
+    match invoke_device_keys(&proxy, &synth).await {
+        Ok(()) => Ok(()),
+        // GTK publishes no `DeviceEventListener`, so the key route simply
+        // does not exist for most of this desktop. macOS has the same
+        // problem for a different reason -- it delivers a keystroke only to
+        // the active application, and this product never activates one --
+        // and answers it by performing the AX action the chord *means*
+        // (`enter` is `AXConfirm`). Do the same here rather than refusing a
+        // chord whose meaning the node does publish: AT-SPI's spelling of
+        // that action is the node's own default/activate action, which is
+        // exactly what `invoke_structured_click` resolves.
+        Err(error) if is_missing_key_interface(&error) => match semantic_chord(keys) {
+            Some(SemanticChord::Activate) => invoke_structured_click(&proxy).await,
+            None => Err(error),
+        },
+        Err(error) => Err(error),
+    }
 }
+
+/// The chords this backend can express as something the node publishes.
+///
+/// Deliberately not a keyboard emulator: there is no AT-SPI spelling for
+/// "escape", so `esc` stays a typed refusal instead of being mapped to
+/// something that merely resembles it.
+enum SemanticChord {
+    Activate,
+}
+
+fn semantic_chord(keys: &str) -> Option<SemanticChord> {
+    match keys.trim().to_ascii_lowercase().as_str() {
+        "enter" | "return" => Some(SemanticChord::Activate),
+        _ => None,
+    }
+}
+
 
 fn activate_window_node(
     window_handle: Option<isize>,
