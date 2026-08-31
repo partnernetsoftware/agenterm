@@ -12,17 +12,27 @@ use std::path::{Path, PathBuf};
 
 const XKB_X11_SONAME: &str = "libxkbcommon-x11.so.0";
 const XCB_XKB_SONAME: &str = "libxcb-xkb.so.1";
+#[cfg(target_arch = "x86_64")]
 const BUNDLED_XKB_X11: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/",
-    env!("AGENTERM_BUNDLED_XKB_X11_PATH")
+    "/../../vendor/linux/x86_64/libxkbcommon-x11.so.0"
 ));
+#[cfg(target_arch = "x86_64")]
 const BUNDLED_XCB_XKB: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/",
-    env!("AGENTERM_BUNDLED_XCB_XKB_PATH")
+    "/../../vendor/linux/x86_64/libxcb-xkb.so.1"
 ));
-const STAGED_ENV: &str = "AGENTERM_XKB_X11_STAGED";
+#[cfg(target_arch = "aarch64")]
+const BUNDLED_XKB_X11: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../vendor/linux/aarch64/libxkbcommon-x11.so.0"
+));
+#[cfg(target_arch = "aarch64")]
+const BUNDLED_XCB_XKB: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../vendor/linux/aarch64/libxcb-xkb.so.1"
+));
+const STAGED_ENV: &str = "PLATFORM_XKB_X11_STAGED";
 const RTLD_NOW: c_int = 2;
 
 #[link(name = "dl")]

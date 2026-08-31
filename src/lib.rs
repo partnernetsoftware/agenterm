@@ -27,8 +27,6 @@ pub mod incremental_wrapper;
 mod instances;
 mod ipc_endpoint;
 mod ipc_transport;
-#[cfg(target_os = "linux")]
-mod linux_startup;
 mod locale;
 pub mod mcp_catalog;
 mod mcp_fleet;

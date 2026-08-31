@@ -135,8 +135,7 @@ pub(crate) fn run_native_shell(
     host: Box<dyn ControlCenterShellHost>,
     no_activate: bool,
 ) -> ControlCenterShellResult<()> {
-    #[cfg(target_os = "linux")]
-    crate::linux_startup::preflight().map_err(|message| {
+    agenterm_platform::linux_xkb_startup::preflight().map_err(|message| {
         ControlCenterShellError::failed("linux_x11_preflight_failed", message)
     })?;
     agenterm_platform::window::run_native_text_window(Box::new(HostBridge { host }), no_activate)

@@ -11,6 +11,14 @@ pub mod adapters;
 pub mod byte_search;
 pub mod numeric;
 
+/// Selected-host startup support for X11 keyboard libraries. Non-Linux hosts
+/// return `Ok(())`; Linux owns probing, staging and re-exec in its adapter.
+pub mod linux_xkb_startup {
+    pub fn preflight() -> Result<(), String> {
+        crate::selected::linux_xkb_startup::preflight()
+    }
+}
+
 /// Selected-host inspection and installation mechanics for a Chassis-L1 loader.
 pub mod chassis_loader {
     use std::path::Path;

@@ -19,16 +19,22 @@ v0.1.16 release DAG
 │  ├─ Cargo.toml = 0.1.16
 │  ├─ release-policy.json = 0.1.16
 │  └─ origin has no v0.1.16 tag or Release
+├─ [x] script-engine succession
+│  ├─ rh implementation and `.rh` corpus remain archived
+│  ├─ qjswasm/tinyvm owns the active `.qjs` runtime
+│  └─ bounded qjswasm `check-many` owns repository-wide script lint
 ├─ [x] Minicon lessons absorbed
 │  ├─ clean deterministic staging + raw/archive byte evidence
 │  ├─ six native build cells + six execute-only final-archive courts
 │  ├─ native Linux arm64 package + package-free dependency-closure court
 │  ├─ executable compression off + final Windows Defender court
 │  └─ checked-in optional signing policy; no certificate implied by review state
-├─ [x] local release contracts
+├─ [~] local release contracts
 │  ├─ release_workflow_policy: 11/11
 │  ├─ internal-version-policy: pass
-│  └─ documentation redaction: pass
+│  ├─ documentation redaction: pass
+│  └─ Linux XKB native startup mechanism → agenterm-platform (implementation
+│     moved; integrated Quick rerun pending)
 ├─ [ ] exact-SHA Candidate
 │  ├─ requires clean current origin/main and explicit exact-SHA request
 │  ├─ one Windows stress qualification
@@ -42,7 +48,10 @@ v0.1.16 release DAG
 
 ```mermaid
 flowchart LR
-  S["clean origin/main SHA"] --> L["local policy + version + redaction gates"]
+  M["memory palace / PRD truth"] --> Q["rh archived<br/>qjswasm active gates"]
+  Q --> B["OS mechanics stop in<br/>agenterm-platform"]
+  B --> S["clean origin/main SHA"]
+  S --> L["local policy + version + redaction gates"]
   L --> A{"explicit exact-SHA<br/>Candidate request?"}
   A -->|no| H["hold · no tag · no Release"]
   A -->|yes| C["self-contained Candidate<br/>Windows stress + six build cells"]

@@ -1,5 +1,13 @@
 //! The only compile-time native adapter selection for enabled capabilities.
 
+#[cfg(target_os = "linux")]
+#[path = "adapters/linux/linux_xkb_startup.rs"]
+pub(crate) mod linux_xkb_startup;
+
+#[cfg(not(target_os = "linux"))]
+#[path = "adapters/unsupported_linux_xkb_startup.rs"]
+pub(crate) mod linux_xkb_startup;
+
 #[cfg(windows)]
 #[path = "adapters/windows/chassis_loader.rs"]
 pub(crate) mod chassis_loader;

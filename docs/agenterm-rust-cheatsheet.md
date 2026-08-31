@@ -556,9 +556,13 @@ cannot prove code hidden behind another target's `cfg`.
 - A successful Linux compile does not prove dynamically loaded GUI runtime
   libraries exist in the test image. X11 journeys using winit under Xvfb need
   either the host `libxkbcommon-x11` runtime (`libxkbcommon-x11-0` on Ubuntu)
-  or the product's bundled copy: `src/linux_startup.rs` embeds
+  or the product's bundled copy: the selected Linux adapter
+  `crates/agenterm-platform/src/adapters/linux/linux_xkb_startup.rs` embeds
   `libxkbcommon-x11.so.0` and `libxcb-xkb.so.1` (see `vendor/linux/`) and
-  re-execs once with `LD_LIBRARY_PATH` when the host omits them. Without either
+  re-execs once with `LD_LIBRARY_PATH` when the host omits them. Keep probing,
+  Unix permission changes, dynamic loading and re-exec inside the platform
+  adapter; product frontends call the neutral facade on every host, whose
+  non-Linux adapter is an explicit no-op. Without either library source,
   source, event-loop creation can abort before the product exposes its control
   endpoint. Preserve child stderr in black-box launch harnesses so a missing
   `dlopen` dependency is reported as the first failure instead of a generic
