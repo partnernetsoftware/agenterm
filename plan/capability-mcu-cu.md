@@ -7,7 +7,7 @@
 | 纪律 | 吸收**命令集与分层教训**，不搬 TypeScript / helper protocol-v40 |
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
-**还差什么（2026-09-01）**：读富内容（图片/文件字节）仍未做，只报类型；每个窗口属于哪个 Space 没归属（`spaces` 只读清单在，且只有 mac）；
+**还差什么（2026-09-01）**：读富内容（图片/文件字节）仍未做，只报类型；
 「已安装但没在跑」的 App 列不出来；截图 macOS 被系统拿走（`CGWindowListCreateImage` 15.0 移除）、Linux 未接；
 Linux/Windows 的新动词全部**只交叉编译过没上真机**——本仓没有那两台机器，PRD leaf 一律写 `[~] mapped`。
 
@@ -59,7 +59,7 @@ machine-control
 
 | 族 | MCU | agenterm-cu | 状态 |
 |---|---|---|---|
-| 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`；`--window` 接受 `N` 或 `App#N`；**每行带 `z_index` + `occluded_percent`**（ABI 1.17，前后关系按矩形精确相减，不采样屏幕）；`windows-watch` poll-diff；`apps` 运行中窗口聚合 | **句柄+watch+zIndex/occlusion**；仍缺 Space 归属、已安装未运行 |
+| 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`；`--window` 接受 `N` 或 `App#N`；**每行带 `z_index` + `occluded_percent`**（ABI 1.17，矩形精确相减）+ **`spaces`**（macOS SkyLight 逐窗归属，id 与 `spaces` 清单对得上）；`windows-watch` poll-diff；`apps` 运行中窗口聚合 | **句柄+watch+zIndex/occlusion+Space 归属**；仍缺已安装未运行 |
 | 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query --selector` 与 `invoke --selector` 接受 `Role[idx] / Role@title / *@title / #desc`；其余 filter/budget 保留 | **拼写与作用域对齐**；真实三平台旅程仍待补 |
 | empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；**`unlock` 真 poke**（macOS `AXManualAccessibility`，ABI 1.15），前后两次读报 `poked`/`grew`/`returned_before` | **已对齐**（cu 2026-08-31；L/W typed，两边后端不需要 poke） |
 | 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | **12 个动作全部映射**：mac 全部 live（含新的 `set-selected`/`cancel`/`show-default-ui`）；Linux 与 Windows 九个动作已映射未真机，三个新动作 typed | **无 silent unknown**；不可把可解析误报为已实现 |

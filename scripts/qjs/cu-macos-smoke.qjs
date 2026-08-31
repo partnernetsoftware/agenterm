@@ -1382,6 +1382,34 @@ try {
       && int_at(back_row, "occluded_percent") === 0,
     "cu_macos_smoke_stacking_start:" + JSON.stringify([front_row, back_row])
   );
+  // Each window also names the managed Spaces it sits on, and those ids
+  // are the ones the Space inventory lists. A window on another Space is
+  // present but not on screen -- neither minimized nor closed -- and an
+  // inventory that could not say so would send an agent looking for a
+  // window it will never see.
+  const space_inventory = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "spaces"
+  ]);
+  let known_space_ids = [];
+  for (const display of space_inventory.data.displays) {
+    for (const space of display.spaces) { known_space_ids.push(text_at(space, "id")); }
+  }
+  ensure(known_space_ids.length >= 1, "cu_macos_smoke_space_inventory_empty:" + JSON.stringify(space_inventory.data));
+  for (const row of stacked_before.data.windows) {
+    const spaces = row.spaces;
+    ensure(
+      spaces !== undefined && spaces.length >= 1,
+      "cu_macos_smoke_window_without_space:" + JSON.stringify(row)
+    );
+    for (const id of spaces) {
+      let known = 0;
+      for (const candidate of known_space_ids) {
+        if (candidate === "" + id) { known = 1; }
+      }
+      ensure(known === 1, "cu_macos_smoke_unknown_space:" + id + " of " + JSON.stringify(known_space_ids));
+    }
+  }
+
   // Every window on the desktop gets a distinct index, so the order is a
   // real ranking and not a per-window guess.
   const all_stacked = run_cu_json(run_directory, executable, [

@@ -667,15 +667,25 @@ pub fn window_row_json_with_stacking(
     stacking: &[crate::mechanism::window_enumerate::WindowStacking],
 ) -> serde_json::Value {
     let mut row = window_row_json(window);
-    let Some(place) = stacking.iter().find(|row| row.handle == window.handle) else {
-        return row;
-    };
-    if let Some(object) = row.as_object_mut() {
+    if let Some(place) = stacking.iter().find(|row| row.handle == window.handle)
+        && let Some(object) = row.as_object_mut()
+    {
         object.insert("z_index".into(), serde_json::json!(place.z_index));
         object.insert(
             "occluded_percent".into(),
             serde_json::json!(place.occluded_percent),
         );
+    }
+    // Which managed Spaces the window sits on. A window on another Space is
+    // present but not on screen, which is neither minimized nor closed --
+    // and an inventory that cannot say so sends an agent looking for a
+    // window it will never see. Absent when the host has no such notion or
+    // no SPI for it; never a default.
+    #[cfg(target_os = "macos")]
+    if let Ok(Some(spaces)) = crate::macos_spaces::spaces_for_window(window.handle)
+        && let Some(object) = row.as_object_mut()
+    {
+        object.insert("spaces".into(), serde_json::json!(spaces));
     }
     row
 }

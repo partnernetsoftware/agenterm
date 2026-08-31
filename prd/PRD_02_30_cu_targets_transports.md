@@ -766,6 +766,17 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [x] each `windows` row names the managed Spaces it sits on (cut 3.58,
+  macOS SkyLight `SLSCopySpacesForWindows`, read-only). The Space
+  *inventory* says which Spaces exist; this says where a given window
+  lives among them, which is the attribution an agent needs: a window on
+  another Space is present but not on screen, and that is neither
+  minimized nor closed. An absent `spaces` field means the host has no
+  such notion or no SPI for it -- never a default. No ABI change: the
+  SkyLight reader already lives in `agenterm-cu`. Live evidence:
+  `cu-macos-smoke` asserts every window's Space ids are ids the `spaces`
+  inventory lists, which is the cross-check that catches an attribution
+  drifting away from the inventory.
 - [x] `clipboard-read` reports what the clipboard is *carrying*, not only
   what it can read as text (cut 3.58, ABI 1.19 `agt_clipboard_types`).
   The verb still reads Unicode text and nothing else, but the reply now
