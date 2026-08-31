@@ -515,10 +515,21 @@ pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
             Err(error) => last = Some(error),
         }
     }
-    Err(last.unwrap_or(ClipboardError::Unavailable {
-        message: "no clipboard helper (wl-paste / xclip / xsel) answered a TARGETS probe"
-            .to_owned(),
-    }))
+    // Name the mechanism that is missing. The raw spawn error ("No such
+    // file or directory") reaches the caller as a reason for a refusal, and
+    // on a host with no helper installed at all that reads like a bug in
+    // the clipboard rather than a tool that is not there.
+    let names: Vec<&str> = helpers.iter().filter_map(|helper| helper.first().copied()).collect();
+    let detail = last
+        .as_ref()
+        .map(|error| format!(" (last: {})", error.message()))
+        .unwrap_or_default();
+    Err(ClipboardError::Unavailable {
+        message: format!(
+            "no clipboard helper answered a TARGETS probe; this host needs one of: {}{detail}",
+            names.join(", ")
+        ),
+    })
 }
 
 fn parse_target_list(listing: &str) -> Vec<String> {

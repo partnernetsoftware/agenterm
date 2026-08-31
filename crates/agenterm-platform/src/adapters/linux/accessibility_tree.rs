@@ -49,6 +49,11 @@ const FOCUS_SEARCH_DEPTH: u32 = 24;
 const FOCUS_SEARCH_NODES: usize = 4_000;
 /// Bounds for the menu-bar search. A menu bar sits shallow in a frame's
 /// tree, so this is deliberately smaller than the focus search.
+/// The marks a menu item's check state stands for. AT-SPI names the state;
+/// the receipt carries the character macOS reads straight off the item.
+const CHECK_MARK: &str = "\u{2713}";
+const MIXED_MARK: &str = "\u{2013}";
+
 const MENU_SEARCH_DEPTH: u32 = 12;
 const MENU_SEARCH_NODES: usize = 2_000;
 const ACTION_TIMEOUT: Duration = Duration::from_millis(250);
@@ -177,6 +182,14 @@ pub(crate) fn tree_for_window(
 /// closes the socket under those events and Chrome's renderer tree dies.
 /// The window's menu bar as a tree, read without opening anything.
 ///
+/// Node depth from the walk root, read off the synthetic id (`/0` is 0).
+///
+/// The walker numbers children positionally, so the id is the only depth
+/// the adapter carries; AT-SPI itself does not publish one.
+fn id_depth(id: &str) -> u32 {
+    u32::try_from(id.matches('/').count().saturating_sub(1)).unwrap_or(u32::MAX)
+}
+
 /// AT-SPI publishes a frame's menu bar as an ordinary `menu bar` node in
 /// the same tree everything else comes from, so this is a bounded walk and
 /// a search -- no menu is opened on screen and the application is never
@@ -188,21 +201,45 @@ pub(crate) fn menu_tree_for_window(
     window_handle: Option<isize>,
     budget: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
-    let tree = tree_for_window(
+    let max_nodes = budget.max_nodes.unwrap_or(MENU_SEARCH_NODES);
+    // The caller's depth counts menu levels, and it counts them from the
+    // bar. AT-SPI does not hang the bar off the application root the way
+    // macOS does -- GTK buries it inside the window's widget boxes -- so
+    // spending the caller's budget on the walk *down to* the bar returns a
+    // bar with no items under it. Locate the bar first under a search
+    // depth, then re-walk deep enough to carry the caller's levels below
+    // wherever the bar turned out to be.
+    let search = tree_for_window(
         window_handle,
         AccessibilityTreeBudget {
-            max_depth: Some(budget.max_depth.unwrap_or(MENU_SEARCH_DEPTH)),
-            max_nodes: Some(budget.max_nodes.unwrap_or(MENU_SEARCH_NODES)),
+            max_depth: Some(MENU_SEARCH_DEPTH),
+            max_nodes: Some(max_nodes),
         },
     )?;
-    let Some(bar) = tree.nodes.iter().find(|node| node.role == "menu bar") else {
+    let Some(found) = search.nodes.iter().find(|node| node.role == "menu bar") else {
         return Err(AccessibilityTreeError::failed(
             "a11y_menu_unavailable",
-            if tree.truncated {
+            if search.truncated {
                 "no menu bar in the first nodes of the window tree, and the walk was truncated"
             } else {
                 "this window publishes no AT-SPI menu bar"
             },
+        ));
+    };
+    let tree = match budget.max_depth {
+        Some(levels) => tree_for_window(
+            window_handle,
+            AccessibilityTreeBudget {
+                max_depth: Some(id_depth(&found.id).saturating_add(levels)),
+                max_nodes: Some(max_nodes),
+            },
+        )?,
+        None => search,
+    };
+    let Some(bar) = tree.nodes.iter().find(|node| node.role == "menu bar") else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_menu_unavailable",
+            "the menu bar disappeared between the search walk and the menu walk",
         ));
     };
     let root_id = bar.id.clone();
@@ -314,10 +351,25 @@ pub(crate) fn invoke_menu_path(
             ),
         ));
     }
+    // AT-SPI publishes a menu item's check mark as the `checked` state
+    // rather than as a mark character, but the receipt field is a mark --
+    // the ABI carries it as one Unicode scalar. Returning a state word
+    // here would reach the caller as its first letter ("u"), a truncation
+    // macOS never shows because a real `AXMenuItemMarkChar` is one
+    // character. So map the state to the mark it stands for.
+    let mark_of = |states: &[String]| -> Option<String> {
+        match checked_word(states) {
+            Some("checked") => Some(CHECK_MARK.to_owned()),
+            Some("mixed") => Some(MIXED_MARK.to_owned()),
+            _ => None,
+        }
+    };
+    let before = menu
+        .nodes
+        .iter()
+        .find(|node| node.id == current)
+        .and_then(|node| mark_of(&node.states));
     perform_node_action(window_handle, &current, AccessibilityNodeAction::Press)?;
-    // AT-SPI publishes a menu item's check mark as the `checked` state, not
-    // as a mark character, so the receipt carries the state words the tree
-    // already speaks.
     let after = menu_tree_for_window(
         window_handle,
         AccessibilityTreeBudget {
@@ -330,10 +382,10 @@ pub(crate) fn invoke_menu_path(
         tree.nodes
             .iter()
             .find(|node| node.id == current)
-            .map(|node| checked_word(&node.states).unwrap_or("unchecked").to_owned())
+            .and_then(|node| mark_of(&node.states))
     });
     Ok(AccessibilityMenuReceipt {
-        mark_before: None,
+        mark_before: before,
         mark_after: after,
     })
 }
@@ -1142,16 +1194,26 @@ async fn extents_from_component(
     extents_or_unavailable(x, y, width, height)
 }
 
+/// Whether a rect AT-SPI returned is a real on-screen rect.
+///
+/// Two shapes are not: an empty rect, and one whose origin is `i32::MIN` --
+/// GTK's marker for a widget that has never been allocated, which is what a
+/// closed menu's items report. Passing that through would hand a caller
+/// -2147483648 as a screen coordinate to click.
+fn is_readable_rect(x: i32, y: i32, width: i32, height: i32) -> bool {
+    width > 0 && height > 0 && x != i32::MIN && y != i32::MIN
+}
+
 fn extents_or_unavailable(
     x: i32,
     y: i32,
     width: i32,
     height: i32,
 ) -> Result<AccessibilityBounds, AccessibilityTreeError> {
-    if width <= 0 || height <= 0 {
+    if !is_readable_rect(x, y, width, height) {
         return Err(AccessibilityTreeError::failed(
             "a11y_extents_unavailable",
-            format!("Component.GetExtents returned empty rect {width}x{height}"),
+            format!("Component.GetExtents returned no on-screen rect: {width}x{height} at {x},{y}"),
         ));
     }
     Ok(AccessibilityBounds {
@@ -2001,9 +2063,10 @@ async fn read_node(
     let role = role_name(proxy).await;
     let name = proxy.name().await.unwrap_or_default();
     let states = states_from_proxy_with_role(proxy, &role).await;
-    // Stay off Component/Action/`proxies()` during snapshot — WebKitGTK
-    // hangs those. GetText on an entry/text/editable node is bounded
-    // (ACTION_TIMEOUT) so `cu tree` can show what EditableText wrote.
+    // Stay off `proxies()` during snapshot — WebKitGTK hangs it. Both reads
+    // below build their interface proxy straight off the connection
+    // instead, and both are bounded by ACTION_TIMEOUT, so a node that will
+    // not answer costs one timeout rather than the walk.
     let text = if node_looks_like_text_field(&role, &states) {
         timeout(ACTION_TIMEOUT, text_from_text_proxy(proxy))
             .await
@@ -2012,18 +2075,29 @@ async fn read_node(
     } else {
         None
     };
+    // An empty rect is this adapter's "unavailable" throughout (see
+    // `extents_or_unavailable`, which refuses one typed). Leaving the field
+    // hardcoded to zero published that sentinel for *every* node, so a
+    // caller doing geometry off the tree read "0x0 at the origin" as an
+    // answer instead of "not read" -- and macOS filled the same field with
+    // real rects.
+    let bounds = timeout(ACTION_TIMEOUT, bounds_from_proxy(proxy))
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(AccessibilityBounds {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        });
     AccessibilityNode {
         id,
         parent_id,
         role,
         name,
         states,
-        bounds: AccessibilityBounds {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-        },
+        bounds,
         actions: Vec::new(),
         text,
         identifier: None,
@@ -2418,10 +2492,12 @@ async fn step_value(
 
 #[allow(dead_code)]
 async fn bounds_from_proxy(proxy: &AccessibleProxy<'_>) -> Option<AccessibilityBounds> {
-    let proxies = proxy.proxies().await.ok()?;
-    let component = proxies.component().await.ok()?;
+    // Built off the connection rather than through `proxies()`, which
+    // WebKitGTK hangs. `None` is "no readable rect", which the caller
+    // renders as the empty-rect sentinel.
+    let component = component_proxy_for(proxy).await.ok()?;
     let (x, y, width, height) = component.get_extents(CoordType::Screen).await.ok()?;
-    if width <= 0 || height <= 0 {
+    if !is_readable_rect(x, y, width, height) {
         return None;
     }
     Some(AccessibilityBounds {
@@ -3806,6 +3882,12 @@ mod tests {
 
     #[test]
     fn nonempty_get_extents_keeps_screen_rect() {
+        // GTK reports a never-allocated widget (a closed menu's items) at
+        // i32::MIN rather than refusing, so the adapter has to.
+        assert!(extents_or_unavailable(i32::MIN, i32::MIN, 1, 1).is_err());
+        assert!(!is_readable_rect(i32::MIN, 0, 10, 10));
+        assert!(!is_readable_rect(0, i32::MIN, 10, 10));
+        assert!(is_readable_rect(-20, -5, 10, 10));
         let bounds = extents_or_unavailable(12, 34, 56, 78).unwrap();
         assert_eq!(bounds.x, 12);
         assert_eq!(bounds.y, 34);

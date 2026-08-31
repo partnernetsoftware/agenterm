@@ -507,12 +507,13 @@ pub mod window_enumerate {
             // Zero items: `cap < required` is `0 < 0`, so the two-stage
             // probe answers OK rather than buffer_too_small. An empty
             // desktop is an empty list, not a failure -- this cost a
-            // `windows` call on a display with no windows.
+            // `windows` call on a display with no windows. AGT_FAILED
+            // therefore always means a real failure here, never emptiness:
+            // reading it as an empty list hid the failure instead.
             dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
                 reason: "window enumeration is unavailable on this host".to_owned(),
             }),
-            dynlib::AGT_FAILED if needed == 0 => Ok(Vec::new()),
             dynlib::AGT_FAILED => {
                 let mut capacity = needed;
                 for _ in 0..4 {
@@ -572,12 +573,13 @@ pub mod window_enumerate {
             // Zero items: `cap < required` is `0 < 0`, so the two-stage
             // probe answers OK rather than buffer_too_small. An empty
             // desktop is an empty list, not a failure -- this cost a
-            // `windows` call on a display with no windows.
+            // `windows` call on a display with no windows. AGT_FAILED
+            // therefore always means a real failure here, never emptiness:
+            // reading it as an empty list hid the failure instead.
             dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
                 reason: "this host reports no window stacking order".to_owned(),
             }),
-            dynlib::AGT_FAILED if needed == 0 => Ok(Vec::new()),
             dynlib::AGT_FAILED => {
                 let mut capacity = needed;
                 for _ in 0..4 {
@@ -624,12 +626,13 @@ pub mod window_enumerate {
             // Zero items: `cap < required` is `0 < 0`, so the two-stage
             // probe answers OK rather than buffer_too_small. An empty
             // desktop is an empty list, not a failure -- this cost a
-            // `windows` call on a display with no windows.
+            // `windows` call on a display with no windows. AGT_FAILED
+            // therefore always means a real failure here, never emptiness:
+            // reading it as an empty list hid the failure instead.
             dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
                 reason: "screen enumeration is unavailable on this host".to_owned(),
             }),
-            dynlib::AGT_FAILED if needed == 0 => Ok(Vec::new()),
             dynlib::AGT_FAILED => {
                 let mut capacity = needed;
                 for _ in 0..4 {
@@ -1978,16 +1981,32 @@ fn read_two_stage(
 ) -> Result<Vec<u8>, MechanismError> {
     let mut required = 0usize;
     let status = probe(std::ptr::null_mut(), 0, &mut required)?;
+    // AGT_UNSUPPORTED is self-describing and records no error, so reading
+    // the error slot for it returns whatever was there last -- "ok: no
+    // error" on a clean slot, which is not a reason for anything.
+    if status == dynlib::AGT_UNSUPPORTED {
+        return Err(MechanismError::Unsupported {
+            reason: "this host does not offer the mechanism behind this read".to_owned(),
+        });
+    }
     if status != dynlib::AGT_FAILED {
         return Err(last_mechanism_error("two_stage_probe"));
     }
-    // libagenterm treats cap==0 as a size probe even when the payload is empty.
-    // A second call with cap==0 would repeat buffer_too_small, so stop here.
-    if required == 0 {
-        return Ok(Vec::new());
-    }
-    let mut buf = vec![0u8; required];
-    let status = probe(buf.as_mut_ptr(), required, &mut required)?;
+    // libagenterm treats cap==0 as a size probe even when the payload is
+    // empty, so AGT_FAILED with `required` still 0 means one of two things:
+    // the probe answered for an empty payload, or the call failed before it
+    // could write out_len at all. Reading the second as the first told
+    // `clipboard-read` that a host with no clipboard helper installed was
+    // carrying zero types -- `types_available: true` about a probe that
+    // never ran.
+    //
+    // One more call separates them without consulting the global error
+    // slot, which an export that fails early never populates: read with a
+    // real one-byte buffer. An empty payload fits (AGT_OK, out_len 0); a
+    // failing call fails again and is reported as the failure it is.
+    let mut buf = vec![0u8; required.max(1)];
+    let capacity = buf.len();
+    let status = probe(buf.as_mut_ptr(), capacity, &mut required)?;
     map_status("two_stage_read", status)?;
     buf.truncate(required);
     Ok(buf)
@@ -2306,20 +2325,52 @@ mod tests {
         }
     }
 
+    /// An empty payload reads as empty, and the follow-up read never
+    /// repeats the cap==0 size probe -- that would just answer
+    /// buffer_too_small forever.
     #[test]
-    fn two_stage_empty_payload_does_not_reprobe_with_cap_zero() {
+    fn two_stage_empty_payload_reads_empty_without_reprobing_with_cap_zero() {
         let mut calls = 0usize;
         let bytes = read_two_stage(|_buf, cap, out_len| {
             calls += 1;
             unsafe {
                 *out_len = 0;
             }
-            assert_eq!(cap, 0, "empty payload must not make a second cap=0 read");
-            Ok::<i32, MechanismError>(dynlib::AGT_FAILED)
+            if calls == 1 {
+                assert_eq!(cap, 0, "the size probe is the cap==0 call");
+                return Ok::<i32, MechanismError>(dynlib::AGT_FAILED);
+            }
+            assert!(cap > 0, "the read must not repeat the cap==0 probe");
+            Ok::<i32, MechanismError>(dynlib::AGT_OK)
         })
         .expect("empty two-stage probe should succeed");
         assert!(bytes.is_empty());
-        assert_eq!(calls, 1);
+        assert_eq!(calls, 2);
+    }
+
+    /// A call that fails outright looks exactly like an empty payload at the
+    /// probe -- AGT_FAILED with out_len untouched. It must not be reported
+    /// as an empty result: that is how `clipboard-read` came to claim a host
+    /// with no clipboard helper was carrying zero types.
+    #[test]
+    fn two_stage_failure_is_not_read_as_an_empty_payload() {
+        let mut calls = 0usize;
+        let result = read_two_stage(|_buf, _cap, _out_len| {
+            calls += 1;
+            Ok::<i32, MechanismError>(dynlib::AGT_FAILED)
+        });
+        assert!(result.is_err(), "a failing probe must not answer Ok(empty)");
+        assert_eq!(calls, 2);
+    }
+
+    /// AGT_UNSUPPORTED records no error by convention, so reading the error
+    /// slot for it returns whatever was there last.
+    #[test]
+    fn two_stage_unsupported_is_typed_without_reading_the_error_slot() {
+        let result = read_two_stage(|_buf, _cap, _out_len| {
+            Ok::<i32, MechanismError>(dynlib::AGT_UNSUPPORTED)
+        });
+        assert!(matches!(result, Err(MechanismError::Unsupported { .. })));
     }
 
     #[test]

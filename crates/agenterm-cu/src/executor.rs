@@ -936,7 +936,10 @@ fn clipboard_read() -> Result<serde_json::Value, CuError> {
     let (types, types_available, types_reason) = match mechanism::clipboard::available_types() {
         Ok(names) => (names, true, None),
         Err(mechanism::MechanismError::Unsupported { reason }) => (Vec::new(), false, Some(reason)),
-        Err(error) => (Vec::new(), false, Some(format!("{error:?}"))),
+        // A reason a caller reads, not a Debug rendering of the enum.
+        Err(mechanism::MechanismError::Failed { code, message }) => {
+            (Vec::new(), false, Some(format!("{code}: {message}")))
+        }
     };
     let mut payload = serde_json::json!({
         "text": text,

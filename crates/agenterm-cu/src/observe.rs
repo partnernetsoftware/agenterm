@@ -1306,7 +1306,13 @@ pub fn menu_node_depth(menu_depth: u32) -> u32 {
 }
 
 fn is_menu_item_role(role: &str) -> bool {
-    matches!(normalize_role(role).as_str(), "menubaritem" | "menuitem")
+    matches!(
+        normalize_role(role).as_str(),
+        // AT-SPI gives a checkable entry its own role; macOS and UIA keep
+        // one `menu item` role and carry the mark separately. Missing
+        // these made `menu inspect` omit items `menu invoke` would press.
+        "menubaritem" | "menuitem" | "checkmenuitem" | "radiomenuitem"
+    )
 }
 
 fn is_menu_role(role: &str) -> bool {
@@ -1331,38 +1337,82 @@ pub struct MenuItem {
 
 /// Flatten a menu walk into items in walk order. `AXMenu` containers and
 /// the bar itself are structure, not items.
+/// Whether a menu entry can be pressed, read so both state vocabularies
+/// answer honestly.
+///
+/// macOS publishes exactly one of `enabled` / `disabled` on every node, so
+/// "not disabled" reads correctly there. AT-SPI has no `disabled` label at
+/// all -- a greyed-out GTK item simply omits `enabled` -- so "not
+/// disabled" would call every AT-SPI item pressable, including the ones
+/// `menu invoke` then refuses. Requiring the positive label agrees with
+/// both, and errs toward refusing rather than toward promising a press.
+fn menu_entry_enabled(node: &A11yNode) -> bool {
+    has_state(node, "enabled") && !has_state(node, "disabled")
+}
+
 pub fn menu_items(tree: &A11yTree) -> Vec<MenuItem> {
     let by_id: std::collections::HashMap<&str, &A11yNode> = tree
         .nodes
         .iter()
         .map(|node| (node.id.as_str(), node))
         .collect();
-    let mut has_menu_child: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for node in &tree.nodes {
-        if is_menu_role(&node.role)
-            && let Some(parent) = node.parent_id.as_deref()
-        {
-            has_menu_child.insert(parent);
+    // Which nodes a path segment can name. The two backends model the same
+    // menu differently: macOS names the entry (`AXMenuBarItem` "File") and
+    // hangs an `AXMenu` child off it that repeats the title, while AT-SPI
+    // has no separate entry node at all -- GTK's "File" *is* a role-`menu`
+    // node holding the items. So a named `menu` counts as an entry unless
+    // it is the macOS duplicate, i.e. a `menu` owned directly by an item.
+    let is_entry = |node: &A11yNode| -> bool {
+        if is_menu_item_role(&node.role) {
+            return true;
         }
-    }
-    let mut items = Vec::new();
+        if !is_menu_role(&node.role) || node.name.is_empty() {
+            return false;
+        }
+        !node
+            .parent_id
+            .as_deref()
+            .and_then(|owner| by_id.get(owner))
+            .is_some_and(|owner| is_menu_item_role(&owner.role))
+    };
+    // Nearest entry ancestor of each entry. Owning one is what "has a
+    // submenu" means here -- not owning a `menu` node, which only the
+    // macOS shape publishes.
+    let mut parent_entry: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    let mut owns_submenu: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for node in &tree.nodes {
-        if !is_menu_item_role(&node.role) {
+        if !is_entry(node) {
             continue;
         }
-        // Titles of the item ancestors (skipping menus), nearest last.
-        let mut path = vec![node.name.clone()];
-        let mut depth = 0u32;
         let mut cursor = node.parent_id.as_deref();
         while let Some(parent_id) = cursor {
             let Some(parent) = by_id.get(parent_id) else {
                 break;
             };
-            if is_menu_item_role(&parent.role) {
-                path.push(parent.name.clone());
-                depth += 1;
+            if is_entry(parent) {
+                parent_entry.insert(node.id.as_str(), parent.id.as_str());
+                owns_submenu.insert(parent.id.as_str());
+                break;
             }
             cursor = parent.parent_id.as_deref();
+        }
+    }
+    let mut items = Vec::new();
+    for node in &tree.nodes {
+        if !is_entry(node) {
+            continue;
+        }
+        // Titles of the entry ancestors, nearest last.
+        let mut path = vec![node.name.clone()];
+        let mut depth = 0u32;
+        let mut cursor = parent_entry.get(node.id.as_str()).copied();
+        while let Some(parent_id) = cursor {
+            let Some(parent) = by_id.get(parent_id) else {
+                break;
+            };
+            path.push(parent.name.clone());
+            depth += 1;
+            cursor = parent_entry.get(parent_id).copied();
         }
         path.reverse();
         items.push(MenuItem {
@@ -1371,9 +1421,9 @@ pub fn menu_items(tree: &A11yTree) -> Vec<MenuItem> {
             path,
             title: node.name.clone(),
             depth,
-            enabled: !has_state(node, "disabled"),
+            enabled: menu_entry_enabled(node),
             checked: has_state(node, "checked"),
-            has_submenu: has_menu_child.contains(node.id.as_str()),
+            has_submenu: owns_submenu.contains(node.id.as_str()),
         });
     }
     items
@@ -1807,6 +1857,67 @@ mod tests {
         node.parent_id = parent.map(str::to_owned);
         node.states = states.iter().map(|state| (*state).to_owned()).collect();
         node
+    }
+
+    /// AT-SPI has no separate bar-entry node: GTK's "File" is a role-`menu`
+    /// node that directly holds the items, and the bar sits several widget
+    /// levels down rather than at the tree root. The flattened paths must
+    /// still be the paths `menu invoke` accepts.
+    #[test]
+    fn menu_items_read_the_at_spi_shape_with_no_separate_bar_entry() {
+        let t = tree(
+            vec![
+                menu_node("/0", None, "menu bar", "", &["enabled", "sensitive"]),
+                menu_node("/0/0", Some("/0"), "menu", "File", &["enabled", "sensitive"]),
+                menu_node(
+                    "/0/0/0",
+                    Some("/0/0"),
+                    "menu item",
+                    "Do Thing",
+                    &["enabled", "sensitive", "selectable"],
+                ),
+                // As GTK actually publishes it: no `disabled` label, just
+                // no `enabled` one.
+                menu_node(
+                    "/0/0/1",
+                    Some("/0/0"),
+                    "menu item",
+                    "Disabled Thing",
+                    &["selectable", "visible"],
+                ),
+                menu_node("/0/0/2", Some("/0/0"), "menu", "More", &["enabled"]),
+                menu_node("/0/0/2/0", Some("/0/0/2"), "menu item", "Deeper", &["enabled"]),
+                menu_node(
+                    "/0/0/3",
+                    Some("/0/0"),
+                    "check menu item",
+                    "Marked Thing",
+                    &["enabled", "checked"],
+                ),
+            ],
+            false,
+        );
+        let items = menu_items(&t);
+        let paths: Vec<String> = items.iter().map(|item| item.path.join("/")).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "File",
+                "File/Do Thing",
+                "File/Disabled Thing",
+                "File/More",
+                "File/More/Deeper",
+                "File/Marked Thing"
+            ]
+        );
+        assert_eq!(items[0].depth, 0);
+        assert!(items[0].has_submenu);
+        assert_eq!(items[1].depth, 1);
+        assert!(!items[1].has_submenu && items[1].enabled);
+        assert!(!items[2].enabled);
+        assert!(items[3].has_submenu);
+        assert_eq!(items[4].depth, 2);
+        assert!(items[5].checked && items[5].enabled);
     }
 
     #[test]

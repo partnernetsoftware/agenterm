@@ -226,7 +226,7 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 | M Linux 截图 + Space 归属 | 见下 | **已落地**：Linux `GetImage` 只认 24/32 位 TrueColor，别的 visual typed 拒绝（不乱解释字节）、64 MiB 像素上限；Space 归属每行带 `spaces`，旅程校验它的 id 都在 `spaces` 清单里 |
 | L 剪贴板类型 | 见下 | **已落地**：mac `clipboard info` / Linux 复用 TARGETS 探针 / Win `EnumClipboardFormats`（按系统给的优先序）；`types_available: false` 与「空清单」是两回事 |
 | K Linux 窗口操作 | 见下 | **已落地（映射，未真机）**：`close` = `_NET_CLOSE_WINDOW`（是请求不是杀进程，所以闸仍然回读句柄）；`orderwin` = `ConfigureWindow(Above)`，**不动键盘焦点**；topmost = `_NET_WM_STATE_ABOVE`；iconify/maximize/restore 保持 typed（那是 WM 策略，猜了会报假成功） |
-| J L/W 后台菜单 | 见下 | **已落地（映射，未真机）**：复用各自已验证的有界树 walk，不新开机制；每段先解析后按下，缺失/重名/禁用/非叶子都在动手前拒绝；勾选状态用树里已有的 `checked`/`unchecked`/`mixed` |
+| J L/W 后台菜单 | 见下 | **Linux 已真机；Windows 仍映射**：复用各自已验证的有界树 walk，不新开机制；每段先解析后按下，缺失/重名/禁用/非叶子都在动手前拒绝。Linux 真跑（片 S）抓出 **4 个 bug**，见下 —— 这条盲写的路径没有一次是对的 |
 | I 原生事件流 | 见下 | **已落地**：macOS AXObserver 订阅在应用元素上，run loop 分片跑到期限；**不替换 poll-diff**——两者互不包含（poll 有 `before`/`after`、看不见「改了又改回去」；通知有到达时序、没有 before/after），默认仍 poll-diff，回复写明 mode |
 | H z 序 + 遮挡 | 见下 | **已落地**：mac（CGWindowList 前到后）/ Windows（EnumWindows z 序）/ Linux（`_NET_CLIENT_LIST_STACKING` 反转，**拒绝退回创建序**）；矩形相减在契约层有 6 条单测；真机：两个自有窗口 z=0/1 且 occl=0，把前窗盖到后窗上后者变 100 |
 | G MCU 三动作 + selected 两向词 | 见下 | **已落地**：`set-selected` 在 NSTableView 行上 verified + 幂等 no-op（另两行仍 `unselected`）；`cancel`/`show-default-ui` typed 拒绝并列出节点真有的动作；没有该状态的节点在碰机制前就 `state_unobservable` |
@@ -236,14 +236,49 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 | C Linux | 见下 | **已落地（映射，未真机）**：五个动作 + `focused` + `checked`/`unchecked`/`mixed`、`expanded`/`collapsed` 双向状态词；两条平台单测；linux/aarch64 两个 target `check` + `clippy` 干净 |
 | D cu 层 | 并进 K / M | **已落地**：`close` 三平台都有原生关闭控件（片 K 补上 Linux）；`orderwin` 三平台（片 K 补 Linux，不动焦点）；`screenshot` Win GDI + Linux X11（片 M），macOS 是系统拿走了 API；`capabilities` 逐平台如实报，不再硬编码 Linux 拒绝 |
 
+## 3. 片 S：Linux 菜单与几何真机（2026-09-01）
+
+片 J（后台菜单）和树里的 `bounds` 是**整段盲写**的，从没在 Linux 上执行过。给 GTK 固件加上
+`Gtk.MenuBar`（File → Do Thing / Disabled Thing / Marked Thing）之后逐条跑，**六个 bug 全部只有
+执行才会现形**，其中三个让整个动词不可用：
+
+| # | 症状 | 根因 | 修在哪 |
+|---|---|---|---|
+| 1 | `menu inspect` 找到了菜单栏但 `items: []` | 调用方的 depth 预算数的是**菜单层数**，平台却把它当成**从窗口根算起的树深度**。macOS 的菜单栏挂在应用根下面，Linux 的被 GTK 埋在 frame→filler 里三层，预算全花在走到菜单栏的路上 | `linux/accessibility_tree.rs`：先用搜索深度定位菜单栏，再按它实际所在的深度重走一遍 |
+| 2 | `inspect` 报的路径 `menu invoke` 不接受 | 两边模型不同：macOS 命名的是**条目**（`AXMenuBarItem` "File"）、下面挂一个重名的 `AXMenu`；AT-SPI **没有条目节点**，GTK 的 "File" 本身就是 `menu` 角色。扁平化只认条目角色，于是 Linux 丢了 "File" 这一段 | `cu/observe.rs`：命名的 `menu` 也算一段，除非它是 macOS 那个「被条目直接拥有」的重复节点 |
+| 3 | 灰掉的条目报 `enabled: true` | AT-SPI **没有 `disabled` 这个状态词**，禁用就是不发 `enabled`；判据写的是「没有 disabled 就是 enabled」 | 同上：要求正的 `enabled`，两种词汇表都答得对，且错也错在**拒绝**那一侧 |
+| 4 | 可勾选条目在 `inspect` 里**根本不存在**，`invoke` 却按得动 | AT-SPI 给它单独的角色 `check menu item`；角色白名单只有 `menuitem`/`menubaritem`。于是 inspect 和 invoke 对「有哪些条目」的回答不一致 | 同上：白名单加 `checkmenuitem`/`radiomenuitem` |
+| 5 | 回执 `mark_after: "u"` | ABI 把 mark 定义为**一个 Unicode 标量**；Linux 适配器返回的是状态词 `"unchecked"`，于是被截成首字母。**macOS 永远看不见这个 bug**，因为真的 `AXMenuItemMarkChar` 就是一个字符 | `linux/accessibility_tree.rs`：把状态映射成它代表的字符（✓ / –），并补上原本没读的 `mark_before` |
+| 6 | 树里每个节点 `bounds` 都是 `{0,0,0,0}` | 走树时**硬编码为零**，`bounds_from_proxy` 写了但一个调用点都没有。而 `{0,0,0,0}` 正是这个适配器在别处（`extents_or_unavailable`）明确称为「不可用」的哨兵——等于把「没读」当成「读到了一个零面积矩形」发出去，macOS 同一字段发的是真矩形 | 接上 `component_proxy_for`（和文本读一样绕开会挂的 `proxies()`），`ACTION_TIMEOUT` 有界；整棵树多花约 0 ms（33 ms） |
+
+顺带（同一次执行里现形，不属于菜单）：
+
+- **`i32::MIN` 当坐标发出去**：GTK 给未分配的控件（关着的菜单里的条目）报 `1x1 at i32::MIN`，
+  只判 `width/height > 0` 放行了它。现在 `is_readable_rect` 一并拒绝未分配原点，`get-extents`
+  改成 typed 拒绝并把真实矩形写进消息。
+- **失败被读成空清单**：`read_two_stage` 把 `AGT_FAILED` + `out_len==0` 一律当作空载荷。但
+  `AGT_FAILED` 同时承担「缓冲区太小（探针的正常答复）」和「调用失败」两件事，只有
+  `agt_last_error` 的 code 能分开。后果是**一台根本没装 xclip/xsel/wl-paste 的机器，
+  `clipboard-read` 报 `types_available: true, types: []`** —— 把「探针没跑起来」说成了
+  「剪贴板上没有别的类型」。同一轮里我先前为「空桌面」加的三个
+  `AGT_FAILED if needed == 0 => Ok(vec![])` 分支同样是这个错：空清单本来就走 `AGT_OK`，
+  那三个分支只会吞掉真失败，已删除。
+- **`AGT_UNSUPPORTED` 被拍平**：它按约定不记录错误，读错误槽会拿到上一次的残留
+  （干净时是 `"ok: no error"`）。现在直接映射成 `Unsupported`。
+- **Debug 渲染漏进 JSON**：`types_reason` 是 `format!("{error:?}")`，发出去的是
+  `Failed { code: "...", message: "..." }`。同一类 bug 本轮已经修过一次。
+
+macOS 旅程（28 STEP / 27 EVIDENCE）在这些改动之后全绿——那才是「Linux 的修法没有掰坏 macOS」
+的证据，不是我读代码觉得没事。
+
 ### 还剩什么（2026-09-01，本轮结束时）
 
 | 项 | 为什么还在 |
 |---|---|
-| ~~Linux **真机**~~ **已做**（片 Q/R） | **跑起来了**：本机有 lima VM + `zig cc` 能交叉链接，于是把 Linux 二进制在 Ubuntu 26.04 aarch64 上**真跑**。105 条平台单测在 Linux 上执行通过；起了 Xvfb + at-spi2 + dbus 之后 `capabilities` 报 `tree/windows: Available`、`displays` 读出真实的 1280x800。**代价是抓出三个只有真跑才会现形的 bug**（见下）。**片 R 又装了 openbox + PyGObject 固件**，于是节点动作也真跑了：`invoke press` 让计数标签
+| ~~Linux **真机**~~ **已做**（片 Q/R/S） | **跑起来了**：本机有 lima VM + `zig cc` 能交叉链接，于是把 Linux 二进制在 Ubuntu 26.04 aarch64 上**真跑**。105 条平台单测在 Linux 上执行通过；起了 Xvfb + at-spi2 + dbus 之后 `capabilities` 报 `tree/windows: Available`、`displays` 读出真实的 1280x800。**代价是抓出三个只有真跑才会现形的 bug**（见下）。**片 R 又装了 openbox + PyGObject 固件**，于是节点动作也真跑了：`invoke press` 让计数标签
 从 `pressed 0` 变 `pressed 1`；`set-checked true` performed+verified、再来一次 performed=false
 仍 verified、`false` 又变回来；`focus`/`focused`/`get-text`/`query --role` 都通；`windows` 的
-`z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下） |
+`z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下）。**片 S 再加菜单栏**，把后台菜单和树几何也真跑了：**又抓到六个**（见 §3）——盲写的片 J 没有一条是对的 |
 | Windows **真机证据** | 本仓没有那台机器，也没有可跑的模拟路径。映射交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 写 `[~] mapped` |
 | macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
 | 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
