@@ -225,7 +225,7 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 | N 权限报告面 | 见下 | **已落地**：修复路径本来埋在 `tree` 动词里（要先知道是树被拒才找得到），现在一级；macOS 同一份 Accessibility 授权还管所有输入动词，gates 列出全部 24 个；没有权限模型的宿主写 `model: none` 而不是空集 |
 | M Linux 截图 + Space 归属 | 见下 | **已落地**：Linux `GetImage` 只认 24/32 位 TrueColor，别的 visual typed 拒绝（不乱解释字节）、64 MiB 像素上限；Space 归属每行带 `spaces`，旅程校验它的 id 都在 `spaces` 清单里 |
 | L 剪贴板类型 | 见下 | **已落地**：mac `clipboard info` / Linux 复用 TARGETS 探针 / Win `EnumClipboardFormats`（按系统给的优先序）；`types_available: false` 与「空清单」是两回事 |
-| K Linux 窗口操作 | 见下 | **已落地（映射，未真机）**：`close` = `_NET_CLOSE_WINDOW`（是请求不是杀进程，所以闸仍然回读句柄）；`orderwin` = `ConfigureWindow(Above)`，**不动键盘焦点**；topmost = `_NET_WM_STATE_ABOVE`；iconify/maximize/restore 保持 typed（那是 WM 策略，猜了会报假成功） |
+| K Linux 窗口操作 | 见下 | **已真机（片 T）**：`close` = `_NET_CLOSE_WINDOW`（是请求不是杀进程，所以闸仍然回读句柄）；`orderwin` = `ConfigureWindow(Above)`，**不动键盘焦点**；topmost = `_NET_WM_STATE_ABOVE`；iconify/maximize/restore 保持 typed（那是 WM 策略，猜了会报假成功） |
 | J L/W 后台菜单 | 见下 | **Linux 已真机；Windows 仍映射**：复用各自已验证的有界树 walk，不新开机制；每段先解析后按下，缺失/重名/禁用/非叶子都在动手前拒绝。Linux 真跑（片 S）抓出 **4 个 bug**，见下 —— 这条盲写的路径没有一次是对的 |
 | I 原生事件流 | 见下 | **已落地**：macOS AXObserver 订阅在应用元素上，run loop 分片跑到期限；**不替换 poll-diff**——两者互不包含（poll 有 `before`/`after`、看不见「改了又改回去」；通知有到达时序、没有 before/after），默认仍 poll-diff，回复写明 mode |
 | H z 序 + 遮挡 | 见下 | **已落地**：mac（CGWindowList 前到后）/ Windows（EnumWindows z 序）/ Linux（`_NET_CLIENT_LIST_STACKING` 反转，**拒绝退回创建序**）；矩形相减在契约层有 6 条单测；真机：两个自有窗口 z=0/1 且 occl=0，把前窗盖到后窗上后者变 100 |
@@ -270,6 +270,37 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 
 macOS 旅程（28 STEP / 27 EVIDENCE）在这些改动之后全绿——那才是「Linux 的修法没有掰坏 macOS」
 的证据，不是我读代码觉得没事。
+
+## 4. 片 T：`orderwin` 在两个平台上都不是它自称的东西（2026-09-01）
+
+`orderwin` 一直**从「发出了抬升请求」这件事报成功**，从来没读过结果。把读回加上之后，
+两个平台各露出一个真问题：
+
+**Linux：动词完全无效，但一直报 ok。** 两层原因，第二层是第一层的伪装：
+
+1. 被管理的窗口被 WM 重父到自己的框架里，`SubstructureRedirect` 让针对客户端窗口的
+   `ConfigureWindow` 变成**一个 WM 可以直接丢掉的请求**——openbox 就丢掉了。改用 EWMH 为
+   「pager 重排自己不拥有的窗口、且不动焦点」准备的 `_NET_RESTACK_WINDOW`（openbox 在
+   `_NET_SUPPORTED` 里确实登记了它）；不登记它的 WM 和无管理窗口仍回退 `ConfigureWindow`。
+2. 光这样还是不动。**这个文件里每个 EWMH 发送点都是 flush 完就返回，连接在返回路上被
+   drop，服务器还没处理的请求就此丢失。**实测：同一条 restack 消息，连接留着就生效、
+   flush 后立刻 drop 就什么都不发生。三个发送点现在都在返回前做一次往返
+   （`GetInputFocus`）——这也才让返回 `Ok` 这件事本身站得住。**受影响的不只是抬升，
+   `_NET_CLOSE_WINDOW` 和移动/改尺寸走的是同一条路。**
+
+修完在 openbox 上实测：窗口从背后升到最前，读回证实；已经成立的方向是「成功且没动」；
+破坏性 `close` 缺三件套时拒绝，齐了则关掉并回读句柄消失。
+
+**macOS：机制做不到，于是现在如实拒绝。** `AXRaise` 是**应用内部**的排序，对一个不在前台的
+应用，它不会改变全局窗口列表。实测（两个自有固件窗口，同一个 pid）：请求把 z=1 的窗口放到
+最前，结果它变成 z=2，也就是**更靠后**了。cu 不会为了让抬升生效去激活那个应用——那正是所有
+动词都在避免的抢前台——所以诚实的答案是**带着实测到的前后 z 值 typed 拒绝**
+（`window_order_not_applied`），而不是把 AXRaise 已经发出去当成成功。旅程第 29 步钉的就是
+这个拒绝，外加「本来就成立的方向仍然成功」「同一个句柄写两次在动手前 `invalid_input`」
+「observe-only grant 到不了机制」。
+
+> 这条是「读回」这个纪律本身的回报：动词没变强，但**它不再说假话**，而且我们第一次
+> 知道 macOS 这条路走不通——之前两个平台的成功回复都是假的。
 
 ### 还剩什么（2026-09-01，本轮结束时）
 

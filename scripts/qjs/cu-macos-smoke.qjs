@@ -70,6 +70,7 @@ const declared_evidence = [
   "cu.macos-ax-send-keys",
   "cu.macos-ax-mcu-actions",
   "cu.macos-ax-stacking",
+  "cu.macos-ax-orderwin",
   "cu.macos-ax-app-lifecycle",
   "cu.macos-ax-app-inventory",
   "cu.macos-ax-fixture-cleanup"
@@ -1503,6 +1504,65 @@ try {
     covered_row !== null && int_at(covered_row, "occluded_percent") === 100,
     "cu_macos_smoke_stacking_covered:" + JSON.stringify(covered_row)
   );
+
+  print("STEP orderwin answers from the order it reads back: on macOS AXRaise cannot reorder a background app's windows, so it refuses typed instead of reporting the raise it sent");
+  // Measured on this host: AXRaise on a window of an application that is
+  // not frontmost does not move it in the global window list -- the second
+  // window went from z=1 to z=2, i.e. further back, while the request was
+  // to put it in front. cu will not activate the application to make the
+  // raise take (that would steal the foreground, which every verb here is
+  // built not to do), so the honest answer is a refusal that names the
+  // order it actually read. Reporting success from having *sent* AXRaise
+  // is what this verb used to do.
+  const order_target_handle = int_at(back_row, "handle");
+  const order_raise = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "orderwin",
+    "--window", "" + order_target_handle, "--relation", "above", "--relative", handle_text
+  ]);
+  ensure(
+    !flag_at(order_raise, "ok")
+      && text_at(order_raise, "error.code") === "window_order_not_applied"
+      && int_at(order_raise, "error.detail.after.window_z")
+         > int_at(order_raise, "error.detail.after.relative_z"),
+    "cu_macos_smoke_orderwin_refusal:" + JSON.stringify(order_raise)
+  );
+  // The refusal carries both readings, so a caller can see it was measured
+  // rather than assumed.
+  ensure(
+    int_at(order_raise, "error.detail.before.relative_z") >= 0
+      && int_at(order_raise, "error.detail.after.relative_z") >= 0,
+    "cu_macos_smoke_orderwin_readings:" + JSON.stringify(order_raise)
+  );
+  // Asking for an order that already holds is a success that moves
+  // nothing: the front window is already above the back one.
+  const order_holds = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "orderwin",
+    "--window", handle_text, "--relation", "above", "--relative", "" + order_target_handle
+  ]);
+  ensure(
+    flag_at(order_holds, "ok")
+      && int_at(order_holds, "data.after.window_z") < int_at(order_holds, "data.after.relative_z"),
+    "cu_macos_smoke_orderwin_holds:" + JSON.stringify(order_holds)
+  );
+  // Naming one handle twice is refused before anything is raised.
+  const order_same = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "orderwin",
+    "--window", handle_text, "--relation", "above", "--relative", handle_text
+  ]);
+  ensure(
+    !flag_at(order_same, "ok") && text_at(order_same, "error.code") === "invalid_input",
+    "cu_macos_smoke_orderwin_same_handle:" + JSON.stringify(order_same)
+  );
+  // An observe-only grant never reaches the mechanism.
+  const order_unauthorized = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "orderwin",
+    "--window", "" + order_target_handle, "--relation", "above", "--relative", handle_text
+  ]);
+  ensure(
+    !flag_at(order_unauthorized, "ok"),
+    "cu_macos_smoke_orderwin_grant:" + JSON.stringify(order_unauthorized)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.macos-ax-orderwin");
 
   print("STEP close without a snapshot, a postcondition or a target, and with a wrong --pid / --title, is refused typed; the second window stays");
   const second_title = "agenterm-ax-second-" + fixture_pid;

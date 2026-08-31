@@ -2008,7 +2008,7 @@
     },
     {
       "id": "cu-macos-smoke",
-      "description": "Prove the macOS agenterm-cu AX loop: capabilities, windows filters, query, bounded tree; invoke (set-value / set-checked / press / increment / select-option / set-selected) read back by verify and wait --expect with typed refusals; menu inspect / invoke, focused, observe's poll-diff and notification streams; click with the pointer restored, window-place, the close gate and crash-persistent receipts; extents, select / caret, send-keys; stacking, app hide / show / quit, apps and launch; fixture cleanup.",
+      "description": "Prove the macOS agenterm-cu AX loop: capabilities, windows filters, query, bounded tree; invoke (set-value / set-checked / press / increment / select-option / set-selected) read back by verify and wait --expect with typed refusals; menu inspect / invoke, focused, observe's poll-diff and notification streams; click with the pointer restored, window-place, orderwin answering from the order it reads back, the close gate and receipts; extents, select / caret, send-keys; stacking, app lifecycle and launch.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

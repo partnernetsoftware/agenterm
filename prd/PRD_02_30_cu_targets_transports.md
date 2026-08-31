@@ -916,23 +916,32 @@ Canonical host mapping (approved product vocabulary):
   the TARGETS probe the text check already runs; Windows enumerates
   clipboard formats in the order the system offers them, which is a
   preference ranking.
-- [~] `close`, `orderwin` and topmost on Linux (cut 3.57), mapped but not
-  journey-proven: `close` sends the EWMH `_NET_CLOSE_WINDOW` client
-  message to the root window, which asks the window manager to close the
-  window the way its own close button would -- so the application still
-  runs its shutdown path and can show a "save your work?" dialog. It is a
-  request, not a kill, which is exactly why cu's destructive gate reads
-  the handle back afterwards instead of trusting the call. `orderwin`
-  raises with `ConfigureWindow(stack_mode = Above)`, the X11 primitive
-  that brings a window forward **without touching keyboard focus**, and
-  topmost adds or removes `_NET_WM_STATE_ABOVE`. The other show states
+- [x] `close`, `orderwin` and topmost on Linux (cut 3.58), executed on
+  Ubuntu aarch64 under openbox: `close` sends the EWMH
+  `_NET_CLOSE_WINDOW` client message to the root window, which asks the
+  window manager to close the window the way its own close button would
+  -- so the application still runs its shutdown path and can show a
+  "save your work?" dialog. It is a request, not a kill, which is exactly
+  why cu's destructive gate reads the handle back afterwards instead of
+  trusting the call; live, the gate refuses without its three parts and
+  then closes the window with the handle read back as gone. `orderwin`
+  raises with `_NET_RESTACK_WINDOW`, the EWMH message for a pager
+  restacking a window it does not own **without touching keyboard
+  focus**; `ConfigureWindow(stack_mode = Above)` is the fallback for an
+  unmanaged window or a WM that does not advertise the message, because a
+  reparenting window manager is free to drop a ConfigureWindow on the
+  client window and openbox does. Every EWMH send now round-trips with
+  the server before returning: `flush` alone loses a request the server
+  has not processed by the time the connection is dropped on the way out,
+  which silently disabled the raise, the close and the move. `topmost`
+  adds or removes `_NET_WM_STATE_ABOVE`. The other show states
   (iconify, maximize, restore) stay typed `unsupported`: they are
   window-manager policy rather than a stacking operation, and guessing at
   `_NET_WM_STATE` transitions a given WM may ignore would report success
   for nothing. `capabilities` now declares `close` from the window-op
   capability on every host instead of hard-coding a Linux refusal.
-- [~] background menus on Linux and Windows (cut 3.57), mapped but not
-  journey-proven: both find the `menu bar` node in the window's own
+- [x] background menus on Linux (cut 3.58), executed against a GTK menu
+  bar; [~] still mapped-only on Windows. Both find the `menu bar` node in the window's own
   bounded tree -- AT-SPI publishes a frame's menu bar and UIA publishes a
   `MenuBar` element (including the classic Win32 menus the MSAA bridge
   exposes), so reading one is a walk and a search, with no menu opened on
@@ -941,9 +950,20 @@ Canonical host mapping (approved product vocabulary):
   disabled segment and a non-leaf item with nothing performed, then
   presses the item's own action -- never a click at its coordinates. A
   menu-bar item that owns a `menu` child holding the items is matched one
-  level down, because that is how both toolkits nest them. The check mark
-  comes back as the state word the tree already speaks (`checked` /
-  `unchecked` / `mixed`) rather than as a macOS mark character.
+  level down, because that is how both toolkits nest them. Executing this
+  on GTK corrected four things that reading it could not: the caller's
+  depth budget counts menu levels and has to be applied from the bar,
+  which AT-SPI buries several widget levels inside the frame rather than
+  hanging off the application root; AT-SPI has no separate bar-entry node,
+  so GTK's "File" is itself a role-`menu` node and has to count as a path
+  segment or `inspect` reports paths `invoke` will not accept; AT-SPI has
+  no `disabled` state at all, so "not disabled" called every item
+  pressable; and a checkable entry carries its own role (`check menu
+  item`), without which `inspect` omitted items `invoke` would press. The
+  check mark reaches the caller as the character the state stands for --
+  the receipt field is one Unicode scalar, so returning the word
+  `unchecked` arrived as `"u"`, which macOS could never show because a
+  real `AXMenuItemMarkChar` is one character.
   `capabilities` declares `mode: "tree-search"` on these two: a toolkit
   that populates a closed menu lazily publishes nothing to find, which is
   a weaker claim than macOS asking the application for its menu bar, and
