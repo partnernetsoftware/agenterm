@@ -1408,15 +1408,7 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
         return 2;
     }
     if arguments.get(1).is_some_and(|value| value == "check-many") {
-        // The verb was rh's: it re-invoked this executable behind the rh
-        // marker, and its manifest schema, `kind` string and receipt were
-        // rh's. The engine left on 2026-08-29 and the verb went with it.
-        cli_eprintln!(
-            "script check-many left with the rh engine (partnernetsoftware/rh); \
-             use `script check FILE` per file, or the engine's own dev CLI \
-             (`agenterm lua check-many`, `agenterm sql check-many`)"
-        );
-        return 2;
+        return run_script_check_many(arguments);
     }
     if arguments.get(1).is_some_and(|value| value == "task") {
         return run_script_task_command(arguments);
@@ -1434,6 +1426,33 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
         return run_script_artifact_command(arguments);
     }
     run_script_command_with_context(arguments, None)
+}
+
+/// Bounded repository-wide `.qjs` validation. Rh's implementation left with
+/// that engine; the product verb remains because qjswasm now owns the active
+/// script corpus and must validate it without spawning one worker per file.
+fn run_script_check_many(arguments: &[String]) -> i32 {
+    #[cfg(feature = "script-qjswasm")]
+    {
+        let outcome = agenterm_script_common::cli::run_check_many_command(
+            &arguments[2..],
+            |path| agenterm_qjswasm::check_many::read_manifest(path),
+            agenterm_qjswasm::check_many::run_check_many,
+        );
+        match outcome {
+            Ok(code) => i32::from(code),
+            Err(message) => {
+                cli_eprintln!("{message}");
+                2
+            }
+        }
+    }
+    #[cfg(not(feature = "script-qjswasm"))]
+    {
+        let _ = arguments;
+        cli_eprintln!("script check-many requires the script-qjswasm feature");
+        2
+    }
 }
 
 /// `script pack build|load`, `script run-smoke` and `script qualify`: the four

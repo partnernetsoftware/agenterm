@@ -2981,3 +2981,11 @@ keeps the low bits, signed 8/16-bit extraction sign-extends to `i32`, and float
 lanes preserve their exact IEEE-754 representation. A useful oracle serializes
 all results into memory and compares every byte across WABT-compiled tinyvm,
 JavaScriptCore and browser executions.
+
+## Typed errors require an all-target consumer sweep
+
+When a shared Rust API changes an error from `String` to a typed record, search
+all tests and secondary binaries for string-only operations (`contains`,
+`is_empty`, direct string equality), then run `cargo clippy --all-targets
+--all-features -- -D warnings`. A normal library build can miss those consumers
+because feature-gated integration tests are separate compilation targets.

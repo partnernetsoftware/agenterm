@@ -84,6 +84,7 @@ pub fn identity() -> String {
     )
 }
 
+pub mod check_many;
 pub mod corpus_scan;
 
 use std::sync::Arc;

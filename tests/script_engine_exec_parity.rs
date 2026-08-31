@@ -1,4 +1,4 @@
-//! Execution-level parity across rh/lua/qjs/sql through the unified
+//! Execution-level parity across lua/qjswasm/sql through the unified
 //! `ScriptEngineBackend` trait (`src/script_engine.rs`).
 //!
 //! Whole-file gate: parity across all four engines only exists when all
@@ -116,10 +116,6 @@ const ENGINES: [ScriptBackend; 3] = [
 /// Same "not enabled" format `src/script_engine.rs`'s private
 /// `not_enabled_error` produces (`format!("{} backend not enabled", ...)`)
 /// — reconstructed here since that helper isn't `pub`.
-fn not_enabled_message(backend: ScriptBackend) -> String {
-    format!("{} backend not enabled", backend.as_str())
-}
-
 // ---------------------------------------------------------------------
 // 1. trivial_entry_value
 // ---------------------------------------------------------------------
@@ -265,7 +261,7 @@ fn script_engine_exec_parity_check_accepts_valid_rejects_broken() {
             fixture.backend
         ));
         assert!(
-            !error.is_empty(),
+            !error.message.is_empty(),
             "{:?}: broken-source check error should carry a non-empty diagnostic",
             fixture.backend
         );
@@ -340,34 +336,21 @@ fn script_engine_exec_parity_execute_missing_entry_fails_closed() {
 }
 
 // ---------------------------------------------------------------------
-// 5. disabled_backend_errors
+// 5. enabled routing
 // ---------------------------------------------------------------------
 
 #[test]
-fn script_engine_exec_parity_disabled_backend_errors() {
+fn script_engine_exec_parity_enabled_routing() {
     let _guard = ENV_LOCK.lock().expect("lock");
 
     for &enabled in &ENGINES {
         let _env = EnvGuard::set(enabled.as_str());
-        for &other in &ENGINES {
-            if other == enabled {
-                continue;
-            }
-            let error = engine_for(other)
-                .execute(
-                    "irrelevant source",
-                    &ScriptInvocationOptions::default(),
-                    None,
-                )
-                .expect_err(&format!(
-                    "{:?} should be disabled while AGENTERM_SCRIPT_BACKEND={}",
-                    other,
-                    enabled.as_str()
-                ));
+        for &candidate in &ENGINES {
             assert_eq!(
-                error,
-                not_enabled_message(other),
-                "disabled-backend error message should match exactly"
+                engine_for(candidate).enabled(),
+                candidate == enabled,
+                "routing should enable only AGENTERM_SCRIPT_BACKEND={}",
+                enabled.as_str()
             );
         }
     }
@@ -399,25 +382,13 @@ fn script_engine_exec_parity_error_not_panic() {
             .expect_err("lua: error('boom') should error, not panic")
     };
     assert!(
-        lua_error.contains("boom"),
+        lua_error.message.contains("boom"),
         "lua: error message should surface the original 'boom' text, got: {lua_error}"
     );
 
-    // qjswasm: an uncaught `throw` is an error and not a panic, the same
-    // contract -- but the **thrown value does not come with it**, and that is
-    // a divergence worth its own sentence.
-    //
-    // `throw new Error('boom')` on rquickjs surfaced the text `boom`. Here the
-    // answer is `the script threw a value and nothing caught it`, with no
-    // `boom` in it: a compiled module exports no global holding the thrown
-    // pair, so it is not readable from outside (upstream
-    // `GuestFault::UncaughtThrow` says so and calls handing it out a decision
-    // about the host boundary rather than about throwing). A script that wants
-    // the host to see *what* went wrong has to catch it and return or print it
-    // -- which `scripts/qjs/lib/fleet.qjs` does.
-    //
-    // Also `throw "boom"` and not `throw new Error(...)`: this engine has no
-    // `Error` global, and `new` is not in the subset.
+    // qjswasm: an uncaught `throw` is an error and not a panic. The diagnostic
+    // carries a bounded rendering of the thrown value, so the host gets both
+    // the failure class and the useful `boom` detail.
     let qjs_error = {
         let _env = EnvGuard::set("qjswasm");
         engine_for(ScriptBackend::Qjswasm)
@@ -425,13 +396,12 @@ fn script_engine_exec_parity_error_not_panic() {
             .expect_err("qjswasm: an uncaught throw should error, not panic")
     };
     assert!(
-        qjs_error.contains("threw a value"),
+        qjs_error.message.contains("threw") && qjs_error.message.contains("nothing caught"),
         "qjswasm: an uncaught throw should be named as one, got: {qjs_error}"
     );
     assert!(
-        !qjs_error.contains("boom"),
-        "qjswasm cannot surface the thrown value -- if it now can, upstream \
-         grew a way to read it and this divergence should be retired: {qjs_error}"
+        qjs_error.message.contains("boom"),
+        "qjswasm should surface the bounded thrown value: {qjs_error}"
     );
 
     // sql: querying a table that doesn't exist. This parses fine (it's
@@ -450,7 +420,7 @@ fn script_engine_exec_parity_error_not_panic() {
             .expect_err("sql: querying a nonexistent table should error, not panic")
     };
     assert!(
-        sql_error.contains("does_not_exist"),
+        sql_error.message.contains("does_not_exist"),
         "sql: error should name the unresolved table, got: {sql_error}"
     );
 

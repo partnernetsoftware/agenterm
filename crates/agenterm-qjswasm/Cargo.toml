@@ -49,6 +49,7 @@ serde_json = "1"
 # The shared corpus-scan contract: the scenarios every engine's scanner has to
 # satisfy, so this crate's wrapper is held to the same ones lua's and qjs's are.
 agenterm-script-common = { path = "../agenterm-script-common", features = ["test-support"] }
+tempfile = "3.25"
 # Test-only: hand-authoring adversarial guests (infinite loop, deep recursion,
 # out-of-bounds pointer, memory.grow bomb) is far more legible as `.wat` than as
 # hand-encoded bytes. tinyvm's own suite uses the same crate the same way.

@@ -246,6 +246,14 @@ lua or qjs binding at all, and 9 of the 29 that do send a params object
 > --quick` passed all eight of its gates on macOS (`script-qjswasm` became a
 > default feature so the flagless bootstrap worker carries the engine; the
 > step contracts scaled x10 for an engine that counts wasm instructions).
+>
+> **2026-08-31 update.** The active repository lint no longer depends on an
+> rh-era exception: `agenterm cli script check-many` is restored on qjswasm
+> with the shared bounded manifest driver, tool-door compilation, confined
+> module resolution and library-entry handling. `scripts/qjs/lint.qjs`
+> validates the tracked `.qjs` corpus in one worker. This is replacement
+> work, not a revival of rh; the rh implementation and `.rh` corpus remain
+> archived.
 
 rh ran the whole build/qualify/release pipeline, and nothing else did. Moving
 it out turned every one of those off. This is the list; each item stays dark
@@ -288,8 +296,9 @@ until its `.qjs` port lands (PRD 02.36 A1.2/A1.3: `path.qjs`, then the
 - **Control Center** lost `agenterm-cc rh-pack` and the "rh pack" cc-lines
   overlay; the observability JSON's `script` key now reports the compiled-in
   engines instead of an rh pack.
-- **`script check-many`** on the product face is a named refusal (the verb's
-  manifest schema was rh's); `agenterm lua|sql check-many` are untouched.
+- **`script check-many`** was dark from 2026-08-29 through 2026-08-31. It is
+  now owned by qjswasm and accepts `agenterm-qjs-check-manifest`; the separate
+  `agenterm lua|sql check-many` development doors are unchanged.
 - **Docs**: `docs/agenterm-rh-runtime.md`, `docs/agenterm-rh-cheatsheet.md`,
   `PRD.md`'s rh lines, `plan/*` and `skills/*` mentions are history, not
   retargeted. `examples/script-daily-check/` (the rh "north-star" project)
