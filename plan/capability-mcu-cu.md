@@ -13,7 +13,8 @@
 cu 不激活应用，所以带实测值 typed 拒绝；`app hide`/`show` 和 `send-keys` 在 Linux 上
 没有对应机制，各自 typed 拒绝并点名缺什么。
 
-**Linux 已经上真机了**（本机 lima VM + `zig cc` 交叉链接 + Xvfb/openbox/at-spi2/GTK 固件），
+**Linux 已经上真机，而且有自己的注册旅程了**（本机 lima VM + `zig cc` 交叉链接 +
+Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke`，16 STEP / 16 EVIDENCE，连跑三次稳定。
 PRD 的 Linux leaf 从 `[~] mapped` 改成 `[x]`。**代价是抓出 16 个 bug，其中 3 个让整个动词不可用、
 1 个让代码在真实 feature 组合下根本编不过**——所以 **Windows 那一侧现在应当按「未验证」理解，
 而不是「接近对齐」**：本仓没有那台机器，也没有可跑的模拟路径，leaf 仍写 `[~] mapped`。

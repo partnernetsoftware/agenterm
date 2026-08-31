@@ -964,7 +964,8 @@ Canonical host mapping (approved product vocabulary):
   clipboard formats in the order the system offers them, which is a
   preference ranking.
 - [x] `close`, `orderwin` and topmost on Linux (cut 3.58), executed on
-  Ubuntu aarch64 under openbox: `close` sends the EWMH
+  Ubuntu aarch64 under openbox and now pinned by the `cu-linux-smoke`
+  journey (`scripts/qjs/cu-linux-smoke.qjs`, 16 steps / 16 evidence ids): `close` sends the EWMH
   `_NET_CLOSE_WINDOW` client message to the root window, which asks the
   window manager to close the window the way its own close button would
   -- so the application still runs its shutdown path and can show a
@@ -988,7 +989,7 @@ Canonical host mapping (approved product vocabulary):
   for nothing. `capabilities` now declares `close` from the window-op
   capability on every host instead of hard-coding a Linux refusal.
 - [x] background menus on Linux (cut 3.58), executed against a GTK menu
-  bar; [~] still mapped-only on Windows. Both find the `menu bar` node in the window's own
+  bar and pinned by `cu-linux-smoke`; [~] still mapped-only on Windows. Both find the `menu bar` node in the window's own
   bounded tree -- AT-SPI publishes a frame's menu bar and UIA publishes a
   `MenuBar` element (including the classic Win32 menus the MSAA bridge
   exposes), so reading one is a walk and a search, with no menu opened on

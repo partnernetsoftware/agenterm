@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 # Public black-box smoke for agenterm-cu on Linux/X11 + AT-SPI2.
+#
+# SUPERSEDED as the live gate by scripts/qjs/cu-linux-smoke.qjs, registered
+# as the `cu-linux-smoke` task:
+#
+#   agenterm cli script task run cu-linux-smoke --json
+#
+# That one owns its GTK fixture, asserts the readings rather than the exit
+# codes, and emits evidence ids. This script stays as a dependency-free
+# check anyone can run against an already-running desktop without the task
+# runner; it does not replace the journey and does not emit evidence.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
