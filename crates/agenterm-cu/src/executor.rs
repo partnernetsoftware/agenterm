@@ -982,17 +982,12 @@ fn capabilities_payload() -> serde_json::Value {
         }
         declaration
     };
-    // The destructive verb rides the platform's window close control:
-    // macOS AX `AXCloseButton` (slice 4) and Windows `WM_CLOSE`; the Linux
-    // adapter has no close mapping yet.
-    let close_verb = if cfg!(target_os = "linux") {
-        serde_json::json!({
-            "status": "unsupported",
-            "reason": "window close is not mapped on the Linux window-op adapter",
-        })
-    } else {
-        serde_json::json!({ "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase() })
-    };
+    // The destructive verb rides the platform's own close control on all
+    // three hosts now: macOS AX `AXCloseButton`, Windows `WM_CLOSE`, and
+    // Linux the EWMH `_NET_CLOSE_WINDOW` request. All three are requests,
+    // not kills -- which is exactly why the gate reads the handle back
+    // instead of trusting the call.
+    let close_verb = serde_json::json!({ "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase() });
     // Reading the pointer is an observation on every host, and it stays
     // available even where injection is not: the read never posts an event,
     // so it must not be gated behind the injection capability.
@@ -1096,6 +1091,7 @@ fn capabilities_payload() -> serde_json::Value {
                 "group": "geometry",
                 "mode": "raise",
             },
+            "screenshot": screenshot_verb,
             "receipts": { "status": "available" },
             "page-js": {
                 "status": "available",
@@ -1112,7 +1108,6 @@ fn capabilities_payload() -> serde_json::Value {
                 "scope": "desktop",
                 "group": "input",
             },
-            "screenshot": screenshot_verb,
         },
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
         "alignment_tsv": crate::mcu_surface::alignment_matrix_text(),

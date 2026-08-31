@@ -45,7 +45,7 @@
 
 ### 0.4 cu 层（非 a11y）
 
-`close` Linux 无 `window_op` 映射；`orderwin` Linux typed；`spaces` 仅 macOS；`observe` 的原生通知只有 macOS（L/W 后端都有事件机制，本轮未接）。
+~~`close` Linux 无映射~~ 已接 EWMH `_NET_CLOSE_WINDOW`；~~`orderwin` Linux typed~~ 已接 `ConfigureWindow(Above)`（不碰焦点）；`spaces` 仅 macOS；`observe` 的原生通知只有 macOS（L/W 后端都有事件机制，本轮未接）。
 
 **`screenshot` 在 macOS 上是被系统拿走的**（2026-08-31 实测）：`CGWindowListCreateImage`
 **在 macOS 15.0 已 obsoleted 并从 SDK 移除**（本机编译器原话：
@@ -63,6 +63,7 @@ instead"）。替代品 ScreenCaptureKit 是 block 异步 API，且要另一份 
 | **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
 | **F** | 网页 AX：`unlock`（`AXManualAccessibility` poke，ABI 1.15）+ 自有 `WKWebView` 固件 + `scroll` 正向证据 | `cu-macos-web-smoke.qjs` 真机通过 |
+| **K** | Linux `close`/`orderwin`/topmost：EWMH client message + `ConfigureWindow(Above)` | 交叉编译 + clippy（未真机） |
 | **J** | L/W 后台菜单：在窗口自己的有界树里找 `menu bar`，按标题路径唯一解析后按下 | 交叉编译 + clippy（未真机；`capabilities` 写 `mode: tree-search`） |
 | **I** | `observe --mode notifications`（ABI 1.18，macOS AXObserver）；poll-diff 仍是默认 | `cu-macos-smoke` 26 STEP / 25 EVIDENCE 真机通过 |
 | **H** | `windows` 的 z 序与遮挡（ABI 1.17）：三平台都用各自的原生栈序，矩形精确相减 | `cu-macos-smoke` 25 STEP / 24 EVIDENCE + 6 条契约层单测 |
@@ -136,6 +137,7 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 | 片 | 提交 | 状态 |
 |---|---|---|
 | A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（`cu-macos-smoke` **23 STEP / 22 EVIDENCE**，81.3M 步 / 287 ops / 73 页；前台句柄与真实指针不动，无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
+| K Linux 窗口操作 | 见下 | **已落地（映射，未真机）**：`close` = `_NET_CLOSE_WINDOW`（是请求不是杀进程，所以闸仍然回读句柄）；`orderwin` = `ConfigureWindow(Above)`，**不动键盘焦点**；topmost = `_NET_WM_STATE_ABOVE`；iconify/maximize/restore 保持 typed（那是 WM 策略，猜了会报假成功） |
 | J L/W 后台菜单 | 见下 | **已落地（映射，未真机）**：复用各自已验证的有界树 walk，不新开机制；每段先解析后按下，缺失/重名/禁用/非叶子都在动手前拒绝；勾选状态用树里已有的 `checked`/`unchecked`/`mixed` |
 | I 原生事件流 | 见下 | **已落地**：macOS AXObserver 订阅在应用元素上，run loop 分片跑到期限；**不替换 poll-diff**——两者互不包含（poll 有 `before`/`after`、看不见「改了又改回去」；通知有到达时序、没有 before/after），默认仍 poll-diff，回复写明 mode |
 | H z 序 + 遮挡 | 见下 | **已落地**：mac（CGWindowList 前到后）/ Windows（EnumWindows z 序）/ Linux（`_NET_CLIENT_LIST_STACKING` 反转，**拒绝退回创建序**）；矩形相减在契约层有 6 条单测；真机：两个自有窗口 z=0/1 且 occl=0，把前窗盖到后窗上后者变 100 |

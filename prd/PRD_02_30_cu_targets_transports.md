@@ -766,6 +766,21 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [~] `close`, `orderwin` and topmost on Linux (cut 3.57), mapped but not
+  journey-proven: `close` sends the EWMH `_NET_CLOSE_WINDOW` client
+  message to the root window, which asks the window manager to close the
+  window the way its own close button would -- so the application still
+  runs its shutdown path and can show a "save your work?" dialog. It is a
+  request, not a kill, which is exactly why cu's destructive gate reads
+  the handle back afterwards instead of trusting the call. `orderwin`
+  raises with `ConfigureWindow(stack_mode = Above)`, the X11 primitive
+  that brings a window forward **without touching keyboard focus**, and
+  topmost adds or removes `_NET_WM_STATE_ABOVE`. The other show states
+  (iconify, maximize, restore) stay typed `unsupported`: they are
+  window-manager policy rather than a stacking operation, and guessing at
+  `_NET_WM_STATE` transitions a given WM may ignore would report success
+  for nothing. `capabilities` now declares `close` from the window-op
+  capability on every host instead of hard-coding a Linux refusal.
 - [~] background menus on Linux and Windows (cut 3.57), mapped but not
   journey-proven: both find the `menu bar` node in the window's own
   bounded tree -- AT-SPI publishes a frame's menu bar and UIA publishes a
