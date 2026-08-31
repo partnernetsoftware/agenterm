@@ -965,7 +965,7 @@ Canonical host mapping (approved product vocabulary):
   preference ranking.
 - [x] `close`, `orderwin` and topmost on Linux (cut 3.58), executed on
   Ubuntu aarch64 under openbox and now pinned by the `cu-linux-smoke`
-  journey (`scripts/qjs/cu-linux-smoke.qjs`, 16 steps / 16 evidence ids): `close` sends the EWMH
+  journey (`scripts/qjs/cu-linux-smoke.qjs`, 18 steps / 18 evidence ids): `close` sends the EWMH
   `_NET_CLOSE_WINDOW` client message to the root window, which asks the
   window manager to close the window the way its own close button would
   -- so the application still runs its shutdown path and can show a

@@ -39,6 +39,8 @@ const declared_evidence = [
   "cu.linux-atspi-menu-invoke",
   "cu.linux-atspi-node-text",
   "cu.linux-atspi-focus",
+  "cu.linux-atspi-observe",
+  "cu.linux-atspi-screenshot",
   "cu.linux-atspi-window-place",
   "cu.linux-atspi-orderwin",
   "cu.linux-atspi-minimized",
@@ -112,6 +114,29 @@ function run_cu_reply(run_directory, executable, arguments) {
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+// Spawn an `observe` worker through the door; the caller changes the tree
+// while it runs and reaps it to read its one JSON reply.
+function start_observer(run_directory, executable, handle_text, duration) {
+  return harness.start({
+    program: executable,
+    args: [
+      "--target", "current", "--grant", "observe", "observe",
+      "--window", handle_text, "--duration", duration
+    ],
+    current_dir: run_directory,
+    env: cu_env(run_directory),
+    timeout_ms: 30000
+  });
+}
+
+function observer_result(handle) {
+  const output = harness.wait(handle, 20000);
+  ensure(output.success === true, "cu_linux_smoke_observer_process:" + JSON.stringify(output));
+  const document = JSON.parse(output.stdout.trim());
+  ensure(flag_at(document, "ok"), "cu_linux_smoke_observer_reply:" + JSON.stringify(document));
+  return document.data;
 }
 
 // The window row this run owns, by pid and exact title.
@@ -442,6 +467,57 @@ try {
     "cu_linux_smoke_extents:" + JSON.stringify(extents.data)
   );
 
+  print("STEP observe captures the changes made while it runs, with the before and after of each, rather than a snapshot taken after the fact");
+  const observer = start_observer(run_directory, executable, handle_text, "3");
+  harness.sleep_ms(700);
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Press", "press"
+  ]);
+  harness.sleep_ms(400);
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-text",
+    "--window", handle_text, "--name", "Fixture Entry", "--", "observed"
+  ]);
+  const observed = observer_result(observer);
+  // Both changes were issued by a *different* process while the stream was
+  // open, so an implementation that diffed once at the end would report the
+  // final state and miss that there were two separate changes.
+  ensure(
+    int_at(observed, "emitted") >= 2 && text_at(observed, "mode") === "poll-diff",
+    "cu_linux_smoke_observe:" + JSON.stringify(observed)
+  );
+  let saw_label_change = 0;
+  let saw_text_change = 0;
+  for (const event of observed.events) {
+    if (text_of(event.before) === "pressed 1" && text_of(event.after) === "pressed 2") { saw_label_change = 1; }
+    if (text_of(event.before) === "linuxtyped" && text_of(event.after) === "observed") { saw_text_change = 1; }
+  }
+  ensure(
+    saw_label_change === 1 && saw_text_change === 1,
+    "cu_linux_smoke_observe_events:" + JSON.stringify(observed.events)
+  );
+
+  print("STEP screenshot writes a PNG of the window itself, sized to the window rather than to the screen");
+  const shot_path = rh.join(run_directory, "window.png");
+  const shot = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "screenshot",
+    "--out", shot_path, "--window", handle_text
+  ]);
+  const shot_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(
+    int_at(shot, "data.output_width") === int_at(shot_row, "bounds.width")
+      && int_at(shot, "data.output_height") === int_at(shot_row, "bounds.height"),
+    "cu_linux_smoke_shot_size:" + JSON.stringify(shot.data) + JSON.stringify(shot_row.bounds)
+  );
+  ensure(direct_file(shot_path), "cu_linux_smoke_shot_missing");
+  // A capture of a real window compresses to far more than a blank one; an
+  // empty or flat image is what a broken X11 GetImage produces.
+  ensure(
+    rh.metadata(shot_path).len > 2000,
+    "cu_linux_smoke_shot_empty:" + rh.metadata(shot_path).len
+  );
+
   print("STEP window-place frame puts the window exactly where it was asked, which is an equality only because the request compensates for the window manager's own frame and the read-back is in root coordinates");
   const placed = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "window-place",
@@ -638,6 +714,8 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-inspect")
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-node-text");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-place");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-minimized");
