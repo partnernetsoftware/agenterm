@@ -1603,6 +1603,15 @@ fn apps_payload(all: bool) -> Result<serde_json::Value, CuError> {
     // Which installed ones are up right now, matched by the name the window
     // inventory reports, so a caller asking "installed but not running?"
     // gets the answer in one read instead of joining two lists itself.
+    //
+    // This is a name join and the reply says so (`running_match`). It is
+    // exact on macOS, where the bundle name is the name the window
+    // inventory reports. It is weaker on Linux, where a desktop entry's
+    // `Name` is a display name and the window reports the executable --
+    // an application started through an interpreter reports `python3`, and
+    // no name join can see through that. So `false` means "no running
+    // window reports this name", which is what was measured, not "this
+    // application is not running".
     let running_names: Vec<&str> = windows
         .iter()
         .map(|window| window.app_name.as_str())
@@ -1625,6 +1634,7 @@ fn apps_payload(all: bool) -> Result<serde_json::Value, CuError> {
         );
         object.insert("installed_apps".into(), serde_json::json!(rows));
         object.insert("installed_truncated".into(), serde_json::json!(truncated));
+        object.insert("running_match".into(), serde_json::json!("window-app-name"));
         if let Some(reason) = reason {
             object.insert("installed_reason".into(), serde_json::json!(reason));
         }

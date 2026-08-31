@@ -50,6 +50,8 @@ struct Atoms {
     wm_name: Atom,
     utf8_string: Atom,
     active_window: Atom,
+    wm_state: Atom,
+    state_hidden: Atom,
 }
 
 struct Context {
@@ -100,6 +102,8 @@ fn connect() -> Result<Context, WindowEnumerateError> {
         wm_name: atom(&connection, b"_NET_WM_NAME")?,
         utf8_string: atom(&connection, b"UTF8_STRING")?,
         active_window: atom(&connection, b"_NET_ACTIVE_WINDOW")?,
+        wm_state: atom(&connection, b"_NET_WM_STATE")?,
+        state_hidden: atom(&connection, b"_NET_WM_STATE_HIDDEN")?,
     };
     Ok(Context {
         connection,
@@ -136,6 +140,35 @@ fn client_windows(context: &Context) -> Result<Vec<Window>, WindowEnumerateError
         .into_iter()
         .filter(|window| seen.insert(*window))
         .collect())
+}
+
+/// Whether the window manager reports this window as not on screen.
+///
+/// `_NET_WM_STATE_HIDDEN` is EWMH's answer for a window the user cannot
+/// see -- iconified, shaded, or otherwise put away -- and it is set by the
+/// window manager rather than guessed at from geometry. Hardcoding `false`
+/// here reported every iconified window as on screen, and `windows
+/// --minimized` filtered on a constant.
+///
+/// An unreadable property is `false`: the window is in the client list and
+/// nothing says it is hidden.
+fn minimized(context: &Context, window: Window) -> bool {
+    let Ok(cookie) = context.connection.get_property(
+        false,
+        window,
+        context.atoms.wm_state,
+        AtomEnum::ATOM,
+        0,
+        32,
+    ) else {
+        return false;
+    };
+    let Ok(reply) = cookie.reply() else {
+        return false;
+    };
+    reply
+        .value32()
+        .is_some_and(|mut states| states.any(|state| state == context.atoms.state_hidden))
 }
 
 fn process_id(context: &Context, window: Window) -> Result<Option<u32>, WindowEnumerateError> {
@@ -314,14 +347,22 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
     let foreground = active_window(&context)?;
     let mut out = Vec::new();
     for window in client_windows(&context)? {
+        // An iconified window is UNMAPPED, so dropping everything that is
+        // not viewable dropped exactly the windows the `minimized` field
+        // exists to describe -- it could never be true, and `windows
+        // --minimized true` could never match. A managed window the window
+        // manager marks `_NET_WM_STATE_HIDDEN` is put away, not gone, and
+        // macOS lists its minimized windows too.
+        //
+        // Anything else that is not viewable is skipped: a client-list
+        // entry mid-map has no geometry worth reporting and is not a
+        // window a caller can act on.
         let state = map_state(&context, window)?;
-        if state != MapState::VIEWABLE {
+        let hidden = minimized(&context, window);
+        if state != MapState::VIEWABLE && !hidden {
             continue;
         }
         let title = title(&context, window).unwrap_or_default();
-        if title.is_empty() && state != MapState::VIEWABLE {
-            continue;
-        }
         let pid = process_id(&context, window)?.unwrap_or(0);
         let bounds = geometry(&context, window).unwrap_or(WindowBounds {
             x: 0,
@@ -336,7 +377,7 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
             app_name: process_name(pid),
             bounds,
             focused: window == foreground,
-            minimized: false,
+            minimized: hidden,
         });
     }
     Ok(out)

@@ -2097,9 +2097,30 @@ Commands:
                               poll-diff over the windows inventory (appeared /
                               disappeared / changed + field list). Not AXObserver.
                               --duration-ms 0 (default) takes one extra sample.
-  apps [--running]
+  apps [--running] [--all]
                               running apps from top-level windows (pids + window
-                              count). installed-not-running is not mapped.
+                              count). --all also lists the applications installed
+                              on this host that no window can reveal, each marked
+                              running or not.
+  app <hide|show|quit|launch> [--window HANDLE] [--pid N] [--path P]
+      [--snapshot --expect gone]
+                              steps a whole application, not one of its windows.
+                              hide/show take it aside and back (show takes --pid:
+                              hiding removed the windows the handle named); quit
+                              is destructive and carries the same three-part gate
+                              as close -- it presses the application's own Quit
+                              item and reads the process back. launch --path
+                              starts an installed application; the reply says
+                              pid: null because the launcher owns the process,
+                              so wait for its window if a pid is needed.
+  unlock --window HANDLE      asks the owning application to build its full
+                              accessibility tree (macOS AXManualAccessibility),
+                              reading the bounded tree before and after. Reports
+                              poked (the request was delivered), grew and
+                              returned_before separately, because the poke's own
+                              status is not the outcome: AppKit calls the
+                              attribute unsupported even when it lands, so only
+                              the re-read can claim anything about the tree.
   tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat]
                               depth (root=0, <=64) and node budget (1..20000) apply
                               while the platform walks; reply carries truncated /

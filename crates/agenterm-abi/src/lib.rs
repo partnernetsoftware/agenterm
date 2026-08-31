@@ -5780,7 +5780,10 @@ pub extern "C" fn agt_app_list_installed(
 /// that owns it, so no pid comes back and none is invented: a caller that
 /// needs one finds it the way a person would, by looking for the window
 /// that appears. `path == NULL` with `len > 0` → `bad_pointer`; non-UTF-8
-/// → `bad_encoding`; nothing at that path → `app_not_found`.
+/// → `bad_encoding`; nothing at that path → `app_not_found`; an entry that
+/// needs a terminal emulator the desktop has to choose (Linux
+/// `Terminal=true`) → `app_launch_needs_terminal`, which is a property of
+/// that entry rather than an absent mechanism.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_app_launch(path: *const u8, len: usize) -> agt_status {
@@ -5809,6 +5812,11 @@ pub extern "C" fn agt_app_launch(path: *const u8, len: usize) -> agt_status {
                 let code_cstr: &'static CStr = match code.as_ref() {
                     "app_not_found" => c"app_not_found",
                     "app_launch_failed" => c"app_launch_failed",
+                    // The entry is launchable in principle but needs a
+                    // terminal emulator the desktop has to choose. A caller
+                    // can branch on that; folding it into the generic
+                    // failure made it prose only.
+                    "app_launch_needs_terminal" => c"app_launch_needs_terminal",
                     "invalid_input" => c"invalid_input",
                     _ => c"app_launch_failed",
                 };
