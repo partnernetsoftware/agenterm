@@ -330,7 +330,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "tree" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let depth = match flag_parsed::<u32>(&mut args, "--depth") {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
@@ -352,7 +352,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             // Closed CLI shape (mcu lesson): an unknown flag, a missing
             // value, or a stray positional fails here, before any tree is
             // read, instead of quietly returning the whole tree.
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 Ok(None) => return usage_err("query requires --window <handle>"),
                 Err(message) => return usage_err(message),
@@ -428,7 +428,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
         }
         "invoke" => {
             // Closed shape: flags first, then exactly `<action> [VALUE]`.
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 Ok(None) => return usage_err("invoke requires --window <handle>"),
                 Err(message) => return usage_err(message),
@@ -522,7 +522,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 return usage_err("menu requires a subcommand: inspect | invoke");
             };
             args.remove(0);
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 Ok(None) => return usage_err(format!("menu {sub} requires --window <handle>")),
                 Err(message) => return usage_err(message),
@@ -614,7 +614,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "focused" => {
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 Ok(None) => return usage_err("focused requires --window <handle>"),
                 Err(message) => return usage_err(message),
@@ -641,7 +641,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "observe" => {
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 Ok(None) => return usage_err("observe requires --window <handle>"),
                 Err(message) => return usage_err(message),
@@ -713,7 +713,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "verify" => {
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 Ok(None) => return usage_err("verify requires --window <handle>"),
                 Err(message) => return usage_err(message),
@@ -745,7 +745,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             if !args.is_empty() {
                 args.remove(0);
             }
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             Command::Screenshot {
                 target,
                 path,
@@ -773,7 +773,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             Command::PointerPosition { target }
         }
         "click" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let node = flag_value(&mut args, "--node");
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
@@ -799,7 +799,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "focus" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let node = flag_value(&mut args, "--node");
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
@@ -824,7 +824,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Some(index) => Some(args.split_off(index)[1..].join(" ")),
                 None => None,
             };
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             Command::SendText {
@@ -842,7 +842,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             Command::ClipboardRead { target }
         }
         "copy" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             if window.is_none() {
@@ -866,7 +866,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Some(index) => Some(args.split_off(index)[1..].join(" ")),
                 None => None,
             };
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             let text = flag_value(&mut args, "--text").or(literal_text);
@@ -894,7 +894,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Some(index) => Some(args.split_off(index)[1..].join("+")),
                 None => None,
             };
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             Command::SendKeys {
@@ -906,7 +906,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "scroll" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             if name.as_ref().is_none_or(|value| value.is_empty()) {
@@ -920,7 +920,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "get-extents" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             if name.as_ref().is_none_or(|value| value.is_empty()) {
@@ -934,7 +934,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "select" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             let start = flag_i32(&mut args, "--start");
@@ -957,7 +957,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "get-selection" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             if name.as_ref().is_none_or(|value| value.is_empty()) {
@@ -971,7 +971,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "set-caret" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             let offset = flag_i32(&mut args, "--offset");
@@ -989,7 +989,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "get-caret" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             if name.as_ref().is_none_or(|value| value.is_empty()) {
@@ -1003,7 +1003,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "get-text" => {
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             if window.is_none() && name.as_ref().is_none_or(|value| value.is_empty()) {
@@ -1023,7 +1023,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             if action.is_empty() {
                 return usage_err("window-place requires --action <id>");
             }
-            let window = flag_isize(&mut args, "--window");
+            let window = flag_window_opt(&mut args);
             // `--action frame` takes the requested rect; the four flags are
             // typed (a bad value is usage, never a silently dropped flag).
             let mut rect = [None; 4];
@@ -1060,7 +1060,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
         "close" => {
             // The destructive verb: closed shape, every part of the gate is
             // a flag the executor checks before touching anything.
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(Some(value)) => value,
                 // Window 0 lets the executor name `target` among the missing
                 // gate parts in one typed refusal.
@@ -1096,7 +1096,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "receipts" => {
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
@@ -1150,7 +1150,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                     Ok(None) => return usage_err("wait --expect requires a JSON array"),
                     Err(message) => return usage_err(message),
                 };
-                let window = match flag_parsed::<isize>(&mut args, "--window") {
+                let window = match flag_window(&mut args) {
                     Ok(Some(value)) => value,
                     Ok(None) => return usage_err("wait --expect requires --window <handle>"),
                     Err(message) => return usage_err(message),
@@ -1183,7 +1183,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                     name,
                     role: flag_value(&mut args, "--role")
                         .or_else(|| flag_value(&mut args, "--node-role")),
-                    window: flag_isize(&mut args, "--window"),
+                    window: flag_window_opt(&mut args),
                 }
             } else if text_contains_present {
                 let substring = flag_value(&mut args, "--text-contains")
@@ -1206,7 +1206,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                     name,
                     role: flag_value(&mut args, "--role")
                         .or_else(|| flag_value(&mut args, "--node-role")),
-                    window: flag_isize(&mut args, "--window"),
+                    window: flag_window_opt(&mut args),
                 }
             } else if let Some(count) = flag_usize(&mut args, "--window-count-gte") {
                 WaitCondition::WindowCountGte { count }
@@ -1218,7 +1218,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 WaitCondition::NodeNameContains {
                     pattern,
                     role: flag_value(&mut args, "--node-role"),
-                    window: flag_isize(&mut args, "--window"),
+                    window: flag_window_opt(&mut args),
                 }
             } else {
                 return usage_err(
@@ -1232,7 +1232,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "page-js" => {
-            let window = match flag_parsed::<isize>(&mut args, "--window") {
+            let window = match flag_window(&mut args) {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
@@ -1582,6 +1582,23 @@ fn flag_isize(args: &mut Vec<String>, flag: &str) -> Option<isize> {
 /// A typed flag that must parse when present: `Ok(None)` when absent,
 /// `Err(usage)` when present without a value or with a value that is not a
 /// `T`. Unlike `flag_isize`, a bad value never silently drops the flag.
+fn flag_window(args: &mut Vec<String>) -> Result<Option<isize>, String> {
+    let Some(index) = args.iter().position(|arg| arg == "--window") else {
+        return Ok(None);
+    };
+    args.remove(index);
+    if index >= args.len() {
+        return Err("--window requires a value".to_owned());
+    }
+    let raw = args.remove(index);
+    agenterm_cu::observe::parse_window_token(&raw).map(Some)
+}
+
+fn flag_window_opt(args: &mut Vec<String>) -> Option<isize> {
+    let raw = flag_value(args, "--window")?;
+    agenterm_cu::observe::parse_window_token(&raw).ok()
+}
+
 fn flag_parsed<T: std::str::FromStr>(
     args: &mut Vec<String>,
     flag: &'static str,
@@ -1807,7 +1824,7 @@ Commands:
                               while the platform walks; reply carries truncated /
                               visited / returned. --flat numbers nodes (index, depth)
                               in walk order — the same identity query reports
-  query --window HANDLE [--depth N] [--max-nodes N] [--role R,R] [--text T | --text-exact T]
+  query --window HANDLE|App#N [--depth N] [--max-nodes N] [--role R,R] [--text T | --text-exact T]
         [--identifier ID] [--actionable] [--within X,Y,W,H] [--offset N] [--max N]
                               bounded, filtered flat node list with visited /
                               matched / returned / truncated; roles accept AXTextArea
@@ -2196,5 +2213,22 @@ mod tests {
         assert_eq!(reply.command, "wait");
         let error = reply.error.expect("timeout or missing window, not usage");
         assert_ne!(error.code, "usage");
+    }
+
+    #[test]
+    fn query_window_accepts_mcu_app_hash_handle() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "query".into(),
+            "--window".into(),
+            "Brave Origin#14278".into(),
+        ]);
+        assert_eq!(reply.command, "query");
+        if let Some(error) = reply.error {
+            assert_ne!(error.code, "usage");
+        }
     }
 }

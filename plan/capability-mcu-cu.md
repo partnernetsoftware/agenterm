@@ -48,7 +48,7 @@ machine-control
 
 | 族 | MCU | agenterm-cu | 状态 |
 |---|---|---|---|
-| 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows --pid/--app/--title/--focused/--minimized` 数字 HANDLE | cu **缺** Space/occlusion/`watch`；句柄形态不同（数字 vs `App#n`） |
+| 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N` | **句柄拼写对齐**（2026-08-31）；cu 仍缺 Space/occlusion/`watch` |
 | 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query`/`tree --depth/--max-nodes/--flat` · `--role/--text/--identifier/--actionable/--within` | **对齐思想**；cu 无 path selector 文法，用 `--name/--node/--index` |
 | empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`（更深 `query --role WebArea`，禁 screenshot/扩展） | **对齐教训**；cu 无 `unlock`/`AXManualAccessibility` |
 | 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | 同 7 个动作；mac 旅程绿 | cu **缺** `show-default-ui`/`cancel`/`set-selection`/`scroll-to`/`set-selected` |
@@ -73,7 +73,7 @@ machine-control
 
 **cu 可从 MCU 再吸收（仍限桌面环）**
 
-1. 稳定句柄 `App#n` 或至少在 JSON 里带 `app`+windowNumber，避免数字 HANDLE 漂移。
+1. ~~稳定句柄 `App#n`~~ **已做**：`windows[].ref` + `--window App#N`（仍同时接受整数；未做 live app 前缀核验）。
 2. `unlock` / 闲置 Chromium 只读 poke（depth≥8 hit-test），不仅 `next_actions` 字符串。
 3. `query --selector` 或等价 path，少让 agent 手拼 `--node /0/2/5`。
 4. `invoke` 补 MCU 已证动作：`set-selected`、`set-selection`、`scroll-to`、`cancel`。

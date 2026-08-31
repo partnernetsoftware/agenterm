@@ -96,6 +96,8 @@ loop it proves:
 # inventory filters: with any filter/page flag the reply is
 # {windows, visited, matched, returned, offset, truncated}; bare `windows` stays an array
 agenterm-cu --target current --grant observe windows --pid "$PID"
+# each row has handle (integer) and MCU-style ref ("App#handle")
+# later verbs accept either: --window "$HANDLE" or --window "TextEdit#123"
 agenterm-cu --target current --grant observe windows --app TextEdit --title Untitled --max 5
 
 # bounded tree: depth (root=0, <=64) and node budget (1..20000) apply while the

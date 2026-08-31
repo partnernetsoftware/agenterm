@@ -1148,13 +1148,12 @@ fn windows_payload(
 ) -> Result<serde_json::Value, CuError> {
     let page = observe::Page::new(offset, max).map_err(invalid_input)?;
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let rows = serde_json::Value::Array(windows.iter().map(observe::window_row_json).collect());
     if filter.is_empty() && offset.is_none() && max.is_none() {
-        return serde_json::to_value(&windows)
-            .map_err(|error| CuError::new("serialize", error.to_string()));
+        return Ok(rows);
     }
     let (hits, counts) = observe::inventory(&windows, &filter, page);
-    let rows = serde_json::to_value(&hits)
-        .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    let rows = serde_json::Value::Array(hits.iter().copied().map(observe::window_row_json).collect());
     Ok(serde_json::json!({
         "mechanism": "libagenterm",
         "filter": {
@@ -4033,6 +4032,7 @@ fn snapshot_node_json(node: &mechanism::A11yNode) -> serde_json::Value {
 fn window_identity_json(row: &WindowInfo) -> serde_json::Value {
     serde_json::json!({
         "handle": row.handle,
+        "ref": observe::window_stable_ref(row),
         "pid": row.process_id,
         "app": row.app_name,
         "title": row.title,

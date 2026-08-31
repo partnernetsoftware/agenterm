@@ -394,6 +394,58 @@ pub fn query<'a>(
     (returned.to_vec(), counts)
 }
 
+/// MCU-style stable window spelling `App#handle` (spaces in the app name
+/// allowed). `--window` still accepts a bare integer.
+pub fn window_stable_ref(window: &WindowInfo) -> String {
+    let app = window.app_name.trim();
+    let app = if app.is_empty() { "App" } else { app };
+    format!("{app}#{}", window.handle)
+}
+
+/// Parse `--window` as `N` or `App#N`. Does not talk to the desktop; the
+/// numeric handle is what later verbs already consume.
+pub fn parse_window_token(raw: &str) -> Result<isize, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("--window needs a handle (N or App#N)".to_owned());
+    }
+    if let Ok(handle) = raw.parse::<isize>() {
+        if handle == 0 {
+            return Err("--window handle must be non-zero".to_owned());
+        }
+        return Ok(handle);
+    }
+    let Some((app, number)) = raw.rsplit_once('#') else {
+        return Err(format!(
+            "--window value {raw:?} is not a handle N or MCU App#N"
+        ));
+    };
+    if app.trim().is_empty() {
+        return Err("--window App#N needs a non-empty app name".to_owned());
+    }
+    let handle: isize = number.parse().map_err(|_| {
+        format!("--window value {raw:?} is not a handle N or MCU App#N")
+    })?;
+    if handle == 0 {
+        return Err("--window handle must be non-zero".to_owned());
+    }
+    Ok(handle)
+}
+
+/// Window inventory row: native fields plus MCU `ref`.
+pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
+    serde_json::json!({
+        "handle": window.handle,
+        "ref": window_stable_ref(window),
+        "title": window.title,
+        "process_id": window.process_id,
+        "app_name": window.app_name,
+        "bounds": window.bounds,
+        "focused": window.focused,
+        "minimized": window.minimized,
+    })
+}
+
 /// The filter half of the `windows` inventory.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WindowFilter {
@@ -1855,6 +1907,21 @@ mod tests {
         assert_eq!(counts.returned, 1);
         assert!(counts.page_truncated);
         assert!(counts.truncated);
+    }
+
+    #[test]
+    fn window_ref_is_mcu_app_hash_handle() {
+        let brave = window(14278, 1, "Brave Origin", "Exact Reply", true);
+        assert_eq!(window_stable_ref(&brave), "Brave Origin#14278");
+        let row = window_row_json(&brave);
+        assert_eq!(row["ref"], "Brave Origin#14278");
+        assert_eq!(row["handle"], 14278);
+        assert_eq!(parse_window_token("14278").unwrap(), 14278);
+        assert_eq!(parse_window_token("Brave Origin#14278").unwrap(), 14278);
+        assert_eq!(parse_window_token("  TextEdit#9  ").unwrap(), 9);
+        assert!(parse_window_token("0").is_err());
+        assert!(parse_window_token("#9").is_err());
+        assert!(parse_window_token("Nope").is_err());
     }
 
     #[test]
