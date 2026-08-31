@@ -1384,14 +1384,30 @@ pub fn menu_items(tree: &A11yTree) -> Vec<MenuItem> {
         if !is_entry(node) {
             continue;
         }
+        // Both walks here are over parent links a backend supplies, and a
+        // backend can hand back a cycle -- a node whose parent chain leads
+        // to itself. Measured on Windows: UIA gave the menu bar a parent
+        // link that resolved back to an entry already on the path, and an
+        // unguarded walk pushed names forever, taking `menu inspect` to
+        // 2 GB and never returning. Every ancestor walk is bounded by the
+        // node count and refuses to revisit.
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        seen.insert(node.id.as_str());
         let mut cursor = node.parent_id.as_deref();
         while let Some(parent_id) = cursor {
+            if !seen.insert(parent_id) {
+                break;
+            }
             let Some(parent) = by_id.get(parent_id) else {
                 break;
             };
             if is_entry(parent) {
-                parent_entry.insert(node.id.as_str(), parent.id.as_str());
-                owns_submenu.insert(parent.id.as_str());
+                // A node that is its own nearest entry ancestor has no
+                // parent entry; recording one would be the cycle.
+                if parent.id != node.id {
+                    parent_entry.insert(node.id.as_str(), parent.id.as_str());
+                    owns_submenu.insert(parent.id.as_str());
+                }
                 break;
             }
             cursor = parent.parent_id.as_deref();
@@ -1402,11 +1418,18 @@ pub fn menu_items(tree: &A11yTree) -> Vec<MenuItem> {
         if !is_entry(node) {
             continue;
         }
-        // Titles of the entry ancestors, nearest last.
+        // Titles of the entry ancestors, nearest last. Bounded the same
+        // way: `parent_entry` is built from backend links, so it is not
+        // this code's place to assume the chain terminates.
         let mut path = vec![node.name.clone()];
         let mut depth = 0u32;
+        let mut walked: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        walked.insert(node.id.as_str());
         let mut cursor = parent_entry.get(node.id.as_str()).copied();
         while let Some(parent_id) = cursor {
+            if !walked.insert(parent_id) {
+                break;
+            }
             let Some(parent) = by_id.get(parent_id) else {
                 break;
             };
@@ -1857,6 +1880,36 @@ mod tests {
         node.parent_id = parent.map(str::to_owned);
         node.states = states.iter().map(|state| (*state).to_owned()).collect();
         node
+    }
+
+    /// A backend can hand back a parent chain that leads back to itself.
+    /// UIA did, on a real Notepad window: `menu inspect` then walked the
+    /// ancestors forever, pushing a title on every lap, and reached 2 GB
+    /// without returning. Terminating is not optional here.
+    #[test]
+    fn menu_items_terminate_on_a_parent_chain_that_cycles() {
+        let self_parent = tree(
+            vec![
+                menu_node("/0", Some("/0"), "menu bar", "", &["enabled"]),
+                menu_node("/0/0", Some("/0"), "menu", "File", &["enabled"]),
+                menu_node("/0/0/0", Some("/0/0"), "menu item", "Open", &["enabled"]),
+            ],
+            false,
+        );
+        let items = menu_items(&self_parent);
+        assert!(items.iter().all(|item| item.path.len() <= 3), "{items:?}");
+
+        // A two-node cycle: each entry names the other as its parent.
+        let mutual = tree(
+            vec![
+                menu_node("/a", Some("/b"), "menu", "A", &["enabled"]),
+                menu_node("/b", Some("/a"), "menu", "B", &["enabled"]),
+            ],
+            false,
+        );
+        let looped = menu_items(&mutual);
+        assert_eq!(looped.len(), 2);
+        assert!(looped.iter().all(|item| item.path.len() <= 2), "{looped:?}");
     }
 
     /// AT-SPI has no separate bar-entry node: GTK's "File" is a role-`menu`
