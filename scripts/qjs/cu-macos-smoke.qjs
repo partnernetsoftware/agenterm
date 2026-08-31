@@ -2045,6 +2045,15 @@ try {
   ensure(harness.process_present(victim_pid) === 0, "cu_macos_smoke_app_quit_orphan");
 
   print("STEP apps --all lists installed applications a window cannot reveal, and app launch starts one this run owns; its window appears and app quit ends it");
+  // The declaration has to keep up with the verbs: a capability block that
+  // still says `running_only` with no word about the installed half is the
+  // kind of drift a caller plans around.
+  ensure(
+    text_at(capabilities, "data.verbs.apps.installed") === "available"
+      && text_at(capabilities, "data.verbs.app.actions.launch") === "available"
+      && capabilities.data.verbs.app.launch_returns_pid === false,
+    "cu_macos_smoke_app_declaration:" + JSON.stringify(capabilities.data.verbs.app)
+  );
   const inventory = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "apps", "--all"
   ]);

@@ -1169,7 +1169,11 @@ fn capabilities_payload() -> serde_json::Value {
             },
             "apps": {
                 "status": status(mechanism::Capability::WindowEnumerate).to_ascii_lowercase(),
+                // `running_only` describes the *default*, not a limit:
+                // `--all` adds the installed-but-not-running half where the
+                // host can enumerate it.
                 "running_only": true,
+                "installed": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
                 "group": "discover",
             },
             "tree": tree_verb,
@@ -1198,7 +1202,11 @@ fn capabilities_payload() -> serde_json::Value {
                     "hide": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
                     "show": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
                     "quit": if cfg!(target_os = "macos") { "available" } else { "mapped" },
+                    "launch": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
                 },
+                // `launch` cannot report a pid: the launcher service owns
+                // the process it starts. Watch for the window instead.
+                "launch_returns_pid": false,
                 "quit_mechanism": "the application's own Quit menu item, pressed in the background; never a signal",
                 "destructive": ["quit"],
             },
