@@ -235,3 +235,30 @@ wake-smoke 的 1.8M 全在 `array_has(client_waited, client)`——它在轮询�
 
 每次字符访问是一次 prefab 调用（≈1.3k 步，含从串头走到位），十六趟 `replaceAll` 反而便宜。`ascii_bytes` 是反例：95 项 `startsWith` + `replace` 的剥皮对 40 字节的 workload 串 1.1M 步，`charCodeAt` 36k；300 字节的旧拼法撞宿主 deadline，新拼法 8.4M/20 次。
 `xor16` / `int_div` / `floor_div` / `parse_int` / `pad_left` / `hex4` / `fnv1a64_hex` / `rfc3339_*` / `int_of` 等引擎的位运算 / `Math` / `parseInt` 批次落地再退。
+
+## 9. 每个动作值多少步（2026-08-31，pin `be1447c`，评审者量的）
+
+方法：一个 100 次的 `while`，循环体里只多一条表达式，与只有 `n = n + 1` 的同形循环相减，再除以 100。
+`./target/debug/agenterm cli script run <f>.qjs --profile tool --json`，读 `cost.steps`。
+基线（`let s = "abcdefghij"; let o = { k: 1 }; let a = [1,2,3];` + 100 轮 `n = n + 1; i = i + 1;`）15 525 步 ≈ 155 步/轮。
+
+| 多的那条 | 每轮多的步 | 说明 |
+|---|---|---|
+| `+ 1`（再加一次） | **31** | 一次动态 `+`：装箱对 → `__add` → 双 Number 臂。这是本引擎「一个动态运算」的底价 |
+| `o.k` | **114** | 对象属性读：`__prop_get` → tag 派发 → `__obj_find`（一键记录） |
+| `a[1]` | **71** | 数组下标：整数快路，比对象键便宜 |
+| `a.length` | **192** | 走属性路 + 与 `"length"` 比键 |
+| `s.length` | **311** | 同上，再加**每次都重走一遍**码元计数（10 字符；8 字节 ASCII 跳步之后仍是 O(n)） |
+| `s.charCodeAt(3)` | **357** | 派发 + 从头走到第 3 个码元（O(i)） |
+| `s.indexOf("c")` | **376** | 派发 + 窗口扫描 |
+
+**读出来的两件事**：
+1. **派发本身 ~110–190 步**，比它守着的工作还贵。短字符串上，`.length` 的 311 步里只有个位数是真的在数。
+2. **字符串按位置的操作都是 O(n)**：`s.length` 每次重数，`charCodeAt(i)` 每次从头走。
+   于是 `while (i < s.length) { … s.charCodeAt(i) … }` 是**二次**的——这正是 `only_chars` 用
+   `replaceAll` 删字符比按位置走便宜 2–9× 的原因（§8）。
+
+**下一刀（已交下一轮）**：把字符串的形状记进记录——首次计算后缓存码元长度，并记一位「全 ASCII」；
+之后 `.length` 是 O(1)、全 ASCII 串的 `charCodeAt(i)`/`s[i]` 是 O(1)。记录布局改一次，
+`repr`/`runtime` 内部，门控之外的程序不受影响。
+
