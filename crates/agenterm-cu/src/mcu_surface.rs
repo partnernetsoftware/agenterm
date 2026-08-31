@@ -117,7 +117,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "doctor",
     "permissions",
     "unlock",
-    "spaces",
     "pty",
     "job",
     "process",
@@ -156,13 +155,7 @@ pub fn is_typed_only_verb(verb: &str) -> bool {
 }
 
 fn typed_only_reason(verb: &str) -> &'static str {
-    match verb {
-        "spaces" => "spaces inventory is not mapped",
-        _ => {
-            let group = group_id_for_verb(verb);
-            group_status(group, host_os()).1
-        }
-    }
+    group_status(group_id_for_verb(verb), host_os()).1
 }
 
 fn tree_live(os: &str) -> bool {
@@ -226,19 +219,19 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             }
         }
         "page-js" => (
-            "unsupported",
-            "second knife: debugger Runtime.evaluate; MAIN-world eval refused",
+            "available",
+            "CDP Runtime.evaluate when --remote-debugging-port answers; MAIN-world Function constructor refused",
         ),
         "geometry" => {
             if os == "linux" {
                 (
                     "available",
-                    "window-place live where mapped; orderwin/close typed (window-op raise not wired)",
+                    "window-place live where mapped; orderwin/close/spaces typed",
                 )
             } else if tree_live(os) {
                 (
                     "available",
-                    "window-place/close; orderwin raises via native show/AXRaise; spaces typed",
+                    "window-place/close; orderwin raise; spaces SkyLight read on macos",
                 )
             } else {
                 ("unsupported", "window geometry not mapped")
@@ -369,11 +362,34 @@ pub fn verb_declaration(verb: &str) -> Value {
     let group = group_id_for_verb(verb);
     if verb == "page-js" {
         return json!({
-            "status": "unsupported",
+            "status": "available",
             "backend": crate::observe::page_js_backend(),
+            "mode": "cdp",
             "reason": crate::observe::page_js_unsupported_reason(),
             "group": group,
             "os": os,
+            "verb": verb,
+        });
+    }
+    if verb == "spaces" {
+        let (status, reason) = if os == "macos" {
+            (
+                "available",
+                "SkyLight managed Space inventory; move is not mapped",
+            )
+        } else {
+            (
+                "unsupported",
+                "spaces inventory is macOS SkyLight only",
+            )
+        };
+        return json!({
+            "status": status,
+            "provider": if os == "macos" { "skylight-private-read" } else { "none" },
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
         });
     }
     if verb == "windows-watch" {
@@ -452,7 +468,7 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
             map.insert((*verb).to_owned(), verb_declaration(verb));
         }
     }
-    for verb in ["windows-watch", "apps", "orderwin", "unlock"] {
+    for verb in ["windows-watch", "apps", "orderwin", "spaces", "unlock"] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
         }
@@ -491,7 +507,7 @@ mod tests {
         let matrix = alignment_matrix_text();
         assert!(matrix.starts_with("group\tos\tstatus\t"));
         assert!(!matrix.contains("\t\t\n"));
-        assert!(matrix.contains("page-js\tmacos\tunsupported\t"));
+        assert!(matrix.contains("page-js\tmacos\tavailable\t"));
         assert!(matrix.contains("shell-pty-job\tlinux\tunsupported\t"));
         assert!(matrix.contains("simulator\twindows\tunsupported\t"));
         assert!(is_align_verb("pty") && is_align_verb("unlock"));
@@ -508,11 +524,14 @@ mod tests {
         assert_ne!(watch["reason"], "");
         assert_eq!(verb_declaration("apps")["running_only"], true);
         let spaces = verb_declaration("spaces");
-        assert_eq!(spaces["status"], "unsupported");
-        assert!(!spaces["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains("unknown MCU group"));
+        assert_eq!(spaces["group"], "geometry");
+        if host_os() == "macos" {
+            assert_eq!(spaces["status"], "available");
+            assert_eq!(spaces["provider"], "skylight-private-read");
+        } else {
+            assert_eq!(spaces["status"], "unsupported");
+        }
+        assert!(!is_align_verb("spaces"));
         let order = verb_declaration("orderwin");
         assert_eq!(order["mode"], "raise");
         assert_eq!(order["group"], "geometry");

@@ -1382,6 +1382,15 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
             Command::Unlock { target, window }
         }
+        "spaces" => {
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "spaces accepts no arguments; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Spaces { target }
+        }
         "page-js" => {
             let window = match flag_window(&mut args) {
                 Ok(value) => value,
@@ -1391,9 +1400,13 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
+            let port = match flag_parsed::<u16>(&mut args, "--port") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
             if !args.is_empty() {
                 return usage_err(format!(
-                    "page-js accepts only --window H --expression EXPR; unexpected {:?}",
+                    "page-js accepts only --window H --expression EXPR --port N; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -1401,6 +1414,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 target,
                 window,
                 expression,
+                port,
             }
         }
         other if agenterm_cu::mcu_surface::is_align_verb(other) => Command::Align {
@@ -2002,7 +2016,8 @@ Commands:
   invoke --window HANDLE (--node PATH | --index N | --name PAT [--role ROLE] | --identifier ID
                           | --focused [--role ROLE])
          <press | set-value TEXT | select-option NAME | set-checked true|false
-          | set-expanded true|false | increment | decrement | scroll-to>
+          | set-expanded true|false | increment | decrement | scroll-to
+          | set-selection START:LENGTH>
                               one semantic a11y action; never activates or raises
                               the window. Two showing matches -> "ambiguous", none
                               -> "a11y_node_not_found", an action the node does not
@@ -2047,11 +2062,13 @@ Commands:
                               "unverified", a state the node does not expose ->
                               "unsupported" (fail closed), an unknown key -> usage.
                               name/titleIncludes alone is page identity (WebArea title)
-  page-js [--window HANDLE] [--expression EXPR]
-                              typed unsupported: page JS is a second knife after AX.
-                              honest backend is debugger Runtime.evaluate, never MAIN
-                              eval / new Function. capabilities.verbs["page-js"] carries
-                              status/backend/reason
+  page-js [--window HANDLE] --expression EXPR [--port N]
+                              second knife: CDP Runtime.evaluate on
+                              127.0.0.1:N (default 9222). MAIN-world Function
+                              constructor is refused. No listener -> typed
+                              unsupported with backend debugger-runtime-evaluate.
+  spaces                      macOS SkyLight managed Space inventory (read-only).
+                              linux/windows typed unsupported.
   screenshot --out PATH [--window HANDLE]
   pointer-move --x X --y Y moves to absolute screen coordinates without any
                               press/release/click/drag/wheel side effect
@@ -2337,12 +2354,14 @@ mod tests {
             "page-js".into(),
             "--expression".into(),
             "document.title".into(),
+            "--port".into(),
+            "1".into(),
         ]);
         assert!(!reply.ok);
         assert_eq!(reply.command, "page-js");
         let error = reply.error.expect("typed unsupported");
         assert_eq!(error.code, "unsupported");
-        assert!(error.message.contains("second knife"));
+        assert!(error.message.contains("remote-debugging-port"));
         let backend = error
             .detail
             .as_ref()

@@ -644,6 +644,10 @@ pub enum Command {
         relation: OrderRelation,
         relative: isize,
     },
+    /// macOS managed Space inventory (SkyLight read SPI). Linux/Windows typed.
+    Spaces {
+        target: TargetRef,
+    },
     /// The destructive verb (PRD_02_31): close one top-level window in the
     /// background through the platform's own close control (macOS
     /// `AXCloseButton` + `AXPress`, Windows `WM_CLOSE`). The three-part gate
@@ -677,15 +681,17 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
     },
-    /// Page JavaScript is a second knife after AX WebArea query/invoke.
-    /// This binary answers typed `unsupported` (debugger `Runtime.evaluate`
-    /// would be the honest backend; MAIN-world eval is never used).
+    /// Page JavaScript second knife: CDP `Runtime.evaluate` on
+    /// `--remote-debugging-port` (default 9222). MAIN-world Function
+    /// constructor is never used.
     PageJs {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         window: Option<isize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expression: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
     },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
@@ -803,6 +809,7 @@ impl Command {
             Self::Wait { .. } => "wait".into(),
             Self::WindowPlace { .. } => "window-place".into(),
             Self::OrderWin { .. } => "orderwin".into(),
+            Self::Spaces { .. } => "spaces".into(),
             Self::Close { .. } => "close".into(),
             Self::Receipts { .. } => "receipts".into(),
             Self::PageJs { .. } => "page-js".into(),
@@ -845,6 +852,7 @@ impl Command {
             | Self::Wait { target, .. }
             | Self::WindowPlace { target, .. }
             | Self::OrderWin { target, .. }
+            | Self::Spaces { target, .. }
             | Self::Close { target, .. }
             | Self::Receipts { target, .. }
             | Self::PageJs { target, .. }
@@ -1220,6 +1228,7 @@ mod tests {
             target: TargetRef::Current,
             window: Some(14278),
             expression: Some("document.title".into()),
+            port: None,
         };
         assert_eq!(page_js.verb(), "page-js");
         assert_eq!(page_js.required_grant(), Grant::Observe);

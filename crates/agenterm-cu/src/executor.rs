@@ -691,14 +691,10 @@ impl Executor {
                 *interval_ms,
             ),
             Command::Verify { window, expect, .. } => verify_payload(*window, expect),
-            Command::PageJs { .. } => Err(CuError::new(
-                "unsupported",
-                observe::page_js_unsupported_reason(),
-            )
-            .with_detail(serde_json::json!({
-                "backend": observe::page_js_backend(),
-                "ax_default": true,
-            }))),
+            Command::PageJs {
+                expression, port, ..
+            } => page_js_payload(expression.as_deref(), *port),
+            Command::Spaces { .. } => spaces_payload(),
             Command::Unlock { window, .. } => unlock_payload(*window),
             Command::Align { group, .. } => Err(CuError::new(
                 "unsupported",
@@ -1030,10 +1026,12 @@ fn capabilities_payload() -> serde_json::Value {
             },
             "receipts": { "status": "available" },
             "page-js": {
-                "status": "unsupported",
+                "status": "available",
                 "backend": observe::page_js_backend(),
+                "mode": "cdp",
                 "reason": observe::page_js_unsupported_reason(),
             },
+            "spaces": crate::mcu_surface::verb_declaration("spaces"),
             "pointer-position": pointer_position_verb,
         },
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
@@ -1053,6 +1051,25 @@ fn capabilities_payload() -> serde_json::Value {
     });
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
+    }
+    if let Some(invoke) = payload["verbs"]["invoke"].as_object_mut() {
+        invoke.insert(
+            "actions".into(),
+            serde_json::json!({
+                "press": "mapped",
+                "set-value": "mapped",
+                "select-option": "mapped",
+                "set-checked": "mapped",
+                "set-expanded": "mapped",
+                "increment": "mapped",
+                "decrement": "mapped",
+                "scroll-to": "mapped",
+                "set-selection": "mapped",
+                "set-selected": "typed",
+                "cancel": "typed",
+                "show-default-ui": "typed",
+            }),
+        );
     }
     payload
 }
@@ -1391,6 +1408,42 @@ fn orderwin_payload(
         "relative": relative,
         "raised": raised,
     }))
+}
+
+fn spaces_payload() -> Result<serde_json::Value, CuError> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos_spaces::inventory().map_err(|error| {
+            CuError::new("unsupported", error.reason).with_detail(serde_json::json!({
+                "group": "geometry",
+                "os": "macos",
+                "provider": "skylight-private-read",
+            }))
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(CuError::new(
+            "unsupported",
+            "spaces inventory is macOS SkyLight only",
+        )
+        .with_detail(serde_json::json!({
+            "group": "geometry",
+            "os": crate::mcu_surface::host_os(),
+            "provider": "none",
+        })))
+    }
+}
+
+fn page_js_payload(
+    expression: Option<&str>,
+    port: Option<u16>,
+) -> Result<serde_json::Value, CuError> {
+    let expression = expression.unwrap_or("");
+    let port = port.unwrap_or(crate::page_js::DEFAULT_PORT);
+    crate::page_js::evaluate(port, expression).map_err(|error| {
+        CuError::new(error.code, error.message).with_detail(error.detail)
+    })
 }
 
 fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json::Value, CuError> {
@@ -3773,8 +3826,13 @@ fn invoke_action(
                 "internal: invoke scroll-to uses agt_a11y_node_scroll, not NodeAction",
             ));
         }
+        InvokeAction::SetSelection => {
+            return Err(CuError::new(
+                "invalid_input",
+                "internal: invoke set-selection uses agt_a11y_node_set_selection, not NodeAction",
+            ));
+        }
         InvokeAction::SetSelected
-        | InvokeAction::SetSelection
         | InvokeAction::Cancel
         | InvokeAction::ShowDefaultUi => {
             return Err(CuError::new(
@@ -3850,7 +3908,16 @@ fn invoke_payload(
     if action == InvokeAction::ScrollTo && value.is_some() {
         return Err(invalid_input("invoke scroll-to takes no value".into()));
     }
-    let node_action = if action == InvokeAction::ScrollTo {
+    if action == InvokeAction::SetSelection {
+        let raw = value.ok_or_else(|| {
+            invalid_input("invoke set-selection requires <start>:<length>".into())
+        })?;
+        observe::parse_text_selection(raw).map_err(invalid_input)?;
+    }
+    let node_action = if matches!(
+        action,
+        InvokeAction::ScrollTo | InvokeAction::SetSelection
+    ) {
         None
     } else {
         Some(invoke_action(action, value)?)
@@ -3988,6 +4055,10 @@ fn invoke_payload(
     if performed {
         let result = if action == InvokeAction::ScrollTo {
             mechanism::scroll_node(Some(window), &target.id)
+        } else if action == InvokeAction::SetSelection {
+            let raw = value.unwrap_or("");
+            let (start, end) = observe::parse_text_selection(raw).map_err(invalid_input)?;
+            mechanism::set_node_selection(Some(window), &target.id, start, end)
         } else {
             mechanism::perform_node_action(
                 Some(window),
@@ -4001,6 +4072,47 @@ fn invoke_payload(
     }
     let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let after_node = observe::node_by_id(&after, &target.id).cloned();
+    if action == InvokeAction::SetSelection {
+        let verified = mechanism_error.is_none();
+        let verification = serde_json::json!({
+            "method": "set-selection",
+            "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { None::<&str> },
+        });
+        let after_state = after_node.as_ref().map(observe::node_state_json);
+        let receipt = serde_json::json!({
+            "addressing": "accessibility-tree",
+            "mechanism": "libagenterm",
+            "backend": before.backend,
+            "window": window,
+            "target": spec.json(),
+            "node": node_json,
+            "action": "set-selection",
+            "via": "set-selection",
+            "value": value,
+            "performed": performed,
+            "verified": verified,
+            "verification": verification,
+            "before": observe::node_state_json(&target),
+            "after": after_state,
+            "tree_changed": observe::tree_changed(&before, &after),
+            "receipt": ticket.json(),
+        });
+        receipts.complete(
+            &ticket,
+            "invoke",
+            window,
+            verified,
+            serde_json::json!({
+                "after": after_state,
+                "verification": verification,
+                "error": mechanism_error.as_ref().map(error_payload),
+            }),
+        )?;
+        if let Some(error) = mechanism_error {
+            return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
+        }
+        return Ok(receipt);
+    }
     if action == InvokeAction::ScrollTo {
         let verified = mechanism_error.is_none();
         let verification = serde_json::json!({
@@ -7316,7 +7428,16 @@ mod tests {
         assert_eq!(data["verbs"]["orderwin"]["mode"], "raise");
         assert_eq!(data["verbs"]["orderwin"]["group"], "geometry");
         assert_ne!(data["verbs"]["orderwin"]["status"], "");
-        assert_eq!(data["verbs"]["spaces"]["status"], "unsupported");
+        assert_eq!(data["verbs"]["page-js"]["status"], "available");
+        assert_eq!(data["verbs"]["page-js"]["mode"], "cdp");
+        assert_eq!(data["verbs"]["invoke"]["actions"]["set-selection"], "mapped");
+        assert_eq!(data["verbs"]["invoke"]["actions"]["cancel"], "typed");
+        assert_eq!(data["verbs"]["spaces"]["group"], "geometry");
+        if cfg!(target_os = "macos") {
+            assert_eq!(data["verbs"]["spaces"]["status"], "available");
+        } else {
+            assert_eq!(data["verbs"]["spaces"]["status"], "unsupported");
+        }
         assert_ne!(data["verbs"]["windows-watch"]["status"], "");
         assert_ne!(data["verbs"]["apps"]["status"], "");
         // Must not declare live RDP or unproven Mac AX as available.
@@ -7327,6 +7448,38 @@ mod tests {
             !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
             "current mapping must not claim live RDP: {mapping}"
         );
+    }
+
+    #[test]
+    fn spaces_and_page_js_are_mapped_verbs() {
+        let spaces = observe_executor().execute(&Command::Spaces {
+            target: TargetRef::Current,
+        });
+        assert_eq!(spaces.command, "spaces");
+        if cfg!(target_os = "macos") {
+            if spaces.ok {
+                let data = spaces.data.as_ref().expect("spaces");
+                assert!(data["displays"].is_array());
+                assert_eq!(data["moveProvider"]["available"], false);
+            } else {
+                assert_eq!(spaces.error.as_ref().unwrap().code, "unsupported");
+            }
+        } else {
+            assert!(!spaces.ok);
+            assert_eq!(spaces.error.as_ref().unwrap().code, "unsupported");
+        }
+        let page = observe_executor().execute(&Command::PageJs {
+            target: TargetRef::Current,
+            window: None,
+            expression: Some("1+1".into()),
+            port: Some(1),
+        });
+        assert!(!page.ok);
+        assert_eq!(page.command, "page-js");
+        let err = page.error.as_ref().expect("typed");
+        assert_eq!(err.code, "unsupported");
+        assert_eq!(err.detail.as_ref().unwrap()["backend"], "debugger-runtime-evaluate");
+        assert!(err.message.contains("remote-debugging-port"));
     }
 
     #[test]

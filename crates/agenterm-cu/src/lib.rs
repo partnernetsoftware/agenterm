@@ -14,9 +14,12 @@ pub mod executor;
 pub mod grant_management;
 pub mod host_actions;
 pub mod hotkeys;
+#[cfg(target_os = "macos")]
+pub mod macos_spaces;
 pub mod mcu_surface;
 pub mod mechanism;
 pub mod observe;
+pub mod page_js;
 pub mod place;
 pub mod rdp_transport;
 pub mod receipt;

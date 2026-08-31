@@ -237,7 +237,7 @@ pub fn page_js_backend() -> &'static str {
 }
 
 pub fn page_js_unsupported_reason() -> &'static str {
-    "page JS is a second knife after AX WebArea query/invoke; this binary does not evaluate page JavaScript. Ordinary web control needs no browser extension. A future knife would use debugger Runtime.evaluate; MAIN-world eval or new Function is refused."
+    "page JS is a second knife after AX WebArea query/invoke. This binary uses debugger Runtime.evaluate over CDP when --remote-debugging-port answers. Ordinary web control needs no browser extension. MAIN-world Function constructor is refused."
 }
 
 /// Parse a comma-separated role list, dropping empty items.
@@ -618,6 +618,27 @@ pub fn parse_window_token(raw: &str) -> Result<isize, String> {
         return Err("--window handle must be non-zero".to_owned());
     }
     Ok(handle)
+}
+
+/// MCU `invoke set-selection` value `start:length` → ABI `(start, end)`.
+pub fn parse_text_selection(raw: &str) -> Result<(i32, i32), String> {
+    let Some((start, length)) = raw.split_once(':') else {
+        return Err("set-selection value must be <start>:<length>".into());
+    };
+    let start: i32 = start
+        .parse()
+        .map_err(|_| "set-selection start is not an integer".to_owned())?;
+    let length: i32 = length
+        .parse()
+        .map_err(|_| "set-selection length is not an integer".to_owned())?;
+    if start < 0 || length < 0 || start > 10_000_000 || length > 10_000_000 {
+        return Err("set-selection range must be within 0..10000000".into());
+    }
+    let end = start.saturating_add(length);
+    if end > 10_000_000 {
+        return Err("set-selection range must be within 0..10000000".into());
+    }
+    Ok((start, end))
 }
 
 /// Window inventory row: native fields plus MCU `ref`.
@@ -2302,7 +2323,14 @@ mod tests {
         validate_windows_watch(0, Some(10), Some(0)).unwrap();
         assert!(validate_windows_watch(1, Some(0), None).is_err());
         assert_eq!(windows_watch_interval_ms(0, None), 0);
-        assert_eq!(windows_watch_interval_ms(200, None), DEFAULT_OBSERVE_INTERVAL_MS);
+        assert_eq!(
+            windows_watch_interval_ms(200, None),
+            DEFAULT_OBSERVE_INTERVAL_MS
+        );
+        assert_eq!(parse_text_selection("12:3").unwrap(), (12, 15));
+        assert_eq!(parse_text_selection("0:0").unwrap(), (0, 0));
+        assert!(parse_text_selection("1").is_err());
+        assert!(parse_text_selection("-1:2").is_err());
     }
 
     #[test]
@@ -2450,5 +2478,7 @@ mod tests {
         assert!(!page_js_unsupported_reason().contains("eval("));
         assert!(!include_str!("command.rs").contains("eval("));
         assert!(!include_str!("executor.rs").contains("eval("));
+        assert!(!include_str!("page_js.rs").contains("eval("));
+        assert!(!include_str!("page_js.rs").contains("new Function"));
     }
 }
