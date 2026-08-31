@@ -25,6 +25,8 @@
 | [`plan-mobile.md`](plan-mobile.md) | 移动原生壳执行投影；**产品归 PRD 33**（PWA 先行，商店 App 占位） |
 | [`plan-control-center-ux.md`](plan-control-center-ux.md) / [`design-control-center-ux.md`](design-control-center-ux.md) | Control Center 任务书与实现级设计 |
 | [`plan-cc-automation-cli.md`](plan-cc-automation-cli.md) | CC 自动化 CLI 未实现设计 |
+| [`capability-mcu-cu.md`](capability-mcu-cu.md) | MCU ↔ agenterm-cu 能力对照树（动词级；实验室 vs 产品） |
+| [`design-mcu-absorption.md`](design-mcu-absorption.md) | MCU 教训吸收进 cu 的切片史（片 1–4） |
 | [`design-rh-aot.md`](design-rh-aot.md) | Rh Build/CI AOT 轨；不是 product App Engine |
 | [`design-dynacore-logic-pack.md`](design-dynacore-logic-pack.md) | `agenterm-dynacore` 当前产品方向 |
 | [`design-dynacore-emulated-guest-core.md`](design-dynacore-emulated-guest-core.md) | emulated guest core 待实现设计 |

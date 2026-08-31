@@ -11,6 +11,7 @@ This crate is the **product destination**: align that skill's surface
 (discover windows, a11y tree, local input, CDP page, verify, window geometry)
 onto AgenTerm's command / grant / `libagenterm` ABI. Do not transplant the
 TypeScript. Clean-room / provenance: [PRD 14](../../prd/PRD_02_14_research_provenance.md).
+Verb-level tree: [`plan/capability-mcu-cu.md`](../../plan/capability-mcu-cu.md).
 
 Named window placement (`window-place`, Spectacle catalog, [PRD 32](../../prd/PRD_02_32_cu_window_placement.md))
 is one already-landed slice, not the whole goal. When this product and AgenTerm
@@ -62,9 +63,9 @@ overflowing CLI values fail before native dispatch.
 
 `pointer-position` is the matching Observe command. ABI 1.11 reads absolute
 screen coordinates without injecting an event; older libraries fail typed
-unsupported rather than probing a missing symbol. Windows and X11 mechanisms
-are wired, while macOS remains typed unsupported. A real move/readback/restore
-receipt remains open until it runs on a controlled input desktop.
+unsupported rather than probing a missing symbol. macOS is read-only live
+(`cu-macos-smoke`); Windows and X11 follow the input-inject mapping. A
+move/readback/restore receipt for injected `pointer-move` remains open.
 
 ## Native accessibility mapping (按图索骥)
 

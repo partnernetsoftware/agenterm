@@ -1,6 +1,6 @@
 # 把 `moltbaby/skills/mcu` 的 PRD 吸收进 `agenterm-cu`
 
-| 日期 | 2026-08-30 |
+| 日期 | 2026-08-30（对照表续 2026-08-31：[`capability-mcu-cu.md`](capability-mcu-cu.md)） |
 |---|---|
 | 目的 | 评审 mcu（活的桌面控制实验室），决定哪些进 agenterm-cu 的 PRD、以什么顺序实现、怎么用 `.qjs` 旅程驱动 |
 | 来源 | `~/repos/moltbaby/skills/mcu/{PRD.md,PRD-MAP.md,CAPABILITY-TREE.md,SKILL.md}`（2026-08-30 读的版本） |
