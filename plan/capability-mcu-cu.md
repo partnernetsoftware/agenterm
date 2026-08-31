@@ -60,9 +60,9 @@ machine-control
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
 | 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close`/`displays` live；`orderwin` raise；`spaces` macOS SkyLight 只读 | **orderwin/spaces/displays 无 silent unknown** |
 | 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported`；**mac `send-keys` 是语义映射**（`enter`→AXConfirm、`escape`→AXCancel，其余 typed——macOS 只把键给活跃 App，实测） | 防止漏写目标静默变成全局输入 |
-| 节点文本/几何 | 无独立动词（`query` 里带 rect） | `get-extents` **三平台都映射**（mac AX 真机、Win BoundingRectangle 新映射）；`select`/`get-selection`/`set-caret`/`get-caret` mac+Linux 活、Win 待 TextPattern；`scroll` 三平台都映射（mac AXScrollToVisible、Win ScrollItem） | **cu 多一层** |
+| 节点文本/几何 | 无独立动词（`query` 里带 rect） | **七个动词三平台都映射**：`get-extents`（mac AX 真机 / Win BoundingRectangle）、`select`/`get-selection`/`set-caret`/`get-caret`（mac+Linux 活，Win TextPattern 新映射）、`scroll`（mac AXScrollToVisible 网页旅程真机 / Win ScrollItem） | **cu 多一层** |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
-| 截图 | `shot` 可选权限 | `screenshot` Win GDI；mac/linux typed unsupported | MCU 实验室更完整 |
+| 截图 | `shot` 可选权限 | `screenshot` Win GDI；**macOS 被系统拿走**（`CGWindowListCreateImage` 在 15.0 已从 SDK 移除，替代品 ScreenCaptureKit 要另一份 TCC），拒绝理由写明；linux typed | 不退化成整屏抓图 |
 | 网页 JS | `page read --js` / `browser read --js` | `page-js` CDP Runtime.evaluate（默认 9222）；无 listener typed | **路径已接**；MAIN Function constructor 拒绝 |
 | 浏览器桥 | `browser *` MV3 + CDP | `browser` typed unsupported | 日常网页仍 AX |
 | 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` + typed `setup`/`doctor`/`permissions` | 无 TCC 向导 |

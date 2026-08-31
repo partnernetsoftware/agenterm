@@ -33,27 +33,29 @@ use windows_sys::Win32::System::Variant::{
 use windows_sys::Win32::UI::Accessibility::{
     CUIAutomation8, ExpandCollapseState, ExpandCollapseState_Collapsed,
     ExpandCollapseState_Expanded, ExpandCollapseState_LeafNode,
-    ExpandCollapseState_PartiallyExpanded, UIA_AppBarControlTypeId,
-    UIA_BoundingRectanglePropertyId, UIA_ButtonControlTypeId, UIA_CalendarControlTypeId,
-    UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId, UIA_ControlTypePropertyId,
-    UIA_CustomControlTypeId, UIA_DataGridControlTypeId, UIA_DataItemControlTypeId,
-    UIA_DocumentControlTypeId, UIA_E_ELEMENTNOTAVAILABLE, UIA_E_ELEMENTNOTENABLED,
-    UIA_E_INVALIDOPERATION, UIA_E_NOTSUPPORTED, UIA_E_TIMEOUT, UIA_EditControlTypeId,
-    UIA_ExpandCollapsePatternId, UIA_GroupControlTypeId, UIA_HasKeyboardFocusPropertyId,
-    UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId, UIA_HyperlinkControlTypeId,
-    UIA_ImageControlTypeId, UIA_InvokePatternId, UIA_IsContentElementPropertyId,
-    UIA_IsControlElementPropertyId, UIA_IsEnabledPropertyId, UIA_IsKeyboardFocusablePropertyId,
-    UIA_IsOffscreenPropertyId, UIA_IsPasswordPropertyId, UIA_LegacyIAccessiblePatternId,
-    UIA_ListControlTypeId, UIA_ListItemControlTypeId, UIA_MenuBarControlTypeId,
-    UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_NamePropertyId, UIA_PaneControlTypeId,
-    UIA_ProgressBarControlTypeId, UIA_RadioButtonControlTypeId, UIA_RangeValuePatternId,
-    UIA_ScrollBarControlTypeId, UIA_ScrollItemPatternId, UIA_SelectionItemPatternId,
-    UIA_SemanticZoomControlTypeId, UIA_SeparatorControlTypeId, UIA_SliderControlTypeId,
-    UIA_SpinnerControlTypeId, UIA_SplitButtonControlTypeId, UIA_StatusBarControlTypeId,
-    UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TableControlTypeId, UIA_TextControlTypeId,
-    UIA_TextPatternId, UIA_ThumbControlTypeId, UIA_TitleBarControlTypeId, UIA_TogglePatternId,
-    UIA_ToolBarControlTypeId, UIA_ToolTipControlTypeId, UIA_TreeControlTypeId,
-    UIA_TreeItemControlTypeId, UIA_ValuePatternId, UIA_WindowControlTypeId,
+    ExpandCollapseState_PartiallyExpanded, SupportedTextSelection, SupportedTextSelection_None,
+    TextPatternRangeEndpoint, TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start,
+    TextUnit, TextUnit_Character, UIA_AppBarControlTypeId, UIA_BoundingRectanglePropertyId,
+    UIA_ButtonControlTypeId, UIA_CalendarControlTypeId, UIA_CheckBoxControlTypeId,
+    UIA_ComboBoxControlTypeId, UIA_ControlTypePropertyId, UIA_CustomControlTypeId,
+    UIA_DataGridControlTypeId, UIA_DataItemControlTypeId, UIA_DocumentControlTypeId,
+    UIA_E_ELEMENTNOTAVAILABLE, UIA_E_ELEMENTNOTENABLED, UIA_E_INVALIDOPERATION, UIA_E_NOTSUPPORTED,
+    UIA_E_TIMEOUT, UIA_EditControlTypeId, UIA_ExpandCollapsePatternId, UIA_GroupControlTypeId,
+    UIA_HasKeyboardFocusPropertyId, UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId,
+    UIA_HyperlinkControlTypeId, UIA_ImageControlTypeId, UIA_InvokePatternId,
+    UIA_IsContentElementPropertyId, UIA_IsControlElementPropertyId, UIA_IsEnabledPropertyId,
+    UIA_IsKeyboardFocusablePropertyId, UIA_IsOffscreenPropertyId, UIA_IsPasswordPropertyId,
+    UIA_LegacyIAccessiblePatternId, UIA_ListControlTypeId, UIA_ListItemControlTypeId,
+    UIA_MenuBarControlTypeId, UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_NamePropertyId,
+    UIA_PaneControlTypeId, UIA_ProgressBarControlTypeId, UIA_RadioButtonControlTypeId,
+    UIA_RangeValuePatternId, UIA_ScrollBarControlTypeId, UIA_ScrollItemPatternId,
+    UIA_SelectionItemPatternId, UIA_SemanticZoomControlTypeId, UIA_SeparatorControlTypeId,
+    UIA_SliderControlTypeId, UIA_SpinnerControlTypeId, UIA_SplitButtonControlTypeId,
+    UIA_StatusBarControlTypeId, UIA_TabControlTypeId, UIA_TabItemControlTypeId,
+    UIA_TableControlTypeId, UIA_TextControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId,
+    UIA_TitleBarControlTypeId, UIA_TogglePatternId, UIA_ToolBarControlTypeId,
+    UIA_ToolTipControlTypeId, UIA_TreeControlTypeId, UIA_TreeItemControlTypeId, UIA_ValuePatternId,
+    UIA_WindowControlTypeId,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
 use windows_sys::core::{BSTR, GUID, HRESULT};
@@ -509,43 +511,329 @@ pub(crate) fn get_node_extents(
     Ok(bounds)
 }
 
+/// UIA's spelling of AT-SPI `Text.SetSelection`: build a degenerate range
+/// at `start`, extend it to `end`, and `Select()` it. Offsets are UTF-16
+/// code units from the start of the control's document range, which is the
+/// same unit `get_node_selection` reports back.
+///
+/// A control whose `SupportedTextSelection` is `None` cannot carry a
+/// selection at all and is refused typed -- never a mouse drag, never
+/// shift-arrow keystrokes.
 pub(crate) fn set_node_selection(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _start: i32,
-    _end: i32,
+    window_handle: Option<isize>,
+    node_id: &str,
+    start: i32,
+    end: i32,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "AT-SPI Text.SetSelection is unavailable through Windows UIA".into(),
-    })
+    if start < 0 || end < start {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("selection {start}..{end} is not an ordered non-negative range"),
+        ));
+    }
+    select_range(
+        window_handle,
+        node_id,
+        start,
+        end - start,
+        "a11y_selection_unavailable",
+    )
 }
 
+/// An independent read of the control's own selection: `GetSelection`, then
+/// the two endpoints measured against the document range.
+///
+/// UIA text ranges are opaque, so an offset is not readable directly -- it
+/// is the length of the text between the document start and the endpoint.
+/// A control with no selection reports the AT-SPI shape (`n == 0`,
+/// endpoints zero), the same as the macOS AX adapter, so one vocabulary
+/// reads the same on all three backends.
 pub(crate) fn get_node_selection(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<AccessibilitySelection, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "AT-SPI Text.GetSelection is unavailable through Windows UIA".into(),
+    let budget = Budget::new(
+        ACTION_TIMEOUT,
+        "a11y_selection_unavailable",
+        "UI Automation text selection",
+    );
+    let session = UiaSession::new(&budget)?;
+    let element = session.resolve_node(window_handle, node_id, &budget)?;
+    let pattern = text_pattern_for(&session, &element, &budget, "a11y_selection_unavailable")?;
+    let Some(range) = first_selection_range(&pattern, &budget)? else {
+        return Ok(AccessibilitySelection {
+            n: 0,
+            start: 0,
+            end: 0,
+        });
+    };
+    let document = document_range(&pattern)?;
+    let start = offset_of_endpoint(&document, &range, TextPatternRangeEndpoint_Start)?;
+    let length = range_text_len(&range)?;
+    if length == 0 {
+        // A degenerate range is the caret, not a selection: AT-SPI would
+        // report no selection here and `get_node_caret_offset` keeps the
+        // position.
+        return Ok(AccessibilitySelection {
+            n: 0,
+            start: 0,
+            end: 0,
+        });
+    }
+    Ok(AccessibilitySelection {
+        n: 1,
+        start,
+        end: start.saturating_add(length),
     })
 }
 
+/// The caret is a degenerate selection: a zero-length range placed at
+/// `offset` and selected.
 pub(crate) fn set_node_caret_offset(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _offset: i32,
+    window_handle: Option<isize>,
+    node_id: &str,
+    offset: i32,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "AT-SPI Text.SetCaretOffset is unavailable through Windows UIA".into(),
+    if offset < 0 {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("caret offset {offset} is negative"),
+        ));
+    }
+    select_range(window_handle, node_id, offset, 0, "a11y_caret_unavailable")
+}
+
+/// Where typing would land: the start of the control's selection, whether
+/// or not that selection is empty.
+pub(crate) fn get_node_caret_offset(
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<i32, AccessibilityTreeError> {
+    let budget = Budget::new(
+        ACTION_TIMEOUT,
+        "a11y_caret_unavailable",
+        "UI Automation caret offset",
+    );
+    let session = UiaSession::new(&budget)?;
+    let element = session.resolve_node(window_handle, node_id, &budget)?;
+    let pattern = text_pattern_for(&session, &element, &budget, "a11y_caret_unavailable")?;
+    let Some(range) = first_selection_range(&pattern, &budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_caret_unavailable",
+            format!("node {node_id} reports no text selection to read a caret from"),
+        ));
+    };
+    let document = document_range(&pattern)?;
+    offset_of_endpoint(&document, &range, TextPatternRangeEndpoint_Start)
+}
+
+/// Place and select one range, then read it back. `unavailable` is the
+/// caller's own typed code, so a caret failure does not report itself as a
+/// selection failure.
+fn select_range(
+    window_handle: Option<isize>,
+    node_id: &str,
+    start: i32,
+    length: i32,
+    unavailable: &'static str,
+) -> Result<(), AccessibilityTreeError> {
+    let budget = Budget::new(ACTION_TIMEOUT, unavailable, "UI Automation text selection");
+    let session = UiaSession::new(&budget)?;
+    let element = session.resolve_node(window_handle, node_id, &budget)?;
+    let pattern = text_pattern_for(&session, &element, &budget, unavailable)?;
+    if supported_text_selection(&pattern)? == SupportedTextSelection_None {
+        return Err(AccessibilityTreeError::failed(
+            unavailable,
+            "UI Automation Text pattern reports SupportedTextSelection None",
+        ));
+    }
+    let range = clone_range(&document_range(&pattern)?)?;
+    // Walk the start endpoint forward, collapse the range onto it, then
+    // walk the end endpoint out by the requested length. A control that
+    // cannot move that far says so in `moved`, which is a refusal rather
+    // than a silently shorter selection.
+    move_endpoint_by_unit(&range, TextPatternRangeEndpoint_Start, start, unavailable)?;
+    let hr = unsafe {
+        ((*text_range_vtable(&range)).move_endpoint_by_range)(
+            range.as_ptr(),
+            TextPatternRangeEndpoint_End,
+            range.as_ptr(),
+            TextPatternRangeEndpoint_Start,
+        )
+    };
+    hresult(hr, "IUIAutomationTextRange.MoveEndpointByRange")?;
+    if length > 0 {
+        move_endpoint_by_unit(&range, TextPatternRangeEndpoint_End, length, unavailable)?;
+    }
+    let hr = unsafe { ((*text_range_vtable(&range)).select)(range.as_ptr()) };
+    hresult(hr, "IUIAutomationTextRange.Select")?;
+    budget.check()?;
+
+    let no_effect = if length > 0 {
+        "a11y_selection_no_effect"
+    } else {
+        "a11y_caret_no_effect"
+    };
+    let Some(observed) = first_selection_range(&pattern, &budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            no_effect,
+            "the control reports no selection after Select()",
+        ));
+    };
+    let document = document_range(&pattern)?;
+    let observed_start = offset_of_endpoint(&document, &observed, TextPatternRangeEndpoint_Start)?;
+    let observed_length = range_text_len(&observed)?;
+    if observed_start == start && observed_length == length {
+        return Ok(());
+    }
+    Err(AccessibilityTreeError::failed(
+        no_effect,
+        format!(
+            "read-back is {observed_start}+{observed_length} after asking for {start}+{length}"
+        ),
+    ))
+}
+
+fn text_pattern_for(
+    session: &UiaSession,
+    element: &ComPtr,
+    budget: &Budget,
+    unavailable: &'static str,
+) -> Result<ComPtr, AccessibilityTreeError> {
+    session
+        .pattern(element, UIA_TextPatternId, &IID_TEXT_PATTERN, budget)?
+        .ok_or_else(|| {
+            AccessibilityTreeError::failed(
+                unavailable,
+                "node exposes no UI Automation Text pattern",
+            )
+        })
+}
+
+fn supported_text_selection(
+    pattern: &ComPtr,
+) -> Result<SupportedTextSelection, AccessibilityTreeError> {
+    let mut value: SupportedTextSelection = SupportedTextSelection_None;
+    let hr =
+        unsafe { ((*text_vtable(pattern)).supported_text_selection)(pattern.as_ptr(), &mut value) };
+    hresult(hr, "IUIAutomationTextPattern.SupportedTextSelection")?;
+    Ok(value)
+}
+
+fn document_range(pattern: &ComPtr) -> Result<ComPtr, AccessibilityTreeError> {
+    let mut raw = ptr::null_mut();
+    let hr = unsafe { ((*text_vtable(pattern)).document_range)(pattern.as_ptr(), &mut raw) };
+    hresult(hr, "IUIAutomationTextPattern.DocumentRange")?;
+    unsafe { ComPtr::from_raw(raw, "IUIAutomationTextRange") }
+}
+
+fn clone_range(range: &ComPtr) -> Result<ComPtr, AccessibilityTreeError> {
+    let mut raw = ptr::null_mut();
+    let hr = unsafe { ((*text_range_vtable(range)).clone_range)(range.as_ptr(), &mut raw) };
+    hresult(hr, "IUIAutomationTextRange.Clone")?;
+    unsafe { ComPtr::from_raw(raw, "IUIAutomationTextRange") }
+}
+
+/// The control's first selected range, or `None` when it reports none.
+fn first_selection_range(
+    pattern: &ComPtr,
+    budget: &Budget,
+) -> Result<Option<ComPtr>, AccessibilityTreeError> {
+    budget.check()?;
+    let mut raw = ptr::null_mut();
+    let hr = unsafe { ((*text_vtable(pattern)).get_selection)(pattern.as_ptr(), &mut raw) };
+    hresult(hr, "IUIAutomationTextPattern.GetSelection")?;
+    if raw.is_null() {
+        return Ok(None);
+    }
+    let array = unsafe { ComPtr::from_raw(raw, "IUIAutomationTextRangeArray")? };
+    let mut length = 0i32;
+    let hr = unsafe { ((*text_range_array_vtable(&array)).length)(array.as_ptr(), &mut length) };
+    hresult(hr, "IUIAutomationTextRangeArray.Length")?;
+    if length <= 0 {
+        return Ok(None);
+    }
+    let mut element = ptr::null_mut();
+    let hr = unsafe {
+        ((*text_range_array_vtable(&array)).get_element)(array.as_ptr(), 0, &mut element)
+    };
+    hresult(hr, "IUIAutomationTextRangeArray.GetElement")?;
+    if element.is_null() {
+        return Ok(None);
+    }
+    unsafe { ComPtr::from_raw(element, "IUIAutomationTextRange") }.map(Some)
+}
+
+/// How far one range's endpoint sits from the start of the document,
+/// measured in UTF-16 code units. UIA ranges are opaque, so the distance is
+/// the length of the text a clone of the document range covers once its end
+/// is moved onto that endpoint.
+fn offset_of_endpoint(
+    document: &ComPtr,
+    range: &ComPtr,
+    endpoint: TextPatternRangeEndpoint,
+) -> Result<i32, AccessibilityTreeError> {
+    let prefix = clone_range(document)?;
+    let hr = unsafe {
+        ((*text_range_vtable(&prefix)).move_endpoint_by_range)(
+            prefix.as_ptr(),
+            TextPatternRangeEndpoint_End,
+            range.as_ptr(),
+            endpoint,
+        )
+    };
+    hresult(hr, "IUIAutomationTextRange.MoveEndpointByRange")?;
+    range_text_len(&prefix)
+}
+
+/// The length of a range's text in UTF-16 code units, which is the unit
+/// every offset in this adapter is expressed in.
+fn range_text_len(range: &ComPtr) -> Result<i32, AccessibilityTreeError> {
+    let mut raw: BSTR = ptr::null();
+    let hr = unsafe {
+        ((*text_range_vtable(range)).get_text)(
+            range.as_ptr(),
+            MAX_TEXT_UTF16_UNITS as i32,
+            &mut raw,
+        )
+    };
+    hresult(hr, "IUIAutomationTextRange.GetText")?;
+    let text = unsafe { OwnedBstr::from_raw(raw) }.to_string_bounded()?;
+    i32::try_from(text.encode_utf16().count()).map_err(|_| {
+        limit_error(
+            "a11y_string_limit",
+            "UI Automation text range is longer than i32 offsets can address",
+        )
     })
 }
 
-pub(crate) fn get_node_caret_offset(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-) -> Result<i32, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "AT-SPI Text.GetCaretOffset is unavailable through Windows UIA".into(),
-    })
+fn move_endpoint_by_unit(
+    range: &ComPtr,
+    endpoint: TextPatternRangeEndpoint,
+    count: i32,
+    unavailable: &'static str,
+) -> Result<(), AccessibilityTreeError> {
+    if count == 0 {
+        return Ok(());
+    }
+    let mut moved = 0i32;
+    let hr = unsafe {
+        ((*text_range_vtable(range)).move_endpoint_by_unit)(
+            range.as_ptr(),
+            endpoint,
+            TextUnit_Character,
+            count,
+            &mut moved,
+        )
+    };
+    hresult(hr, "IUIAutomationTextRange.MoveEndpointByUnit")?;
+    if moved != count {
+        return Err(AccessibilityTreeError::failed(
+            unavailable,
+            format!("the control moved {moved} characters of the {count} requested"),
+        ));
+    }
+    Ok(())
 }
 
 struct Budget {
@@ -2228,6 +2516,10 @@ unsafe fn text_vtable(interface: &ComPtr) -> *const IUIAutomationTextPatternVtab
     unsafe { *(interface.as_ptr() as *const *const IUIAutomationTextPatternVtable) }
 }
 
+unsafe fn text_range_array_vtable(interface: &ComPtr) -> *const IUIAutomationTextRangeArrayVtable {
+    unsafe { *(interface.as_ptr() as *const *const IUIAutomationTextRangeArrayVtable) }
+}
+
 unsafe fn text_range_vtable(interface: &ComPtr) -> *const IUIAutomationTextRangeVtable {
     unsafe { *(interface.as_ptr() as *const *const IUIAutomationTextRangeVtable) }
 }
@@ -2356,15 +2648,24 @@ struct IUIAutomationTextPatternVtable {
     base: IUnknownVtable,
     range_from_point: usize,
     range_from_child: usize,
-    get_selection: usize,
+    get_selection: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
     get_visible_ranges: usize,
     document_range: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
+    supported_text_selection:
+        unsafe extern "system" fn(*mut c_void, *mut SupportedTextSelection) -> HRESULT,
+}
+
+#[repr(C)]
+struct IUIAutomationTextRangeArrayVtable {
+    base: IUnknownVtable,
+    length: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
+    get_element: unsafe extern "system" fn(*mut c_void, i32, *mut *mut c_void) -> HRESULT,
 }
 
 #[repr(C)]
 struct IUIAutomationTextRangeVtable {
     base: IUnknownVtable,
-    clone_range: usize,
+    clone_range: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT,
     compare: usize,
     compare_endpoints: usize,
     expand_to_enclosing_unit: usize,
@@ -2374,6 +2675,21 @@ struct IUIAutomationTextRangeVtable {
     get_bounding_rectangles: usize,
     get_enclosing_element: usize,
     get_text: unsafe extern "system" fn(*mut c_void, i32, *mut BSTR) -> HRESULT,
+    move_range: usize,
+    move_endpoint_by_unit: unsafe extern "system" fn(
+        *mut c_void,
+        TextPatternRangeEndpoint,
+        TextUnit,
+        i32,
+        *mut i32,
+    ) -> HRESULT,
+    move_endpoint_by_range: unsafe extern "system" fn(
+        *mut c_void,
+        TextPatternRangeEndpoint,
+        *mut c_void,
+        TextPatternRangeEndpoint,
+    ) -> HRESULT,
+    select: unsafe extern "system" fn(*mut c_void) -> HRESULT,
 }
 
 #[cfg(test)]
@@ -2472,6 +2788,51 @@ mod tests {
         assert_eq!(
             offset_of!(IUIAutomationScrollItemPatternVtable, scroll_into_view),
             3 * pointer
+        );
+        // The text-selection slots. IDL order for IUIAutomationTextPattern
+        // is RangeFromPoint, RangeFromChild, GetSelection, GetVisibleRanges,
+        // DocumentRange, SupportedTextSelection; for IUIAutomationTextRange
+        // Clone .. GetText, then Move, MoveEndpointByUnit,
+        // MoveEndpointByRange, Select.
+        assert_eq!(
+            offset_of!(IUIAutomationTextPatternVtable, get_selection),
+            5 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextPatternVtable, document_range),
+            7 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextPatternVtable, supported_text_selection),
+            8 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeArrayVtable, length),
+            3 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeArrayVtable, get_element),
+            4 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeVtable, clone_range),
+            3 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeVtable, get_text),
+            12 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeVtable, move_endpoint_by_unit),
+            14 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeVtable, move_endpoint_by_range),
+            15 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationTextRangeVtable, select),
+            16 * pointer
         );
     }
 

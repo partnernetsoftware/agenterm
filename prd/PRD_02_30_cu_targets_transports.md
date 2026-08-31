@@ -627,6 +627,28 @@ Canonical host mapping (approved product vocabulary):
   answers with the *desktop's* focus, so it would report another
   application's control as this window's. `capabilities` declares
   `focused.mode = "state-search"`.
+- [~] `select` / `get-selection` / `set-caret` / `get-caret` on Windows
+  (cut 3.53), mapped but not journey-proven: the Text pattern's
+  `GetSelection` gives the control's own range, and an offset is measured
+  by cloning the document range and moving its end onto the endpoint --
+  UIA ranges are opaque, so an offset is the length of the text before it,
+  in UTF-16 code units. A write builds a degenerate range at `start`,
+  extends it by the length and calls `Select()`, then reads the selection
+  back and refuses on a mismatch. A control whose `SupportedTextSelection`
+  is `None` is refused typed, and a control that cannot move the endpoint
+  as far as asked says how far it got -- never a silently shorter
+  selection, never a mouse drag or shift-arrow keystrokes. A degenerate
+  selection is reported as the AT-SPI "no selection" shape (`n == 0`) with
+  the position still readable through `get-caret`, matching AX.
+- [ ] macOS `screenshot` is not wired and this is a platform decision, not
+  an omission: `CGWindowListCreateImage` was **obsoleted in macOS 15.0 and
+  removed from the SDK** (measured on this toolchain -- the compiler
+  refuses it outright). Its replacement, ScreenCaptureKit, is a
+  block-based async API behind the Screen Recording TCC grant, which is a
+  different permission from the Accessibility one the rest of the adapter
+  holds. The refusal now names that constraint instead of saying
+  "unavailable", and nothing degrades to a full-screen grab: a screenshot
+  of the wrong thing is worse than a typed refusal.
 - [x] every UIA pattern this adapter calls through a hand-written vtable
   has its slot offsets pinned by a test against the SDK's IDL order
   (Invoke, SelectionItem, Toggle, Legacy, Value, Text, TextRange, and the

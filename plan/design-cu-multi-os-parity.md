@@ -30,8 +30,8 @@
 | `send_node_keys` | **✓ 语义映射** `enter`→AXConfirm / `escape`→AXCancel，其余 typed（见下） | ✓ | ✓ focus + input-inject |
 | `scroll_node` | **✓** AXScrollToVisible | ✓ | **✓ 已映射** ScrollItem.ScrollIntoView |
 | `get_node_extents` | **✓** AXPosition+AXSize | ✓ | **✓ 已映射** BoundingRectangle 独立重读 |
-| `set/get_node_selection` | **✓** AXSelectedTextRange | ✓ | ✗（TextPattern.GetSelection / Select）——留片 G |
-| `set/get_node_caret_offset` | **✓** AXSelectedTextRange 零长 | ✓ | ✗（TextPattern 退化选区）——留片 G |
+| `set/get_node_selection` | **✓** AXSelectedTextRange | ✓ | **✓ 已映射** TextPattern：文档区间量偏移，`Select()` 后回读 |
+| `set/get_node_caret_offset` | **✓** AXSelectedTextRange 零长 | ✓ | **✓ 已映射** 退化区间 + `Select()` |
 
 **macOS 这一整列是 2026-08-30 之前的 `PLACEHOLDER cut` 遗留**——AX 三个属性都在，只是没写。
 
@@ -45,7 +45,14 @@
 
 ### 0.4 cu 层（非 a11y）
 
-`close` Linux 无 `window_op` 映射；`orderwin` Linux typed；`screenshot` mac/linux typed（Win GDI 有）；`spaces` 仅 macOS；`observe` 三平台都是 poll-diff（非原生通知）。
+`close` Linux 无 `window_op` 映射；`orderwin` Linux typed；`spaces` 仅 macOS；`observe` 三平台都是 poll-diff（非原生通知）。
+
+**`screenshot` 在 macOS 上是被系统拿走的**（2026-08-31 实测）：`CGWindowListCreateImage`
+**在 macOS 15.0 已 obsoleted 并从 SDK 移除**（本机编译器原话：
+"'CGWindowListCreateImage' is unavailable: obsoleted in macOS 15.0 - Please use ScreenCaptureKit
+instead"）。替代品 ScreenCaptureKit 是 block 异步 API，且要另一份 TCC 授权（Screen Recording，
+不是 Accessibility）。本片只把拒绝理由改成这句实测，**不退化成整屏抓图**——截错东西比 typed
+拒绝更糟，而且产品规则本来就是「截图不替代树」。
 
 ## 1. 切片（每片一次提交，顺序按「能不能就地拿到证据」排）
 
@@ -110,6 +117,6 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 |---|---|---|
 | A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（`cu-macos-smoke` **23 STEP / 22 EVIDENCE**，81.3M 步 / 287 ops / 73 页；前台句柄与真实指针不动，无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
 | F 网页 AX + unlock poke | 见下 | **已落地**：`cu-macos-web-smoke` 6 STEP / 6 EVIDENCE（5.58M 步 / 80 ops / 5 页），WebArea 树、`scroll` 正向（链接 y 1955→905）、网页 `invoke press`/`set-value`、未聚焦写入 fail-closed |
-| B Windows | 见下 | **已落地（映射，未真机）**：`set-expanded`/`select-option`/`increment`/`decrement`/`scroll`/`get-extents`/`focused` + 快照补 `expanded`/`collapsed`；三个新 pattern 的 vtable 槽位全部单测钉死 |
+| B Windows | 见下 | **已落地（映射，未真机）**：`set-expanded`/`select-option`/`increment`/`decrement`/`scroll`/`get-extents`/`focused` + 快照补 `expanded`/`collapsed`；**选区/插入点走 TextPattern**（文档区间量 UTF-16 偏移，`Select()` 后回读）；五个新 pattern/接口的 vtable 槽位全部单测钉死 |
 | C Linux | 见下 | **已落地（映射，未真机）**：五个动作 + `focused` + `checked`/`unchecked`/`mixed`、`expanded`/`collapsed` 双向状态词；两条平台单测；linux/aarch64 两个 target `check` + `clippy` 干净 |
 | D cu 层 | — | 未开工 |
