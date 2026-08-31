@@ -367,10 +367,10 @@ focus 那一步**排在菜单步骤之前**，同样不是为了让它通过：�
 从 `pressed 0` 变 `pressed 1`；`set-checked true` performed+verified、再来一次 performed=false
 仍 verified、`false` 又变回来；`focus`/`focused`/`get-text`/`query --role` 都通；`windows` 的
 `z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下）。**片 S 再加菜单栏**，把后台菜单和树几何也真跑了：**又抓到六个**（见 §3）——盲写的片 J 没有一条是对的 |
-| Windows **真机证据** | 本仓没有那台机器，也没有可跑的模拟路径。映射交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 写 `[~] mapped`。**Linux 一跑就出了 16 个 bug，其中 3 个让整个动词不可用**——所以对 Windows 这一侧应当按「未验证」理解，而不是「接近对齐」 |
-| macOS `orderwin` | `AXRaise` 是应用内排序，对不在前台的应用改不了全局 z 序（实测 z=1 请求到最前变成 z=2）。cu 不会为此激活应用，所以带着实测值 typed 拒绝 |
-| Linux `app hide` / `show` | AT-SPI2 没有应用级隐藏状态。用「逐个窗口图标化」冒充它是**另一个动作套同一个名字**，不做；理由现在如实传到调用方 |
-| Linux `send-keys` | 节点不发布 AT-SPI `DeviceEventListener`，typed 拒绝 |
+| Windows **真机证据** | **上一版这里写「本仓没有那台机器，也没有可跑的模拟路径」——那句话是错的**（和我早上对 Linux 说的是同一句）。实际去查：本机装了 UTM，`utmctl list` 里有 **`minicon-win-arm-64` 和 `minicon-win-x86-64` 两个 Windows 虚拟机**，各 22–23 GB，是真安装不是空壳；`cargo-xwin` 也装着，`aarch64-pc-windows-msvc` / `x86_64-pc-windows-msvc` 两个 target 都在，**`agenterm-cu.exe` + `agenterm.dll` 交叉编译干净**（3.2 MB / 1.36 MB）。真正卡住的是**进不去**：启动 arm64 那台之后，客户机在 192.168.64.2，但 22 / 3389 / 5985 / 5986 / 445 / 135 全部关闭、ping 不通，没装 QEMU guest agent（`utmctl ip-address` 直接报错），配置里也没有串口（拿不到 SAC 控制台）。**所以准确的说法是：机器有、二进制有、缺的是客户机里没开任何可达服务**——要通就得有人在那台 Windows 的图形界面里打开 OpenSSH Server（或 WinRM），而那是另一个项目（minicon）的虚拟机，我不该自作主张改它的状态。用完已 `utmctl stop`，所有 VM 恢复原状 |
+| macOS `orderwin` | 两条路都实测过。`AXRaise` 是应用内排序，对不在前台的应用改不了全局 z 序（实测 z=1 请求到最前反而变成 z=2）。**SkyLight 私有 SPI 也试了**——本仓早就用 SkyLight 做 Space 归属，所以加载路径是现成的：`SLSOrderWindow` / `CGSOrderWindow` / `SLSSetWindowLevel` 全都 present，用本进程的 connection id 对**别的应用**的窗口调用，返回 **1000 = `kCGErrorIllegalArgument`**，顺序纹丝不动。窗口服务器不接受跨 connection 的排序。cu 不会为此激活应用，所以带着实测到的前后 z 值 typed 拒绝 |
+| ~~Linux `app hide` / `show`~~ **已做** | 原来的理由是「用逐个窗口图标化冒充应用级隐藏，是另一个动作套同一个名字」。那是个**诚实性**顾虑，而它是可以答的：现在对**进程拥有的每一个**顶层窗口发 ICCCM `WM_CHANGE_STATE`（而不是句柄指的那一个），并且**回读**——WM 不干就 typed 拒绝而不是把请求当结果。顺带暴露了 cu 里一处 macOS 形状的判据：hide 原本靠「窗口从 inventory 消失」验证，X11 是留在列表里标 `_NET_WM_STATE_HIDDEN`，于是能用的 Linux hide 被判 `verified: false`（还白等满 2.5 秒）。现在「消失」和「最小化」都算收起，5 ms 判定 |
+| ~~Linux `send-keys`~~ **已做** | 节点不发布 AT-SPI `DeviceEventListener`。但 macOS 因为另一个原因（键盘事件只送给前台应用，而这里从不激活）早就给出了答案：**执行这个和弦所*意味着*的那个动作**（`enter` 就是 `AXConfirm`）。AT-SPI 里那个动作就是节点自己的默认动作，`invoke` 早就在解析它。所以设备路径仍是首选，接口不存在时 `enter` 落到节点动作上；`esc` 仍然 typed 拒绝——AT-SPI 没有它的拼法，硬映射一个「看着像取消」的东西比拒绝更糟 |
 | macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
 | 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
 | ~~`apps --all` + `app launch`~~ | **已做（片 P）**。`launch` 用 `LSOpenCFURLRef`（不是 `open -a`，也不是 shell），**回复明说 `pid: null`**——进程归 launcher 管，这个调用没法知道 pid、也没法知道 App 是否真的起来了；要 pid 就等窗口 |

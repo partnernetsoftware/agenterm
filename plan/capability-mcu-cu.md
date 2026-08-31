@@ -9,12 +9,19 @@
 
 **还差什么（2026-09-01，晚）**：读富内容（图片/文件字节）仍未做，只报类型；
 截图 macOS 被系统拿走（`CGWindowListCreateImage` 15.0 从 SDK 移除，不退化成整屏抓图）；
-`orderwin` 在 macOS 上做不到——`AXRaise` 是应用内排序，对不在前台的应用改不了全局 z 序，
-cu 不激活应用，所以带实测值 typed 拒绝；`app hide`/`show` 和 `send-keys` 在 Linux 上
-没有对应机制，各自 typed 拒绝并点名缺什么。
+`orderwin` 在 macOS 上做不到——`AXRaise` 是应用内排序、SkyLight 的 `SLSOrderWindow` 对跨
+connection 的外部窗口返回 `kCGErrorIllegalArgument`（两条都实测过），cu 不激活应用，
+所以带实测值 typed 拒绝。**`app hide`/`show` 和 `send-keys` 在 Linux 上已经补齐**
+（前者对进程的每个窗口做 ICCCM 图标化并回读，后者把 `enter` 落到节点的默认动作上，
+和 macOS 的 `AXConfirm` 同一个道理）。
+
+**Windows 不是「没有路径」，是「进不去」**：本机 UTM 里有两台真装好的 Windows 虚拟机、
+`cargo-xwin` 两个 target 都能干净交叉编译出 `agenterm-cu.exe` + `agenterm.dll`；卡在客户机
+没开任何可达服务（SSH/WinRM/SMB 全关、无 guest agent、无串口）。要往下走需要有人在那台
+虚拟机里开一个入口。
 
 **Linux 已经上真机，而且有自己的注册旅程了**（本机 lima VM + `zig cc` 交叉链接 +
-Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke`，18 STEP / 18 EVIDENCE，连跑多次稳定。
+Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke`，20 STEP / 20 EVIDENCE，连跑多次稳定。
 PRD 的 Linux leaf 从 `[~] mapped` 改成 `[x]`。**代价是抓出 16 个 bug，其中 3 个让整个动词不可用、
 1 个让代码在真实 feature 组合下根本编不过**——所以 **Windows 那一侧现在应当按「未验证」理解，
 而不是「接近对齐」**：本仓没有那台机器，也没有可跑的模拟路径，leaf 仍写 `[~] mapped`。
