@@ -1194,6 +1194,68 @@ pub fn poke_manual_accessibility(window: isize) -> Result<(), MechanismError> {
     Ok(())
 }
 
+/// One event the backend itself reported.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct A11yEvent {
+    pub notification: String,
+    pub node_id: String,
+    pub role: String,
+    pub name: String,
+    pub t_ms: u64,
+}
+
+/// Watch one window through the backend's own notifications (ABI 1.18
+/// `agt_a11y_observe_window`). Blocking and bounded.
+///
+/// `Unsupported` here is the caller's cue to fall back to poll-diff and
+/// say which mode it used; it is never an error to report to the user.
+pub fn observe_window(
+    window: isize,
+    duration_ms: u64,
+    max_events: usize,
+) -> Result<Vec<A11yEvent>, MechanismError> {
+    let (major, minor) = loaded_abi_version()?;
+    if major != 1 || minor < dynlib::OBSERVE_NOTIFICATIONS_ABI_MINOR {
+        return Err(MechanismError::Unsupported {
+            reason: format!(
+                "native observation requires ABI 1.{}, loaded library reports {major}.{minor}",
+                dynlib::OBSERVE_NOTIFICATIONS_ABI_MINOR
+            ),
+        });
+    }
+    let f = call_sym::<ObserveWindow>(b"agt_a11y_observe_window")?;
+    let mut count = 0usize;
+    let status = unsafe { f(window, duration_ms, max_events, &mut count) };
+    map_status("agt_a11y_observe_window", status)?;
+    let time = call_sym::<ObserveEventTime>(b"agt_a11y_observe_event_time_ms")?;
+    let mut out = Vec::with_capacity(count);
+    for index in 0..count {
+        let mut t_ms = 0u64;
+        let status = unsafe { time(index, &mut t_ms) };
+        map_status("agt_a11y_observe_event_time_ms", status)?;
+        out.push(A11yEvent {
+            notification: observe_event_string(index, dynlib::AGT_A11Y_EVENT_STR_NOTIFICATION)?,
+            node_id: observe_event_string(index, dynlib::AGT_A11Y_EVENT_STR_NODE_ID)?,
+            role: observe_event_string(index, dynlib::AGT_A11Y_EVENT_STR_ROLE)?,
+            name: observe_event_string(index, dynlib::AGT_A11Y_EVENT_STR_NAME)?,
+            t_ms,
+        });
+    }
+    Ok(out)
+}
+
+fn observe_event_string(index: usize, kind: i32) -> Result<String, MechanismError> {
+    let bytes = read_two_stage(|buf, cap, out_len| {
+        let f = call_sym::<ObserveEventString>(b"agt_a11y_observe_event_string")?;
+        let status = unsafe { f(index, kind, buf, cap, out_len) };
+        Ok::<i32, MechanismError>(status)
+    })?;
+    String::from_utf8(bytes).map_err(|_| MechanismError::Failed {
+        code: "bad_encoding".into(),
+        message: "observation event string is not UTF-8".into(),
+    })
+}
+
 fn read_meta_count(field: i32) -> Result<usize, MechanismError> {
     let text = read_meta_string(field)?;
     text.trim().parse().map_err(|_| MechanismError::Failed {
@@ -1913,6 +1975,9 @@ type MenuSnapshot = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
 type MenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
 type FocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type ManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
+type ObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
+type ObserveEventString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
+type ObserveEventTime = unsafe extern "C" fn(usize, *mut u64) -> i32;
 type MetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32;
 type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;

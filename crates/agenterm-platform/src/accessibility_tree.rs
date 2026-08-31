@@ -1,9 +1,9 @@
 //! Accessibility / control-tree facade.
 
 pub use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
-    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
-    MAX_TREE_DEPTH_BUDGET, MAX_TREE_NODE_BUDGET,
+    AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
+    AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
+    AccessibilityTreeError, MAX_OBSERVE_EVENTS, MAX_TREE_DEPTH_BUDGET, MAX_TREE_NODE_BUDGET,
 };
 
 /// `Available` when the host stack can be walked now. A stack that exists but
@@ -204,6 +204,22 @@ pub fn poke_manual_accessibility(
     window_handle: Option<isize>,
 ) -> Result<(), AccessibilityTreeError> {
     crate::selected::accessibility_tree::poke_manual_accessibility(window_handle)
+}
+
+/// Watch one window for `duration`, collecting the events the backend
+/// itself reports rather than the differences between two tree walks.
+///
+/// Blocking and bounded: it returns when the duration elapses or
+/// `max_events` have arrived, whichever comes first. A backend with no
+/// notification mechanism answers `Unsupported`, and the caller falls back
+/// to poll-diff and says which mode it used -- the two are not equally
+/// good and a reply that hid the difference would be the lie.
+pub fn observe_window(
+    window_handle: Option<isize>,
+    duration: std::time::Duration,
+    max_events: usize,
+) -> Result<Vec<AccessibilityEvent>, AccessibilityTreeError> {
+    crate::selected::accessibility_tree::observe_window(window_handle, duration, max_events)
 }
 
 pub fn drain_bus() {

@@ -267,6 +267,14 @@ pub const MANUAL_ACCESSIBILITY_ABI_MINOR: u16 = 15;
 pub const MCU_ACTIONS_ABI_MINOR: u16 = 16;
 /// ABI 1.17: `agt_window_stacking_list` (front-to-back order + occlusion).
 pub const WINDOW_STACKING_ABI_MINOR: u16 = 17;
+/// ABI 1.18: `agt_a11y_observe_window` (native notification stream).
+pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
+
+/// `agt_a11y_observe_event_string` field kinds.
+pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;
+pub const AGT_A11Y_EVENT_STR_ROLE: i32 = 1;
+pub const AGT_A11Y_EVENT_STR_NAME: i32 = 2;
+pub const AGT_A11Y_EVENT_STR_NODE_ID: i32 = 3;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

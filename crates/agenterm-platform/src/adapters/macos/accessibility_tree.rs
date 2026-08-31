@@ -30,8 +30,9 @@ use std::time::{Duration, Instant};
 
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
-    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
+    AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
+    AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
+    AccessibilityTreeError, MAX_OBSERVE_EVENTS,
 };
 
 type CfTypeRef = *const c_void;
@@ -42,6 +43,9 @@ type CfIndex = isize;
 type AxUiElementRef = *const c_void;
 type AxValueRef = *const c_void;
 type CgWindowId = u32;
+type AxObserverRef = *const c_void;
+type AxObserverCallback =
+    unsafe extern "C" fn(AxObserverRef, AxUiElementRef, CfStringRef, *mut c_void);
 
 /// Default node budget when the caller names none. A larger tree is not an
 /// error: the walk stops here and reports `truncated`.
@@ -156,6 +160,23 @@ unsafe extern "C" {
     fn AXUIElementCopyActionNames(element: AxUiElementRef, names: *mut CfTypeRef) -> i32;
     fn AXValueGetValue(value: AxValueRef, typ: u32, value_ptr: *mut c_void) -> u8;
     fn AXValueCreate(typ: u32, value_ptr: *const c_void) -> AxValueRef;
+    fn AXObserverCreate(
+        pid: i32,
+        callback: AxObserverCallback,
+        observer: *mut AxObserverRef,
+    ) -> i32;
+    fn AXObserverAddNotification(
+        observer: AxObserverRef,
+        element: AxUiElementRef,
+        notification: CfStringRef,
+        refcon: *mut c_void,
+    ) -> i32;
+    fn AXObserverGetRunLoopSource(observer: AxObserverRef) -> CfTypeRef;
+    fn CFRunLoopGetCurrent() -> CfTypeRef;
+    fn CFRunLoopAddSource(run_loop: CfTypeRef, source: CfTypeRef, mode: CfStringRef);
+    fn CFRunLoopRemoveSource(run_loop: CfTypeRef, source: CfTypeRef, mode: CfStringRef);
+    fn CFRunLoopRunInMode(mode: CfStringRef, seconds: f64, return_after_source_handled: u8) -> i32;
+    static kCFRunLoopDefaultMode: CfStringRef;
     fn _AXUIElementGetWindow(element: AxUiElementRef, out: *mut CgWindowId) -> i32;
 
     fn AXUIElementPerformAction(element: AxUiElementRef, action: CfStringRef) -> i32;
@@ -548,6 +569,185 @@ fn finish_tree(
 /// fourteen after, `-25205` both times). Only a permission failure is
 /// reported, because that one is real and the caller must fix it; the poke
 /// itself is proven by re-reading the tree.
+/// The AX notifications this adapter subscribes to, paired with the
+/// neutral name the contract reports. `AXSelectedChildrenChanged` and
+/// `AXSelectedTextChanged` both mean "the selection moved", which the
+/// poll-diff vocabulary already calls a state change.
+const OBSERVED_NOTIFICATIONS: &[(&str, &str)] = &[
+    ("AXValueChanged", "ValueChanged"),
+    ("AXTitleChanged", "TitleChanged"),
+    ("AXFocusedUIElementChanged", "FocusChanged"),
+    ("AXCreated", "Created"),
+    ("AXUIElementDestroyed", "Destroyed"),
+    ("AXSelectedChildrenChanged", "StateChanged"),
+    ("AXSelectedTextChanged", "StateChanged"),
+    ("AXRowCountChanged", "StateChanged"),
+];
+
+/// How long one turn of the run loop waits before the collector checks its
+/// own deadline. Short enough that the call returns promptly when the
+/// caller's duration ends, long enough that an idle interface costs
+/// nothing.
+const OBSERVE_SLICE_SECONDS: f64 = 0.1;
+
+/// What the AXObserver callback writes into. The callback runs on this
+/// same thread, inside `CFRunLoopRunInMode`, so a plain `&mut` behind a
+/// raw pointer is enough -- there is no other thread to race with.
+struct EventSink {
+    events: Vec<AccessibilityEvent>,
+    started: Instant,
+    max_events: usize,
+}
+
+unsafe extern "C" fn observer_callback(
+    _observer: AxObserverRef,
+    element: AxUiElementRef,
+    notification: CfStringRef,
+    refcon: *mut c_void,
+) {
+    if refcon.is_null() {
+        return;
+    }
+    // SAFETY: `refcon` is the `EventSink` this call's `observe_window`
+    // passed to `AXObserverAddNotification`; the observer is removed from
+    // the run loop before that sink goes out of scope, and the callback
+    // only ever runs inside `CFRunLoopRunInMode` on this thread.
+    let sink = unsafe { &mut *(refcon as *mut EventSink) };
+    if sink.events.len() >= sink.max_events {
+        return;
+    }
+    let raw = cf_string(notification as CfTypeRef);
+    let neutral = OBSERVED_NOTIFICATIONS
+        .iter()
+        .find(|(ax, _)| *ax == raw)
+        .map(|(_, name)| (*name).to_owned())
+        .unwrap_or(raw);
+    // The element is read with a tiny budget of its own: a notification
+    // callback must not be where a slow application stalls the loop, and a
+    // destroyed element answers nothing at all, which is not an error.
+    let mut budget = Budget::new(Duration::from_millis(250));
+    let role = attribute_string(element, "AXRole", &mut budget)
+        .ok()
+        .flatten()
+        .map(|raw| normalize_role(&raw))
+        .unwrap_or_default();
+    let name = attribute_string(element, "AXTitle", &mut budget)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    sink.events.push(AccessibilityEvent {
+        notification: neutral,
+        node_id: String::new(),
+        role,
+        name,
+        t_ms: sink.started.elapsed().as_millis() as u64,
+    });
+}
+
+/// Subscribe to the owning application's AX notifications for `duration`.
+///
+/// The observer is registered on the *application* element, which is how
+/// AX delivers events for the elements inside it, and its run-loop source
+/// is added to this thread's run loop. The call then turns the run loop in
+/// short slices until the duration ends or `max_events` have arrived, and
+/// removes the source before returning -- nothing outlives the call.
+///
+/// `node_id` is left empty: an event names a live element, and resolving
+/// it to a path in the window's tree would mean walking `AXParent` inside
+/// a callback that must stay fast, for an element that may already be
+/// gone. The caller gets role and name, which is what identifies the event.
+pub(crate) fn observe_window(
+    window_handle: Option<isize>,
+    duration: Duration,
+    max_events: usize,
+) -> Result<Vec<AccessibilityEvent>, AccessibilityTreeError> {
+    require_trusted()?;
+    if max_events == 0 || max_events > MAX_OBSERVE_EVENTS {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("max_events must be 1..={MAX_OBSERVE_EVENTS}, got {max_events}"),
+        ));
+    }
+    let handle = require_handle(window_handle, "an AX notification subscription")?;
+    let pid = owner_pid(handle)?;
+    let application =
+        CfOwned::from_create(unsafe { AXUIElementCreateApplication(pid as i32) as CfTypeRef })
+            .ok_or_else(|| {
+                AccessibilityTreeError::failed(
+                    "a11y_connect_failed",
+                    format!("AXUIElementCreateApplication({pid}) returned null"),
+                )
+            })?;
+
+    let mut observer: AxObserverRef = std::ptr::null();
+    let status = unsafe { AXObserverCreate(pid as i32, observer_callback, &mut observer) };
+    if status == AX_ERROR_API_DISABLED {
+        return Err(permission_denied());
+    }
+    let observer = CfOwned::from_create(observer as CfTypeRef).ok_or_else(|| {
+        AccessibilityTreeError::failed(
+            "a11y_connect_failed",
+            format!("AXObserverCreate returned AXError {status}"),
+        )
+    })?;
+
+    let mut sink = EventSink {
+        events: Vec::new(),
+        started: Instant::now(),
+        max_events,
+    };
+    let refcon = &mut sink as *mut EventSink as *mut c_void;
+    let mut subscribed = 0usize;
+    for (ax_name, _) in OBSERVED_NOTIFICATIONS {
+        let status = unsafe {
+            let key = cfstr(ax_name);
+            let status = AXObserverAddNotification(
+                observer.as_ptr() as AxObserverRef,
+                application.as_ax(),
+                key,
+                refcon,
+            );
+            CFRelease(key as CfTypeRef);
+            status
+        };
+        // An application that does not publish a given notification is
+        // ordinary; only losing every one of them is a failure worth
+        // reporting.
+        if status == AX_SUCCESS {
+            subscribed += 1;
+        }
+    }
+    if subscribed == 0 {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_observe_unavailable",
+            "the application accepted none of the AX notifications this adapter asks for",
+        ));
+    }
+
+    let source = unsafe { AXObserverGetRunLoopSource(observer.as_ptr() as AxObserverRef) };
+    if source.is_null() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_observe_unavailable",
+            "AXObserverGetRunLoopSource returned null",
+        ));
+    }
+    let run_loop = unsafe { CFRunLoopGetCurrent() };
+    unsafe { CFRunLoopAddSource(run_loop, source, kCFRunLoopDefaultMode) };
+    let deadline = Instant::now() + duration;
+    while Instant::now() < deadline && sink.events.len() < max_events {
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs_f64()
+            .min(OBSERVE_SLICE_SECONDS);
+        if remaining <= 0.0 {
+            break;
+        }
+        unsafe { CFRunLoopRunInMode(kCFRunLoopDefaultMode, remaining, 0) };
+    }
+    unsafe { CFRunLoopRemoveSource(run_loop, source, kCFRunLoopDefaultMode) };
+    Ok(sink.events)
+}
+
 pub(crate) fn poke_manual_accessibility(
     window_handle: Option<isize>,
 ) -> Result<(), AccessibilityTreeError> {

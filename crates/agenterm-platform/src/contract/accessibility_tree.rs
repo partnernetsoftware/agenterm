@@ -90,6 +90,33 @@ pub struct AccessibilityMenuReceipt {
     pub mark_after: Option<String>,
 }
 
+/// One event the backend itself reported, as opposed to a difference two
+/// tree walks happened to show.
+///
+/// A notification stream sees what a poll-diff cannot: a value that
+/// changed and changed back between two walks, the order two changes
+/// happened in, and the moment each one arrived. It also costs nothing
+/// while the interface is idle.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct AccessibilityEvent {
+    /// The neutral vocabulary the poll-diff stream already uses:
+    /// `ValueChanged`, `TitleChanged`, `StateChanged`, `FocusChanged`,
+    /// `Created`, `Destroyed`.
+    pub notification: String,
+    /// The element's path in the window's tree, or empty when the element
+    /// could not be located there (it may already be gone -- a
+    /// `Destroyed` event names an element that no longer exists).
+    pub node_id: String,
+    pub role: String,
+    pub name: String,
+    /// Milliseconds from the start of the observation.
+    pub t_ms: u64,
+}
+
+/// Largest number of events one bounded observation may collect.
+pub const MAX_OBSERVE_EVENTS: usize = 5_000;
+
 /// Largest node budget a caller may request. Above this the walk is not a
 /// bounded observation any more, so the contract refuses it typed.
 pub const MAX_TREE_NODE_BUDGET: usize = 20_000;

@@ -60,6 +60,7 @@ const declared_evidence = [
   "cu.macos-ax-menu-invoke",
   "cu.macos-ax-focused",
   "cu.macos-ax-observe",
+  "cu.macos-ax-observe-notifications",
   "cu.macos-ax-click",
   "cu.macos-ax-frame",
   "cu.macos-ax-destructive-refusals",
@@ -1190,6 +1191,58 @@ try {
   );
 
   // ---- slice 4: click, frame, the destructive gate, receipts -----------
+  print("STEP observe --mode notifications takes the events from the backend itself: no polls, arrival times, and a value that reverts is still seen");
+  // The default mode compares two tree walks, so it carries before / after
+  // but cannot see a change that reverts between them. This mode
+  // subscribes to the application's own AX notifications instead, so it
+  // sees the order and arrival of every change -- and says so, since the
+  // two are not interchangeable.
+  const native_observer = start_observer(
+    run_directory, executable, handle_text,
+    ["--duration", "2", "--mode", "notifications", "--max-events", "50"]
+  );
+  harness.sleep_ms(300);
+  // Write and write back: the second value equals the first, so a walk
+  // taken after both would see no difference at all.
+  invoke_ok(run_directory, executable, handle_text, ["--identifier", "fixture-field"], ["set-value", "reverted once"]);
+  harness.sleep_ms(150);
+  invoke_ok(run_directory, executable, handle_text, ["--identifier", "fixture-field"], ["set-value", "observed"]);
+  const native_events = observer_result(native_observer);
+  ensure(
+    text_at(native_events, "mode") === "notifications"
+      && text_at(native_events, "backend") === "ax"
+      && int_at(native_events, "duration_ms") === 2000
+      && int_at(native_events, "emitted") === native_events.events.length
+      && int_at(native_events, "emitted") >= 2
+      && !flag_at(native_events, "truncated")
+      && text_at(native_events, "stopped") === "deadline",
+    "cu_macos_smoke_native_observe_shape:" + JSON.stringify(native_events)
+  );
+  // No `polls` field: there were none, and a caller comparing two runs has
+  // to be able to tell which mechanism produced the events.
+  ensure(
+    native_events.polls === undefined && native_events.interval_ms === undefined,
+    "cu_macos_smoke_native_observe_has_poll_fields:" + JSON.stringify(native_events)
+  );
+  let native_value_changes = 0;
+  let native_last_t = -1;
+  let native_seq = 0;
+  for (const event of native_events.events) {
+    ensure(int_at(event, "seq") === native_seq, "cu_macos_smoke_native_seq:" + JSON.stringify(event));
+    ensure(int_at(event, "t_ms") >= native_last_t, "cu_macos_smoke_native_monotonic:" + JSON.stringify(event));
+    native_seq = native_seq + 1;
+    native_last_t = int_at(event, "t_ms");
+    if (text_at(event, "notification") === "ValueChanged") {
+      native_value_changes = native_value_changes + 1;
+    }
+  }
+  // Both writes are seen, including the one a poll-diff between the same
+  // two instants would have missed entirely.
+  ensure(
+    native_value_changes >= 2,
+    "cu_macos_smoke_native_reverting_write:" + JSON.stringify(native_events.events)
+  );
+
   print("STEP click --node and click --name press the button; the label advances, the real pointer and the focused window do not move");
   const press_id = text_at(by_identifier.data.nodes[0], "id");
   const pointer_before_click = pointer_text(run_directory, executable);
@@ -1895,6 +1948,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-focused");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe-notifications");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-click");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-frame");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-refusals");

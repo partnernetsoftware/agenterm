@@ -25,8 +25,9 @@ use zbus::zvariant::OwnedObjectPath;
 
 use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
-    AccessibilityBounds, AccessibilityMenuReceipt, AccessibilityNode, AccessibilityNodeAction,
-    AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
+    AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
+    AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
+    AccessibilityTreeError,
 };
 
 const MAX_NODES: usize = 1_000;
@@ -236,6 +237,20 @@ pub(crate) fn focused_node_for_window(
 
 /// No poke is needed or available here: unlike macOS, this backend does
 /// not gate a browser's tree behind a per-application attribute.
+/// No native event stream here yet. The backend has one (AT-SPI signals /
+/// UIA event handlers); wiring it is its own cut, and until then the
+/// caller must fall back to poll-diff and say so rather than pretend.
+pub(crate) fn observe_window(
+    _window_handle: Option<isize>,
+    _duration: std::time::Duration,
+    _max_events: usize,
+) -> Result<Vec<AccessibilityEvent>, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "AT-SPI2 event subscription is not wired; the caller falls back to poll-diff"
+            .into(),
+    })
+}
+
 pub(crate) fn poke_manual_accessibility(
     _window_handle: Option<isize>,
 ) -> Result<(), AccessibilityTreeError> {

@@ -89,11 +89,12 @@ use std::time::{Duration, Instant};
 
 use agenterm_platform::CapabilityStatus;
 use agenterm_platform::accessibility_tree::{
-    AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
-    drain_bus, focused_node_for_window, get_node_caret_offset, get_node_extents,
-    get_node_selection, get_node_text, invoke_menu_path, last_text_write_via, menu_tree_for_window,
-    perform_node_action, poke_manual_accessibility, scroll_node, send_node_keys,
-    set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
+    AccessibilityEvent, AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget,
+    AccessibilityTreeError, drain_bus, focused_node_for_window, get_node_caret_offset,
+    get_node_extents, get_node_selection, get_node_text, invoke_menu_path, last_text_write_via,
+    menu_tree_for_window, observe_window, perform_node_action, poke_manual_accessibility,
+    scroll_node, send_node_keys, set_node_caret_offset, set_node_selection, set_node_text,
+    tree_for_window_bounded,
 };
 use agenterm_platform::clipboard::{get_text, has_unicode_text, set_text};
 use agenterm_platform::desktop_host::{
@@ -274,7 +275,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 17);
+abi_version!(1, 18);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3127,6 +3128,10 @@ struct A11ySnapshot {
 
 thread_local! {
     static A11Y_SNAPSHOT: RefCell<Option<A11ySnapshot>> = const { RefCell::new(None) };
+    /// Events from the last `agt_a11y_observe_window` on this thread.
+    /// Same ownership rule as the snapshot: the library owns the buffer,
+    /// the caller reads it by index until the next call replaces it.
+    static A11Y_EVENTS: RefCell<Vec<AccessibilityEvent>> = const { RefCell::new(Vec::new()) };
 }
 
 /// `None` when the accessibility stack can be used now. `Unsupported` (no
@@ -3730,6 +3735,187 @@ pub extern "C" fn agt_a11y_tree_node(index: usize, out: *mut agt_a11y_node) -> a
                 c"agt_a11y_tree_node",
                 c"panic",
                 "panic in agt_a11y_tree_node",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.18 string kinds for `agt_a11y_observe_event_string`.
+const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;
+const AGT_A11Y_EVENT_STR_ROLE: i32 = 1;
+const AGT_A11Y_EVENT_STR_NAME: i32 = 2;
+const AGT_A11Y_EVENT_STR_NODE_ID: i32 = 3;
+
+/// ABI 1.18: watch one window for `duration_ms`, collecting the events the
+/// **backend itself reports** instead of the differences between two tree
+/// walks.
+///
+/// Blocking and bounded: it returns when the duration elapses or
+/// `max_events` have arrived. The events replace this thread's event
+/// buffer and are read back with `agt_a11y_observe_event_string` and
+/// `agt_a11y_observe_event_time_ms`. A host with no notification mechanism
+/// answers `AGT_UNSUPPORTED`, and the caller is expected to fall back to
+/// polling and say which mode it used -- the two are not equally good.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_observe_window(
+    window_handle: isize,
+    duration_ms: u64,
+    max_events: usize,
+    out_count: *mut usize,
+) -> agt_status {
+    fn inner(
+        window_handle: isize,
+        duration_ms: u64,
+        max_events: usize,
+        out_count: *mut usize,
+    ) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if out_count.is_null() {
+            record_error(
+                c"agt_a11y_observe_window",
+                c"bad_pointer",
+                "out_count is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if window_handle == 0 {
+            record_error(
+                c"agt_a11y_observe_window",
+                c"invalid_input",
+                "window_handle 0 does not name an application",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let duration = Duration::from_millis(duration_ms);
+        match observe_window(Some(window_handle), duration, max_events) {
+            Ok(events) => {
+                unsafe { *out_count = events.len() };
+                A11Y_EVENTS.with(|cell| *cell.borrow_mut() = events);
+                agt_status::AGT_OK
+            }
+            Err(e) => {
+                A11Y_EVENTS.with(|cell| cell.borrow_mut().clear());
+                unsafe { *out_count = 0 };
+                map_a11y_error(c"agt_a11y_observe_window", e)
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(window_handle, duration_ms, max_events, out_count)
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_observe_window",
+                c"panic",
+                "panic in agt_a11y_observe_window",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.18: one string field of an event from the last
+/// `agt_a11y_observe_window`, two-stage.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_observe_event_string(
+    event_index: usize,
+    kind: i32,
+    buf: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> agt_status {
+    fn inner(
+        event_index: usize,
+        kind: i32,
+        buf: *mut u8,
+        cap: usize,
+        out_len: *mut usize,
+    ) -> agt_status {
+        A11Y_EVENTS.with(|cell| {
+            let events = cell.borrow();
+            let Some(event) = events.get(event_index) else {
+                record_error(
+                    c"agt_a11y_observe_event_string",
+                    c"bad_index",
+                    "event index is out of range for the last observation",
+                );
+                return agt_status::AGT_FAILED;
+            };
+            let data: &[u8] = match kind {
+                AGT_A11Y_EVENT_STR_NOTIFICATION => event.notification.as_bytes(),
+                AGT_A11Y_EVENT_STR_ROLE => event.role.as_bytes(),
+                AGT_A11Y_EVENT_STR_NAME => event.name.as_bytes(),
+                AGT_A11Y_EVENT_STR_NODE_ID => event.node_id.as_bytes(),
+                _ => {
+                    record_error(
+                        c"agt_a11y_observe_event_string",
+                        c"bad_field",
+                        "unknown string kind",
+                    );
+                    return agt_status::AGT_FAILED;
+                }
+            };
+            copy_bytes_two_stage(c"agt_a11y_observe_event_string", data, buf, cap, out_len)
+        })
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(event_index, kind, buf, cap, out_len)
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_observe_event_string",
+                c"panic",
+                "panic in agt_a11y_observe_event_string",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.18: milliseconds from the start of the observation to this event.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_observe_event_time_ms(
+    event_index: usize,
+    out_t_ms: *mut u64,
+) -> agt_status {
+    fn inner(event_index: usize, out_t_ms: *mut u64) -> agt_status {
+        if out_t_ms.is_null() {
+            record_error(
+                c"agt_a11y_observe_event_time_ms",
+                c"bad_pointer",
+                "out_t_ms is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        A11Y_EVENTS.with(|cell| {
+            let events = cell.borrow();
+            let Some(event) = events.get(event_index) else {
+                record_error(
+                    c"agt_a11y_observe_event_time_ms",
+                    c"bad_index",
+                    "event index is out of range for the last observation",
+                );
+                return agt_status::AGT_FAILED;
+            };
+            unsafe { *out_t_ms = event.t_ms };
+            agt_status::AGT_OK
+        })
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(event_index, out_t_ms))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_observe_event_time_ms",
+                c"panic",
+                "panic in agt_a11y_observe_event_time_ms",
             );
             agt_status::AGT_FAILED
         }

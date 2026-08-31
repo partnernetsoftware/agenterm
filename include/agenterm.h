@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 17
+#define AGT_ABI_MINOR 18
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -592,6 +592,29 @@ agt_status agt_a11y_node_send_keys(intptr_t window_handle, const char* node_id,
  * A host with no such mechanism answers AGT_UNSUPPORTED; window_handle 0 is
  * invalid_input. */
 agt_status agt_a11y_manual_accessibility_poke(intptr_t window_handle);
+
+/* ABI 1.18: watch one window for duration_ms, collecting the events the
+ * BACKEND ITSELF reports (macOS AXObserver) instead of the differences
+ * between two tree walks. Blocking and bounded: returns when the duration
+ * elapses or max_events have arrived. The events replace this thread's
+ * event buffer; read them back by index with the two calls below. A host
+ * with no notification mechanism answers AGT_UNSUPPORTED and the caller is
+ * expected to fall back to polling AND SAY SO -- the two are not equally
+ * good. window_handle 0 is invalid_input. */
+agt_status agt_a11y_observe_window(intptr_t window_handle, uint64_t duration_ms,
+                                   size_t max_events, size_t* out_count);
+
+/* String fields of one event from the last agt_a11y_observe_window,
+ * two-stage (spec 3.4). kind: 0 notification, 1 role, 2 name, 3 node id.
+ * The notification is the neutral vocabulary the polling stream also uses
+ * (ValueChanged / TitleChanged / StateChanged / FocusChanged / Created /
+ * Destroyed). node id may be empty: an event names a live element, and a
+ * Destroyed one names an element that no longer exists. */
+agt_status agt_a11y_observe_event_string(size_t event_index, int32_t kind,
+                                         uint8_t* buf, size_t cap, size_t* out_len);
+
+/* Milliseconds from the start of the observation to this event. */
+agt_status agt_a11y_observe_event_time_ms(size_t event_index, uint64_t* out_t_ms);
 
 agt_status agt_a11y_node_scroll(intptr_t window_handle, const char* node_id);
 

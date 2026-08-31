@@ -778,10 +778,20 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
+            let mode = match flag_text(&mut args, "--mode") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if let Some(mode) = &mode
+                && mode != "poll-diff"
+                && mode != "notifications"
+            {
+                return usage_err("observe --mode must be poll-diff or notifications");
+            }
             if !args.is_empty() {
                 return usage_err(format!(
                     "observe accepts only --window H --duration S | --duration-ms N --depth N --max-nodes N \
-                     --max-events N --notification A,B --interval-ms N; unexpected {:?}",
+                     --max-events N --notification A,B --interval-ms N --mode poll-diff|notifications; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -794,6 +804,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 max_events,
                 notifications,
                 interval_ms,
+                mode,
             }
         }
         "verify" => {

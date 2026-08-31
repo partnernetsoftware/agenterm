@@ -680,6 +680,7 @@ impl Executor {
                 max_events,
                 notifications,
                 interval_ms,
+                mode,
                 ..
             } => observe_payload(
                 *window,
@@ -689,6 +690,7 @@ impl Executor {
                 *max_events,
                 notifications,
                 *interval_ms,
+                mode.as_deref(),
             ),
             Command::Verify { window, expect, .. } => verify_payload(*window, expect),
             Command::PageJs {
@@ -1000,6 +1002,24 @@ fn capabilities_payload() -> serde_json::Value {
     // posted to a pid arrive without a window and no view ever sees them --
     // which is why `pointer-move --to <handle>` is refused rather than
     // approximated.
+    // Both observation modes are declared, because they are not
+    // interchangeable: polling carries `before` / `after` on every event,
+    // notifications carry the order and arrival time of changes polling
+    // never sees. `default` names the one a caller gets without asking.
+    let observe_verb = {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("default_mode".into(), serde_json::json!("poll-diff"));
+            object.insert(
+                "modes".into(),
+                serde_json::json!({
+                    "poll-diff": "available",
+                    "notifications": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                }),
+            );
+        }
+        declaration
+    };
     // The Screenshot capability covers the PNG *writer*, which every host
     // has. Capturing a window's pixels is a separate mechanism, and macOS
     // does not have one this build can call: `CGWindowListCreateImage` was
@@ -1064,7 +1084,7 @@ fn capabilities_payload() -> serde_json::Value {
             "menu-inspect": menu_verb,
             "menu-invoke": menu_verb,
             "focused": focused_verb,
-            "observe": tree_verb,
+            "observe": observe_verb,
             "close": close_verb,
             "orderwin": {
                 "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase(),
@@ -4877,6 +4897,57 @@ fn focused_payload(
     }))
 }
 
+/// The reply for a run that used the backend's own notifications.
+///
+/// It reports `mode: "notifications"` and no `polls` count, because there
+/// were none: a caller comparing two runs must be able to tell which
+/// mechanism produced the events. `filtered` still applies -- a caller can
+/// ask for a subset of the vocabulary either way.
+fn native_observe_payload(
+    window: isize,
+    duration_ms: u64,
+    max_events: usize,
+    wanted: &[String],
+    events: Vec<mechanism::A11yEvent>,
+) -> serde_json::Value {
+    let total = events.len();
+    let mut emitted = Vec::new();
+    let mut filtered = 0usize;
+    for event in events {
+        if !wanted.contains(&event.notification) {
+            filtered += 1;
+            continue;
+        }
+        let seq = emitted.len() as u64;
+        emitted.push(serde_json::json!({
+            "seq": seq,
+            "t_ms": event.t_ms,
+            "notification": event.notification,
+            "node": {
+                "id": event.node_id,
+                "role": event.role,
+                "name": event.name,
+            },
+        }));
+    }
+    serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "backend": "ax",
+        "mode": "notifications",
+        "window": window,
+        "duration_ms": duration_ms,
+        "notifications": wanted,
+        "max_events": max_events,
+        "received": total,
+        "emitted": emitted.len(),
+        "filtered": filtered,
+        "truncated": total >= max_events,
+        "stopped": if total >= max_events { "max-events" } else { "deadline" },
+        "events": emitted,
+    })
+}
+
 /// `observe`: poll the bounded tree and emit the semantic differences
 /// between consecutive walks as a monotonic, filtered, bounded stream. AX
 /// notifications are not subscribed (the platform crate wires no
@@ -4890,6 +4961,7 @@ fn observe_payload(
     max_events: Option<usize>,
     notifications: &[String],
     interval_ms: Option<u64>,
+    mode: Option<&str>,
 ) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
@@ -4917,6 +4989,28 @@ fn observe_payload(
         }
         merged
     };
+    // The two modes see different things and neither subsumes the other, so
+    // the caller picks and the reply says which ran. Polling compares two
+    // tree walks: every event carries `before` and `after`, but a change
+    // that reverts between walks is invisible and an idle interface still
+    // costs a walk per interval. The backend's own notifications carry the
+    // order and arrival time of every change -- including ones that revert
+    // -- and cost nothing while nothing happens, but a notification says
+    // "this changed", not what it changed from. Defaulting to notifications
+    // would silently drop `before`/`after` from every reply, so poll-diff
+    // stays the default and `--mode notifications` is the explicit ask.
+    if mode == Some("notifications") {
+        return match mechanism::observe_window(window, duration_ms, max_events) {
+            Ok(events) => Ok(native_observe_payload(
+                window,
+                duration_ms,
+                max_events,
+                &wanted,
+                events,
+            )),
+            Err(error) => Err(map_mechanism_err(error)),
+        };
+    }
     let started = Instant::now();
     let deadline = started + Duration::from_millis(duration_ms);
     let mut previous =

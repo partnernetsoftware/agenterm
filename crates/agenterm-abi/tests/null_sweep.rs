@@ -168,6 +168,9 @@ type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
 type A11yNodeSendKeys = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
 type A11yManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
+type A11yObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
+type A11yObserveEventString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
+type A11yObserveEventTime = unsafe extern "C" fn(usize, *mut u64) -> i32;
 type A11yNodeScroll = unsafe extern "C" fn(isize, *const c_char) -> i32;
 type A11yNodeGetExtents =
     unsafe extern "C" fn(isize, *const c_char, *mut i32, *mut i32, *mut i32, *mut i32) -> i32;
@@ -875,6 +878,36 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<A11yNodeSendKeys> = unsafe { sym(lib, b"agt_a11y_node_send_keys") };
                 unsafe { CallResult::Status(f(0, std::ptr::null(), std::ptr::null(), 1)) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_observe_window[window_handle=0,out_count=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yObserveWindow> = unsafe { sym(lib, b"agt_a11y_observe_window") };
+                unsafe { CallResult::Status(f(0, 0, 1, std::ptr::null_mut())) }
+            }),
+        },
+        SweepCase {
+            // No observation has run on this thread, so every index is out
+            // of range -- and a NULL out_len must be refused regardless.
+            label: "agt_a11y_observe_event_string[index=0,buf=NULL,out_len=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yObserveEventString> =
+                    unsafe { sym(lib, b"agt_a11y_observe_event_string") };
+                unsafe {
+                    CallResult::Status(f(0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut()))
+                }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_observe_event_time_ms[index=0,out_t_ms=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yObserveEventTime> =
+                    unsafe { sym(lib, b"agt_a11y_observe_event_time_ms") };
+                unsafe { CallResult::Status(f(0, std::ptr::null_mut())) }
             }),
         },
         SweepCase {

@@ -766,6 +766,31 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [x] `observe --mode notifications` on `current` (cut 3.56, ABI 1.18
+  `agt_a11y_observe_window`): the events come from the application's own
+  `AXObserver` subscription rather than from the difference between two
+  tree walks. The observer is registered on the application element, its
+  run-loop source runs on the calling thread in short slices until the
+  duration ends or `max_events` arrive, and it is removed before the call
+  returns -- nothing outlives it.
+  **It does not replace poll-diff, because neither mode subsumes the
+  other.** Polling compares two walks, so every event carries `before` and
+  `after`, but a change that reverts between walks is invisible and an idle
+  interface still costs a walk per interval. Notifications carry the order
+  and arrival time of every change, including ones that revert, but say
+  "this changed", not what it changed from. Defaulting to notifications
+  would silently drop `before` / `after` from every reply, so `poll-diff`
+  stays the default, `--mode notifications` is the explicit ask, the reply
+  always says which mode ran, and the notification reply carries no `polls`
+  or `interval_ms` because there were none. `capabilities` declares
+  `observe.default_mode` and a status per mode; Linux and Windows report
+  `notifications: unsupported` (their backends have event mechanisms; this
+  cut does not wire them).
+  Live evidence: `cu-macos-smoke` STEP "observe --mode notifications takes
+  the events from the backend itself ..." (2026-09-01) -- a value is
+  written and written back while the observer runs, and both writes are
+  seen, which a poll-diff between the same two instants could not have
+  reported at all.
 - [x] `windows` reports the desktop's front-to-back order and how much of
   each window is covered (cut 3.55, ABI 1.17
   `agt_window_stacking_list`): `z_index` 0 is frontmost and

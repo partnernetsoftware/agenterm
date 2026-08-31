@@ -386,6 +386,15 @@ pub enum Command {
         notifications: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         interval_ms: Option<u64>,
+        /// `poll-diff` (default) or `notifications`. The two see different
+        /// things and neither subsumes the other: polling compares two
+        /// tree walks, so every event carries `before` and `after` but a
+        /// change that reverts between walks is invisible; the backend's
+        /// own notifications carry the order and arrival time of every
+        /// change but not what it changed from. The caller picks; the
+        /// reply always says which one ran.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
     },
     /// Read one tree and check every expectation against it. All met is
     /// `ok` with per-item results; a known mismatch is typed `unverified`;
