@@ -960,23 +960,20 @@ fn capabilities_payload() -> serde_json::Value {
             "reason": "background menu-bar mechanisms are mapped on macOS AX only",
         })
     };
-    // The App-local focused control is mapped on macOS (AXFocusedUIElement)
-    // and on Linux (a bounded search for the node carrying STATE_FOCUSED);
-    // Windows UIA has no mapping yet. Linux says which route it took, since
-    // a search is a weaker claim than the toolkit naming its focus.
+    // The App-local focused control is read three ways: macOS asks the
+    // application for its `AXFocusedUIElement`, while Linux and Windows
+    // search the window's own bounded tree for the node the backend marks
+    // focused (`STATE_FOCUSED` / `HasKeyboardFocus`). A search is a weaker
+    // claim than a toolkit naming its own focus, so those two say which
+    // route they took instead of copying the tree status unqualified.
     let focused_verb = if cfg!(target_os = "macos") {
         tree_verb.clone()
-    } else if cfg!(target_os = "linux") {
+    } else {
         let mut declaration = tree_verb.clone();
         if let Some(object) = declaration.as_object_mut() {
             object.insert("mode".into(), serde_json::json!("state-search"));
         }
         declaration
-    } else {
-        serde_json::json!({
-            "status": "unsupported",
-            "reason": "App-local focused-control reads are mapped on macOS AX and Linux AT-SPI2 only",
-        })
     };
     // The destructive verb rides the platform's window close control:
     // macOS AX `AXCloseButton` (slice 4) and Windows `WM_CLOSE`; the Linux

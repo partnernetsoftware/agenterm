@@ -31,26 +31,29 @@ use windows_sys::Win32::System::Variant::{
     VARIANT, VT_ARRAY, VT_BOOL, VT_BSTR, VT_EMPTY, VT_I4, VT_R8, VariantClear,
 };
 use windows_sys::Win32::UI::Accessibility::{
-    CUIAutomation8, UIA_AppBarControlTypeId, UIA_BoundingRectanglePropertyId,
-    UIA_ButtonControlTypeId, UIA_CalendarControlTypeId, UIA_CheckBoxControlTypeId,
-    UIA_ComboBoxControlTypeId, UIA_ControlTypePropertyId, UIA_CustomControlTypeId,
-    UIA_DataGridControlTypeId, UIA_DataItemControlTypeId, UIA_DocumentControlTypeId,
-    UIA_E_ELEMENTNOTAVAILABLE, UIA_E_ELEMENTNOTENABLED, UIA_E_INVALIDOPERATION, UIA_E_NOTSUPPORTED,
-    UIA_E_TIMEOUT, UIA_EditControlTypeId, UIA_GroupControlTypeId, UIA_HasKeyboardFocusPropertyId,
+    CUIAutomation8, ExpandCollapseState, ExpandCollapseState_Collapsed,
+    ExpandCollapseState_Expanded, ExpandCollapseState_LeafNode,
+    ExpandCollapseState_PartiallyExpanded, UIA_AppBarControlTypeId,
+    UIA_BoundingRectanglePropertyId, UIA_ButtonControlTypeId, UIA_CalendarControlTypeId,
+    UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId, UIA_ControlTypePropertyId,
+    UIA_CustomControlTypeId, UIA_DataGridControlTypeId, UIA_DataItemControlTypeId,
+    UIA_DocumentControlTypeId, UIA_E_ELEMENTNOTAVAILABLE, UIA_E_ELEMENTNOTENABLED,
+    UIA_E_INVALIDOPERATION, UIA_E_NOTSUPPORTED, UIA_E_TIMEOUT, UIA_EditControlTypeId,
+    UIA_ExpandCollapsePatternId, UIA_GroupControlTypeId, UIA_HasKeyboardFocusPropertyId,
     UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId, UIA_HyperlinkControlTypeId,
     UIA_ImageControlTypeId, UIA_InvokePatternId, UIA_IsContentElementPropertyId,
     UIA_IsControlElementPropertyId, UIA_IsEnabledPropertyId, UIA_IsKeyboardFocusablePropertyId,
     UIA_IsOffscreenPropertyId, UIA_IsPasswordPropertyId, UIA_LegacyIAccessiblePatternId,
     UIA_ListControlTypeId, UIA_ListItemControlTypeId, UIA_MenuBarControlTypeId,
     UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_NamePropertyId, UIA_PaneControlTypeId,
-    UIA_ProgressBarControlTypeId, UIA_RadioButtonControlTypeId, UIA_ScrollBarControlTypeId,
-    UIA_SelectionItemPatternId, UIA_SemanticZoomControlTypeId, UIA_SeparatorControlTypeId,
-    UIA_SliderControlTypeId, UIA_SpinnerControlTypeId, UIA_SplitButtonControlTypeId,
-    UIA_StatusBarControlTypeId, UIA_TabControlTypeId, UIA_TabItemControlTypeId,
-    UIA_TableControlTypeId, UIA_TextControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId,
-    UIA_TitleBarControlTypeId, UIA_TogglePatternId, UIA_ToolBarControlTypeId,
-    UIA_ToolTipControlTypeId, UIA_TreeControlTypeId, UIA_TreeItemControlTypeId, UIA_ValuePatternId,
-    UIA_WindowControlTypeId,
+    UIA_ProgressBarControlTypeId, UIA_RadioButtonControlTypeId, UIA_RangeValuePatternId,
+    UIA_ScrollBarControlTypeId, UIA_ScrollItemPatternId, UIA_SelectionItemPatternId,
+    UIA_SemanticZoomControlTypeId, UIA_SeparatorControlTypeId, UIA_SliderControlTypeId,
+    UIA_SpinnerControlTypeId, UIA_SplitButtonControlTypeId, UIA_StatusBarControlTypeId,
+    UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TableControlTypeId, UIA_TextControlTypeId,
+    UIA_TextPatternId, UIA_ThumbControlTypeId, UIA_TitleBarControlTypeId, UIA_TogglePatternId,
+    UIA_ToolBarControlTypeId, UIA_ToolTipControlTypeId, UIA_TreeControlTypeId,
+    UIA_TreeItemControlTypeId, UIA_ValuePatternId, UIA_WindowControlTypeId,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
 use windows_sys::core::{BSTR, GUID, HRESULT};
@@ -72,6 +75,15 @@ const MAX_TOTAL_STRING_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TEXT_UTF16_UNITS: usize = 8_192;
 const MAX_SET_TEXT_BYTES: usize = 64 * 1024;
 const MAX_KEYS_BYTES: usize = 256;
+/// How deep below a pop-up the `select-option` search looks and how many
+/// candidates it reads. A list longer than this is not one a name can
+/// address usefully, and the search says so instead of walking forever.
+const OPTION_SEARCH_DEPTH: usize = 3;
+const MAX_OPTION_CANDIDATES: usize = 2_000;
+/// Bounds for the `HasKeyboardFocus` search. Deep enough for a toolkit's
+/// nested panes, small enough that a focus read stays a quick call.
+const FOCUS_SEARCH_DEPTH: u32 = 24;
+const FOCUS_SEARCH_NODES: usize = 4_000;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5);
 const ACTION_TIMEOUT: Duration = Duration::from_secs(2);
 const COM_CONNECTION_TIMEOUT_MS: u32 = 500;
@@ -85,6 +97,9 @@ const IID_SELECTION_ITEM_PATTERN: GUID = GUID::from_u128(0xa8efa66a_0fda_421a_91
 const IID_TEXT_PATTERN: GUID = GUID::from_u128(0x32eba289_3583_42c9_9c59_3b6d9a1e9b6a);
 const IID_TOGGLE_PATTERN: GUID = GUID::from_u128(0x94cf8058_9b8d_4ab9_8bfd_4cd0a33c8c70);
 const IID_VALUE_PATTERN: GUID = GUID::from_u128(0xa94cd8b1_0844_4cd6_9d2d_640537ab39e9);
+const IID_EXPAND_COLLAPSE_PATTERN: GUID = GUID::from_u128(0x619be086_1f4e_4ee4_bafa_210128738730);
+const IID_RANGE_VALUE_PATTERN: GUID = GUID::from_u128(0x59213f4f_7346_49e5_b120_80555987a148);
+const IID_SCROLL_ITEM_PATTERN: GUID = GUID::from_u128(0xb488300f_d015_4f19_9c29_bb595e3645ef);
 
 // IUIAutomation contributes 55 methods after IUnknown. IUIAutomation2 then
 // adds AutoSetFocus, SetAutoSetFocus, ConnectionTimeout,
@@ -262,13 +277,49 @@ pub(crate) fn invoke_menu_path(
     })
 }
 
+/// The window's App-local focused control, read from the tree the window
+/// already publishes: UIA marks it with `HasKeyboardFocus`, so a bounded
+/// walk that finds it needs no focus-change event subscription and nothing
+/// is activated or raised. `IUIAutomation::GetFocusedElement` is
+/// deliberately not used: it answers with the *desktop's* focus, which is
+/// a different question and would report another application's control as
+/// this window's. The deepest marked node wins, because a pane and its
+/// focused child can both carry the flag and the control is the answer.
 pub(crate) fn focused_node_for_window(
-    _window_handle: Option<isize>,
+    window_handle: Option<isize>,
 ) -> Result<AccessibilityNode, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "Windows UIA background menu / focused-context mechanisms are not mapped yet"
-            .into(),
-    })
+    let tree = tree_for_window(
+        window_handle,
+        AccessibilityTreeBudget {
+            max_depth: Some(FOCUS_SEARCH_DEPTH),
+            max_nodes: Some(FOCUS_SEARCH_NODES),
+        },
+    )?;
+    let mut best: Option<&AccessibilityNode> = None;
+    for node in &tree.nodes {
+        if !node.states.iter().any(|state| state == "focused") {
+            continue;
+        }
+        let deeper = best
+            .is_none_or(|current| node.id.matches('/').count() > current.id.matches('/').count());
+        if deeper {
+            best = Some(node);
+        }
+    }
+    match best {
+        Some(node) => Ok(node.clone()),
+        None if tree.truncated => Err(AccessibilityTreeError::failed(
+            "a11y_focus_unavailable",
+            format!(
+                "no node reports HasKeyboardFocus in the first {} nodes of the window tree, and the walk was truncated",
+                tree.nodes.len()
+            ),
+        )),
+        None => Err(AccessibilityTreeError::failed(
+            "a11y_focus_unavailable",
+            "no node in the window tree reports HasKeyboardFocus",
+        )),
+    }
 }
 
 pub(crate) fn drain_bus() {}
@@ -302,8 +353,17 @@ pub(crate) fn perform_node_action(
         AccessibilityNodeAction::SetChecked(desired) => {
             session.set_checked(&element, desired, &budget)
         }
-        // Option / expansion / range verbs have no UIA mapping in this cut:
-        // typed, never a synthetic click or key.
+        AccessibilityNodeAction::SetExpanded(desired) => {
+            session.set_expanded(&element, desired, &budget)
+        }
+        AccessibilityNodeAction::SelectOption(option) => {
+            session.select_option(&element, &option, &budget)
+        }
+        AccessibilityNodeAction::Increment => session.step_range_value(&element, true, &budget),
+        AccessibilityNodeAction::Decrement => session.step_range_value(&element, false, &budget),
+        // The contract is `non_exhaustive`; a variant this adapter does not
+        // know is typed, not silently mapped to something else.
+        #[allow(unreachable_patterns)]
         other => Err(AccessibilityTreeError::Unsupported {
             reason: format!(
                 "UI Automation has no mapping for action {} in this cut",
@@ -380,22 +440,63 @@ pub(crate) fn send_node_keys(
     crate::selected::input_inject::send_keys(keys).map_err(map_input_error)
 }
 
+/// UIA's spelling of AT-SPI `Component.ScrollTo`: the ScrollItem pattern
+/// asks the node's container to bring it into view. A node whose container
+/// does not scroll exposes no such pattern and is refused typed -- never a
+/// synthetic wheel event.
 pub(crate) fn scroll_node(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "AT-SPI Component.ScrollTo is unavailable through Windows UIA".into(),
-    })
+    let budget = Budget::new(
+        ACTION_TIMEOUT,
+        "a11y_scroll_unavailable",
+        "UI Automation scroll into view",
+    );
+    let session = UiaSession::new(&budget)?;
+    let element = session.resolve_node(window_handle, node_id, &budget)?;
+    let Some(pattern) = session.pattern(
+        &element,
+        UIA_ScrollItemPatternId,
+        &IID_SCROLL_ITEM_PATTERN,
+        &budget,
+    )?
+    else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_scroll_unavailable",
+            "node exposes no UI Automation ScrollItem pattern",
+        ));
+    };
+    let hr = unsafe { ((*scroll_item_vtable(&pattern)).scroll_into_view)(pattern.as_ptr()) };
+    hresult(hr, "IUIAutomationScrollItemPattern.ScrollIntoView")
 }
 
+/// An independent `BoundingRectangle` read for `get-extents`: the live
+/// element is asked again, not the snapshot's `bounds` field. An empty
+/// rect (an offscreen or zero-sized element) is
+/// `a11y_extents_unavailable`, never a zero rect passed off as geometry.
 pub(crate) fn get_node_extents(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<AccessibilityBounds, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "independent AT-SPI Component.GetExtents is unavailable through Windows UIA".into(),
-    })
+    let budget = Budget::new(
+        ACTION_TIMEOUT,
+        "a11y_extents_unavailable",
+        "UI Automation bounding rectangle",
+    );
+    let session = UiaSession::new(&budget)?;
+    let element = session.resolve_node(window_handle, node_id, &budget)?;
+    let bounds = session.property_bounds(&element, &budget)?;
+    if bounds.width <= 0 || bounds.height <= 0 {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_extents_unavailable",
+            format!(
+                "node {node_id} has an empty BoundingRectangle ({}x{})",
+                bounds.width, bounds.height
+            ),
+        ));
+    }
+    Ok(bounds)
 }
 
 pub(crate) fn set_node_selection(
@@ -749,6 +850,15 @@ impl UiaSession {
             let read_only = pattern_bool(pattern, PatternBool::ValueReadOnly)?;
             push_bool_state(&mut states, Some(read_only), "read-only", "editable");
         }
+        // Both directions, like the AX and AT-SPI adapters: a node that
+        // carries neither word has no readable expansion state, which is
+        // not the same as being collapsed. A leaf that merely *could* hold
+        // children reports nothing, since it has nothing to expand.
+        if let Some(pattern) = &patterns.expand_collapse
+            && let Some(word) = expansion_state(pattern)?
+        {
+            states.push(word.to_owned());
+        }
 
         let mut actions = Vec::new();
         if patterns.has_click() {
@@ -871,6 +981,12 @@ impl UiaSession {
             )?,
             value: self.pattern(element, UIA_ValuePatternId, &IID_VALUE_PATTERN, budget)?,
             text: self.pattern(element, UIA_TextPatternId, &IID_TEXT_PATTERN, budget)?,
+            expand_collapse: self.pattern(
+                element,
+                UIA_ExpandCollapsePatternId,
+                &IID_EXPAND_COLLAPSE_PATTERN,
+                budget,
+            )?,
         })
     }
 
@@ -935,6 +1051,224 @@ impl UiaSession {
                 format!("toggle read-back is {observed} after asking for {wanted}"),
             ))
         }
+    }
+
+    /// Desired-state, idempotent `set-expanded` over the ExpandCollapse
+    /// pattern: read the state, act only when it differs, read it back. A
+    /// leaf node has nothing to expand and says so typed.
+    fn set_expanded(
+        &self,
+        element: &ComPtr,
+        desired: bool,
+        budget: &Budget,
+    ) -> Result<(), AccessibilityTreeError> {
+        budget.check()?;
+        let Some(pattern) = self.pattern(
+            element,
+            UIA_ExpandCollapsePatternId,
+            &IID_EXPAND_COLLAPSE_PATTERN,
+            budget,
+        )?
+        else {
+            return Err(AccessibilityTreeError::Unsupported {
+                reason: "node exposes no UI Automation ExpandCollapse pattern".into(),
+            });
+        };
+        let wanted = if desired { "expanded" } else { "collapsed" };
+        let Some(observed) = expansion_state(&pattern)? else {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_action_unavailable",
+                "node reports ExpandCollapseState_LeafNode: there is nothing to expand",
+            ));
+        };
+        if observed == wanted {
+            return Ok(());
+        }
+        expand_collapse_pattern(&pattern, desired)?;
+        budget.check()?;
+        match expansion_state(&pattern)? {
+            Some(state) if state == wanted => Ok(()),
+            other => Err(AccessibilityTreeError::failed(
+                "a11y_action_no_effect",
+                format!(
+                    "expansion read-back is {} after asking for {wanted}",
+                    other.unwrap_or("unreadable")
+                ),
+            )),
+        }
+    }
+
+    /// One step along the RangeValue pattern. The step is the control's own
+    /// `CurrentSmallChange`, clamped to the published range and read back --
+    /// never a guessed amount and never an arrow keystroke.
+    fn step_range_value(
+        &self,
+        element: &ComPtr,
+        forward: bool,
+        budget: &Budget,
+    ) -> Result<(), AccessibilityTreeError> {
+        budget.check()?;
+        let Some(pattern) = self.pattern(
+            element,
+            UIA_RangeValuePatternId,
+            &IID_RANGE_VALUE_PATTERN,
+            budget,
+        )?
+        else {
+            return Err(AccessibilityTreeError::Unsupported {
+                reason: "node exposes no UI Automation RangeValue pattern".into(),
+            });
+        };
+        if range_value_read_only(&pattern)? {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_action_unavailable",
+                "UI Automation RangeValue pattern reports read-only",
+            ));
+        }
+        let current = range_value_f64(&pattern, RangeValueField::Value)?;
+        let step = range_value_f64(&pattern, RangeValueField::SmallChange)?;
+        if !step.is_finite() || step <= 0.0 {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_action_unavailable",
+                format!("node publishes no usable RangeValue SmallChange ({step})"),
+            ));
+        }
+        let minimum = range_value_f64(&pattern, RangeValueField::Minimum)?;
+        let maximum = range_value_f64(&pattern, RangeValueField::Maximum)?;
+        let raw = if forward {
+            current + step
+        } else {
+            current - step
+        };
+        let target = if minimum <= maximum {
+            raw.clamp(minimum, maximum)
+        } else {
+            raw
+        };
+        if target == current {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_action_no_effect",
+                format!(
+                    "value {current} is already at the {} of its range",
+                    if forward { "maximum" } else { "minimum" }
+                ),
+            ));
+        }
+        let hr = unsafe { ((*range_value_vtable(&pattern)).set_value)(pattern.as_ptr(), target) };
+        hresult(hr, "IUIAutomationRangeValuePattern.SetValue")?;
+        budget.check()?;
+        let observed = range_value_f64(&pattern, RangeValueField::Value)?;
+        if (observed - target).abs() <= step / 2.0 {
+            return Ok(());
+        }
+        Err(AccessibilityTreeError::failed(
+            "a11y_action_no_effect",
+            format!("value read-back is {observed} after asking for {target}"),
+        ))
+    }
+
+    /// Choose the descendant named exactly `option` and select it through
+    /// the SelectionItem pattern. A collapsed combo box is expanded first
+    /// (its list is not in the tree until then) and collapsed again
+    /// afterwards, so the control is left as it was found. The name must be
+    /// unique among the candidates: two matches is a typed ambiguity, not a
+    /// coin flip.
+    fn select_option(
+        &self,
+        element: &ComPtr,
+        option: &str,
+        budget: &Budget,
+    ) -> Result<(), AccessibilityTreeError> {
+        let expander = self.pattern(
+            element,
+            UIA_ExpandCollapsePatternId,
+            &IID_EXPAND_COLLAPSE_PATTERN,
+            budget,
+        )?;
+        let expanded_here = match &expander {
+            Some(pattern) if expansion_state(pattern)? == Some("collapsed") => {
+                expand_collapse_pattern(pattern, true)?;
+                true
+            }
+            _ => false,
+        };
+        let outcome = self.select_named_descendant(element, option, budget);
+        if expanded_here && let Some(pattern) = &expander {
+            // Restoring the control is best-effort: the selection is the
+            // result the caller asked for, and a combo that closes itself
+            // on selection must not turn success into a failure.
+            let _ = expand_collapse_pattern(pattern, false);
+        }
+        outcome
+    }
+
+    fn select_named_descendant(
+        &self,
+        element: &ComPtr,
+        option: &str,
+        budget: &Budget,
+    ) -> Result<(), AccessibilityTreeError> {
+        let mut queue = VecDeque::new();
+        queue.push_back((self.first_child(element, budget)?, 1usize));
+        let mut visited = 0usize;
+        let mut hit: Option<ComPtr> = None;
+        let mut matches = 0usize;
+        while let Some((mut current, depth)) = queue.pop_front() {
+            while let Some(child) = current {
+                budget.check()?;
+                visited += 1;
+                if visited > MAX_OPTION_CANDIDATES {
+                    return Err(limit_error(
+                        "a11y_node_limit",
+                        format!("option search exceeded {MAX_OPTION_CANDIDATES} candidates"),
+                    ));
+                }
+                let next = self.next_sibling(&child, budget)?;
+                let name = self
+                    .property_string(&child, UIA_NamePropertyId, budget)
+                    .unwrap_or_default();
+                if name == option {
+                    matches += 1;
+                    hit = Some(child);
+                } else if depth < OPTION_SEARCH_DEPTH {
+                    queue.push_back((self.first_child(&child, budget)?, depth + 1));
+                }
+                current = next;
+            }
+        }
+        if matches > 1 {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_option_ambiguous",
+                format!("{matches} descendants are named {option:?}"),
+            ));
+        }
+        let Some(item) = hit else {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_option_not_found",
+                format!("no descendant within depth {OPTION_SEARCH_DEPTH} is named {option:?}"),
+            ));
+        };
+        let Some(pattern) = self.pattern(
+            &item,
+            UIA_SelectionItemPatternId,
+            &IID_SELECTION_ITEM_PATTERN,
+            budget,
+        )?
+        else {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_action_unavailable",
+                format!("the item named {option:?} exposes no SelectionItem pattern"),
+            ));
+        };
+        select_pattern(&pattern)?;
+        budget.check()?;
+        if pattern_bool(&pattern, PatternBool::SelectionSelected)? {
+            return Ok(());
+        }
+        Err(AccessibilityTreeError::failed(
+            "a11y_action_no_effect",
+            format!("the item named {option:?} does not read back as selected"),
+        ))
     }
 
     fn click(&self, element: &ComPtr, budget: &Budget) -> Result<(), AccessibilityTreeError> {
@@ -1027,6 +1361,7 @@ struct NodePatterns {
     legacy: Option<ComPtr>,
     value: Option<ComPtr>,
     text: Option<ComPtr>,
+    expand_collapse: Option<ComPtr>,
 }
 
 impl NodePatterns {
@@ -1046,6 +1381,98 @@ fn invoke_pattern(pattern: &ComPtr) -> Result<(), AccessibilityTreeError> {
 fn select_pattern(pattern: &ComPtr) -> Result<(), AccessibilityTreeError> {
     let hr = unsafe { ((*selection_vtable(pattern)).select)(pattern.as_ptr()) };
     hresult(hr, "IUIAutomationSelectionItemPattern.Select")
+}
+
+/// `expanded` / `collapsed` from the ExpandCollapse pattern, or `None`
+/// for a leaf (`ExpandCollapseState_LeafNode`), which has no expansion
+/// state to read rather than being collapsed. `PartiallyExpanded` counts
+/// as expanded: something is open.
+fn expansion_state(pattern: &ComPtr) -> Result<Option<&'static str>, AccessibilityTreeError> {
+    let mut state: ExpandCollapseState = ExpandCollapseState_LeafNode;
+    let hr = unsafe {
+        ((*expand_collapse_vtable(pattern)).current_expand_collapse_state)(
+            pattern.as_ptr(),
+            &mut state,
+        )
+    };
+    hresult(
+        hr,
+        "IUIAutomationExpandCollapsePattern.CurrentExpandCollapseState",
+    )?;
+    // `match` on these SDK constants would read them as bindings under
+    // `non_upper_case_globals`; compare explicitly instead.
+    if state == ExpandCollapseState_Collapsed {
+        return Ok(Some("collapsed"));
+    }
+    if state == ExpandCollapseState_Expanded || state == ExpandCollapseState_PartiallyExpanded {
+        return Ok(Some("expanded"));
+    }
+    Ok(None)
+}
+
+fn expand_collapse_pattern(pattern: &ComPtr, expand: bool) -> Result<(), AccessibilityTreeError> {
+    let vtable = unsafe { expand_collapse_vtable(pattern) };
+    let hr = if expand {
+        unsafe { ((*vtable).expand)(pattern.as_ptr()) }
+    } else {
+        unsafe { ((*vtable).collapse)(pattern.as_ptr()) }
+    };
+    hresult(
+        hr,
+        if expand {
+            "IUIAutomationExpandCollapsePattern.Expand"
+        } else {
+            "IUIAutomationExpandCollapsePattern.Collapse"
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+enum RangeValueField {
+    Value,
+    Minimum,
+    Maximum,
+    SmallChange,
+}
+
+fn range_value_f64(
+    pattern: &ComPtr,
+    field: RangeValueField,
+) -> Result<f64, AccessibilityTreeError> {
+    let vtable = unsafe { range_value_vtable(pattern) };
+    let mut value = 0.0f64;
+    let (call, label) = unsafe {
+        match field {
+            RangeValueField::Value => (
+                (*vtable).current_value,
+                "IUIAutomationRangeValuePattern.CurrentValue",
+            ),
+            RangeValueField::Minimum => (
+                (*vtable).current_minimum,
+                "IUIAutomationRangeValuePattern.CurrentMinimum",
+            ),
+            RangeValueField::Maximum => (
+                (*vtable).current_maximum,
+                "IUIAutomationRangeValuePattern.CurrentMaximum",
+            ),
+            RangeValueField::SmallChange => (
+                (*vtable).current_small_change,
+                "IUIAutomationRangeValuePattern.CurrentSmallChange",
+            ),
+        }
+    };
+    let hr = unsafe { call(pattern.as_ptr(), &mut value) };
+    hresult(hr, label)?;
+    Ok(value)
+}
+
+fn range_value_read_only(pattern: &ComPtr) -> Result<bool, AccessibilityTreeError> {
+    let mut flag = 0i32;
+    let hr = unsafe {
+        ((*range_value_vtable(pattern)).current_is_read_only)(pattern.as_ptr(), &mut flag)
+    };
+    hresult(hr, "IUIAutomationRangeValuePattern.CurrentIsReadOnly")?;
+    Ok(flag != 0)
 }
 
 fn toggle_pattern(pattern: &ComPtr) -> Result<(), AccessibilityTreeError> {
@@ -1773,6 +2200,20 @@ unsafe fn value_vtable(interface: &ComPtr) -> *const IUIAutomationValuePatternVt
     unsafe { *(interface.as_ptr() as *const *const IUIAutomationValuePatternVtable) }
 }
 
+unsafe fn expand_collapse_vtable(
+    interface: &ComPtr,
+) -> *const IUIAutomationExpandCollapsePatternVtable {
+    unsafe { *(interface.as_ptr() as *const *const IUIAutomationExpandCollapsePatternVtable) }
+}
+
+unsafe fn range_value_vtable(interface: &ComPtr) -> *const IUIAutomationRangeValuePatternVtable {
+    unsafe { *(interface.as_ptr() as *const *const IUIAutomationRangeValuePatternVtable) }
+}
+
+unsafe fn scroll_item_vtable(interface: &ComPtr) -> *const IUIAutomationScrollItemPatternVtable {
+    unsafe { *(interface.as_ptr() as *const *const IUIAutomationScrollItemPatternVtable) }
+}
+
 unsafe fn text_vtable(interface: &ComPtr) -> *const IUIAutomationTextPatternVtable {
     unsafe { *(interface.as_ptr() as *const *const IUIAutomationTextPatternVtable) }
 }
@@ -1874,6 +2315,33 @@ struct IUIAutomationValuePatternVtable {
 }
 
 #[repr(C)]
+struct IUIAutomationExpandCollapsePatternVtable {
+    base: IUnknownVtable,
+    expand: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+    collapse: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+    current_expand_collapse_state:
+        unsafe extern "system" fn(*mut c_void, *mut ExpandCollapseState) -> HRESULT,
+}
+
+#[repr(C)]
+struct IUIAutomationRangeValuePatternVtable {
+    base: IUnknownVtable,
+    set_value: unsafe extern "system" fn(*mut c_void, f64) -> HRESULT,
+    current_value: unsafe extern "system" fn(*mut c_void, *mut f64) -> HRESULT,
+    current_is_read_only: unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT,
+    current_maximum: unsafe extern "system" fn(*mut c_void, *mut f64) -> HRESULT,
+    current_minimum: unsafe extern "system" fn(*mut c_void, *mut f64) -> HRESULT,
+    current_large_change: usize,
+    current_small_change: unsafe extern "system" fn(*mut c_void, *mut f64) -> HRESULT,
+}
+
+#[repr(C)]
+struct IUIAutomationScrollItemPatternVtable {
+    base: IUnknownVtable,
+    scroll_into_view: unsafe extern "system" fn(*mut c_void) -> HRESULT,
+}
+
+#[repr(C)]
 struct IUIAutomationTextPatternVtable {
     base: IUnknownVtable,
     range_from_point: usize,
@@ -1944,6 +2412,57 @@ mod tests {
         );
         assert_eq!(IUIAUTOMATION2_SET_CONNECTION_TIMEOUT_SLOT, 61);
         assert_eq!(IUIAUTOMATION2_SET_TRANSACTION_TIMEOUT_SLOT, 63);
+        // The patterns added for set-expanded / increment / decrement /
+        // scroll. A wrong slot here is a call into the wrong method on a
+        // machine this repo cannot test on, so the layout is pinned rather
+        // than trusted: IDL order is Expand, Collapse, CurrentState for
+        // ExpandCollapse; SetValue, CurrentValue, CurrentIsReadOnly,
+        // CurrentMaximum, CurrentMinimum, CurrentLargeChange,
+        // CurrentSmallChange for RangeValue; ScrollIntoView alone for
+        // ScrollItem.
+        assert_eq!(
+            offset_of!(IUIAutomationExpandCollapsePatternVtable, expand),
+            3 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationExpandCollapsePatternVtable, collapse),
+            4 * pointer
+        );
+        assert_eq!(
+            offset_of!(
+                IUIAutomationExpandCollapsePatternVtable,
+                current_expand_collapse_state
+            ),
+            5 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationRangeValuePatternVtable, set_value),
+            3 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationRangeValuePatternVtable, current_value),
+            4 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationRangeValuePatternVtable, current_is_read_only),
+            5 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationRangeValuePatternVtable, current_maximum),
+            6 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationRangeValuePatternVtable, current_minimum),
+            7 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationRangeValuePatternVtable, current_small_change),
+            9 * pointer
+        );
+        assert_eq!(
+            offset_of!(IUIAutomationScrollItemPatternVtable, scroll_into_view),
+            3 * pointer
+        );
     }
 
     #[test]

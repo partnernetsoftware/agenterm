@@ -238,7 +238,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
 │   └── rdp      [~]  PLACEHOLDER: capabilities declares unavailable; other verbs rdp_unavailable; live evidence [ ]
 └── platform a11y backends (agenterm-platform)
     ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys); desired-state / option / range invoke and focused mapped (cut 3.53), not yet journey-proven
-    ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); separate from rdp
+    ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); expand/range/scroll-item/extents/focused mapped (cut 3.53), not yet journey-proven; separate from rdp
     ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
     ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; focus journey-proven in 3.51, click mapped only
     ├── macOS AX background           [x] menu inspect / invoke, focused / invoke --focused, observe (poll-diff) live (cut 3.51, cu-macos-smoke): AXMenuBar walk + AXPress, AXFocusedUIElement; no AXObserver
@@ -595,6 +595,38 @@ Canonical host mapping (approved product vocabulary):
   legacy default action. Missing patterns fail typed. No UIA node operation
   silently degrades to coordinates; node key delivery is explicitly reported
   as `uia-focus+send-input` after UIA focus.
+- [~] the desired-state, option and range half of `invoke` on Windows
+  (cut 3.53), mapped but not journey-proven: `set-expanded` reads the
+  ExpandCollapse pattern, acts only on a difference and reads back (a node
+  reporting `LeafNode` has nothing to expand and says so);
+  `select-option` expands a collapsed combo box, selects the descendant
+  named exactly the option through SelectionItem, restores the control's
+  own expansion state and refuses a duplicate name as
+  `a11y_option_ambiguous`; `increment` / `decrement` step the RangeValue
+  pattern by the control's own `CurrentSmallChange`, clamped to the
+  published range and read back. The node snapshot now also carries
+  `expanded` / `collapsed`, so the UIA vocabulary matches AX and AT-SPI.
+- [~] `scroll` and `get-extents` on Windows (cut 3.53), mapped but not
+  journey-proven: `scroll` is the ScrollItem pattern's `ScrollIntoView`
+  (UIA's spelling of AT-SPI `Component.ScrollTo`; a node whose container
+  does not scroll exposes no such pattern and is refused typed) and
+  `get-extents` re-reads the live element's `BoundingRectangle`,
+  answering `a11y_extents_unavailable` for an empty rect rather than
+  passing zeros off as geometry. Both were declared unavailable through
+  UIA before this cut, which was wrong: the patterns were there.
+- [~] `focused --window HANDLE` on Windows (cut 3.53), mapped but not
+  journey-proven: the deepest node reporting `HasKeyboardFocus` in a
+  bounded walk of the window's own tree.
+  `IUIAutomation::GetFocusedElement` is deliberately not used -- it
+  answers with the *desktop's* focus, so it would report another
+  application's control as this window's. `capabilities` declares
+  `focused.mode = "state-search"`.
+- [x] every UIA pattern this adapter calls through a hand-written vtable
+  has its slot offsets pinned by a test against the SDK's IDL order
+  (Invoke, SelectionItem, Toggle, Legacy, Value, Text, TextRange, and the
+  ExpandCollapse / RangeValue / ScrollItem patterns added in cut 3.53). A
+  wrong slot is a call into the wrong method on a machine this repository
+  cannot run, so the layout is pinned rather than trusted.
 - [x] Win32 window enumeration uses the runtime library's two-stage
   required-size/fill contract. Desktop churn can increase `required` after the
   caller allocated `capacity`; `required > capacity` triggers a bounded retry

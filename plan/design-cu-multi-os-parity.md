@@ -18,20 +18,20 @@
 | `click` / `press` | ✓ AXPress | ✓ Action | ✓ Invoke/Legacy |
 | `focus` | ✓ AXFocused | ✓ Component.GrabFocus | ✓ SetFocus |
 | `set-value` | ✓ AXValue | ✓ EditableText | ✓ ValuePattern |
-| `select-option` | ✓ 弹出+子项 AXPress | **✓ 已映射** Selection.SelectChild（名字唯一） | ✗（SelectionItemPattern） |
+| `select-option` | ✓ 弹出+子项 AXPress | **✓ 已映射** Selection.SelectChild（名字唯一） | **✓ 已映射** 展开→按名唯一→SelectionItem.Select→复原 |
 | `set-checked` | ✓ 期望态 | **✓ 已映射** 期望态 + StateSet 回读 | ✓ TogglePattern |
-| `set-expanded` | ✓ 期望态 | **✓ 已映射** 期望态 + StateSet 回读 | ✗（ExpandCollapsePattern） |
-| `increment` / `decrement` | ✓ AXIncrement | **✓ 已映射** Value + MinimumIncrement，钳到区间并回读 | ✗（RangeValuePattern） |
+| `set-expanded` | ✓ 期望态 | **✓ 已映射** 期望态 + StateSet 回读 | **✓ 已映射** ExpandCollapse 期望态 + 回读 |
+| `increment` / `decrement` | ✓ AXIncrement | **✓ 已映射** Value + MinimumIncrement，钳到区间并回读 | **✓ 已映射** RangeValue + CurrentSmallChange，同样钳+回读 |
 
 ### 0.2 节点级读写（cu 动词 `scroll` / `get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys`）
 
 | 机制 | macOS AX | Linux | Windows UIA |
 |---|---|---|---|
 | `send_node_keys` | ✗（focus + CGEventPostToPid） | ✓ | ✓ focus + input-inject |
-| `scroll_node` | ✗（AXScrollToVisible） | ✓ | ✗（ScrollItemPattern.ScrollIntoView） |
-| `get_node_extents` | ✗（AXPosition+AXSize） | ✓ | ✗（CurrentBoundingRectangle） |
-| `set/get_node_selection` | ✗（AXSelectedTextRange） | ✓ | ✗（TextPattern.GetSelection / Select） |
-| `set/get_node_caret_offset` | ✗（AXSelectedTextRange 零长） | ✓ | ✗（TextPattern 退化选区） |
+| `scroll_node` | **✓** AXScrollToVisible | ✓ | **✓ 已映射** ScrollItem.ScrollIntoView |
+| `get_node_extents` | **✓** AXPosition+AXSize | ✓ | **✓ 已映射** BoundingRectangle 独立重读 |
+| `set/get_node_selection` | **✓** AXSelectedTextRange | ✓ | ✗（TextPattern.GetSelection / Select）——留片 G |
+| `set/get_node_caret_offset` | **✓** AXSelectedTextRange 零长 | ✓ | ✗（TextPattern 退化选区）——留片 G |
 
 **macOS 这一整列是 2026-08-30 之前的 `PLACEHOLDER cut` 遗留**——AX 三个属性都在，只是没写。
 
@@ -41,7 +41,7 @@
 |---|---|---|---|
 | `menu_tree_for_window` | ✓ AXMenuBar | ✗（role menu-bar 子树） | ✗（HMENU / UIA MenuBar） |
 | `invoke_menu_path` | ✓ 唯一解析 + AXPress | ✗ | ✗ |
-| `focused_node_for_window` | ✓ AXFocusedUIElement | **✓ 已映射** 有界树里最深的 `STATE_FOCUSED`（`capabilities` 写明 `mode: state-search`） | ✗（GetFocusedElement） |
+| `focused_node_for_window` | ✓ AXFocusedUIElement | **✓ 已映射** 有界树里最深的 `STATE_FOCUSED` | **✓ 已映射** 有界树里最深的 `HasKeyboardFocus`（两者 `capabilities` 写明 `mode: state-search`） |
 
 ### 0.4 cu 层（非 a11y）
 
@@ -52,9 +52,17 @@
 | 片 | 内容 | 验收 |
 |---|---|---|
 | **A** | macOS §0.2 整列：`AXScrollToVisible` / `AXPosition+AXSize` / `AXSelectedTextRange`（选区 + 零长插入点）/ `send-keys`（先 `AXFocused` 再 `CGEventPostToPid`，不激活） | `cu-macos-smoke.qjs` 新 STEP 真机通过 |
-| **B** | Windows §0.1 四个动作 + §0.2 整列 + §0.3 三个后台机制 | `cargo check --target x86_64-pc-windows-msvc`（无真机；结论只报"已映射"不报"已验证"） |
+| **B** | Windows §0.1 四个动作 + `scroll`/`get-extents` + `focused` | `cargo check --target {x86_64,aarch64}-pc-windows-msvc` + vtable 槽位单测（无真机；只报"已映射"不报"已验证"）；选区/插入点与 menu 留片 G |
 | **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
+
+### 片 B 的纪律：手写 vtable 必须钉槽位
+
+Windows 适配器不是用 `windows` crate 的接口，而是手抄 vtable 偏移调 COM。
+**槽位写错 = 在一台本仓跑不到的机器上调错方法**，编译期完全看不出来。所以三个新 pattern
+（ExpandCollapse / RangeValue / ScrollItem）的每一个方法偏移都按 SDK 的 IDL 顺序写进
+`raw_vtable_prefix_offsets_match_windows_sdk_slots`，和既有的 Invoke/Toggle/Value 一样。
+IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 
 ### 片 C 的发现：AT-SPI 只发布「已置位」的状态
 
@@ -82,6 +90,6 @@
 | 片 | 提交 | 状态 |
 |---|---|---|
 | A macOS 节点读写 | 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` 真机通过（`cu-macos-smoke` 22 STEP / 21 EVIDENCE，80.2M 步 / 274 ops / 72 页）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
-| B Windows | — | 未开工 |
+| B Windows | 见下 | **已落地（映射，未真机）**：`set-expanded`/`select-option`/`increment`/`decrement`/`scroll`/`get-extents`/`focused` + 快照补 `expanded`/`collapsed`；三个新 pattern 的 vtable 槽位全部单测钉死 |
 | C Linux | 见下 | **已落地（映射，未真机）**：五个动作 + `focused` + `checked`/`unchecked`/`mixed`、`expanded`/`collapsed` 双向状态词；两条平台单测；linux/aarch64 两个 target `check` + `clippy` 干净 |
 | D cu 层 | — | 未开工 |
