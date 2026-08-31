@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 18
+#define AGT_ABI_MINOR 19
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -704,6 +704,14 @@ agt_status agt_clipboard_get_text(uint8_t* buf, size_t cap, size_t* out_len);
 /* 1 when the clipboard currently holds Unicode text, 0 otherwise. Never
  * fails. */
 int32_t    agt_clipboard_has_text(void);
+
+/* ABI 1.19: the type names currently on the clipboard, newline-separated
+ * UTF-8, two-stage (spec 3.4). The names are the host's own spelling
+ * (macOS class names, X11 TARGETS atoms, Windows clipboard format names),
+ * not a normalized vocabulary. An empty result means the clipboard is
+ * empty; a host with no way to enumerate types answers AGT_UNSUPPORTED,
+ * which is a different fact. Reports names only and reads no content. */
+agt_status agt_clipboard_types(uint8_t* buf, size_t cap, size_t* out_len);
 
 /* --- parent console (milestone 9) ------------------------------------ */
 

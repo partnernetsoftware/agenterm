@@ -123,6 +123,16 @@ pub fn read_text_async(
 
 /// Probe whether Unicode text is presently available without requiring a full
 /// payload read where the selected adapter can provide a cheaper probe.
+/// The type names currently on the clipboard, most-preferred first where
+/// the host orders them, capped at `MAX_CLIPBOARD_TYPES`.
+///
+/// An empty list means the clipboard is empty; a host with no way to
+/// enumerate types answers `Unsupported`, which is different from "there
+/// is nothing on it".
+pub fn available_types() -> ClipboardResult<Vec<String>> {
+    selected::clipboard::available_types().map_err(selected::clipboard::map_error)
+}
+
 pub fn has_unicode_text() -> bool {
     selected::clipboard::has_unicode_text()
 }

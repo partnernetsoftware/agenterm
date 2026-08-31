@@ -96,7 +96,7 @@ use agenterm_platform::accessibility_tree::{
     scroll_node, send_node_keys, set_node_caret_offset, set_node_selection, set_node_text,
     tree_for_window_bounded,
 };
-use agenterm_platform::clipboard::{get_text, has_unicode_text, set_text};
+use agenterm_platform::clipboard::{available_types, get_text, has_unicode_text, set_text};
 use agenterm_platform::desktop_host::{
     DesktopActionSpec, DesktopHost, DesktopHostError, MAX_DESKTOP_ACTIONS, MAX_DESKTOP_LABEL_BYTES,
     MAX_DESKTOP_SHORTCUT_BYTES,
@@ -275,7 +275,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 18);
+abi_version!(1, 19);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -5111,6 +5111,50 @@ pub extern "C" fn agt_clipboard_get_text(
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_clipboard_has_text() -> i32 {
     catch_unwind(|| if has_unicode_text() { 1 } else { 0 }).unwrap_or(0)
+}
+
+/// ABI 1.19: the type names currently on the clipboard, newline-separated
+/// UTF-8, two-stage (spec 3.4).
+///
+/// The names are the host's own spelling -- macOS class names, X11 TARGETS
+/// atoms, Windows clipboard format names -- not a normalized vocabulary,
+/// so a caller matching on one is matching on what the platform said. An
+/// empty result means the clipboard is empty; a host with no way to
+/// enumerate types answers `AGT_UNSUPPORTED`, which is a different fact.
+/// This reports names only and reads no content.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_clipboard_types(buf: *mut u8, cap: usize, out_len: *mut usize) -> agt_status {
+    fn inner(buf: *mut u8, cap: usize, out_len: *mut usize) -> agt_status {
+        if out_len.is_null() {
+            record_error(c"agt_clipboard_types", c"bad_pointer", "out_len is null");
+            return agt_status::AGT_FAILED;
+        }
+        match available_types() {
+            Ok(names) => {
+                let joined = names.join("\n");
+                copy_bytes_two_stage(c"agt_clipboard_types", joined.as_bytes(), buf, cap, out_len)
+            }
+            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(error) => {
+                record_error(c"agt_clipboard_types", c"clipboard_failed", error.message());
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(buf, cap, out_len))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_clipboard_types",
+                c"panic",
+                "panic in agt_clipboard_types",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
 }
 
 // --- parent console (milestone 9) -------------------------------------

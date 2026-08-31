@@ -905,15 +905,36 @@ fn pointer_move_with(
 /// existing bounded libagenterm two-stage ABI. The payload is returned only
 /// in this observe command's reply; audit records never receive it because
 /// they are restricted to authorized actuation metadata.
+/// `clipboard-read`: the Unicode text, plus what else the clipboard is
+/// carrying.
+///
+/// The type list matters even though this verb only reads text: an agent
+/// that copies an image and then reads an empty string would otherwise
+/// conclude the clipboard is empty. `types` names what is actually there
+/// in the host's own spelling; `types_available` false means this host
+/// cannot enumerate them, which is a different fact from an empty list.
 fn clipboard_read() -> Result<serde_json::Value, CuError> {
     let text = mechanism::clipboard::get_text().map_err(map_mechanism_err)?;
     let bytes = text.len();
-    Ok(serde_json::json!({
+    let (types, types_available, types_reason) = match mechanism::clipboard::available_types() {
+        Ok(names) => (names, true, None),
+        Err(mechanism::MechanismError::Unsupported { reason }) => (Vec::new(), false, Some(reason)),
+        Err(error) => (Vec::new(), false, Some(format!("{error:?}"))),
+    };
+    let mut payload = serde_json::json!({
         "text": text,
         "bytes": bytes,
         "format": "text/plain;charset=utf-8",
         "mechanism": "libagenterm",
-    }))
+        "types": types,
+        "types_available": types_available,
+    });
+    if let Some(reason) = types_reason
+        && let Some(object) = payload.as_object_mut()
+    {
+        object.insert("types_reason".into(), serde_json::json!(reason));
+    }
+    Ok(payload)
 }
 
 fn capabilities_payload() -> serde_json::Value {

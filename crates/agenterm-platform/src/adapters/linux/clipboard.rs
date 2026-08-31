@@ -57,6 +57,8 @@ pub(crate) const HELPER_TIMEOUT: Duration = Duration::from_millis(1_500);
 
 /// Bound for TARGETS / MIME-type probe output (not full paste payloads).
 const TYPE_LIST_LIMIT_BYTES: usize = 64 * 1024;
+/// Most type names one probe reports.
+const MAX_CLIPBOARD_TYPES: usize = 64;
 
 /// Typed clipboard failure for Linux adapters.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -491,6 +493,40 @@ fn probe_xsel_has_text() -> bool {
         Ok(types) => clipboard_types_indicate_unicode_text(&types),
         Err(_) => false,
     }
+}
+
+/// The selection's TARGETS, from whichever helper this session has.
+///
+/// X11 and Wayland both answer with a newline-separated list of atom /
+/// MIME names, which is exactly the type list, so no new mechanism is
+/// needed -- the same probe that decides "is there text on the clipboard"
+/// already reads it. Names are passed through as the session spelled them.
+pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
+    let helpers: &[&[&str]] = match Backend::probe() {
+        backend if backend.wayland_read() => &[WL_PASTE_TYPES],
+        _ => &[XCLIP_TARGETS, XSEL_TARGETS],
+    };
+    let mut last: Option<ClipboardError> = None;
+    for helper in helpers {
+        match read_via_command(helper, TYPE_LIST_LIMIT_BYTES, HELPER_TIMEOUT) {
+            Ok(listing) => return Ok(parse_target_list(&listing)),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(last.unwrap_or(ClipboardError::Unavailable {
+        message: "no clipboard helper (wl-paste / xclip / xsel) answered a TARGETS probe"
+            .to_owned(),
+    }))
+}
+
+fn parse_target_list(listing: &str) -> Vec<String> {
+    listing
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .take(MAX_CLIPBOARD_TYPES)
+        .collect()
 }
 
 fn clipboard_types_indicate_unicode_text(types: &str) -> bool {

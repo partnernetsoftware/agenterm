@@ -50,6 +50,7 @@ agt_a11y_last_text_write_via
 agt_clipboard_set_text
 agt_clipboard_get_text
 agt_clipboard_has_text
+agt_clipboard_types
 agt_parent_console_write_stdout
 agt_parent_console_write_stderr
 agt_runtime_user_config_dir

@@ -1683,6 +1683,39 @@ pub mod clipboard {
         set_text(text)
     }
 
+    /// Two-stage `agt_clipboard_types` (ABI 1.19): the type names on the
+    /// clipboard, in the host's own spelling.
+    ///
+    /// `Unsupported` means the host cannot enumerate types, which is a
+    /// different fact from an empty clipboard -- the caller reports the
+    /// difference rather than folding both into an empty list.
+    pub fn available_types() -> Result<Vec<String>, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < dynlib::CLIPBOARD_TYPES_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "clipboard type listing requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    dynlib::CLIPBOARD_TYPES_ABI_MINOR
+                ),
+            });
+        }
+        let bytes = super::read_two_stage(|buf, cap, out_len| {
+            let f = call_sym::<super::ClipboardTypes>(b"agt_clipboard_types")?;
+            let status = unsafe { f(buf, cap, out_len) };
+            Ok::<i32, MechanismError>(status)
+        })?;
+        let listing = String::from_utf8(bytes).map_err(|_| MechanismError::Failed {
+            code: "bad_encoding".into(),
+            message: "clipboard type listing is not UTF-8".into(),
+        })?;
+        Ok(listing
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect())
+    }
+
     /// Two-stage `agt_clipboard_get_text`. No Unicode text is an empty
     /// success (`AGT_OK`, `out_len == 0`), not `buffer_too_small`.
     pub fn get_text() -> Result<String, MechanismError> {
@@ -2004,6 +2037,7 @@ type NodeGetSelection =
 type NodeSetCaretOffset = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32) -> i32;
 type NodeGetCaretOffset = unsafe extern "C" fn(isize, *const std::ffi::c_char, *mut i32) -> i32;
 type ClipboardSetText = unsafe extern "C" fn(*const u8, usize) -> i32;
+type ClipboardTypes = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type ClipboardGetText = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type LastError = unsafe extern "C" fn(*mut agt_error) -> i32;
 

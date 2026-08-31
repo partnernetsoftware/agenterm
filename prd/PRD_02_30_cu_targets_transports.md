@@ -766,6 +766,28 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [x] `clipboard-read` reports what the clipboard is *carrying*, not only
+  what it can read as text (cut 3.58, ABI 1.19 `agt_clipboard_types`).
+  The verb still reads Unicode text and nothing else, but the reply now
+  carries `types`: the host's own spelling of every representation on the
+  clipboard -- macOS class names, X11 TARGETS atoms, Windows clipboard
+  format names -- with no normalization, so a caller matching on one is
+  matching on what the platform said. `types_available: false` means the
+  host cannot enumerate them, which is a different fact from an empty
+  list.
+  This is the difference between "the clipboard is empty" and "the
+  clipboard holds something I cannot read". Measured on this desktop with
+  a PNG on the clipboard: `text: ""`, `bytes: 0`, and `types`
+  `["«class PNGf»", "«class AVIF»", "«class 8BPS»", "GIF picture", ...]`.
+  Without the list an agent reads an empty string and concludes the copy
+  failed.
+  No journey step: a hermetic one would have to write to the user's real
+  clipboard, which the test lane should not do for a read-shape assertion.
+  macOS reads the list from AppleScript's `clipboard info` (the one route
+  that does not require linking AppKit into this adapter); Linux reuses
+  the TARGETS probe the text check already runs; Windows enumerates
+  clipboard formats in the order the system offers them, which is a
+  preference ranking.
 - [~] `close`, `orderwin` and topmost on Linux (cut 3.57), mapped but not
   journey-proven: `close` sends the EWMH `_NET_CLOSE_WINDOW` client
   message to the root window, which asks the window manager to close the

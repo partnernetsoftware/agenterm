@@ -13,6 +13,11 @@ use std::{
 /// Adapter ceiling for a caller-supplied clipboard deadline.
 pub(crate) const HELPER_TIMEOUT: Duration = Duration::from_millis(1_500);
 
+/// Bound for the type-name probe (a list of names, never a paste payload).
+const TYPE_LIST_LIMIT_BYTES: usize = 16 * 1024;
+/// Most type names one probe reports.
+const MAX_CLIPBOARD_TYPES: usize = 64;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ClipboardError {
     Unavailable { message: String },
@@ -54,6 +59,40 @@ fn bounded_helper_timeout(timeout: Duration) -> Result<Duration, ClipboardError>
         return Err(ClipboardError::Timeout { timeout });
     }
     Ok(timeout.min(HELPER_TIMEOUT))
+}
+
+/// The clipboard's type names, from AppleScript's `clipboard info`.
+///
+/// That command answers a list of `«class utf8», 211` pairs -- the UTI-ish
+/// class name and the byte count -- which is the one route to the type
+/// list that does not require linking AppKit into this adapter. The class
+/// names are passed through as the system spelled them: a caller matching
+/// on `«class PNGf»` is matching on what macOS actually said, not on a
+/// vocabulary invented here.
+pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
+    let listing = read_via_command_with_args(
+        "osascript",
+        &["-e", "clipboard info"],
+        TYPE_LIST_LIMIT_BYTES,
+        HELPER_TIMEOUT,
+    )?;
+    Ok(parse_clipboard_info(&listing))
+}
+
+/// `«class utf8», 211, string, 6` -> ["«class utf8»", "string"].
+///
+/// The list alternates name and byte count, so the counts are dropped by
+/// position rather than by trying to tell a numeric name from a number.
+fn parse_clipboard_info(listing: &str) -> Vec<String> {
+    listing
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .enumerate()
+        .filter(|(index, _)| index % 2 == 0)
+        .map(|(_, name)| name.to_owned())
+        .take(MAX_CLIPBOARD_TYPES)
+        .collect()
 }
 
 pub(crate) fn has_unicode_text() -> bool {
@@ -140,7 +179,17 @@ fn read_via_command(
     limit: usize,
     timeout: Duration,
 ) -> Result<String, ClipboardError> {
+    read_via_command_with_args(program, &[], limit, timeout)
+}
+
+fn read_via_command_with_args(
+    program: &str,
+    args: &[&str],
+    limit: usize,
+    timeout: Duration,
+) -> Result<String, ClipboardError> {
     let mut child = Command::new(program)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

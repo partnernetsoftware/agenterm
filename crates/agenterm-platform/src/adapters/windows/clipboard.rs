@@ -12,8 +12,8 @@ use windows_sys::Win32::{
     Foundation::{GlobalFree, HWND},
     System::{
         DataExchange::{
-            CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable,
-            OpenClipboard, SetClipboardData,
+            CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
+            GetClipboardFormatNameW, IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
         },
         Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock},
     },
@@ -21,6 +21,11 @@ use windows_sys::Win32::{
 
 const UNICODE_TEXT: u32 = 13;
 const RETRY_INTERVAL: Duration = Duration::from_millis(10);
+/// How long the type probe waits for another application to release the
+/// clipboard before giving up.
+const OPEN_TIMEOUT: Duration = Duration::from_millis(500);
+/// Most type names one probe reports.
+const MAX_CLIPBOARD_TYPES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ClipboardError {
@@ -73,6 +78,61 @@ fn open(owner: HWND, timeout: Duration) -> Result<OpenClipboardGuard, ClipboardE
 
 pub(crate) fn has_unicode_text() -> bool {
     unsafe { IsClipboardFormatAvailable(UNICODE_TEXT) != 0 }
+}
+
+/// Every format currently on the clipboard, in the order Windows offers
+/// them -- which is most-preferred first, so a caller can read the list as
+/// a preference ranking.
+///
+/// Registered formats have a name (`GetClipboardFormatNameW`); the
+/// standard ones do not, and get the constant's own spelling rather than a
+/// bare number, because `CF_BITMAP` says something and `2` does not.
+pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
+    let _guard = open(std::ptr::null_mut(), OPEN_TIMEOUT)?;
+    let mut names = Vec::new();
+    let mut format = 0u32;
+    loop {
+        format = unsafe { EnumClipboardFormats(format) };
+        if format == 0 {
+            break;
+        }
+        if names.len() >= MAX_CLIPBOARD_TYPES {
+            break;
+        }
+        names.push(format_name(format));
+    }
+    Ok(names)
+}
+
+fn format_name(format: u32) -> String {
+    if let Some(standard) = standard_format_name(format) {
+        return standard.to_owned();
+    }
+    let mut buffer = [0u16; 256];
+    let written =
+        unsafe { GetClipboardFormatNameW(format, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if written > 0 {
+        return String::from_utf16_lossy(&buffer[..written as usize]);
+    }
+    format!("CF_{format}")
+}
+
+/// The predefined formats worth naming. Anything else registered by an
+/// application answers `GetClipboardFormatNameW`.
+fn standard_format_name(format: u32) -> Option<&'static str> {
+    Some(match format {
+        1 => "CF_TEXT",
+        2 => "CF_BITMAP",
+        3 => "CF_METAFILEPICT",
+        6 => "CF_TIFF",
+        7 => "CF_OEMTEXT",
+        8 => "CF_DIB",
+        13 => "CF_UNICODETEXT",
+        14 => "CF_ENHMETAFILE",
+        15 => "CF_HDROP",
+        17 => "CF_DIBV5",
+        _ => return None,
+    })
 }
 
 fn set_text_with_owner(owner: HWND, text: &str, timeout: Duration) -> Result<(), ClipboardError> {

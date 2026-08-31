@@ -269,6 +269,8 @@ pub const MCU_ACTIONS_ABI_MINOR: u16 = 16;
 pub const WINDOW_STACKING_ABI_MINOR: u16 = 17;
 /// ABI 1.18: `agt_a11y_observe_window` (native notification stream).
 pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
+/// ABI 1.19: `agt_clipboard_types` (what the clipboard is carrying).
+pub const CLIPBOARD_TYPES_ABI_MINOR: u16 = 19;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

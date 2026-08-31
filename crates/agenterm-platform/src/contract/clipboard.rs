@@ -6,6 +6,21 @@
 
 use std::borrow::Cow;
 
+/// What the clipboard is *carrying*, by type name, without reading any of
+/// it.
+///
+/// An agent that can only paste text still needs to know an image or a
+/// file reference is on the clipboard -- otherwise an empty text read
+/// looks like an empty clipboard. The names are the host's own spelling
+/// (macOS UTIs, X11 TARGETS atoms, Windows clipboard format names), not a
+/// normalized vocabulary: a caller matching on them is matching on what
+/// the platform actually said.
+///
+/// This reports names only. Reading arbitrary rich content is a separate
+/// question with its own policy, and knowing what is there is the half an
+/// agent needs to choose its next move.
+pub const MAX_CLIPBOARD_TYPES: usize = 64;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ClipboardError {
