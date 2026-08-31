@@ -766,6 +766,27 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [x] the last three MCU `invoke` spellings on `current` (cut 3.54, ABI
+  1.16): `set-selected` is a desired state over macOS `AXSelected` (read,
+  act only on a difference, read back; already selected is success with
+  nothing performed), `cancel` is `AXCancel` and `show-default-ui` is
+  `AXShowDefaultUI`. They were parseable-but-typed before, which is the
+  honest state for a spelling with no mechanism -- but the mechanisms were
+  there.
+  Making them verifiable needed the state vocabulary finished first: macOS
+  published `selected` only when true and Linux only when set, so a caller
+  could not tell "not selected" from "no selection state here". Both now
+  name the negative (`unselected`, from `AXSelected` false and from the
+  AT-SPI `Selectable` state), matching what Windows already reported, and
+  `invoke set-selected` verifies through `selected-readback`. A node with
+  no selection state of its own is refused before the mechanism is touched
+  (`state_unobservable`), the same guard `set-checked` uses.
+  Live evidence: `cu-macos-smoke` STEP "invoke set-selected selects a
+  table row and repeats as a verified no-op; cancel and show-default-ui
+  are typed refusals that name the actions the node does offer"
+  (2026-09-01) -- one of three rows ends selected, the other two report
+  `unselected`, and the second call performs nothing while still
+  verifying.
 - [x] macOS input injection (cut 3.53), the one path here that is global
   by design. Two measurements decided its shape. **Keys cannot reach an
   application that is not active**: an accessory app whose window is

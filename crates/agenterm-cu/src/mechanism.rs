@@ -85,6 +85,9 @@ pub enum NodeAction {
     SetExpanded(bool),
     Increment,
     Decrement,
+    SetSelected(bool),
+    Cancel,
+    ShowDefaultUi,
 }
 
 impl NodeAction {
@@ -100,6 +103,9 @@ impl NodeAction {
             Self::SetExpanded(_) => "set-expanded",
             Self::Increment => "increment",
             Self::Decrement => "decrement",
+            Self::SetSelected(_) => "set-selected",
+            Self::Cancel => "cancel",
+            Self::ShowDefaultUi => "show-default-ui",
         }
     }
 
@@ -123,6 +129,12 @@ impl NodeAction {
             ),
             Self::Increment => (dynlib::AGT_A11Y_ACTION_INCREMENT, None),
             Self::Decrement => (dynlib::AGT_A11Y_ACTION_DECREMENT, None),
+            Self::SetSelected(flag) => (
+                dynlib::AGT_A11Y_ACTION_SET_SELECTED,
+                Some(if *flag { "1" } else { "0" }.to_owned()),
+            ),
+            Self::Cancel => (dynlib::AGT_A11Y_ACTION_CANCEL, None),
+            Self::ShowDefaultUi => (dynlib::AGT_A11Y_ACTION_SHOW_DEFAULT_UI, None),
         }
     }
 }

@@ -65,6 +65,7 @@
  *         examples/objc/agenterm_ax_fixture.m -o agenterm_ax_fixture
  */
 #import <Cocoa/Cocoa.h>
+#import <objc/runtime.h>
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -108,6 +109,30 @@ static void handle_terminate(int signal_number) {
     (void)sender;
     self.confirms = self.confirms + 1;
     [self.confirmCount setStringValue:[NSString stringWithFormat:@"confirmed %d", self.confirms]];
+}
+@end
+
+/* Slice 6 target for `invoke set-selected`. A row of an NSTableView is the
+ * ordinary macOS control whose selection AX actually owns: it publishes
+ * AXSelected and accepts a write, where a web `aria-selected` option
+ * publishes the state read-only (measured) and a plain button publishes
+ * none at all. Three rows are enough to select one and leave the others
+ * unselected. */
+@interface AgentermFixtureRows : NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@end
+
+@implementation AgentermFixtureRows
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)table {
+    (void)table;
+    return 3;
+}
+
+- (id)tableView:(NSTableView *)table
+    objectValueForTableColumn:(NSTableColumn *)column
+                          row:(NSInteger)row {
+    (void)table;
+    (void)column;
+    return [NSString stringWithFormat:@"Fixture Row %ld", (long)row];
 }
 @end
 
@@ -292,6 +317,25 @@ int main(int argc, const char *argv[]) {
         controller.confirms = 0;
         [field setTarget:controller];
         [field setAction:@selector(confirmField:)];
+
+        /* Slice 6: the `set-selected` target. Added last so every AX child
+         * index the earlier slices resolve stays where it was. */
+        NSScrollView *rowsScroll =
+            [[NSScrollView alloc] initWithFrame:NSMakeRect(240.0, 76.0, 0.0, 0.0)];
+        NSTableView *rows = [[NSTableView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 1.0, 1.0)];
+        NSTableColumn *rowColumn =
+            [[NSTableColumn alloc] initWithIdentifier:@"fixture-row-column"];
+        [rows addTableColumn:rowColumn];
+        AgentermFixtureRows *rowSource = [[AgentermFixtureRows alloc] init];
+        [rows setDataSource:rowSource];
+        [rows setDelegate:rowSource];
+        [rows setAccessibilityIdentifier:@"fixture-rows"];
+        [rowsScroll setDocumentView:rows];
+        [content addSubview:rowsScroll];
+        /* Keep the source alive for the process lifetime: the table holds
+         * its data source weakly. */
+        objc_setAssociatedObject(rows, (void *)"fixture-rows-source", rowSource,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         /* Slice 4: the second, closable window `close` acts on. */
         NSRect second_frame = NSMakeRect(760.0, 160.0, 320.0, 200.0);

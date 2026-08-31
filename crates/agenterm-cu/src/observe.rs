@@ -1107,6 +1107,20 @@ pub fn checked_state(node: &A11yNode) -> Tri {
     }
 }
 
+/// `selected` is known false only when the backend says so: macOS reads
+/// `AXSelected`, Windows the SelectionItem pattern, Linux the AT-SPI
+/// `Selectable` state. A node carrying neither word has no selection of
+/// its own, which is not the same as being unselected.
+pub fn selected_state(node: &A11yNode) -> Tri {
+    if has_state(node, "selected") {
+        Tri::True
+    } else if has_state(node, "unselected") {
+        Tri::False
+    } else {
+        Tri::Unknown
+    }
+}
+
 pub fn expanded_state(node: &A11yNode) -> Tri {
     if has_state(node, "expanded") {
         Tri::True

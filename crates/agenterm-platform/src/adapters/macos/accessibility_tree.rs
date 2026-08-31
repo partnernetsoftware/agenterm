@@ -891,12 +891,42 @@ pub(crate) fn perform_node_action(
         AccessibilityNodeAction::SetExpanded(desired) => {
             set_expanded(element.as_ax(), desired, &mut budget)
         }
+        AccessibilityNodeAction::SetSelected(desired) => {
+            named(set_selected(element.as_ax(), desired, &mut budget))
+        }
+        AccessibilityNodeAction::Cancel => named(perform_named_action(
+            element.as_ax(),
+            "AXCancel",
+            &mut budget,
+        )),
+        AccessibilityNodeAction::ShowDefaultUi => named(perform_named_action(
+            element.as_ax(),
+            "AXShowDefaultUI",
+            &mut budget,
+        )),
         // The contract is `non_exhaustive`; a variant this adapter does not
         // know is typed, not silently mapped to something else.
         #[allow(unreachable_patterns)]
         other => Err(AccessibilityTreeError::Unsupported {
             reason: format!("macOS AX has no mapping for action {}", other.name()).into(),
         }),
+    }
+}
+
+/// Keep an `Unsupported` reason readable across the ABI.
+///
+/// `map_a11y_error` collapses `Unsupported` to "mechanism unavailable on
+/// this host", which for the three MCU actions added in ABI 1.16 would
+/// read as "cu cannot do set-selected" when the truth is "this node has
+/// nothing to select". The older actions keep `Unsupported` so the
+/// refusals their journeys already pin stay exactly as they were.
+fn named(result: Result<(), AccessibilityTreeError>) -> Result<(), AccessibilityTreeError> {
+    match result {
+        Err(AccessibilityTreeError::Unsupported { reason }) => Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            reason,
+        )),
+        other => other,
     }
 }
 
@@ -1376,6 +1406,52 @@ fn set_expanded(
 
 /// Elements below `root` (bounded depth and count) whose `AXTitle` equals
 /// `title`.
+/// Desired `AXSelected` state: read it, write only on a difference, read
+/// it back. A node that does not publish the attribute has no selection of
+/// its own to set -- selecting its container instead would be a different
+/// action, so this refuses typed.
+fn set_selected(
+    element: AxUiElementRef,
+    desired: bool,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    let Some(observed) = attribute_bool(element, "AXSelected", budget)? else {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: "node publishes no AXSelected state of its own".into(),
+        });
+    };
+    if observed == desired {
+        return Ok(());
+    }
+    if !attribute_settable(element, "AXSelected", budget)? {
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: "AXSelected is not settable on this node".into(),
+        });
+    }
+    let value = CfOwned::from_create(unsafe {
+        CFNumberCreate(
+            std::ptr::null(),
+            K_CF_NUMBER_SINT32 as CfIndex,
+            &(i32::from(desired)) as *const i32 as *const c_void,
+        )
+    })
+    .ok_or_else(|| {
+        AccessibilityTreeError::failed("a11y_backend_failed", "CFNumberCreate returned null")
+    })?;
+    set_attribute(element, "AXSelected", value.as_ptr(), budget)?;
+    if wait_for_readback(budget, |budget| {
+        Ok(attribute_bool(element, "AXSelected", budget)? == Some(desired))
+    })? {
+        Ok(())
+    } else {
+        Err(no_effect(
+            "AXSelected",
+            if desired { "true" } else { "false" },
+            if desired { "false" } else { "true" },
+        ))
+    }
+}
+
 fn find_titled_descendants(
     root: AxUiElementRef,
     title: &str,
@@ -2331,8 +2407,12 @@ fn read_states(
         states.push("showing".to_owned());
         states.push("visible".to_owned());
     }
-    if attribute_bool(element, "AXSelected", budget)?.unwrap_or(false) {
-        states.push("selected".to_owned());
+    // Both directions, so `set-selected false` and a `selected: false`
+    // expectation can tell "not selected" from "no selection state here".
+    match attribute_bool(element, "AXSelected", budget)? {
+        Some(true) => states.push("selected".to_owned()),
+        Some(false) => states.push("unselected".to_owned()),
+        None => {}
     }
     Ok(states)
 }

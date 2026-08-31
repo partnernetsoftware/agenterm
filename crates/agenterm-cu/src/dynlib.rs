@@ -213,6 +213,10 @@ pub const AGT_A11Y_ACTION_SET_CHECKED: i32 = 5;
 pub const AGT_A11Y_ACTION_SET_EXPANDED: i32 = 6;
 pub const AGT_A11Y_ACTION_INCREMENT: i32 = 7;
 pub const AGT_A11Y_ACTION_DECREMENT: i32 = 8;
+/// ABI 1.16: the last three MCU `invoke` spellings.
+pub const AGT_A11Y_ACTION_SET_SELECTED: i32 = 9;
+pub const AGT_A11Y_ACTION_CANCEL: i32 = 10;
+pub const AGT_A11Y_ACTION_SHOW_DEFAULT_UI: i32 = 11;
 
 /// `agt_native_window_show` states.
 pub const AGT_NATIVE_WINDOW_HIDE: i32 = 0;
@@ -247,6 +251,9 @@ pub const MENU_FOCUS_ABI_MINOR: u16 = 14;
 /// ABI 1.15: `agt_a11y_manual_accessibility_poke` (ask a browser engine to
 /// build the web tree it leaves unbuilt until an assistive client asks).
 pub const MANUAL_ACCESSIBILITY_ABI_MINOR: u16 = 15;
+/// ABI 1.16: `agt_a11y_node_invoke` accepts set-selected / cancel /
+/// show-default-ui.
+pub const MCU_ACTIONS_ABI_MINOR: u16 = 16;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

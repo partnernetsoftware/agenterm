@@ -1979,6 +1979,9 @@ fn complete_two_way_states(labels: &mut Vec<String>) {
     if has(labels, "expandable") && !has(labels, "expanded") && !has(labels, "collapsed") {
         labels.push("collapsed".to_owned());
     }
+    if has(labels, "selectable") && !has(labels, "selected") {
+        labels.push("unselected".to_owned());
+    }
 }
 
 /// `checked` / `unchecked` / `mixed` from a state list, or `None` when the
@@ -3440,6 +3443,13 @@ mod tests {
         let mut collapsed = labels(&["expandable"]);
         complete_two_way_states(&mut collapsed);
         assert_eq!(expanded_word(&collapsed), Some("collapsed"));
+
+        let mut unselected = labels(&["selectable", "showing"]);
+        complete_two_way_states(&mut unselected);
+        assert!(unselected.contains(&"unselected".to_owned()));
+        let mut selected = labels(&["selectable", "selected"]);
+        complete_two_way_states(&mut selected);
+        assert!(!selected.contains(&"unselected".to_owned()));
 
         let mut open = labels(&["expandable", "expanded"]);
         complete_two_way_states(&mut open);

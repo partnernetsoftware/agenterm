@@ -274,7 +274,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 15);
+abi_version!(1, 16);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3046,6 +3046,10 @@ const AGT_A11Y_ACTION_SET_CHECKED: i32 = 5;
 const AGT_A11Y_ACTION_SET_EXPANDED: i32 = 6;
 const AGT_A11Y_ACTION_INCREMENT: i32 = 7;
 const AGT_A11Y_ACTION_DECREMENT: i32 = 8;
+/// ABI 1.16 action kinds: the last three MCU `invoke` spellings.
+const AGT_A11Y_ACTION_SET_SELECTED: i32 = 9;
+const AGT_A11Y_ACTION_CANCEL: i32 = 10;
+const AGT_A11Y_ACTION_SHOW_DEFAULT_UI: i32 = 11;
 
 /// Map an action kind plus optional value payload to the contract action.
 /// `Err` carries the `agt_last_error` code and message.
@@ -3085,6 +3089,11 @@ fn a11y_action_from_abi(
         }
         AGT_A11Y_ACTION_INCREMENT => AccessibilityNodeAction::Increment,
         AGT_A11Y_ACTION_DECREMENT => AccessibilityNodeAction::Decrement,
+        AGT_A11Y_ACTION_SET_SELECTED => {
+            AccessibilityNodeAction::SetSelected(need_flag("set-selected")?)
+        }
+        AGT_A11Y_ACTION_CANCEL => AccessibilityNodeAction::Cancel,
+        AGT_A11Y_ACTION_SHOW_DEFAULT_UI => AccessibilityNodeAction::ShowDefaultUi,
         _ => return Err((c"bad_action", "unknown action kind".to_owned())),
     })
 }

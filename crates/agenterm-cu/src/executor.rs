@@ -1120,9 +1120,9 @@ fn capabilities_payload() -> serde_json::Value {
                 "decrement": "mapped",
                 "scroll-to": "mapped",
                 "set-selection": "mapped",
-                "set-selected": "typed",
-                "cancel": "typed",
-                "show-default-ui": "typed",
+                "set-selected": "mapped",
+                "cancel": "mapped",
+                "show-default-ui": "mapped",
             }),
         );
     }
@@ -3953,19 +3953,9 @@ fn invoke_action(
                 "internal: invoke set-selection uses agt_a11y_node_set_selection, not NodeAction",
             ));
         }
-        InvokeAction::SetSelected | InvokeAction::Cancel | InvokeAction::ShowDefaultUi => {
-            return Err(CuError::new(
-                "unsupported",
-                format!(
-                    "invoke {} is not mapped on the libagenterm a11y ABI; spelling matches MCU",
-                    action.as_str()
-                ),
-            )
-            .with_detail(serde_json::json!({
-                "reason": "node_action_unmapped",
-                "os": std::env::consts::OS,
-            })));
-        }
+        InvokeAction::SetSelected => mechanism::NodeAction::SetSelected(flag),
+        InvokeAction::Cancel => mechanism::NodeAction::Cancel,
+        InvokeAction::ShowDefaultUi => mechanism::NodeAction::ShowDefaultUi,
     })
 }
 
@@ -4120,6 +4110,9 @@ fn invoke_payload(
         }
         Some(mechanism::NodeAction::SetExpanded(flag)) => {
             Some(("expanded", *flag, observe::expanded_state(&target)))
+        }
+        Some(mechanism::NodeAction::SetSelected(flag)) => {
+            Some(("selected", *flag, observe::selected_state(&target)))
         }
         _ => None,
     };
@@ -4286,6 +4279,14 @@ fn invoke_payload(
             (
                 hit,
                 "checked-readback",
+                if hit { None } else { Some("state_mismatch") },
+            )
+        }
+        (mechanism::NodeAction::SetSelected(wanted), Some(now)) => {
+            let hit = observe::selected_state(now).as_bool() == Some(*wanted);
+            (
+                hit,
+                "selected-readback",
                 if hit { None } else { Some("state_mismatch") },
             )
         }
@@ -7550,7 +7551,15 @@ mod tests {
             data["verbs"]["invoke"]["actions"]["set-selection"],
             "mapped"
         );
-        assert_eq!(data["verbs"]["invoke"]["actions"]["cancel"], "typed");
+        // `mapped`, not `available`: the ABI carries these three now, but
+        // whether a given node offers AXCancel / AXSelected / AXShowDefaultUI
+        // is the backend's answer at call time, not a promise made here.
+        assert_eq!(data["verbs"]["invoke"]["actions"]["cancel"], "mapped");
+        assert_eq!(data["verbs"]["invoke"]["actions"]["set-selected"], "mapped");
+        assert_eq!(
+            data["verbs"]["invoke"]["actions"]["show-default-ui"],
+            "mapped"
+        );
         assert_eq!(data["verbs"]["displays"]["group"], "geometry");
         assert_eq!(data["verbs"]["displays"]["status"], "available");
         assert_eq!(data["verbs"]["spaces"]["group"], "geometry");

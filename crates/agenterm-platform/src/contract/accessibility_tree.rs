@@ -162,6 +162,20 @@ pub enum AccessibilityNodeAction {
     Increment,
     /// macOS `AXDecrement`; the caller reads the value back.
     Decrement,
+    /// Desired selected state for a node that can be selected on its own
+    /// (a list row, a tab, a menu item). Idempotent like `SetChecked`:
+    /// already being selected is success with no action performed. macOS
+    /// writes `AXSelected`; a backend with no per-node selection answers
+    /// typed rather than selecting something adjacent.
+    SetSelected(bool),
+    /// Dismiss what the node belongs to, the way the escape key would
+    /// (macOS `AXCancel`). Not a close and not a destructive verb: a node
+    /// that does not offer it is refused.
+    Cancel,
+    /// Reveal the node's default affordance (macOS `AXShowDefaultUI`),
+    /// which is what a toolkit exposes for "show me what this normally
+    /// shows". Rarely published; refused typed when it is not.
+    ShowDefaultUi,
 }
 
 impl AccessibilityNodeAction {
@@ -177,6 +191,9 @@ impl AccessibilityNodeAction {
             Self::SetExpanded(_) => "set-expanded",
             Self::Increment => "increment",
             Self::Decrement => "decrement",
+            Self::SetSelected(_) => "set-selected",
+            Self::Cancel => "cancel",
+            Self::ShowDefaultUi => "show-default-ui",
         }
     }
 }

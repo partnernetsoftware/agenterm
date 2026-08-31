@@ -67,6 +67,7 @@ const declared_evidence = [
   "cu.macos-ax-receipts",
   "cu.macos-ax-node-text-geometry",
   "cu.macos-ax-send-keys",
+  "cu.macos-ax-mcu-actions",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -1668,6 +1669,85 @@ try {
     "cu_macos_smoke_send_keys_no_equivalent:" + JSON.stringify(no_equivalent)
   );
 
+  print("STEP invoke set-selected selects a table row and repeats as a verified no-op; cancel and show-default-ui are typed refusals that name the actions the node does offer");
+  // A table row is the ordinary macOS control whose selection AX owns. A
+  // web `aria-selected` option publishes the state read-only and a plain
+  // button publishes none at all, so all three answers differ and each one
+  // says which it is.
+  const rows = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "query",
+    "--window", handle_text, "--role", "AXRow"
+  ]);
+  ensure(
+    int_at(rows, "data.matched") === 3,
+    "cu_macos_smoke_rows:" + JSON.stringify(rows.data)
+  );
+  const selectable_row = text_at(rows.data.nodes[1], "id");
+  const row_selected = invoke_ok(
+    run_directory, executable, handle_text, ["--node", selectable_row], ["set-selected", "true"]
+  );
+  ensure(
+    flag_at(row_selected, "performed") && flag_at(row_selected, "verified")
+      && text_at(row_selected, "verification.method") === "selected-readback"
+      && text_at(row_selected, "before.id") === selectable_row,
+    "cu_macos_smoke_set_selected:" + JSON.stringify(row_selected)
+  );
+  // Desired state, so asking again performs nothing and still verifies --
+  // the same rule `set-checked` follows.
+  const already_selected = invoke_ok(
+    run_directory, executable, handle_text, ["--node", selectable_row], ["set-selected", "true"]
+  );
+  ensure(
+    !flag_at(already_selected, "performed") && flag_at(already_selected, "verified"),
+    "cu_macos_smoke_set_selected_noop:" + JSON.stringify(already_selected)
+  );
+  // The other two rows stay unselected, so the write named one node rather
+  // than the table.
+  const after_rows = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "query",
+    "--window", handle_text, "--role", "AXRow"
+  ]);
+  let rows_marked_selected = 0;
+  let rows_marked_unselected = 0;
+  for (const node of after_rows.data.nodes) {
+    for (const state of node.states) {
+      if (state === "selected") { rows_marked_selected = rows_marked_selected + 1; }
+      if (state === "unselected") { rows_marked_unselected = rows_marked_unselected + 1; }
+    }
+  }
+  ensure(
+    rows_marked_selected === 1 && rows_marked_unselected === 2,
+    "cu_macos_smoke_row_states:" + JSON.stringify(after_rows.data.nodes)
+  );
+
+  // A node with no selection of its own never reaches the mechanism:
+  // `set-selected` is a desired state, so cu refuses it the same way it
+  // refuses `set-checked` on a node with no check state -- before acting,
+  // naming the state rather than the verb.
+  const not_selectable = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--identifier", "fixture-press", "set-selected", "true"
+  ]);
+  ensure(
+    !flag_at(not_selectable, "ok")
+      && text_at(not_selectable, "error.code") === "unsupported"
+      && text_at(not_selectable, "error.detail.reason") === "state_unobservable"
+      && text_at(not_selectable, "error.detail.state") === "selected",
+    "cu_macos_smoke_set_selected_unobservable:" + JSON.stringify(not_selectable)
+  );
+  for (const spelling of ["cancel", "show-default-ui"]) {
+    const refusal = run_cu_reply(run_directory, executable, [
+      "--target", "current", "--grant", "observe,actuate", "invoke",
+      "--window", handle_text, "--identifier", "fixture-field", spelling
+    ]);
+    ensure(
+      !flag_at(refusal, "ok")
+        && text_at(refusal, "error.code") === "a11y_action_unavailable"
+        && text_at(refusal, "error.message").indexOf("AXConfirm") >= 0,
+      "cu_macos_smoke_invoke_" + spelling + ":" + JSON.stringify(refusal)
+    );
+  }
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -1752,6 +1832,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-close
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-receipts");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-node-text-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-send-keys");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-mcu-actions");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");

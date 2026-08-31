@@ -51,7 +51,7 @@ machine-control
 | 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N`；`windows-watch` poll-diff；`apps` 运行中窗口聚合 | **句柄+watch+running apps**；仍缺 Space/occlusion/已安装未运行 |
 | 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query --selector` 与 `invoke --selector` 接受 `Role[idx] / Role@title / *@title / #desc`；其余 filter/budget 保留 | **拼写与作用域对齐**；真实三平台旅程仍待补 |
 | empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；**`unlock` 真 poke**（macOS `AXManualAccessibility`，ABI 1.15），前后两次读报 `poked`/`grew`/`returned_before` | **已对齐**（cu 2026-08-31；L/W typed，两边后端不需要 poke） |
-| 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | mac 7 动作 live；**Linux 与 Windows 2026-08-31 都补齐九个动作的映射**（期望态/选项/步进，未真机）；另 5 个 MCU 拼写可解析但未映射时 typed `unsupported` | **无 silent unknown**；不可把可解析误报为已实现 |
+| 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | **12 个动作全部映射**：mac 全部 live（含新的 `set-selected`/`cancel`/`show-default-ui`）；Linux 与 Windows 九个动作已映射未真机，三个新动作 typed | **无 silent unknown**；不可把可解析误报为已实现 |
 | 关闭环 | `verify`/`wait --expect` · `titleIncludes` · present/absent | `verify`/`wait --expect` · `name`/`titleIncludes` 可无 state；Heading↔WebArea | **对齐**（cu 2026-08-31） |
 | flatten | `elements` / `invoke --index` | `tree --flat` / `invoke --index` | **对齐** |
 | 后台菜单 | `menu inspect`/`menu invoke` path 唯一匹配 | `menu-inspect`/`menu-invoke` mac live；L/W unsupported | **对齐 mac** |
@@ -79,7 +79,11 @@ machine-control
    `poked`/`grew`/`returned_before` 三个字段分开——AppKit 对这个属性返回 unsupported 却照样生效，
    所以调用状态不能当结论。自有 `WKWebView` 固件旅程作证。
 3. ~~`query --selector` / `invoke --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`；query 作用域=命中节点+子孙，invoke 绑定唯一节点）。
-4. [~] `invoke` 已接受 `set-selected`、`set-selection`、`scroll-to`、`cancel`、`show-default-ui` 拼写；ABI 未映射前一律 typed `unsupported`，不算行为完成。
+4. ~~`invoke` 的 5 个 MCU 拼写~~ **已做**（2026-09-01，ABI 1.16）：`set-selected`（macOS `AXSelected`
+   期望态，真机 verified + 幂等 no-op）、`cancel`（`AXCancel`）、`show-default-ui`（`AXShowDefaultUI`），
+   加上早已映射的 `set-selection`/`scroll-to`。快照同时补出 `selected`/`unselected` 两向词
+   （mac AX、Linux `selectable`），否则 `set-selected` 无从回读。节点没有这个状态时
+   cu 在碰机制之前就 `state_unobservable` 拒绝。
 5. [✓] `windows-watch` poll-diff；`apps` running-only；`orderwin` raise（linux typed）；`spaces` macOS SkyLight 只读。
    `invoke scroll-to` / `set-selection` mapped；`cancel`/`set-selected`/`show-default-ui` typed.
 6. ~~`--to`~~ `pointer-move` 必填 `--to desktop`。
