@@ -14,7 +14,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
 ## Target family
 
-Branch status (cut 3.51 — macOS AX background verbs live: `menu inspect` /
+Branch status (cut 3.53 — macOS AX node text / geometry live:
+`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret`
+through `AXPosition`+`AXSize` and `AXSelectedTextRange`, `scroll` mapped to
+`AXScrollToVisible`; 3.51 macOS AX background verbs live: `menu inspect` /
 `menu invoke` / `focused` / `invoke --focused` / `observe` through ABI 1.14;
 3.50 macOS AX semantic actuation live: `invoke` /
 `verify` / `wait --expect` through ABI 1.13; 3.49 macOS AX observe live with
@@ -239,6 +242,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
     ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; focus journey-proven in 3.51, click mapped only
     ├── macOS AX background           [x] menu inspect / invoke, focused / invoke --focused, observe (poll-diff) live (cut 3.51, cu-macos-smoke): AXMenuBar walk + AXPress, AXFocusedUIElement; no AXObserver
+    ├── macOS AX node text/geometry   [x] get-extents / select / get-selection / set-caret / get-caret live (cut 3.53, cu-macos-smoke): AXPosition+AXSize, AXSelectedTextRange; scroll maps to AXScrollToVisible, which AppKit does not publish
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
@@ -629,6 +633,37 @@ Canonical host mapping (approved product vocabulary):
   `cu-macos-smoke` STEPs "menu inspect ...", "menu invoke ...", "focus
   moves the first responder ...", "observe --duration 1.5 ..." (2026-08-30).
   Never `AXRaise`, never a CGEvent, never activation.
+- [x] AX node text and geometry on `current` (cut 3.53): the verbs Linux
+  AT-SPI2 and Windows UIA already carried, which macOS answered as a
+  `PLACEHOLDER cut` refusal until this cut. `get-extents` re-reads the live
+  element's `AXPosition` + `AXSize` (independent of the snapshot's
+  `bounds`; an element with no rect is `a11y_extents_unavailable`, never a
+  zero rect); `select` / `get-selection` and `set-caret` / `get-caret` read
+  and write `AXSelectedTextRange` as a `CFRange`, requiring
+  `AXUIElementIsAttributeSettable` before every write and reading the range
+  back after it (`a11y_selection_no_effect` / `a11y_caret_no_effect` on
+  mismatch, `a11y_selection_unavailable` / `a11y_caret_unavailable` on a
+  node that publishes no selected range). AX carries at most one range and
+  spells "nothing selected" as a zero-length range at the insertion point,
+  so `get-selection` reports the AT-SPI shape (`n == 0`, endpoints zero)
+  and the position stays readable through `get-caret` — one vocabulary on
+  all three backends. `scroll` maps to `AXScrollToVisible`; a node that
+  does not offer it is `a11y_scroll_unavailable` naming the actions it does
+  offer. Live evidence: `cu-macos-smoke` STEP "get-extents, select /
+  get-selection and set-caret / get-caret read and write the text area
+  through AX; scroll is a typed refusal that names the actions the node
+  does offer" (2026-08-31). Never a mouse drag, never shift-arrow
+  keystrokes, never a `--coords` or screenshot fallback.
+- [ ] macOS `scroll` has no positive journey. AppKit publishes
+  `AXScrollToVisible` on nothing the owned fixture can hold (measured on
+  `NSButton`, a plain `NSView` overriding both the modern and the legacy
+  action API, and `NSTableView` rows); Chromium and WebKit web content do
+  publish it (measured: 130 nodes of one Brave window). Positive evidence
+  therefore needs a web target the journey owns, which it does not have
+  yet.
+- [ ] macOS `send-keys` to a node stays typed `unsupported`: delivering a
+  chord means posting CGEvents to the owning process, and this adapter
+  posts no events. It is the same gap as macOS pointer *injection*.
 
 ### Degraded fallbacks (never silent)
 

@@ -86,6 +86,8 @@ const MAX_FOCUS_ANCESTORS: usize = 64;
 
 const AX_VALUE_CGPOINT: u32 = 1;
 const AX_VALUE_CGSIZE: u32 = 2;
+/// `kAXValueCFRangeType`: how AX carries a text selection / insertion point.
+const AX_VALUE_CFRANGE: u32 = 4;
 
 const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
 const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
@@ -106,6 +108,13 @@ struct CgPoint {
 struct CgSize {
     width: f64,
     height: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CfRange {
+    location: CfIndex,
+    length: CfIndex,
 }
 
 // One `#[link]` per framework is the documented way to attach several of them
@@ -143,6 +152,7 @@ unsafe extern "C" {
     fn AXUIElementCopyAttributeNames(element: AxUiElementRef, names: *mut CfTypeRef) -> i32;
     fn AXUIElementCopyActionNames(element: AxUiElementRef, names: *mut CfTypeRef) -> i32;
     fn AXValueGetValue(value: AxValueRef, typ: u32, value_ptr: *mut c_void) -> u8;
+    fn AXValueCreate(typ: u32, value_ptr: *const c_void) -> AxValueRef;
     fn _AXUIElementGetWindow(element: AxUiElementRef, out: *mut CgWindowId) -> i32;
 
     fn AXUIElementPerformAction(element: AxUiElementRef, action: CfStringRef) -> i32;
@@ -1464,65 +1474,254 @@ pub(crate) fn send_node_keys(
     _keys: &str,
 ) -> Result<(), AccessibilityTreeError> {
     Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX send-keys is not implemented in this PLACEHOLDER cut".into(),
+        reason: "macOS delivers a chord to a node only by posting CGEvents to the owning process; \
+                 this adapter posts no events, so there is no semantic AX equivalent here"
+            .into(),
     })
 }
 
+/// `AXScrollToVisible` on the resolved node — the AX spelling of AT-SPI
+/// `Component.ScrollTo(TopEdge)`. A node that does not offer the action is
+/// `a11y_scroll_unavailable`; never a synthetic wheel event.
 pub(crate) fn scroll_node(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX scroll is not implemented in this PLACEHOLDER cut".into(),
-    })
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    match perform_named_action(element.as_ax(), "AXScrollToVisible", &mut budget) {
+        Err(AccessibilityTreeError::Unsupported { reason }) => Err(AccessibilityTreeError::failed(
+            "a11y_scroll_unavailable",
+            reason,
+        )),
+        other => other,
+    }
 }
 
+/// Independent `AXPosition` + `AXSize` read for `get-extents`: the live
+/// element is re-read, not the snapshot's `bounds` field. A node with no
+/// geometry answers `a11y_extents_unavailable` rather than a zero rect.
 pub(crate) fn get_node_extents(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<AccessibilityBounds, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX get-extents is not implemented in this PLACEHOLDER cut".into(),
-    })
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    let bounds = read_bounds(element.as_ax(), &mut budget)?;
+    if bounds.width <= 0 || bounds.height <= 0 {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_extents_unavailable",
+            format!(
+                "node {node_id} publishes no AXPosition/AXSize rect ({}x{})",
+                bounds.width, bounds.height
+            ),
+        ));
+    }
+    Ok(bounds)
 }
 
+/// `AXSelectedTextRange` write for `select`. One range, set through the
+/// accessibility API: no mouse drag, no shift-arrow keystrokes. A control
+/// that does not publish a settable selected range is
+/// `a11y_selection_unavailable`; a range the toolkit declines to take is
+/// `a11y_selection_no_effect`.
 pub(crate) fn set_node_selection(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _start: i32,
-    _end: i32,
+    window_handle: Option<isize>,
+    node_id: &str,
+    start: i32,
+    end: i32,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX set-selection is not implemented in this PLACEHOLDER cut".into(),
-    })
+    require_trusted()?;
+    if start < 0 || end < start {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("selection {start}..{end} is not an ordered non-negative range"),
+        ));
+    }
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    let length = i64::from(end - start) as CfIndex;
+    write_selected_range(
+        element.as_ax(),
+        i64::from(start) as CfIndex,
+        length,
+        "a11y_selection_unavailable",
+        &mut budget,
+    )?;
+    match read_selected_range(element.as_ax(), &mut budget)? {
+        Some(range) if range.location == i64::from(start) as CfIndex && range.length == length => {
+            Ok(())
+        }
+        Some(range) => Err(AccessibilityTreeError::failed(
+            "a11y_selection_no_effect",
+            format!(
+                "read-back is {}..{} after asking for {start}..{end}",
+                range.location,
+                range.location.saturating_add(range.length)
+            ),
+        )),
+        None => Err(AccessibilityTreeError::failed(
+            "a11y_selection_no_effect",
+            "AXSelectedTextRange is unreadable after the write",
+        )),
+    }
 }
 
+/// Independent `AXSelectedTextRange` read for `get-selection`.
+///
+/// AX carries at most one range and spells "nothing selected" as a
+/// zero-length range sitting at the insertion point; AT-SPI spells it
+/// `n == 0` with both endpoints left at zero. This reports the AT-SPI
+/// shape so one vocabulary reads the same on both backends — the caret's
+/// own position stays available through `get_node_caret_offset`.
 pub(crate) fn get_node_selection(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<AccessibilitySelection, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX get-selection is not implemented in this PLACEHOLDER cut".into(),
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    let Some(range) = read_selected_range(element.as_ax(), &mut budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_selection_unavailable",
+            format!("node {node_id} publishes no AXSelectedTextRange"),
+        ));
+    };
+    if range.length <= 0 {
+        return Ok(AccessibilitySelection {
+            n: 0,
+            start: 0,
+            end: 0,
+        });
+    }
+    Ok(AccessibilitySelection {
+        n: 1,
+        start: clamp_index(range.location),
+        end: clamp_index(range.location.saturating_add(range.length)),
     })
 }
 
+/// `AXSelectedTextRange` write with zero length for `set-caret`: the
+/// insertion point moves without selecting anything.
 pub(crate) fn set_node_caret_offset(
-    _window_handle: Option<isize>,
-    _node_id: &str,
-    _offset: i32,
+    window_handle: Option<isize>,
+    node_id: &str,
+    offset: i32,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX set-caret is not implemented in this PLACEHOLDER cut".into(),
-    })
+    require_trusted()?;
+    if offset < 0 {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("caret offset {offset} is negative"),
+        ));
+    }
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    write_selected_range(
+        element.as_ax(),
+        i64::from(offset) as CfIndex,
+        0,
+        "a11y_caret_unavailable",
+        &mut budget,
+    )?;
+    match read_selected_range(element.as_ax(), &mut budget)? {
+        Some(range) if range.location == i64::from(offset) as CfIndex => Ok(()),
+        Some(range) => Err(AccessibilityTreeError::failed(
+            "a11y_caret_no_effect",
+            format!(
+                "read-back caret is {} after asking for {offset}",
+                range.location
+            ),
+        )),
+        None => Err(AccessibilityTreeError::failed(
+            "a11y_caret_no_effect",
+            "AXSelectedTextRange is unreadable after the write",
+        )),
+    }
 }
 
+/// Independent `AXSelectedTextRange` read for `get-caret`: the range's
+/// location, which is where typing would land whether or not text is
+/// selected.
 pub(crate) fn get_node_caret_offset(
-    _window_handle: Option<isize>,
-    _node_id: &str,
+    window_handle: Option<isize>,
+    node_id: &str,
 ) -> Result<i32, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "macOS AX get-caret is not implemented in this PLACEHOLDER cut".into(),
-    })
+    require_trusted()?;
+    let mut budget = Budget::new(ACTION_TIMEOUT);
+    let element = resolve_node(window_handle, node_id, &mut budget)?;
+    let Some(range) = read_selected_range(element.as_ax(), &mut budget)? else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_caret_unavailable",
+            format!("node {node_id} publishes no AXSelectedTextRange"),
+        ));
+    };
+    Ok(clamp_index(range.location))
+}
+
+/// `AXSelectedTextRange` as a `CFRange`. `Ok(None)` means the element does
+/// not publish the attribute (it is not a text control) — the caller turns
+/// that into the typed `unavailable` code for its own verb.
+fn read_selected_range(
+    element: AxUiElementRef,
+    budget: &mut Budget,
+) -> Result<Option<CfRange>, AccessibilityTreeError> {
+    let Some(value) = copy_attribute(element, "AXSelectedTextRange", budget)? else {
+        return Ok(None);
+    };
+    let mut range = CfRange {
+        location: 0,
+        length: 0,
+    };
+    let ok = unsafe {
+        AXValueGetValue(
+            value.as_ptr() as AxValueRef,
+            AX_VALUE_CFRANGE,
+            &mut range as *mut CfRange as *mut c_void,
+        )
+    };
+    if ok == 0 {
+        return Ok(None);
+    }
+    Ok(Some(range))
+}
+
+/// Write `AXSelectedTextRange`. The attribute must be settable first:
+/// a read-only text view answers the caller's `unavailable` code instead
+/// of a write that silently does nothing.
+fn write_selected_range(
+    element: AxUiElementRef,
+    location: CfIndex,
+    length: CfIndex,
+    unavailable: &'static str,
+    budget: &mut Budget,
+) -> Result<(), AccessibilityTreeError> {
+    if !attribute_settable(element, "AXSelectedTextRange", budget)? {
+        return Err(AccessibilityTreeError::failed(
+            unavailable,
+            "AXSelectedTextRange is not settable on this node",
+        ));
+    }
+    let range = CfRange { location, length };
+    let value = CfOwned::from_create(unsafe {
+        AXValueCreate(AX_VALUE_CFRANGE, &range as *const CfRange as *const c_void)
+    } as CfTypeRef)
+    .ok_or_else(|| {
+        AccessibilityTreeError::failed(
+            "a11y_backend_failed",
+            "AXValueCreate(CFRange) returned null",
+        )
+    })?;
+    set_attribute(element, "AXSelectedTextRange", value.as_ptr(), budget)
+}
+
+/// A `CFIndex` offset as the contract's `i32`. AX offsets are text
+/// positions, so the clamp is a guard against a nonsense value, not a
+/// range this code expects to meet.
+fn clamp_index(value: CfIndex) -> i32 {
+    value.clamp(0, i64::from(i32::MAX) as CfIndex) as i32
 }
 
 fn resolve_roots(

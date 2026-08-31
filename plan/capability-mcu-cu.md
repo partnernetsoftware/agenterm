@@ -60,6 +60,7 @@ machine-control
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
 | 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close`/`displays` live；`orderwin` raise；`spaces` macOS SkyLight 只读 | **orderwin/spaces/displays 无 silent unknown** |
 | 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported` | 防止漏写目标静默变成全局输入 |
+| 节点文本/几何 | 无独立动词（`query` 里带 rect） | `get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` **三平台都活**（macOS 2026-08-31 补齐 AX 一列）；`scroll` mac 映射 `AXScrollToVisible`（AppKit 不发布，Chromium 发布） | **cu 多一层** |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI；mac/linux typed unsupported | MCU 实验室更完整 |
 | 网页 JS | `page read --js` / `browser read --js` | `page-js` CDP Runtime.evaluate（默认 9222）；无 listener typed | **路径已接**；MAIN Function constructor 拒绝 |

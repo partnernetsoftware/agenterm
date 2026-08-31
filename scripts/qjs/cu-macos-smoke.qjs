@@ -7,7 +7,11 @@
 // after, the window-place `frame` transaction, the destructive `close`
 // gate (exact target + prior snapshot + checkable postcondition, refused
 // typed when any part is missing) on the fixture's second window, and the
-// crash-persistent receipt file read back with `receipts`.
+// crash-persistent receipt file read back with `receipts`; then slice 5:
+// the node-level text and geometry verbs Linux and Windows already carried
+// (`get-extents`, `select` / `get-selection`, `set-caret` / `get-caret`)
+// now live on AX, plus the typed `scroll` refusal that names the actions
+// the node does offer.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -58,6 +62,7 @@ const declared_evidence = [
   "cu.macos-ax-destructive-refusals",
   "cu.macos-ax-destructive-close",
   "cu.macos-ax-receipts",
+  "cu.macos-ax-node-text-geometry",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -1504,6 +1509,109 @@ try {
     "cu_macos_smoke_receipts_zero_max:" + JSON.stringify(zero_max)
   );
 
+  // ---- slice 5: the node-level text and geometry reads/writes ----------
+  // Linux and Windows have carried these since the AT-SPI / UIA cuts; on
+  // macOS every one of them was a PLACEHOLDER refusal until this slice, so
+  // the same six verbs now answer on all three backends.
+  print("STEP get-extents, select / get-selection and set-caret / get-caret read and write the text area through AX; scroll is a typed refusal that names the actions the node does offer");
+  const extents = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-extents",
+    "--window", handle_text, "--name", "fixture-text"
+  ]);
+  // An independent AXPosition + AXSize read, not the snapshot's bounds:
+  // the reply carries both and they agree on a control that has not moved.
+  ensure(
+    text_at(extents, "data.via") === "get-extents"
+      && text_at(extents, "data.backend") === "ax"
+      && int_at(extents, "data.extents.width") > 0
+      && int_at(extents, "data.extents.height") > 0
+      && int_at(extents, "data.extents.x") === int_at(extents, "data.matched.bounds.x")
+      && int_at(extents, "data.extents.y") === int_at(extents, "data.matched.bounds.y")
+      && int_at(extents, "data.extents.width") === int_at(extents, "data.matched.bounds.width")
+      && int_at(extents, "data.extents.height") === int_at(extents, "data.matched.bounds.height"),
+    "cu_macos_smoke_get_extents:" + JSON.stringify(extents.data)
+  );
+
+  // `345AXTREE` is nine characters, so 2..6 is a strict interior range and
+  // a wrong endpoint could not pass by accident.
+  const text_selected = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "select",
+    "--window", handle_text, "--name", "fixture-text", "--start", "2", "--end", "6"
+  ]);
+  ensure(
+    text_at(text_selected, "data.via") === "set-selection"
+      && int_at(text_selected, "data.start") === 2 && int_at(text_selected, "data.end") === 6,
+    "cu_macos_smoke_select:" + JSON.stringify(text_selected.data)
+  );
+  const selection = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-selection",
+    "--window", handle_text, "--name", "fixture-text"
+  ]);
+  ensure(
+    text_at(selection, "data.via") === "get-selection"
+      && int_at(selection, "data.n") === 1
+      && int_at(selection, "data.start") === 2 && int_at(selection, "data.end") === 6,
+    "cu_macos_smoke_get_selection:" + JSON.stringify(selection.data)
+  );
+
+  const caret = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "set-caret",
+    "--window", handle_text, "--name", "fixture-text", "--offset", "4"
+  ]);
+  ensure(
+    text_at(caret, "data.via") === "set-caret-offset" && int_at(caret, "data.offset") === 4,
+    "cu_macos_smoke_set_caret:" + JSON.stringify(caret.data)
+  );
+  const caret_readback = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-caret",
+    "--window", handle_text, "--name", "fixture-text"
+  ]);
+  ensure(
+    text_at(caret_readback, "data.via") === "get-caret-offset"
+      && int_at(caret_readback, "data.offset") === 4,
+    "cu_macos_smoke_get_caret:" + JSON.stringify(caret_readback.data)
+  );
+  // Moving the insertion point collapses the selection: AX carries one
+  // range, and `get-selection` reports the AT-SPI shape for "none".
+  const collapsed = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-selection",
+    "--window", handle_text, "--name", "fixture-text"
+  ]);
+  ensure(
+    int_at(collapsed, "data.n") === 0 && int_at(collapsed, "data.start") === 0
+      && int_at(collapsed, "data.end") === 0,
+    "cu_macos_smoke_selection_collapsed:" + JSON.stringify(collapsed.data)
+  );
+
+  // macOS spells `Component.ScrollTo` as the AX action AXScrollToVisible.
+  // AppKit does not publish it (measured on NSButton, a plain NSView and
+  // NSTableView rows); Chromium and WebKit web content do. A node that does
+  // not offer it is refused typed and the refusal names what it does offer,
+  // so an agent can tell "not scrollable here" from "verb not implemented".
+  const scroll_refusal = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "scroll",
+    "--window", handle_text, "--name", "fixture-text"
+  ]);
+  ensure(
+    !flag_at(scroll_refusal, "ok")
+      && text_at(scroll_refusal, "error.code") === "a11y_scroll_unavailable"
+      && text_at(scroll_refusal, "error.message").indexOf("AXScrollToVisible") >= 0
+      && text_at(scroll_refusal, "error.message").indexOf("AXShowMenu") >= 0,
+    "cu_macos_smoke_scroll_refusal:" + JSON.stringify(scroll_refusal)
+  );
+
+  // A node with no text interface at all separates "no selection" from
+  // "not a text control": the press button answers the unavailable code.
+  const no_text_selection = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-selection",
+    "--window", handle_text, "--name", "Fixture Press"
+  ]);
+  ensure(
+    !flag_at(no_text_selection, "ok")
+      && text_at(no_text_selection, "error.code") === "a11y_selection_unavailable",
+    "cu_macos_smoke_selection_unavailable:" + JSON.stringify(no_text_selection)
+  );
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -1586,6 +1694,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-frame");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-refusals");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-destructive-close");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-receipts");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-node-text-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");
