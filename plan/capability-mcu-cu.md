@@ -1,11 +1,15 @@
 # MCU ↔ agenterm-cu 能力对照树
 
-| 日期 | 2026-08-31 |
+| 日期 | 2026-09-01 |
 |---|---|
 | MCU 实验室 | 兄弟仓 `moltbaby/skills/mcu`（Bun/TS，`bin/mcu`） |
 | 产品面 | 本仓 `crates/agenterm-cu`（Rust，`agenterm-cu`） |
 | 纪律 | 吸收**命令集与分层教训**，不搬 TypeScript / helper protocol-v40 |
-| 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js` |
+| 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
+
+**还差什么（2026-09-01）**：`clip` 只有纯文本（MCU 有富 UTI）；每个窗口属于哪个 Space 没归属（`spaces` 只读清单在，且只有 mac）；
+「已安装但没在跑」的 App 列不出来；截图 macOS 被系统拿走（`CGWindowListCreateImage` 15.0 移除）、Linux 未接；
+Linux/Windows 的新动词全部**只交叉编译过没上真机**——本仓没有那两台机器，PRD leaf 一律写 `[~] mapped`。
 
 图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做。非桌面组在 cu 上必须 typed，不许静默缺失。
 
@@ -32,10 +36,17 @@ machine-control
 │   cu  [~] `browser` typed unsupported（日常网页走 AX）
 ├── 窗几何 / 关窗
 │   MCU [✓] frame/orderwin/close/maximize…
-│   cu  [✓] window-place（Spectacle+frame）+ close 三件套（mac）
+│   cu  [✓] window-place（Spectacle+frame）+ close 三件套（mac 旅程；三平台都有各自的原生关闭控件）
 ├── 局部/全局输入
 │   MCU [✓] --to handle|desktop；--private SkyLight
 │   cu  [✓] 语义刀走 a11y 树永不动指针；全局刀 `pointer-move --to desktop` 有自己的旅程（移动→独立读回→复位）
+│        实测：macOS 没有窗口局部注入（键进不了非活跃 App；鼠标事件到得了 sendEvent: 但不带窗口），所以 `--to <handle>` typed 拒绝
+├── 事件流
+│   MCU [✓] AXObserver
+│   cu  [✓] 默认 poll-diff（带 before/after）+ `--mode notifications`（macOS AXObserver，有到达时序、能看见改回去的变化）
+├── 窗口栈序/遮挡
+│   MCU [✓] zIndex + occlusion
+│   cu  [✓] 三平台各用原生栈序，`occluded_percent` 由矩形精确相减（契约层 6 条单测）
 ├── shell / PTY / job / process / device / privilege / Simulator
 │   MCU [✓/~] 实验室正殿外
 │   cu  [~] 同名动词 typed unsupported（capabilities 可查）
