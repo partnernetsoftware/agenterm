@@ -119,8 +119,8 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
   写好**的语料把三种都跑过，再按边际成本比。调用点特化胜出，
   另外两种连同它们的 feature 一起删掉了。判决 trace 与数字在那边的 `RESULTS.md`。
 
-  仍然没有的：其它字符串方法（`toUpperCase` / `trim` 之外的）与数字方法
-  （`(1).toFixed`）——**读就 trap**；数组上没落地的方法（`filter` / `join`）
+  仍然没有的：其它字符串方法（`trim` / `trimStart` 之类）与数字方法
+  （`(1).toPrecision`）——**读就 trap**；数组上没落地的方法（`filter` / `splice`）
   **读出来是 `undefined`，调用才 trap**。两种接收者规矩不同是上游刻意保留的，
   理由见「内建属性」那条。
 - **`agenterm.*` 门**：`print` / `fleet_call` / `fleet_result`——见下一节。
@@ -141,9 +141,9 @@ completion value 投影全程，任何一段掉链子这里都看得见。`f8ade
    内建属性只有**一个**（`548fbbe`）：`"ab".length` 现在给正确答案，
    且数的是 **UTF-16 码元**不是 UTF-8 字节——`"café".length` 是 4，`"😀".length` 是 2。
    **上一版说它是运行期 trap，已作废。** 但那是 `obj_get` 里的**一条臂**，不是原型链：
-   字符串的**其它**属性仍然 trap（`"ab".trim` / `"ab".toUpperCase`），
+   字符串的**其它**属性仍然 trap（`"ab".trim` / `"ab".trimStart`），
    而且是**故意**不返回 `undefined`——那两个在真 JS 里是函数，`undefined` 会是
-   看起来像对的错答案。数字与布尔的属性也仍然 trap（`(1).toFixed`）。
+   看起来像对的错答案。数字与布尔的属性也仍然 trap（`(1).toPrecision`）。
    顺带：这条臂是门控的，所以**没写 `.length` 的程序比上一版更小**（`return 1;`
    少 19 字节）——`__len` 之前在无条件 runtime 里，发射了但没人调。
 3. **解析就没过**——正则字面量 `/a/`（「needs an operand here, and found a `/`」）、

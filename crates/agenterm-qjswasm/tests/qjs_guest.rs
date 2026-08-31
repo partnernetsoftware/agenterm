@@ -482,7 +482,9 @@ fn the_method_claims_in_this_crates_own_copy() {
     );
 
     // "没落地的方法仍然按各自接收者的规矩拒绝"
-    for source in ["return \"ab\".toUpperCase();", "return (1).toFixed();"] {
+    // (`toUpperCase` and `toFixed` sat here until tinyvm be1447c gave the
+    // engine both; `trimStart` and `toPrecision` took their seats.)
+    for source in ["return \"ab\".trimStart();", "return (1).toPrecision();"] {
         let mut eng = engine();
         assert!(
             eng.run_once(Guest::Qjs(source), None, "main", &[]).is_err(),
@@ -520,8 +522,8 @@ fn the_string_length_claim_in_this_crates_own_copy() {
     // property; since 1707721 so does a Number receiver's.
     for (source, want) in [
         ("return \"ab\".trim;", Some("trim")),
-        ("return \"ab\".toUpperCase;", Some("toUpperCase")),
-        ("return (1).toFixed;", None),
+        ("return \"ab\".trimStart;", Some("trimStart")),
+        ("return (1).toPrecision;", None),
     ] {
         let mut eng = engine();
         let err = eng
@@ -534,8 +536,8 @@ fn the_string_length_claim_in_this_crates_own_copy() {
             ),
             // A Number receiver names its key too since tinyvm 1707721.
             None => assert!(
-                matches!(&err, QjswasmError::PropertyOfNonObject(Some(k)) if k == "toFixed"),
-                "{source:?}: want `toFixed` named off a Number, got {err:?}"
+                matches!(&err, QjswasmError::PropertyOfNonObject(Some(k)) if k == "toPrecision"),
+                "{source:?}: want `toPrecision` named off a Number, got {err:?}"
             ),
         }
     }
@@ -930,26 +932,29 @@ fn a_value_with_no_primitive_form_is_named_with_its_kind() {
 /// tinyvm d2e66b3 the guest trapped bare (or, if the program said `.length`
 /// somewhere, as a nameless capability boundary), and every migrated script
 /// that reached `slice` reported "guest trapped: unreachable executed"
-/// (`slice` and then `substring` have since landed; `padStart` stands in as
-/// the missing one).
+/// (`slice`, then `substring`, then `padStart` have since landed; `trimStart`
+/// stands in as the missing one). The stand-in has been retired three times
+/// by the engine growing the method it named, which is the healthy direction:
+/// what this test pins is that *whatever* a String lacks is named, not that
+/// any particular method stays missing.
 #[test]
 fn a_missing_string_method_is_named_at_the_engine_face() {
     let mut eng = engine();
     let err = eng
         .run_once(
-            Guest::Qjs("let s = \"abc\"; return s.padStart(5, \" \");"),
+            Guest::Qjs("let s = \"abc\"; return s.trimStart();"),
             None,
             "main",
             &[],
         )
         .expect_err("a property this engine lacks stops the script");
     assert!(
-        matches!(&err, QjswasmError::UnsupportedMethod(Some(name)) if name == "padStart"),
+        matches!(&err, QjswasmError::UnsupportedMethod(Some(name)) if name == "trimStart"),
         "expected the property to be named, got {err:?}"
     );
     assert_eq!(
         err.to_string(),
-        "this engine does not support `padStart` on a String yet; the script reached it at run time"
+        "this engine does not support `trimStart` on a String yet; the script reached it at run time"
     );
 }
 
