@@ -373,13 +373,18 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
         }
         "apps" => {
             let running = take_switch(&mut args, "--running");
+            let all = take_switch(&mut args, "--all");
             if !args.is_empty() {
                 return usage_err(format!(
-                    "apps accepts only --running; unexpected {:?}",
+                    "apps accepts only --running / --all; unexpected {:?}",
                     args[0]
                 ));
             }
-            Command::Apps { target, running }
+            Command::Apps {
+                target,
+                running,
+                all,
+            }
         }
         "tree" => {
             let window = flag_window_opt(&mut args);
@@ -1152,9 +1157,11 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
-            // `show` has no window to name -- hiding removed them -- so the
-            // pid stands in. Every other action still wants a handle.
-            if window.is_none() && pid.is_none() {
+            // `launch` names a path rather than a running thing; `show`
+            // has no window to name because hiding removed them, so the pid
+            // stands in. Everything else still wants a handle.
+            let launching = action == agenterm_cu::command::AppAction::Launch;
+            if !launching && window.is_none() && pid.is_none() {
                 return usage_err("app requires --window <handle> or --pid <n>");
             }
             let window = window.unwrap_or(0);
@@ -1163,9 +1170,13 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
+            let path = match flag_text(&mut args, "--path") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
             if !args.is_empty() {
                 return usage_err(format!(
-                    "app accepts only <hide|show|quit> --window H [--pid N] [--snapshot --expect gone]; unexpected {:?}",
+                    "app accepts only <hide|show|quit|launch> --window H | --pid N | --path P [--snapshot --expect gone]; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -1176,6 +1187,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 snapshot,
                 expect,
                 pid,
+                path,
             }
         }
         "orderwin" => {

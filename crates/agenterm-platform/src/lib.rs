@@ -321,6 +321,9 @@ pub mod accessibility_tree;
 pub mod accessibility_publish;
 
 #[cfg(feature = "window-enum")]
+pub mod app_inventory;
+
+#[cfg(feature = "window-enum")]
 pub mod window_enumerate;
 
 #[cfg(feature = "window-op")]

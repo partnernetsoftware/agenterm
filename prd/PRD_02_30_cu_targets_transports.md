@@ -805,12 +805,33 @@ Canonical host mapping (approved product vocabulary):
   both `not_performed` and both leaving it running), then quit through
   `ax_fixture/Quit ax_fixture` with the process read back gone and exit
   code 0.
-- [ ] `apps --all` (installed but not running) and `app launch` are still
-  unbuilt, deliberately and together: listing installed applications is a
-  dead end without a `launch` to feed it, and `launch` needs a new
-  mechanism layer whose macOS route has a known trap -- `open -a` hands
-  the pid to LaunchServices, so a journey cannot reap what it started
-  (measured in slice 1).
+- [x] `apps --all` and `app launch` (cut 3.60, ABI 1.21
+  `agt_app_list_installed` / `agt_app_launch`), which complete the
+  app-lifecycle family. `apps --all` scans the host's application
+  directories (`/Applications`, `/System/Applications` and their
+  `Utilities`, and the user's own `~/Applications` -- nothing else, so it
+  never walks the disk) and marks each row `running` by joining against
+  the window inventory, so "installed but not running" is one read rather
+  than two lists the caller joins. `installed_available: false` says the
+  host cannot enumerate installed applications, which is not the same as
+  having none.
+  `app launch --path P` opens the bundle through LaunchServices
+  (`LSOpenCFURLRef`, which unlike the window-capture API is still
+  available on macOS 15). **The reply says `requested: true` and
+  `pid: null`, and names why**: the launcher service owns the process it
+  starts, so this call cannot know a pid or whether the application came
+  up. The caller watches for the window, which is also the only evidence
+  it really started. That is the honest form of the trap recorded in slice
+  1 -- `open -a` hands the pid away -- rather than an attempt to work
+  around it.
+  Live evidence: `cu-macos-smoke` STEP "apps --all lists installed
+  applications a window cannot reveal, and app launch starts one this run
+  owns; its window appears and app quit ends it" (2026-09-01) -- 83
+  applications listed with most not running, then a `.app` bundle built
+  around this run's own fixture is launched, waited for **by application**
+  (waiting by title would have matched the fixture already running and
+  proven nothing), and quit through `AgentermFixture/Quit
+  AgentermFixture` with the process gone.
 - [x] each `windows` row names the managed Spaces it sits on (cut 3.58,
   macOS SkyLight `SLSCopySpacesForWindows`, read-only). The Space
   *inventory* says which Spaces exist; this says where a given window

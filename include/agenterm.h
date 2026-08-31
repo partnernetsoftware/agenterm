@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 20
+#define AGT_ABI_MINOR 21
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -819,6 +819,23 @@ typedef struct {
  * enumeration order off as a stacking order. */
 agt_status agt_window_stacking_list(agt_window_stacking* buf, size_t cap,
                                     size_t* out_count);
+
+/* ABI 1.21: every application this host has installed, running or not, as
+ * newline-separated "name\tpath" records in UTF-8, two-stage (spec 3.4).
+ * The counterpart to agt_window_enumerate, which can only see applications
+ * that currently have a window. A host with no notion of an installed
+ * application answers AGT_UNSUPPORTED -- a DIFFERENT answer from an empty
+ * list. A listing cut short by the adapter's bound ends with "\ttruncated". */
+agt_status agt_app_list_installed(uint8_t* buf, size_t cap, size_t* out_len);
+
+/* ABI 1.21: ask the host to start the application at path (len bytes of
+ * UTF-8). AGT_OK means the request was accepted, NEVER that the
+ * application is up: every host route hands the new process to a launcher
+ * service that owns it, so no pid comes back and none is invented -- find
+ * it the way a person would, by looking for the window that appears.
+ * NULL path with len > 0 is bad_pointer; non-UTF-8 is bad_encoding;
+ * nothing at that path is app_not_found. */
+agt_status agt_app_launch(const uint8_t* path, size_t len);
 
 /* Typed placement preflight for a foreign top-level window. This record is
  * caller-sized and versioned: initialize struct_size to the allocation size.

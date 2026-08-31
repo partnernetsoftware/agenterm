@@ -544,6 +544,25 @@ pub(crate) mod macos_foreign_windows;
 #[path = "adapters/windows/window_enumerate.rs"]
 pub(crate) mod window_enumerate;
 
+#[cfg(all(feature = "window-enum", windows))]
+#[path = "adapters/windows/app_inventory.rs"]
+pub(crate) mod app_inventory;
+
+#[cfg(all(feature = "window-enum", target_os = "linux"))]
+#[path = "adapters/linux/app_inventory.rs"]
+pub(crate) mod app_inventory;
+
+#[cfg(all(feature = "window-enum", target_os = "macos"))]
+#[path = "adapters/macos/app_inventory.rs"]
+pub(crate) mod app_inventory;
+
+#[cfg(all(
+    feature = "window-enum",
+    not(any(windows, target_os = "linux", target_os = "macos"))
+))]
+#[path = "adapters/unix/app_inventory.rs"]
+pub(crate) mod app_inventory;
+
 #[cfg(all(feature = "a11y-tree", target_os = "linux"))]
 #[path = "adapters/linux/accessibility_tree.rs"]
 pub(crate) mod accessibility_tree;

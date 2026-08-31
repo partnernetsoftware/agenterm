@@ -63,6 +63,7 @@ instead"）。替代品 ScreenCaptureKit 是 block 异步 API，且要另一份 
 | **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
 | **F** | 网页 AX：`unlock`（`AXManualAccessibility` poke，ABI 1.15）+ 自有 `WKWebView` 固件 + `scroll` 正向证据 | `cu-macos-web-smoke.qjs` 真机通过 |
+| **P** | `apps --all` + `app launch`（ABI 1.21；LaunchServices，不假装有 pid） | `cu-macos-smoke` 28 STEP / 27 EVIDENCE 真机通过 |
 | **O** | `app hide/show/quit`（ABI 1.20；`quit` 走应用自己的 Quit 菜单项 + `close` 那套三件套） | `cu-macos-smoke` 27 STEP / 26 EVIDENCE 真机通过 |
 | **N** | `capabilities` 的一级 `permissions` 块：状态 + 修复路径 + 被卡住的动词清单 | 旅程断言（含 `pointer-move` 也在 accessibility 的 gates 里） |
 | **M** | Linux 截图（X11 `GetImage` → 共用 PNG writer）+ 逐窗 Space 归属（SkyLight，无需 ABI） | 交叉编译 + clippy；Space 归属有旅程交叉校验 |
@@ -136,7 +137,7 @@ IID 与顺序取自本机 `windows-0.61.3` 的生成代码，不是凭记忆。
 
 **诚实条款**：B/C 片在本机只能交叉编译。凡未在真机跑过的映射，`capabilities` 与本页都写 `mapped`（已映射未验证），**不写 `available`**，也不在 PRD 里翻 `[x]`。
 
-## 1.5 App 生命周期（片 O：`hide`/`show`/`quit` 已做；`apps --all` + `launch` 未做）
+## 1.5 App 生命周期（片 O + P：四个动词都做了）
 
 [`design-mcu-absorption.md`](design-mcu-absorption.md) §1 的「第三批」。**控制那半已经做了**
 （`app hide|show|quit`，见下面片 O）；**发现那半（`apps --all`）与 `launch` 没做**，
@@ -186,6 +187,7 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 | 片 | 提交 | 状态 |
 |---|---|---|
 | A macOS 节点读写 + E 语义 send-keys | `7b577624` + 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys` 真机通过（片 A 当时 23 STEP / 22 EVIDENCE；这条旅程后来长到 **27 STEP / 26 EVIDENCE**，96.7M 步 / 85 页，前台句柄与真实指针始终不动、无孤儿）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
+| P 已安装清单 + launch | 见下 | **已落地**：83 个已安装 App，逐行 `running`；起的是本轮自己打的 `.app` 包；**等窗口必须按 App 等**——按标题等会立刻匹配到已经在跑的那个固件，那一步就什么都没证明（第一版就是这么错的） |
 | O App 生命周期（控制半） | 见下 | **已落地**：`hide` 后窗口从 inventory 消失但进程还在；`show` 必须按 pid（句柄已经不存在了）；`quit` 无三件套 / 错 pid 都是 `not_performed` 拒绝，带齐了则按下 `ax_fixture/Quit ax_fixture` 并回读进程消失、退出码 0 |
 | N 权限报告面 | 见下 | **已落地**：修复路径本来埋在 `tree` 动词里（要先知道是树被拒才找得到），现在一级；macOS 同一份 Accessibility 授权还管所有输入动词，gates 列出全部 24 个；没有权限模型的宿主写 `model: none` 而不是空集 |
 | M Linux 截图 + Space 归属 | 见下 | **已落地**：Linux `GetImage` 只认 24/32 位 TrueColor，别的 visual typed 拒绝（不乱解释字节）、64 MiB 像素上限；Space 归属每行带 `spaces`，旅程校验它的 id 都在 `spaces` 清单里 |
@@ -208,5 +210,5 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 | Linux / Windows **真机证据** | 本仓没有那两台机器。所有映射都交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 一律 `[~] mapped`，`capabilities` 写 `mode: tree-search` / `state-search` 不冒充 |
 | macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
 | 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
-| `apps --all` + `app launch` | 绑在一起才有用；`launch` 要新一层机制，且 macOS `open -a` 把 pid 交给 LaunchServices，旅程收不回自己起的东西 |
+| ~~`apps --all` + `app launch`~~ | **已做（片 P）**。`launch` 用 `LSOpenCFURLRef`（不是 `open -a`，也不是 shell），**回复明说 `pid: null`**——进程归 launcher 管，这个调用没法知道 pid、也没法知道 App 是否真的起来了；要 pid 就等窗口 |
 | `scroll` 在 Cocoa 上的正向证据 | AppKit 不发布 `AXScrollToVisible`（三种控件都量过）；正向证据在网页旅程里 |

@@ -71,6 +71,7 @@ const declared_evidence = [
   "cu.macos-ax-mcu-actions",
   "cu.macos-ax-stacking",
   "cu.macos-ax-app-lifecycle",
+  "cu.macos-ax-app-inventory",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -170,6 +171,35 @@ function run_cu_reply(run_directory, executable, arguments) {
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_macos_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+// Wrap the compiled fixture in a real `.app` bundle, so `app launch` has
+// something to start that this run owns. A bundle is what LaunchServices
+// opens; a bare executable is not.
+function bundle_fixture(run_directory, fixture_executable) {
+  const bundle = rh.join(run_directory, "AgentermFixture.app");
+  const macos = rh.join(bundle, "Contents/MacOS");
+  rh.create_dir_all(macos);
+  const inner = rh.join(macos, "AgentermFixture");
+  rh.copy(fixture_executable, inner);
+  // The copy does not necessarily carry the executable bit, and a bundle
+  // whose binary cannot be executed fails to launch in a way that looks
+  // like a bug in `app launch` rather than in this helper.
+  const marked = rh.command("chmod", ["+x", inner], { timeout_ms: 5000 });
+  ensure(marked.success === true, "cu_macos_smoke_bundle_chmod:" + marked.stderr);
+  rh.write_text(rh.join(bundle, "Contents/Info.plist"),
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+    + "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    + "<plist version=\"1.0\"><dict>"
+    + "<key>CFBundleName</key><string>AgentermFixture</string>"
+    + "<key>CFBundleExecutable</key><string>AgentermFixture</string>"
+    + "<key>CFBundleIdentifier</key><string>dev.agenterm.fixture</string>"
+    + "<key>CFBundlePackageType</key><string>APPL</string>"
+    // Accessory policy, so launching it never takes the foreground.
+    + "<key>LSUIElement</key><true/>"
+    + "</dict></plist>\n");
+  return bundle;
 }
 
 function compile_fixture(run_directory, repo) {
@@ -2014,6 +2044,75 @@ try {
   ensure(victim_output.exit_code === 0, "cu_macos_smoke_app_quit_exit:" + victim_output.exit_code);
   ensure(harness.process_present(victim_pid) === 0, "cu_macos_smoke_app_quit_orphan");
 
+  print("STEP apps --all lists installed applications a window cannot reveal, and app launch starts one this run owns; its window appears and app quit ends it");
+  const inventory = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "apps", "--all"
+  ]);
+  ensure(
+    flag_at(inventory, "data.installed_available")
+      && inventory.data.installed_apps.length > 0,
+    "cu_macos_smoke_apps_all:" + JSON.stringify(inventory.data.installed_reason)
+  );
+  // The point of the flag: applications that are installed and NOT running
+  // are exactly the ones the window inventory can never show.
+  let not_running = 0;
+  let rows_have_paths = 1;
+  for (const app of inventory.data.installed_apps) {
+    if (!flag_at(app, "running")) { not_running = not_running + 1; }
+    if (text_at(app, "path") === "" || text_at(app, "name") === "") { rows_have_paths = 0; }
+  }
+  ensure(
+    not_running > 0 && rows_have_paths === 1,
+    "cu_macos_smoke_apps_all_rows:" + not_running + ":" + JSON.stringify(inventory.data.installed_apps[0])
+  );
+
+  // Launch one this run owns rather than one of the user's.
+  const bundle = bundle_fixture(run_directory, fixture_executable);
+  const launched = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "launch", "--path", bundle
+  ]);
+  // The reply says the request was accepted and refuses to claim a pid:
+  // LaunchServices owns the process it starts.
+  ensure(
+    flag_at(launched, "data.requested") && launched.data.pid === null,
+    "cu_macos_smoke_app_launch:" + JSON.stringify(launched.data)
+  );
+  // The window appearing is the only evidence it actually started. It has
+  // to be waited for BY APPLICATION: the fixture already running carries
+  // the same title shape, so `wait --window-title-contains` would match it
+  // instantly and this step would prove nothing about the launch.
+  let bundle_windows = null;
+  for (let attempt = 0; attempt < 150; attempt = attempt + 1) {
+    const probe = run_cu_json(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "windows", "--app", "AgentermFixture"
+    ]);
+    if (int_at(probe, "data.matched") >= 1) { bundle_windows = probe; break; }
+    harness.sleep_ms(100);
+  }
+  ensure(bundle_windows !== null, "cu_macos_smoke_app_launch_no_window");
+  const launched_row = bundle_windows.data.windows[0];
+  const launched_pid = int_at(launched_row, "process_id");
+  const launched_handle = "" + int_at(launched_row, "handle");
+  ensure(launched_pid !== fixture_pid, "cu_macos_smoke_app_launch_same_process");
+
+  // Quit what we launched, through its own Quit item and the same gate.
+  const bundle_quit = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "quit",
+    "--window", launched_handle, "--pid", "" + launched_pid, "--snapshot", "--expect", "gone"
+  ]);
+  ensure(
+    flag_at(bundle_quit, "data.verified")
+      && bundle_quit.data.verification.menu_path[0] === "AgentermFixture"
+      && bundle_quit.data.verification.menu_path[1] === "Quit AgentermFixture",
+    "cu_macos_smoke_app_launch_quit:" + JSON.stringify(bundle_quit.data)
+  );
+  let launched_gone = 0;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.process_present(launched_pid) === 0) { launched_gone = 1; break; }
+    harness.sleep_ms(25);
+  }
+  ensure(launched_gone !== 0, "cu_macos_smoke_app_launch_orphan:" + launched_pid);
+
   print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
   const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
   ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
@@ -2102,6 +2201,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-send-keys");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-mcu-actions");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-stacking");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-lifecycle");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-inventory");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");

@@ -96,7 +96,9 @@ use agenterm_platform::accessibility_tree::{
     poke_manual_accessibility, scroll_node, send_node_keys, set_application_visibility,
     set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
 };
+use agenterm_platform::app_inventory::{launch as launch_app, list_installed};
 use agenterm_platform::clipboard::{available_types, get_text, has_unicode_text, set_text};
+use agenterm_platform::contract::app_inventory::AppInventoryError;
 use agenterm_platform::desktop_host::{
     DesktopActionSpec, DesktopHost, DesktopHostError, MAX_DESKTOP_ACTIONS, MAX_DESKTOP_LABEL_BYTES,
     MAX_DESKTOP_SHORTCUT_BYTES,
@@ -275,7 +277,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 20);
+abi_version!(1, 21);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -5696,6 +5698,136 @@ pub struct agt_window_stacking {
     pub handle: isize,
     pub z_index: u32,
     pub occluded_percent: u32,
+}
+
+/// ABI 1.21: every application this host has installed, running or not,
+/// as newline-separated `name\tpath` records in UTF-8, two-stage
+/// (spec 3.4).
+///
+/// The counterpart to `agt_window_enumerate`, which can only see
+/// applications that currently have a window. A host with no notion of an
+/// installed application answers `AGT_UNSUPPORTED` -- which is a different
+/// answer from an empty list, and must not be flattened into one. A
+/// listing cut short by the adapter's bound ends with a final line
+/// `\ttruncated`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_app_list_installed(
+    buf: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> agt_status {
+    fn inner(buf: *mut u8, cap: usize, out_len: *mut usize) -> agt_status {
+        if out_len.is_null() {
+            record_error(c"agt_app_list_installed", c"bad_pointer", "out_len is null");
+            return agt_status::AGT_FAILED;
+        }
+        match list_installed() {
+            Ok(listing) => {
+                let mut text = String::new();
+                for app in &listing.apps {
+                    // A tab cannot appear in a path this adapter reports and
+                    // a newline cannot appear in either field, so the record
+                    // separator needs no escaping scheme.
+                    if app.name.contains('\t') || app.name.contains('\n') {
+                        continue;
+                    }
+                    text.push_str(&app.name);
+                    text.push('\t');
+                    text.push_str(&app.path);
+                    text.push('\n');
+                }
+                if listing.truncated {
+                    text.push_str("\ttruncated\n");
+                }
+                copy_bytes_two_stage(
+                    c"agt_app_list_installed",
+                    text.as_bytes(),
+                    buf,
+                    cap,
+                    out_len,
+                )
+            }
+            Err(AppInventoryError::Unsupported { .. }) => agt_status::AGT_UNSUPPORTED,
+            Err(error) => {
+                record_error(
+                    c"agt_app_list_installed",
+                    c"app_list_failed",
+                    error.message(),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(buf, cap, out_len))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_app_list_installed",
+                c"panic",
+                "panic in agt_app_list_installed",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.21: ask the host to start the application at `path` (`len` bytes
+/// of UTF-8).
+///
+/// **`AGT_OK` means the request was accepted, never that the application
+/// is up.** Every host route hands the new process to a launcher service
+/// that owns it, so no pid comes back and none is invented: a caller that
+/// needs one finds it the way a person would, by looking for the window
+/// that appears. `path == NULL` with `len > 0` → `bad_pointer`; non-UTF-8
+/// → `bad_encoding`; nothing at that path → `app_not_found`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_app_launch(path: *const u8, len: usize) -> agt_status {
+    fn inner(path: *const u8, len: usize) -> agt_status {
+        if path.is_null() && len > 0 {
+            record_error(c"agt_app_launch", c"bad_pointer", "path pointer is null");
+            return agt_status::AGT_FAILED;
+        }
+        let bytes = if path.is_null() {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(path, len) }
+        };
+        let Ok(path) = std::str::from_utf8(bytes) else {
+            record_error(c"agt_app_launch", c"bad_encoding", "path is not UTF-8");
+            return agt_status::AGT_FAILED;
+        };
+        if path.is_empty() {
+            record_error(c"agt_app_launch", c"invalid_input", "path is empty");
+            return agt_status::AGT_FAILED;
+        }
+        match launch_app(path) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(AppInventoryError::Unsupported { .. }) => agt_status::AGT_UNSUPPORTED,
+            Err(AppInventoryError::Failed { code, message }) => {
+                let code_cstr: &'static CStr = match code.as_ref() {
+                    "app_not_found" => c"app_not_found",
+                    "app_launch_failed" => c"app_launch_failed",
+                    "invalid_input" => c"invalid_input",
+                    _ => c"app_launch_failed",
+                };
+                record_error(c"agt_app_launch", code_cstr, message);
+                agt_status::AGT_FAILED
+            }
+            Err(other) => {
+                record_error(c"agt_app_launch", c"app_launch_failed", other.message());
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(path, len))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(c"agt_app_launch", c"panic", "panic in agt_app_launch");
+            agt_status::AGT_FAILED
+        }
+    }
 }
 
 /// ABI 1.17: front-to-back stacking for the same windows

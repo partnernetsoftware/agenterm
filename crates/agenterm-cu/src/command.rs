@@ -40,6 +40,7 @@ pub enum AppAction {
     Hide,
     Show,
     Quit,
+    Launch,
 }
 
 impl AppAction {
@@ -48,6 +49,7 @@ impl AppAction {
             "hide" => Self::Hide,
             "show" => Self::Show,
             "quit" => Self::Quit,
+            "launch" => Self::Launch,
             _ => return None,
         })
     }
@@ -57,6 +59,7 @@ impl AppAction {
             Self::Hide => "hide",
             Self::Show => "show",
             Self::Quit => "quit",
+            Self::Launch => "launch",
         }
     }
 
@@ -269,6 +272,10 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         running: bool,
+        /// Also list applications that are installed but not running --
+        /// the ones no window can reveal.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        all: bool,
     },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
@@ -707,6 +714,10 @@ pub enum Command {
         /// same inventory read.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pid: Option<u32>,
+        /// `launch` only: the application to start, as `apps --all` lists
+        /// it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
     },
     /// macOS managed Space inventory (SkyLight read SPI). Linux/Windows typed.
     Spaces {
@@ -1121,6 +1132,7 @@ mod tests {
         let apps = Command::Apps {
             target: TargetRef::Current,
             running: true,
+            all: false,
         };
         assert_eq!(apps.verb(), "apps");
         assert_eq!(apps.required_grant(), Grant::Observe);

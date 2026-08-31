@@ -273,6 +273,8 @@ pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
 pub const CLIPBOARD_TYPES_ABI_MINOR: u16 = 19;
 /// ABI 1.20: `agt_a11y_application_set_hidden` (application-level hide).
 pub const APPLICATION_HIDDEN_ABI_MINOR: u16 = 20;
+/// ABI 1.21: `agt_app_list_installed` / `agt_app_launch`.
+pub const APP_INVENTORY_ABI_MINOR: u16 = 21;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

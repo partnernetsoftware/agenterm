@@ -575,7 +575,7 @@ impl Executor {
                 *interval_ms,
                 *max_events,
             ),
-            Command::Apps { .. } => apps_payload(),
+            Command::Apps { all, .. } => apps_payload(*all),
             Command::Tree {
                 window,
                 depth,
@@ -702,6 +702,7 @@ impl Executor {
                 snapshot,
                 expect,
                 pid,
+                path,
                 ..
             } => app_payload(
                 *window,
@@ -709,6 +710,7 @@ impl Executor {
                 *snapshot,
                 expect.as_deref(),
                 *pid,
+                path.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
             Command::Spaces { .. } => spaces_payload(),
@@ -1527,14 +1529,60 @@ fn filtered_windows(filter: &observe::WindowFilter) -> Result<Vec<WindowInfo>, C
         .collect())
 }
 
-fn apps_payload() -> Result<serde_json::Value, CuError> {
+/// `apps`: the applications with a window, and with `--all` the ones that
+/// are merely installed.
+///
+/// The two halves answer different questions from different mechanisms: a
+/// running application is one the window inventory can see, an installed
+/// one is a bundle on disk that may never have been started.
+/// `installed_available: false` says this host cannot enumerate installed
+/// applications, which is not the same as having none.
+fn apps_payload(all: bool) -> Result<serde_json::Value, CuError> {
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-    Ok(serde_json::json!({
+    let mut payload = serde_json::json!({
         "mechanism": "libagenterm",
-        "running_only": true,
+        "running_only": !all,
         "installed": false,
         "apps": observe::running_apps_json(&windows),
-    }))
+    });
+    if !all {
+        return Ok(payload);
+    }
+    let (installed, truncated, reason) = match mechanism::list_installed_apps() {
+        Ok((apps, truncated)) => (apps, truncated, None),
+        Err(mechanism::MechanismError::Unsupported { reason }) => (Vec::new(), false, Some(reason)),
+        Err(error) => return Err(map_mechanism_err(error)),
+    };
+    // Which installed ones are up right now, matched by the name the window
+    // inventory reports, so a caller asking "installed but not running?"
+    // gets the answer in one read instead of joining two lists itself.
+    let running_names: Vec<&str> = windows
+        .iter()
+        .map(|window| window.app_name.as_str())
+        .collect();
+    let rows: Vec<serde_json::Value> = installed
+        .iter()
+        .map(|app| {
+            serde_json::json!({
+                "name": app.name,
+                "path": app.path,
+                "running": running_names.contains(&app.name.as_str()),
+            })
+        })
+        .collect();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("installed".into(), serde_json::json!(reason.is_none()));
+        object.insert(
+            "installed_available".into(),
+            serde_json::json!(reason.is_none()),
+        );
+        object.insert("installed_apps".into(), serde_json::json!(rows));
+        object.insert("installed_truncated".into(), serde_json::json!(truncated));
+        if let Some(reason) = reason {
+            object.insert("installed_reason".into(), serde_json::json!(reason));
+        }
+    }
+    Ok(payload)
 }
 
 fn windows_watch_payload(
@@ -4743,6 +4791,34 @@ fn window_identity_json(row: &WindowInfo) -> serde_json::Value {
 /// background. Order: gate → exact target bound in one inventory read →
 /// prior snapshot → receipt reserved → close → postcondition read back
 /// (absent from the inventory) → receipt completed → reply.
+/// `app launch --path P`: ask the host to start an application.
+///
+/// The reply says the request was **accepted**, not that the application
+/// is up, and says it in a field rather than in prose. Every host route
+/// hands the new process to a launcher service that owns it, so no pid
+/// comes back and none is invented: the caller watches for the window,
+/// which is also the only evidence the application really started rather
+/// than merely being asked to.
+fn launch_payload(path: Option<&str>) -> Result<serde_json::Value, CuError> {
+    let Some(path) = path else {
+        return Err(invalid_input(
+            "app launch requires --path <application> (as `apps --all` lists it)".into(),
+        ));
+    };
+    mechanism::launch_app(path).map_err(map_mechanism_err)?;
+    Ok(serde_json::json!({
+        "addressing": "application-path",
+        "mechanism": "libagenterm",
+        "action": "launch",
+        "path": path,
+        "requested": true,
+        // Deliberately not `performed` / `verified`: the launcher owns the
+        // process, so this call cannot know either one. Watch for the window.
+        "pid": serde_json::Value::Null,
+        "pid_source": "none: the launcher service owns the process; watch for its window",
+    }))
+}
+
 /// `app hide|show|quit` on the application owning `window`.
 ///
 /// `hide` / `show` are the application stepping aside and back: nothing is
@@ -4759,9 +4835,13 @@ fn app_payload(
     snapshot: bool,
     expect: Option<&str>,
     pid: Option<u32>,
+    path: Option<&str>,
     receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
     use crate::command::AppAction;
+    if matches!(action, AppAction::Launch) {
+        return launch_payload(path);
+    }
     if window == 0 && pid.is_none() {
         return Err(invalid_input(
             "app requires --window <handle> (a non-zero handle from `windows`) or --pid <n>".into(),
@@ -8154,6 +8234,7 @@ mod tests {
         let apps = exec.execute(&Command::Apps {
             target: TargetRef::Current,
             running: true,
+            all: false,
         });
         if apps.ok {
             let data = apps.data.as_ref().expect("apps data");

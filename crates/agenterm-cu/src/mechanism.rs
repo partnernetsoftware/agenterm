@@ -1194,6 +1194,77 @@ pub fn poke_manual_accessibility(window: isize) -> Result<(), MechanismError> {
     Ok(())
 }
 
+/// One installed application.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct InstalledApp {
+    pub name: String,
+    pub path: String,
+}
+
+/// Every application this host has installed (ABI 1.21), plus whether the
+/// adapter's bound cut the listing short.
+///
+/// `Unsupported` means the host cannot enumerate installed applications,
+/// which is not the same as having none -- the caller reports the
+/// difference.
+pub fn list_installed_apps() -> Result<(Vec<InstalledApp>, bool), MechanismError> {
+    require_app_inventory_abi("apps --all")?;
+    let bytes = read_two_stage(|buf, cap, out_len| {
+        let f = call_sym::<AppListInstalled>(b"agt_app_list_installed")?;
+        let status = unsafe { f(buf, cap, out_len) };
+        Ok::<i32, MechanismError>(status)
+    })?;
+    let listing = String::from_utf8(bytes).map_err(|_| MechanismError::Failed {
+        code: "bad_encoding".into(),
+        message: "installed application listing is not UTF-8".into(),
+    })?;
+    let mut apps = Vec::new();
+    let mut truncated = false;
+    for line in listing.lines() {
+        if line == "\ttruncated" {
+            truncated = true;
+            continue;
+        }
+        let Some((name, path)) = line.split_once('\t') else {
+            continue;
+        };
+        if name.is_empty() || path.is_empty() {
+            continue;
+        }
+        apps.push(InstalledApp {
+            name: name.to_owned(),
+            path: path.to_owned(),
+        });
+    }
+    Ok((apps, truncated))
+}
+
+/// Ask the host to start the application at `path` (ABI 1.21).
+///
+/// Success means the request was accepted, never that the application is
+/// up: the launcher service owns the process it starts, so no pid comes
+/// back. The caller finds it by looking for the window that appears.
+pub fn launch_app(path: &str) -> Result<(), MechanismError> {
+    require_app_inventory_abi("app launch")?;
+    let f = call_sym::<AppLaunch>(b"agt_app_launch")?;
+    let status = unsafe { f(path.as_ptr(), path.len()) };
+    map_status("agt_app_launch", status)?;
+    Ok(())
+}
+
+fn require_app_inventory_abi(what: &str) -> Result<(), MechanismError> {
+    let (major, minor) = loaded_abi_version()?;
+    if major == 1 && minor >= dynlib::APP_INVENTORY_ABI_MINOR {
+        return Ok(());
+    }
+    Err(MechanismError::Unsupported {
+        reason: format!(
+            "{what} requires ABI 1.{}, loaded library reports {major}.{minor}",
+            dynlib::APP_INVENTORY_ABI_MINOR
+        ),
+    })
+}
+
 /// Hide or unhide an application by pid (ABI 1.20).
 ///
 /// The application-level verb: hiding steps the whole app aside, which is
@@ -2029,6 +2100,8 @@ type MenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u
 type FocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
 type ManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
 type ApplicationSetHidden = unsafe extern "C" fn(u32, i32) -> i32;
+type AppListInstalled = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
+type AppLaunch = unsafe extern "C" fn(*const u8, usize) -> i32;
 type ObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
 type ObserveEventString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type ObserveEventTime = unsafe extern "C" fn(usize, *mut u64) -> i32;
