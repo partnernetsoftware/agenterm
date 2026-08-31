@@ -76,7 +76,7 @@ machine-control
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI + **Linux X11 `GetImage`**（只转 24/32 位 TrueColor，别的 visual typed 拒绝而不是乱解释字节）；**macOS 被系统拿走**（`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC），拒绝理由写明 | **两平台对齐**；mac 是系统限制，不退化成整屏抓图 |
 | 网页 JS | `page read --js` / `browser read --js` | `page-js` CDP Runtime.evaluate（默认 9222）；无 listener typed | **路径已接**；MAIN Function constructor 拒绝 |
 | 浏览器桥 | `browser *` MV3 + CDP | `browser` typed unsupported | 日常网页仍 AX |
-| 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` + typed `setup`/`doctor`/`permissions` | 无 TCC 向导 |
+| 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` 里有**一级 `permissions` 块**：授权状态 + 修复路径 + **被它卡住的 24 个动词**（含输入类——macOS 同一份 Accessibility 授权也管投事件）；`setup`/`doctor`/`permissions` 仍 typed | **报告面对齐**；向导有意留给 MCU |
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
 | 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `pty`/`job`/`process`/… **typed unsupported** | 无静默 unknown；live 仍 MCU |

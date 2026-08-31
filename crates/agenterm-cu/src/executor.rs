@@ -1067,6 +1067,61 @@ fn capabilities_payload() -> serde_json::Value {
         "scope": "desktop",
         "group": "pointer",
     });
+    // One place to look for "what am I not allowed to do, and how is that
+    // fixed". `setup` / `doctor` / `permissions` stay typed -- the wizard
+    // is MCU's -- but the *reporting* has to be complete, and until now the
+    // repair path was buried inside the `tree` verb while input injection
+    // depends on the very same grant. A caller should not have to know
+    // that to find it.
+    let permissions = if cfg!(target_os = "macos") {
+        let accessibility =
+            match mechanism::capability_status(mechanism::Capability::AccessibilityTree) {
+                mechanism::CapabilityStatus::Available => serde_json::json!({
+                    "status": "granted",
+                }),
+                mechanism::CapabilityStatus::Failed { code, message }
+                    if code == "a11y_permission_denied" =>
+                {
+                    serde_json::json!({
+                        "status": "denied",
+                        "reason": code,
+                        "message": message,
+                        "repair": ACCESSIBILITY_REPAIR_PATH,
+                    })
+                }
+                other => serde_json::json!({
+                    "status": "unknown",
+                    "detail": format!("{other:?}"),
+                }),
+            };
+        serde_json::json!({
+            "accessibility": {
+                "grant": accessibility,
+                // Every verb that stops working when this grant is missing,
+                // including the input verbs: on macOS the same Accessibility
+                // entry gates posting events.
+                "gates": [
+                    "tree", "query", "invoke", "verify", "wait", "focused",
+                    "observe", "menu-inspect", "menu-invoke", "click", "focus",
+                    "send-text", "send-keys", "scroll", "get-extents", "select",
+                    "get-selection", "set-caret", "get-caret", "get-text",
+                    "close", "unlock", "pointer-move", "pointer-position",
+                ],
+            },
+            "screen_recording": {
+                "grant": {
+                    "status": "not_required",
+                    "reason": "no capture path exists on this host: CGWindowListCreateImage was obsoleted in macOS 15.0 and ScreenCaptureKit is not wired",
+                },
+                "gates": ["screenshot"],
+            },
+        })
+    } else {
+        serde_json::json!({
+            "model": "none",
+            "reason": "this host has no per-application permission gate; a mechanism is available or it is not",
+        })
+    };
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -1132,6 +1187,7 @@ fn capabilities_payload() -> serde_json::Value {
                 "group": "input",
             },
         },
+        "permissions": permissions,
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
         "alignment_tsv": crate::mcu_surface::alignment_matrix_text(),
         "mapping": {

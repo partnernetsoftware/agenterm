@@ -457,6 +457,27 @@ try {
       && text_at(capabilities, "data.mapping.tree").includes("macOS AX"),
     "cu_macos_smoke_capabilities:" + JSON.stringify(capabilities.data)
   );
+  // One place to look for "what am I not allowed to do, and how is that
+  // fixed". The wizard stays in MCU, but the reporting has to be complete:
+  // the same Accessibility grant that gates the tree also gates every
+  // input verb, and a caller should not have to know that to find it.
+  ensure(
+    text_at(capabilities, "data.permissions.accessibility.grant.status") === "granted"
+      && capabilities.data.permissions.accessibility.gates.length > 10
+      && text_at(capabilities, "data.permissions.screen_recording.grant.status") === "not_required",
+    "cu_macos_smoke_permissions:" + JSON.stringify(capabilities.data.permissions)
+  );
+  let gates_input = 0;
+  let gates_tree = 0;
+  for (const verb of capabilities.data.permissions.accessibility.gates) {
+    if (verb === "pointer-move") { gates_input = 1; }
+    if (verb === "tree") { gates_tree = 1; }
+  }
+  ensure(
+    gates_input === 1 && gates_tree === 1,
+    "cu_macos_smoke_permission_gates:" + JSON.stringify(capabilities.data.permissions.accessibility.gates)
+  );
+
   // A refused observe is typed, never an empty tree.
   const refused = run_cu_reply(
     run_directory,

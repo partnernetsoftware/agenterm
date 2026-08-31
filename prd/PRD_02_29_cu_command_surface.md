@@ -75,6 +75,21 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   fail typed `unsupported` until the platform ABI maps them. Unit/CLI evidence
   owns parsing, scope, ambiguity, and typed refusal; a new real-app journey is
   still required before this leaf becomes shipped.
+- [x] `capabilities` carries a first-class `permissions` block (cut 3.58):
+  each permission the host gates mechanisms behind, its grant status, the
+  repair path when it is denied, and **the list of verbs that stop working
+  without it**. The repair path used to live inside the `tree` verb's own
+  declaration, which was where a caller would look for it only if they
+  already knew the tree was the thing being denied -- while on macOS the
+  same Accessibility grant also gates every input verb. A host with no
+  per-application permission model says so (`model: "none"`) rather than
+  reporting an empty set that reads like "nothing is granted".
+  `setup` / `doctor` / `permissions` stay typed `unsupported`: the TCC
+  wizard is deliberately MCU's, but the *reporting* it stands in for has
+  to be complete, and now is. Live evidence: `cu-macos-smoke` asserts the
+  grant status, that the gate list names both `tree` and `pointer-move`,
+  and that screen recording reports `not_required` on a host with no
+  capture path.
 - [x] `unlock --window HANDLE` (Actuate grant) reads the window's bounded
   tree, asks the owning application to build its full accessibility tree
   (macOS `AXManualAccessibility`, ABI 1.15
