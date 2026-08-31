@@ -2019,11 +2019,43 @@ fn fixed_field(bytes: &[u8], len: u32) -> String {
 fn map_status(operation: &str, status: i32) -> Result<(), MechanismError> {
     match status {
         dynlib::AGT_OK => Ok(()),
-        dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
-            reason: format!("{operation}: mechanism unavailable on this host"),
-        }),
+        dynlib::AGT_UNSUPPORTED => Err(unsupported_reason(operation)),
         _ => Err(last_mechanism_error(operation)),
     }
+}
+
+/// Why this host cannot do it, in the adapter's own words when it left
+/// them.
+///
+/// `AGT_UNSUPPORTED` records nothing by the old convention, so every
+/// distinct reason -- "AT-SPI2 has no application-level hidden state",
+/// "the entry sets Terminal=true" -- reached callers as one generic
+/// sentence. Libraries that do leave a reason tag it `unsupported` under
+/// the operation that produced it; anything else in the slot is a
+/// leftover from an earlier call and is ignored.
+fn unsupported_reason(operation: &str) -> MechanismError {
+    let generic = || MechanismError::Unsupported {
+        reason: format!("{operation}: mechanism unavailable on this host"),
+    };
+    let mut err = agt_error {
+        operation: std::ptr::null(),
+        code: std::ptr::null(),
+        message: std::ptr::null(),
+    };
+    let read = call_sym::<LastError>(b"agt_last_error")
+        .ok()
+        .map(|f| unsafe { f(&mut err) })
+        .unwrap_or(dynlib::AGT_FAILED);
+    if read != dynlib::AGT_OK {
+        return generic();
+    }
+    let recorded_operation = cstr_to_string(err.operation).unwrap_or_default();
+    let code = cstr_to_string(err.code).unwrap_or_default();
+    let message = cstr_to_string(err.message).unwrap_or_default();
+    if code != "unsupported" || recorded_operation != operation || message.is_empty() {
+        return generic();
+    }
+    MechanismError::Unsupported { reason: message }
 }
 
 fn last_mechanism_error(operation: &str) -> MechanismError {

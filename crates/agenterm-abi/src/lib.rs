@@ -188,6 +188,23 @@ fn copy_to_tls(s: &str) -> *const c_char {
 
 /// Record a pending error for the current thread (reported by `agt_last_error`).
 /// `message` may be dynamic (format!-produced), it is owned by the record.
+/// Return `AGT_UNSUPPORTED` *and* leave the platform's own reason in the
+/// error slot.
+///
+/// `AGT_UNSUPPORTED` is self-describing as a status, but "this host cannot
+/// do it" is not the same fact as *why*, and the adapters write the why:
+/// "AT-SPI2 has no application-level hidden state", "the entry sets
+/// Terminal=true", "Linux toolkits build their AT-SPI tree without a
+/// client poke". Discarding those left every caller with one sentence --
+/// "mechanism unavailable on this host" -- for every distinct reason,
+/// which is exactly the naming this project's typed refusals are supposed
+/// to carry. Recording is additive: a caller that ignores the slot sees
+/// the same status it always did.
+fn unsupported_because(operation: &'static CStr, reason: impl Into<String>) -> agt_status {
+    record_error(operation, c"unsupported", reason);
+    agt_status::AGT_UNSUPPORTED
+}
+
 fn record_error(operation: &'static CStr, code: &'static CStr, message: impl Into<String>) {
     LAST_ERROR.with(|e| {
         *e.borrow_mut() = Some(PendingError {
@@ -3191,7 +3208,7 @@ fn node_to_record(
 
 fn map_a11y_error(operation: &'static CStr, error: AccessibilityTreeError) -> agt_status {
     match error {
-        AccessibilityTreeError::Unsupported { .. } => agt_status::AGT_UNSUPPORTED,
+        AccessibilityTreeError::Unsupported { reason } => unsupported_because(operation, reason),
         AccessibilityTreeError::Failed { code, message } => {
             let code_cstr: &'static CStr = match code.as_ref() {
                 "a11y_connect_failed" => c"a11y_connect_failed",
@@ -5748,7 +5765,9 @@ pub extern "C" fn agt_app_list_installed(
                     out_len,
                 )
             }
-            Err(AppInventoryError::Unsupported { .. }) => agt_status::AGT_UNSUPPORTED,
+            Err(AppInventoryError::Unsupported { reason }) => {
+                unsupported_because(c"agt_app_list_installed", reason)
+            }
             Err(error) => {
                 record_error(
                     c"agt_app_list_installed",
@@ -5807,7 +5826,9 @@ pub extern "C" fn agt_app_launch(path: *const u8, len: usize) -> agt_status {
         }
         match launch_app(path) {
             Ok(()) => agt_status::AGT_OK,
-            Err(AppInventoryError::Unsupported { .. }) => agt_status::AGT_UNSUPPORTED,
+            Err(AppInventoryError::Unsupported { reason }) => {
+                unsupported_because(c"agt_app_launch", reason)
+            }
             Err(AppInventoryError::Failed { code, message }) => {
                 let code_cstr: &'static CStr = match code.as_ref() {
                     "app_not_found" => c"app_not_found",
