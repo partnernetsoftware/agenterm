@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 16
+#define AGT_ABI_MINOR 17
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -757,6 +757,25 @@ typedef struct {
  * absent on this host -> AGT_UNSUPPORTED; platform failure ->
  * AGT_FAILED{code="window_failed"}. */
 agt_status agt_window_enumerate(agt_window_info* buf, size_t cap, size_t* out_count);
+
+/* One window's place in the desktop's front-to-back order (ABI 1.17).
+ * z_index 0 is frontmost; occluded_percent (0..=100) is how much of the
+ * window the ones in front of it cover, computed from the rectangles
+ * rather than sampled from the screen, so it is exact for rectangular
+ * windows. Both describe ONE observation instant and mean nothing across
+ * two of them. */
+typedef struct {
+    intptr_t handle;
+    uint32_t z_index;
+    uint32_t occluded_percent;
+} agt_window_stacking;
+
+/* Front-to-back stacking for the same windows agt_window_enumerate
+ * reports; two-stage with identical semantics. A host that cannot report a
+ * real stacking order answers AGT_UNSUPPORTED -- it never passes its
+ * enumeration order off as a stacking order. */
+agt_status agt_window_stacking_list(agt_window_stacking* buf, size_t cap,
+                                    size_t* out_count);
 
 /* Typed placement preflight for a foreign top-level window. This record is
  * caller-sized and versioned: initialize struct_size to the allocation size.

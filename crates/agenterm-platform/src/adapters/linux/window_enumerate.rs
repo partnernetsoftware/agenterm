@@ -10,7 +10,9 @@ use x11rb::{
 };
 
 use crate::CapabilityStatus;
-use crate::contract::window_enumerate::{WindowBounds, WindowEnumerateError, WindowInfo};
+use crate::contract::window_enumerate::{
+    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking, stacking_from_front_to_back,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionKind {
@@ -270,6 +272,41 @@ pub(crate) fn capability_status() -> CapabilityStatus {
             reason: "window-enum requires DISPLAY".into(),
         },
     }
+}
+
+/// `_NET_CLIENT_LIST_STACKING` is the window manager's own bottom-to-top
+/// order, so this reverses it into the front-to-back order the contract
+/// asks for.
+///
+/// The plain `_NET_CLIENT_LIST` fallback `enumerate_top_level` accepts is
+/// deliberately NOT used here: that list is in *creation* order, which
+/// looks exactly like a stacking order and is not one. A window manager
+/// that publishes no stacking property gets a typed `Unsupported` rather
+/// than a plausible lie.
+pub(crate) fn stacking() -> Result<Vec<WindowStacking>, WindowEnumerateError> {
+    let context = connect()?;
+    let stacked = windows_property(&context, context.atoms.client_list_stacking)?;
+    if stacked.is_empty() {
+        return Err(WindowEnumerateError::Unsupported {
+            reason: "the window manager publishes no _NET_CLIENT_LIST_STACKING; creation order is not a stacking order".into(),
+        });
+    }
+    let mut seen = HashSet::new();
+    let mut ordered: Vec<(isize, WindowBounds)> = Vec::new();
+    // Bottom-to-top on the wire; the contract wants front first.
+    for window in stacked.into_iter().rev() {
+        if !seen.insert(window) {
+            continue;
+        }
+        if map_state(&context, window)? != MapState::VIEWABLE {
+            continue;
+        }
+        let Ok(bounds) = geometry(&context, window) else {
+            continue;
+        };
+        ordered.push((window as isize, bounds));
+    }
+    Ok(stacking_from_front_to_back(&ordered))
 }
 
 pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {

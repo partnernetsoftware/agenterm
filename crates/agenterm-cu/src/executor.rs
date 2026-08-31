@@ -1354,15 +1354,27 @@ fn windows_payload(
 ) -> Result<serde_json::Value, CuError> {
     let page = observe::Page::new(offset, max).map_err(invalid_input)?;
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-    let rows = serde_json::Value::Array(windows.iter().map(observe::window_row_json).collect());
+    // Stacking is an additional read, and a host without one is not an
+    // error: the rows simply carry no z_index / occluded_percent, and the
+    // envelope says why.
+    let (stacking, stacking_reason) = match mechanism::window_enumerate::stacking() {
+        Ok(rows) => (rows, None),
+        Err(mechanism::MechanismError::Unsupported { reason }) => (Vec::new(), Some(reason)),
+        Err(error) => (Vec::new(), Some(format!("{error:?}"))),
+    };
+    let row_json = |window: &WindowInfo| observe::window_row_json_with_stacking(window, &stacking);
+    let rows = serde_json::Value::Array(windows.iter().map(row_json).collect());
     if filter.is_empty() && offset.is_none() && max.is_none() {
         return Ok(rows);
     }
     let (hits, counts) = observe::inventory(&windows, &filter, page);
-    let rows =
-        serde_json::Value::Array(hits.iter().copied().map(observe::window_row_json).collect());
+    let rows = serde_json::Value::Array(hits.iter().copied().map(row_json).collect());
     Ok(serde_json::json!({
         "mechanism": "libagenterm",
+        "stacking": match &stacking_reason {
+            None => serde_json::json!({ "status": "available", "order": "front-to-back" }),
+            Some(reason) => serde_json::json!({ "status": "unsupported", "reason": reason }),
+        },
         "filter": {
             "pid": filter.pid,
             "app": filter.app,

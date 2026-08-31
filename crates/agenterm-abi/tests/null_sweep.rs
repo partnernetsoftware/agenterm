@@ -393,6 +393,11 @@ fn window_enumerate_bad_args(lib: &Library) -> i32 {
     unsafe { f(std::ptr::null_mut(), 1, std::ptr::null_mut()) }
 }
 
+fn window_stacking_list_null(lib: &Library) -> i32 {
+    let f: Symbol<WindowEnumerate> = unsafe { sym(lib, b"agt_window_stacking_list") };
+    unsafe { f(std::ptr::null_mut(), 1, std::ptr::null_mut()) }
+}
+
 fn window_placement_query_null(lib: &Library) -> i32 {
     let f: Symbol<WindowPlacementQuery> = unsafe { sym(lib, b"agt_window_placement_query") };
     unsafe { f(0, 0, std::ptr::null_mut()) }
@@ -1014,6 +1019,13 @@ fn null_group() -> Vec<SweepCase> {
             label: "agt_a11y_last_text_write_via[buf=NULL,cap=1,out_len=NULL]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(a11y_last_text_write_via_bad_args(lib))),
+        },
+        SweepCase {
+            // Same two-stage contract as agt_window_enumerate, so the same
+            // NULL combination must be refused.
+            label: "agt_window_stacking_list[buf=NULL,cap=1,out_count=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(window_stacking_list_null(lib))),
         },
         SweepCase {
             label: "agt_window_enumerate[buf=NULL,cap=1,out_count=NULL]",

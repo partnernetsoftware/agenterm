@@ -124,7 +124,7 @@ use agenterm_platform::screenshot::{
 };
 use agenterm_platform::threading::spawn_named_detached;
 use agenterm_platform::window_enumerate::{
-    ScreenInfo, WindowInfo, enumerate_top_level, list_screens,
+    ScreenInfo, WindowInfo, enumerate_top_level, list_screens, stacking,
 };
 use agenterm_platform::window_host::{
     LogicalPoint, LogicalSize, PixelFrameWrite, PixelWindow, PixelWindowApplication,
@@ -274,7 +274,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 16);
+abi_version!(1, 17);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -5406,6 +5406,97 @@ fn window_info_to_record(info: &WindowInfo) -> agt_window_info {
 ///   `AGT_FAILED { code = "bad_pointer" }`.
 /// - mechanism absent on this host → `AGT_UNSUPPORTED`.
 /// - platform failure → `AGT_FAILED { code = "window_failed" }`.
+/// One window's place in the desktop's front-to-back order (ABI 1.17).
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct agt_window_stacking {
+    pub handle: isize,
+    pub z_index: u32,
+    pub occluded_percent: u32,
+}
+
+/// ABI 1.17: front-to-back stacking for the same windows
+/// `agt_window_enumerate` reports, two-stage like that export.
+///
+/// `z_index` 0 is frontmost and `occluded_percent` is how much of the
+/// window the ones in front cover, computed from the rectangles rather
+/// than sampled from the screen. Both describe one observation instant.
+/// A host that cannot report a real stacking order answers
+/// `AGT_UNSUPPORTED` -- it never passes enumeration order off as stacking
+/// order.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_window_stacking_list(
+    buf: *mut agt_window_stacking,
+    cap: usize,
+    out_count: *mut usize,
+) -> agt_status {
+    fn inner(buf: *mut agt_window_stacking, cap: usize, out_count: *mut usize) -> agt_status {
+        if out_count.is_null() {
+            record_error(
+                c"agt_window_stacking_list",
+                c"bad_pointer",
+                "out_count is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if cap > 0 && buf.is_null() {
+            record_error(c"agt_window_stacking_list", c"bad_pointer", "buf is null");
+            return agt_status::AGT_FAILED;
+        }
+        if !window_enumerate_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        let rows = match stacking() {
+            Ok(rows) => rows,
+            Err(agenterm_platform::window_enumerate::WindowEnumerateError::Unsupported {
+                ..
+            }) => return agt_status::AGT_UNSUPPORTED,
+            Err(e) => {
+                record_error(
+                    c"agt_window_stacking_list",
+                    c"window_failed",
+                    format!("{e:?}"),
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let required = rows.len();
+        if cap < required {
+            unsafe { *out_count = required };
+            record_error(
+                c"agt_window_stacking_list",
+                c"buffer_too_small",
+                "cap is smaller than the window count; allocate the required count and call again",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        unsafe { *out_count = required };
+        for (i, row) in rows.iter().enumerate() {
+            unsafe {
+                *buf.add(i) = agt_window_stacking {
+                    handle: row.handle,
+                    z_index: row.z_index,
+                    occluded_percent: row.occluded_percent,
+                }
+            };
+        }
+        agt_status::AGT_OK
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(buf, cap, out_count))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_window_stacking_list",
+                c"panic",
+                "panic in agt_window_stacking_list",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_window_enumerate(

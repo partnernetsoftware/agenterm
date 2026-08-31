@@ -766,6 +766,26 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [x] `windows` reports the desktop's front-to-back order and how much of
+  each window is covered (cut 3.55, ABI 1.17
+  `agt_window_stacking_list`): `z_index` 0 is frontmost and
+  `occluded_percent` is computed by subtracting the rectangles of the
+  windows in front, exactly -- no screen sampling, no screenshot, no grid
+  approximation. Both numbers describe one observation instant. A host
+  that cannot report a real stacking order answers typed `unsupported`
+  and the rows carry neither field, because an absent number is honest
+  while `z_index: 0` would claim "frontmost". Linux deliberately refuses
+  the `_NET_CLIENT_LIST` fallback its enumeration accepts: that list is in
+  creation order, which is indistinguishable from stacking order right up
+  to the moment it is wrong. The rectangle arithmetic lives in the
+  platform contract with its own tests (overlapping covers counted once, a
+  single visible pixel never rounding up to "fully hidden", an empty
+  window not dividing by zero), so the hard part is verified on any host.
+  Live evidence: `cu-macos-smoke` STEP "the inventory reports a
+  front-to-back z-order and how much of each window is covered ..."
+  (2026-09-01) -- both owned windows start visible with distinct indices,
+  the whole desktop ranks densely from 0, and framing the front window
+  onto the back one takes the back one to 100.
 - [x] the last three MCU `invoke` spellings on `current` (cut 3.54, ABI
   1.16): `set-selected` is a desired state over macOS `AXSelected` (read,
   act only on a difference, read back; already selected is success with

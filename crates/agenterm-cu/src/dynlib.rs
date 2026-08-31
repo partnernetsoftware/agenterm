@@ -71,6 +71,17 @@ pub struct agt_window_info {
     pub app_name_truncated: u32,
 }
 
+/// ABI 1.17 `agt_window_stacking`: one window's place in the front-to-back
+/// order plus how much of it the windows in front cover.
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct agt_window_stacking {
+    pub handle: isize,
+    pub z_index: u32,
+    pub occluded_percent: u32,
+}
+
 /// ABI 1.10 caller-sized placement inspection record.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -254,6 +265,8 @@ pub const MANUAL_ACCESSIBILITY_ABI_MINOR: u16 = 15;
 /// ABI 1.16: `agt_a11y_node_invoke` accepts set-selected / cancel /
 /// show-default-ui.
 pub const MCU_ACTIONS_ABI_MINOR: u16 = 16;
+/// ABI 1.17: `agt_window_stacking_list` (front-to-back order + occlusion).
+pub const WINDOW_STACKING_ABI_MINOR: u16 = 17;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

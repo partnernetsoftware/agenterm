@@ -655,6 +655,31 @@ pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
     })
 }
 
+/// The same row plus its place in the desktop's front-to-back order, when
+/// the host reports one.
+///
+/// A window missing from `stacking` gets no `z_index` and no
+/// `occluded_percent` rather than a default: absent means "this host did
+/// not say", and 0 would mean "frontmost and fully visible", which is a
+/// very different claim.
+pub fn window_row_json_with_stacking(
+    window: &WindowInfo,
+    stacking: &[crate::mechanism::window_enumerate::WindowStacking],
+) -> serde_json::Value {
+    let mut row = window_row_json(window);
+    let Some(place) = stacking.iter().find(|row| row.handle == window.handle) else {
+        return row;
+    };
+    if let Some(object) = row.as_object_mut() {
+        object.insert("z_index".into(), serde_json::json!(place.z_index));
+        object.insert(
+            "occluded_percent".into(),
+            serde_json::json!(place.occluded_percent),
+        );
+    }
+    row
+}
+
 /// One poll-diff event over two `windows` inventories.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WindowWatchEvent<'a> {

@@ -13,10 +13,23 @@ use windows_sys::Win32::{
 };
 
 use crate::CapabilityStatus;
-use crate::contract::window_enumerate::{WindowBounds, WindowEnumerateError, WindowInfo};
+use crate::contract::window_enumerate::{
+    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking, stacking_from_front_to_back,
+};
 
 pub(crate) fn capability_status() -> CapabilityStatus {
     CapabilityStatus::Available
+}
+
+/// `EnumWindows` walks top-level windows in z-order, top to bottom, so the
+/// enumeration order is already the stacking order and its index is the
+/// z-index.
+pub(crate) fn stacking() -> Result<Vec<WindowStacking>, WindowEnumerateError> {
+    let ordered: Vec<(isize, WindowBounds)> = enumerate_top_level()?
+        .into_iter()
+        .map(|window| (window.handle, window.bounds))
+        .collect();
+    Ok(stacking_from_front_to_back(&ordered))
 }
 
 pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {

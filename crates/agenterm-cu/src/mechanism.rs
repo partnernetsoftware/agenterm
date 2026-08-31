@@ -538,6 +538,73 @@ pub mod window_enumerate {
         }
     }
 
+    /// One window's place in the desktop's front-to-back order.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+    pub struct WindowStacking {
+        pub handle: isize,
+        pub z_index: u32,
+        pub occluded_percent: u32,
+    }
+
+    /// `agt_window_stacking_list` (ABI 1.17): two-stage, same shape as
+    /// [`enumerate_top_level`]. A host that cannot report a real stacking
+    /// order answers `Unsupported`, which the caller reports as an absent
+    /// stacking rather than as z-index 0 for everything.
+    pub fn stacking() -> Result<Vec<WindowStacking>, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < dynlib::WINDOW_STACKING_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "window stacking requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    dynlib::WINDOW_STACKING_ABI_MINOR
+                ),
+            });
+        }
+        let f = call_sym::<super::WindowStackingList>(b"agt_window_stacking_list")?;
+        let mut needed = 0usize;
+        let status = unsafe { f(std::ptr::null_mut(), 0, &mut needed) };
+        match status {
+            dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
+                reason: "this host reports no window stacking order".to_owned(),
+            }),
+            dynlib::AGT_FAILED if needed == 0 => Ok(Vec::new()),
+            dynlib::AGT_FAILED => {
+                let mut capacity = needed;
+                for _ in 0..4 {
+                    let mut buf = vec![dynlib::agt_window_stacking::default(); capacity];
+                    let mut got = 0usize;
+                    let status = unsafe { f(buf.as_mut_ptr(), capacity, &mut got) };
+                    if status == dynlib::AGT_OK {
+                        buf.truncate(got);
+                        return Ok(buf
+                            .iter()
+                            .map(|row| WindowStacking {
+                                handle: row.handle,
+                                z_index: row.z_index,
+                                occluded_percent: row.occluded_percent,
+                            })
+                            .collect());
+                    }
+                    if let Some(grown) = retry_capacity(status, capacity, got) {
+                        capacity = grown;
+                        continue;
+                    }
+                    map_status("agt_window_stacking_list fetch", status)?;
+                }
+                Err(MechanismError::Failed {
+                    code: "window_churn".to_owned(),
+                    message: "window count did not stabilize after bounded retries".to_owned(),
+                })
+            }
+            other => Err(MechanismError::Failed {
+                code: "unexpected_status".to_owned(),
+                message: format!(
+                    "agt_window_stacking_list probe: expected AGT_FAILED (buffer_too_small), got {other}"
+                ),
+            }),
+        }
+    }
+
     /// `agt_screen_list`: two-stage, same shape as [`enumerate_top_level`].
     pub fn list_screens() -> Result<Vec<ScreenInfo>, MechanismError> {
         let f = call_sym::<super::ScreenList>(b"agt_screen_list")?;
@@ -1821,6 +1888,8 @@ type DesktopHostOpen = unsafe extern "C" fn(
 type DesktopHostPoll = unsafe extern "C" fn(*mut std::ffi::c_void, u32, *mut u32) -> i32;
 type DesktopHostClose = unsafe extern "C" fn(*mut std::ffi::c_void) -> i32;
 type WindowEnumerate = unsafe extern "C" fn(*mut dynlib::agt_window_info, usize, *mut usize) -> i32;
+type WindowStackingList =
+    unsafe extern "C" fn(*mut dynlib::agt_window_stacking, usize, *mut usize) -> i32;
 type WindowPlacementQuery =
     unsafe extern "C" fn(isize, u32, *mut dynlib::agt_window_placement_info_v1) -> i32;
 type ScreenList = unsafe extern "C" fn(*mut dynlib::agt_screen_info, usize, *mut usize) -> i32;

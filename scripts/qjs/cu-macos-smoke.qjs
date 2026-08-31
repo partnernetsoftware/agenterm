@@ -68,6 +68,7 @@ const declared_evidence = [
   "cu.macos-ax-node-text-geometry",
   "cu.macos-ax-send-keys",
   "cu.macos-ax-mcu-actions",
+  "cu.macos-ax-stacking",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -1301,6 +1302,75 @@ try {
     "cu_macos_smoke_frame_on_catalog:" + JSON.stringify(frame_on_catalog)
   );
 
+  print("STEP the inventory reports a front-to-back z-order and how much of each window is covered; moving the front window onto the back one takes it from visible to fully hidden");
+  // Both fixture windows are owned by this run, so the overlap is
+  // deliberate rather than whatever the desktop happened to look like.
+  const second_window_title = "agenterm-ax-second-" + fixture_pid;
+  const stacked_before = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid
+  ]);
+  ensure(
+    text_at(stacked_before, "data.stacking.status") === "available"
+      && text_at(stacked_before, "data.stacking.order") === "front-to-back",
+    "cu_macos_smoke_stacking_declaration:" + JSON.stringify(stacked_before.data.stacking)
+  );
+  let front_row = null;
+  let back_row = null;
+  for (const row of stacked_before.data.windows) {
+    if (text_at(row, "title") === fixture_title) { front_row = row; }
+    if (text_at(row, "title") === second_window_title) { back_row = row; }
+  }
+  ensure(front_row !== null && back_row !== null, "cu_macos_smoke_stacking_rows_missing");
+  // The fixture orders the second window front first and the main window
+  // last, so the main one is ahead of it.
+  ensure(
+    int_at(front_row, "z_index") < int_at(back_row, "z_index")
+      && int_at(front_row, "occluded_percent") === 0
+      && int_at(back_row, "occluded_percent") === 0,
+    "cu_macos_smoke_stacking_start:" + JSON.stringify([front_row, back_row])
+  );
+  // Every window on the desktop gets a distinct index, so the order is a
+  // real ranking and not a per-window guess.
+  const all_stacked = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--max", "50"
+  ]);
+  let previous_index = -1;
+  let ranking_is_dense = 1;
+  for (const row of all_stacked.data.windows) {
+    const index = int_at(row, "z_index");
+    if (index !== previous_index + 1) { ranking_is_dense = 0; }
+    previous_index = index;
+    if (int_at(row, "occluded_percent") < 0 || int_at(row, "occluded_percent") > 100) {
+      ranking_is_dense = 0;
+    }
+  }
+  ensure(
+    ranking_is_dense === 1 && previous_index >= 1,
+    "cu_macos_smoke_stacking_ranking:" + JSON.stringify(all_stacked.data.windows)
+  );
+
+  // Put the front window exactly over the back one: the back one goes from
+  // fully visible to fully hidden, computed from the rectangles.
+  const cover = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "window-place",
+    "--action", "frame", "--window", handle_text,
+    "--x", "" + int_at(back_row, "bounds.x"), "--y", "" + int_at(back_row, "bounds.y"),
+    "--width", "" + int_at(back_row, "bounds.width"),
+    "--height", "" + int_at(back_row, "bounds.height")
+  ]);
+  ensure(flag_at(cover, "ok"), "cu_macos_smoke_stacking_cover:" + JSON.stringify(cover));
+  const stacked_after = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid
+  ]);
+  let covered_row = null;
+  for (const row of stacked_after.data.windows) {
+    if (text_at(row, "title") === second_window_title) { covered_row = row; }
+  }
+  ensure(
+    covered_row !== null && int_at(covered_row, "occluded_percent") === 100,
+    "cu_macos_smoke_stacking_covered:" + JSON.stringify(covered_row)
+  );
+
   print("STEP close without a snapshot, a postcondition or a target, and with a wrong --pid / --title, is refused typed; the second window stays");
   const second_title = "agenterm-ax-second-" + fixture_pid;
   const second_row = fixture_window_row(run_directory, executable, fixture_pid, second_title);
@@ -1833,6 +1903,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-receipts");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-node-text-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-send-keys");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-mcu-actions");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-stacking");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");
