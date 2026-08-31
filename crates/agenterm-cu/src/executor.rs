@@ -1048,6 +1048,8 @@ fn capabilities_payload() -> serde_json::Value {
     // replacement needs the Screen Recording grant. Declaring the verb
     // `available` from the writer's status would promise a capture that
     // always fails.
+    // Linux captures with X11 GetImage (cut 3.58) and Windows with GDI;
+    // only macOS has no route left.
     let screenshot_verb = if cfg!(target_os = "macos") {
         serde_json::json!({
             "status": "unsupported",

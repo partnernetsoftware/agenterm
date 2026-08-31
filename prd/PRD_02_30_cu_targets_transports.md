@@ -766,6 +766,18 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [~] `screenshot` on Linux (cut 3.58), mapped but not journey-proven:
+  X11 `GetImage` on the window, converted to the same XRGB buffer the
+  shared PNG writer already takes. Only the ordinary TrueColor
+  32-bits-per-pixel case is converted; a visual this does not understand
+  is refused typed, naming the depth it found, rather than reinterpreting
+  the bytes into a plausible-looking wrong image. The capture is bounded
+  (64 MiB of pixels) because the buffer's size is otherwise decided by
+  whatever window is on screen. `GetImage` reads what the server holds, so
+  an obscured region may come back as whatever is there -- X11 promises no
+  backing store. That is the protocol's property, not something this can
+  paper over, and it is one more reason a screenshot never replaces the
+  tree.
 - [x] each `windows` row names the managed Spaces it sits on (cut 3.58,
   macOS SkyLight `SLSCopySpacesForWindows`, read-only). The Space
   *inventory* says which Spaces exist; this says where a given window

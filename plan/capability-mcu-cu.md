@@ -8,7 +8,7 @@
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
 **还差什么（2026-09-01）**：读富内容（图片/文件字节）仍未做，只报类型；
-「已安装但没在跑」的 App 列不出来；截图 macOS 被系统拿走（`CGWindowListCreateImage` 15.0 移除）、Linux 未接；
+「已安装但没在跑」的 App 列不出来（cu 没有 `launch` 动词，价值也低）；截图 macOS 被系统拿走；
 Linux/Windows 的新动词全部**只交叉编译过没上真机**——本仓没有那两台机器，PRD leaf 一律写 `[~] mapped`。
 
 图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做。非桌面组在 cu 上必须 typed，不许静默缺失。
@@ -73,7 +73,7 @@ machine-control
 | 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | **macOS 注入已接**（HID tap：move/click/type/keys；`cu-macos-pointer-smoke` 真机移动+复位）；`--to desktop` 必填且明确全局，**`--to <handle>` typed 拒绝**（macOS 实测没有窗口局部注入）；节点级 `send-keys` 是语义映射（`enter`→AXConfirm） | **已对齐**；语义刀与全局刀分开 |
 | 节点文本/几何 | 无独立动词（`query` 里带 rect） | **七个动词三平台都映射**：`get-extents`（mac AX 真机 / Win BoundingRectangle）、`select`/`get-selection`/`set-caret`/`get-caret`（mac+Linux 活，Win TextPattern 新映射）、`scroll`（mac AXScrollToVisible 网页旅程真机 / Win ScrollItem） | **cu 多一层** |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 读纯文本，但**回复带 `types`**：剪贴板上所有表示的原生名字（mac class 名 / X11 TARGETS / Win 格式名，不做归一化），三平台都接。实测剪贴板放一张 PNG：`text` 空、`types` 有 `«class PNGf»` 等 9 项 | **已对齐发现面**；读富内容仍另说 |
-| 截图 | `shot` 可选权限 | `screenshot` Win GDI；**macOS 被系统拿走**（`CGWindowListCreateImage` 在 15.0 已从 SDK 移除，替代品 ScreenCaptureKit 要另一份 TCC），拒绝理由写明；linux typed | 不退化成整屏抓图 |
+| 截图 | `shot` 可选权限 | `screenshot` Win GDI + **Linux X11 `GetImage`**（只转 24/32 位 TrueColor，别的 visual typed 拒绝而不是乱解释字节）；**macOS 被系统拿走**（`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC），拒绝理由写明 | **两平台对齐**；mac 是系统限制，不退化成整屏抓图 |
 | 网页 JS | `page read --js` / `browser read --js` | `page-js` CDP Runtime.evaluate（默认 9222）；无 listener typed | **路径已接**；MAIN Function constructor 拒绝 |
 | 浏览器桥 | `browser *` MV3 + CDP | `browser` typed unsupported | 日常网页仍 AX |
 | 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` + typed `setup`/`doctor`/`permissions` | 无 TCC 向导 |
