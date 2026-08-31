@@ -23,7 +23,7 @@ machine-control
 │   cu  [✓] grant observe|actuate + receipts + close 闸（mac 旅程）
 ├── 网页 AX WebArea（无扩展）
 │   MCU [✓] Brave Origin 真机；empty-chrome → query/unlock
-│   cu  [✓] tree/query.ax + next_actions；titleIncludes Heading↔WebArea
+│   cu  [~] tree/query.ax + next_actions + classify-only unlock；titleIncludes Heading↔WebArea
 ├── 网页 JS 第二刀
 │   MCU [✓] CDP page read --js / 扩展 browser read --js（Runtime.evaluate）
 │   cu  [~] page-js 动词在：typed unsupported，backend=debugger-runtime-evaluate
@@ -35,7 +35,7 @@ machine-control
 │   cu  [✓] window-place（Spectacle+frame）+ close 三件套（mac）
 ├── 局部/全局输入
 │   MCU [✓] --to handle|desktop；--private SkyLight
-│   cu  [~] click/focus/send-text/keys/scroll/pointer-*；无 --to desktop 哨兵语法
+│   cu  [~] click/focus/send-text/keys/scroll/pointer-*；pointer-move 强制 `--to desktop`
 ├── shell / PTY / job / process / device / privilege / Simulator
 │   MCU [✓/~] 实验室正殿外
 │   cu  **不进 cu**
@@ -49,9 +49,9 @@ machine-control
 | 族 | MCU | agenterm-cu | 状态 |
 |---|---|---|---|
 | 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N` | **句柄拼写对齐**（2026-08-31）；cu 仍缺 Space/occlusion/`watch` |
-| 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query`/`tree --depth/--max-nodes/--flat` · `--role/--text/--identifier/--actionable/--within` | **对齐思想**；cu 无 path selector 文法，用 `--name/--node/--index` |
-| empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`（更深 `query --role WebArea`，禁 screenshot/扩展） | **对齐教训**；cu 无 `unlock`/`AXManualAccessibility` |
-| 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | 同 7 个动作；mac 旅程绿 | cu **缺** `show-default-ui`/`cancel`/`set-selection`/`scroll-to`/`set-selected` |
+| 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query --selector` 与 `invoke --selector` 接受 `Role[idx] / Role@title / *@title / #desc`；其余 filter/budget 保留 | **拼写与作用域对齐**；真实三平台旅程仍待补 |
+| empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；`unlock` 只重读并分类，明确 `poked:false` | **诚实 partial**；尚未映射 `AXManualAccessibility` poke |
+| 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | 原 7 动作 live；另 5 个 MCU 拼写可解析但在 ABI 未映射时 typed `unsupported` | **无 silent unknown**；不可把可解析误报为已实现 |
 | 关闭环 | `verify`/`wait --expect` · `titleIncludes` · present/absent | `verify`/`wait --expect` · `name`/`titleIncludes` 可无 state；Heading↔WebArea | **对齐**（cu 2026-08-31） |
 | flatten | `elements` / `invoke --index` | `tree --flat` / `invoke --index` | **对齐** |
 | 后台菜单 | `menu inspect`/`menu invoke` path 唯一匹配 | `menu-inspect`/`menu-invoke` mac live；L/W unsupported | **对齐 mac** |
@@ -59,7 +59,7 @@ machine-control
 | 事件 | `observe` AXObserver；`query --watch` | `observe` poll-diff（明写非 AXObserver） | cu **弱一档** |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
 | 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place` Spectacle + `frame` | cu **缺** `orderwin`/raise/minimize/restore 独立动词 |
-| 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `click`/`pointer-move`/`pointer-position`/`send-text`/`send-keys`/`scroll` | cu 无强制 `--to`；mac `pointer-position` 只读 live |
+| 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported` | 防止漏写目标静默变成全局输入 |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI；mac/linux typed unsupported | MCU 实验室更完整 |
 | 网页 JS | `page read --js` / `browser read --js` | `page-js` typed unsupported | **诚实缺口**；勿假装 AX 能 eval |
@@ -67,16 +67,16 @@ machine-control
 | 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` | cu 无 TCC 向导；denied 带 repair 路径 |
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
-| 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | **不进 cu** | AgenTerm tabs/PTY 与 qjs `process.*` |
+| 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `pty`/`job`/`process`/… **typed unsupported** | 无静默 unknown；live 仍 MCU |
 
 ## 2. 互相该补的缺口（文档已点名，实现另立项）
 
 **cu 可从 MCU 再吸收（仍限桌面环）**
 
 1. ~~稳定句柄 `App#n`~~ **已做**：`windows[].ref` + `--window App#N`（仍同时接受整数；未做 live app 前缀核验）。
-2. `unlock` / 闲置 Chromium 只读 poke（depth≥8 hit-test），不仅 `next_actions` 字符串。
-3. ~~`query --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`，作用域=命中节点+子孙；`invoke` 仍走 `--node/--name/--index`）。
-4. `invoke` 补 MCU 已证动作：`set-selected`、`set-selection`、`scroll-to`、`cancel`。
+2. [~] `unlock` 动词与重读分类已做；真正的闲置 Chromium 只读 poke（depth≥8 hit-test / `AXManualAccessibility`）仍未映射。
+3. ~~`query --selector` / `invoke --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`；query 作用域=命中节点+子孙，invoke 绑定唯一节点）。
+4. [~] `invoke` 已接受 `set-selected`、`set-selection`、`scroll-to`、`cancel`、`show-default-ui` 拼写；ABI 未映射前一律 typed `unsupported`，不算行为完成。
 5. `orderwin` / `windows watch` / Space 只读。
 6. `--to` 必填的局部输入哨兵（防漏写变全局）。
 7. 真 `page-js`：debugger `Runtime.evaluate`，不是 MAIN `eval(`。

@@ -14,6 +14,7 @@ pub mod executor;
 pub mod grant_management;
 pub mod host_actions;
 pub mod hotkeys;
+pub mod mcu_surface;
 pub mod mechanism;
 pub mod observe;
 pub mod place;

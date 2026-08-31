@@ -464,21 +464,42 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Err(message) => return usage_err(message),
             };
             let focused = take_switch(&mut args, "--focused");
+            let selector = match flag_text(&mut args, "--selector") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            if let Some(raw) = selector.as_deref()
+                && let Err(message) = agenterm_cu::observe::parse_selector(raw)
+            {
+                return usage_err(message);
+            }
             if node.is_none()
                 && index.is_none()
                 && name.is_none()
                 && identifier.is_none()
                 && !focused
+                && selector.is_none()
             {
                 return usage_err(
-                    "invoke requires one of --node PATH, --index N, --name PAT [--role ROLE], --identifier ID, --focused [--role ROLE]",
+                    "invoke requires one of --node PATH, --index N, --name PAT [--role ROLE], --identifier ID, --focused [--role ROLE], --selector PATH",
                 );
             }
             if focused
-                && (node.is_some() || index.is_some() || name.is_some() || identifier.is_some())
+                && (node.is_some()
+                    || index.is_some()
+                    || name.is_some()
+                    || identifier.is_some()
+                    || selector.is_some())
             {
                 return usage_err(
                     "invoke --focused addresses the focused control; combine it only with --role",
+                );
+            }
+            if selector.is_some()
+                && (node.is_some() || index.is_some() || name.is_some() || identifier.is_some())
+            {
+                return usage_err(
+                    "invoke --selector cannot mix with --node/--index/--name/--identifier",
                 );
             }
             if let Some(stray) = args.iter().find(|arg| arg.starts_with("--")) {
@@ -524,6 +545,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 action,
                 value,
                 focused,
+                selector,
             }
         }
         "menu" => {
@@ -763,6 +785,25 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "pointer-move" => {
+            let to = match flag_text(&mut args, "--to") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let Some(to) = to else {
+                return usage_err(
+                    "pointer-move requires --to desktop (explicit global) or --to <handle>",
+                );
+            };
+            if to != "desktop" && agenterm_cu::observe::parse_window_token(&to).is_err() {
+                return usage_err(
+                    "pointer-move --to must be desktop or App#N/handle; window-local pointer is not mapped",
+                );
+            }
+            if to != "desktop" {
+                return usage_err(
+                    "pointer-move --to <handle> is typed unsupported; use --to desktop or click --window",
+                );
+            }
             let x = match required_i32_flag(&mut args, "--x") {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
@@ -772,7 +813,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Err(message) => return usage_err(message),
             };
             if !args.is_empty() {
-                return usage_err("pointer-move accepts only --x <i32> --y <i32>");
+                return usage_err("pointer-move accepts only --to desktop --x <i32> --y <i32>");
             }
             Command::PointerMove { target, x, y }
         }
@@ -1241,6 +1282,20 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 condition,
             }
         }
+        "unlock" => {
+            let window = match flag_window(&mut args) {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("unlock requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "unlock accepts only --window H; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::Unlock { target, window }
+        }
         "page-js" => {
             let window = match flag_window(&mut args) {
                 Ok(value) => value,
@@ -1262,6 +1317,10 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 expression,
             }
         }
+        other if agenterm_cu::mcu_surface::is_align_verb(other) => Command::Align {
+            target,
+            group: other.to_owned(),
+        },
         other => return usage_err(format!("unknown command '{other}'")),
     };
 
@@ -2075,6 +2134,8 @@ mod tests {
             "--target".into(),
             "current".into(),
             "pointer-move".into(),
+            "--to".into(),
+            "desktop".into(),
             "--x".into(),
             "-320".into(),
             "--y".into(),
@@ -2102,9 +2163,9 @@ mod tests {
     fn pointer_move_cli_rejects_missing_overflow_duplicate_and_extra_values() {
         for tail in [
             vec!["--x", "1"],
-            vec!["--x", "2147483648", "--y", "0"],
-            vec!["--x", "1", "--x", "2", "--y", "3"],
-            vec!["--x", "1", "--y", "2", "unexpected"],
+            vec!["--to", "desktop", "--x", "2147483648", "--y", "0"],
+            vec!["--to", "desktop", "--x", "1", "--x", "2", "--y", "3"],
+            vec!["--to", "desktop", "--x", "1", "--y", "2", "unexpected"],
         ] {
             let mut args = vec![
                 "--target".to_owned(),
@@ -2258,5 +2319,59 @@ mod tests {
         ]);
         assert_eq!(reply.command, "usage");
         assert_eq!(reply.error.expect("usage").code, "usage");
+    }
+
+    #[test]
+    fn mcu_align_verbs_are_typed_not_unknown() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "pty".into(),
+        ]);
+        assert_eq!(reply.command, "pty");
+        assert_eq!(reply.error.expect("typed").code, "unsupported");
+        let sim = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "simulator".into(),
+        ]);
+        assert_eq!(sim.command, "simulator");
+        assert_eq!(sim.error.expect("typed").code, "unsupported");
+    }
+
+    #[test]
+    fn pointer_move_without_to_is_usage() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "pointer-move".into(),
+            "--x".into(),
+            "1".into(),
+            "--y".into(),
+            "2".into(),
+        ]);
+        assert_eq!(reply.command, "usage");
+    }
+
+    #[test]
+    fn invoke_extra_mcu_actions_parse() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "invoke".into(),
+            "--window".into(),
+            "1".into(),
+            "--selector".into(),
+            "AXButton[0]".into(),
+            "scroll-to".into(),
+        ]);
+        assert_eq!(reply.command, "invoke");
+        assert_ne!(reply.error.expect("live or unsupported").code, "usage");
     }
 }

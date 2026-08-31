@@ -166,19 +166,15 @@ pub fn classify_ax_tree(tree: &A11yTree) -> AxAvailability {
             node.text.as_deref().unwrap_or(""),
             node.identifier.as_deref().unwrap_or("")
         );
-        if text.trim().len() > 0 {
+        if !text.trim().is_empty() {
             text_nodes += 1;
         }
+        // AX-prefixed chrome roles are already chrome; anything else with a
+        // page-like or nonempty non-chrome role counts as content.
         if is_page_content_role(&node.role)
             || (!is_chrome_role(&node.role) && !node.role.is_empty())
         {
-            // AX-prefixed chrome roles are already chrome; anything else
-            // with a page-like role counts as content.
-            if is_page_content_role(&node.role) {
-                content_roles += 1;
-            } else if !is_chrome_role(&node.role) {
-                content_roles += 1;
-            }
+            content_roles += 1;
         }
     }
     if content_roles == 0 && text_nodes <= 2 {
@@ -204,7 +200,7 @@ pub fn empty_chrome_next_actions(ax: AxAvailability, app: &str) -> Vec<String> {
         return Vec::new();
     }
     let mut actions = vec![
-        "empty-chrome is not an empty page; run query --window HANDLE --depth 12 --role WebArea then invoke by identity"
+        "empty-chrome is not an empty page; run query --window HANDLE --depth 12 --role WebArea then invoke by identity, or unlock --window HANDLE"
             .to_owned(),
     ];
     if chromium_app(app) || app.is_empty() {

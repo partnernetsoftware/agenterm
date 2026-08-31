@@ -26,6 +26,11 @@ pub enum InvokeAction {
     SetExpanded,
     Increment,
     Decrement,
+    SetSelected,
+    SetSelection,
+    ScrollTo,
+    Cancel,
+    ShowDefaultUi,
 }
 
 /// What an `invoke` action's `VALUE` positional must be.
@@ -40,7 +45,7 @@ pub enum InvokeValueKind {
 }
 
 impl InvokeAction {
-    pub const ALL: [InvokeAction; 7] = [
+    pub const ALL: [InvokeAction; 12] = [
         Self::Press,
         Self::SetValue,
         Self::SelectOption,
@@ -48,6 +53,11 @@ impl InvokeAction {
         Self::SetExpanded,
         Self::Increment,
         Self::Decrement,
+        Self::SetSelected,
+        Self::SetSelection,
+        Self::ScrollTo,
+        Self::Cancel,
+        Self::ShowDefaultUi,
     ];
 
     pub fn parse(raw: &str) -> Option<Self> {
@@ -65,14 +75,24 @@ impl InvokeAction {
             Self::SetExpanded => "set-expanded",
             Self::Increment => "increment",
             Self::Decrement => "decrement",
+            Self::SetSelected => "set-selected",
+            Self::SetSelection => "set-selection",
+            Self::ScrollTo => "scroll-to",
+            Self::Cancel => "cancel",
+            Self::ShowDefaultUi => "show-default-ui",
         }
     }
 
     pub fn value_kind(self) -> InvokeValueKind {
         match self {
-            Self::Press | Self::Increment | Self::Decrement => InvokeValueKind::None,
-            Self::SetValue | Self::SelectOption => InvokeValueKind::Text,
-            Self::SetChecked | Self::SetExpanded => InvokeValueKind::Flag,
+            Self::Press
+            | Self::Increment
+            | Self::Decrement
+            | Self::ScrollTo
+            | Self::Cancel
+            | Self::ShowDefaultUi => InvokeValueKind::None,
+            Self::SetValue | Self::SelectOption | Self::SetSelection => InvokeValueKind::Text,
+            Self::SetChecked | Self::SetExpanded | Self::SetSelected => InvokeValueKind::Flag,
         }
     }
 }
@@ -247,6 +267,9 @@ pub enum Command {
         /// before the action.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         focused: bool,
+        /// MCU `Role[idx] / Role@title` walk; exclusive of --node/--index/--name/--identifier/--focused.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
     },
     /// Background menu-bar inventory of the application owning `window`
     /// (macOS `AXMenuBar`, read without opening a menu or activating the
@@ -604,6 +627,17 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expression: Option<String>,
     },
+    /// Re-read the window tree and report `ax` / `next_actions`.
+    /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
+    Unlock {
+        target: TargetRef,
+        window: isize,
+    },
+    /// MCU group this binary answers typed (no silent unknown command).
+    Align {
+        target: TargetRef,
+        group: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -705,6 +739,8 @@ impl Command {
             Self::Close { .. } => "close".into(),
             Self::Receipts { .. } => "receipts".into(),
             Self::PageJs { .. } => "page-js".into(),
+            Self::Unlock { .. } => "unlock".into(),
+            Self::Align { group, .. } => group.clone(),
         }
     }
 
@@ -741,7 +777,9 @@ impl Command {
             | Self::WindowPlace { target, .. }
             | Self::Close { target, .. }
             | Self::Receipts { target, .. }
-            | Self::PageJs { target, .. } => *target,
+            | Self::PageJs { target, .. }
+            | Self::Unlock { target, .. }
+            | Self::Align { target, .. } => *target,
         }
     }
 
@@ -954,6 +992,7 @@ mod tests {
             action: InvokeAction::SetChecked,
             value: Some("true".into()),
             focused: false,
+            selector: None,
         };
         assert_eq!(invoke.verb(), "invoke");
         assert_eq!(invoke.required_grant(), Grant::Actuate);
@@ -980,6 +1019,14 @@ mod tests {
             Some(InvokeAction::SelectOption)
         );
         assert_eq!(InvokeAction::parse("raise"), None);
+        assert_eq!(
+            InvokeAction::parse("scroll-to"),
+            Some(InvokeAction::ScrollTo)
+        );
+        assert_eq!(
+            InvokeAction::parse("set-selected"),
+            Some(InvokeAction::SetSelected)
+        );
         assert_eq!(InvokeAction::Press.value_kind(), InvokeValueKind::None);
         assert_eq!(InvokeAction::SetValue.value_kind(), InvokeValueKind::Text);
         assert_eq!(

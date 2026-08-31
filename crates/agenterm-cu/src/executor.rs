@@ -601,6 +601,7 @@ impl Executor {
                 action,
                 value,
                 focused,
+                selector,
                 ..
             } => invoke_payload(
                 *window,
@@ -614,6 +615,7 @@ impl Executor {
                 },
                 *action,
                 value.as_deref(),
+                selector.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
             Command::MenuInspect {
@@ -673,6 +675,15 @@ impl Executor {
             .with_detail(serde_json::json!({
                 "backend": observe::page_js_backend(),
                 "ax_default": true,
+            }))),
+            Command::Unlock { window, .. } => unlock_payload(*window),
+            Command::Align { group, .. } => Err(CuError::new(
+                "unsupported",
+                crate::mcu_surface::typed_reason(group),
+            )
+            .with_detail(serde_json::json!({
+                "group": group,
+                "os": crate::mcu_surface::host_os(),
             }))),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
@@ -943,7 +954,7 @@ fn capabilities_payload() -> serde_json::Value {
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "target": "current",
         "transport": {
             "status": "in_process",
@@ -979,6 +990,8 @@ fn capabilities_payload() -> serde_json::Value {
             },
             "pointer-position": pointer_position_verb,
         },
+        "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
+        "alignment_tsv": crate::mcu_surface::alignment_matrix_text(),
         "mapping": {
             "windows": "libagenterm agt_window_enumerate",
             "tree": tree_mapping,
@@ -991,7 +1004,11 @@ fn capabilities_payload() -> serde_json::Value {
             "rdp_live": "rdp tier is placeholder; never declared available on current",
             "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify / click / focus), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused), the poll-diff observation stream (observe), the destructive close (gate: exact target + snapshot + postcondition) with crash-persistent receipts (receipts), the read-only pointer position and the window-place frame transaction are proven by scripts/qjs/cu-macos-smoke.qjs; invoke offers no quit / delete action; AX notifications are not subscribed (observe is poll-diff)",
         }
-    })
+    });
+    if let Some(verbs) = payload.get("verbs").cloned() {
+        payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
+    }
+    payload
 }
 
 fn current_tree_mapping() -> &'static str {
@@ -1078,6 +1095,28 @@ fn window_app_name(handle: Option<isize>) -> String {
         .and_then(|rows| rows.into_iter().find(|row| row.handle == handle))
         .map(|row| row.app_name)
         .unwrap_or_default()
+}
+
+fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "unlock requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    let tree = mechanism::tree_for_window_bounded(Some(window), tree_budget(Some(12), None)?)
+        .map_err(map_mechanism_err)?;
+    let ax = observe::classify_ax_tree(&tree);
+    let app = window_app_name(Some(window));
+    Ok(serde_json::json!({
+        "ax": ax.as_str(),
+        "poked": false,
+        "reason": "AXManualAccessibility poke is not mapped; empty-chrome is not an empty page",
+        "next_actions": observe::empty_chrome_next_actions(ax, &app),
+        "window": window,
+        "visited": tree.visited,
+        "returned": tree.returned,
+        "truncated": tree.truncated,
+    }))
 }
 
 /// Bounded, filtered flat node list over the same walk `tree` makes.
@@ -3557,6 +3596,23 @@ fn invoke_action(
         InvokeAction::SetExpanded => mechanism::NodeAction::SetExpanded(flag),
         InvokeAction::Increment => mechanism::NodeAction::Increment,
         InvokeAction::Decrement => mechanism::NodeAction::Decrement,
+        InvokeAction::SetSelected
+        | InvokeAction::SetSelection
+        | InvokeAction::ScrollTo
+        | InvokeAction::Cancel
+        | InvokeAction::ShowDefaultUi => {
+            return Err(CuError::new(
+                "unsupported",
+                format!(
+                    "invoke {} is not mapped on the libagenterm a11y ABI; spelling matches MCU",
+                    action.as_str()
+                ),
+            )
+            .with_detail(serde_json::json!({
+                "reason": "node_action_unmapped",
+                "os": std::env::consts::OS,
+            })));
+        }
     })
 }
 
@@ -3568,7 +3624,13 @@ fn required_node_action(action: InvokeAction) -> Option<&'static str> {
         InvokeAction::Press | InvokeAction::SetChecked | InvokeAction::SetExpanded => Some("click"),
         InvokeAction::Increment => Some("increment"),
         InvokeAction::Decrement => Some("decrement"),
-        InvokeAction::SetValue | InvokeAction::SelectOption => None,
+        InvokeAction::SetValue
+        | InvokeAction::SelectOption
+        | InvokeAction::SetSelected
+        | InvokeAction::SetSelection
+        | InvokeAction::ScrollTo
+        | InvokeAction::Cancel
+        | InvokeAction::ShowDefaultUi => None,
     }
 }
 
@@ -3576,15 +3638,38 @@ fn required_node_action(action: InvokeAction) -> Option<&'static str> {
 /// the window: the only mechanism is the a11y node action.
 fn invoke_payload(
     window: isize,
-    spec: observe::TargetSpec,
+    mut spec: observe::TargetSpec,
     action: InvokeAction,
     value: Option<&str>,
+    selector: Option<&str>,
     receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
             "invoke requires --window <handle> (a non-zero handle from `windows`)".into(),
         ));
+    }
+    if let Some(selector) = selector {
+        if spec.node.is_some()
+            || spec.index.is_some()
+            || spec.name.is_some()
+            || spec.identifier.is_some()
+            || spec.focused
+        {
+            return Err(invalid_input(
+                "invoke --selector cannot mix with --node/--index/--name/--identifier/--focused"
+                    .into(),
+            ));
+        }
+        let tree = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+        let hit = observe::walk_selector(&tree, selector).map_err(invalid_input)?;
+        let Some(hit) = hit else {
+            return Err(CuError::new(
+                "a11y_node_not_found",
+                format!("invoke --selector {selector:?} matched no node"),
+            ));
+        };
+        spec.node = Some(hit.id.clone());
     }
     let node_action = invoke_action(action, value)?;
     // `--focused`: the platform names the application's own focused control
@@ -6979,6 +7064,18 @@ mod tests {
         assert_eq!(data["transport"]["status"], "in_process");
         assert_eq!(data["transport"]["available"], true);
         assert_eq!(data["verbs"]["capabilities"]["status"], "available");
+        assert_eq!(data["verbs"]["pty"]["status"], "unsupported");
+        assert_eq!(
+            data["verbs"]["page-js"]["backend"],
+            "debugger-runtime-evaluate"
+        );
+        assert!(
+            data["mcu_groups"].as_array().map(|g| g.len()).unwrap_or(0)
+                >= crate::mcu_surface::GROUPS.len()
+        );
+        let tsv = data["alignment_tsv"].as_str().unwrap_or("");
+        assert!(tsv.contains("shell-pty-job\tlinux\tunsupported\t"));
+        assert!(!tsv.contains("still-gap"));
         // Must not declare live RDP or unproven Mac AX as available.
         assert!(data["gaps"]["rdp_live"].as_str().is_some());
         assert!(data["gaps"]["macos_ax_live"].as_str().is_some());

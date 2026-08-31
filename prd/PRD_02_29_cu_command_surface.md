@@ -68,6 +68,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `crates/agenterm-cu/src/observe.rs`
   `empty_chrome_next_action_is_deeper_query_not_screenshot_or_extension`,
   `heading_title_includes_matches_webarea_title`.
+- [~] MCU selector and recovery spellings are now explicit product inputs:
+  `query --selector` scopes results beneath one `Role[idx] / Role@title /
+  *@title / #desc` match, and `invoke --selector` binds the same walk to one
+  action target. `unlock --window` currently performs a fresh bounded tree
+  read and returns `ax`, `next_actions`, and `poked:false`; it does **not**
+  claim an `AXManualAccessibility` poke. Extra MCU invoke spellings parse but
+  fail typed `unsupported` until the platform ABI maps them. Unit/CLI evidence
+  owns parsing, scope, ambiguity, and typed refusal; a new real-app journey is
+  still required before this leaf becomes shipped.
 - [x] `page-js` is a second knife after AX: the shipped verb is typed
   `unsupported` with `detail.backend = debugger-runtime-evaluate`.
   Ordinary AX web control needs no browser extension. MAIN-world
