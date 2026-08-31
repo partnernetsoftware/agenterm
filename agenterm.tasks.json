@@ -1555,6 +1555,25 @@
       "evidence": [
         "task.lua-check"
       ]
+    },
+    "cu-linux-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-smoke"
+      ]
     }
   },
   "tasks": [
@@ -2019,6 +2038,26 @@
       "dependencies": [],
       "platforms": [
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-smoke",
+      "description": "Prove the agenterm-cu AT-SPI2 loop on a real X11 desktop: capabilities, windows by pid and title, a bounded tree whose every node carries a real rectangle, query, invoke and an idempotent set-checked, menu inspect / invoke with the paths invoke accepts, send-text / select / caret / extents, focus, window-place whose read-back equals the request, orderwin answering from the order it read, a minimized window still listed, apps --all over XDG entries, refusals that name what is missing, and the close gate.",
+      "entry": "scripts/qjs/cu-linux-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
       ],
       "side_effects": [
         "artifact_write",

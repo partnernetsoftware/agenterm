@@ -1,0 +1,650 @@
+// Prove the agenterm-cu default loop through libagenterm's AT-SPI2 backend
+// on a real X11 desktop: capabilities -> windows -> bounded tree / query ->
+// invoke -> the background menu verbs -> the node text and geometry verbs ->
+// window-place and orderwin, both answering from a read-back -> the
+// minimized reading -> the installed-application inventory -> the
+// destructive close gate.
+//
+// Every step here exists because the Linux path was written against the
+// specifications and shipped without ever executing, and executing it found
+// sixteen defects. So this journey deliberately asserts the *readings*, not
+// just that a call returned ok: per-node bounds that are real rectangles
+// rather than the empty-rect sentinel, menu paths that `menu invoke` will
+// actually accept, a placement whose read-back equals the request exactly,
+// a raise that changed the order, and a minimized window that is still
+// listed. A verb that reports success without having done anything passes a
+// weaker journey and fails this one.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// Runs under --profile tool on a Linux host with DISPLAY, a session D-Bus
+// and the AT-SPI2 bus reachable, and PyGObject for the fixture. Nothing here
+// screenshots, uses coordinates, or injects a keystroke; every write is read
+// back. The owned fixture is examples/python/agenterm_atspi_fixture.py,
+// spawned as a door handle -- its pid is `harness.spawned_pid(handle)`, and
+// only that pid is ever signalled. Every agenterm-cu call runs with
+// AGENTERM_CU_AUDIT_PATH inside the run directory, so the audit log and the
+// receipt file are this run's own.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-capabilities",
+  "cu.linux-atspi-window-identity",
+  "cu.linux-atspi-tree-geometry",
+  "cu.linux-atspi-query",
+  "cu.linux-atspi-invoke",
+  "cu.linux-atspi-menu-inspect",
+  "cu.linux-atspi-menu-invoke",
+  "cu.linux-atspi-node-text",
+  "cu.linux-atspi-focus",
+  "cu.linux-atspi-window-place",
+  "cu.linux-atspi-orderwin",
+  "cu.linux-atspi-minimized",
+  "cu.linux-atspi-app-inventory",
+  "cu.linux-atspi-destructive-close",
+  "cu.linux-atspi-refusal-reasons",
+  "cu.linux-atspi-fixture-cleanup"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+// One agenterm-cu call whose reply must be `ok: true`.
+function run_cu_json(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  ensure(output.success === true, "cu_linux_smoke_cli_process:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_smoke_cli_empty:" + output.stderr);
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_smoke_cli_reply:" + JSON.stringify(document));
+  return document;
+}
+
+// One agenterm-cu call whose reply is returned as parsed, ok or not.
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_smoke_cli_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+// The window row this run owns, by pid and exact title.
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+// The text of one named node, through the Text interface.
+function node_text(run_directory, executable, handle_text, name) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-text",
+    "--window", handle_text, "--name", name
+  ]);
+  return text_at(reply, "data.matched.text");
+}
+
+function tree_nodes(run_directory, executable, handle_text, depth) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "tree",
+    "--window", handle_text, "--depth", depth
+  ]);
+  return reply.data.nodes;
+}
+
+function node_named(nodes, name) {
+  for (const node of nodes) {
+    if (text_of(node.name) === name) { return node; }
+  }
+  return null;
+}
+
+// The displayed text of one label, read from the tree.
+//
+// A GtkLabel's accessible *name* is its text, so these are addressed by
+// what they currently say rather than by a stable name -- giving them one
+// would hide the value being read back.
+function label_starting_with(nodes, prefix) {
+  for (const node of nodes) {
+    if (text_of(node.role) !== "label") { continue; }
+    if (text_of(node.name).startsWith(prefix)) { return text_of(node.name); }
+  }
+  return "";
+}
+
+function label_text(run_directory, executable, handle_text, prefix) {
+  return label_starting_with(tree_nodes(run_directory, executable, handle_text, "8"), prefix);
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_smoke_executable_missing:" + executable);
+ensure(
+  direct_file(rh.join(rh.parent(executable), "libagenterm.so")),
+  "cu_linux_smoke_library_missing:" + rh.parent(executable)
+);
+
+const context = harness.new_context(repo, "cu-linux");
+const run_directory = rh.join(repo, "target/cu-linux-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_linux_smoke_stale_directory_locked");
+rh.create_dir_all(run_directory);
+
+let succeeded = 0;
+let failure = "";
+let fixture_pid = 0;
+let fixture = -1;
+let fixture_reaped = false;
+
+try {
+  print("STEP capabilities declare the AT-SPI tree and query available on current");
+  const version_output = rh.command(executable, ["--version"], { cwd: run_directory, timeout_ms: 30000 });
+  ensure(
+    version_output.success === true && version_output.stdout.trim().startsWith("agenterm-cu "),
+    "cu_linux_smoke_version:" + version_output.stdout + version_output.stderr
+  );
+  const capabilities = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities"
+  ]);
+  ensure(
+    text_at(capabilities, "data.target") === "current"
+      && text_at(capabilities, "data.mechanism") === "libagenterm"
+      && text_at(capabilities, "data.capabilities.tree") === "Available"
+      && text_at(capabilities, "data.verbs.tree.status") === "available"
+      && text_at(capabilities, "data.verbs.query.status") === "available",
+    "cu_linux_smoke_capabilities:" + JSON.stringify(capabilities.data.capabilities)
+  );
+  // An unauthorized observe is typed, never an empty inventory.
+  const refused = run_cu_reply(run_directory, executable, ["--target", "current", "windows"]);
+  ensure(
+    !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
+    "cu_linux_smoke_refusal:" + JSON.stringify(refused)
+  );
+
+  print("STEP start the owned GTK fixture and resolve its two windows by pid and exact title");
+  const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+  ensure(direct_file(fixture_source), "cu_linux_smoke_fixture_source_missing:" + fixture_source);
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    // GTK publishes its AT-SPI tree only with the bridge loaded.
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  const second_title = "agenterm-linux-second-" + fixture_pid;
+  const window_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "15000", "--window-title-contains", fixture_title
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_smoke_window_wait_not_met");
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_smoke_window_identity");
+  const fixture_handle = int_at(row, "handle");
+  ensure(
+    fixture_handle > 0
+      && int_at(row, "bounds.width") > 0
+      && int_at(row, "bounds.height") > 0
+      && text_at(row, "app_name") !== "",
+    "cu_linux_smoke_window_row:" + JSON.stringify(row)
+  );
+  const handle_text = "" + fixture_handle;
+
+  print("STEP every node in the tree carries a real rectangle, and a control that has none says so with the empty-rect sentinel rather than a screen coordinate");
+  const nodes = tree_nodes(run_directory, executable, handle_text, "8");
+  ensure(nodes.length > 5, "cu_linux_smoke_tree_small:" + nodes.length);
+  const press_button = node_named(nodes, "Fixture Press");
+  ensure(press_button !== null, "cu_linux_smoke_button_missing");
+  // The walk hardcoded these to zero, which is this adapter's own
+  // "unavailable" sentinel -- published for every node as though measured.
+  ensure(
+    int_at(press_button, "bounds.width") > 0 && int_at(press_button, "bounds.height") > 0,
+    "cu_linux_smoke_button_bounds:" + JSON.stringify(press_button.bounds)
+  );
+  // A closed menu's items are never allocated, and GTK reports them at
+  // i32::MIN. That must not reach a caller as a place to click.
+  let closed_item_seen = 0;
+  for (const node of nodes) {
+    if (text_of(node.role).indexOf("menu item") < 0) { continue; }
+    closed_item_seen = 1;
+    ensure(
+      int_at(node, "bounds.x") > -2000000000 && int_at(node, "bounds.y") > -2000000000,
+      "cu_linux_smoke_unallocated_rect:" + JSON.stringify(node)
+    );
+  }
+  ensure(closed_item_seen === 1, "cu_linux_smoke_no_menu_items_in_tree");
+
+  print("STEP query by role finds the fixture controls and reports its counts");
+  const query = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle_text, "--role", "button"
+  ]);
+  ensure(int_at(query, "data.matched") >= 1, "cu_linux_smoke_query:" + JSON.stringify(query.data));
+
+  print("STEP invoke press advances the count label, and set-checked repeats as a verified no-op");
+  const before_press = label_text(run_directory, executable, handle_text, "pressed ");
+  ensure(before_press === "pressed 0", "cu_linux_smoke_press_before:" + before_press);
+  const pressed = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Press", "press"
+  ]);
+  ensure(flag_at(pressed, "data.performed"), "cu_linux_smoke_press:" + JSON.stringify(pressed.data));
+  ensure(
+    label_text(run_directory, executable, handle_text, "pressed ") === "pressed 1",
+    "cu_linux_smoke_press_after"
+  );
+  const checked_once = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Check", "set-checked", "true"
+  ]);
+  ensure(
+    flag_at(checked_once, "data.performed") && flag_at(checked_once, "data.verified"),
+    "cu_linux_smoke_check_first:" + JSON.stringify(checked_once.data)
+  );
+  const checked_again = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Check", "set-checked", "true"
+  ]);
+  ensure(
+    flag_at(checked_again, "data.verified") && !flag_at(checked_again, "data.performed"),
+    "cu_linux_smoke_check_repeat:" + JSON.stringify(checked_again.data)
+  );
+
+  print("STEP focus moves the AT-SPI focus to the entry and focused binds it back");
+  // Before the menu steps, deliberately. Pressing a background menu item
+  // leaves this desktop with no focused widget at all -- measured: the
+  // window's tree carries no STATE_FOCUSED node afterwards, and a later
+  // `focus` verifies at the moment it acts and then loses it again. That
+  // is a property of the desktop, not of the verb, and a journey that
+  // asserted otherwise would be asserting something untrue.
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "focus",
+    "--window", handle_text, "--name", "Fixture Entry"
+  ]);
+  const focused = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "focused", "--window", handle_text
+  ]);
+  ensure(
+    text_at(focused, "data.node.name") === "Fixture Entry",
+    "cu_linux_smoke_focused:" + JSON.stringify(focused.data)
+  );
+
+  print("STEP menu inspect walks the background menu bar and reports the paths menu invoke accepts, with the enabled and checked states AT-SPI publishes only positively");
+  const menu = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "menu", "inspect", "--window", handle_text
+  ]);
+  const items = menu.data.items;
+  ensure(items.length >= 4, "cu_linux_smoke_menu_items:" + JSON.stringify(items));
+  let saw_bar_entry = 0;
+  let saw_do_thing = 0;
+  let saw_disabled = 0;
+  let saw_checkable = 0;
+  for (const item of items) {
+    const path = item.path.join("/");
+    // AT-SPI has no separate bar-entry node: GTK's "File" is itself a
+    // role-`menu` node, and it has to be a path segment or these paths are
+    // not the ones `menu invoke` accepts.
+    if (path === "File") { saw_bar_entry = 1; }
+    if (path === "File/Do Thing") { saw_do_thing = item.enabled === true ? 1 : 0; }
+    // AT-SPI publishes no `disabled` state at all, so "not disabled" called
+    // every item pressable.
+    if (path === "File/Disabled Thing") { saw_disabled = item.enabled === false ? 1 : 0; }
+    // A checkable entry carries its own role; without it `inspect` omitted
+    // items `invoke` would press.
+    if (path === "File/Marked Thing") { saw_checkable = 1; }
+  }
+  ensure(
+    saw_bar_entry === 1 && saw_do_thing === 1 && saw_disabled === 1 && saw_checkable === 1,
+    "cu_linux_smoke_menu_shape:" + JSON.stringify(items)
+  );
+
+  print("STEP menu invoke presses a background menu item and the label changes; a disabled item is refused typed with nothing performed, and a checkable one round-trips its mark");
+  const menu_before = label_text(run_directory, executable, handle_text, "menu idle");
+  ensure(menu_before === "menu idle", "cu_linux_smoke_menu_label_before:" + menu_before);
+  const invoked = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "menu", "invoke",
+    "--window", handle_text, "--path", "File/Do Thing"
+  ]);
+  ensure(flag_at(invoked, "data.performed"), "cu_linux_smoke_menu_invoke:" + JSON.stringify(invoked.data));
+  ensure(
+    label_text(run_directory, executable, handle_text, "did thing ") === "did thing 1",
+    "cu_linux_smoke_menu_label_after"
+  );
+  const menu_refused = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "menu", "invoke",
+    "--window", handle_text, "--path", "File/Disabled Thing"
+  ]);
+  ensure(
+    !flag_at(menu_refused, "ok") && text_at(menu_refused, "error.code") === "a11y_menu_item_disabled",
+    "cu_linux_smoke_menu_disabled:" + JSON.stringify(menu_refused)
+  );
+  ensure(
+    label_text(run_directory, executable, handle_text, "did thing ") === "did thing 1",
+    "cu_linux_smoke_menu_disabled_side_effect"
+  );
+  // The receipt's mark is one Unicode scalar, so a state word would arrive
+  // as its first letter -- invisible on macOS, where a real mark is one
+  // character.
+  const marked_on = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "menu", "invoke",
+    "--window", handle_text, "--path", "File/Marked Thing"
+  ]);
+  ensure(
+    text_at(marked_on, "data.mark_after").length === 1
+      && text_at(marked_on, "data.mark_before") === "",
+    "cu_linux_smoke_mark_on:" + JSON.stringify(marked_on.data)
+  );
+  const marked_off = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "menu", "invoke",
+    "--window", handle_text, "--path", "File/Marked Thing"
+  ]);
+  ensure(
+    text_at(marked_off, "data.mark_before").length === 1
+      && text_at(marked_off, "data.mark_after") === "",
+    "cu_linux_smoke_mark_off:" + JSON.stringify(marked_off.data)
+  );
+
+  print("STEP the node text and geometry verbs write and read the entry through AT-SPI: send-text, select / get-selection, set-caret / get-caret, get-extents");
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-text",
+    "--window", handle_text, "--name", "Fixture Entry", "--", "linuxtyped"
+  ]);
+  ensure(
+    node_text(run_directory, executable, handle_text, "Fixture Entry") === "linuxtyped",
+    "cu_linux_smoke_send_text"
+  );
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "select",
+    "--window", handle_text, "--name", "Fixture Entry", "--start", "2", "--end", "7"
+  ]);
+  const selection = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-selection",
+    "--window", handle_text, "--name", "Fixture Entry"
+  ]);
+  ensure(
+    int_at(selection, "data.start") === 2 && int_at(selection, "data.end") === 7,
+    "cu_linux_smoke_selection:" + JSON.stringify(selection.data)
+  );
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "set-caret",
+    "--window", handle_text, "--name", "Fixture Entry", "--offset", "4"
+  ]);
+  const caret = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-caret",
+    "--window", handle_text, "--name", "Fixture Entry"
+  ]);
+  ensure(int_at(caret, "data.offset") === 4, "cu_linux_smoke_caret:" + JSON.stringify(caret.data));
+  const extents = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-extents",
+    "--window", handle_text, "--name", "Fixture Press"
+  ]);
+  ensure(
+    int_at(extents, "data.extents.width") > 0 && int_at(extents, "data.extents.height") > 0,
+    "cu_linux_smoke_extents:" + JSON.stringify(extents.data)
+  );
+
+  print("STEP window-place frame puts the window exactly where it was asked, which is an equality only because the request compensates for the window manager's own frame and the read-back is in root coordinates");
+  const placed = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "window-place",
+    "--action", "frame", "--window", handle_text,
+    "--x", "260", "--y", "180", "--width", "300", "--height", "240"
+  ]);
+  ensure(
+    int_at(placed, "data.after.x") === 260 && int_at(placed, "data.after.y") === 180
+      && int_at(placed, "data.after.width") === 300 && int_at(placed, "data.after.height") === 240,
+    "cu_linux_smoke_place:" + JSON.stringify(placed.data)
+  );
+  // The inventory is read independently of the verb's own answer.
+  const placed_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(
+    int_at(placed_row, "bounds.x") === 260 && int_at(placed_row, "bounds.y") === 180,
+    "cu_linux_smoke_place_inventory:" + JSON.stringify(placed_row.bounds)
+  );
+
+  print("STEP orderwin raises the second window above the first and answers from the order it reads back, not from having sent the raise");
+  const second_row = window_row(run_directory, executable, fixture_pid, second_title);
+  ensure(second_row !== null, "cu_linux_smoke_second_window_missing");
+  const second_handle = int_at(second_row, "handle");
+  const raised = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "orderwin",
+    "--window", "" + second_handle, "--relation", "above", "--relative", handle_text
+  ]);
+  ensure(
+    int_at(raised, "data.after.window_z") < int_at(raised, "data.after.relative_z"),
+    "cu_linux_smoke_orderwin:" + JSON.stringify(raised.data)
+  );
+  const same_handle = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "orderwin",
+    "--window", handle_text, "--relation", "above", "--relative", handle_text
+  ]);
+  ensure(
+    !flag_at(same_handle, "ok") && text_at(same_handle, "error.code") === "invalid_input",
+    "cu_linux_smoke_orderwin_same:" + JSON.stringify(same_handle)
+  );
+
+  print("STEP a window the window manager has put away stays in the inventory as minimized with no place in the stacking order, and the filter matches it");
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "menu", "invoke",
+    "--window", handle_text, "--path", "File/Minimize"
+  ]);
+  let minimized_row = null;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const candidate = window_row(run_directory, executable, fixture_pid, fixture_title);
+    if (candidate !== null && candidate.minimized === true) { minimized_row = candidate; break; }
+    harness.sleep_ms(50);
+  }
+  ensure(minimized_row !== null, "cu_linux_smoke_minimized_never_true");
+  // A window that is not on screen has no z-order position, and reporting
+  // zero for it would put it in front of everything.
+  ensure(
+    at(minimized_row, "z_index") === null || at(minimized_row, "z_index") === undefined,
+    "cu_linux_smoke_minimized_z:" + JSON.stringify(minimized_row)
+  );
+  const minimized_filter = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows",
+    "--pid", "" + fixture_pid, "--minimized", "true"
+  ]);
+  ensure(
+    int_at(minimized_filter, "data.matched") === 1,
+    "cu_linux_smoke_minimized_filter:" + JSON.stringify(minimized_filter.data)
+  );
+
+  print("STEP apps --all lists applications no window can reveal, read from the XDG desktop entries, and names the join behind its running flag");
+  const apps = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "apps", "--all"
+  ]);
+  ensure(
+    flag_at(apps, "data.installed_available"),
+    "cu_linux_smoke_apps_unavailable:" + JSON.stringify(apps.data.installed_reason)
+  );
+  ensure(
+    apps.data.installed_apps.length > 0
+      && text_at(apps, "data.running_match") === "window-app-name",
+    "cu_linux_smoke_apps:" + JSON.stringify(apps.data.installed_apps)
+  );
+  for (const app of apps.data.installed_apps) {
+    ensure(text_of(app.name) !== "", "cu_linux_smoke_app_unnamed:" + JSON.stringify(app));
+    ensure(text_of(app.path).endsWith(".desktop"), "cu_linux_smoke_app_path:" + JSON.stringify(app));
+  }
+
+  print("STEP a refusal names the mechanism that is missing, in the adapter's own words rather than one sentence for every reason");
+  const hide_refusal = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "hide", "--window", handle_text
+  ]);
+  ensure(
+    !flag_at(hide_refusal, "ok")
+      && text_at(hide_refusal, "error.code") === "unsupported"
+      && text_at(hide_refusal, "error.message").indexOf("AT-SPI2") >= 0,
+    "cu_linux_smoke_hide_reason:" + JSON.stringify(hide_refusal)
+  );
+  const launch_refusal = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "app", "launch",
+    "--path", rh.join(run_directory, "does-not-exist.desktop")
+  ]);
+  ensure(
+    !flag_at(launch_refusal, "ok") && text_at(launch_refusal, "error.code") === "app_not_found",
+    "cu_linux_smoke_launch_missing:" + JSON.stringify(launch_refusal)
+  );
+
+  print("STEP close without a snapshot, a postcondition or a target is refused typed; with all three the second window closes and the handle reads back gone");
+  const close_bare = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "close", "--window", "" + second_handle
+  ]);
+  ensure(
+    !flag_at(close_bare, "ok") && text_at(close_bare, "error.code") === "refused"
+      && text_at(close_bare, "error.detail.effect") === "not_performed",
+    "cu_linux_smoke_close_bare:" + JSON.stringify(close_bare)
+  );
+  ensure(
+    window_row(run_directory, executable, fixture_pid, second_title) !== null,
+    "cu_linux_smoke_close_bare_side_effect"
+  );
+  const closed = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "close",
+    "--window", "" + second_handle, "--pid", "" + fixture_pid, "--title", second_title,
+    "--snapshot", "--expect", "gone"
+  ]);
+  ensure(
+    flag_at(closed, "data.performed") && flag_at(closed, "data.snapshot.in_receipt"),
+    "cu_linux_smoke_close:" + JSON.stringify(closed.data)
+  );
+  let closed_gone = 0;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    if (window_row(run_directory, executable, fixture_pid, second_title) === null) { closed_gone = 1; break; }
+    harness.sleep_ms(50);
+  }
+  ensure(closed_gone === 1, "cu_linux_smoke_close_window_lingers");
+  // Closing a window is not killing the process: the other window is still
+  // there and the fixture is still running.
+  ensure(harness.process_present(fixture_pid) !== 0, "cu_linux_smoke_close_killed_the_process");
+  const receipts = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "receipts", "--max", "50"
+  ]);
+  ensure(
+    receipts.data.receipts.length > 0,
+    "cu_linux_smoke_receipts:" + JSON.stringify(receipts.data)
+  );
+
+  print("STEP SIGTERM ends only the owned fixture, and no window of it survives");
+  rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  let fixture_exited = 0;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(fixture) === "exited") { fixture_exited = 1; break; }
+    harness.sleep_ms(25);
+  }
+  ensure(fixture_exited !== 0, "cu_linux_smoke_fixture_exit_timeout");
+  const fixture_output = harness.wait(fixture, 3000);
+  fixture_reaped = true;
+  const ready_parts = fixture_output.stdout.trim().split(" ");
+  ensure(
+    ready_parts.length === 2 && ready_parts[0] === "ready"
+      && rh.parse_int("" + ready_parts[1]) === fixture_pid,
+    "cu_linux_smoke_fixture_ready:" + fixture_output.stdout
+  );
+  ensure(harness.process_present(fixture_pid) === 0, "cu_linux_smoke_fixture_orphan");
+  const gone = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid
+  ]);
+  ensure(int_at(gone, "data.matched") === 0, "cu_linux_smoke_fixture_window_lingers");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture >= 0 && !fixture_reaped) {
+  // Only the pid this run spawned; never a name pattern.
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  try { harness.wait(fixture, 3000); } catch (wait_error) { print("cleanup: " + wait_error); }
+}
+
+// Evidence is emitted only once the whole run has succeeded: a partial run
+// that left evidence behind would claim what it did not finish proving.
+if (succeeded !== 1) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_linux_smoke_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_linux_smoke_cleanup_locked");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-capabilities");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-identity");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-inspect");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-invoke");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-node-text");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-place");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-minimized");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-app-inventory");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-destructive-close");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-refusal-reasons");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-fixture-cleanup");
+harness.remove_run(context);
+print("PASS: agenterm-cu Linux AT-SPI journey (capabilities, windows, tree geometry, query, invoke, menus, node text, focus, window-place, orderwin, minimized, apps, close, receipts)");
+return;
