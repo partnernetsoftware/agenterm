@@ -47,6 +47,10 @@ const MAX_OPTION_CHILDREN: usize = 512;
 /// nested containers, small enough that a focus read stays a quick call.
 const FOCUS_SEARCH_DEPTH: u32 = 24;
 const FOCUS_SEARCH_NODES: usize = 4_000;
+/// Bounds for the menu-bar search. A menu bar sits shallow in a frame's
+/// tree, so this is deliberately smaller than the focus search.
+const MENU_SEARCH_DEPTH: u32 = 12;
+const MENU_SEARCH_NODES: usize = 2_000;
 const ACTION_TIMEOUT: Duration = Duration::from_millis(250);
 const NULL_OBJECT_PATH: &str = "/org/a11y/atspi/null";
 const APPLICATION_ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
@@ -171,23 +175,166 @@ pub(crate) fn tree_for_window(
 /// Keep the shared a11y-bus connection pumping until the toolkit finishes
 /// emitting events from the last keystroke. Exiting immediately after XTest
 /// closes the socket under those events and Chrome's renderer tree dies.
+/// The window's menu bar as a tree, read without opening anything.
+///
+/// AT-SPI publishes a frame's menu bar as an ordinary `menu bar` node in
+/// the same tree everything else comes from, so this is a bounded walk and
+/// a search -- no menu is opened on screen and the application is never
+/// activated. What a toolkit publishes for a *closed* menu is its own
+/// business: GTK populates items lazily, so a menu that has never been
+/// opened may report no children. That is the backend's answer, reported
+/// as it stands rather than forced by opening the menu.
 pub(crate) fn menu_tree_for_window(
-    _window_handle: Option<isize>,
-    _budget: AccessibilityTreeBudget,
+    window_handle: Option<isize>,
+    budget: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "Linux AT-SPI2 background menu / focused-context mechanisms are not mapped yet"
-            .into(),
+    let tree = tree_for_window(
+        window_handle,
+        AccessibilityTreeBudget {
+            max_depth: Some(budget.max_depth.unwrap_or(MENU_SEARCH_DEPTH)),
+            max_nodes: Some(budget.max_nodes.unwrap_or(MENU_SEARCH_NODES)),
+        },
+    )?;
+    let Some(bar) = tree.nodes.iter().find(|node| node.role == "menu bar") else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_menu_unavailable",
+            if tree.truncated {
+                "no menu bar in the first nodes of the window tree, and the walk was truncated"
+            } else {
+                "this window publishes no AT-SPI menu bar"
+            },
+        ));
+    };
+    let root_id = bar.id.clone();
+    let prefix = format!("{root_id}/");
+    let nodes: Vec<AccessibilityNode> = tree
+        .nodes
+        .iter()
+        .filter(|node| node.id == root_id || node.id.starts_with(&prefix))
+        .cloned()
+        .collect();
+    let returned = nodes.len();
+    Ok(AccessibilityTree {
+        backend: tree.backend,
+        window_handle,
+        root_id,
+        nodes,
+        truncated: tree.truncated,
+        visited: tree.visited,
+        returned,
     })
 }
 
+/// Press one menu item named by its exact title path.
+///
+/// Every segment is resolved before anything is pressed, so a missing,
+/// duplicated or disabled segment refuses with nothing performed -- the
+/// same gate the macOS adapter applies. The press is the item's own AT-SPI
+/// action, not a synthetic click at its coordinates.
 pub(crate) fn invoke_menu_path(
-    _window_handle: Option<isize>,
-    _path: &[String],
+    window_handle: Option<isize>,
+    path: &[String],
 ) -> Result<AccessibilityMenuReceipt, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "Linux AT-SPI2 background menu / focused-context mechanisms are not mapped yet"
-            .into(),
+    if path.len() < 2 || path.iter().any(|segment| segment.is_empty()) {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            "a menu path needs a menu title and at least one non-empty item title",
+        ));
+    }
+    let menu = menu_tree_for_window(
+        window_handle,
+        AccessibilityTreeBudget {
+            max_depth: Some(MENU_SEARCH_DEPTH),
+            max_nodes: Some(MENU_SEARCH_NODES),
+        },
+    )?;
+    let mut current = menu.root_id.clone();
+    for (depth, segment) in path.iter().enumerate() {
+        let prefix = format!("{current}/");
+        let mut matches = Vec::new();
+        for node in &menu.nodes {
+            // Direct children only: a path segment names one level.
+            if !node.id.starts_with(&prefix) || node.id[prefix.len()..].contains('/') {
+                continue;
+            }
+            if node.name == *segment {
+                matches.push(node);
+            }
+        }
+        // A GTK menu bar item owns a `menu` child that holds the items, so
+        // an unmatched level is retried one level down before giving up.
+        if matches.is_empty() {
+            for node in &menu.nodes {
+                if !node.id.starts_with(&prefix) {
+                    continue;
+                }
+                let rest = &node.id[prefix.len()..];
+                if rest.matches('/').count() != 1 {
+                    continue;
+                }
+                if node.name == *segment {
+                    matches.push(node);
+                }
+            }
+        }
+        if matches.len() > 1 {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_menu_item_ambiguous",
+                format!(
+                    "{} items are titled {segment:?} at depth {depth}",
+                    matches.len()
+                ),
+            ));
+        }
+        let Some(hit) = matches.first() else {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_menu_item_not_found",
+                format!("no menu item titled {segment:?} at depth {depth}"),
+            ));
+        };
+        if hit.states.iter().any(|state| state == "disabled")
+            || !hit.states.iter().any(|state| state == "enabled")
+        {
+            return Err(AccessibilityTreeError::failed(
+                "a11y_menu_item_disabled",
+                format!("menu item {segment:?} is not enabled"),
+            ));
+        }
+        current = hit.id.clone();
+    }
+    let leaf_prefix = format!("{current}/");
+    if menu.nodes.iter().any(|node| {
+        node.id.starts_with(&leaf_prefix) && node.role != "menu" && !node.name.is_empty()
+    }) {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_menu_item_not_leaf",
+            format!(
+                "menu item {:?} opens a submenu; name one of its items",
+                path.join("/")
+            ),
+        ));
+    }
+    perform_node_action(window_handle, &current, AccessibilityNodeAction::Press)?;
+    // AT-SPI publishes a menu item's check mark as the `checked` state, not
+    // as a mark character, so the receipt carries the state words the tree
+    // already speaks.
+    let after = menu_tree_for_window(
+        window_handle,
+        AccessibilityTreeBudget {
+            max_depth: Some(MENU_SEARCH_DEPTH),
+            max_nodes: Some(MENU_SEARCH_NODES),
+        },
+    )
+    .ok()
+    .and_then(|tree| {
+        tree.nodes
+            .iter()
+            .find(|node| node.id == current)
+            .map(|node| checked_word(&node.states).unwrap_or("unchecked").to_owned())
+    });
+    Ok(AccessibilityMenuReceipt {
+        mark_before: None,
+        mark_after: after,
     })
 }
 

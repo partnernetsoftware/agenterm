@@ -54,7 +54,7 @@ machine-control
 | 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | **12 个动作全部映射**：mac 全部 live（含新的 `set-selected`/`cancel`/`show-default-ui`）；Linux 与 Windows 九个动作已映射未真机，三个新动作 typed | **无 silent unknown**；不可把可解析误报为已实现 |
 | 关闭环 | `verify`/`wait --expect` · `titleIncludes` · present/absent | `verify`/`wait --expect` · `name`/`titleIncludes` 可无 state；Heading↔WebArea | **对齐**（cu 2026-08-31） |
 | flatten | `elements` / `invoke --index` | `tree --flat` / `invoke --index` | **对齐** |
-| 后台菜单 | `menu inspect`/`menu invoke` path 唯一匹配 | `menu-inspect`/`menu-invoke` mac live；L/W unsupported | **对齐 mac** |
+| 后台菜单 | `menu inspect`/`menu invoke` path 唯一匹配 | **三平台都映射**：mac 问应用要 `AXMenuBar`（live），L/W 在窗口自己的有界树里找 `menu bar` 节点并按标题路径唯一解析（`capabilities` 写 `mode: tree-search`，未真机） | **已对齐**（mac live，L/W mapped） |
 | App-local 焦点 | `focused <pid>` | `focused --window` / `invoke --focused` mac live；**Linux/Windows 已映射**（有界树里最深的 `STATE_FOCUSED` / `HasKeyboardFocus`，`capabilities` 写 `mode: state-search`） | mac live，L/W mapped |
 | 事件 | `observe` AXObserver；`query --watch` | `observe` **两种模式**：默认 poll-diff（每条事件带 `before`/`after`），`--mode notifications` 用 macOS AXObserver（有到达时序，能看见两次遍历之间「改了又改回去」的变化）；`capabilities` 列 `default_mode` + 每模式状态 | **已对齐**（两者互不包含，由调用方选） |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |

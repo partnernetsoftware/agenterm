@@ -951,16 +951,21 @@ fn capabilities_payload() -> serde_json::Value {
                 serde_json::json!({ "status": "unsupported", "reason": reason }),
             ),
         };
-    // The background menu bar is mapped on macOS AX only; elsewhere the
-    // platform answers typed unsupported, and the declaration says so
-    // instead of copying the tree status.
+    // The background menu bar is mapped on all three backends now, by two
+    // different routes: macOS asks the application for its `AXMenuBar`,
+    // while Linux and Windows find the menu-bar node in the window's own
+    // bounded tree. The search route is a weaker claim -- a toolkit that
+    // populates a closed menu lazily publishes nothing to find -- so those
+    // two say which route they took rather than copying the tree status
+    // unqualified.
     let menu_verb = if cfg!(target_os = "macos") {
         tree_verb.clone()
     } else {
-        serde_json::json!({
-            "status": "unsupported",
-            "reason": "background menu-bar mechanisms are mapped on macOS AX only",
-        })
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("mode".into(), serde_json::json!("tree-search"));
+        }
+        declaration
     };
     // The App-local focused control is read three ways: macOS asks the
     // application for its `AXFocusedUIElement`, while Linux and Windows

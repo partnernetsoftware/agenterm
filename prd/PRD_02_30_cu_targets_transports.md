@@ -766,6 +766,23 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
+- [~] background menus on Linux and Windows (cut 3.57), mapped but not
+  journey-proven: both find the `menu bar` node in the window's own
+  bounded tree -- AT-SPI publishes a frame's menu bar and UIA publishes a
+  `MenuBar` element (including the classic Win32 menus the MSAA bridge
+  exposes), so reading one is a walk and a search, with no menu opened on
+  screen and no activation. `menu invoke` resolves every segment of the
+  title path before pressing anything, refusing a missing, duplicated or
+  disabled segment and a non-leaf item with nothing performed, then
+  presses the item's own action -- never a click at its coordinates. A
+  menu-bar item that owns a `menu` child holding the items is matched one
+  level down, because that is how both toolkits nest them. The check mark
+  comes back as the state word the tree already speaks (`checked` /
+  `unchecked` / `mixed`) rather than as a macOS mark character.
+  `capabilities` declares `mode: "tree-search"` on these two: a toolkit
+  that populates a closed menu lazily publishes nothing to find, which is
+  a weaker claim than macOS asking the application for its menu bar, and
+  the declaration must not hide that.
 - [x] `observe --mode notifications` on `current` (cut 3.56, ABI 1.18
   `agt_a11y_observe_window`): the events come from the application's own
   `AXObserver` subscription rather than from the difference between two
