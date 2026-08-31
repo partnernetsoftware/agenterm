@@ -505,6 +505,25 @@
         "task.control-center-smoke"
       ]
     },
+    "cu-macos-pointer-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-macos-pointer-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-pointer-smoke"
+      ]
+    },
     "cu-macos-web-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -2005,6 +2024,24 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-pointer-smoke",
+      "description": "Prove macOS pointer injection, the one capability that is global by definition: capabilities separate the read-only pointer-position from the desktop-scoped pointer-move, pointer-move --to desktop moves the real cursor with an independent read-back confirming it, the cursor is restored to exactly where the user left it and that restore is read back too, and a window-scoped --to, a missing --to and an observe-only grant are all typed refusals that leave the cursor untouched. Nothing is clicked or typed: a global click lands in whatever is frontmost, which a hermetic journey does not own",
+      "entry": "scripts/qjs/cu-macos-pointer-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
       ]
     },
     {

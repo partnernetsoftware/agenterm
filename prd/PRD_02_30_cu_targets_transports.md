@@ -248,6 +248,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── macOS AX background           [x] menu inspect / invoke, focused / invoke --focused, observe (poll-diff) live (cut 3.51, cu-macos-smoke): AXMenuBar walk + AXPress, AXFocusedUIElement; no AXObserver
     ├── macOS AX node text/geometry   [x] get-extents / select / get-selection / set-caret / get-caret live (cut 3.53, cu-macos-smoke): AXPosition+AXSize, AXSelectedTextRange; scroll maps to AXScrollToVisible, which AppKit does not publish
     ├── macOS AX semantic send-keys   [x] enter -> AXConfirm, escape -> AXCancel live (cut 3.53, cu-macos-smoke); every other chord typed: macOS delivers keys only to the active app (measured), and cu never activates
+    ├── macOS input injection         [x] pointer-move / click / type-text / send-keys on the HID tap live (cut 3.53, cu-macos-pointer-smoke); no window-local route exists (measured), so --to <handle> is refused, not approximated
     ├── macOS AX web content          [x] AXWebArea tree, unlock (AXManualAccessibility, ABI 1.15), positive scroll with extents readback, web invoke / verify live (cut 3.53, cu-macos-web-smoke) against an owned WKWebView fixture
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
@@ -765,8 +766,34 @@ Canonical host mapping (approved product vocabulary):
   performs the AX action the chord means and its postcondition advances"
   (2026-08-31) -- the fixture's `NSTextField` action fires and its label
   advances, with the frontmost window and the real pointer unchanged.
-- [ ] macOS pointer *injection* is still unmapped (only the read is wired),
-  so `pointer-move` / `pointer-click` stay typed on this platform.
+- [x] macOS input injection (cut 3.53), the one path here that is global
+  by design. Two measurements decided its shape. **Keys cannot reach an
+  application that is not active**: an accessory app whose window is
+  ordered front reports `keyWindow = no`, and key events posted to its pid
+  never arrive at its `sendEvent:`. **Mouse events posted to a pid do
+  arrive but carry no window**: the same probe sees `LeftMouseDown` /
+  `LeftMouseUp` with the real pointer unmoved, and its button never fires,
+  because AppKit has no window to route through (setting
+  `kCGMouseEventWindowUnderMousePointer` does not change that). There is
+  therefore **no window-local pointer route on macOS**, so
+  `pointer-move --to <handle>` is refused typed rather than approximated
+  by a global move that would aim somewhere else. What is wired is the HID
+  tap: `pointer_move`, `pointer_click` (with the click-state field, so a
+  double click reads as one), `type_text` (Unicode attached to the key
+  event, so it does not depend on the user's layout) and `send_keys`
+  (ANSI physical key positions; a character with no physical key is
+  refused, never guessed). None of the semantic verbs reach this code:
+  `click --node`, `invoke`, `focus` and the rest stay on the accessibility
+  tree and never move the cursor. `capabilities` separates the two --
+  `pointer-position` is `available` with `mode: "read-only"` on every
+  host, and `pointer-move` carries `scope: "desktop"` so a caller cannot
+  read a window-local promise into it. Live evidence:
+  `cu-macos-pointer-smoke` (2026-08-31), 4 STEP / 4 EVIDENCE -- the cursor
+  is moved, read back independently, restored to exactly where the user
+  left it, and that restore is read back too; three typed refusals
+  (window scope, missing `--to`, observe-only grant) each leave it
+  untouched. Nothing is clicked or typed in the journey: a global click
+  lands in whatever is frontmost, which a hermetic journey does not own.
 - [x] web content on `current` through the system AX tree (cut 3.53), with
   its own owned page rather than the user's browser:
   `examples/objc/agenterm_web_fixture.m` is an accessory-policy window

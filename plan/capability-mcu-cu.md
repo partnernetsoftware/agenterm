@@ -35,7 +35,7 @@ machine-control
 │   cu  [✓] window-place（Spectacle+frame）+ close 三件套（mac）
 ├── 局部/全局输入
 │   MCU [✓] --to handle|desktop；--private SkyLight
-│   cu  [~] click/focus/send-text/keys/scroll/pointer-*；pointer-move 强制 `--to desktop`
+│   cu  [✓] 语义刀走 a11y 树永不动指针；全局刀 `pointer-move --to desktop` 有自己的旅程（移动→独立读回→复位）
 ├── shell / PTY / job / process / device / privilege / Simulator
 │   MCU [✓/~] 实验室正殿外
 │   cu  [~] 同名动词 typed unsupported（capabilities 可查）
@@ -59,7 +59,7 @@ machine-control
 | 事件 | `observe` AXObserver；`query --watch` | `observe` poll-diff（明写非 AXObserver） | cu **弱一档** |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
 | 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close`/`displays` live；`orderwin` raise；`spaces` macOS SkyLight 只读 | **orderwin/spaces/displays 无 silent unknown** |
-| 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported`；**mac `send-keys` 是语义映射**（`enter`→AXConfirm、`escape`→AXCancel，其余 typed——macOS 只把键给活跃 App，实测） | 防止漏写目标静默变成全局输入 |
+| 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | **macOS 注入已接**（HID tap：move/click/type/keys；`cu-macos-pointer-smoke` 真机移动+复位）；`--to desktop` 必填且明确全局，**`--to <handle>` typed 拒绝**（macOS 实测没有窗口局部注入）；节点级 `send-keys` 是语义映射（`enter`→AXConfirm） | **已对齐**；语义刀与全局刀分开 |
 | 节点文本/几何 | 无独立动词（`query` 里带 rect） | **七个动词三平台都映射**：`get-extents`（mac AX 真机 / Win BoundingRectangle）、`select`/`get-selection`/`set-caret`/`get-caret`（mac+Linux 活，Win TextPattern 新映射）、`scroll`（mac AXScrollToVisible 网页旅程真机 / Win ScrollItem） | **cu 多一层** |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI；**macOS 被系统拿走**（`CGWindowListCreateImage` 在 15.0 已从 SDK 移除，替代品 ScreenCaptureKit 要另一份 TCC），拒绝理由写明；linux typed | 不退化成整屏抓图 |

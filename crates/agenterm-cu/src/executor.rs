@@ -986,13 +986,44 @@ fn capabilities_payload() -> serde_json::Value {
     } else {
         serde_json::json!({ "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase() })
     };
-    // macOS samples the real pointer read-only (no injection capability);
-    // elsewhere the pointer read follows the input capability.
-    let pointer_position_verb = if cfg!(target_os = "macos") {
-        serde_json::json!({ "status": "available", "mode": "read-only" })
+    // Reading the pointer is an observation on every host, and it stays
+    // available even where injection is not: the read never posts an event,
+    // so it must not be gated behind the injection capability.
+    let pointer_position_verb = serde_json::json!({
+        "status": "available",
+        "mode": "read-only",
+        "group": "pointer",
+    });
+    // Injection is the opposite: it moves the *user's* real cursor or types
+    // into whatever is frontmost, so the declaration says `desktop` scope
+    // out loud. macOS has no window-local pointer route at all -- events
+    // posted to a pid arrive without a window and no view ever sees them --
+    // which is why `pointer-move --to <handle>` is refused rather than
+    // approximated.
+    // The Screenshot capability covers the PNG *writer*, which every host
+    // has. Capturing a window's pixels is a separate mechanism, and macOS
+    // does not have one this build can call: `CGWindowListCreateImage` was
+    // obsoleted in macOS 15.0 and removed from the SDK, and its
+    // replacement needs the Screen Recording grant. Declaring the verb
+    // `available` from the writer's status would promise a capture that
+    // always fails.
+    let screenshot_verb = if cfg!(target_os = "macos") {
+        serde_json::json!({
+            "status": "unsupported",
+            "group": "capture",
+            "reason": "native window capture needs ScreenCaptureKit; CGWindowListCreateImage was obsoleted in macOS 15.0",
+        })
     } else {
-        serde_json::json!({ "status": status(mechanism::Capability::InputInject).to_ascii_lowercase() })
+        serde_json::json!({
+            "status": status(mechanism::Capability::Screenshot).to_ascii_lowercase(),
+            "group": "capture",
+        })
     };
+    let pointer_inject_verb = serde_json::json!({
+        "status": status(mechanism::Capability::InputInject).to_ascii_lowercase(),
+        "scope": "desktop",
+        "group": "pointer",
+    });
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -1050,6 +1081,13 @@ fn capabilities_payload() -> serde_json::Value {
             "spaces": crate::mcu_surface::verb_declaration("spaces"),
             "displays": crate::mcu_surface::verb_declaration("displays"),
             "pointer-position": pointer_position_verb,
+            "pointer-move": pointer_inject_verb,
+            "send-keys": {
+                "status": status(mechanism::Capability::InputInject).to_ascii_lowercase(),
+                "scope": "desktop",
+                "group": "input",
+            },
+            "screenshot": screenshot_verb,
         },
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
         "alignment_tsv": crate::mcu_surface::alignment_matrix_text(),

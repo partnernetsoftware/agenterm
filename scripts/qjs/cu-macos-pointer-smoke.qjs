@@ -1,0 +1,307 @@
+// Prove macOS pointer INJECTION, the one capability whose whole point is
+// that it is global -- and prove it without leaving a trace on the user's
+// desktop.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// Everything else agenterm-cu does on macOS goes through the accessibility
+// tree and never moves the real cursor; the AX journey asserts exactly that
+// around every click. This journey is the deliberate opposite: `pointer-move
+// --to desktop` is the verb an agent uses when it means the desktop, and a
+// verb that moves the user's cursor deserves its own evidence rather than
+// being smuggled into the quiet lane.
+//
+// What macOS allows, measured rather than assumed:
+//   - keys cannot reach an application that is not active (an accessory app
+//     with an ordered-front window reports keyWindow = no, and key events
+//     posted to its pid never arrive at its sendEvent: at all);
+//   - mouse events posted to a pid DO arrive, but carry no window, so no
+//     view ever sees them and the control never fires.
+// There is therefore no window-local pointer route on this platform, and
+// `pointer-move --to <handle>` is refused rather than approximated. What is
+// left is the global HID tap, which this journey exercises.
+//
+// The cursor is put back. The journey reads the real position first, moves
+// it by a small delta, reads it back independently, restores the original
+// position and reads that back too -- so a failure anywhere still leaves
+// the pointer where the user left it, and the restore is asserted, not
+// assumed. Nothing is clicked and nothing is typed: a global click or a
+// global keystroke lands in whatever happens to be frontmost, which a
+// hermetic journey does not own and must not disturb.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.macos-pointer-capabilities",
+  "cu.macos-pointer-move",
+  "cu.macos-pointer-restored",
+  "cu.macos-pointer-refusals"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+// rh's `"" + json_null` is "" while JS's `"" + null` is "null".
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+// Null-safe dotted-path read: a refused reply carries `data: null` while an
+// accepted one carries `error: null`, and reading a property of null traps.
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  return text_of(at(value, dotted));
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(at(value, dotted));
+}
+
+function flag_at(value, dotted) {
+  return at(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+// The audit log (and beside it the receipt file) of this run, never the
+// user's default location.
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+function receipt_file(run_directory) {
+  return rh.join(run_directory, "cu-receipts/current.jsonl");
+}
+
+// One agenterm-cu call whose reply must be `ok: true`.
+function run_cu_json(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  ensure(
+    output.success === true,
+    "cu_macos_smoke_cli_process:" + output.stdout + output.stderr
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_smoke_cli_empty");
+  const document = JSON.parse(trimmed);
+  ensure(
+    flag_at(document, "ok"),
+    "cu_macos_smoke_cli_reply:" + JSON.stringify(document)
+  );
+  return document;
+}
+
+// The text of one fixture node, by AX identifier (which is also its name).
+function node_text(run_directory, executable, handle_text, identifier) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-text",
+    "--window", handle_text, "--name", identifier
+  ]);
+  return text_at(reply, "data.text");
+}
+
+// One agenterm-cu call whose reply is returned as parsed, ok or not.
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_smoke_cli_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+
+
+
+
+
+
+
+
+// The real pointer as [x, y], read without injecting anything.
+function pointer_xy(run_directory, executable) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "pointer-position"
+  ]);
+  const coords = reply.data.coords;
+  ensure(coords.length === 2, "cu_macos_pointer_coords:" + JSON.stringify(reply.data));
+  return coords;
+}
+
+function move_pointer(run_directory, executable, x, y) {
+  return run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "pointer-move",
+    "--to", "desktop", "--x", "" + x, "--y", "" + y
+  ]);
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_macos_pointer_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-macos-pointer");
+const run_directory = rh.join(repo, "target/cu-macos-pointer-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_macos_pointer_stale_directory_locked");
+rh.create_dir_all(run_directory);
+
+let succeeded = 0;
+let failure = "";
+let origin_x = 0;
+let origin_y = 0;
+let moved = 0;
+
+try {
+  print("STEP capabilities separate the read from the injection: pointer-position is read-only, pointer-move is desktop-scoped");
+  const capabilities = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities"
+  ]);
+  ensure(
+    text_at(capabilities, "data.capabilities.input") === "Available"
+      && text_at(capabilities, "data.verbs.pointer-position.status") === "available"
+      && text_at(capabilities, "data.verbs.pointer-position.mode") === "read-only"
+      && text_at(capabilities, "data.verbs.pointer-move.status") === "available"
+      && text_at(capabilities, "data.verbs.pointer-move.scope") === "desktop",
+    "cu_macos_pointer_capabilities:" + JSON.stringify(capabilities.data.verbs)
+  );
+
+  print("STEP pointer-move --to desktop moves the real cursor and an independent read confirms it");
+  const origin = pointer_xy(run_directory, executable);
+  // Index the array directly: the dotted reader walks object keys, and
+  // asking it for "0" quietly yields 0 -- which would make the restore at
+  // the end of this journey put the user's cursor at the origin of the
+  // screen instead of where they left it.
+  origin_x = origin[0];
+  origin_y = origin[1];
+  ensure(
+    origin_x === rh.parse_int("" + origin_x) && origin_y === rh.parse_int("" + origin_y),
+    "cu_macos_pointer_origin_not_integers:" + JSON.stringify(origin)
+  );
+  // A small delta keeps the cursor on whatever display it already sits on,
+  // so this cannot land it somewhere the user cannot reach it.
+  const target_x = origin_x + 7;
+  const target_y = origin_y + 5;
+  const move = move_pointer(run_directory, executable, target_x, target_y);
+  moved = 1;
+  ensure(flag_at(move, "ok"), "cu_macos_pointer_move:" + JSON.stringify(move));
+  const after = pointer_xy(run_directory, executable);
+  // The reply is not the proof; this second, independent read is.
+  ensure(
+    after[0] === target_x && after[1] === target_y,
+    "cu_macos_pointer_moved_to:" + JSON.stringify(after) + " wanted " + target_x + "," + target_y
+  );
+
+  print("STEP the cursor is put back exactly where the user left it, and that is read back too");
+  const restore = move_pointer(run_directory, executable, origin_x, origin_y);
+  ensure(flag_at(restore, "ok"), "cu_macos_pointer_restore:" + JSON.stringify(restore));
+  const restored = pointer_xy(run_directory, executable);
+  ensure(
+    restored[0] === origin_x && restored[1] === origin_y,
+    "cu_macos_pointer_restored:" + JSON.stringify(restored) + " wanted " + origin_x + "," + origin_y
+  );
+  moved = 0;
+
+  print("STEP a window-scoped pointer target is refused rather than approximated, and the verb refuses a missing --to");
+  // macOS has no window-local pointer route: events posted to a pid arrive
+  // without a window and no view sees them. Answering `--to <handle>` with
+  // a global move would silently aim somewhere else.
+  const window_scoped = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "pointer-move",
+    "--to", "App#1", "--x", "" + origin_x, "--y", "" + origin_y
+  ]);
+  ensure(
+    !flag_at(window_scoped, "ok") && text_at(window_scoped, "error.code") === "usage",
+    "cu_macos_pointer_window_scope:" + JSON.stringify(window_scoped)
+  );
+  const no_target = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "pointer-move",
+    "--x", "" + origin_x, "--y", "" + origin_y
+  ]);
+  ensure(
+    !flag_at(no_target, "ok") && text_at(no_target, "error.code") === "usage",
+    "cu_macos_pointer_no_target:" + JSON.stringify(no_target)
+  );
+  // Injection is actuation: an observe-only grant cannot move the cursor.
+  const observe_only = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "pointer-move",
+    "--to", "desktop", "--x", "" + origin_x, "--y", "" + origin_y
+  ]);
+  ensure(
+    !flag_at(observe_only, "ok") && text_at(observe_only, "error.code") === "refused",
+    "cu_macos_pointer_observe_grant:" + JSON.stringify(observe_only)
+  );
+  const still_home = pointer_xy(run_directory, executable);
+  ensure(
+    still_home[0] === origin_x && still_home[1] === origin_y,
+    "cu_macos_pointer_refusals_moved_it:" + JSON.stringify(still_home)
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+// The cursor belongs to the user: put it back even when an assertion threw
+// between the move and the restore. Only a real origin is worth restoring
+// to -- a zero here would move the cursor to the corner of the screen and
+// call it cleanup.
+if (moved !== 0 && (origin_x !== 0 || origin_y !== 0)) {
+  rh.command(
+    executable,
+    [
+      "--target", "current", "--grant", "observe,actuate", "pointer-move",
+      "--to", "desktop", "--x", "" + origin_x, "--y", "" + origin_y
+    ],
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+}
+
+if (succeeded === 0) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_macos_pointer_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_macos_pointer_cleanup_locked");
+harness.emit_evidence(context, declared_evidence, "cu.macos-pointer-capabilities");
+harness.emit_evidence(context, declared_evidence, "cu.macos-pointer-move");
+harness.emit_evidence(context, declared_evidence, "cu.macos-pointer-restored");
+harness.emit_evidence(context, declared_evidence, "cu.macos-pointer-refusals");
+harness.remove_run(context);
+print("PASS: agenterm-cu macOS pointer injection journey (desktop-scoped move, independent read-back, cursor restored, typed refusals)");
+return;
