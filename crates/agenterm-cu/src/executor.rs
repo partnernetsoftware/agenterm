@@ -1153,7 +1153,8 @@ fn windows_payload(
         return Ok(rows);
     }
     let (hits, counts) = observe::inventory(&windows, &filter, page);
-    let rows = serde_json::Value::Array(hits.iter().copied().map(observe::window_row_json).collect());
+    let rows =
+        serde_json::Value::Array(hits.iter().copied().map(observe::window_row_json).collect());
     Ok(serde_json::json!({
         "mechanism": "libagenterm",
         "filter": {

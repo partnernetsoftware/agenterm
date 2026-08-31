@@ -423,9 +423,9 @@ pub fn parse_window_token(raw: &str) -> Result<isize, String> {
     if app.trim().is_empty() {
         return Err("--window App#N needs a non-empty app name".to_owned());
     }
-    let handle: isize = number.parse().map_err(|_| {
-        format!("--window value {raw:?} is not a handle N or MCU App#N")
-    })?;
+    let handle: isize = number
+        .parse()
+        .map_err(|_| format!("--window value {raw:?} is not a handle N or MCU App#N"))?;
     if handle == 0 {
         return Err("--window handle must be non-zero".to_owned());
     }
