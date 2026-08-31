@@ -302,6 +302,32 @@ macOS 旅程（28 STEP / 27 EVIDENCE）在这些改动之后全绿——那才�
 > 这条是「读回」这个纪律本身的回报：动词没变强，但**它不再说假话**，而且我们第一次
 > 知道 macOS 这条路走不通——之前两个平台的成功回复都是假的。
 
+## 5. 片 U/V：把剩下的 Linux 动词逐个跑一遍（2026-09-01）
+
+**片 U：`window-place` / `apps --all` / `app launch` / `minimized`。**
+
+| 症状 | 根因 | 现在 |
+|---|---|---|
+| `window-place` 对**每一个** Linux 窗口都 `window_role_refused` | 适配器把 role 写死成 `Unknown`，注释说「拿不到稳定的 XID→AT-SPI role 连接」。但根本不需要 AT-SPI：`_NET_WM_WINDOW_TYPE` 就是工具包自己发布的一等 EWMH 属性，和 macOS 读 `AXSubrole` 问的是同一个问题 | 按最优先在前读该属性；属性缺失时按 EWMH 自己的规定判（有 `WM_TRANSIENT_FOR` 是对话框、没有是普通窗口）；不认识的类型是 `Other`，**不**允许摆放 |
+| 摆放回读的 x/y 恒为 `(1, 20)` | `window_rect` 用裸 `GetGeometry`，它答的是**父窗口**坐标系；重父 WM 的父窗口就是它自己的标题栏框架。另外四个 Linux 读点早就 `translate_coordinates` 到 root 了，只有这个没有 | 一并 translate，回读与 inventory 完全一致 |
+| 请求 400,300，窗口落在 401,320 | ConfigureRequest 按默认 NorthWest gravity 说的是**框架**放哪，而所有读点报的是客户端矩形，于是回读永远不可能等于请求 | `move_window` 先减掉窗口自己的 `_NET_FRAME_EXTENTS`（属性缺失＝无 WM 或无装饰＝0，不是错误）。实测请求 500,350 与 260,140，落点分毫不差 |
+| `apps --all` 在 Linux 上什么都列不出来 | 适配器是个 typed stub，注释里写明了该建什么：XDG desktop-entry 目录 + `Exec=` 行 | 建了。按 `XDG_DATA_HOME` → `XDG_DATA_DIRS` 优先序、以 entry id 去重（用户自己的条目盖过系统的）；只读 `[Desktop Entry]` 组，免得把某个 action 组的 `Name` 当成应用的；只要 `Type=Application`；丢掉 `Hidden` / `NoDisplay`。**`$PATH` 上没有 desktop entry 的裸可执行文件故意不列**——它没有显示名，用文件名编一个就是往「给调用方按名字匹配的清单」里塞猜测 |
+| — | `launch` 直接跑 `Exec` 的 token（不过 shell），字段码 `%f`/`%U`/`%i` 丢掉而不是当字面量传进去；`Terminal=true` 是**那个条目**的性质而不是宿主缺机制，所以是 `app_launch_needs_terminal`（code 加进了 ABI 白名单，不再被拍成通用失败） | 实测：列出 4 个已安装应用、`Terminal=true` 条目按名拒绝、GUI 条目起来并出窗口 |
+| `minimized` **永远是 false**，`windows --minimized true` 永远匹配 0 条 | 字段写死 `false`，而且 `enumerate_top_level` 把所有非 VIEWABLE 的窗口直接跳过——**正好就是这个字段存在的意义所指的那些窗口** | 读 `_NET_WM_STATE_HIDDEN`（WM 自己的答案，不是从几何猜的）；被收起但仍被管理的窗口留在 inventory 里，和 macOS 列自己最小化的窗口一样。实测：图标化后仍在列、`minimized: true`、**在 z 序里没有位置**（`z_index: None`），过滤器命中，重新映射后两者都恢复 |
+
+顺带：`apps --all` 现在报 `running_match`。那个 `running` 字段是**按名字连接**的：macOS 上精确（bundle 名就是窗口 inventory 报的名），Linux 上弱（desktop entry 的 `Name` 是显示名，窗口报的是可执行文件名，用解释器起的应用报 `python3`，任何名字连接都看不穿）。所以 `false` 的意思是「没有正在运行的窗口报这个名字」——那才是量到的东西。
+
+**片 V：拒绝理由一直被丢掉。** 适配器为「这台机器做不到什么」写了很具体的理由，
+而 **ABI 把它们全部丢弃**：`AGT_UNSUPPORTED` 按约定不记录任何东西，于是它的
+**69 个返回点对调用方是同一句话**。一个把「typed 拒绝必须点名缺失的机制」当作纪律的项目，
+在这一整类拒绝里一次都没有点名。`unsupported_because` 以 code `unsupported` 记下理由再返回同一个
+status（纯增量：不看错误槽的调用方看到的和以前一样），接进了大部分无障碍面共用的
+`map_a11y_error` 和两个 app-inventory 导出；cu 只在**记录的 code 是 `unsupported`
+且记录的 operation 正是它刚调的那个**时才采信，否则退回通用句——槽里的别的东西是上一次调用的残留。
+实测：`app hide` 与 `unlock` 现在各自答出「AT-SPI2 没有应用级隐藏状态」「Linux 工具包不需要客户端 poke」。
+
+剩下的 `AGT_UNSUPPORTED` 点是能力门（手上只有 capability status、没有适配器写的理由），仍然答通用句。
+
 ### 还剩什么（2026-09-01，本轮结束时）
 
 | 项 | 为什么还在 |
@@ -310,7 +336,10 @@ macOS 旅程（28 STEP / 27 EVIDENCE）在这些改动之后全绿——那才�
 从 `pressed 0` 变 `pressed 1`；`set-checked true` performed+verified、再来一次 performed=false
 仍 verified、`false` 又变回来；`focus`/`focused`/`get-text`/`query --role` 都通；`windows` 的
 `z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下）。**片 S 再加菜单栏**，把后台菜单和树几何也真跑了：**又抓到六个**（见 §3）——盲写的片 J 没有一条是对的 |
-| Windows **真机证据** | 本仓没有那台机器，也没有可跑的模拟路径。映射交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 写 `[~] mapped` |
+| Windows **真机证据** | 本仓没有那台机器，也没有可跑的模拟路径。映射交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 写 `[~] mapped`。**Linux 一跑就出了 16 个 bug，其中 3 个让整个动词不可用**——所以对 Windows 这一侧应当按「未验证」理解，而不是「接近对齐」 |
+| macOS `orderwin` | `AXRaise` 是应用内排序，对不在前台的应用改不了全局 z 序（实测 z=1 请求到最前变成 z=2）。cu 不会为此激活应用，所以带着实测值 typed 拒绝 |
+| Linux `app hide` / `show` | AT-SPI2 没有应用级隐藏状态。用「逐个窗口图标化」冒充它是**另一个动作套同一个名字**，不做；理由现在如实传到调用方 |
+| Linux `send-keys` | 节点不发布 AT-SPI `DeviceEventListener`，typed 拒绝 |
 | macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
 | 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
 | ~~`apps --all` + `app launch`~~ | **已做（片 P）**。`launch` 用 `LSOpenCFURLRef`（不是 `open -a`，也不是 shell），**回复明说 `pid: null`**——进程归 launcher 管，这个调用没法知道 pid、也没法知道 App 是否真的起来了；要 pid 就等窗口 |

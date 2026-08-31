@@ -858,23 +858,47 @@ Canonical host mapping (approved product vocabulary):
   code 0.
 - [x] `apps --all` and `app launch` (cut 3.60, ABI 1.21
   `agt_app_list_installed` / `agt_app_launch`), which complete the
-  app-lifecycle family. `apps --all` scans the host's application
+  app-lifecycle family. On macOS `apps --all` scans the host's application
   directories (`/Applications`, `/System/Applications` and their
   `Utilities`, and the user's own `~/Applications` -- nothing else, so it
-  never walks the disk) and marks each row `running` by joining against
-  the window inventory, so "installed but not running" is one read rather
-  than two lists the caller joins. `installed_available: false` says the
-  host cannot enumerate installed applications, which is not the same as
-  having none.
+  never walks the disk). On Linux (cut 3.58) it reads the XDG
+  desktop-entry directories, `XDG_DATA_HOME` before `XDG_DATA_DIRS` and
+  keyed by entry id so a user's own entry overrides the system one; only
+  the `[Desktop Entry]` group counts, so an action group's `Name` cannot
+  be mistaken for the application's; only `Type=Application` is listed,
+  and `Hidden` / `NoDisplay` entries are not, because they exist without
+  being something a person picks. A bare executable on `$PATH` with no
+  desktop entry is deliberately absent: it has no display name, and
+  inventing one from a filename would put guesses in a listing callers
+  match names against.
+  Each row is marked `running` by joining against the window inventory, so
+  "installed but not running" is one read rather than two lists the caller
+  joins, and the reply names that join (`running_match:
+  "window-app-name"`): it is exact on macOS, where the bundle name is what
+  the window inventory reports, and weaker on Linux, where an application
+  started through an interpreter reports `python3`. `false` therefore
+  means "no running window reports this name", which is what was measured.
+  `installed_available: false` says the host cannot enumerate installed
+  applications at all, which is not the same as having none.
   `app launch --path P` opens the bundle through LaunchServices
   (`LSOpenCFURLRef`, which unlike the window-capture API is still
-  available on macOS 15). **The reply says `requested: true` and
+  available on macOS 15); on Linux it runs the desktop entry's `Exec`
+  tokens directly rather than through a shell, with the field codes
+  (`%f` / `%U` / `%i` / ...) dropped rather than passed through as literal
+  arguments, and refuses an entry with `Terminal=true` as
+  `app_launch_needs_terminal` -- which terminal emulator to use is the
+  desktop's policy, and that is a property of the entry rather than an
+  absent mechanism, so it must not read as "this host cannot launch".
+  **The reply says `requested: true` and
   `pid: null`, and names why**: the launcher service owns the process it
   starts, so this call cannot know a pid or whether the application came
   up. The caller watches for the window, which is also the only evidence
   it really started. That is the honest form of the trap recorded in slice
   1 -- `open -a` hands the pid away -- rather than an attempt to work
   around it.
+  Linux live evidence (2026-09-01, Ubuntu aarch64): four installed
+  applications listed, an entry with `Terminal=true` refused by name, and
+  a GUI entry launched with its window appearing in the inventory.
   Live evidence: `cu-macos-smoke` STEP "apps --all lists installed
   applications a window cannot reveal, and app launch starts one this run
   owns; its window appears and app quit ends it" (2026-09-01) -- 83
@@ -883,6 +907,29 @@ Canonical host mapping (approved product vocabulary):
   (waiting by title would have matched the fixture already running and
   proven nothing), and quit through `AgentermFixture/Quit
   AgentermFixture` with the process gone.
+- [x] `minimized` is a reading on Linux too (cut 3.58). It was hardcoded
+  `false`, and `enumerate_top_level` skipped every window that was not
+  `VIEWABLE` -- which is exactly the iconified ones the field exists to
+  describe, so it could never be true and `windows --minimized true` could
+  never match. It now comes from `_NET_WM_STATE_HIDDEN`, the window
+  manager's own answer rather than a guess from geometry, and a
+  hidden-but-managed window stays in the inventory the way macOS lists its
+  minimized ones. Such a window has no place in the stacking order, so it
+  carries no `z_index`, which is the honest shape rather than z-index 0.
+  Live: iconifying a window leaves it listed with `minimized: true` and no
+  `z_index`, the filter matches it, and remapping restores both.
+- [x] a refusal names what is missing (cut 3.58). `AGT_UNSUPPORTED`
+  recorded nothing by convention, so all 69 of its return sites produced
+  one sentence -- "mechanism unavailable on this host" -- for every
+  distinct reason the adapters had written. `unsupported_because` records
+  the adapter's own reason under code `unsupported` and returns the same
+  status, which is additive; cu uses it only when the recorded code and
+  operation match the call it just made, since anything else in the slot
+  is a leftover. Live: `app hide` answers "AT-SPI2 has no
+  application-level hidden state; hiding is a window-manager operation
+  here" and `unlock` answers "Linux toolkits build their AT-SPI tree
+  without a client poke". Availability gates that hold only a capability
+  status still answer generically.
 - [x] each `windows` row names the managed Spaces it sits on (cut 3.58,
   macOS SkyLight `SLSCopySpacesForWindows`, read-only). The Space
   *inventory* says which Spaces exist; this says where a given window
