@@ -2000,7 +2000,7 @@ async fn read_node(
 ) -> AccessibilityNode {
     let role = role_name(proxy).await;
     let name = proxy.name().await.unwrap_or_default();
-    let states = states_from_proxy(proxy).await;
+    let states = states_from_proxy_with_role(proxy, &role).await;
     // Stay off Component/Action/`proxies()` during snapshot — WebKitGTK
     // hangs those. GetText on an entry/text/editable node is bounded
     // (ACTION_TIMEOUT) so `cu tree` can show what EditableText wrote.
@@ -2100,10 +2100,15 @@ fn atspi_role_label(role: Role) -> String {
 }
 
 async fn states_from_proxy(proxy: &AccessibleProxy<'_>) -> Vec<String> {
+    let role = role_name(proxy).await;
+    states_from_proxy_with_role(proxy, &role).await
+}
+
+async fn states_from_proxy_with_role(proxy: &AccessibleProxy<'_>, role: &str) -> Vec<String> {
     proxy
         .get_state()
         .await
-        .map(state_labels)
+        .map(|state| state_labels_for_role(state, role))
         .unwrap_or_default()
 }
 
@@ -2123,14 +2128,37 @@ async fn wait_until_focused(proxy: &AccessibleProxy<'_>) {
     }
 }
 
-fn state_labels(state: StateSet) -> Vec<String> {
+/// The state words, completed using the node's role as well as its states.
+///
+/// The role matters because GTK's AT-SPI **does not publish
+/// `STATE_CHECKABLE` on a check box** -- measured against a live GTK3
+/// widget tree, where an unchecked box reports only
+/// `enabled,focusable,sensitive,showing,visible`. Keying the two-way
+/// completion on `checkable` alone therefore never fired, and
+/// `set-checked` refused every GTK checkbox as having no readable state.
+/// The role vocabulary is the signal that survives: a check box has a
+/// check state whether or not the toolkit says so separately.
+fn state_labels_for_role(state: StateSet, role: &str) -> Vec<String> {
     let mut labels: Vec<String> = state
         .iter()
         .map(|value| format!("{value:?}"))
         .map(|label| label.to_ascii_lowercase())
         .collect();
-    complete_two_way_states(&mut labels);
+    complete_two_way_states(&mut labels, role);
     labels
+}
+
+/// Roles whose whole purpose is a two-state check mark.
+fn role_is_checkable(role: &str) -> bool {
+    matches!(
+        role,
+        "check box" | "radio button" | "check menu item" | "radio menu item" | "toggle button"
+    )
+}
+
+/// Roles that expand and collapse.
+fn role_is_expandable(role: &str) -> bool {
+    matches!(role, "combo box" | "tree item" | "list item" | "menu")
 }
 
 /// AT-SPI publishes only the states that are *set*, so a checkbox that is
@@ -2141,16 +2169,19 @@ fn state_labels(state: StateSet) -> Vec<String> {
 /// `checkable` gives `checked` / `unchecked` / `mixed` and `expandable`
 /// gives `expanded` / `collapsed`. Same vocabulary as the macOS AX and
 /// Windows UIA adapters.
-fn complete_two_way_states(labels: &mut Vec<String>) {
+fn complete_two_way_states(labels: &mut Vec<String>, role: &str) {
     let has = |labels: &Vec<String>, word: &str| labels.iter().any(|label| label == word);
-    if has(labels, "checkable") && !has(labels, "mixed") {
+    if (has(labels, "checkable") || role_is_checkable(role)) && !has(labels, "mixed") {
         if has(labels, "indeterminate") {
             labels.push("mixed".to_owned());
         } else if !has(labels, "checked") {
             labels.push("unchecked".to_owned());
         }
     }
-    if has(labels, "expandable") && !has(labels, "expanded") && !has(labels, "collapsed") {
+    if (has(labels, "expandable") || role_is_expandable(role))
+        && !has(labels, "expanded")
+        && !has(labels, "collapsed")
+    {
         labels.push("collapsed".to_owned());
     }
     if has(labels, "selectable") && !has(labels, "selected") {
@@ -3601,33 +3632,54 @@ mod tests {
         // box carries `checkable` alone. Without the negative word a
         // caller cannot tell "off" from "no check state here".
         let mut off = labels(&["enabled", "checkable", "showing"]);
-        complete_two_way_states(&mut off);
+        complete_two_way_states(&mut off, "");
         assert!(off.contains(&"unchecked".to_owned()));
         assert_eq!(checked_word(&off), Some("unchecked"));
 
         let mut on = labels(&["checkable", "checked"]);
-        complete_two_way_states(&mut on);
+        complete_two_way_states(&mut on, "");
         assert!(!on.contains(&"unchecked".to_owned()));
         assert_eq!(checked_word(&on), Some("checked"));
 
         let mut mixed = labels(&["checkable", "indeterminate"]);
-        complete_two_way_states(&mut mixed);
+        complete_two_way_states(&mut mixed, "");
         assert_eq!(checked_word(&mixed), Some("mixed"));
 
         let mut collapsed = labels(&["expandable"]);
-        complete_two_way_states(&mut collapsed);
+        complete_two_way_states(&mut collapsed, "");
         assert_eq!(expanded_word(&collapsed), Some("collapsed"));
 
         let mut unselected = labels(&["selectable", "showing"]);
-        complete_two_way_states(&mut unselected);
+        complete_two_way_states(&mut unselected, "");
         assert!(unselected.contains(&"unselected".to_owned()));
         let mut selected = labels(&["selectable", "selected"]);
-        complete_two_way_states(&mut selected);
+        complete_two_way_states(&mut selected, "");
         assert!(!selected.contains(&"unselected".to_owned()));
 
         let mut open = labels(&["expandable", "expanded"]);
-        complete_two_way_states(&mut open);
+        complete_two_way_states(&mut open, "");
         assert_eq!(expanded_word(&open), Some("expanded"));
+    }
+
+    #[test]
+    fn a_checkable_role_carries_a_check_state_even_when_the_toolkit_is_silent() {
+        // GTK's AT-SPI publishes no STATE_CHECKABLE on a check box --
+        // measured against a live GTK3 tree, where an unchecked box reports
+        // only enabled/focusable/sensitive/showing/visible. Without the
+        // role as a second signal, `set-checked` refused every GTK
+        // checkbox as having no readable state.
+        let mut gtk_box = labels(&["enabled", "focusable", "sensitive", "showing", "visible"]);
+        complete_two_way_states(&mut gtk_box, "check box");
+        assert_eq!(checked_word(&gtk_box), Some("unchecked"));
+
+        let mut ticked = labels(&["enabled", "checked", "showing"]);
+        complete_two_way_states(&mut ticked, "radio button");
+        assert_eq!(checked_word(&ticked), Some("checked"));
+
+        // The role has to earn it: a plain button gains nothing.
+        let mut button = labels(&["enabled", "focusable", "showing"]);
+        complete_two_way_states(&mut button, "button");
+        assert_eq!(checked_word(&button), None);
     }
 
     #[test]
@@ -3636,7 +3688,7 @@ mod tests {
         // `unchecked` for it would make `verify --expect checked:false`
         // pass against a control that has no such state.
         let mut plain = labels(&["enabled", "focusable", "showing", "visible"]);
-        complete_two_way_states(&mut plain);
+        complete_two_way_states(&mut plain, "");
         assert_eq!(plain.len(), 4);
         assert_eq!(checked_word(&plain), None);
         assert_eq!(expanded_word(&plain), None);

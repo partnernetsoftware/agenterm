@@ -600,6 +600,32 @@ Canonical host mapping (approved product vocabulary):
   The same hole was in the stacking and screen probes; all three now read
   an empty list as an empty list.
 
+- [x] Linux AT-SPI actuation is **live** (cut 3.62), against a GTK3 widget
+  tree in the lima guest (Xvfb + at-spi2 + openbox + a PyGObject fixture):
+  `tree` returns `backend: "at-spi2"` with the application, frame, label,
+  entry, check box and button; `windows` returns the frame with its
+  `z_index` and `occluded_percent` from `_NET_CLIENT_LIST_STACKING`;
+  `query --role` matches; `invoke press` fires the button and the count
+  label advances `pressed 0` -> `pressed 1`; `invoke set-checked true`
+  reports performed and verified and the box reads back `checked`, the
+  repeat performs nothing and still verifies, and `set-checked false`
+  returns it; `focus` moves the first responder and `focused` finds it;
+  `get-text` reads the entry.
+  **Two defects had to be fixed to get there, and neither was visible
+  without a real toolkit.** `invoke` was unreachable on Linux entirely:
+  cu refuses to press an action a node does not list, but the AT-SPI
+  walker deliberately never reads action names (WebKitGTK hangs
+  `GetActions`), so every Linux node reported `actions: []` and the guard
+  read "not asked" as "offers nothing". The guard now applies only where
+  an empty list is a claim; elsewhere the mechanism judges, one round trip
+  later and honestly. And GTK **does not publish `STATE_CHECKABLE` on a
+  check box** -- an unchecked box reports only
+  `enabled,focusable,sensitive,showing,visible` -- so keying the two-way
+  completion on `checkable` never fired and `set-checked` refused every
+  GTK checkbox as unobservable. The role vocabulary is the signal that
+  survives, and it has to earn it: a plain button still gains no check
+  state.
+
 **Windows — native API + UIA**
 
 - [~] Windows `current` now reaches the UIA accessibility facade through the

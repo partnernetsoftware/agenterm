@@ -4304,7 +4304,23 @@ fn invoke_payload(
             hit.node.clone()
         }
     };
+    // Refuse to press what the node does not offer -- but only where an
+    // empty action list is a *claim*. The contract says an empty list means
+    // the backend reported none and never that it was not asked; the AT-SPI
+    // adapter breaks that on purpose, skipping Action during the walk
+    // because WebKitGTK hangs `GetActions`. So on that backend every node
+    // reports no actions, and this guard refused `invoke press` on a live
+    // GTK button -- measured against a real widget tree, where the whole
+    // verb was unreachable through name addressing.
+    //
+    // Where the walk does not read action names, the mechanism judges
+    // instead: it asks the node itself and fails typed
+    // (`a11y_action_unavailable`) if the action is missing. That is one
+    // round trip later than this check, and honest, which this check was
+    // not.
+    let backend_publishes_actions = before.backend != "at-spi2";
     if let Some(required) = required_node_action(action)
+        && backend_publishes_actions
         && !target
             .actions
             .iter()

@@ -63,6 +63,7 @@ instead"）。替代品 ScreenCaptureKit 是 block 异步 API，且要另一份 
 | **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
 | **F** | 网页 AX：`unlock`（`AXManualAccessibility` poke，ABI 1.15）+ 自有 `WKWebView` 固件 + `scroll` 正向证据 | `cu-macos-web-smoke.qjs` 真机通过 |
+| **R** | 在 guest 里接上真的 GTK3 树（Xvfb+at-spi2+openbox+PyGObject 固件），把节点动作跑通 | `invoke press`/`set-checked`/`focus`/`focused`/`get-text`/`query` 全部真机通过；抓到 2 个 bug |
 | **Q** | 在 lima Ubuntu 26.04 aarch64 上**真跑** Linux 二进制（zig cc 交叉链接，VM 里不装 Rust） | 105 条平台单测在 Linux 执行通过；Xvfb+at-spi2 下 `capabilities` Available、`displays` 读出真实分辨率；抓到 3 个 bug |
 | **P** | `apps --all` + `app launch`（ABI 1.21；LaunchServices，不假装有 pid） | `cu-macos-smoke` 28 STEP / 27 EVIDENCE 真机通过 |
 | **O** | `app hide/show/quit`（ABI 1.20；`quit` 走应用自己的 Quit 菜单项 + `close` 那套三件套） | `cu-macos-smoke` 27 STEP / 26 EVIDENCE 真机通过 |
@@ -118,6 +119,20 @@ clippy 全绿的代码里的：
    **零个窗口时 `cap < required` 是 `0 < 0`，ABI 回的是 `AGT_OK`**，cu 把它当成
    `unexpected_status` 报错。macOS 上永远有窗口，所以永远碰不到。三个 list 探针
    （`windows` / `stacking` / `screens`）都有同一个洞，一起修了。
+
+### 片 R：接上真的 GTK 树，`invoke` 在 Linux 上原来根本走不通
+
+4. **`invoke` 在 Linux 上完全不可达。** cu 在按之前要求节点**列出**这个动作，
+   而 AT-SPI 的 walk **故意不读 action 名字**（WebKitGTK 的 `GetActions` 会挂），
+   于是每个 Linux 节点都 `actions: []`，守卫把「没问过」当成了「没有」。
+   契约里明写「空列表表示后端报告了没有，绝不表示没问」——**是 Linux 适配器违反了契约**。
+   现在守卫只在空列表确实是一个断言的后端上生效；其余交给机制自己判（它会 `GetActions`
+   再 typed 失败），晚一个来回，但诚实。
+5. **GTK 的复选框不发布 `STATE_CHECKABLE`。** 真机上一个没勾的复选框只报
+   `enabled,focusable,sensitive,showing,visible`。我的两向补全键在 `checkable` 上，
+   所以从不触发，`set-checked` 把每个 GTK 复选框都拒成「状态不可观测」。
+   改成**角色词汇**也算信号（`check box`/`radio button`/…），并且角色必须够格——
+   普通 button 仍然一个状态词都不加（有单测钉住）。
 
 ### 片 B 的纪律：手写 vtable 必须钉槽位
 
@@ -225,7 +240,10 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 
 | 项 | 为什么还在 |
 |---|---|
-| Linux **真机**（片 Q，2026-09-01） | **跑起来了**：本机有 lima VM + `zig cc` 能交叉链接，于是把 Linux 二进制在 Ubuntu 26.04 aarch64 上**真跑**。105 条平台单测在 Linux 上执行通过；起了 Xvfb + at-spi2 + dbus 之后 `capabilities` 报 `tree/windows: Available`、`displays` 读出真实的 1280x800。**代价是抓出三个只有真跑才会现形的 bug**（见下）。仍缺：AT-SPI 上没有 toolkit 应用，所以 `tree` 只证明了「连上注册表并走了一圈」，没证明节点动作 |
+| ~~Linux **真机**~~ **已做**（片 Q/R） | **跑起来了**：本机有 lima VM + `zig cc` 能交叉链接，于是把 Linux 二进制在 Ubuntu 26.04 aarch64 上**真跑**。105 条平台单测在 Linux 上执行通过；起了 Xvfb + at-spi2 + dbus 之后 `capabilities` 报 `tree/windows: Available`、`displays` 读出真实的 1280x800。**代价是抓出三个只有真跑才会现形的 bug**（见下）。**片 R 又装了 openbox + PyGObject 固件**，于是节点动作也真跑了：`invoke press` 让计数标签
+从 `pressed 0` 变 `pressed 1`；`set-checked true` performed+verified、再来一次 performed=false
+仍 verified、`false` 又变回来；`focus`/`focused`/`get-text`/`query --role` 都通；`windows` 的
+`z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下） |
 | Windows **真机证据** | 本仓没有那台机器，也没有可跑的模拟路径。映射交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 写 `[~] mapped` |
 | macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
 | 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
