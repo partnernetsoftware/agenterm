@@ -1892,11 +1892,46 @@ fn read_node(index: usize, with_identifier: bool) -> Result<A11yNode, MechanismE
     let f = call_sym::<TreeNode>(b"agt_a11y_tree_node")?;
     let status = unsafe { f(index, &mut record) };
     map_status("agt_a11y_tree_node", status)?;
-    let id = fixed_field(&record.id, record.id_len);
-    let parent_id = if record.has_parent != 0 {
-        Some(fixed_field(&record.parent_id, record.parent_id_len))
+    // The record's `id` / `parent_id` are fixed 64-byte arrays. A
+    // truncated id is not a shortened id, it is a **wrong** one: two nodes
+    // whose ids agree in the first 64 bytes become the same node, and a
+    // node can become its own parent. Measured on Windows, where a UI
+    // Automation runtime path is long: six non-client elements collapsed
+    // onto one id, five of them self-parented, and the menu flattening
+    // then walked that cycle to 2 GB. Read the whole id through the
+    // two-stage string reader where the loaded library can supply it.
+    let whole_ids = loaded_abi_version()
+        .map(|(major, minor)| major == 1 && minor >= dynlib::NODE_ID_STRING_ABI_MINOR)
+        .unwrap_or(false);
+    let id = if whole_ids {
+        read_node_string(index, dynlib::AGT_A11Y_STR_ID)?
+    } else if record.id_truncated != 0 {
+        // An older library cannot hand back the rest, and guessing would
+        // hand back a collision. Refuse instead of addressing the wrong
+        // node later.
+        return Err(MechanismError::Failed {
+            code: "a11y_node_id_truncated".into(),
+            message: format!(
+                "node {index}'s id does not fit the {} -byte record and this library is too old to send the rest; upgrade libagenterm to ABI 1.{}",
+                record.id.len(),
+                dynlib::NODE_ID_STRING_ABI_MINOR
+            ),
+        });
     } else {
+        fixed_field(&record.id, record.id_len)
+    };
+    let parent_id = if record.has_parent == 0 {
         None
+    } else if whole_ids {
+        let parent = read_node_string(index, dynlib::AGT_A11Y_STR_PARENT_ID)?;
+        if parent.is_empty() { None } else { Some(parent) }
+    } else if record.parent_id_truncated != 0 {
+        return Err(MechanismError::Failed {
+            code: "a11y_node_id_truncated".into(),
+            message: format!("node {index}'s parent id is truncated; upgrade libagenterm"),
+        });
+    } else {
+        Some(fixed_field(&record.parent_id, record.parent_id_len))
     };
     let role = read_node_string(index, dynlib::AGT_A11Y_STR_ROLE)?;
     let name = read_node_string(index, dynlib::AGT_A11Y_STR_NAME)?;

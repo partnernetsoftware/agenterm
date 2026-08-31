@@ -1574,6 +1574,25 @@
       "evidence": [
         "task.cu-linux-smoke"
       ]
+    },
+    "cu-windows-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-windows-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-smoke"
+      ]
     }
   },
   "tasks": [
@@ -2058,6 +2077,26 @@
       "dependencies": [],
       "platforms": [
         "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-smoke",
+      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and a typed refusal without a grant, an owned WinForms fixture resolved by pid and exact title, a bounded tree with real rectangles and a menu bar, query, invoke press and an idempotent set-checked, menu inspect that terminates, focused, window-place refused without actuate then read back from the inventory, a screenshot sized to the window, the destructive close gate on a second window, and no orphan.",
+      "entry": "scripts/qjs/cu-windows-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
       ],
       "side_effects": [
         "artifact_write",

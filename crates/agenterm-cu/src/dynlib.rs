@@ -208,6 +208,11 @@ pub const AGT_A11Y_STR_TEXT: i32 = 2;
 pub const AGT_A11Y_STR_STATES: i32 = 3;
 /// ABI 1.12: toolkit identifier (macOS `AXIdentifier`); empty when absent.
 pub const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
+/// ABI 1.22: the node's own id and its parent's, read without the 64-byte
+/// cap the `agt_a11y_node` record carries. A truncated id is a *wrong* id,
+/// not a short one: two nodes sharing the first 64 bytes become one.
+pub const AGT_A11Y_STR_ID: i32 = 5;
+pub const AGT_A11Y_STR_PARENT_ID: i32 = 6;
 
 /// `agt_a11y_tree_snapshot_bounded` sentinels: keep the adapter default.
 pub const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
@@ -271,6 +276,8 @@ pub const WINDOW_STACKING_ABI_MINOR: u16 = 17;
 pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
 /// ABI 1.19: `agt_clipboard_types` (what the clipboard is carrying).
 pub const CLIPBOARD_TYPES_ABI_MINOR: u16 = 19;
+/// The first minor that can hand back a whole node id.
+pub const NODE_ID_STRING_ABI_MINOR: u16 = 22;
 /// ABI 1.20: `agt_a11y_application_set_hidden` (application-level hide).
 pub const APPLICATION_HIDDEN_ABI_MINOR: u16 = 20;
 /// ABI 1.21: `agt_app_list_installed` / `agt_app_launch`.

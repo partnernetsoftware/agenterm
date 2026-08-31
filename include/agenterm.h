@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 21
+#define AGT_ABI_MINOR 22
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -413,7 +413,13 @@ typedef enum {
     AGT_A11Y_STR_TEXT = 2,
     AGT_A11Y_STR_STATES = 3,
     /* ABI 1.12: toolkit identifier (macOS AXIdentifier); empty when absent. */
-    AGT_A11Y_STR_IDENTIFIER = 4
+    AGT_A11Y_STR_IDENTIFIER = 4,
+    /* ABI 1.22: the node's own id and its parent's, without the 64-byte cap
+     * the agt_a11y_node record carries. A truncated id is not a shortened
+     * id, it is a wrong one: two nodes sharing the first 64 bytes become
+     * the same node. Prefer these over the record's fixed fields. */
+    AGT_A11Y_STR_ID = 5,
+    AGT_A11Y_STR_PARENT_ID = 6
 } agt_a11y_string_kind;
 
 typedef enum {

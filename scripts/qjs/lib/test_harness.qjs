@@ -30,15 +30,41 @@ function door(status, what) {
   return tool_result();
 }
 
+// Whether `p` is already rooted, on either family of host.
+//
+// This is the third copy of this rule in scripts/qjs/lib (rh_compat and
+// path.qjs have the others), and the only one `new_context` reaches -- so
+// fixing the other two alone left Windows exactly as broken. A POSIX
+// absolute path starts with `/`; a Windows one starts with a drive letter
+// and a colon, or with a UNC `\\server`. Treating only the first as
+// absolute made `join` concatenate a rooted Windows path onto another one
+// (`C:\\agtrun/C:\\agtrun/...`), which no journey could survive.
+//
+// Separators are never rewritten: Windows accepts `/`, and a backslash is
+// a legal character in a POSIX filename.
+export function is_absolute(p) {
+  if (p.startsWith("/")) { return true; }
+  if (p.startsWith("\\\\")) { return true; }
+  if (p.length >= 2 && p.charAt(1) === ":") {
+    const upper = p.charAt(0).toUpperCase();
+    if (upper < "A" || upper > "Z") { return false; }
+    // Require a separator (or nothing) after the colon, so a POSIX file
+    // that happens to be named `a:b` is not mistaken for a drive.
+    const rest = p.charAt(2);
+    return rest === "" || rest === "/" || rest === "\\";
+  }
+  return false;
+}
+
 export function absolute(p) {
-  if (p.startsWith("/")) { return p; }
+  if (is_absolute(p)) { return p; }
   const cwd = door(env_cwd(), "env_cwd");
-  return cwd.endsWith("/") ? cwd + p : cwd + "/" + p;
+  return cwd.endsWith("/") || cwd.endsWith("\\") ? cwd + p : cwd + "/" + p;
 }
 
 function join(a, b) {
-  if (b.startsWith("/")) { return b; }
-  if (a.endsWith("/")) { return a + b; }
+  if (is_absolute(b)) { return b; }
+  if (a.endsWith("/") || a.endsWith("\\")) { return a + b; }
   return a + "/" + b;
 }
 
@@ -528,8 +554,26 @@ export function child_kill(child) {
 // rh's `std::process::list()` membership test, as `ps -p PID`: exit 0 is
 // present (a reaped child is gone; a waited-for one never lingers as a
 // zombie). Unix only, like `start_child`.
+/// Whether `pid` is a live process.
+///
+/// `ps` does not exist on Windows, so the POSIX spelling returned "absent"
+/// for every pid there -- which made every "the process survived" check
+/// impossible and, worse, made every **"no orphan left behind"** check pass
+/// without looking. A cleanup assertion that cannot fail is not a check.
 export function process_present(pid) {
-  const spec = { program: "ps", args: ["-p", "" + pid, "-o", "pid="], timeout_ms: 5000 };
+  const text = "" + pid;
+  if (host_is_windows()) {
+    // `tasklist` exits 0 whether or not its filter matched, so the answer
+    // is in the output. `/NH` drops the header, which would otherwise be
+    // the only thing to match against.
+    const out = run_spec({
+      program: "tasklist",
+      args: ["/FI", "PID eq " + text, "/NH"],
+      timeout_ms: 10000
+    });
+    return ("" + out.stdout).indexOf(text) >= 0 ? 1 : 0;
+  }
+  const spec = { program: "ps", args: ["-p", text, "-o", "pid="], timeout_ms: 5000 };
   const code = process_status(JSON.stringify(spec));
   return code === 0 ? 1 : 0;
 }

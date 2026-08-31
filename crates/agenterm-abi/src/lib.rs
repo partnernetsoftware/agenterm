@@ -294,7 +294,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 21);
+abi_version!(1, 22);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3050,6 +3050,20 @@ const AGT_A11Y_STR_TEXT: i32 = 2;
 const AGT_A11Y_STR_STATES: i32 = 3;
 /// ABI 1.12: toolkit identifier (macOS `AXIdentifier`); empty when absent.
 const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
+/// ABI 1.22: the node's own id, and its parent's, without the 64-byte cap
+/// the `agt_a11y_node` record carries.
+///
+/// The record's `id` / `parent_id` fields are fixed arrays with
+/// `*_truncated` flags, and a truncated id is not merely shortened -- it is
+/// **wrong**, because two different nodes whose ids share the first 64
+/// bytes become the same id. Measured on Windows: a UI Automation runtime
+/// path is long enough that six non-client elements (title bar, system
+/// menu, minimize, maximize, close) collapsed onto one id and five of them
+/// became their own parent. macOS (`/0/1`) and Linux (`/0/0/0/3`) have
+/// short ids, so neither ever showed it. These kinds carry the whole id
+/// through the same two-stage reader the other strings use.
+const AGT_A11Y_STR_ID: i32 = 5;
+const AGT_A11Y_STR_PARENT_ID: i32 = 6;
 
 /// `agt_a11y_tree_snapshot_bounded` sentinels: "keep the adapter default".
 const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
@@ -3969,6 +3983,10 @@ pub extern "C" fn agt_a11y_node_string(
                     } else {
                         node.states.join(",").into_bytes()
                     }
+                }
+                AGT_A11Y_STR_ID => node.id.as_bytes().to_vec(),
+                AGT_A11Y_STR_PARENT_ID => {
+                    node.parent_id.as_deref().unwrap_or("").as_bytes().to_vec()
                 }
                 AGT_A11Y_STR_IDENTIFIER => {
                     node.identifier.as_deref().unwrap_or("").as_bytes().to_vec()

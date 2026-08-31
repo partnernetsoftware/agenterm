@@ -28,10 +28,34 @@
 // the Windows scripts are `.ps1`, so a `\` here would be an assumption rather
 // than a requirement.
 
+// Whether `p` is already rooted, on either family of host.
+//
+// A POSIX absolute path starts with `/`. A Windows one starts with a drive
+// letter and a colon (`C:\\agt`, `C:/agt`) or with a UNC `\\\\server`.
+// Treating only the first as absolute made `join` concatenate a rooted
+// Windows path onto another one -- `C:\\agtrun/C:\\agtrun/...` -- which is
+// what stopped any journey from running on Windows. Nothing here rewrites
+// separators: Windows accepts `/` in a path, and a backslash is a legal
+// character in a POSIX filename, so rewriting would corrupt one host to
+// tidy the other.
+export function is_absolute(p) {
+  if (p.startsWith("/")) { return true; }
+  if (p.startsWith("\\\\")) { return true; }
+  if (p.length >= 2 && p.charAt(1) === ":") {
+    const upper = p.charAt(0).toUpperCase();
+    if (upper < "A" || upper > "Z") { return false; }
+    // Require a separator (or nothing) after the colon, so a POSIX file
+    // that happens to be named `a:b` is not mistaken for a drive.
+    const rest = p.charAt(2);
+    return rest === "" || rest === "/" || rest === "\\";
+  }
+  return false;
+}
+
 export function join(base, tail) {
-  if (tail.startsWith("/")) { return tail; }
+  if (is_absolute(tail)) { return tail; }
   if (base === "") { return tail; }
-  if (base.endsWith("/")) { return base + tail; }
+  if (base.endsWith("/") || base.endsWith("\\")) { return base + tail; }
   return base + "/" + tail;
 }
 
