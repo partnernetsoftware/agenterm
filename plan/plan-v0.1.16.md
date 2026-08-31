@@ -29,12 +29,12 @@ v0.1.16 release DAG
 │  ├─ native Linux arm64 package + package-free dependency-closure court
 │  ├─ executable compression off + final Windows Defender court
 │  └─ checked-in optional signing policy; no certificate implied by review state
-├─ [~] local release contracts
+├─ [x] local release contracts
 │  ├─ release_workflow_policy: 11/11
 │  ├─ internal-version-policy: pass
 │  ├─ documentation redaction: pass
-│  └─ Linux XKB native startup mechanism → agenterm-platform (implementation
-│     moved; integrated Quick rerun pending)
+│  └─ Linux XKB native startup mechanism → agenterm-platform; boundary 10/10,
+│     Linux x86_64/aarch64 cross-build and integrated Quick 710/710 pass
 ├─ [ ] exact-SHA Candidate
 │  ├─ requires clean current origin/main and explicit exact-SHA request
 │  ├─ one Windows stress qualification
