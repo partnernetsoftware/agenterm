@@ -692,15 +692,33 @@ Canonical host mapping (approved product vocabulary):
   selection, never a mouse drag or shift-arrow keystrokes. A degenerate
   selection is reported as the AT-SPI "no selection" shape (`n == 0`) with
   the position still readable through `get-caret`, matching AX.
-- [ ] macOS `screenshot` is not wired and this is a platform decision, not
-  an omission: `CGWindowListCreateImage` was **obsoleted in macOS 15.0 and
-  removed from the SDK** (measured on this toolchain -- the compiler
-  refuses it outright). Its replacement, ScreenCaptureKit, is a
-  block-based async API behind the Screen Recording TCC grant, which is a
-  different permission from the Accessibility one the rest of the adapter
-  holds. The refusal now names that constraint instead of saying
-  "unavailable", and nothing degrades to a full-screen grab: a screenshot
-  of the wrong thing is worse than a typed refusal.
+- [x] macOS `screenshot` captures the window (cut 3.59). This leaf
+  previously said the capture was blocked because
+  `CGWindowListCreateImage` was "obsoleted in macOS 15.0 and removed from
+  the SDK". The first half held -- the compiler does refuse it -- and the
+  second was an inference that was never checked: the symbol is still in
+  the framework binary, and this product already reaches a private
+  framework by `dlsym` for Space attribution. Probed on macOS 26.5 it is
+  present *and still captures* (a live window returned 1120x944 at 32bpp
+  with 17184 colour runs, not the NULL an obsoleted stub would give), so
+  the adapter resolves it the same way and converts BGRA to the contract's
+  XRGB frame, reading `bytesPerRow` rather than assuming `width * 4`
+  because CoreGraphics pads rows.
+  The cost is named rather than hidden: an obsoleted symbol can vanish in
+  any future macOS, so its absence is a typed refusal that names the
+  ScreenCaptureKit route -- never a crash, and never a degrade to a
+  full-screen grab, because a screenshot of the wrong thing is worse than
+  a typed refusal. A window that cannot be captured also refuses, and the
+  message names both possible causes because the API reports "no Screen
+  Recording" and "the window is gone" identically.
+  `verbs.screenshot` now takes its status from the mechanism instead of a
+  hardcoded macOS refusal, and `permissions.screen_recording` reports the
+  grant as `required` with a repair path instead of `not_required` --
+  while still not claiming to know whether it is held. Live evidence:
+  `cu-macos-smoke` STEP "screenshot captures the fixture window's own
+  pixels through the symbol the SDK dropped, sized in device pixels rather
+  than points" (2026-09-01), which pins an integer device scale, a file
+  far larger than a flat image, and a typed refusal for a bad handle.
 - [x] every UIA pattern this adapter calls through a hand-written vtable
   has its slot offsets pinned by a test against the SDK's IDL order
   (Invoke, SelectionItem, Toggle, Legacy, Value, Text, TextRange, and the

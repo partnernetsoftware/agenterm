@@ -8,7 +8,9 @@
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
 **还差什么（2026-09-01，晚）**：读富内容（图片/文件字节）仍未做，只报类型；
-截图 macOS 被系统拿走（`CGWindowListCreateImage` 15.0 从 SDK 移除，不退化成整屏抓图）；
+**截图三个平台都通了**：macOS 那句「被系统拿走」只对了一半——SDK 里确实没了，但符号还在框架里，
+dlsym 拿到就能抓（和本仓够 SkyLight 是同一套办法），实测 macOS 26.5 抓到真内容；符号哪天真没了
+就是点名 ScreenCaptureKit 的 typed 拒绝，不退化成整屏抓图；
 `orderwin` 在 macOS 上做不到——`AXRaise` 是应用内排序、SkyLight 的 `SLSOrderWindow` 对跨
 connection 的外部窗口返回 `kCGErrorIllegalArgument`（两条都实测过），cu 不激活应用，
 所以带实测值 typed 拒绝。**`app hide`/`show` 和 `send-keys` 在 Linux 上已经补齐**
