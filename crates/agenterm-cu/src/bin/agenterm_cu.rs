@@ -2487,7 +2487,11 @@ mod tests {
         assert_eq!(reply.command, "pty");
         let err = reply.error.expect("typed");
         assert_eq!(err.code, "unsupported");
-        assert!(!err.message.contains("unknown MCU group"), "{}", err.message);
+        assert!(
+            !err.message.contains("unknown MCU group"),
+            "{}",
+            err.message
+        );
         assert!(
             err.message.contains("PTY") || err.message.contains("job"),
             "{}",
@@ -2514,7 +2518,10 @@ mod tests {
             "0".into(),
         ]);
         assert_eq!(watch.command, "windows-watch");
-        assert_ne!(watch.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""), "usage");
+        assert_ne!(
+            watch.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage"
+        );
         if watch.ok {
             assert_eq!(watch.data.as_ref().unwrap()["mode"], "poll-diff");
         }
@@ -2527,7 +2534,10 @@ mod tests {
             "--running".into(),
         ]);
         assert_eq!(apps.command, "apps");
-        assert_ne!(apps.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""), "usage");
+        assert_ne!(
+            apps.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage"
+        );
         let order = dispatch(vec![
             "--target".into(),
             "current".into(),

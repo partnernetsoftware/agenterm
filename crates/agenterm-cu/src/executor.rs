@@ -1287,9 +1287,7 @@ fn windows_payload(
     }))
 }
 
-fn filtered_windows(
-    filter: &observe::WindowFilter,
-) -> Result<Vec<WindowInfo>, CuError> {
+fn filtered_windows(filter: &observe::WindowFilter) -> Result<Vec<WindowInfo>, CuError> {
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     Ok(windows
         .into_iter()
@@ -1440,15 +1438,15 @@ fn spaces_payload() -> Result<serde_json::Value, CuError> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(CuError::new(
-            "unsupported",
-            "spaces inventory is macOS SkyLight only",
+        Err(
+            CuError::new("unsupported", "spaces inventory is macOS SkyLight only").with_detail(
+                serde_json::json!({
+                    "group": "geometry",
+                    "os": crate::mcu_surface::host_os(),
+                    "provider": "none",
+                }),
+            ),
         )
-        .with_detail(serde_json::json!({
-            "group": "geometry",
-            "os": crate::mcu_surface::host_os(),
-            "provider": "none",
-        })))
     }
 }
 
@@ -1458,9 +1456,8 @@ fn page_js_payload(
 ) -> Result<serde_json::Value, CuError> {
     let expression = expression.unwrap_or("");
     let port = port.unwrap_or(crate::page_js::DEFAULT_PORT);
-    crate::page_js::evaluate(port, expression).map_err(|error| {
-        CuError::new(error.code, error.message).with_detail(error.detail)
-    })
+    crate::page_js::evaluate(port, expression)
+        .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail))
 }
 
 fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json::Value, CuError> {
@@ -3849,9 +3846,7 @@ fn invoke_action(
                 "internal: invoke set-selection uses agt_a11y_node_set_selection, not NodeAction",
             ));
         }
-        InvokeAction::SetSelected
-        | InvokeAction::Cancel
-        | InvokeAction::ShowDefaultUi => {
+        InvokeAction::SetSelected | InvokeAction::Cancel | InvokeAction::ShowDefaultUi => {
             return Err(CuError::new(
                 "unsupported",
                 format!(
@@ -3931,10 +3926,7 @@ fn invoke_payload(
         })?;
         observe::parse_text_selection(raw).map_err(invalid_input)?;
     }
-    let node_action = if matches!(
-        action,
-        InvokeAction::ScrollTo | InvokeAction::SetSelection
-    ) {
+    let node_action = if matches!(action, InvokeAction::ScrollTo | InvokeAction::SetSelection) {
         None
     } else {
         Some(invoke_action(action, value)?)
@@ -7447,7 +7439,10 @@ mod tests {
         assert_ne!(data["verbs"]["orderwin"]["status"], "");
         assert_eq!(data["verbs"]["page-js"]["status"], "available");
         assert_eq!(data["verbs"]["page-js"]["mode"], "cdp");
-        assert_eq!(data["verbs"]["invoke"]["actions"]["set-selection"], "mapped");
+        assert_eq!(
+            data["verbs"]["invoke"]["actions"]["set-selection"],
+            "mapped"
+        );
         assert_eq!(data["verbs"]["invoke"]["actions"]["cancel"], "typed");
         assert_eq!(data["verbs"]["displays"]["group"], "geometry");
         assert_eq!(data["verbs"]["displays"]["status"], "available");
@@ -7512,7 +7507,10 @@ mod tests {
         assert_eq!(page.command, "page-js");
         let err = page.error.as_ref().expect("typed");
         assert_eq!(err.code, "unsupported");
-        assert_eq!(err.detail.as_ref().unwrap()["backend"], "debugger-runtime-evaluate");
+        assert_eq!(
+            err.detail.as_ref().unwrap()["backend"],
+            "debugger-runtime-evaluate"
+        );
         assert!(err.message.contains("remote-debugging-port"));
     }
 

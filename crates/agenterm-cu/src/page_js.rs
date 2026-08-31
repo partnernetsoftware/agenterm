@@ -82,7 +82,10 @@ pub fn evaluate(port: u16, expression: &str) -> Result<Value, PageJsError> {
         ));
     };
     let (host, path) = split_ws_url(ws).ok_or_else(|| {
-        PageJsError::typed("unsupported", "CDP webSocketDebuggerUrl is not ws://host/path")
+        PageJsError::typed(
+            "unsupported",
+            "CDP webSocketDebuggerUrl is not ws://host/path",
+        )
     })?;
     let value = runtime_evaluate(&host, &path, expression)?;
     Ok(json!({
@@ -106,18 +109,12 @@ fn http_get_json(port: u16, path: &str) -> Result<Value, PageJsError> {
             format!("no CDP listener on 127.0.0.1:{port}; relaunch Chromium with --remote-debugging-port={port}"),
         )
     })?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+    let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .ok();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .ok();
-    let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(req.as_bytes()).map_err(|_| {
-        PageJsError::typed("unsupported", "CDP HTTP write failed")
-    })?;
+        .write_all(req.as_bytes())
+        .map_err(|_| PageJsError::typed("unsupported", "CDP HTTP write failed"))?;
     let mut buf = Vec::new();
     stream
         .take(MAX_RESULT_BYTES as u64 + 2048)
@@ -125,28 +122,26 @@ fn http_get_json(port: u16, path: &str) -> Result<Value, PageJsError> {
         .map_err(|_| PageJsError::typed("unsupported", "CDP HTTP read failed"))?;
     let text = String::from_utf8_lossy(&buf);
     let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
-    serde_json::from_str(body).map_err(|_| {
-        PageJsError::typed("unsupported", "CDP /json did not return JSON")
-    })
+    serde_json::from_str(body)
+        .map_err(|_| PageJsError::typed("unsupported", "CDP /json did not return JSON"))
 }
 
 fn runtime_evaluate(host: &str, path: &str, expression: &str) -> Result<Value, PageJsError> {
     let mut stream = TcpStream::connect(host).map_err(|_| {
-        PageJsError::typed("unsupported", format!("CDP websocket connect failed: {host}"))
+        PageJsError::typed(
+            "unsupported",
+            format!("CDP websocket connect failed: {host}"),
+        )
     })?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .ok();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .ok();
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
     let key = "dGhlIHNhbXBsZSBub25jZQ==";
     let req = format!(
         "GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
     );
-    stream.write_all(req.as_bytes()).map_err(|_| {
-        PageJsError::typed("unsupported", "CDP websocket handshake write failed")
-    })?;
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|_| PageJsError::typed("unsupported", "CDP websocket handshake write failed"))?;
     let mut head = [0u8; 2048];
     let n = stream
         .read(&mut head)
@@ -172,9 +167,8 @@ fn runtime_evaluate(host: &str, path: &str, expression: &str) -> Result<Value, P
         .write_all(&ws_client_text_frame(payload.as_bytes()))
         .map_err(|_| PageJsError::typed("unsupported", "CDP websocket frame write failed"))?;
     let raw = read_ws_text(&mut stream)?;
-    let msg: Value = serde_json::from_str(&raw).map_err(|_| {
-        PageJsError::typed("unsupported", "CDP Runtime.evaluate reply is not JSON")
-    })?;
+    let msg: Value = serde_json::from_str(&raw)
+        .map_err(|_| PageJsError::typed("unsupported", "CDP Runtime.evaluate reply is not JSON"))?;
     if let Some(err) = msg.get("error") {
         return Err(PageJsError::typed(
             "unsupported",
@@ -219,9 +213,9 @@ fn read_ws_text(stream: &mut TcpStream) -> Result<String, PageJsError> {
     let mut len = (hdr[1] & 0x7f) as usize;
     if len == 126 {
         let mut ext = [0u8; 2];
-        stream.read_exact(&mut ext).map_err(|_| {
-            PageJsError::typed("unsupported", "CDP websocket length missing")
-        })?;
+        stream
+            .read_exact(&mut ext)
+            .map_err(|_| PageJsError::typed("unsupported", "CDP websocket length missing"))?;
         len = u16::from_be_bytes(ext) as usize;
     } else if len == 127 {
         return Err(PageJsError::typed(
@@ -238,9 +232,9 @@ fn read_ws_text(stream: &mut TcpStream) -> Result<String, PageJsError> {
     let masked = hdr[1] & 0x80 != 0;
     let mut mask = [0u8; 4];
     if masked {
-        stream.read_exact(&mut mask).map_err(|_| {
-            PageJsError::typed("unsupported", "CDP websocket mask missing")
-        })?;
+        stream
+            .read_exact(&mut mask)
+            .map_err(|_| PageJsError::typed("unsupported", "CDP websocket mask missing"))?;
     }
     let mut payload = vec![0u8; len];
     stream

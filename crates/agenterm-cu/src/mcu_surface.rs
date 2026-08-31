@@ -3,7 +3,7 @@
 //! Every MCU command group is either live on this host or typed
 //! `unsupported`/`denied` with a reason. Silent absence is a defect.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// One MCU CAPABILITY-TREE group this binary must answer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -395,10 +395,7 @@ pub fn verb_declaration(verb: &str) -> Value {
                 "SkyLight managed Space inventory; move is not mapped",
             )
         } else {
-            (
-                "unsupported",
-                "spaces inventory is macOS SkyLight only",
-            )
+            ("unsupported", "spaces inventory is macOS SkyLight only")
         };
         return json!({
             "status": status,
@@ -441,10 +438,7 @@ pub fn verb_declaration(verb: &str) -> Value {
     }
     if verb == "orderwin" {
         let (status, reason) = if os == "linux" {
-            (
-                "unsupported",
-                "native window raise is not wired on linux",
-            )
+            ("unsupported", "native window raise is not wired on linux")
         } else if tree_live(os) {
             (
                 "available",
@@ -485,7 +479,14 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
             map.insert((*verb).to_owned(), verb_declaration(verb));
         }
     }
-    for verb in ["windows-watch", "apps", "orderwin", "spaces", "displays", "unlock"] {
+    for verb in [
+        "windows-watch",
+        "apps",
+        "orderwin",
+        "spaces",
+        "displays",
+        "unlock",
+    ] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
         }
