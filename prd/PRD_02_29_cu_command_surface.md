@@ -71,12 +71,23 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [~] MCU selector and recovery spellings are now explicit product inputs:
   `query --selector` scopes results beneath one `Role[idx] / Role@title /
   *@title / #desc` match, and `invoke --selector` binds the same walk to one
-  action target. `unlock --window` currently performs a fresh bounded tree
-  read and returns `ax`, `next_actions`, and `poked:false`; it does **not**
-  claim an `AXManualAccessibility` poke. Extra MCU invoke spellings parse but
+  action target. Extra MCU invoke spellings parse but
   fail typed `unsupported` until the platform ABI maps them. Unit/CLI evidence
   owns parsing, scope, ambiguity, and typed refusal; a new real-app journey is
   still required before this leaf becomes shipped.
+- [x] `unlock --window HANDLE` (Actuate grant) reads the window's bounded
+  tree, asks the owning application to build its full accessibility tree
+  (macOS `AXManualAccessibility`, ABI 1.15
+  `agt_a11y_manual_accessibility_poke`), reads it again, and reports
+  `poked` (the request was delivered), `grew` and `returned_before` (what
+  the two reads found) plus `ax` and `next_actions`. The three fields are
+  separate because **the poke's own status is not the outcome**: AppKit
+  reports the attribute as unsupported even when the poke lands, so only
+  the re-read can claim anything about the tree. A host with no such
+  mechanism reports `poked: false` with the backend's reason and still
+  returns the classification. Live evidence: `cu-macos-web-smoke` STEP
+  "unlock asks the engine to build the web tree and reports what the
+  re-read found, not what the call returned" (2026-08-31).
 - [x] `page-js` is a second knife after AX: the shipped verb is typed
   `unsupported` with `detail.backend = debugger-runtime-evaluate`.
   Ordinary AX web control needs no browser extension. MAIN-world

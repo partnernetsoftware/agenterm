@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 14
+#define AGT_ABI_MINOR 15
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -574,6 +574,17 @@ agt_status agt_a11y_node_send_keys(intptr_t window_handle, const char* node_id,
  * UnknownMethod -> AGT_FAILED{code="a11y_scroll_unavailable"}. Never
  * Action scroll*, XTest wheel, or GenerateMouseEvent. The bool is not
  * geometric proof; callers observe via agt_a11y_node_get_extents. */
+/* ABI 1.15: ask the application owning `window_handle` to build its full
+ * accessibility tree (macOS AXManualAccessibility). A browser engine leaves
+ * its web tree unbuilt until an assistive client asks, so a walk of a
+ * Chromium or WebKit window returns chrome and no page; this is the request
+ * that changes that. AGT_OK means the request was delivered, NEVER that the
+ * tree grew -- AppKit reports kAXErrorAttributeUnsupported for this
+ * attribute even when the poke lands, so read the tree again and compare.
+ * A host with no such mechanism answers AGT_UNSUPPORTED; window_handle 0 is
+ * invalid_input. */
+agt_status agt_a11y_manual_accessibility_poke(intptr_t window_handle);
+
 agt_status agt_a11y_node_scroll(intptr_t window_handle, const char* node_id);
 
 /* Independent AT-SPI Component.GetExtents(Screen) for `node_id`.

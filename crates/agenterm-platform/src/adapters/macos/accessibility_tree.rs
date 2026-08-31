@@ -539,6 +539,43 @@ fn finish_tree(
     })
 }
 
+/// Set `AXManualAccessibility` on the application that owns the window, so
+/// a browser engine builds the web tree it otherwise leaves unbuilt.
+///
+/// The AXError is deliberately not treated as the outcome: AppKit answers
+/// `kAXErrorAttributeUnsupported` for this attribute even when the poke
+/// works (measured on a `WKWebView` fixture -- three nodes before,
+/// fourteen after, `-25205` both times). Only a permission failure is
+/// reported, because that one is real and the caller must fix it; the poke
+/// itself is proven by re-reading the tree.
+pub(crate) fn poke_manual_accessibility(
+    window_handle: Option<isize>,
+) -> Result<(), AccessibilityTreeError> {
+    require_trusted()?;
+    let budget = Budget::new(ACTION_TIMEOUT);
+    let handle = require_handle(window_handle, "the AXManualAccessibility poke")?;
+    let pid = owner_pid(handle)?;
+    let application =
+        CfOwned::from_create(unsafe { AXUIElementCreateApplication(pid as i32) as CfTypeRef })
+            .ok_or_else(|| {
+                AccessibilityTreeError::failed(
+                    "a11y_connect_failed",
+                    format!("AXUIElementCreateApplication({pid}) returned null"),
+                )
+            })?;
+    budget.check()?;
+    let status = unsafe {
+        let key = cfstr("AXManualAccessibility");
+        let status = AXUIElementSetAttributeValue(application.as_ax(), key, kCFBooleanTrue);
+        CFRelease(key as CfTypeRef);
+        status
+    };
+    if status == AX_ERROR_API_DISABLED {
+        return Err(permission_denied());
+    }
+    Ok(())
+}
+
 pub(crate) fn drain_bus() {}
 
 /// The application element that owns `handle`, plus its pid.

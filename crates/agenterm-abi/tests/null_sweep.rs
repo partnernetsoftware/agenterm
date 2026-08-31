@@ -167,6 +167,7 @@ type A11yNodeSetText = unsafe extern "C" fn(isize, *const c_char, *const u8, usi
 type A11yNodeGetText =
     unsafe extern "C" fn(isize, *const c_char, *mut u8, usize, *mut usize) -> i32;
 type A11yNodeSendKeys = unsafe extern "C" fn(isize, *const c_char, *const u8, usize) -> i32;
+type A11yManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
 type A11yNodeScroll = unsafe extern "C" fn(isize, *const c_char) -> i32;
 type A11yNodeGetExtents =
     unsafe extern "C" fn(isize, *const c_char, *mut i32, *mut i32, *mut i32, *mut i32) -> i32;
@@ -869,6 +870,17 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<A11yNodeSendKeys> = unsafe { sym(lib, b"agt_a11y_node_send_keys") };
                 unsafe { CallResult::Status(f(0, std::ptr::null(), std::ptr::null(), 1)) }
+            }),
+        },
+        SweepCase {
+            // No pointer to null: the whole argument list is one handle, and
+            // 0 is the illegal value (it names no application).
+            label: "agt_a11y_manual_accessibility_poke[window_handle=0]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yManualAccessibilityPoke> =
+                    unsafe { sym(lib, b"agt_a11y_manual_accessibility_poke") };
+                unsafe { CallResult::Status(f(0)) }
             }),
         },
         SweepCase {

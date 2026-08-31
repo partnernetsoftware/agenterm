@@ -244,6 +244,9 @@ pub const NODE_INVOKE_ABI_MINOR: u16 = 13;
 /// `agt_a11y_focused_snapshot` (background menus and the App-local focused
 /// control).
 pub const MENU_FOCUS_ABI_MINOR: u16 = 14;
+/// ABI 1.15: `agt_a11y_manual_accessibility_poke` (ask a browser engine to
+/// build the web tree it leaves unbuilt until an assistive client asks).
+pub const MANUAL_ACCESSIBILITY_ABI_MINOR: u16 = 15;
 
 /// `agt_input_pointer_click` buttons.
 pub const AGT_INPUT_BUTTON_LEFT: i32 = 0;

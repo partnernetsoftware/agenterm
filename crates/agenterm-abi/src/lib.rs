@@ -92,8 +92,8 @@ use agenterm_platform::accessibility_tree::{
     AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget, AccessibilityTreeError,
     drain_bus, focused_node_for_window, get_node_caret_offset, get_node_extents,
     get_node_selection, get_node_text, invoke_menu_path, last_text_write_via, menu_tree_for_window,
-    perform_node_action, scroll_node, send_node_keys, set_node_caret_offset, set_node_selection,
-    set_node_text, tree_for_window_bounded,
+    perform_node_action, poke_manual_accessibility, scroll_node, send_node_keys,
+    set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
 };
 use agenterm_platform::clipboard::{get_text, has_unicode_text, set_text};
 use agenterm_platform::desktop_host::{
@@ -274,7 +274,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 14);
+abi_version!(1, 15);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -4288,6 +4288,50 @@ pub extern "C" fn agt_a11y_node_scroll(window_handle: isize, node_id: *const c_c
                 c"agt_a11y_node_scroll",
                 c"panic",
                 "panic in agt_a11y_node_scroll",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.15: ask the application owning `window_handle` to build its full
+/// accessibility tree (macOS `AXManualAccessibility`).
+///
+/// A browser engine leaves its web tree unbuilt until an assistive client
+/// asks, so a walk of a Chromium or WebKit window returns chrome and no
+/// page. This is the request that changes that; a host with no such
+/// mechanism answers `AGT_UNSUPPORTED`.
+///
+/// **`AGT_OK` means the request was delivered, never that the tree grew.**
+/// AppKit reports `kAXErrorAttributeUnsupported` for this attribute even
+/// when the poke lands, so the status cannot carry the outcome: read the
+/// tree again and compare. `window_handle` 0 → `invalid_input`.
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_manual_accessibility_poke(window_handle: isize) -> agt_status {
+    fn inner(window_handle: isize) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if window_handle == 0 {
+            record_error(
+                c"agt_a11y_manual_accessibility_poke",
+                c"invalid_input",
+                "window_handle 0 does not name an application",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        match poke_manual_accessibility(Some(window_handle)) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(e) => map_a11y_error(c"agt_a11y_manual_accessibility_poke", e),
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(window_handle))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_manual_accessibility_poke",
+                c"panic",
+                "panic in agt_a11y_manual_accessibility_poke",
             );
             agt_status::AGT_FAILED
         }

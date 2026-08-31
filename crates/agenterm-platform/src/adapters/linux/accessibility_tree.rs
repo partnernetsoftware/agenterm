@@ -234,6 +234,16 @@ pub(crate) fn focused_node_for_window(
     }
 }
 
+/// No poke is needed or available here: unlike macOS, this backend does
+/// not gate a browser's tree behind a per-application attribute.
+pub(crate) fn poke_manual_accessibility(
+    _window_handle: Option<isize>,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "Linux toolkits build their AT-SPI tree without a client poke; there is no AXManualAccessibility analogue to map".into(),
+    })
+}
+
 pub(crate) fn drain_bus() {
     if cached_connection().is_none() {
         return;

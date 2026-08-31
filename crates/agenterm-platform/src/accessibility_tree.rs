@@ -186,6 +186,26 @@ pub fn send_node_keys(
     crate::selected::accessibility_tree::send_node_keys(window_handle, node_id, keys)
 }
 
+/// Ask the application owning `window_handle` to build its full
+/// accessibility tree.
+///
+/// A browser engine keeps its web tree unbuilt until an assistive client
+/// asks for it, so a Chromium or WebKit window answers a walk with a
+/// handful of chrome nodes and no page: "empty chrome" is not an empty
+/// page. macOS spells the request `AXManualAccessibility` on the owning
+/// application element.
+///
+/// **The call's own status is not evidence.** AppKit answers
+/// `kAXErrorAttributeUnsupported` for this attribute even when the poke
+/// lands (measured on WebKit: three nodes before, fourteen after, same
+/// `-25205`). A caller proves the poke by re-reading the tree, which is
+/// what `agenterm-cu unlock` does.
+pub fn poke_manual_accessibility(
+    window_handle: Option<isize>,
+) -> Result<(), AccessibilityTreeError> {
+    crate::selected::accessibility_tree::poke_manual_accessibility(window_handle)
+}
+
 pub fn drain_bus() {
     crate::selected::accessibility_tree::drain_bus()
 }

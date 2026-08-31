@@ -23,7 +23,7 @@ machine-control
 │   cu  [✓] grant observe|actuate + receipts + close 闸（mac 旅程）
 ├── 网页 AX WebArea（无扩展）
 │   MCU [✓] Brave Origin 真机；empty-chrome → query/unlock
-│   cu  [~] tree/query.ax + next_actions + classify-only unlock；titleIncludes Heading↔WebArea
+│   cu  [✓] 自有 WKWebView 固件旅程 cu-macos-web-smoke：WebArea 树 + unlock poke + scroll 正向 + 网页 invoke/verify
 ├── 网页 JS 第二刀
 │   MCU [✓] CDP page read --js / 扩展 browser read --js（Runtime.evaluate）
 │   cu  [~] page-js：CDP Runtime.evaluate（需 --remote-debugging-port；无口 typed）
@@ -50,7 +50,7 @@ machine-control
 |---|---|---|---|
 | 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N`；`windows-watch` poll-diff；`apps` 运行中窗口聚合 | **句柄+watch+running apps**；仍缺 Space/occlusion/已安装未运行 |
 | 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query --selector` 与 `invoke --selector` 接受 `Role[idx] / Role@title / *@title / #desc`；其余 filter/budget 保留 | **拼写与作用域对齐**；真实三平台旅程仍待补 |
-| empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；`unlock` 只重读并分类，明确 `poked:false` | **诚实 partial**；尚未映射 `AXManualAccessibility` poke |
+| empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；**`unlock` 真 poke**（macOS `AXManualAccessibility`，ABI 1.15），前后两次读报 `poked`/`grew`/`returned_before` | **已对齐**（cu 2026-08-31；L/W typed，两边后端不需要 poke） |
 | 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | mac 7 动作 live；**Linux 与 Windows 2026-08-31 都补齐九个动作的映射**（期望态/选项/步进，未真机）；另 5 个 MCU 拼写可解析但未映射时 typed `unsupported` | **无 silent unknown**；不可把可解析误报为已实现 |
 | 关闭环 | `verify`/`wait --expect` · `titleIncludes` · present/absent | `verify`/`wait --expect` · `name`/`titleIncludes` 可无 state；Heading↔WebArea | **对齐**（cu 2026-08-31） |
 | flatten | `elements` / `invoke --index` | `tree --flat` / `invoke --index` | **对齐** |
@@ -75,7 +75,9 @@ machine-control
 **cu 可从 MCU 再吸收（仍限桌面环）**
 
 1. ~~稳定句柄 `App#n`~~ **已做**：`windows[].ref` + `--window App#N`（仍同时接受整数；未做 live app 前缀核验）。
-2. [~] `unlock` 动词与重读分类已做；真正的闲置 Chromium 只读 poke（depth≥8 hit-test / `AXManualAccessibility`）仍未映射。
+2. ~~`unlock` 的 `AXManualAccessibility` poke~~ **已做**（2026-08-31，ABI 1.15）：poke 后重读，
+   `poked`/`grew`/`returned_before` 三个字段分开——AppKit 对这个属性返回 unsupported 却照样生效，
+   所以调用状态不能当结论。自有 `WKWebView` 固件旅程作证。
 3. ~~`query --selector` / `invoke --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`；query 作用域=命中节点+子孙，invoke 绑定唯一节点）。
 4. [~] `invoke` 已接受 `set-selected`、`set-selection`、`scroll-to`、`cancel`、`show-default-ui` 拼写；ABI 未映射前一律 typed `unsupported`，不算行为完成。
 5. [✓] `windows-watch` poll-diff；`apps` running-only；`orderwin` raise（linux typed）；`spaces` macOS SkyLight 只读。

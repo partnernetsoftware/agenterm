@@ -505,6 +505,25 @@
         "task.control-center-smoke"
       ]
     },
+    "cu-macos-web-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-macos-web-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-web-smoke"
+      ]
+    },
     "cu-macos-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1972,6 +1991,26 @@
       "id": "cu-macos-smoke",
       "description": "Prove the macOS agenterm-cu AX default loop: capabilities, windows inventory filters, query, bounded tree with truncation counts and AX action names, then invoke (set-value / set-checked / press / increment / select-option) read back by verify and wait --expect with typed refusals, then the background verbs (menu inspect / invoke on the app's menu bar, focused / invoke --focused on its App-local focused control, observe poll-diff event stream captured from a second cu spawned through the door), then slice 4: click by node / name with the real pointer read before and after (unchanged), the window-place frame transaction, the destructive close gate (exact target + prior snapshot + checkable postcondition, refused typed when any part is missing) on a second window, and the crash-persistent receipt file read back with receipts, then slice 5: get-extents, select / get-selection and set-caret / get-caret through AXPosition+AXSize and AXSelectedTextRange with a typed scroll refusal that names the offered actions, and send-keys as the AX action a chord means (enter is AXConfirm, its postcondition read back) with typed refusals for chords that have no AX equivalent; with an unchanged focused window throughout, and owned Cocoa fixture cleanup",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-web-smoke",
+      "description": "Prove agenterm-cu reaches web content through the macOS system accessibility tree against an owned WKWebView fixture: window identity, the unlock (AXManualAccessibility) poke reported from a re-read rather than the call status, one AXWebArea with its heading / button / field / link, scroll bringing a link far below the fold into view with an independent get-extents reading the movement back, invoke press on a web button with its postcondition, and a web field that takes an AXValue write only once focused while the unfocused attempt fails closed; nothing activated or raised, no network, owned fixture cleanup",
+      "entry": "scripts/qjs/cu-macos-web-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

@@ -1,0 +1,418 @@
+// Prove that agenterm-cu reaches WEB content through the system
+// accessibility tree on macOS: the same `windows` -> bounded `tree` /
+// `query` -> `invoke` -> `verify` loop, with the nodes coming from a page
+// rather than from Cocoa controls.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// The page is owned by this run: examples/objc/agenterm_web_fixture.m is an
+// accessory-policy window holding a WKWebView with a hermetic
+// `loadHTMLString` document. No browser of the user's is touched, nothing
+// is activated or raised, and no network is used.
+//
+// What only a web target can prove:
+//   - the AXWebArea and its page nodes (heading, button, field, link) are
+//     readable through the ordinary bounded walk -- "empty chrome is not an
+//     empty page" is about a tree that has not been built, not about a
+//     backend that cannot see pages;
+//   - `unlock` (macOS `AXManualAccessibility`) delivers the request that
+//     builds that tree, and reports what the re-read actually found rather
+//     than trusting the call's own status, which AppKit reports as
+//     unsupported even when the poke lands;
+//   - `scroll` POSITIVELY: AppKit publishes `AXScrollToVisible` on nothing
+//     a plain Cocoa control can hold, while every WebKit node offers it, so
+//     this is where the verb gets evidence that it moves something --
+//     `get-extents` reads the link's y before and after;
+//   - a web text field takes an `AXValue` write only once it is focused,
+//     and the unfocused attempt fails closed (`a11y_action_no_effect`,
+//     `verified: false`) instead of reporting a write that did not land.
+//
+// Every agenterm-cu call is `rh.command`; the worker's JSON reply is
+// parsed, never grepped. Runs under --profile tool on a real macOS desktop
+// whose Accessibility permission covers the spawning process.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.macos-web-window-identity",
+  "cu.macos-web-area-tree",
+  "cu.macos-web-unlock",
+  "cu.macos-web-scroll",
+  "cu.macos-web-invoke",
+  "cu.macos-web-fixture-cleanup"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+// rh's `"" + json_null` is "" while JS's `"" + null` is "null".
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+// Null-safe dotted-path read: a refused reply carries `data: null` while an
+// accepted one carries `error: null`, and reading a property of null traps.
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  return text_of(at(value, dotted));
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(at(value, dotted));
+}
+
+function flag_at(value, dotted) {
+  return at(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+// The audit log (and beside it the receipt file) of this run, never the
+// user's default location.
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+function receipt_file(run_directory) {
+  return rh.join(run_directory, "cu-receipts/current.jsonl");
+}
+
+// One agenterm-cu call whose reply must be `ok: true`.
+function run_cu_json(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  ensure(
+    output.success === true,
+    "cu_macos_smoke_cli_process:" + output.stdout + output.stderr
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_smoke_cli_empty");
+  const document = JSON.parse(trimmed);
+  ensure(
+    flag_at(document, "ok"),
+    "cu_macos_smoke_cli_reply:" + JSON.stringify(document)
+  );
+  return document;
+}
+
+// The text of one fixture node, by AX identifier (which is also its name).
+function node_text(run_directory, executable, handle_text, identifier) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-text",
+    "--window", handle_text, "--name", identifier
+  ]);
+  return text_at(reply, "data.text");
+}
+
+// One agenterm-cu call whose reply is returned as parsed, ok or not.
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_smoke_cli_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+
+
+
+
+
+
+
+function compile_web_fixture(run_directory, repo) {
+  const source = rh.join(repo, "examples/objc/agenterm_web_fixture.m");
+  ensure(direct_file(source), "cu_macos_web_fixture_source_missing");
+  const fixture_executable = rh.join(run_directory, "agenterm_web_fixture");
+  const compiled = rh.command(
+    "clang",
+    [
+      "-fobjc-arc", "-framework", "Cocoa", "-framework", "WebKit",
+      "-Wall", "-Wextra", "-Werror", source, "-o", fixture_executable
+    ],
+    { cwd: repo, timeout_ms: 90000 }
+  );
+  ensure(
+    compiled.success === true && direct_file(fixture_executable),
+    "cu_macos_web_fixture_compile:" + compiled.stdout + compiled.stderr
+  );
+  return fixture_executable;
+}
+
+// One bounded query, returning its node rows.
+function query_nodes(run_directory, executable, handle_text, extra) {
+  const arguments_list = [
+    "--target", "current", "--grant", "observe", "query", "--window", handle_text
+  ];
+  for (const item of extra) { arguments_list.push(item); }
+  return run_cu_json(run_directory, executable, arguments_list);
+}
+
+// The independent screen rect of one named node, or null when the node
+// publishes none.
+function extents_of(run_directory, executable, handle_text, name) {
+  const reply = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-extents",
+    "--window", handle_text, "--name", name
+  ]);
+  if (!flag_at(reply, "ok")) { return null; }
+  return reply.data.extents;
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_macos_web_executable_missing:" + executable);
+ensure(
+  direct_file(rh.join(rh.parent(executable), "libagenterm.dylib")),
+  "cu_macos_web_library_missing:" + rh.parent(executable)
+);
+
+const context = harness.new_context(repo, "cu-macos-web");
+const run_directory = rh.join(repo, "target/cu-macos-web-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_macos_web_stale_directory_locked");
+rh.create_dir_all(run_directory);
+
+let succeeded = 0;
+let failure = "";
+let fixture_pid = 0;
+let fixture = -1;
+let fixture_reaped = false;
+
+try {
+  print("STEP compile and start the owned no-activate WKWebView fixture; windows --pid proves its identity");
+  const fixture_executable = compile_web_fixture(run_directory, repo);
+  fixture = harness.start({
+    program: fixture_executable,
+    args: [],
+    current_dir: run_directory,
+    timeout_ms: 30000
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-web-fixture-" + fixture_pid;
+  const window_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "15000", "--window-title-contains", fixture_title
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_macos_web_window_wait_not_met");
+  const inventory = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid
+  ]);
+  ensure(
+    int_at(inventory, "data.matched") === 1
+      && text_at(inventory.data.windows[0], "title") === fixture_title,
+    "cu_macos_web_window_identity:" + JSON.stringify(inventory.data)
+  );
+  const handle_text = "" + int_at(inventory.data.windows[0], "handle");
+
+  print("STEP unlock asks the engine to build the web tree and reports what the re-read found, not what the call returned");
+  const unlocked = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "unlock", "--window", handle_text
+  ]);
+  // `poked` is "the request was delivered"; `grew` is the only claim about
+  // the tree, and it comes from comparing two reads. AppKit answers
+  // kAXErrorAttributeUnsupported for this attribute even when the poke
+  // lands, so the status could not carry the outcome. Once any assistive
+  // client has enabled accessibility in a session, WebKit publishes for
+  // new processes eagerly -- so `grew` false here is a correct report of a
+  // tree that was already built, not a failed poke.
+  ensure(
+    flag_at(unlocked, "ok") && flag_at(unlocked, "data.poked")
+      && text_at(unlocked, "data.ax") === "content"
+      && int_at(unlocked, "data.returned") >= int_at(unlocked, "data.returned_before"),
+    "cu_macos_web_unlock:" + JSON.stringify(unlocked.data)
+  );
+
+  print("STEP the bounded walk reaches the page: one AXWebArea, and the heading, button, field and link inside it");
+  const web_areas = query_nodes(run_directory, executable, handle_text, ["--role", "AXWebArea"]);
+  ensure(
+    int_at(web_areas, "data.matched") === 1,
+    "cu_macos_web_area_count:" + JSON.stringify(web_areas.data)
+  );
+  const heading = query_nodes(run_directory, executable, handle_text,
+    ["--text-exact", "Fixture Web Heading", "--role", "AXHeading"]);
+  ensure(
+    int_at(heading, "data.matched") === 1,
+    "cu_macos_web_heading:" + JSON.stringify(heading.data)
+  );
+  const link = query_nodes(run_directory, executable, handle_text,
+    ["--text-exact", "Fixture Deep Link", "--role", "AXLink"]);
+  ensure(
+    int_at(link, "data.matched") === 1,
+    "cu_macos_web_link:" + JSON.stringify(link.data)
+  );
+  // Every WebKit node offers AXScrollToVisible; this is the reason the verb
+  // has positive evidence here and only a typed refusal on Cocoa.
+  const link_node = link.data.nodes[0];
+  let link_offers_scroll = 0;
+  for (const action of link_node.actions) {
+    if (action === "scroll-to-visible") { link_offers_scroll = 1; }
+  }
+  ensure(
+    link_offers_scroll === 1,
+    "cu_macos_web_link_actions:" + JSON.stringify(link_node.actions)
+  );
+
+  print("STEP scroll brings a link that is far below the fold into view, and an independent get-extents reads the movement back");
+  const before_rect = extents_of(run_directory, executable, handle_text, "Fixture Deep Link");
+  ensure(before_rect !== null, "cu_macos_web_extents_before_missing");
+  const scrolled = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "scroll",
+    "--window", handle_text, "--name", "Fixture Deep Link"
+  ]);
+  ensure(
+    text_at(scrolled, "data.via") === "scroll-to",
+    "cu_macos_web_scroll:" + JSON.stringify(scrolled.data)
+  );
+  const after_rect = extents_of(run_directory, executable, handle_text, "Fixture Deep Link");
+  ensure(after_rect !== null, "cu_macos_web_extents_after_missing");
+  // The page is 1200px taller than the viewport, so the link starts well
+  // below it and must move up. The reply is not the proof; this second,
+  // independent read is.
+  ensure(
+    int_at(after_rect, "y") < int_at(before_rect, "y") - 100,
+    "cu_macos_web_scroll_no_movement:" + JSON.stringify(before_rect) + "->" + JSON.stringify(after_rect)
+  );
+
+  print("STEP invoke press acts on a web button and verify reads its postcondition; a web field takes an AXValue write only once focused, and the unfocused attempt fails closed");
+  const pressed = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Web Button", "press"
+  ]);
+  ensure(
+    flag_at(pressed, "data.performed") && flag_at(pressed, "data.verified"),
+    "cu_macos_web_press:" + JSON.stringify(pressed.data)
+  );
+  const counted = query_nodes(run_directory, executable, handle_text,
+    ["--text-exact", "web pressed 1"]);
+  ensure(
+    int_at(counted, "data.matched") === 1,
+    "cu_macos_web_press_postcondition:" + JSON.stringify(counted.data)
+  );
+
+  const unfocused_write = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Web Field", "set-value", "typed by cu"
+  ]);
+  ensure(
+    !flag_at(unfocused_write, "ok")
+      && text_at(unfocused_write, "error.code") === "a11y_action_no_effect"
+      && text_at(unfocused_write, "error.detail.receipt.after.text") === "web seed",
+    "cu_macos_web_unfocused_write:" + JSON.stringify(unfocused_write)
+  );
+  const focused = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "focus",
+    "--window", handle_text, "--name", "Fixture Web Field"
+  ]);
+  ensure(flag_at(focused, "ok"), "cu_macos_web_focus:" + JSON.stringify(focused.data));
+  const focused_write = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", handle_text, "--name", "Fixture Web Field", "set-value", "typed by cu"
+  ]);
+  ensure(
+    flag_at(focused_write, "data.verified")
+      && text_at(focused_write, "data.after.text") === "typed by cu",
+    "cu_macos_web_focused_write:" + JSON.stringify(focused_write.data)
+  );
+  const verified = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "verify", "--window", handle_text,
+    "--expect", "[{\"name\":\"Fixture Web Field\",\"value\":\"typed by cu\"}]"
+  ]);
+  ensure(
+    flag_at(verified, "data.verified"),
+    "cu_macos_web_verify:" + JSON.stringify(verified.data)
+  );
+
+  print("STEP SIGTERM ends only the owned fixture, which exits 0 and is reaped");
+  const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  ensure(terminated.success === true, "cu_macos_web_terminate:" + terminated.stderr);
+  let fixture_exited = 0;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (harness.state(fixture) === "exited") { fixture_exited = 1; break; }
+    harness.sleep_ms(25);
+  }
+  ensure(fixture_exited !== 0, "cu_macos_web_fixture_exit_timeout");
+  const fixture_output = harness.wait(fixture, 2000);
+  fixture_reaped = true;
+  ensure(fixture_output.exit_code === 0, "cu_macos_web_fixture_exit:" + fixture_output.exit_code);
+  ensure(harness.process_present(fixture_pid) === 0, "cu_macos_web_fixture_orphan");
+  const gone = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid
+  ]);
+  ensure(int_at(gone, "data.matched") === 0, "cu_macos_web_window_lingers");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture >= 0 && !fixture_reaped) {
+  // Only the pid this run spawned; never a name pattern.
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  let reaped = false;
+  try {
+    const output = harness.wait(fixture, 3000);
+    reaped = output !== null;
+  } catch (wait_error) {
+    reaped = false;
+  }
+  if (!reaped && fixture_pid !== 0) {
+    rh.command("kill", ["-KILL", "" + fixture_pid], { timeout_ms: 5000 });
+    try { harness.wait(fixture, 3000); } catch (kill_error) { failure = failure + ":cu_macos_web_unreaped"; }
+  }
+}
+
+if (succeeded === 0) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_macos_web_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_macos_web_cleanup_locked");
+harness.emit_evidence(context, declared_evidence, "cu.macos-web-window-identity");
+harness.emit_evidence(context, declared_evidence, "cu.macos-web-area-tree");
+harness.emit_evidence(context, declared_evidence, "cu.macos-web-unlock");
+harness.emit_evidence(context, declared_evidence, "cu.macos-web-scroll");
+harness.emit_evidence(context, declared_evidence, "cu.macos-web-invoke");
+harness.emit_evidence(context, declared_evidence, "cu.macos-web-fixture-cleanup");
+harness.remove_run(context);
+print("PASS: agenterm-cu macOS web AX journey (WebArea tree, unlock poke, scroll with extents readback, web invoke / verify)");
+return;

@@ -1177,26 +1177,65 @@ fn window_app_name(handle: Option<isize>) -> String {
         .unwrap_or_default()
 }
 
+/// `unlock`: read the window's tree, ask the owning application to build
+/// its full accessibility tree, read the tree again, and report what
+/// actually changed.
+///
+/// A browser engine leaves its web tree unbuilt until an assistive client
+/// asks for it, so a walk of an idle Chromium or WebKit window returns
+/// chrome and no page -- "empty chrome" is not an empty page. macOS spells
+/// the request `AXManualAccessibility`.
+///
+/// **The poke's own status is not the outcome.** AppKit reports the
+/// attribute as unsupported even when the poke lands (measured on a
+/// WKWebView: three nodes before, fourteen after, the same AXError both
+/// times), so this reads the tree again and reports `grew` from the node
+/// counts. A host with no such mechanism reports `poked: false` with the
+/// backend's own reason and still returns the classification, because
+/// knowing the tree is empty chrome is useful either way.
 fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
             "unlock requires --window <handle> (a non-zero handle from `windows`)".into(),
         ));
     }
-    let tree = mechanism::tree_for_window_bounded(Some(window), tree_budget(Some(12), None)?)
-        .map_err(map_mechanism_err)?;
-    let ax = observe::classify_ax_tree(&tree);
+    let budget = tree_budget(Some(12), None)?;
+    let before =
+        mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let (poked, poke_reason) = match mechanism::poke_manual_accessibility(window) {
+        Ok(()) => (true, None),
+        Err(error) => {
+            let reason = match &error {
+                mechanism::MechanismError::Unsupported { reason } => reason.clone(),
+                other => format!("{other:?}"),
+            };
+            (false, Some(reason))
+        }
+    };
+    let after = if poked {
+        mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?
+    } else {
+        before.clone()
+    };
+    let ax = observe::classify_ax_tree(&after);
     let app = window_app_name(Some(window));
-    Ok(serde_json::json!({
+    let mut payload = serde_json::json!({
         "ax": ax.as_str(),
-        "poked": false,
-        "reason": "AXManualAccessibility poke is not mapped; empty-chrome is not an empty page",
+        "poked": poked,
+        "grew": after.returned > before.returned,
+        "returned_before": before.returned,
         "next_actions": observe::empty_chrome_next_actions(ax, &app),
         "window": window,
-        "visited": tree.visited,
-        "returned": tree.returned,
-        "truncated": tree.truncated,
-    }))
+        "visited": after.visited,
+        "returned": after.returned,
+        "truncated": after.truncated,
+    });
+    if let Some(reason) = poke_reason
+        && let Some(object) = payload.as_object_mut()
+    {
+        object.insert("reason".into(), serde_json::json!(reason));
+    }
+    Ok(payload)
 }
 
 /// Bounded, filtered flat node list over the same walk `tree` makes.

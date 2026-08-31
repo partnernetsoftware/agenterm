@@ -1093,6 +1093,28 @@ pub fn focused_node(window: Option<isize>) -> Result<A11yTree, MechanismError> {
     read_snapshot(window, count, true)
 }
 
+/// Ask the application owning `window` to build its full accessibility
+/// tree (ABI 1.15 `agt_a11y_manual_accessibility_poke`).
+///
+/// Success means the request was delivered, **never** that the tree grew:
+/// AppKit answers `kAXErrorAttributeUnsupported` for this attribute even
+/// when the poke lands, so the caller proves it by reading the tree again.
+pub fn poke_manual_accessibility(window: isize) -> Result<(), MechanismError> {
+    let (major, minor) = loaded_abi_version()?;
+    if major != 1 || minor < dynlib::MANUAL_ACCESSIBILITY_ABI_MINOR {
+        return Err(MechanismError::Unsupported {
+            reason: format!(
+                "unlock --poke requires ABI 1.{}, loaded library reports {major}.{minor}",
+                dynlib::MANUAL_ACCESSIBILITY_ABI_MINOR
+            ),
+        });
+    }
+    let f = call_sym::<ManualAccessibilityPoke>(b"agt_a11y_manual_accessibility_poke")?;
+    let status = unsafe { f(window) };
+    map_status("agt_a11y_manual_accessibility_poke", status)?;
+    Ok(())
+}
+
 fn read_meta_count(field: i32) -> Result<usize, MechanismError> {
     let text = read_meta_string(field)?;
     text.trim().parse().map_err(|_| MechanismError::Failed {
@@ -1809,6 +1831,7 @@ type TreeSnapshotBounded = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> 
 type MenuSnapshot = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
 type MenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
 type FocusedSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;
+type ManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
 type MetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32;
 type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;

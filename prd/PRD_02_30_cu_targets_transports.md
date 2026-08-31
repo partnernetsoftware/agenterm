@@ -14,7 +14,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
 ## Target family
 
-Branch status (cut 3.53 — macOS AX node text / geometry live:
+Branch status (cut 3.53 — macOS AX web content live: owned `WKWebView`
+fixture, `AXWebArea` tree, `unlock` = real `AXManualAccessibility` poke
+(ABI 1.15) reported from a re-read, positive `scroll` with an independent
+extents readback; macOS AX semantic `send-keys` (`enter` → `AXConfirm`);
+macOS AX node text / geometry live:
 `get-extents` / `select` / `get-selection` / `set-caret` / `get-caret`
 through `AXPosition`+`AXSize` and `AXSelectedTextRange`, `scroll` mapped to
 `AXScrollToVisible`; 3.51 macOS AX background verbs live: `menu inspect` /
@@ -244,6 +248,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── macOS AX background           [x] menu inspect / invoke, focused / invoke --focused, observe (poll-diff) live (cut 3.51, cu-macos-smoke): AXMenuBar walk + AXPress, AXFocusedUIElement; no AXObserver
     ├── macOS AX node text/geometry   [x] get-extents / select / get-selection / set-caret / get-caret live (cut 3.53, cu-macos-smoke): AXPosition+AXSize, AXSelectedTextRange; scroll maps to AXScrollToVisible, which AppKit does not publish
     ├── macOS AX semantic send-keys   [x] enter -> AXConfirm, escape -> AXCancel live (cut 3.53, cu-macos-smoke); every other chord typed: macOS delivers keys only to the active app (measured), and cu never activates
+    ├── macOS AX web content          [x] AXWebArea tree, unlock (AXManualAccessibility, ABI 1.15), positive scroll with extents readback, web invoke / verify live (cut 3.53, cu-macos-web-smoke) against an owned WKWebView fixture
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
@@ -740,6 +745,38 @@ Canonical host mapping (approved product vocabulary):
   advances, with the frontmost window and the real pointer unchanged.
 - [ ] macOS pointer *injection* is still unmapped (only the read is wired),
   so `pointer-move` / `pointer-click` stay typed on this platform.
+- [x] web content on `current` through the system AX tree (cut 3.53), with
+  its own owned page rather than the user's browser:
+  `examples/objc/agenterm_web_fixture.m` is an accessory-policy window
+  holding a `WKWebView` with a hermetic `loadHTMLString` document (no
+  network, no profile). The ordinary bounded walk reaches the `AXWebArea`
+  and the page's own heading, button, field and link; `invoke press` acts
+  on a web button and its postcondition is read on another node; a web
+  text field takes an `AXValue` write only once focused, and the unfocused
+  attempt fails closed (`a11y_action_no_effect`, `verified: false`)
+  instead of reporting a write that did not land. Live evidence:
+  `cu-macos-web-smoke` (2026-08-31), 6 STEP / 6 EVIDENCE.
+- [x] `unlock` performs the real `AXManualAccessibility` poke (ABI 1.15
+  `agt_a11y_manual_accessibility_poke`) instead of only re-reading and
+  classifying. A browser engine leaves its web tree unbuilt until an
+  assistive client asks, so "empty chrome is not an empty page" describes
+  a tree that has not been built. **The call's own status is not the
+  outcome**: AppKit reports `kAXErrorAttributeUnsupported` for this
+  attribute even when the poke lands (measured on the fixture: three nodes
+  before, fourteen after, the same AXError both times), so the reply
+  separates `poked` (the request was delivered) from `grew` and
+  `returned_before` (what two reads actually found). Second measurement:
+  once any assistive client has enabled accessibility in a session, WebKit
+  publishes eagerly for processes started afterwards, so `grew: false` on
+  an already-built tree is a correct report, not a failed poke. Linux and
+  Windows answer typed `unsupported` -- neither backend gates a browser's
+  tree behind a per-application attribute.
+- [x] `scroll` has positive macOS evidence at last, and only a web target
+  could give it: AppKit publishes `AXScrollToVisible` on nothing an owned
+  Cocoa fixture can hold, while every WebKit node offers it. The journey
+  scrolls a link sitting 1200 px below the fold and reads the movement
+  back with an independent `get-extents` (y 1955 -> 905); the `scroll`
+  reply itself is not the proof.
 
 ### Degraded fallbacks (never silent)
 
