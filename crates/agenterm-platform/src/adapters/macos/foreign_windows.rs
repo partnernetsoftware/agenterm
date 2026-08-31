@@ -628,12 +628,50 @@ fn ax_read_point(_value: AxValueRef) -> Option<CgPoint> {
 }
 
 pub(crate) fn show(
-    _handle: isize,
-    _state: crate::contract::window_op::WindowShowState,
+    handle: isize,
+    state: crate::contract::window_op::WindowShowState,
 ) -> Result<(), WindowOpError> {
-    Err(WindowOpError::Unsupported {
-        reason: "window show-state is not wired on macOS yet".into(),
-    })
+    match state {
+        crate::contract::window_op::WindowShowState::Show => raise_window(handle),
+        _ => Err(WindowOpError::Unsupported {
+            reason: "only Show (AXRaise) is wired on macOS; hide/minimize/maximize/restore stay unmapped"
+                .into(),
+        }),
+    }
+}
+
+/// Window-level `AXRaise` for `orderwin`. Node invoke never sends AXRaise;
+/// this path is the geometry verb, not the control-tree verb.
+fn raise_window(handle: isize) -> Result<(), WindowOpError> {
+    unsafe extern "C" {
+        fn AXUIElementPerformAction(element: AxUiElementRef, action: CfStringRef) -> i32;
+    }
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        return Err(WindowOpError::failed(
+            "a11y_permission_denied",
+            "AXIsProcessTrusted() is false: Accessibility permission is not granted",
+        ));
+    }
+    let window = ax_element_for_handle(handle)?;
+    unsafe {
+        let raise = cfstr("AXRaise");
+        let status = AXUIElementPerformAction(window, raise);
+        CFRelease(raise as CfTypeRef);
+        CFRelease(window as CfTypeRef);
+        if status == AX_API_DISABLED {
+            return Err(WindowOpError::failed(
+                "a11y_permission_denied",
+                "AXRaise: Accessibility permission is not granted",
+            ));
+        }
+        if status != AX_SUCCESS {
+            return Err(WindowOpError::failed(
+                "ax_raise_failed",
+                format!("AXRaise on window {handle} failed (AXError {status})"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn set_topmost(_handle: isize, _topmost: bool) -> Result<(), WindowOpError> {

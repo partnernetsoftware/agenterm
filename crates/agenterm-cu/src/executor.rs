@@ -24,7 +24,9 @@ use crate::{
     audit::AuditLog,
     auth::{Authorization, Grant},
     auth_store::{AuthStore, AuthStoreErrorKind, GrantAttempt, GrantDecision, GrantDenialKind},
-    command::{Command, InvokeAction, InvokeValueKind, PointerButton, WaitCondition},
+    command::{
+        Command, InvokeAction, InvokeValueKind, OrderRelation, PointerButton, WaitCondition,
+    },
     mechanism, observe,
     rdp_transport::{self, RdpEndpoint},
     receipt::{self, ReceiptLog},
@@ -792,6 +794,12 @@ impl Executor {
                 frame,
                 ..
             } => window_place(action, *window, *frame),
+            Command::OrderWin {
+                window,
+                relation,
+                relative,
+                ..
+            } => orderwin_payload(*window, *relation, *relative),
             Command::Close {
                 window,
                 pid,
@@ -1015,6 +1023,11 @@ fn capabilities_payload() -> serde_json::Value {
             "focused": background_verb,
             "observe": tree_verb,
             "close": close_verb,
+            "orderwin": {
+                "status": status(mechanism::Capability::WindowOp).to_ascii_lowercase(),
+                "group": "geometry",
+                "mode": "raise",
+            },
             "receipts": { "status": "available" },
             "page-js": {
                 "status": "unsupported",
@@ -1331,6 +1344,52 @@ fn windows_watch_payload(
         "interval_ms": interval.as_millis() as u64,
         "events": events,
         "windows": previous.iter().map(observe::window_row_json).collect::<Vec<_>>(),
+    }))
+}
+
+/// MCU `orderwin`: `above` raises `window`, `below` raises `relative`.
+fn orderwin_payload(
+    window: isize,
+    relation: OrderRelation,
+    relative: isize,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 || relative == 0 {
+        return Err(invalid_input(
+            "orderwin requires --window H --relative H (non-zero handles from windows)".into(),
+        ));
+    }
+    if window == relative {
+        return Err(invalid_input(
+            "orderwin --window and --relative must be distinct handles".into(),
+        ));
+    }
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let target = windows.iter().find(|item| item.handle == window);
+    let other = windows.iter().find(|item| item.handle == relative);
+    if target.is_none() {
+        return Err(CuError::new(
+            "a11y_window_gone",
+            format!("orderwin --window {window} is not in the current inventory"),
+        ));
+    }
+    if other.is_none() {
+        return Err(CuError::new(
+            "a11y_window_gone",
+            format!("orderwin --relative {relative} is not in the current inventory"),
+        ));
+    }
+    let raised = match relation {
+        OrderRelation::Above => window,
+        OrderRelation::Below => relative,
+    };
+    mechanism::window_op::show(raised, mechanism::window_op::SHOW).map_err(map_mechanism_err)?;
+    Ok(serde_json::json!({
+        "mechanism": "libagenterm",
+        "via": "native-window-show",
+        "relation": relation.as_str(),
+        "window": window,
+        "relative": relative,
+        "raised": raised,
     }))
 }
 
@@ -3708,9 +3767,14 @@ fn invoke_action(
         InvokeAction::SetExpanded => mechanism::NodeAction::SetExpanded(flag),
         InvokeAction::Increment => mechanism::NodeAction::Increment,
         InvokeAction::Decrement => mechanism::NodeAction::Decrement,
+        InvokeAction::ScrollTo => {
+            return Err(CuError::new(
+                "invalid_input",
+                "internal: invoke scroll-to uses agt_a11y_node_scroll, not NodeAction",
+            ));
+        }
         InvokeAction::SetSelected
         | InvokeAction::SetSelection
-        | InvokeAction::ScrollTo
         | InvokeAction::Cancel
         | InvokeAction::ShowDefaultUi => {
             return Err(CuError::new(
@@ -3783,7 +3847,14 @@ fn invoke_payload(
         };
         spec.node = Some(hit.id.clone());
     }
-    let node_action = invoke_action(action, value)?;
+    if action == InvokeAction::ScrollTo && value.is_some() {
+        return Err(invalid_input("invoke scroll-to takes no value".into()));
+    }
+    let node_action = if action == InvokeAction::ScrollTo {
+        None
+    } else {
+        Some(invoke_action(action, value)?)
+    };
     // `--focused`: the platform names the application's own focused control
     // first; the tree read that follows must still show the same identity
     // (id, role, identifier) at that path, so PID + window + focused
@@ -3861,10 +3932,10 @@ fn invoke_payload(
     // Desired-state verbs: an unobservable state is refused before any
     // action; an already-matching state is a verified no-op.
     let desired = match &node_action {
-        mechanism::NodeAction::SetChecked(flag) => {
+        Some(mechanism::NodeAction::SetChecked(flag)) => {
             Some(("checked", *flag, observe::checked_state(&target)))
         }
-        mechanism::NodeAction::SetExpanded(flag) => {
+        Some(mechanism::NodeAction::SetExpanded(flag)) => {
             Some(("expanded", *flag, observe::expanded_state(&target)))
         }
         _ => None,
@@ -3914,14 +3985,64 @@ fn invoke_payload(
         }),
     )?;
     let mut mechanism_error = None;
-    if performed
-        && let Err(error) =
-            mechanism::perform_node_action(Some(window), &target.id, node_action.clone())
-    {
-        mechanism_error = Some(map_mechanism_err(error));
+    if performed {
+        let result = if action == InvokeAction::ScrollTo {
+            mechanism::scroll_node(Some(window), &target.id)
+        } else {
+            mechanism::perform_node_action(
+                Some(window),
+                &target.id,
+                node_action.clone().expect("mapped invoke action"),
+            )
+        };
+        if let Err(error) = result {
+            mechanism_error = Some(map_mechanism_err(error));
+        }
     }
     let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let after_node = observe::node_by_id(&after, &target.id).cloned();
+    if action == InvokeAction::ScrollTo {
+        let verified = mechanism_error.is_none();
+        let verification = serde_json::json!({
+            "method": "scroll-to",
+            "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { None::<&str> },
+        });
+        let after_state = after_node.as_ref().map(observe::node_state_json);
+        let receipt = serde_json::json!({
+            "addressing": "accessibility-tree",
+            "mechanism": "libagenterm",
+            "backend": before.backend,
+            "window": window,
+            "target": spec.json(),
+            "node": node_json,
+            "action": "scroll-to",
+            "via": "scroll-to",
+            "performed": performed,
+            "verified": verified,
+            "verification": verification,
+            "before": observe::node_state_json(&target),
+            "after": after_state,
+            "tree_changed": observe::tree_changed(&before, &after),
+            "receipt": ticket.json(),
+        });
+        receipts.complete(
+            &ticket,
+            "invoke",
+            window,
+            verified,
+            serde_json::json!({
+                "after": after_state,
+                "verification": verification,
+                "tree_changed": observe::tree_changed(&before, &after),
+                "error": mechanism_error.as_ref().map(error_payload),
+            }),
+        )?;
+        if let Some(error) = mechanism_error {
+            return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
+        }
+        return Ok(receipt);
+    }
+    let node_action = node_action.expect("mapped invoke action");
     let (verified, method, reason) = match (&node_action, &after_node) {
         (mechanism::NodeAction::SetValue(wanted), Some(now))
         | (mechanism::NodeAction::SelectOption(wanted), Some(now)) => {
@@ -7192,7 +7313,9 @@ mod tests {
         assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");
         assert_eq!(data["verbs"]["apps"]["running_only"], true);
         assert_eq!(data["verbs"]["apps"]["group"], "discover");
-        assert_eq!(data["verbs"]["orderwin"]["status"], "unsupported");
+        assert_eq!(data["verbs"]["orderwin"]["mode"], "raise");
+        assert_eq!(data["verbs"]["orderwin"]["group"], "geometry");
+        assert_ne!(data["verbs"]["orderwin"]["status"], "");
         assert_eq!(data["verbs"]["spaces"]["status"], "unsupported");
         assert_ne!(data["verbs"]["windows-watch"]["status"], "");
         assert_ne!(data["verbs"]["apps"]["status"], "");
@@ -7204,6 +7327,31 @@ mod tests {
             !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
             "current mapping must not claim live RDP: {mapping}"
         );
+    }
+
+    #[test]
+    fn invoke_scroll_to_is_not_unmapped_spelling() {
+        let reply = actuate_executor().execute(&Command::Invoke {
+            target: TargetRef::Current,
+            window: -1,
+            node: None,
+            index: None,
+            name: Some("agenterm-no-such-node".into()),
+            role: None,
+            identifier: None,
+            focused: false,
+            action: InvokeAction::ScrollTo,
+            value: None,
+            selector: None,
+        });
+        assert!(!reply.ok);
+        assert_eq!(reply.command, "invoke");
+        let err = reply.error.as_ref().expect("typed");
+        assert_ne!(err.code, "usage");
+        if let Some(reason) = err.detail.as_ref().and_then(|d| d["reason"].as_str()) {
+            assert_ne!(reason, "node_action_unmapped");
+        }
+        assert!(!err.message.contains("not mapped on the libagenterm"));
     }
 
     #[test]
@@ -7255,14 +7403,22 @@ mod tests {
         } else {
             assert_ne!(apps.error.as_ref().unwrap().code, "usage");
         }
-        let order = exec.execute(&Command::Align {
+        let order_same = actuate_executor().execute(&Command::OrderWin {
             target: TargetRef::Current,
-            group: "orderwin".into(),
+            window: 1,
+            relation: OrderRelation::Above,
+            relative: 1,
         });
-        assert_eq!(
-            order.error.as_ref().unwrap().detail.as_ref().unwrap()["group"],
-            "geometry"
-        );
+        assert!(!order_same.ok);
+        assert_eq!(order_same.command, "orderwin");
+        assert_eq!(order_same.error.as_ref().unwrap().code, "invalid_input");
+        let order_zero = actuate_executor().execute(&Command::OrderWin {
+            target: TargetRef::Current,
+            window: 0,
+            relation: OrderRelation::Below,
+            relative: 2,
+        });
+        assert_eq!(order_zero.error.as_ref().unwrap().code, "invalid_input");
     }
 
     #[test]

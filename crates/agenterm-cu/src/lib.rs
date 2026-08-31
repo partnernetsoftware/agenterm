@@ -29,7 +29,7 @@ pub mod target_binding;
 pub mod vnc_transport;
 
 pub use auth::{Authorization, Grant};
-pub use command::{Command, PointerButton, WaitCondition};
+pub use command::{Command, OrderRelation, PointerButton, WaitCondition};
 pub use executor::Executor;
 pub use rdp_transport::RdpEndpoint;
 pub use reply::{CuError, CuReply};

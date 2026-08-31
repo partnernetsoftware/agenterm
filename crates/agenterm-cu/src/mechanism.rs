@@ -613,6 +613,9 @@ pub mod window_enumerate {
 pub mod window_op {
     use super::{MechanismError, map_status};
 
+    /// `agt_native_window_show` state 1: Show (raise). MCU `orderwin` uses this.
+    pub const SHOW: i32 = 1;
+
     /// Show/hide/minimize/maximize/restore a native window handle.
     pub fn show(handle: isize, state: i32) -> Result<(), MechanismError> {
         let f = super::call_sym::<super::WindowShow>(b"agt_native_window_show")?;

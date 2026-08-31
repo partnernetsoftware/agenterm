@@ -33,6 +33,32 @@ pub enum InvokeAction {
     ShowDefaultUi,
 }
 
+/// MCU `orderwin TARGET above|below RELATIVE`: above raises target, below
+/// raises relative.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OrderRelation {
+    Above,
+    Below,
+}
+
+impl OrderRelation {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "above" => Some(Self::Above),
+            "below" => Some(Self::Below),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Above => "above",
+            Self::Below => "below",
+        }
+    }
+}
+
 /// What an `invoke` action's `VALUE` positional must be.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InvokeValueKind {
@@ -608,6 +634,16 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         frame: Option<[i32; 4]>,
     },
+    /// MCU `orderwin`: relative z-order. `above` raises `window`, `below`
+    /// raises `relative`, through native show / macOS AXRaise. Linux is
+    /// typed unsupported (window-op not wired).
+    #[serde(rename = "orderwin")]
+    OrderWin {
+        target: TargetRef,
+        window: isize,
+        relation: OrderRelation,
+        relative: isize,
+    },
     /// The destructive verb (PRD_02_31): close one top-level window in the
     /// background through the platform's own close control (macOS
     /// `AXCloseButton` + `AXPress`, Windows `WM_CLOSE`). The three-part gate
@@ -766,6 +802,7 @@ impl Command {
             Self::GetText { .. } => "get-text".into(),
             Self::Wait { .. } => "wait".into(),
             Self::WindowPlace { .. } => "window-place".into(),
+            Self::OrderWin { .. } => "orderwin".into(),
             Self::Close { .. } => "close".into(),
             Self::Receipts { .. } => "receipts".into(),
             Self::PageJs { .. } => "page-js".into(),
@@ -807,6 +844,7 @@ impl Command {
             | Self::GetText { target, .. }
             | Self::Wait { target, .. }
             | Self::WindowPlace { target, .. }
+            | Self::OrderWin { target, .. }
             | Self::Close { target, .. }
             | Self::Receipts { target, .. }
             | Self::PageJs { target, .. }
@@ -830,6 +868,7 @@ impl Command {
             | Self::Select { .. }
             | Self::SetCaret { .. }
             | Self::WindowPlace { .. }
+            | Self::OrderWin { .. }
             | Self::Close { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }
@@ -1273,6 +1312,25 @@ mod tests {
                 "window": 7, "frame": [10, 20, 300, 200]
             })
         );
+        let order: Command = serde_json::from_value(serde_json::json!({
+            "verb": "orderwin",
+            "target": "current",
+            "window": 1,
+            "relation": "above",
+            "relative": 2
+        }))
+        .expect("deserialize");
+        assert_eq!(order.verb(), "orderwin");
+        assert_eq!(order.required_grant(), Grant::Actuate);
+        assert!(matches!(
+            order,
+            Command::OrderWin {
+                window: 1,
+                relation: OrderRelation::Above,
+                relative: 2,
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -58,7 +58,7 @@ machine-control
 | App-local 焦点 | `focused <pid>` | `focused --window` / `invoke --focused` mac live | **对齐 mac** |
 | 事件 | `observe` AXObserver；`query --watch` | `observe` poll-diff（明写非 AXObserver） | cu **弱一档** |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
-| 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close` live；`orderwin`/`spaces` typed | 无静默缺命令 |
+| 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close` live；`orderwin` raise（mac AXRaise / Win Show；linux typed）；`spaces` typed | **orderwin 无 silent unknown** |
 | 指针/键 | `click/type/key/scroll/drag --to` · `cursor` | `pointer-move --to desktop` 明确全局；窗口局部映射未实现即 typed `unsupported` | 防止漏写目标静默变成全局输入 |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 纯文本 observe；节点 `copy`/`paste` | cu **窄** |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI；mac/linux typed unsupported | MCU 实验室更完整 |
@@ -77,7 +77,8 @@ machine-control
 2. [~] `unlock` 动词与重读分类已做；真正的闲置 Chromium 只读 poke（depth≥8 hit-test / `AXManualAccessibility`）仍未映射。
 3. ~~`query --selector` / `invoke --selector`~~ **已做**（MCU `Role[idx] / Role@title / *@title / #desc`；query 作用域=命中节点+子孙，invoke 绑定唯一节点）。
 4. [~] `invoke` 已接受 `set-selected`、`set-selection`、`scroll-to`、`cancel`、`show-default-ui` 拼写；ABI 未映射前一律 typed `unsupported`，不算行为完成。
-5. [✓] `windows-watch` poll-diff（appeared/disappeared/changed）；`apps` running-only。`orderwin`/`spaces` 仍 typed。
+5. [✓] `windows-watch` poll-diff；`apps` running-only；`orderwin` raise（linux typed）。`spaces` 仍 typed。
+   `invoke scroll-to` maps to `agt_a11y_node_scroll` (`via=scroll-to`).
 6. ~~`--to`~~ `pointer-move` 必填 `--to desktop`。
 7. ~~page-js~~ typed + `backend=debugger-runtime-evaluate`；禁 `eval(`。
 

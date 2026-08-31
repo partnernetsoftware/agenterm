@@ -1119,6 +1119,40 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
+        "orderwin" => {
+            let window = match flag_window(&mut args) {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("orderwin requires --window <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            let relative = match flag_handle(&mut args, "--relative") {
+                Ok(Some(value)) => value,
+                Ok(None) => return usage_err("orderwin requires --relative <handle>"),
+                Err(message) => return usage_err(message),
+            };
+            let relation = match flag_text(&mut args, "--relation") {
+                Ok(Some(raw)) => match agenterm_cu::OrderRelation::parse(&raw) {
+                    Some(value) => value,
+                    None => {
+                        return usage_err("orderwin --relation must be above or below");
+                    }
+                },
+                Ok(None) => return usage_err("orderwin requires --relation above|below"),
+                Err(message) => return usage_err(message),
+            };
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "orderwin accepts only --window H --relation above|below --relative H; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::OrderWin {
+                target,
+                window,
+                relation,
+                relative,
+            }
+        }
         "window-place" => {
             let action = flag_value(&mut args, "--action")
                 .or_else(|| args.first().cloned())
@@ -1704,15 +1738,21 @@ fn flag_isize(args: &mut Vec<String>, flag: &str) -> Option<isize> {
 /// `Err(usage)` when present without a value or with a value that is not a
 /// `T`. Unlike `flag_isize`, a bad value never silently drops the flag.
 fn flag_window(args: &mut Vec<String>) -> Result<Option<isize>, String> {
-    let Some(index) = args.iter().position(|arg| arg == "--window") else {
+    flag_handle(args, "--window")
+}
+
+fn flag_handle(args: &mut Vec<String>, flag: &'static str) -> Result<Option<isize>, String> {
+    let Some(index) = args.iter().position(|arg| arg == flag) else {
         return Ok(None);
     };
     args.remove(index);
     if index >= args.len() {
-        return Err("--window requires a value".to_owned());
+        return Err(format!("{flag} requires a value"));
     }
     let raw = args.remove(index);
-    agenterm_cu::observe::parse_window_token(&raw).map(Some)
+    agenterm_cu::observe::parse_window_token(&raw)
+        .map(Some)
+        .map_err(|message| message.replace("--window", flag))
 }
 
 fn flag_window_opt(args: &mut Vec<String>) -> Option<isize> {
@@ -1962,7 +2002,7 @@ Commands:
   invoke --window HANDLE (--node PATH | --index N | --name PAT [--role ROLE] | --identifier ID
                           | --focused [--role ROLE])
          <press | set-value TEXT | select-option NAME | set-checked true|false
-          | set-expanded true|false | increment | decrement>
+          | set-expanded true|false | increment | decrement | scroll-to>
                               one semantic a11y action; never activates or raises
                               the window. Two showing matches -> "ambiguous", none
                               -> "a11y_node_not_found", an action the node does not
@@ -2178,6 +2218,10 @@ Commands:
            next-third|previous-third|next-display|previous-display
            larger|smaller|undo|redo
            (or SpectacleWindowAction* constants)
+  orderwin --window HANDLE --relation above|below --relative HANDLE
+                              MCU relative z-order: above raises --window, below
+                              raises --relative (native show / macOS AXRaise).
+                              Linux window-op raise is typed unsupported.
 
 All replies are JSON on stdout: {{"ok":bool,"target":..,"command":..,"data":..,"error":..}}
 "#
@@ -2434,6 +2478,29 @@ mod tests {
         ]);
         assert_eq!(apps.command, "apps");
         assert_ne!(apps.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""), "usage");
+        let order = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "orderwin".into(),
+            "--window".into(),
+            "1".into(),
+            "--relation".into(),
+            "above".into(),
+            "--relative".into(),
+            "1".into(),
+        ]);
+        assert_eq!(order.command, "orderwin");
+        assert_eq!(order.error.expect("same handle").code, "invalid_input");
+        let missing = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "orderwin".into(),
+            "--window".into(),
+            "1".into(),
+        ]);
+        assert_eq!(missing.command, "usage");
     }
 
     #[test]

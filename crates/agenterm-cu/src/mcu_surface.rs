@@ -117,7 +117,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "doctor",
     "permissions",
     "unlock",
-    "orderwin",
     "spaces",
     "pty",
     "job",
@@ -151,14 +150,13 @@ pub fn group_id_for_verb(verb: &str) -> &'static str {
 }
 
 /// Align-CLI verbs that are typed-only (not a dedicated live command).
-/// `unlock` has `Command::Unlock`; `windows-watch` / `apps` are live.
+/// `unlock` / `windows-watch` / `apps` / `orderwin` are dedicated.
 pub fn is_typed_only_verb(verb: &str) -> bool {
     is_align_verb(verb) && verb != "unlock"
 }
 
 fn typed_only_reason(verb: &str) -> &'static str {
     match verb {
-        "orderwin" => "orderwin is not mapped; use window-place",
         "spaces" => "spaces inventory is not mapped",
         _ => {
             let group = group_id_for_verb(verb);
@@ -235,10 +233,13 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             if os == "linux" {
                 (
                     "available",
-                    "window-place live where mapped; close/orderwin/spaces typed on linux close gap",
+                    "window-place live where mapped; orderwin/close typed (window-op raise not wired)",
                 )
             } else if tree_live(os) {
-                ("available", "window-place/close; orderwin/spaces typed")
+                (
+                    "available",
+                    "window-place/close; orderwin raises via native show/AXRaise; spaces typed",
+                )
             } else {
                 ("unsupported", "window geometry not mapped")
             }
@@ -405,6 +406,29 @@ pub fn verb_declaration(verb: &str) -> Value {
             "verb": verb,
         });
     }
+    if verb == "orderwin" {
+        let (status, reason) = if os == "linux" {
+            (
+                "unsupported",
+                "native window raise is not wired on linux",
+            )
+        } else if tree_live(os) {
+            (
+                "available",
+                "above raises --window, below raises --relative (native show / AXRaise)",
+            )
+        } else {
+            group_status(group, os)
+        };
+        return json!({
+            "status": status,
+            "mode": "raise",
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if is_typed_only_verb(verb) {
         return json!({
             "status": "unsupported",
@@ -428,7 +452,7 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
             map.insert((*verb).to_owned(), verb_declaration(verb));
         }
     }
-    for verb in ["windows-watch", "apps", "unlock"] {
+    for verb in ["windows-watch", "apps", "orderwin", "unlock"] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
         }
@@ -483,15 +507,22 @@ mod tests {
         assert_eq!(watch["group"], "discover");
         assert_ne!(watch["reason"], "");
         assert_eq!(verb_declaration("apps")["running_only"], true);
-        for verb in ["orderwin", "spaces"] {
-            let decl = verb_declaration(verb);
-            assert_eq!(decl["status"], "unsupported", "{verb}");
-            assert!(!decl["reason"]
-                .as_str()
-                .unwrap_or("")
-                .contains("unknown MCU group"));
+        let spaces = verb_declaration("spaces");
+        assert_eq!(spaces["status"], "unsupported");
+        assert!(!spaces["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("unknown MCU group"));
+        let order = verb_declaration("orderwin");
+        assert_eq!(order["mode"], "raise");
+        assert_eq!(order["group"], "geometry");
+        if host_os() == "linux" {
+            assert_eq!(order["status"], "unsupported");
+        } else {
+            assert_eq!(order["status"], "available");
         }
         assert!(!is_align_verb("windows-watch"));
         assert!(!is_align_verb("apps"));
+        assert!(!is_align_verb("orderwin"));
     }
 }
