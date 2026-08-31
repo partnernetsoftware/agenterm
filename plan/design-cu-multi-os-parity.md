@@ -359,6 +359,23 @@ focus 那一步**排在菜单步骤之前**，同样不是为了让它通过：�
 这个桌面上不再有任何控件带 STATE_FOCUSED**。那是桌面的性质而不是动词的（`focus` 在它动手的
 那一刻确实验证到了），把顺序反过来写就是在断言一件不成立的事。
 
+## 7. 片 X：Windows 第一次真跑，立刻抓到一个**我今天自己写的**死循环
+
+`menu inspect` 对着一个普通记事本窗口**挂死并吃到 2 GB 以上**。根因不在 Windows 适配器，
+在我今天早些时候重写的 `menu_items`：它沿着「entry 祖先」走来拼路径，而**没有任何东西阻止这条路
+兜圈子**。UIA 恰好就给出了这样一条链，于是每绕一圈往 `path` 里塞一个标题，内存无界增长、永不返回。
+
+macOS 和 Linux 一直没暴露，因为那两个后端没产生环——**这恰恰是重点**：父链是后端的数据，
+不是这段代码可以假设的不变量，所以护栏该在这里，而不是指望后端今天恰好乖。两处祖先遍历现在都
+拒绝重复访问；「自己是自己最近 entry 祖先」的节点**不记父边**（记了就是那个环）。
+回归测试盖了两种形状（自环、两节点互环），**在旧代码上是挂死而不是断言失败**——这正是这个 bug 的样子。
+
+**怎么找到的值得记一笔**：walk、budget、ABI 的 count 三个都被先怀疑过，三个都是清白的。
+在平台 walk、ABI、cu 的快照读取里各插一条 trace，看到「walk 出 37 个节点 → count=2 →
+两个节点都读完了 → 然后才挂」，才把矛头从机制指向扁平化那一步。
+
+修完真机复验：`menu inspect` **166 ms** 返回真实条目。
+
 ### 还剩什么（2026-09-01，本轮结束时）
 
 | 项 | 为什么还在 |
@@ -367,7 +384,7 @@ focus 那一步**排在菜单步骤之前**，同样不是为了让它通过：�
 从 `pressed 0` 变 `pressed 1`；`set-checked true` performed+verified、再来一次 performed=false
 仍 verified、`false` 又变回来；`focus`/`focused`/`get-text`/`query --role` 都通；`windows` 的
 `z_index`/`occluded_percent` 来自真的 `_NET_CLIENT_LIST_STACKING`。**又抓到两个 bug**（见下）。**片 S 再加菜单栏**，把后台菜单和树几何也真跑了：**又抓到六个**（见 §3）——盲写的片 J 没有一条是对的 |
-| Windows **真机证据** | **上一版这里写「本仓没有那台机器，也没有可跑的模拟路径」——那句话是错的**（和我早上对 Linux 说的是同一句）。实际去查：本机装了 UTM，`utmctl list` 里有 **`minicon-win-arm-64` 和 `minicon-win-x86-64` 两个 Windows 虚拟机**，各 22–23 GB，是真安装不是空壳；`cargo-xwin` 也装着，`aarch64-pc-windows-msvc` / `x86_64-pc-windows-msvc` 两个 target 都在，**`agenterm-cu.exe` + `agenterm.dll` 交叉编译干净**（3.2 MB / 1.36 MB）。真正卡住的是**进不去**：启动 arm64 那台之后，客户机在 192.168.64.2，但 22 / 3389 / 5985 / 5986 / 445 / 135 全部关闭、ping 不通，没装 QEMU guest agent（`utmctl ip-address` 直接报错），配置里也没有串口（拿不到 SAC 控制台）。**所以准确的说法是：机器有、二进制有、缺的是客户机里没开任何可达服务**——要通就得有人在那台 Windows 的图形界面里打开 OpenSSH Server（或 WinRM），而那是另一个项目（minicon）的虚拟机，我不该自作主张改它的状态。用完已 `utmctl stop`，所有 VM 恢复原状 |
+| ~~Windows **真机证据**~~ **已跑** | 前两版这里先写「没有那台机器」（错），再写「机器有、进不去」（也不准）。**真正的答案在隔壁项目里**：`minicon` 有 `scripts/utm-court.sh` + `utm-courts.json`，把这两台 Windows 虚拟机登记成 `automation_state: ready`、`adapter: qemu-guest-agent`——**代理走 virtio-serial，不是 TCP**，所以我之前扫 22/3389/5985 全关是在错的地方找。用它自带的 `start` / `wait-ready` / `push` / `exec` / `pull`：`cargo-xwin` 交叉编译的 `agenterm-cu.exe` + `agenterm.dll` 推进客户机，**跑起来了**。客户机是 Windows on ARM（11 26200，注册表 `PROCESSOR_ARCHITECTURE=ARM64`；guest agent 自己是 x64 仿真进程，所以环境变量报 AMD64，别信那个）。guest agent 在 session 0，看不见桌面（`windows` 返回空），所以用一次性计划任务 (`schtasks /ru <user> /it`) 落到交互 session 1 里跑。**结果：`windows` / `tree`（backend `uia`）/ `focused` / `screenshot` / `get-extents` 全部真机通过**，`get-extents` 还如实报了 `a11y_node_ambiguous` 数出 3 个同名节点。**并且立刻抓到一个真 bug**——见 §7 |
 | macOS `orderwin` | 两条路都实测过。`AXRaise` 是应用内排序，对不在前台的应用改不了全局 z 序（实测 z=1 请求到最前反而变成 z=2）。**SkyLight 私有 SPI 也试了**——本仓早就用 SkyLight 做 Space 归属，所以加载路径是现成的：`SLSOrderWindow` / `CGSOrderWindow` / `SLSSetWindowLevel` 全都 present，用本进程的 connection id 对**别的应用**的窗口调用，返回 **1000 = `kCGErrorIllegalArgument`**，顺序纹丝不动。窗口服务器不接受跨 connection 的排序。cu 不会为此激活应用，所以带着实测到的前后 z 值 typed 拒绝 |
 | ~~Linux `app hide` / `show`~~ **已做** | 原来的理由是「用逐个窗口图标化冒充应用级隐藏，是另一个动作套同一个名字」。那是个**诚实性**顾虑，而它是可以答的：现在对**进程拥有的每一个**顶层窗口发 ICCCM `WM_CHANGE_STATE`（而不是句柄指的那一个），并且**回读**——WM 不干就 typed 拒绝而不是把请求当结果。顺带暴露了 cu 里一处 macOS 形状的判据：hide 原本靠「窗口从 inventory 消失」验证，X11 是留在列表里标 `_NET_WM_STATE_HIDDEN`，于是能用的 Linux hide 被判 `verified: false`（还白等满 2.5 秒）。现在「消失」和「最小化」都算收起，5 ms 判定 |
 | ~~Linux `send-keys`~~ **已做** | 节点不发布 AT-SPI `DeviceEventListener`。但 macOS 因为另一个原因（键盘事件只送给前台应用，而这里从不激活）早就给出了答案：**执行这个和弦所*意味着*的那个动作**（`enter` 就是 `AXConfirm`）。AT-SPI 里那个动作就是节点自己的默认动作，`invoke` 早就在解析它。所以设备路径仍是首选，接口不存在时 `enter` 落到节点动作上；`esc` 仍然 typed 拒绝——AT-SPI 没有它的拼法，硬映射一个「看着像取消」的东西比拒绝更糟 |

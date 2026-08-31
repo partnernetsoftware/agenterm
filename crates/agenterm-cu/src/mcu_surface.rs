@@ -190,9 +190,12 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             if os == "macos" {
                 ("available", "invoke/verify/wait/menu/unlock classify-only")
             } else if tree_live(os) {
+                // Background menus are no longer macOS-only: AT-SPI2 and
+                // UIA both publish a menu bar in the window's own tree, and
+                // both have been executed against a real one.
                 (
                     "available",
-                    "invoke/verify/wait share the CLI; menu is typed unsupported off macOS",
+                    "invoke/verify/wait/menu share the CLI; unlock is macOS-only (no poke to map)",
                 )
             } else {
                 ("unsupported", "semantic a11y not mapped")

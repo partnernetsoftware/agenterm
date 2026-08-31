@@ -17,10 +17,15 @@ connection 的外部窗口返回 `kCGErrorIllegalArgument`（两条都实测过�
 （前者对进程的每个窗口做 ICCCM 图标化并回读，后者把 `enter` 落到节点的默认动作上，
 和 macOS 的 `AXConfirm` 同一个道理）。
 
-**Windows 不是「没有路径」，是「进不去」**：本机 UTM 里有两台真装好的 Windows 虚拟机、
-`cargo-xwin` 两个 target 都能干净交叉编译出 `agenterm-cu.exe` + `agenterm.dll`；卡在客户机
-没开任何可达服务（SSH/WinRM/SMB 全关、无 guest agent、无串口）。要往下走需要有人在那台
-虚拟机里开一个入口。
+**Windows 已经真跑了**。入口一直都在，只是在隔壁项目里：`minicon` 的
+`scripts/utm-court.sh` 把这两台 Windows 虚拟机登记为 `qemu-guest-agent` 适配器——
+**代理走 virtio-serial 而不是 TCP**，所以扫端口当然什么都扫不到。用它的
+`start`/`wait-ready`/`push`/`exec`/`pull` 把 `cargo-xwin` 编出来的
+`agenterm-cu.exe` + `agenterm.dll` 推进去执行（客户机是 Windows on ARM 11 26200；
+guest agent 在 session 0 看不见桌面，所以用一次性计划任务落到交互 session）。
+`windows` / `tree`(uia) / `focused` / `screenshot` / `menu inspect` / `get-extents`
+全部真机通过。**第一次跑就抓到一个死循环**（`menu_items` 的祖先遍历没有环护栏，
+2 GB 不返回）——而那是我当天自己写进去的。
 
 **Linux 已经上真机，而且有自己的注册旅程了**（本机 lima VM + `zig cc` 交叉链接 +
 Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke`，20 STEP / 20 EVIDENCE，连跑多次稳定。

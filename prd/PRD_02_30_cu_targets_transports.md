@@ -1007,14 +1007,18 @@ Canonical host mapping (approved product vocabulary):
   for nothing. `capabilities` now declares `close` from the window-op
   capability on every host instead of hard-coding a Linux refusal.
 - [x] background menus on Linux (cut 3.58), executed against a GTK menu
-  bar and pinned by `cu-linux-smoke`; [~] still mapped-only on Windows --
-  and "mapped" there means cross-compiled and vtable-slot-pinned, not run.
-  This host does have two installed Windows VMs and a clean
-  `cargo-xwin` build of `agenterm-cu.exe` + `agenterm.dll` for
-  `aarch64-pc-windows-msvc`; what is missing is a way in, since the guest
-  exposes no SSH, WinRM or SMB, has no QEMU guest agent and no serial
-  console. Running the pair there needs someone to open an entry point
-  inside that guest. Both find the `menu bar` node in the window's own
+  bar and pinned by `cu-linux-smoke`; [x] executed on Windows too
+  (2026-09-01). The `cargo-xwin` build of `agenterm-cu.exe` +
+  `agenterm.dll` for `aarch64-pc-windows-msvc` runs on a Windows-on-ARM
+  guest (11 26200) reached through the sibling `minicon` project's
+  `scripts/utm-court.sh`, whose adapter is the QEMU guest agent over
+  virtio-serial rather than any TCP service -- which is why a port scan
+  found nothing. The agent lives in session 0 and cannot see the desktop,
+  so the verbs run through a one-shot scheduled task in the interactive
+  session. `windows`, `tree` (backend `uia`), `focused`, `screenshot`,
+  `menu inspect` and `get-extents` all answered live, the last with a
+  typed `a11y_node_ambiguous` naming its three matches. The first run also
+  found a real defect -- see the `menu_items` cycle guard. Both find the `menu bar` node in the window's own
   bounded tree -- AT-SPI publishes a frame's menu bar and UIA publishes a
   `MenuBar` element (including the classic Win32 menus the MSAA bridge
   exposes), so reading one is a walk and a search, with no menu opened on
