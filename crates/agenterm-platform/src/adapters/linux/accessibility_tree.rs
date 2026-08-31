@@ -33,6 +33,19 @@ const MAX_NODES: usize = 1_000;
 const MAX_DEPTH: u32 = 32;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
 const NODE_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// How long a desired-state action waits for the toolkit to publish the
+/// new state before the action is called ineffective. Same window as the
+/// macOS AX adapter so a caller sees one timing story.
+const STATE_READBACK_POLL: Duration = Duration::from_millis(50);
+const STATE_READBACK_POLLS: usize = 30;
+/// How many children an option search reads before giving up; a pop-up
+/// with more entries than this is not a list a name can address usefully.
+const MAX_OPTION_CHILDREN: usize = 512;
+/// Bounds for the `STATE_FOCUSED` search. Deep enough for a toolkit's
+/// nested containers, small enough that a focus read stays a quick call.
+const FOCUS_SEARCH_DEPTH: u32 = 24;
+const FOCUS_SEARCH_NODES: usize = 4_000;
 const ACTION_TIMEOUT: Duration = Duration::from_millis(250);
 const NULL_OBJECT_PATH: &str = "/org/a11y/atspi/null";
 const APPLICATION_ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
@@ -177,13 +190,48 @@ pub(crate) fn invoke_menu_path(
     })
 }
 
+/// The window's App-local focused control, read from the tree the window
+/// already publishes: AT-SPI marks the focused element with `STATE_FOCUSED`,
+/// so a bounded walk that finds it needs no event subscription and never
+/// activates or raises anything. The deepest marked node wins -- a frame
+/// and its focused child can both carry the state, and the control is the
+/// answer the caller wants. A truncated walk that found nothing says so,
+/// rather than reporting "no focus" from a search that stopped early.
 pub(crate) fn focused_node_for_window(
-    _window_handle: Option<isize>,
+    window_handle: Option<isize>,
 ) -> Result<AccessibilityNode, AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "Linux AT-SPI2 background menu / focused-context mechanisms are not mapped yet"
-            .into(),
-    })
+    let tree = tree_for_window(
+        window_handle,
+        AccessibilityTreeBudget {
+            max_depth: Some(FOCUS_SEARCH_DEPTH),
+            max_nodes: Some(FOCUS_SEARCH_NODES),
+        },
+    )?;
+    let mut best: Option<&AccessibilityNode> = None;
+    for node in &tree.nodes {
+        if !node.states.iter().any(|state| state == "focused") {
+            continue;
+        }
+        let deeper = best
+            .is_none_or(|current| node.id.matches('/').count() > current.id.matches('/').count());
+        if deeper {
+            best = Some(node);
+        }
+    }
+    match best {
+        Some(node) => Ok(node.clone()),
+        None if tree.truncated => Err(AccessibilityTreeError::failed(
+            "a11y_focus_unavailable",
+            format!(
+                "no node carries STATE_FOCUSED in the first {} nodes of the window tree, and the walk was truncated",
+                tree.nodes.len()
+            ),
+        )),
+        None => Err(AccessibilityTreeError::failed(
+            "a11y_focus_unavailable",
+            "no node in the window tree carries STATE_FOCUSED",
+        )),
+    }
 }
 
 pub(crate) fn drain_bus() {
@@ -547,8 +595,16 @@ async fn perform_node_action_async(
         AccessibilityNodeAction::SetValue(text) => {
             invoke_editable_text(&proxy, &text, window_handle).await
         }
-        // Desired-state / option / range verbs have no AT-SPI mapping in
-        // this cut: typed, never a synthetic click or key.
+        AccessibilityNodeAction::SetChecked(desired) => set_checked_state(&proxy, desired).await,
+        AccessibilityNodeAction::SetExpanded(desired) => set_expanded_state(&proxy, desired).await,
+        AccessibilityNodeAction::SelectOption(option) => {
+            select_option_by_name(&conn, &proxy, &option).await
+        }
+        AccessibilityNodeAction::Increment => step_value(&proxy, true).await,
+        AccessibilityNodeAction::Decrement => step_value(&proxy, false).await,
+        // The contract is `non_exhaustive`; a variant this adapter does not
+        // know is typed, not silently mapped to something else.
+        #[allow(unreachable_patterns)]
         other => Err(AccessibilityTreeError::Unsupported {
             reason: format!(
                 "AT-SPI has no mapping for action {} in this cut",
@@ -1884,11 +1940,262 @@ async fn wait_until_focused(proxy: &AccessibleProxy<'_>) {
 }
 
 fn state_labels(state: StateSet) -> Vec<String> {
-    state
+    let mut labels: Vec<String> = state
         .iter()
         .map(|value| format!("{value:?}"))
         .map(|label| label.to_ascii_lowercase())
-        .collect()
+        .collect();
+    complete_two_way_states(&mut labels);
+    labels
+}
+
+/// AT-SPI publishes only the states that are *set*, so a checkbox that is
+/// off carries `checkable` and nothing else -- indistinguishable from a
+/// control with no readable check state at all. The contract asks an
+/// adapter that can read a two-way state to name both directions, so the
+/// negative word is added whenever the backend says the state exists:
+/// `checkable` gives `checked` / `unchecked` / `mixed` and `expandable`
+/// gives `expanded` / `collapsed`. Same vocabulary as the macOS AX and
+/// Windows UIA adapters.
+fn complete_two_way_states(labels: &mut Vec<String>) {
+    let has = |labels: &Vec<String>, word: &str| labels.iter().any(|label| label == word);
+    if has(labels, "checkable") && !has(labels, "mixed") {
+        if has(labels, "indeterminate") {
+            labels.push("mixed".to_owned());
+        } else if !has(labels, "checked") {
+            labels.push("unchecked".to_owned());
+        }
+    }
+    if has(labels, "expandable") && !has(labels, "expanded") && !has(labels, "collapsed") {
+        labels.push("collapsed".to_owned());
+    }
+}
+
+/// `checked` / `unchecked` / `mixed` from a state list, or `None` when the
+/// node publishes no check state to read.
+fn checked_word(states: &[String]) -> Option<&'static str> {
+    if states.iter().any(|state| state == "mixed") {
+        return Some("mixed");
+    }
+    if states.iter().any(|state| state == "checked") {
+        return Some("checked");
+    }
+    if states.iter().any(|state| state == "unchecked") {
+        return Some("unchecked");
+    }
+    None
+}
+
+/// `expanded` / `collapsed` from a state list, or `None` when the node
+/// publishes no expansion state to read.
+fn expanded_word(states: &[String]) -> Option<&'static str> {
+    if states.iter().any(|state| state == "expanded") {
+        return Some("expanded");
+    }
+    if states.iter().any(|state| state == "collapsed") {
+        return Some("collapsed");
+    }
+    None
+}
+
+/// Poll a node's states until `settled` accepts them or the read-back
+/// window closes. A toolkit publishes the new state a beat after the
+/// action, so a single read right after `DoAction` reports the old one.
+async fn wait_for_states<F>(proxy: &AccessibleProxy<'_>, mut settled: F) -> Vec<String>
+where
+    F: FnMut(&[String]) -> bool,
+{
+    let mut states = states_from_proxy(proxy).await;
+    for _ in 0..STATE_READBACK_POLLS {
+        if settled(&states) {
+            return states;
+        }
+        tokio::time::sleep(STATE_READBACK_POLL).await;
+        states = states_from_proxy(proxy).await;
+    }
+    states
+}
+
+/// Desired checked state through AT-SPI: read, act only on a difference,
+/// read back. Already being in the requested state is success with no
+/// action performed, exactly as the contract's `SetChecked` says.
+async fn set_checked_state(
+    proxy: &AccessibleProxy<'_>,
+    desired: bool,
+) -> Result<(), AccessibilityTreeError> {
+    let want = if desired { "checked" } else { "unchecked" };
+    let states = states_from_proxy(proxy).await;
+    let Some(observed) = checked_word(&states) else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "node publishes no AT-SPI checked state (its StateSet has no Checkable)",
+        ));
+    };
+    if observed == want {
+        return Ok(());
+    }
+    invoke_named_action(proxy, &["toggle", "check", "uncheck", "click", "press"]).await?;
+    let settled = wait_for_states(proxy, |states| checked_word(states) == Some(want)).await;
+    if checked_word(&settled) == Some(want) {
+        return Ok(());
+    }
+    Err(AccessibilityTreeError::failed(
+        "a11y_action_no_effect",
+        format!(
+            "checked read-back is {} after asking for {want}",
+            checked_word(&settled).unwrap_or("unreadable")
+        ),
+    ))
+}
+
+/// Desired expanded state through AT-SPI. GTK spells the expander's action
+/// `expand or contract`, so the preferred name list carries it alongside
+/// the directional spellings.
+async fn set_expanded_state(
+    proxy: &AccessibleProxy<'_>,
+    desired: bool,
+) -> Result<(), AccessibilityTreeError> {
+    let want = if desired { "expanded" } else { "collapsed" };
+    let states = states_from_proxy(proxy).await;
+    let Some(observed) = expanded_word(&states) else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "node publishes no AT-SPI expansion state (its StateSet has no Expandable)",
+        ));
+    };
+    if observed == want {
+        return Ok(());
+    }
+    let preferred: &[&str] = if desired {
+        &["expand", "expand or contract", "click", "press"]
+    } else {
+        &["collapse", "expand or contract", "click", "press"]
+    };
+    invoke_named_action(proxy, preferred).await?;
+    let settled = wait_for_states(proxy, |states| expanded_word(states) == Some(want)).await;
+    if expanded_word(&settled) == Some(want) {
+        return Ok(());
+    }
+    Err(AccessibilityTreeError::failed(
+        "a11y_action_no_effect",
+        format!(
+            "expansion read-back is {} after asking for {want}",
+            expanded_word(&settled).unwrap_or("unreadable")
+        ),
+    ))
+}
+
+/// Choose the child whose name is exactly `option` through the AT-SPI
+/// `Selection` interface. The option is resolved by name and must be
+/// unique: two children with the same name is a typed ambiguity, not a
+/// coin flip. No pop-up is opened by coordinates and no key is sent.
+async fn select_option_by_name(
+    conn: &zbus::Connection,
+    proxy: &AccessibleProxy<'_>,
+    option: &str,
+) -> Result<(), AccessibilityTreeError> {
+    let proxies = proxy.proxies().await.map_err(map_atspi_err)?;
+    let selection = proxies.selection().await.map_err(|_| {
+        AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "node does not expose the AT-SPI Selection interface",
+        )
+    })?;
+    let children = raw_children(proxy, MAX_OPTION_CHILDREN).await?;
+    let mut hit: Option<usize> = None;
+    let mut matches = 0usize;
+    let mut names = Vec::new();
+    for (index, child) in children.iter().enumerate() {
+        let child_proxy = open_bus_object(conn, child).await?;
+        let name = child_proxy.name().await.unwrap_or_default();
+        if !name.is_empty() {
+            names.push(name.clone());
+        }
+        if name == option {
+            matches += 1;
+            hit = Some(index);
+        }
+    }
+    if matches > 1 {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_option_ambiguous",
+            format!("{matches} children are named {option:?}"),
+        ));
+    }
+    let Some(index) = hit else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_option_not_found",
+            format!(
+                "no child is named {option:?}; available: {}",
+                format_available_actions(&names)
+            ),
+        ));
+    };
+    let selected = selection
+        .select_child(i32::try_from(index).unwrap_or(i32::MAX))
+        .await
+        .map_err(map_atspi_err)?;
+    if !selected {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_no_effect",
+            format!("AT-SPI SelectChild({index}) returned false for {option:?}"),
+        ));
+    }
+    Ok(())
+}
+
+/// One step along the AT-SPI `Value` interface. The step is the backend's
+/// own `MinimumIncrement`; a backend that reports no usable increment is
+/// typed rather than stepped by a guessed amount. The new value is clamped
+/// to the published range and read back.
+async fn step_value(
+    proxy: &AccessibleProxy<'_>,
+    forward: bool,
+) -> Result<(), AccessibilityTreeError> {
+    let proxies = proxy.proxies().await.map_err(map_atspi_err)?;
+    let value = proxies.value().await.map_err(|_| {
+        AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "node does not expose the AT-SPI Value interface",
+        )
+    })?;
+    let current = value.current_value().await.map_err(map_atspi_err)?;
+    let step = value.minimum_increment().await.unwrap_or(0.0);
+    if !step.is_finite() || step <= 0.0 {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            format!("node publishes no usable AT-SPI MinimumIncrement ({step})"),
+        ));
+    }
+    let minimum = value.minimum_value().await.unwrap_or(f64::NEG_INFINITY);
+    let maximum = value.maximum_value().await.unwrap_or(f64::INFINITY);
+    let raw = if forward {
+        current + step
+    } else {
+        current - step
+    };
+    let target = raw.clamp(minimum, maximum);
+    if target == current {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_no_effect",
+            format!(
+                "value {current} is already at the {} of its range",
+                if forward { "maximum" } else { "minimum" }
+            ),
+        ));
+    }
+    value
+        .set_current_value(target)
+        .await
+        .map_err(map_atspi_err)?;
+    let observed = value.current_value().await.map_err(map_atspi_err)?;
+    if (observed - target).abs() <= step / 2.0 {
+        return Ok(());
+    }
+    Err(AccessibilityTreeError::failed(
+        "a11y_action_no_effect",
+        format!("value read-back is {observed} after asking for {target}"),
+    ))
 }
 
 #[allow(dead_code)]
@@ -3096,6 +3403,50 @@ fn map_atspi_err(error: impl std::fmt::Display) -> AccessibilityTreeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn labels(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_readable_two_way_state_names_both_directions() {
+        // AT-SPI publishes only the states that are set, so an unchecked
+        // box carries `checkable` alone. Without the negative word a
+        // caller cannot tell "off" from "no check state here".
+        let mut off = labels(&["enabled", "checkable", "showing"]);
+        complete_two_way_states(&mut off);
+        assert!(off.contains(&"unchecked".to_owned()));
+        assert_eq!(checked_word(&off), Some("unchecked"));
+
+        let mut on = labels(&["checkable", "checked"]);
+        complete_two_way_states(&mut on);
+        assert!(!on.contains(&"unchecked".to_owned()));
+        assert_eq!(checked_word(&on), Some("checked"));
+
+        let mut mixed = labels(&["checkable", "indeterminate"]);
+        complete_two_way_states(&mut mixed);
+        assert_eq!(checked_word(&mixed), Some("mixed"));
+
+        let mut collapsed = labels(&["expandable"]);
+        complete_two_way_states(&mut collapsed);
+        assert_eq!(expanded_word(&collapsed), Some("collapsed"));
+
+        let mut open = labels(&["expandable", "expanded"]);
+        complete_two_way_states(&mut open);
+        assert_eq!(expanded_word(&open), Some("expanded"));
+    }
+
+    #[test]
+    fn a_state_the_backend_never_publishes_stays_unreadable() {
+        // A plain button is neither checkable nor expandable: inventing
+        // `unchecked` for it would make `verify --expect checked:false`
+        // pass against a control that has no such state.
+        let mut plain = labels(&["enabled", "focusable", "showing", "visible"]);
+        complete_two_way_states(&mut plain);
+        assert_eq!(plain.len(), 4);
+        assert_eq!(checked_word(&plain), None);
+        assert_eq!(expanded_word(&plain), None);
+    }
 
     #[test]
     fn node_paths_parse_as_child_indices() {

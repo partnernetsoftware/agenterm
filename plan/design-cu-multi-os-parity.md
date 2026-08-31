@@ -18,10 +18,10 @@
 | `click` / `press` | ✓ AXPress | ✓ Action | ✓ Invoke/Legacy |
 | `focus` | ✓ AXFocused | ✓ Component.GrabFocus | ✓ SetFocus |
 | `set-value` | ✓ AXValue | ✓ EditableText | ✓ ValuePattern |
-| `select-option` | ✓ 弹出+子项 AXPress | ✗（Selection iface） | ✗（SelectionItemPattern） |
-| `set-checked` | ✓ 期望态 | ✗（Action toggle + STATE_CHECKED） | ✓ TogglePattern |
-| `set-expanded` | ✓ 期望态 | ✗（Action expand + STATE_EXPANDED） | ✗（ExpandCollapsePattern） |
-| `increment` / `decrement` | ✓ AXIncrement | ✗（Value iface + minimumIncrement） | ✗（RangeValuePattern） |
+| `select-option` | ✓ 弹出+子项 AXPress | **✓ 已映射** Selection.SelectChild（名字唯一） | ✗（SelectionItemPattern） |
+| `set-checked` | ✓ 期望态 | **✓ 已映射** 期望态 + StateSet 回读 | ✓ TogglePattern |
+| `set-expanded` | ✓ 期望态 | **✓ 已映射** 期望态 + StateSet 回读 | ✗（ExpandCollapsePattern） |
+| `increment` / `decrement` | ✓ AXIncrement | **✓ 已映射** Value + MinimumIncrement，钳到区间并回读 | ✗（RangeValuePattern） |
 
 ### 0.2 节点级读写（cu 动词 `scroll` / `get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` / `send-keys`）
 
@@ -41,7 +41,7 @@
 |---|---|---|---|
 | `menu_tree_for_window` | ✓ AXMenuBar | ✗（role menu-bar 子树） | ✗（HMENU / UIA MenuBar） |
 | `invoke_menu_path` | ✓ 唯一解析 + AXPress | ✗ | ✗ |
-| `focused_node_for_window` | ✓ AXFocusedUIElement | ✗（STATE_FOCUSED 搜索） | ✗（GetFocusedElement） |
+| `focused_node_for_window` | ✓ AXFocusedUIElement | **✓ 已映射** 有界树里最深的 `STATE_FOCUSED`（`capabilities` 写明 `mode: state-search`） | ✗（GetFocusedElement） |
 
 ### 0.4 cu 层（非 a11y）
 
@@ -53,8 +53,17 @@
 |---|---|---|
 | **A** | macOS §0.2 整列：`AXScrollToVisible` / `AXPosition+AXSize` / `AXSelectedTextRange`（选区 + 零长插入点）/ `send-keys`（先 `AXFocused` 再 `CGEventPostToPid`，不激活） | `cu-macos-smoke.qjs` 新 STEP 真机通过 |
 | **B** | Windows §0.1 四个动作 + §0.2 整列 + §0.3 三个后台机制 | `cargo check --target x86_64-pc-windows-msvc`（无真机；结论只报"已映射"不报"已验证"） |
-| **C** | Linux §0.1 五个动作 + §0.3 三个后台机制 | `cargo check --target x86_64-unknown-linux-gnu` |
+| **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
+
+### 片 C 的发现：AT-SPI 只发布「已置位」的状态
+
+`StateSet` 里没有 `unchecked`。所以一个没勾的复选框只带 `checkable`，
+和一个**根本没有勾选状态**的控件在 JSON 里长得一模一样——`verify --expect checked:false`
+在 Linux 上因此既不能通过也说不出原因。本片让适配器在后端说「这个状态存在」时补出反向词
+（`checkable` → `checked`/`unchecked`/`mixed`，`expandable` → `expanded`/`collapsed`），
+与 macOS AX、Windows UIA 同一套词。**不 checkable 的节点一个词都不加**，
+所以 `checked:false` 对普通按钮仍然 fail-closed（有单测钉住这一条）。
 
 ### 片 A 的两个诚实缺口
 
@@ -74,5 +83,5 @@
 |---|---|---|
 | A macOS 节点读写 | 见下 | **已落地**：`get-extents` / `select` / `get-selection` / `set-caret` / `get-caret` 真机通过（`cu-macos-smoke` 22 STEP / 21 EVIDENCE，80.2M 步 / 274 ops / 72 页）；`scroll` 已映射 `AXScrollToVisible`，只有 typed 拒绝证据 |
 | B Windows | — | 未开工 |
-| C Linux | — | 未开工 |
+| C Linux | 见下 | **已落地（映射，未真机）**：五个动作 + `focused` + `checked`/`unchecked`/`mixed`、`expanded`/`collapsed` 双向状态词；两条平台单测；linux/aarch64 两个 target `check` + `clippy` 干净 |
 | D cu 层 | — | 未开工 |

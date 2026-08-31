@@ -949,15 +949,33 @@ fn capabilities_payload() -> serde_json::Value {
                 serde_json::json!({ "status": "unsupported", "reason": reason }),
             ),
         };
-    // The background verbs (menu bar, App-local focused control) are mapped
-    // on macOS only; elsewhere the platform answers typed unsupported, and
-    // the declaration says so instead of copying the tree status.
-    let background_verb = if cfg!(target_os = "macos") {
+    // The background menu bar is mapped on macOS AX only; elsewhere the
+    // platform answers typed unsupported, and the declaration says so
+    // instead of copying the tree status.
+    let menu_verb = if cfg!(target_os = "macos") {
         tree_verb.clone()
     } else {
         serde_json::json!({
             "status": "unsupported",
-            "reason": "background menu / focused-control mechanisms are mapped on macOS AX only",
+            "reason": "background menu-bar mechanisms are mapped on macOS AX only",
+        })
+    };
+    // The App-local focused control is mapped on macOS (AXFocusedUIElement)
+    // and on Linux (a bounded search for the node carrying STATE_FOCUSED);
+    // Windows UIA has no mapping yet. Linux says which route it took, since
+    // a search is a weaker claim than the toolkit naming its focus.
+    let focused_verb = if cfg!(target_os = "macos") {
+        tree_verb.clone()
+    } else if cfg!(target_os = "linux") {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("mode".into(), serde_json::json!("state-search"));
+        }
+        declaration
+    } else {
+        serde_json::json!({
+            "status": "unsupported",
+            "reason": "App-local focused-control reads are mapped on macOS AX and Linux AT-SPI2 only",
         })
     };
     // The destructive verb rides the platform's window close control:
@@ -1015,9 +1033,9 @@ fn capabilities_payload() -> serde_json::Value {
             "query": tree_verb,
             "invoke": tree_verb,
             "verify": tree_verb,
-            "menu-inspect": background_verb,
-            "menu-invoke": background_verb,
-            "focused": background_verb,
+            "menu-inspect": menu_verb,
+            "menu-invoke": menu_verb,
+            "focused": focused_verb,
             "observe": tree_verb,
             "close": close_verb,
             "orderwin": {

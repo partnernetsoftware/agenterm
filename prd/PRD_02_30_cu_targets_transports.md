@@ -237,7 +237,7 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
 │   ├── vnc      [x]  RFB handshake → local --target current worker
 │   └── rdp      [~]  PLACEHOLDER: capabilities declares unavailable; other verbs rdp_unavailable; live evidence [ ]
 └── platform a11y backends (agenterm-platform)
-    ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys)
+    ├── Linux AT-SPI2                 [x] live evidence (cu-linux-smoke + named journeys); desired-state / option / range invoke and focused mapped (cut 3.53), not yet journey-proven
     ├── Windows UIA                   [~] existing tree evidence (cu-windows-smoke); separate from rdp
     ├── macOS AX current tree         [x] observe live (cut 3.49, cu-macos-smoke): bounded walk, actions, typed denied
     ├── macOS AX actuation            [x] invoke / verify live (cut 3.50, cu-macos-smoke): AXPress, AXValue write, option press, desired-state checked/expanded, increment/decrement; focus journey-proven in 3.51, click mapped only
@@ -336,6 +336,33 @@ Canonical host mapping (approved product vocabulary):
   `a11y_node_not_found`. Two or more showing matches are typed
   `a11y_node_ambiguous` with the match count; the command does not pick
   the first. There is no screenshot or degraded-coordinate substitute.
+- [~] the desired-state, option and range half of `invoke` on Linux
+  (cut 3.53), mapped but not journey-proven: `set-checked` and
+  `set-expanded` read the node's `StateSet`, act only on a difference and
+  poll the state back (already being in the requested state is success
+  with no action performed); `select-option` resolves the child named
+  exactly the option through AT-SPI `Selection.SelectChild`, refusing a
+  duplicate name as `a11y_option_ambiguous` and a miss as
+  `a11y_option_not_found`; `increment` / `decrement` step the `Value`
+  interface by the backend's own `MinimumIncrement`, clamped to the
+  published range and read back. A node whose backend publishes no such
+  state or interface answers `a11y_action_unavailable`; nothing here falls
+  back to a synthetic click, a keystroke or `--coords`.
+- [x] AT-SPI publishes only the states that are set, so this cut names both
+  directions of a state it can read: `checkable` yields `checked` /
+  `unchecked` / `mixed` and `expandable` yields `expanded` / `collapsed`,
+  the same vocabulary the macOS AX and Windows UIA adapters report. A
+  control that is neither checkable nor expandable gains no words, so
+  `verify --expect checked:false` still fails closed against a node with
+  no such state.
+- [~] `focused --window HANDLE` on Linux (cut 3.53), mapped but not
+  journey-proven: the App-local focused control is the deepest node
+  carrying `STATE_FOCUSED` in a bounded walk of the window's own tree
+  (depth 24 / 4000 nodes), so no event subscription is needed and nothing
+  is activated or raised. A truncated walk that found no marked node says
+  so rather than reporting "no focus". `capabilities` declares
+  `focused.mode = "state-search"`: a search is a weaker claim than a
+  toolkit naming its own focus, and the declaration must not hide that.
 - [x] `send-text --window HANDLE --name PAT [--role ROLE] [--] <text...>`
   resolves through that same path, then writes via AT-SPI `EditableText`
   (`SetTextContents` / `InsertText`, `agt_a11y_node_set_text`) or, when

@@ -51,11 +51,11 @@ machine-control
 | 发现窗口 | `windows` `App#n` · Space/zIndex/occlusion · `--all` · `windows watch` | `windows` JSON `handle` + MCU `ref`（`App#n`）；`--window` 接受 `N` 或 `App#N`；`windows-watch` poll-diff；`apps` 运行中窗口聚合 | **句柄+watch+running apps**；仍缺 Space/occlusion/已安装未运行 |
 | 有界树 | `query`/`tree` depth=12 · `--selector` · `--scan-max` · `treeMeta` | `query --selector` 与 `invoke --selector` 接受 `Role[idx] / Role@title / *@title / #desc`；其余 filter/budget 保留 | **拼写与作用域对齐**；真实三平台旅程仍待补 |
 | empty-chrome | `inspect`/`unlock`；闲置 Chromium 浅树 ≠ 空页 | `ax` + `next_actions`；`unlock` 只重读并分类，明确 `poked:false` | **诚实 partial**；尚未映射 `AXManualAccessibility` poke |
-| 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | 原 7 动作 live；另 5 个 MCU 拼写可解析但在 ABI 未映射时 typed `unsupported` | **无 silent unknown**；不可把可解析误报为已实现 |
+| 语义写 | `invoke <sel> press\|set-value\|select-option\|set-checked\|set-expanded\|increment\|decrement\|…` | mac 7 动作 live；**Linux 2026-08-31 补齐九个动作的映射**（期望态/选项/步进，未真机）；Windows 仍缺 4 个；另 5 个 MCU 拼写可解析但未映射时 typed `unsupported` | **无 silent unknown**；不可把可解析误报为已实现 |
 | 关闭环 | `verify`/`wait --expect` · `titleIncludes` · present/absent | `verify`/`wait --expect` · `name`/`titleIncludes` 可无 state；Heading↔WebArea | **对齐**（cu 2026-08-31） |
 | flatten | `elements` / `invoke --index` | `tree --flat` / `invoke --index` | **对齐** |
 | 后台菜单 | `menu inspect`/`menu invoke` path 唯一匹配 | `menu-inspect`/`menu-invoke` mac live；L/W unsupported | **对齐 mac** |
-| App-local 焦点 | `focused <pid>` | `focused --window` / `invoke --focused` mac live | **对齐 mac** |
+| App-local 焦点 | `focused <pid>` | `focused --window` / `invoke --focused` mac live；**Linux 已映射**（有界树里最深的 `STATE_FOCUSED`，`capabilities` 写 `mode: state-search`）；Windows typed | mac live，Linux mapped |
 | 事件 | `observe` AXObserver；`query --watch` | `observe` poll-diff（明写非 AXObserver） | cu **弱一档** |
 | 关窗 | `close` + `--expect-window absent` | `close` destructive 三件套 + `receipts` | **对齐思想** |
 | 几何 | `frame`/`movewin`/`resize`/`maximize`/`orderwin` | `window-place`/`close`/`displays` live；`orderwin` raise；`spaces` macOS SkyLight 只读 | **orderwin/spaces/displays 无 silent unknown** |
