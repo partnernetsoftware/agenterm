@@ -575,6 +575,31 @@ Canonical host mapping (approved product vocabulary):
 - [ ] black-box evidence: `scripts/cu-linux-smoke.sh` against the real `agenterm-cu`
   binary on a host with `DISPLAY` and `at-spi2-registryd`.
 
+- [~] Linux is no longer only cross-compiled (cut 3.61). The binaries are
+  cross-linked on the macOS host with `zig cc` and executed in a lima
+  Ubuntu 26.04 aarch64 VM, with no toolchain installed in the guest. 105
+  platform tests **run** there rather than merely compiling, including
+  both AT-SPI two-way-state tests. With `Xvfb` + `at-spi2-core` + a
+  session bus, `capabilities` reports `tree` and `windows` as `Available`,
+  and `displays` reads back the virtual screen's real geometry
+  (1280x800). What this does *not* prove: no toolkit application is
+  registered with AT-SPI in that session, so `tree` demonstrates the
+  connect-and-walk path answering `a11y_tree_empty` honestly, not node
+  actions against a live widget tree.
+  **Running it found three defects that cross-compilation could not.** The
+  clipboard type probe named a type that does not exist and never
+  compiled -- every `cargo check --target` that passed had the `clipboard`
+  feature off, so "zero errors" was reported on code that could not build.
+  `capabilities` was publishing Rust `Debug` output as a status value
+  (`"status": "unsupported { reason: ... }"`), invisible on macOS because
+  every capability there is `Available` and its Debug form lowercases into
+  the right word. And `windows` **failed on a desktop with no windows**:
+  the two-stage probe assumed `cap == 0` always answers
+  `buffer_too_small`, but with zero items `cap < required` is `0 < 0`, so
+  the ABI answers `AGT_OK` -- which cu treated as an unexpected status.
+  The same hole was in the stacking and screen probes; all three now read
+  an empty list as an empty list.
+
 **Windows — native API + UIA**
 
 - [~] Windows `current` now reaches the UIA accessibility facade through the

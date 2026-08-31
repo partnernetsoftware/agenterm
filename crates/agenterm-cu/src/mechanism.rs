@@ -504,6 +504,11 @@ pub mod window_enumerate {
         let mut needed = 0usize;
         let status = unsafe { f(std::ptr::null_mut(), 0, &mut needed) };
         match status {
+            // Zero items: `cap < required` is `0 < 0`, so the two-stage
+            // probe answers OK rather than buffer_too_small. An empty
+            // desktop is an empty list, not a failure -- this cost a
+            // `windows` call on a display with no windows.
+            dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
                 reason: "window enumeration is unavailable on this host".to_owned(),
             }),
@@ -564,6 +569,11 @@ pub mod window_enumerate {
         let mut needed = 0usize;
         let status = unsafe { f(std::ptr::null_mut(), 0, &mut needed) };
         match status {
+            // Zero items: `cap < required` is `0 < 0`, so the two-stage
+            // probe answers OK rather than buffer_too_small. An empty
+            // desktop is an empty list, not a failure -- this cost a
+            // `windows` call on a display with no windows.
+            dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
                 reason: "this host reports no window stacking order".to_owned(),
             }),
@@ -611,6 +621,11 @@ pub mod window_enumerate {
         let mut needed = 0usize;
         let status = unsafe { f(std::ptr::null_mut(), 0, &mut needed) };
         match status {
+            // Zero items: `cap < required` is `0 < 0`, so the two-stage
+            // probe answers OK rather than buffer_too_small. An empty
+            // desktop is an empty list, not a failure -- this cost a
+            // `windows` call on a display with no windows.
+            dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
                 reason: "screen enumeration is unavailable on this host".to_owned(),
             }),

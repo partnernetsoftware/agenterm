@@ -63,6 +63,7 @@ instead"）。替代品 ScreenCaptureKit 是 block 异步 API，且要另一份 
 | **C** | Linux §0.1 五个动作 + `focused` + 双向状态词 | `cargo check --target x86_64-unknown-linux-gnu`（menu 两个机制留给片 G） |
 | **D** | cu 层 §0.4：`close`/`orderwin`/`screenshot` 的缺平台，`capabilities` 逐平台如实报 | 单测 + 交叉编译 |
 | **F** | 网页 AX：`unlock`（`AXManualAccessibility` poke，ABI 1.15）+ 自有 `WKWebView` 固件 + `scroll` 正向证据 | `cu-macos-web-smoke.qjs` 真机通过 |
+| **Q** | 在 lima Ubuntu 26.04 aarch64 上**真跑** Linux 二进制（zig cc 交叉链接，VM 里不装 Rust） | 105 条平台单测在 Linux 执行通过；Xvfb+at-spi2 下 `capabilities` Available、`displays` 读出真实分辨率；抓到 3 个 bug |
 | **P** | `apps --all` + `app launch`（ABI 1.21；LaunchServices，不假装有 pid） | `cu-macos-smoke` 28 STEP / 27 EVIDENCE 真机通过 |
 | **O** | `app hide/show/quit`（ABI 1.20；`quit` 走应用自己的 Quit 菜单项 + `close` 那套三件套） | `cu-macos-smoke` 27 STEP / 26 EVIDENCE 真机通过 |
 | **N** | `capabilities` 的一级 `permissions` 块：状态 + 修复路径 + 被卡住的动词清单 | 旅程断言（含 `pointer-move` 也在 accessibility 的 gates 里） |
@@ -100,6 +101,23 @@ AppKit 无从路由（补 `kCGMouseEventWindowUnderMousePointer` 也一样）。
    所以 `unlock` 的 `poked` 只表示「请求送到了」，唯一关于树的断言 `grew` 来自前后两次读。
    **另一个测量**：一个会话里只要有任何辅助功能客户端启用过 AX，之后新起的 WebKit 进程
    就直接发布整棵树——所以 `grew: false` 在已建好的树上是正确回报，不是 poke 失败。
+
+### 片 Q：把 Linux 真跑一次，抓到三个 bug
+
+**「交叉编译干净」值不了多少钱**——这是本轮最该记住的一条。三个 bug 全是交叉编译 +
+clippy 全绿的代码里的：
+
+1. **剪贴板类型探针根本编不过。** 我写了 `Backend::probe()`，真名是
+   `ClipboardBackendFacts`。之前每次 `cargo check --target ...` 都没开 `clipboard` feature，
+   所以「0 errors」是在一段**编不过的代码**上报出来的。**特性窄的 check 不算 check。**
+2. **`capabilities` 把 Rust `Debug` 输出当成状态值发出去了。** `status()` 是把能力的 Debug
+   形式转小写：`Available` 恰好变成 `"available"` 看着没问题，其它变成整个结构体——Linux 上
+   真的发出了 `"status": "unsupported { reason: \"host adapter unavailable\" }"`。
+   macOS 上每个能力都是 Available，**永远看不到这个**。现在动词状态是稳定单词，reason 单独一个字段。
+3. **空桌面上 `windows` 直接失败。** 两段式探针假定 cap=0 一定回 `buffer_too_small`；
+   **零个窗口时 `cap < required` 是 `0 < 0`，ABI 回的是 `AGT_OK`**，cu 把它当成
+   `unexpected_status` 报错。macOS 上永远有窗口，所以永远碰不到。三个 list 探针
+   （`windows` / `stacking` / `screens`）都有同一个洞，一起修了。
 
 ### 片 B 的纪律：手写 vtable 必须钉槽位
 
@@ -207,7 +225,8 @@ LaunchServices，**旅程杀不掉自己起的东西**（片 1 踩过）。所�
 
 | 项 | 为什么还在 |
 |---|---|
-| Linux / Windows **真机证据** | 本仓没有那两台机器。所有映射都交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 一律 `[~] mapped`，`capabilities` 写 `mode: tree-search` / `state-search` 不冒充 |
+| Linux **真机**（片 Q，2026-09-01） | **跑起来了**：本机有 lima VM + `zig cc` 能交叉链接，于是把 Linux 二进制在 Ubuntu 26.04 aarch64 上**真跑**。105 条平台单测在 Linux 上执行通过；起了 Xvfb + at-spi2 + dbus 之后 `capabilities` 报 `tree/windows: Available`、`displays` 读出真实的 1280x800。**代价是抓出三个只有真跑才会现形的 bug**（见下）。仍缺：AT-SPI 上没有 toolkit 应用，所以 `tree` 只证明了「连上注册表并走了一圈」，没证明节点动作 |
+| Windows **真机证据** | 本仓没有那台机器，也没有可跑的模拟路径。映射交叉编译 + clippy 干净、vtable 槽位单测钉死，PRD leaf 写 `[~] mapped` |
 | macOS `screenshot` | 系统拿走的：`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC。**不退化成整屏抓图** |
 | 剪贴板富内容读取 | 已报类型，读图片/文件字节是另一个策略问题 |
 | ~~`apps --all` + `app launch`~~ | **已做（片 P）**。`launch` 用 `LSOpenCFURLRef`（不是 `open -a`，也不是 shell），**回复明说 `pid: null`**——进程归 launcher 管，这个调用没法知道 pid、也没法知道 App 是否真的起来了；要 pid 就等窗口 |
