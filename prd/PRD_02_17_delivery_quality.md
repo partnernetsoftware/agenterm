@@ -688,6 +688,13 @@ costs a full candidate cycle:
   `PathBuf` reported `\\`. Both retry attempts failed identically. Product path
   derivation remains unchanged; custom, dev, and explicit-override assertions
   now accept separator-equivalent paths while still rejecting scope aliasing.
+- [~] Candidate `33527902551` proved the separator repair and published IPC
+  compatibility, then exposed a release-gate migration gap at the first
+  `remote-ui-smoke` child-PID assertion. The fix is intentionally holistic:
+  wire every remaining Windows remote-UI/upgrade/Control-Center host primitive
+  in one source state, then rerun the exact-SHA Candidate. A typed `gap()` is a
+  truthful porting marker, but a registered release gate containing one is not
+  qualification evidence.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

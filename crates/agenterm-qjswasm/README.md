@@ -231,7 +231,7 @@ return status;
 ### 第二扇门：`tool.*`（只给工具脚本，沙箱永远开不了）
 
 PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看见 `agenterm.*`；
-**工具 `.qjs`**（CI 门、构建、qualification）多一扇 `tool.*`——文件系统、子进程、环境变量。
+**工具 `.qjs`**（CI 门、构建、qualification）多一扇 `tool.*`——文件系统、子进程、窗口驱动、剪贴板、环境变量。
 区别在**谁能开**，不在脚本写了什么：
 
 - `compile_qjs` **不知道这扇门存在**：写 `fs_exists("/")` 撞的是能力诊断，列出来的也只有
@@ -253,6 +253,9 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `fs_tree_summary(p,max_entries)` | `tool.fs.tree_summary` | status；原生侧在显式 entry 上限内递归统计文件数、逻辑字节、mtime 与首层 bucket，固定大小 JSON 过桥；超限整体拒绝，不返回截断真相 |
 | `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,timed_out}`；无 `timeout_ms` 默认 60 s 后杀 |
 | `process_id()` | `tool.process.id` | 直接 pid |
+| `process_pid(handle)` / `process_kill_pid(pid)` | `tool.process.pid` / `tool.process.kill_pid` | 已启动 child 的 PID；或对任意 PID 做强制终止并返回 typed status |
+| `process_platform_facts(handle)` / `process_window_*` | `tool.process.platform_facts` / `tool.process.window_*` | 通过 platform crate 观察、驱动 child 的原生窗口、控件、消息、指针和尺寸 |
+| `clipboard_get_text()` / `clipboard_set_text(text)` | `tool.clipboard.get_text` / `tool.clipboard.set_text` | 有界 Unicode 系统剪贴板；读取最多 1 MiB，失败为 typed status，不返回截断文本 |
 | `env_get(n)` / `env_cwd()` | `tool.env.get` / `tool.env.cwd` | status；值或诊断暂存（未设置是 status `1`，不是空串——要空串用 `env_has`） |
 | `tool_result()` | `tool.result_len` + `tool.result` | 与 `fleet_result` 同一套两趟取回；**独立**于 fleet 的暂存区，互不覆盖 |
 
@@ -260,7 +263,7 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 `process.command` 抓的 stdout/stderr 同一个数；操作里 panic 报 `QjswasmError::Door`
 不伪装成 status 1。**每次调用都记名**：`Outcome::tool_calls` 按调用顺序列出
 `tool.fs.read_to_string` 这样的全名，沙箱槽永远为空——回执上写的就是它。
-证据在 `tests/tool_door.rs`（17 条）与 `src/host.rs` / `src/tool.rs` 的单测。
+证据在 `tests/tool_door.rs` 与 `src/host.rs` / `src/tool.rs` 的单测。
 
 **CLI 还没接**：`script_engine.rs` 里的 qjswasm 后端仍只建沙箱引擎。
 

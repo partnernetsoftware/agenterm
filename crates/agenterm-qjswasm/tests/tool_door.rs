@@ -302,6 +302,21 @@ fn process_pid_is_stable_across_the_wait_and_a_second_wait_replays() {
     assert_eq!(string_of(&out), "true|true|0|0|true|4|hi\n", "{out:?}");
 }
 
+#[test]
+fn process_kill_pid_refuses_a_negative_id_before_touching_the_host() {
+    let out = run_tool(
+        r#"
+        let status = process_kill_pid(-1);
+        return status + ":" + tool_result();
+        "#,
+    );
+    assert!(
+        string_of(&out).contains("process.kill_pid: pid is negative"),
+        "{out:?}"
+    );
+    assert_eq!(out.tool_calls, ["tool.process.kill_pid"]);
+}
+
 /// A running child's output can be read as it arrives -- rh's
 /// `child.stdout.read(4096, 2s)` minus the blocking -- and the wait still
 /// answers the whole capture afterwards. Drains run from spawn, so a chatty

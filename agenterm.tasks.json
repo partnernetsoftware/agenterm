@@ -41,6 +41,8 @@
         "std.process.id",
         "std.process.list",
         "std.process.kill",
+        "rh.clipboard.get-text",
+        "rh.clipboard.set-text",
         "std.time.system-time-now",
         "std.time.system-time-unix-millis",
         "std.time.system-time-rfc3339"

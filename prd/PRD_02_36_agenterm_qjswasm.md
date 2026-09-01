@@ -683,6 +683,13 @@ A1.3 开 `tool.fs/process/env` 门（37 个具名 import）；然后才迁第一
 复跑（语料已随 rh 走，路径现在是 rh 仓的 `archive/agenterm/scripts/rh/`）：
 `grep -rhoE '\b(std::[a-z_]+|json)::[a-z_]+' lib/*.rh *.rh | sort | uniq -c`
 
+> **A1.10(i) superseded（2026-09-02）**：表内“不进工具门”的旧裁定已被
+> Windows qualification 的真实需求与既有实现推翻。GUI/clipboard/process-fault
+> 是 unrestricted tool runtime 的黑盒驱动能力，不是 Agent 权限；机制归
+> `agenterm-platform`，tool door 只做 profile 隔离、metering 与 typed 翻译，
+> sandbox 永远看不到。window/PNG 已先行落地，clipboard 与 arbitrary-PID kill
+> 由 A1.12c 补齐。
+
 **A1.2 / A1.3 落地后的一句实话（2026-08-29）**：路径库与工具门都在，但**它们之间还没有一条走廊**——
 `path.qjs` 只能被沙箱脚本 import，`tool.*` 只能被 crate 的测试打开。第一个真正迁过去的脚本
 要同时用到两者，而那要 A1.6 先接线。表里 A1.2 / A1.3 两行原先写的是「迁一个非门脚本」「迁 8 个
@@ -698,6 +705,26 @@ bridge-result 上限。两次失败证明抬预算不是解法。平台 crate �
 symlink/reparse，并只把固定大小摘要过桥。`target-report` 保留默认 host-op
 与 compute 预算；204,283 files / 44,738,264,418 B 实测 1.88 s，后续同树
 0.90 s。门测试钉精确 bucket/bytes 与 ceiling+1 拒绝。
+
+#### A1.12c · Windows GUI qualification 不再停在迁移占位（2026-09-02，进行中）
+
+v0.1.16 Candidate `33527902551` 先证明 `native-ipc-smoke` 的 separator
+修复与 published-version compatibility 全绿，随后 `remote-ui-smoke` 在第一条
+PID 身份断言停于遗留的 `remote_ui_gap`。通盘审计发现这不是单点：脚本仍把
+已经存在的 `process.pid`、window/control、PNG 等门操作留成占位，后续 upgrade
+与 Control Center 也会逐个撞上；真实 clipboard 与按 PID fault injection 尚无
+qjswasm 绑定。
+
+- [x] remote-ui 与 upgrade 的 child PID、window/control、message、pointer、resize、
+  rect 和 platform facts 全部接到现有 typed tool door；Control Center 的 PNG 与
+  native key 同步接线。
+- [x] `process.kill_pid`、`clipboard.get_text`、`clipboard.set_text` 落为 tool-only
+  绑定：机制由 `agenterm-platform` 提供，门只做 metering、参数/结果翻译；sandbox
+  看不到。剪贴板读取硬顶 1 MiB，超限/不可用均 typed fail，不返回截断文本。
+- [x] release 顺序中的所有显式 `*_gap` 站点一次审完；未被任何入口调用的历史
+  helper 不冒充已验证能力。
+- [ ] Windows exact-SHA Candidate 重新执行 `remote-ui-smoke` 及其后所有门并封存
+  receipts；在此证据前不宣称迁移完成。
 
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 

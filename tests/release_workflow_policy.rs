@@ -19,6 +19,28 @@ static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/native-ipc-smoke.qjs").replace("\r\n", "\n"));
+const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
+    (
+        "remote-ui-smoke",
+        include_str!("../scripts/qjs/remote-ui-smoke.qjs"),
+    ),
+    (
+        "remote-ui-upgrade-smoke",
+        include_str!("../scripts/qjs/remote-ui-upgrade-smoke.qjs"),
+    ),
+    (
+        "control-center-smoke",
+        include_str!("../scripts/qjs/control-center-smoke.qjs"),
+    ),
+    (
+        "theme-smoke",
+        include_str!("../scripts/qjs/theme-smoke.qjs"),
+    ),
+    (
+        "workbench-smoke",
+        include_str!("../scripts/qjs/workbench-smoke.qjs"),
+    ),
+];
 static PREFLIGHT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/preflight.qjs").replace("\r\n", "\n"));
 static INTERNAL_VERSION_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -88,6 +110,21 @@ fn native_ipc_settings_paths_compare_host_separator_neutrally() {
             NATIVE_IPC_SMOKE_QJS.contains(&format!("comparable_path({path})")),
             "missing separator-neutral comparison for {path}"
         );
+    }
+}
+
+#[test]
+fn windows_release_smokes_have_no_live_qjs_migration_gap() {
+    for (name, source) in WINDOWS_RELEASE_SMOKES {
+        for gap in [
+            "remote_ui_gap:",
+            "remote_upgrade_gap:",
+            "gap:rh_image_inspect_png_unavailable",
+            "gap:process_window_key_unavailable",
+            "qjs_gap:",
+        ] {
+            assert!(!source.contains(gap), "{name} still contains {gap}");
+        }
     }
 }
 

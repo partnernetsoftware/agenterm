@@ -14,10 +14,8 @@
 // launcher (`src/frontend/mod.rs` rejects it elsewhere) and the output stream
 // is a cmd.exe `for /L` loop. Both are kept verbatim.
 //
-// Gap, not approximated: the door has no `process.pid(handle)`, so
-// `lease.client_pid == gui.id` -- "the lease belongs to the child we
-// started" -- cannot be asked. `child_pid` below is the one seam to replace
-// when the door answers it; until then it throws `remote_upgrade_gap`.
+// `process.pid(handle)` proves every lease belongs to the exact GUI child the
+// journey started; no process-table approximation is used.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -25,9 +23,8 @@ function catch_text(error) {
   return "" + error;
 }
 
-// rh's `child.id`: the child's OS pid. No door op carries it yet.
 function child_pid(handle) {
-  throw "remote_upgrade_gap:process_pid:handle=" + handle;
+  return harness.spawned_pid(handle);
 }
 
 function command(context, cli, args, expected_failure) {

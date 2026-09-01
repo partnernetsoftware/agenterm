@@ -17,9 +17,8 @@
 // This is the Windows journey (cmd.exe PTYs, `agenterm.exe` siblings, `NUL`
 // screenshot sink) and stays that way. Children are door handles carried in
 // the harness's wave-2 child objects so their pids can be compared with what
-// the server, registry and renderer report. Two rh host facilities have no
-// door op and are typed gaps at their sites: `rh::image::inspect_png` and
-// `child.window_key`.
+// the server, registry and renderer report. PNG inspection and native key
+// input use bounded tool-door operations backed by agenterm-platform.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";
@@ -142,17 +141,16 @@ function strip_suffix(text, suffix) {
 }
 
 // rh: `rh::image::inspect_png(path) -> {width, height, samples, luminance}`.
-// The tool door has no image op and a PNG cannot cross a text door, so the
-// renderer-PNG truth (dimensions match, samples > 0, luminance in range)
-// cannot be measured here. Typed gap, not an approximation.
 function inspect_png(png_path) {
-  throw "gap:rh_image_inspect_png_unavailable:" + png_path;
+  if (image_inspect_png(png_path) !== 0) { throw "image_inspect_png:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
-// rh: `child.window_key("Home")` posted a key to the child's top-level
-// window. No door op exists for window input; typed gap.
+// rh: `child.window_key("Home")` posted a key to the child's top-level window.
 function window_key(child, key) {
-  throw "gap:process_window_key_unavailable:" + child.label + ":" + key;
+  if (process_window_key(child.handle, "" + key) !== 0) {
+    throw "process_window_key:" + child.label + ":" + tool_result();
+  }
 }
 
 function configured(context, executable, registry, args) {

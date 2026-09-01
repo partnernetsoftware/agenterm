@@ -10,18 +10,15 @@
 // The journey is Windows-shaped (WM_LBUTTONDBLCLK, control ids, cmd.exe),
 // exactly as the rh original was. The GUI is a long-lived door handle
 // (process_spawn) polled through the public CLI and reaped by the
-// harness's `complete`; the native window input rh drove through
-// `Child.window_*` has no door operation (see the `gap` sites).
+// harness's `complete`; native window input is driven through bounded
+// `process.window_*` tool operations backed by agenterm-platform.
 //
 // Every CLI call goes through the harness's original `invoke_cli` /
 // `run_cli` (record bounded by `slice`, which works now); the `_bounded`
 // route-around cost ~1.4M more steps per 13 KB answer for nothing.
 //
-// Window readiness is `wait-ui --window-state restored`, as the theme
-// journey's rh original already had it: rh's `wait_for_window` asked
-// `Child.platform_facts`, which the door does not carry, and it sat in
-// front of that same `wait-ui` -- so the journey never reached its first
-// STEP on a host without it.
+// Window readiness is `wait-ui --window-state restored`, the public state
+// contract the journey actually owns.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -31,14 +28,8 @@ const workbench_declared_evidence = [
   "ux.workbench-proxy-archived"
 ];
 
-// A door wall this port cannot route around without changing what is
-// proven. The site throws with the rh spelling so the run fails closed.
-function gap(what) {
-  throw "qjs_gap:" + what;
-}
-
 // rh's `Child.window_pointer(action, x, y)`: a native pointer event into the
-// spawned GUI's top-level window. No door operation carries it.
+// spawned GUI's top-level window.
 function window_pointer(gui_child, action, x, y) {
   const spec = JSON.stringify({ action: "" + action, x: x, y: y });
   if (process_window_pointer(gui_child, spec) !== 0) { throw "process_window_pointer:" + tool_result(); }

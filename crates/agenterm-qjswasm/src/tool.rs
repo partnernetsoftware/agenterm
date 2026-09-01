@@ -12,6 +12,9 @@
 //! fs.metadata(ptr, len)                   -> i32   // status, JSON object parked
 //! process.command(ptr, len)               -> i32   // status, JSON object parked; spec is JSON
 //! process.id()                            -> i32   // this process's pid
+//! process.kill_pid(pid)                   -> i32   // status
+//! clipboard.get_text()                    -> i32   // status, bounded Unicode text parked
+//! clipboard.set_text(ptr, len)            -> i32   // status
 //! env.get(ptr, len)                       -> i32   // status, value parked
 //! env.has(ptr, len)                       -> i32   // 1 / 0, -1 = could not ask
 //! env.cwd()                               -> i32   // status, path parked
@@ -109,7 +112,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 43] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 46] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -140,6 +143,9 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 43] = [
     ("process.kill", 1, 1),
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
+    ("process.kill_pid", 1, 1),
+    ("clipboard.get_text", 0, 1),
+    ("clipboard.set_text", 2, 1),
     ("process.read", 2, 1),
     ("process.platform_facts", 1, 1),
     ("process.window_key", 3, 1),
@@ -279,6 +285,13 @@ pub(crate) fn declarations() -> Vec<HostFn> {
             HostResult::I32,
         ),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
+        decl("process.kill_pid", vec![HostParam::I32], HostResult::I32),
+        decl("clipboard.get_text", Vec::new(), HostResult::I32),
+        decl(
+            "clipboard.set_text",
+            vec![HostParam::StrPtrLen],
+            HostResult::I32,
+        ),
         decl(
             "process.platform_facts",
             vec![HostParam::I32],
@@ -1143,6 +1156,58 @@ pub(crate) fn install(
             }
         })
     })?;
+
+    // PID termination and the clipboard are unrestricted tool-runtime
+    // capabilities inherited from rh. They are not Agent permission policy;
+    // the slot still meters the call and the platform facade owns native
+    // errors and bounded clipboard I/O.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.kill_pid",
+        move |args, _memory| {
+            let raw_pid = arg(args, 0)?;
+            direct(&state, "process.kill_pid", || {
+                let pid = u32::try_from(raw_pid)
+                    .map_err(|_| "process.kill_pid: pid is negative".to_string())?;
+                agenterm_platform::process::kill(pid)
+                    .map_err(|error| format!("process.kill_pid: {error}"))?;
+                Ok(STATUS_OK)
+            })
+        },
+    )?;
+
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "clipboard.get_text",
+        move |_args, _memory| {
+            answer(&state, "clipboard.get_text", || {
+                agenterm_platform::clipboard::get_text(1024 * 1024)
+                    .map_err(|error| format!("clipboard.get_text: {error}"))
+            })
+        },
+    )?;
+
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "clipboard.set_text",
+        move |args, memory| {
+            let text = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            direct(&state, "clipboard.set_text", || {
+                agenterm_platform::clipboard::set_text(utf8(text)?)
+                    .map_err(|error| format!("clipboard.set_text: {error}"))?;
+                Ok(STATUS_OK)
+            })
+        },
+    )?;
 
     // The process-window ops: rh's `child.platform_facts` and
     // `child.window_*`, which the GUI journeys (startup, unix-frontend,

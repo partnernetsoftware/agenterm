@@ -18,12 +18,6 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-// A door wall this port cannot route around without changing what is
-// proven. The site throws with the rh spelling so the run fails closed.
-function gap(what) {
-  throw "qjs_gap:" + what;
-}
-
 // rh's `rh::image::inspect_png(path)` -> {width, height, samples, luminance},
 // through the door's `image.inspect_png`: decoded on the host side, the
 // pixels never cross the text door.

@@ -19,94 +19,100 @@
 // fixtures are cmd.exe / powershell.exe, the paths are drive letters. It ran
 // on the windows CI lane only.
 //
-// Gaps, named at the site rather than approximated. Each throws
-// `remote_ui_gap:<what>` when the journey reaches it:
-//   - the child's pid, rh's `child.id`: the door has no `process.pid(handle)`,
-//     so "the lease/protocol pid is the child we started" cannot be asked.
-//     `child_pid` is the one seam.
-//   - Win32 window automation, rh's `Child.window_control(id)` (with
-//     `.visible`, `.click()`, `.set_text()`), `window_message`,
-//     `window_pointer`, `window_rect`, `window_client_rect`, `window_resize`,
-//     `platform_facts`: no door op drives a window. `window_*` / `control_*`
-//     below are the seams.
-//   - the clipboard, rh's `rh::clipboard::get_text` / `set_text`.
-//   - a process list and kill-by-pid, rh's `std::process::list()` /
-//     `std::process::kill(pid)`: how the journey faults the server and proves
-//     it is gone.
-// Measured, and not this port's to fix: `test_harness.bounded_record_text`
-// uses `String.prototype.slice`, which this engine lacks, so a recorded CLI
-// answer over 512 characters (`protocol-info`, `ui-snapshot`, ...) throws
-// before the journey's first assertion.
+// The qjswasm tool door now carries every host primitive this Windows journey
+// used under rh: child PID, window/control automation, clipboard text, process
+// observation, and arbitrary-PID termination. Product behavior is still
+// exercised through public AgenTerm executables; these primitives only drive
+// and observe the black-box court.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-function gap(what) {
-  throw "remote_ui_gap:" + what;
-}
-
-// rh's `child.id`: the child's OS pid. No door op carries it yet.
 function child_pid(handle) {
-  return gap("process_pid:handle=" + handle);
+  return harness.spawned_pid(handle);
 }
 
-// ---- Win32 automation seams (see the header) ------------------------------
+// ---- Win32 automation adapters --------------------------------------------
 
 function window_control(gui, control_id) {
-  return gap("window_control:" + control_id);
+  const spec = JSON.stringify({ id: control_id, op: "exists", text: null });
+  if (process_window_control(gui, spec) !== 0) {
+    throw "process_window_control(exists," + control_id + "):" + tool_result();
+  }
+  return { gui: gui, id: control_id };
 }
 
 function control_visible(control) {
-  return gap("control_visible");
+  const spec = JSON.stringify({ id: control.id, op: "visible", text: null });
+  if (process_window_control(control.gui, spec) !== 0) {
+    throw "process_window_control(visible," + control.id + "):" + tool_result();
+  }
+  return JSON.parse(tool_result()).visible;
 }
 
 function control_click(control) {
-  return gap("control_click");
+  const spec = JSON.stringify({ id: control.id, op: "click", text: null });
+  if (process_window_control(control.gui, spec) !== 0) {
+    throw "process_window_control(click," + control.id + "):" + tool_result();
+  }
 }
 
 function control_set_text(control, text) {
-  return gap("control_set_text");
+  const spec = JSON.stringify({ id: control.id, op: "set_text", text: "" + text });
+  if (process_window_control(control.gui, spec) !== 0) {
+    throw "process_window_control(set_text," + control.id + "):" + tool_result();
+  }
 }
 
 function window_message(gui, message, wparam, lparam) {
-  return gap("window_message:" + message);
+  const spec = JSON.stringify({ message: message, wparam: wparam, lparam: lparam });
+  if (process_window_message(gui, spec) !== 0) {
+    throw "process_window_message:" + tool_result();
+  }
+  return JSON.parse(tool_result()).result;
 }
 
 function window_pointer(gui, kind, x, y) {
-  return gap("window_pointer:" + kind);
+  const spec = JSON.stringify({ action: "" + kind, x: x, y: y });
+  if (process_window_pointer(gui, spec) !== 0) {
+    throw "process_window_pointer:" + tool_result();
+  }
 }
 
 function window_rect(gui) {
-  return gap("window_rect");
+  if (process_window_rect(gui, 0) !== 0) { throw "process_window_rect:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 function window_client_rect(gui) {
-  return gap("window_client_rect");
+  if (process_window_rect(gui, 1) !== 0) { throw "process_window_client_rect:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
 function window_resize(gui, width, height) {
-  return gap("window_resize");
+  const spec = JSON.stringify({ width: width, height: height });
+  if (process_window_resize(gui, spec) !== 0) { throw "process_window_resize:" + tool_result(); }
 }
 
 function platform_facts(gui) {
-  return gap("platform_facts");
+  if (process_platform_facts(gui) !== 0) { throw "process_platform_facts:" + tool_result(); }
+  return JSON.parse(tool_result());
 }
 
-function clipboard_get_text() {
-  return gap("clipboard_get_text");
+function read_clipboard_text() {
+  if (clipboard_get_text() !== 0) { throw "clipboard_get_text:" + tool_result(); }
+  return tool_result();
 }
 
-function clipboard_set_text(text) {
-  return gap("clipboard_set_text");
+function write_clipboard_text(text) {
+  if (clipboard_set_text("" + text) !== 0) { throw "clipboard_set_text:" + tool_result(); }
 }
 
-// rh's `std::process::list()` membership test.
 function process_present(id) {
-  return gap("process_list:" + id);
+  return harness.process_present(id) !== 0;
 }
 
-// rh's `std::process::kill(pid)`.
 function remote_ui_kill(pid) {
-  return gap("process_kill_pid:" + pid);
+  if (process_kill_pid(pid) !== 0) { throw "process_kill_pid:" + tool_result(); }
 }
 
 // ---- rh spellings -----------------------------------------------------------
@@ -2343,7 +2349,7 @@ try {
 
   step("select terminal text, Copy, and Paste through the UI");
   try {
-    clipboard_restore_text = clipboard_get_text();
+    clipboard_restore_text = read_clipboard_text();
     clipboard_restore_needed = 1;
   } catch (clipboard_error) {
   }
@@ -2447,12 +2453,12 @@ try {
   const copy_input_before = parse_int_text(
     text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
   );
-  clipboard_set_text("REMOTE_COPY_SENTINEL");
+  write_clipboard_text("REMOTE_COPY_SENTINEL");
   harness.require(
     window_message(replacement_gui, shortcut_message, VK_C, 1) === 1,
     "remote_ui_terminal_ctrl_c_not_consumed"
   );
-  const copied = trimmed(clipboard_get_text());
+  const copied = trimmed(read_clipboard_text());
   const copy_input_after = parse_int_text(
     text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
   );
@@ -2460,9 +2466,9 @@ try {
     copied === copy_marker && copy_input_after === copy_input_before,
     "remote_ui_terminal_copy_invalid:" + copied
   );
-  clipboard_set_text("REMOTE_MENU_COPY_SENTINEL");
+  write_clipboard_text("REMOTE_MENU_COPY_SENTINEL");
   window_message(replacement_gui, WM_SYSCOMMAND, SC_TERMINAL_COPY, 0);
-  const menu_copied = trimmed(clipboard_get_text());
+  const menu_copied = trimmed(read_clipboard_text());
   harness.require(
     menu_copied === copy_marker,
     "remote_ui_terminal_system_menu_copy_invalid:" + menu_copied
@@ -2471,7 +2477,7 @@ try {
   text_cli(context, cli, ["send-keys", "-t", tab_id, "C-c"]);
   const paste_marker = "REMOTE_PASTE_" + context.run_id;
   const paste_text = "echo " + paste_marker;
-  clipboard_set_text(paste_text);
+  write_clipboard_text(paste_text);
   const paste_input_before = parse_int_text(
     text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
   );
@@ -2592,7 +2598,7 @@ try {
   // The paste menu message targets the GUI's active tab, so pin the focus
   // down before pasting instead of assuming select-window already settled.
   text_cli(context, cli, ["wait-ui", "--active", bracketed_id, "--timeout-ms", "30000"]);
-  clipboard_set_text(bracketed_payload);
+  write_clipboard_text(bracketed_payload);
   json_cli(context, cli, ["ui-action", "terminal-paste"]);
   wait_file_text(bracketed_result, "ok", "remote_ui_bracketed_paste_framing_invalid");
   text_cli(
@@ -2704,7 +2710,7 @@ try {
 
 if (clipboard_restore_needed !== 0) {
   try {
-    clipboard_set_text(clipboard_restore_text);
+    write_clipboard_text(clipboard_restore_text);
   } catch (clipboard_restore_error) {
     if (failure === "") {
       failure = "remote_ui_clipboard_restore_failed:" + ("" + clipboard_restore_error);
