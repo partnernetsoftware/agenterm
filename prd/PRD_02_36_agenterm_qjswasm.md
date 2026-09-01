@@ -765,6 +765,11 @@ Candidate `33544608465` 两次都已打印 `remote-ui-smoke` 完整产品 PASS�
 load-sensitive cliff，不是稳定余量。只把该 owning court 调到 4096 页（256 MiB）；
 qjswasm 通用默认仍为 1024 页（64 MiB）。
 
+Candidate `33546477076` 证明 catalog 已完整 spool 到文件，但 guest 读回仍用了通用
+1 MiB complete-string 限制。`script-smoke` task contract 原已声明 8 MiB
+`max_string_bytes`，只是 release driver 直调时漏传；现由 owning court 显式执行该
+既有合同，普通脚本仍为 1 MiB。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

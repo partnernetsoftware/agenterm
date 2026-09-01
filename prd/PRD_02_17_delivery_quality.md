@@ -664,6 +664,11 @@ costs a full candidate cycle:
   product PASS before final receipt/cleanup allocation exhausted the heap,
   while earlier runs had passed at the same price. The owning court now has
   256 MiB stable headroom; the global qjswasm default remains 64 MiB.
+- [x] Candidate `33546477076` proved the file spool but then showed the guest
+  read still used the generic 1 MiB complete-string limit. `script-smoke` had
+  already declared an 8 MiB `max_string_bytes` task contract; the release
+  driver's direct invocation omitted it. The owning court now passes that
+  existing declaration explicitly, while ordinary scripts retain 1 MiB.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

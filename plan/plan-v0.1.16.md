@@ -1145,3 +1145,11 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   较少轮询的 earlier Candidate 同价曾绿，说明价格卡在负载敏感 cliff。
 - 仅 `remote-ui-smoke` 改为 4096 页（256 MiB），给无 GC bump heap 留 2× 稳定
   余量；通用默认仍为 1024 页（64 MiB），1G steps 与 600 秒门保持不变。
+
+### A.12 Candidate `33546477076`：执行 Script court 已声明的 string 合同
+
+- 文件 spool 已成立；新停点是 guest 读回完整多 MB catalog 时仍采用通用 1 MiB。
+- `agenterm.tasks.json` 的 `script-smoke` 原已声明 8 MiB `max_string_bytes`，但
+  `check.qjs` 的 direct invocation 漏传。
+- release driver 现只给该 entry 传 `--max-string-bytes 8388608`；普通脚本默认
+  1 MiB 不变，catalog 仍必须完整、不可截断。

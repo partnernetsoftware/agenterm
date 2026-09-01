@@ -161,6 +161,14 @@ fn script_api_catalog_streams_to_a_run_owned_file_before_guest_parsing() {
 }
 
 #[test]
+fn script_smoke_executes_its_declared_complete_catalog_string_budget() {
+    let budget = &TASKS["contracts"]["script-smoke"]["budget"];
+    assert_eq!(budget["max_string_bytes"], 8_388_608);
+    assert!(CHECK_QJS.contains("entry === \"script-smoke\""));
+    assert!(CHECK_QJS.contains("arguments_list.push(\"8388608\")"));
+}
+
+#[test]
 fn remote_ui_selection_checks_cell_ownership_not_global_event_stasis() {
     let smoke = include_str!("../scripts/qjs/remote-ui-smoke.qjs");
     let start = smoke

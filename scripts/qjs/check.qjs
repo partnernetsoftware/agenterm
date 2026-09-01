@@ -189,6 +189,13 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
     arguments_list.push("--max-host-operations");
     arguments_list.push("16384");
   }
+  // The Script API catalog is intentionally multi-megabyte and the task
+  // contract already declares an 8 MiB complete-string court. Keep the
+  // generic 1 MiB default everywhere else.
+  if (entry === "script-smoke") {
+    arguments_list.push("--max-string-bytes");
+    arguments_list.push("8388608");
+  }
   arguments_list.push(path.join(repo, "scripts/qjs/" + entry + ".qjs"));
   arguments_list.push("--");
   for (const item of script_arguments) { arguments_list.push("" + item); }
