@@ -185,15 +185,13 @@ pub const ALIGN_VERBS: &[&str] = &[
     "page",
     // MCU leaf spellings that stay typed (not silent unknown). Live
     // aliases (dclick/rclick/shot/type/key/move/launch/quit/hide/show/
-    // elements/clipboard/inspect) have dedicated parse arms and are not listed here.
+    // elements/clipboard/inspect/find/read) have dedicated parse arms and are not listed here.
     "drag",
     "ghost",
     "snapshot",
     "hit",
     "diff",
     "zoom",
-    "find",
-    "read",
     "minimize",
     "restore",
     "raise",
@@ -241,8 +239,6 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "hit" => "hit-test is not mapped; use query --within or get-extents",
         "diff" => "MCU diff is observe poll-diff; use observe --window",
         "zoom" => "MCU zoom overlay is not mapped; screenshots are last resort",
-        "find" => "MCU find is query filters; use query --role/--text/--identifier",
-        "read" => "MCU read is query/get-text; use query or get-text --window",
         "minimize" | "restore" => {
             "MCU minimize/restore is not mapped; linux windows --minimized reads WM hidden state"
         }
@@ -466,11 +462,16 @@ pub fn host_os() -> &'static str {
 pub fn verb_declaration(verb: &str) -> Value {
     let os = host_os();
     let group = group_id_for_verb(verb);
-    if verb == "inspect" {
+    if verb == "inspect" || verb == "find" || verb == "read" {
+        let reason = match verb {
+            "find" => "MCU find HANDLE TEXT is query --window --text",
+            "read" => "MCU read HANDLE SELECTOR is query --window --selector",
+            _ => "MCU inspect HANDLE is query --window; inspect --app inventory stays MCU",
+        };
         return json!({
             "status": if tree_live(os) { "available" } else { "unsupported" },
             "alias_of": "query",
-            "reason": "MCU inspect HANDLE is query --window; inspect --app inventory stays MCU",
+            "reason": reason,
             "group": group,
             "os": os,
             "verb": verb,
@@ -603,6 +604,8 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "displays",
         "unlock",
         "inspect",
+        "find",
+        "read",
     ] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
@@ -657,7 +660,10 @@ mod tests {
         assert!(is_align_verb("drag") && is_align_verb("page"));
         assert!(!is_align_verb("dclick") && !is_align_verb("launch"));
         assert!(!is_align_verb("inspect"));
+        assert!(!is_align_verb("find") && !is_align_verb("read"));
         assert_eq!(verb_declaration("inspect")["alias_of"], "query");
+        assert_eq!(verb_declaration("find")["alias_of"], "query");
+        assert_eq!(verb_declaration("read")["alias_of"], "query");
         assert!(!is_align_verb("movewin") && !is_align_verb("frame") && !is_align_verb("maximize"));
         assert_eq!(group_id_for_verb("movewin"), "geometry");
         let page_reason = typed_reason_for_verb("page");

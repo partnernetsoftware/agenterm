@@ -405,7 +405,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 flat,
             }
         }
-        "query" | "inspect" => match parse_query(target, &verb, &mut args) {
+        "query" | "inspect" | "find" | "read" => match parse_query(target, &verb, &mut args) {
             Ok(command) => command,
             Err(message) => return usage_err(message),
         },
@@ -1977,6 +1977,30 @@ fn parse_query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<
             ));
         }
     };
+    if verb == "find" && !args.iter().any(|arg| arg == "--text") {
+        let Some(needle) = args
+            .first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+        else {
+            return Err("find requires a text needle (MCU `find HANDLE TEXT`)".into());
+        };
+        args.remove(0);
+        args.insert(0, needle);
+        args.insert(0, "--text".into());
+    }
+    if verb == "read" && !args.iter().any(|arg| arg == "--selector") {
+        let Some(selector) = args
+            .first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+        else {
+            return Err("read requires a selector (MCU `read HANDLE SELECTOR`)".into());
+        };
+        args.remove(0);
+        args.insert(0, selector);
+        args.insert(0, "--selector".into());
+    }
     let depth = flag_parsed::<u32>(args, "--depth")?;
     let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
     let role = flag_text(args, "--role")?
@@ -2436,12 +2460,12 @@ Commands:
                               while the platform walks; reply carries truncated /
                               visited / returned. --flat numbers nodes (index, depth)
                               in walk order — the same identity query reports
-  query | inspect --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
-        [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]
-        [--offset N] [--max N] [--selector PATH]
-                              inspect is a live alias of query (MCU `inspect HANDLE`).
-                              MCU `inspect --app` inventory stays MCU. MCU Role[idx] /
-                              Role@title / *@title / #desc; scopes to that subtree.
+  query | inspect | find | read --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N]
+        [--role R,R] [--text T | --text-exact T] [--identifier ID] [--actionable]
+        [--within X,Y,W,H] [--offset N] [--max N] [--selector PATH]
+                              inspect is query (MCU `inspect HANDLE`; `--app` stays MCU).
+                              find HANDLE TEXT is query --text; read HANDLE SELECTOR is
+                              query --selector. MCU Role[idx] / Role@title / *@title / #desc.
                               bounded, filtered flat node list with visited /
                               matched / returned / truncated; roles accept AXTextArea
                               or text-area; an unknown flag fails before the walk
@@ -3016,6 +3040,54 @@ mod tests {
                 .unwrap_or(""),
             "usage"
         );
+    }
+
+    #[test]
+    fn find_and_read_are_live_aliases_of_query() {
+        let find = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "find".into(),
+            "App#1".into(),
+            "Save".into(),
+            "--role".into(),
+            "Button".into(),
+        ]);
+        assert_eq!(find.command, "query");
+        assert_ne!(
+            find.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage",
+            "find HANDLE TEXT must dispatch as query: {:?}",
+            find.error
+        );
+        let read = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "read".into(),
+            "App#1".into(),
+            "AXButton[0]".into(),
+        ]);
+        assert_eq!(read.command, "query");
+        assert_ne!(
+            read.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage",
+            "read HANDLE SELECTOR must dispatch as query: {:?}",
+            read.error
+        );
+        let find_missing = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "find".into(),
+            "--window".into(),
+            "1".into(),
+        ]);
+        assert_eq!(find_missing.command, "usage");
     }
 
     #[test]
