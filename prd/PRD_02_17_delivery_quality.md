@@ -647,6 +647,15 @@ costs a full candidate cycle:
   while the outer qualification process still needs to publish the child's
   captured streams. Missing scratch is lifecycle failure, never a product-gate
   failure.
+- [x] the zero-tracked-`.ps1` migration invariant applies to test fixtures as
+  well as production automation. The first real Windows CU journey introduced
+  a WinForms `.ps1` fixture and Candidate correctly rejected it only after the
+  expensive build and MCP gates had passed. The fixture is C# source now;
+  Windows PowerShell `Add-Type` uses the court's .NET Framework compiler to
+  load it, so the journey keeps real Win32/UIA controls without restoring a
+  PowerShell source layer or requiring an external C toolchain. Cheap
+  migration audit must run before expensive qualification whenever tracked
+  source topology changes.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

@@ -23,11 +23,13 @@
 // off to the logged-on session first (scripts/cu-windows-court-smoke.sh
 // does that with a one-shot scheduled task).
 //
-// The owned fixture is examples/powershell/agenterm_uia_fixture.ps1 --
-// WinForms, so it needs no compiler, and its controls are real Win32
-// controls with real UIA providers. It is spawned as a door handle; only
-// the pid this run spawned is ever signalled. Every agenterm-cu call is
-// `rh.command`, and the worker's JSON reply is parsed, never grepped.
+// The owned fixture is examples/csharp/agenterm_uia_fixture.cs. Windows
+// PowerShell Add-Type compiles it with the .NET Framework compiler already
+// present on the court, so no external C toolchain or tracked `.ps1` is
+// needed. Its controls are real Win32 controls with real UIA providers. It
+// is spawned as a door handle; only the pid this run spawned is ever
+// signalled. Every agenterm-cu call is `rh.command`, and the worker's JSON
+// reply is parsed, never grepped.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -197,11 +199,15 @@ try {
   );
 
   print("STEP start the owned WinForms fixture and resolve its two windows by pid and exact title");
-  const fixture_source = rh.join(repo, "examples/powershell/agenterm_uia_fixture.ps1");
+  const fixture_source = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
   ensure(direct_file(fixture_source), "cu_windows_smoke_fixture_missing:" + fixture_source);
   fixture = harness.start({
     program: "powershell.exe",
-    args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fixture_source],
+    args: [
+      "-NoProfile", "-Command",
+      "param([string]$Source); Add-Type -Path $Source -ReferencedAssemblies 'System.Windows.Forms.dll','System.Drawing.dll'; [AgentermUiaFixture]::Run()",
+      fixture_source
+    ],
     current_dir: run_directory,
     timeout_ms: 60000
   });
