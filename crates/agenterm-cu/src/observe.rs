@@ -101,15 +101,21 @@ pub fn flatten(tree: &A11yTree) -> Vec<FlatNode<'_>> {
 /// The role spelling both the caller and the backend may use: `AXTextArea`,
 /// `text-area`, `TextArea`, `text area` and `textarea` all normalize to
 /// `textarea`, so a filter written in the platform's vocabulary matches the
-/// contract's kebab-case role and vice versa.
+/// contract's kebab-case role and vice versa. Exact toolkit synonyms also
+/// share one canonical role: GTK/AT-SPI reports the same button as either
+/// `button` or `push button` across distributions, and both become `button`.
 pub fn normalize_role(raw: &str) -> String {
     let trimmed = raw.trim();
     let stripped = trimmed.strip_prefix("AX").unwrap_or(trimmed);
-    stripped
+    let compact: String = stripped
         .chars()
         .filter(|ch| ch.is_alphanumeric())
         .map(|ch| ch.to_ascii_lowercase())
-        .collect()
+        .collect();
+    match compact.as_str() {
+        "pushbutton" => "button".to_owned(),
+        _ => compact,
+    }
 }
 
 /// AX chrome-only vs page content, absorbed from MCU `classifyAxTree`.
@@ -2332,7 +2338,11 @@ mod tests {
         assert_eq!(normalize_role("text-area"), "textarea");
         assert_eq!(normalize_role(" Text Area "), "textarea");
         assert_eq!(normalize_role("AXButton"), "button");
-        assert_eq!(normalize_role("push button"), "pushbutton");
+        assert_eq!(normalize_role("button"), "button");
+        assert_eq!(normalize_role("push button"), "button");
+        assert_eq!(normalize_role("PushButton"), "button");
+        assert!(selector_role_matches("push button", "button"));
+        assert!(selector_role_matches("button", "push button"));
         assert_eq!(
             parse_roles("AXTextArea, button,,"),
             vec!["AXTextArea".to_owned(), "button".to_owned()]
