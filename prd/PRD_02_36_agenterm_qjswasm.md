@@ -735,6 +735,14 @@ Candidate `33530768743` 已证明上一轮 host-door 缺口关闭：Windows
 上限。下一 Candidate 必须跑过余下旅程与六格聚合，不能把 heap 放宽冒充
 通过。
 
+Candidate `33532729466` 证明 2048 页定价生效并越过 heap 停点，继续通过 Tabs
+army、终端 scrollbar 与 raw full-screen wheel；随后两次稳定停在 selection
+断言。根因是 Rhai 迁移脚本把根级服务器日志 `event_position` 当成选择锚点，
+却在中间主动 `send-keys` 产生事件后要求它不变。修正后的黑盒不降级：仍要求
+`prepared + capture_owned` 跨 screen-generation 存活，比较选择的 terminal-cell
+start/end；进入 dragging 后要求 start 锚点不变且 live highlight 不缩小。根级
+event journal 按设计允许推进。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

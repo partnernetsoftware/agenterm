@@ -1100,3 +1100,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   默认继续保持 1024 页（64 MiB），并保留 1G 指令与 600 秒独立上限。
 - 下一 Candidate 的判据仍是余下 Windows 旅程、六格 execute-only court 与
   aggregate 全绿；只越过 heap 停点不构成 Candidate 通过。
+
+### A.7 Candidate `33532729466`：选择锚点不是事件日志位置
+
+- 128 MiB 定价已生效，旅程越过旧 heap 停点并继续完成 Tabs army、终端
+  scrollbar 与 raw full-screen wheel。
+- selection court 在两次执行中都错误要求 `send-keys` 后根级
+  `event_position` 不变；该字段是服务器事件日志位置，发生输入后推进才是真实。
+- 修复仅校正证据对象：`prepared + capture_owned` 不变，选择 start/end cell
+  跨 screen-generation 不变；dragging 后 start 锚点不变且 highlight 不缩小。
+  不删除选择、复制、粘贴或截图门禁。

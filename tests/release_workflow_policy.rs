@@ -144,6 +144,30 @@ fn remote_ui_smoke_prices_its_large_bump_heap_without_raising_the_default() {
 }
 
 #[test]
+fn remote_ui_selection_checks_cell_ownership_not_global_event_stasis() {
+    let smoke = include_str!("../scripts/qjs/remote-ui-smoke.qjs");
+    let start = smoke
+        .find("const selection_armed =")
+        .expect("selection ownership court exists");
+    let end = smoke[start..]
+        .find("const selection_completed =")
+        .map(|offset| start + offset)
+        .expect("selection court has a completion boundary");
+    let court = &smoke[start..end];
+    assert!(
+        court.contains("terminal_interaction.selection.selection")
+            && court.contains("terminal_interaction.selection.selection.start"),
+        "the court must compare the selected terminal cells and drag anchor"
+    );
+    assert!(
+        !court.contains("selection_armed.event_position")
+            && !court.contains("selection_prepared.event_position")
+            && !court.contains("selection_dragging.event_position"),
+        "send-keys advances the server journal; root event_position cannot be a selection anchor"
+    );
+}
+
+#[test]
 fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(CANDIDATE.contains("name: Release Candidate"));
     assert!(CANDIDATE.contains("workflow_dispatch:"));

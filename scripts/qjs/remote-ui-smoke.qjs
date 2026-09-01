@@ -2415,7 +2415,10 @@ try {
     context, cli, "prepared", true, false, "remote_ui_terminal_selection_prepared_timeout"
   );
   harness.require(
-    same_json(selection_armed.event_position, selection_prepared.event_position),
+    same_json(
+      selection_armed.terminal_interaction.selection.selection,
+      selection_prepared.terminal_interaction.selection.selection
+    ),
     "remote_ui_terminal_selection_prepared_moved_after_delta"
   );
   const selection_prepared_png = rh.join(context.run_directory, "terminal-selection-prepared.png");
@@ -2433,7 +2436,10 @@ try {
     "remote_ui_terminal_selection_live_highlight_invalid"
   );
   harness.require(
-    same_json(selection_dragging.event_position, selection_prepared.event_position)
+    same_json(
+      selection_dragging.terminal_interaction.selection.selection.start,
+      selection_prepared.terminal_interaction.selection.selection.start
+    )
       && selection_dragging.terminal_interaction.selection.highlight.bounds.length
         >= selection_prepared.terminal_interaction.selection.highlight.bounds.length,
     "remote_ui_terminal_selection_live_highlight_invalid"

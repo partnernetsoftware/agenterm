@@ -632,6 +632,13 @@ costs a full candidate cycle:
   qjswasm default remains 1024 pages (64 MiB), with independent step and wall
   deadlines. A resource limit is raised only at the measured owner, never as a
   repository-wide retry switch.
+- [x] Candidate `33532729466` proved that targeted heap price and reached the
+  terminal-selection court. Its next stable failure was an invalid migrated
+  assertion: `send-keys` advances the server journal, so root
+  `event_position` cannot remain equal. Selection ownership is now judged by
+  the terminal-cell selection/anchor plus phase, capture and live-highlight
+  evidence; the product invariant remains strict while unrelated journal
+  progress is allowed.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
