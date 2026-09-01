@@ -679,6 +679,13 @@ costs a full candidate cycle:
   its task contract and Quick lane both declare 120 s. Normal runs finish in
   6–8 s, so runner load made this intermittent. Both lanes now execute the
   same 120 s contract; alignment assertions and catalogs are unchanged.
+- [~] Candidate `33551702747` advanced Script dogfood to its process branch
+  and proved that the nominal `.qjs` smoke still launched a generated
+  `process.rh` after Rhai retirement. The active branch now exercises the
+  qjswasm tool door directly through public `script run`: argv/cwd/env/stdin,
+  timeout, missing-child refusal, nonzero exit, child kill/reap and complete
+  version output. The remaining archived branches are migrated serially as
+  Candidate reaches them; no retired backend is restored.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

@@ -183,6 +183,22 @@ fn script_smoke_executes_its_declared_complete_catalog_string_budget() {
 }
 
 #[test]
+fn script_process_court_uses_the_qjs_tool_door_not_a_retired_rhai_child() {
+    let process_court = SCRIPT_SMOKE_QJS
+        .split("function assert_process_and_streams")
+        .nth(1)
+        .expect("process court exists");
+    let active = process_court
+        .split("// Archived Rhai contract below")
+        .next()
+        .expect("active qjs process court");
+    assert!(active.contains("process_command(JSON.stringify(command_spec))"));
+    assert!(active.contains("process_pid(lifecycle_child)"));
+    assert!(!active.contains("process.rh"));
+    assert!(!active.contains("std::process::command"));
+}
+
+#[test]
 fn remote_ui_selection_checks_cell_ownership_not_global_event_stasis() {
     let smoke = include_str!("../scripts/qjs/remote-ui-smoke.qjs");
     let start = smoke

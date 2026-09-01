@@ -779,6 +779,11 @@ Candidate `33550278872` 第二次复现 PRD alignment 被宿主取消。根因�
 lane 仍写死 Rhai 时代 10 秒，而 task contract 与 Quick lane 均为 120 秒；通常
 6–8 秒只是侥幸。现两条 lane 统一执行 120 秒合同，catalog/assertion 内容不变。
 
+Candidate `33551702747` 推进到 process 分支，证实名为 `.qjs` 的 smoke 仍生成并
+启动 `process.rh`。该 active branch 已换成 qjswasm tool-door 真黑盒：argv/cwd/env/
+stdin、timeout、missing child、nonzero、kill/reap 与完整输出；不恢复 retired Rhai。
+其余旧分支按 Candidate 到达顺序继续迁移。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

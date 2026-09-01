@@ -1169,3 +1169,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - task contract 与 Quick lane 早已是 120 秒，只有 full lane 留着 Rhai-era 旧值。
 - full/Quick 统一为 120 秒；验证内容、catalog 与 fail-closed 断言不变，并以策略
   测试禁止 10 秒旧值回归。
+
+### A.15 Candidate `33551702747`：Script process 分支真迁移
+
+- catalog 与 nested verifier 已通过，下一站暴露动态生成的 `process.rh`；名为 qjs
+  的 wrapper 并不等于内部旅程已迁移。
+- active process branch 改为当前 qjswasm tool door：命令 argv/cwd/env/stdin、timeout、
+  missing child、nonzero、child kill/reap、完整输出均从 public `script run` 证明。
+- 不恢复 Rhai，不把旧语法改扩展名冒充迁移；余下 archived branches 按实际到达
+  顺序替换。

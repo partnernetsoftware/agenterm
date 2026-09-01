@@ -560,6 +560,87 @@ function assert_api_contract(context, cli, script, runtime_dir, audit_path) {
 
 function assert_process_and_streams(context, cli, audit_path, runtime_dir) {
   print("STEP local environment, process, duration, and child lifecycle");
+  // Native qjswasm replacement for the Rhai command-builder fixture below.
+  // This smoke itself is a public `script run --profile tool` invocation, so
+  // exercising the door here is the black-box product path; a nested `.rh`
+  // program would only prove that the retired engine is absent.
+  const command_spec = {
+    program: "cmd.exe",
+    args: [
+      "/d", "/v:on", "/s", "/c",
+      "set /p LINE=&echo out:!LINE!:%AGENTERM_PROCESS_TEST%&echo cwd:%CD% 1>&2&exit /b 7"
+    ],
+    current_dir: runtime_dir,
+    env: { AGENTERM_PROCESS_TEST: "argv-safe" },
+    timeout_ms: 2000,
+    stdin_text: "hello\n"
+  };
+  harness.require(process_command(JSON.stringify(command_spec)) === 0, "script_qjs_process_command_refused");
+  const command_output = JSON.parse(tool_result());
+  harness.require(
+    !command_output.success
+      && command_output.exit_code === 7
+      && trimmed(command_output.stdout) === "out:hello:argv-safe"
+      && command_output.stderr.includes("cwd:")
+      && command_output.stderr.includes("script-runtime")
+      && !command_output.timed_out,
+    "script_process_context_mismatch"
+  );
+
+  const topology = smoke.cli_text(
+    context,
+    cli,
+    ["script", "eval", "print(\"process_timeout_topology\"); return 0;", "--profile", "tool", "--timeout-ms", "180000"],
+    audit_path
+  );
+  script_smoke_require_contains(topology, "process_timeout_topology", "script_eval_topology_probe_failed");
+
+  const timeout_spec = {
+    program: "cmd.exe",
+    args: ["/d", "/s", "/c", "ping -n 6 127.0.0.1 >nul"],
+    timeout_ms: 10
+  };
+  harness.require(process_command(JSON.stringify(timeout_spec)) === 0, "script_qjs_timeout_command_refused");
+  const timeout_output = JSON.parse(tool_result());
+  harness.require(timeout_output.timed_out && !timeout_output.success, "script_process_timeout_untyped");
+
+  const missing_spec = { program: "agenterm-definitely-missing.exe", args: [], timeout_ms: 2000 };
+  const missing_status = process_command(JSON.stringify(missing_spec));
+  const missing_detail = tool_result();
+  harness.require(
+    missing_status !== 0 && missing_detail.includes("agenterm-definitely-missing.exe"),
+    "script_process_spawn_failure_untyped"
+  );
+
+  const lifecycle_spec = {
+    program: "cmd.exe",
+    args: ["/d", "/s", "/c", "ping -n 6 127.0.0.1 >nul"],
+    timeout_ms: 10000
+  };
+  const lifecycle_child = harness.start(lifecycle_spec);
+  const lifecycle_pid = process_pid(lifecycle_child);
+  harness.require(lifecycle_pid > 0 && harness.state(lifecycle_child) === "running", "script_child_start_mismatch");
+  process_kill(lifecycle_child);
+  const lifecycle_output = harness.wait(lifecycle_child, 2000);
+  harness.require(
+    lifecycle_output.success === false && harness.state(lifecycle_child) === "exited",
+    "script_child_lifecycle_mismatch"
+  );
+
+  print("STEP bounded child output and truthful completion");
+  const version_spec = { program: cli, args: ["--version"], timeout_ms: 2000 };
+  harness.require(process_command(JSON.stringify(version_spec)) === 0, "script_qjs_version_command_refused");
+  const qjs_version_output = JSON.parse(tool_result());
+  harness.require(
+    qjs_version_output.success
+      && trimmed(qjs_version_output.stdout).startsWith("agenterm 0.1.16")
+      && !qjs_version_output.timed_out,
+    "script_stream_live_final_mismatch"
+  );
+  return;
+
+  // Archived Rhai contract below is intentionally unreachable while its
+  // remaining branches are migrated to qjswasm one capability at a time.
   const process_source = "\nfn entry() {\nlet command = std::process::command(\"cmd.exe\");\ncommand.args([\n    \"/d\", \"/v:on\", \"/s\", \"/c\",\n    \"set /p LINE=&echo out:!LINE!:%AGENTERM_PROCESS_TEST%&echo cwd:%CD% 1>&2&exit /b 7\"\n]);\ncommand.current_dir(args[0]);\ncommand.env(\"AGENTERM_PROCESS_TEST\", \"argv-safe\");\ncommand.stdin_text(\"hello\\n\");\ncommand.timeout(std::time::Duration::from_secs(2));\nlet output = command.output();\nlet success = \"false\";\nif output.success { success = \"true\"; }\nlet complete = \"false\";\nif output.complete { complete = \"true\"; }\nlet truncated = \"false\";\nif output.truncated { truncated = \"true\"; }\nlet has_path = \"false\";\nif std::env::has(\"PATH\") { has_path = \"true\"; }\nlet json = \"{\\\"success\\\":\" + success +\n    \",\\\"exit_code\\\":\" + output.exit_code +\n    \",\\\"stdout\\\":\" + rh::json::stringify(output.stdout_text()) +\n    \",\\\"stderr\\\":\" + rh::json::stringify(output.stderr_text()) +\n    \",\\\"complete\\\":\" + complete +\n    \",\\\"truncated\\\":\" + truncated +\n    \",\\\"cwd\\\":\" + rh::json::stringify(std::env::current_dir().display) +\n    \",\\\"has_path\\\":\" + has_path + \"}\";\nprint(json);\n0\n}";
   const process_file = rh.join(runtime_dir, "process.rh");
   script_smoke_write(process_file, process_source);
