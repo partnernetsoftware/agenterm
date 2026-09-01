@@ -544,7 +544,8 @@ function assert_api_contract(context, cli, script, runtime_dir, audit_path) {
     [
       "script", "run",
       rh.join(repo, "scripts/qjs/verify-script-contract.qjs"),
-      "--profile", "tool", "--timeout-ms", "180000", "--",
+      "--profile", "tool", "--timeout-ms", "180000",
+      "--max-string-bytes", "8388608", "--",
       rh.join(repo, "docs/agenterm-rh-runtime.md"),
       catalog_path
     ],

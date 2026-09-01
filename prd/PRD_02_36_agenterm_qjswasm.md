@@ -770,6 +770,11 @@ Candidate `33546477076` 证明 catalog 已完整 spool 到文件，但 guest 读
 `max_string_bytes`，只是 release driver 直调时漏传；现由 owning court 显式执行该
 既有合同，普通脚本仍为 1 MiB。
 
+Candidate `33548359259` 证明外层 8 MiB 已生效并推进到 repository dogfood
+verifier。Script budget 是每次 invocation 的显式合同，不继承；该 nested CLI 读同一
+catalog 时仍只有 1 MiB。现只给 verifier 子调用显式同价 8 MiB，其余 children
+仍走默认。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

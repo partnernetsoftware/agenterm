@@ -22,6 +22,8 @@ static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
 static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/qjs/lib/script_smoke_helpers.qjs").replace("\r\n", "\n")
 });
+static SCRIPT_SMOKE_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/script-smoke.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -166,6 +168,7 @@ fn script_smoke_executes_its_declared_complete_catalog_string_budget() {
     assert_eq!(budget["max_string_bytes"], 8_388_608);
     assert!(CHECK_QJS.contains("entry === \"script-smoke\""));
     assert!(CHECK_QJS.contains("arguments_list.push(\"8388608\")"));
+    assert!(SCRIPT_SMOKE_QJS.contains("\"--max-string-bytes\", \"8388608\", \"--\""));
 }
 
 #[test]

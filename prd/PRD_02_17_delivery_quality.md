@@ -669,6 +669,11 @@ costs a full candidate cycle:
   already declared an 8 MiB `max_string_bytes` task contract; the release
   driver's direct invocation omitted it. The owning court now passes that
   existing declaration explicitly, while ordinary scripts retain 1 MiB.
+- [x] Candidate `33548359259` proved the outer 8 MiB court and reached its
+  repository dogfood verifier. Script budgets are explicit invocation
+  contracts, not inherited authority, so that nested verifier still had 1 MiB
+  while reading the same complete catalog. The nested CLI now declares the
+  same 8 MiB input contract explicitly; unrelated children remain at default.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

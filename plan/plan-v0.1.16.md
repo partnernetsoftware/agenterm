@@ -1153,3 +1153,11 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   `check.qjs` 的 direct invocation 漏传。
 - release driver 现只给该 entry 传 `--max-string-bytes 8388608`；普通脚本默认
   1 MiB 不变，catalog 仍必须完整、不可截断。
+
+### A.13 Candidate `33548359259`：嵌套 verifier 显式预算
+
+- 外层已完整解析 catalog；停点推进到它启动的 `verify-script-contract.qjs`。
+- Script 预算按 invocation 显式声明且不继承，nested CLI 因此仍以 1 MiB 读同一
+  catalog。
+- verifier 调用显式采用相同 8 MiB complete-string 合同；其他 child 不变，禁止
+  用环境传播或全局抬价掩盖调用边界。
