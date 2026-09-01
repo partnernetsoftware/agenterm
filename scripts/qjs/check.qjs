@@ -397,6 +397,10 @@ function execute(command_spec, repo, scratch, sequence) {
   const duration = rh.now_ms() - started;
   let stdout = { text: result.stdout, truncated: false };
   let stderr = { text: result.stderr, truncated: false };
+  // The command itself may have removed target/ after the pre-spawn check.
+  // This is intentional for the release build, so recreate the owned evidence
+  // directory after the child returns and before publishing its streams.
+  rh.create_dir_all(scratch);
   if (redirected) {
     stdout = read_stream(stdout_path);
     stderr = read_stream(stderr_path);

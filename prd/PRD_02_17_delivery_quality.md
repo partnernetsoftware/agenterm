@@ -641,6 +641,12 @@ costs a full candidate cycle:
   `cargo clean --dry-run --target-dir ...` (exact file/byte summary) before the
   real clean. Failure diagnostics retain the typed error; cleanup is never
   silently skipped and the Script API ceiling is not raised to hide topology.
+- [x] qualification scratch is an owned, reconstructible directory below
+  `target/`. Every gate ensures it exists both before spawning and after the
+  child returns, because the release build intentionally removes that tree
+  while the outer qualification process still needs to publish the child's
+  captured streams. Missing scratch is lifecycle failure, never a product-gate
+  failure.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

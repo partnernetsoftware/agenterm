@@ -11,6 +11,8 @@ static RELEASE_POLICY: LazyLock<String> =
     LazyLock::new(|| include_str!("../release-policy.json").replace("\r\n", "\n"));
 static BUILD_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
+static CHECK_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
 static PREFLIGHT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/preflight.qjs").replace("\r\n", "\n"));
 static INTERNAL_VERSION_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -71,6 +73,25 @@ fn windows_candidate_retains_script_worker_crash_diagnostics() {
 fn release_cleanup_does_not_serialize_a_large_development_deps_directory() {
     assert!(BUILD_QJS.contains("[\"clean\", \"--dry-run\", \"--target-dir\", development_target]"));
     assert!(BUILD_QJS.contains("build_development_target_dry_run"));
+}
+
+#[test]
+fn qualification_recreates_owned_scratch_after_a_gate_cleans_target() {
+    let execute = CHECK_QJS
+        .split_once("function execute(")
+        .and_then(|(_, tail)| tail.split_once("\nfunction run_gate_step("))
+        .map(|(execute, _)| execute)
+        .expect("check execute function");
+    let child = execute
+        .find("const result = rh.command")
+        .expect("child command");
+    let recreate = execute[child..]
+        .find("rh.create_dir_all(scratch);")
+        .expect("post-child scratch recreation");
+    let publish = execute[child..]
+        .find("rh.atomic_write(stdout_path")
+        .expect("Windows stream publication");
+    assert!(recreate < publish);
 }
 
 #[test]
