@@ -1250,14 +1250,15 @@ Canonical host mapping (approved product vocabulary):
   `DISPLAY`, running `at-spi2-registryd`) proves `tree`, refused unauthorized
   actuation, audited degraded coordinate click, invalid node path failure, and
   structured AT-SPI click when a clickable node exists.
-- [x] Windows `current` staged public `cu-windows-smoke` passes its seven
-  declared receipts: `cu.windows-host-self-test`,
-  `cu.libagenterm-load-cleanup`, `cu.windows-uia-window-identity`,
-  `cu.windows-uia-tree`, `cu.windows-uia-name-actuation`,
-  `cu.windows-uia-value-wait`, and `cu.windows-uia-cleanup`. This proves the
-  staged host/DLL load and cleanup, exact window identity, public UIA tree,
-  name-addressed Value/GetText/Invoke journeys and bounded fixture cleanup; it
-  does not prove Candidate qualification or release.
+- [x] Windows `current` public `cu-windows-smoke` passes its 11 declared
+  receipts: capabilities, exact window identity, bounded UIA tree, query,
+  invoke, background menu inspection, focused control, verified window
+  placement, window-sized screenshot, destructive-close gating, and fixture
+  cleanup. The journey uses an owned WinForms fixture in an interactive
+  desktop session and emits the matching `cu.windows-uia-*` evidence only
+  after the complete run succeeds. It does not claim the retired staged-host,
+  persisted-grant, or clipboard receipts, and does not by itself prove
+  Candidate qualification or release.
 - [x] **macOS AX `current` actuation (cut 3.50) — live evidence held.**
   The same journey, same fixture, same run (2026-08-30) emits
   `cu.macos-ax-invoke-set-value`, `cu.macos-ax-invoke-set-checked`,

@@ -9,14 +9,15 @@
       "evidence_mode": "black-box-partial",
       "prd": "On Windows, the product `Command`/`Executor` path consumes UIA tree",
       "evidence_ids": [
-        "cu.windows-host-self-test",
-        "cu.windows-persisted-grant",
-        "cu.libagenterm-load-cleanup",
-        "cu.windows-clipboard-read",
+        "cu.windows-uia-capabilities",
         "cu.windows-uia-window-identity",
         "cu.windows-uia-tree",
-        "cu.windows-uia-name-actuation",
-        "cu.windows-uia-value-wait",
+        "cu.windows-uia-query",
+        "cu.windows-uia-invoke",
+        "cu.windows-uia-menu",
+        "cu.windows-uia-focused",
+        "cu.windows-uia-screenshot",
+        "cu.windows-uia-destructive-close",
         "cu.windows-uia-cleanup"
       ]
     },
@@ -27,9 +28,7 @@
       "evidence_mode": "black-box-partial",
       "prd": "`agenterm-cu window-place` applies one named action to one window",
       "evidence_ids": [
-        "cu.windows-window-place-refusal",
-        "cu.windows-window-place-actuation",
-        "cu.windows-window-place-audit"
+        "cu.windows-uia-window-place"
       ]
     },
     {
