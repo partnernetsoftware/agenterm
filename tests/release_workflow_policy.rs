@@ -9,6 +9,10 @@ static INTEGRITY: LazyLock<String> = LazyLock::new(|| {
 });
 static RELEASE_POLICY: LazyLock<String> =
     LazyLock::new(|| include_str!("../release-policy.json").replace("\r\n", "\n"));
+static ARTIFACTS: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../scripts/artifacts.json"))
+        .expect("scripts/artifacts.json must remain valid JSON")
+});
 static BUILD_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
 static CHECK_QJS: LazyLock<String> =
@@ -28,6 +32,31 @@ const CHECKOUT_SHA: &str = "08eba0b27e820071cde6df949e0beb9ba4906955";
 const UPLOAD_SHA: &str = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 const DOWNLOAD_SHA: &str = "fa0a91b85d4f404e444e00e005971372dc801d16";
 const CACHE_SHA: &str = "0400d5f644dc74513175e3cd8d07132dd4860809";
+
+#[test]
+fn windows_cu_budget_is_the_governing_two_mib_control_cli_budget() {
+    const CONTROL_CLI_BUDGET: u64 = 2 * 1024 * 1024;
+    let budget_for = |artifacts: &serde_json::Value| {
+        artifacts
+            .as_array()
+            .expect("artifact list")
+            .iter()
+            .find(|artifact| artifact["name"] == "agenterm-cu.exe")
+            .and_then(|artifact| artifact["release_budget_bytes"].as_u64())
+            .expect("agenterm-cu.exe release budget")
+    };
+
+    assert_eq!(budget_for(&ARTIFACTS["executables"]), CONTROL_CLI_BUDGET);
+    for arch in ["x86_64", "aarch64"] {
+        let platform = ARTIFACTS["platforms"]
+            .as_array()
+            .expect("platform list")
+            .iter()
+            .find(|platform| platform["os"] == "windows" && platform["arch"] == arch)
+            .unwrap_or_else(|| panic!("missing Windows platform {arch}"));
+        assert_eq!(budget_for(&platform["executables"]), CONTROL_CLI_BUDGET);
+    }
+}
 
 #[test]
 fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {

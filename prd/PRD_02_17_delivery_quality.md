@@ -665,6 +665,13 @@ costs a full candidate cycle:
   is deleted; the registered qjswasm task plus its C# fixture owns the durable
   behavior, while a UTM adapter may use invocation-owned transport glue and
   must remove it after the court run.
+- [x] Windows `agenterm-cu.exe` uses the already-governing 2 MiB control-CLI
+  budget. Candidate measured 1,420,800 bytes and an independent same-profile
+  build measured 1,414,656 bytes (`.text` alone 1,131,942 bytes); the stale
+  sub-1-MiB manifest value dated from the first Windows CU slice, before about
+  24,780 added lines of shipped observe, transport, authorization and receipt
+  behavior. The correction is bounded at 2 MiB in the top-level and both
+  Windows platform records, rather than inheriting Unix's 4 MiB allowance.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted
