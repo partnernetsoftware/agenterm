@@ -647,6 +647,38 @@ pub fn parse_text_selection(raw: &str) -> Result<(i32, i32), String> {
     Ok((start, end))
 }
 
+/// Chromium-family AX/window titles look like
+/// `App Store Connect - Brave Origin - wjcpns`. The profile is the last
+/// segment after ` - {app} - `. Not a CDP profile id.
+pub fn browser_profile_from_identity(app: &str, title: &str) -> Option<String> {
+    let app = app.trim();
+    let title = title.trim();
+    if app.is_empty() || title.is_empty() {
+        return None;
+    }
+    let marker = format!(" - {app} - ");
+    let index = title.rfind(&marker)?;
+    let profile = title[index + marker.len()..].trim();
+    if profile.is_empty() || profile.len() > 64 {
+        return None;
+    }
+    if profile.contains('/') || profile.contains('\n') || profile.contains('\0') {
+        return None;
+    }
+    Some(profile.to_owned())
+}
+
+pub fn looks_like_browser_app(app: &str) -> bool {
+    let app = app.to_ascii_lowercase();
+    app.contains("brave")
+        || app.contains("chrome")
+        || app.contains("chromium")
+        || app.contains("edge")
+        || app.contains("safari")
+        || app.contains("firefox")
+        || app.contains("arc")
+}
+
 /// Window inventory row: native fields plus MCU `ref`.
 pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
     serde_json::json!({
@@ -658,6 +690,7 @@ pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
         "bounds": window.bounds,
         "focused": window.focused,
         "minimized": window.minimized,
+        "browser_profile": browser_profile_from_identity(&window.app_name, &window.title),
     })
 }
 
@@ -2518,12 +2551,71 @@ mod tests {
     }
 
     #[test]
+    fn browser_profile_parses_chromium_window_titles() {
+        assert_eq!(
+            browser_profile_from_identity(
+                "Brave Origin",
+                "App Store Connect - Brave Origin - wjcpns"
+            )
+            .as_deref(),
+            Some("wjcpns")
+        );
+        assert_eq!(
+            browser_profile_from_identity("Brave Origin", "Grok - Brave Origin - work").as_deref(),
+            Some("work")
+        );
+        assert_eq!(
+            browser_profile_from_identity("Google Chrome", "Inbox - Google Chrome - Profile 1")
+                .as_deref(),
+            Some("Profile 1")
+        );
+        assert!(browser_profile_from_identity("Brave Origin", "App Store Connect").is_none());
+        assert!(browser_profile_from_identity("TextEdit", "notes.txt").is_none());
+        let rows = [
+            window(1, 1, "Brave Origin", "ASC - Brave Origin - wjcpns", false),
+            window(2, 1, "Brave Origin", "Mail - Brave Origin - wjcpns", false),
+            window(3, 2, "Brave Origin", "Chat - Brave Origin - other", false),
+        ];
+        let profiles: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                window_row_json(row)["browser_profile"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(profiles, ["wjcpns", "wjcpns", "other"]);
+    }
+
+    #[test]
     fn window_ref_is_mcu_app_hash_handle() {
         let brave = window(14278, 1, "Brave Origin", "Exact Reply", true);
         assert_eq!(window_stable_ref(&brave), "Brave Origin#14278");
         let row = window_row_json(&brave);
         assert_eq!(row["ref"], "Brave Origin#14278");
         assert_eq!(row["handle"], 14278);
+        assert!(row["browser_profile"].is_null());
+        let profiled = window(
+            16784,
+            1,
+            "Brave Origin",
+            "App Store Connect - Brave Origin - wjcpns",
+            false,
+        );
+        assert_eq!(
+            browser_profile_from_identity(&profiled.app_name, &profiled.title).as_deref(),
+            Some("wjcpns")
+        );
+        assert_eq!(window_row_json(&profiled)["browser_profile"], "wjcpns");
+        let other = window(9, 2, "Brave Origin", "Grok - Brave Origin - work", false);
+        assert_eq!(
+            browser_profile_from_identity(&other.app_name, &other.title).as_deref(),
+            Some("work")
+        );
+        assert!(looks_like_browser_app("Brave Origin"));
+        assert!(!looks_like_browser_app("TextEdit"));
+        assert!(browser_profile_from_identity("TextEdit", "notes.txt").is_none());
         assert_eq!(parse_window_token("14278").unwrap(), 14278);
         assert_eq!(parse_window_token("Brave Origin#14278").unwrap(), 14278);
         assert_eq!(parse_window_token("  TextEdit#9  ").unwrap(), 9);

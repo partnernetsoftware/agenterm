@@ -1516,6 +1516,10 @@ fn capabilities_payload() -> serde_json::Value {
                 mechanism::Capability::InputInject,
                 serde_json::json!({ "scope": "desktop", "group": "input" }),
             ),
+            "send-text": capability_verb(
+                mechanism::Capability::InputInject,
+                serde_json::json!({ "scope": "desktop", "group": "input", "alias_of": "type" }),
+            ),
         },
         "permissions": permissions,
         "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
@@ -1535,6 +1539,44 @@ fn capabilities_payload() -> serde_json::Value {
     });
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
+    }
+    if let Some(verbs) = payload["verbs"].as_object_mut() {
+        for (verb, grant) in [
+            ("windows", "observe"),
+            ("windows-watch", "observe"),
+            ("apps", "observe"),
+            ("tree", "observe"),
+            ("query", "observe"),
+            ("inspect", "observe"),
+            ("find", "observe"),
+            ("read", "observe"),
+            ("verify", "observe"),
+            ("wait", "observe"),
+            ("focused", "observe"),
+            ("observe", "observe"),
+            ("screenshot", "observe"),
+            ("pointer-position", "observe"),
+            ("clipboard-read", "observe"),
+            ("get-text", "observe"),
+            ("capabilities", "observe"),
+            ("click", "actuate"),
+            ("dclick", "actuate"),
+            ("invoke", "actuate"),
+            ("menu-invoke", "actuate"),
+            ("send-keys", "actuate"),
+            ("send-text", "actuate"),
+            ("pointer-move", "actuate"),
+            ("unlock", "actuate"),
+            ("close", "actuate"),
+            ("orderwin", "actuate"),
+            ("app", "actuate"),
+        ] {
+            if let Some(object) = verbs.get_mut(verb).and_then(|value| value.as_object_mut()) {
+                object
+                    .entry("grant")
+                    .or_insert_with(|| serde_json::json!(grant));
+            }
+        }
     }
     if let Some(invoke) = payload["verbs"]["invoke"].as_object_mut() {
         invoke.insert(
@@ -1794,7 +1836,22 @@ fn windows_payload(
             (Vec::new(), Some(format!("{code}: {message}")))
         }
     };
-    let row_json = |window: &WindowInfo| observe::window_row_json_with_stacking(window, &stacking);
+    let row_json = |window: &WindowInfo| {
+        let mut row = observe::window_row_json_with_stacking(window, &stacking);
+        if row
+            .get("browser_profile")
+            .and_then(|value| value.as_str())
+            .is_none()
+            && observe::looks_like_browser_app(&window.app_name)
+        {
+            if let Some(profile) = ax_root_browser_profile(window) {
+                if let Some(object) = row.as_object_mut() {
+                    object.insert("browser_profile".into(), serde_json::json!(profile));
+                }
+            }
+        }
+        row
+    };
     let rows = serde_json::Value::Array(windows.iter().map(row_json).collect());
     if filter.is_empty() && offset.is_none() && max.is_none() {
         return Ok(rows);
@@ -1821,6 +1878,20 @@ fn windows_payload(
         "truncated": counts.truncated,
         "windows": rows,
     }))
+}
+
+fn ax_root_browser_profile(window: &WindowInfo) -> Option<String> {
+    let budget = mechanism::TreeBudget {
+        max_depth: Some(0),
+        max_nodes: Some(8),
+    };
+    let tree = mechanism::tree_for_window_bounded(Some(window.handle), budget).ok()?;
+    let root = tree
+        .nodes
+        .iter()
+        .find(|node| node.id == tree.root_id)
+        .or(tree.nodes.first())?;
+    observe::browser_profile_from_identity(&window.app_name, &root.name)
 }
 
 fn filtered_windows(filter: &observe::WindowFilter) -> Result<Vec<WindowInfo>, CuError> {
