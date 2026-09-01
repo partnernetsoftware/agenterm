@@ -32,7 +32,7 @@
 2. 上面两处生产调用点已迁到 qjswasm，且行为等价有测试锁住。
 3. `qjs` CLI 子命令在新引擎上有对应面，或明确声明哪些不再提供、为什么。
 
-### 门 1：**已全绿**（2026-08-25 复测，上游 rev `f21f0f2`）
+### 门 1：**已全绿**（2026-08-25 复测，上游 rev `14a641a`）
 
 门 1 点名六件语言能力、外加 2026-08-25 加的那句「params 过得了
 `validate_fleet_parameters`」限定。**七格今天全部为「有」，且证据不是「能编得过」而是
@@ -42,11 +42,11 @@
 |-----------|------|------|
 | 字符串（字面量、拼接、相等） | **有** | `tests/qjs_guest.rs`；100 KB 串过门字节不变（`door_attack.rs`） |
 | 带参宿主调用 | **有** | 13 条 `tests/qjs_door.rs` + 31 条 `tests/door_attack.rs` |
-| 对象字面量 | **有** | `f203858`；`JSON.stringify({tab:t,note:n})` 实测出 `{"tab":"@1","note":"hi"}` |
+| 对象字面量 | **有** | `c3262d2`；`JSON.stringify({tab:t,note:n})` 实测出 `{"tab":"@1","note":"hi"}` |
 | 属性访问 / 属性赋值 | **有** | `fleet.ui.tabs.show = function () {...}` 三层嵌套赋值 + `fleet.ui.tabs.show()` 调用，实测通 |
-| 函数表达式当值用 | **有** | `ba143c5`；整份绑定就是「函数存进属性再取出来调」 |
-| `JSON.parse` / `JSON.stringify` | **有** | `90b8aca`/`4fd101d`；数组仍 throw，见下 |
-| `try` / `catch` | **有** | `5bdb557`；绑定的 `call()` 用它兜 `JSON.parse` |
+| 函数表达式当值用 | **有** | `eafb257`；整份绑定就是「函数存进属性再取出来调」 |
+| `JSON.parse` / `JSON.stringify` | **有** | `aa85696`/`9ac4588`；数组仍 throw，见下 |
+| `try` / `catch` | **有** | `32fc548`；绑定的 `call()` 用它兜 `JSON.parse` |
 | 限定句：params 过校验 | **有，且是全目录** | `tests/qjs_produces_a_fleet_operation.rs` 拿 `OPERATION_CATALOG` 逐字段校验 |
 
 **验收物是真文件，不是缩略版。** `tests/qjs_produces_a_fleet_operation.rs` 现在读
@@ -88,7 +88,7 @@
 **（二）「数字上的边界：10 条操作因必需数值参数而发不出去」——已作废。**
 
 那张表（无参 50 / 全字符串 16 / 含数值 11 / 其中必需数值 10）成立于 Number→String
-尚未实现的时候。`ba143c5` 之后三个 ECMA-262 转换全到，`JSON.stringify` 也直接吃数字，
+尚未实现的时候。`eafb257` 之后三个 ECMA-262 转换全到，`JSON.stringify` 也直接吃数字，
 `fleet.ui.tabs.set_width` / `ui.input.pointer` / `ui.input.wheel` / `events.wait` 等
 十条今天全部发得出去。`tests/qjs_produces_a_fleet_operation.rs::the_reachable_share_of_
 the_catalog_is_known` 按它自己文档里预写的规则，从「量比例并断言差额存在」改成了
@@ -130,7 +130,7 @@ script 就是程序，两者都**不存在**「没有入口点」这个状态：
 | stdout 与值一致 | 三段程序，各按引擎自己的入口约定写，`print` 输出与返回值逐条相同 |
 | `check` 一致 | 子集内的都收，坏语法的都拒 |
 | 未被选中时都拒绝 | worker 先问 `enabled()` 再调，一个照跑的后端会顶着别人的名字执行 |
-| **子集更窄，这是会坏的东西** | 默认参数 / `Math` / 带标签的模板——rquickjs 跑得动、qjswasm 拒绝（**捕获闭包 `68afb35`、模板 `653cebe`、箭头 `ee3842b` 已先后离开这一行**） |
+| **子集更窄，这是会坏的东西** | 默认参数 / `Math` / 带标签的模板——rquickjs 跑得动、qjswasm 拒绝（**捕获闭包 `eb9229c`、模板 `3d8ed07`、箭头 `ff5d2ac` 已先后离开这一行**） |
 
 **第四条是故意留着的**，因为迁移的真实风险就在那里：两个引擎在 Fleet 面等价，在**语言**上
 不等价。可以接受的两条理由都不是假设：`scripts/` 里**没有任何 `.js` 任务脚本**（只有
@@ -162,7 +162,7 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 | 数字 payload（`ui.tabs.set_width(320)`） | 两边同为 `{"width":320}`，是 JSON 数字 |
 | 无参操作（`ui.snapshot`） | 两边同送 `{}`，同取回 `snap.width` |
 | 拒绝可 catch（`ui.hello`） | 两边都抛、都被 `catch` 接住 |
-| 数组答案（`tabs.list`） | **一致**（`048bcf2` 起）：两边都解析成列表，`tabs.length + "/" + tabs[0].id` 同为 `2/tab1/tab2` |
+| 数组答案（`tabs.list`） | **一致**（`c0d7ae4` 起）：两边都解析成列表，`tabs.length + "/" + tabs[0].id` 同为 `2/tab1/tab2` |
 | 非 JSON 答案 | **一致**：两边都走 `catch` 交回原文——数组能解析之后，这条兜底还在，且两边同样走 |
 
 **第一次跑就抓到一条，而且是测试自己错。** `1920` vs `1920.0`——`agenterm-qjs` 经
@@ -187,7 +187,7 @@ operation id 一致，能抓改名和漏港，抓不到引擎拿它们做了什�
 
 上面那句写的时候还是个隐患，现在不是了。`src/script_engine.rs` 里的
 `qjswasm_check_refuses_what_execute_would_refuse` **从 2026-08-25 抬 rev 起就是红的**，
-一整天没人看见：它钉的是「`1 ? 2 : 3` 在子集外」，而 `?:` 正是那次 rev（`5bdb557`）
+一整天没人看见：它钉的是「`1 ? 2 : 3` 在子集外」，而 `?:` 正是那次 rev（`32fc548`）
 带来的。
 
 **为什么没看见**：它在 root crate 的 lib 里、藏在 `script-qjswasm` 后面。
@@ -329,7 +329,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 | 10 | `hash` | **已交付**（2026-08-26），且差异是**改进**不是妥协 | `agenterm cli script hash FILE` 打三列：`<hex>  <哈希的是什么>  <路径>`。qjswasm 哈希的是**编译出来的 `.wasm`**，其余引擎哈希源码，标签跟着数字走——两者都是 `hash` 的正确答案，但互相不可比，看不见标签就比不了。实测的决定性性质：只差一条注释和空白的两份源码，qjswasm 同哈希（`1c8388e0…`），qjs 源码哈希不同（`b77e2112…` / `b9db333b…`）——「这是不是同一个程序」正是这个动词存在的问题，源码摘要答不了。编不过的源码没有产物也就没有哈希，给的是编译器自己的诊断而不是退回哈希文本。wasmcore 按名字拒绝：它的输入本身就是产物 |
 | 11 | `run-smoke` | **已交付**，且**就是** `pack load` 的同一条代码路径 | 不是复制一份：冒烟测试若跑的是另一条路，测的就是没人部署的那条。`agenterm-qjs` 的 `run-smoke` 委托给 `pack load` 同理。实测 `script run 源码` 与 `pack load 产物` 输出**逐字节相同**——第一版不同（`tabs.list` vs `"tabs.list"`），因为新动词自己渲染了一遍值；已抽成一个函数 |
 | 12 | `task` | **已有面**（2026-08-26 实测） | `agenterm cli script task list` 与引擎无关（读的是任务清单不是脚本），选 qjswasm 时照常列出 |
-| 13 | `version` | **已交付**（2026-08-26） | `agenterm cli script version`，六个引擎各答各的 identity。qjswasm 的多一样别人没有的：**上游 pin**——`agenterm-qjswasm 0.1.16 (tinyvm 577af37)`。一周里这个 pin 动了五次，每次都改变「`[1,2,3]` 编不编得过」的答案，拿着二进制的人此前无从分辨。`UPSTREAM_TINYVM_REV` 由本 crate 一条测试钉死在自己的 `Cargo.toml` 上（两个 pin 必须相等），所以打印出来的是事实不是声明 |
+| 13 | `version` | **已交付**（2026-08-26） | `agenterm cli script version`，六个引擎各答各的 identity。qjswasm 的多一样别人没有的：**上游 pin**——`agenterm-qjswasm 0.1.16 (tinyvm 8f73c5c)`。一周里这个 pin 动了五次，每次都改变「`[1,2,3]` 编不编得过」的答案，拿着二进制的人此前无从分辨。`UPSTREAM_TINYVM_REV` 由本 crate 一条测试钉死在自己的 `Cargo.toml` 上（两个 pin 必须相等），所以打印出来的是事实不是声明 |
 
 **一处前置条件，已解除。** 一份 `.wasm` 文件不记得自己是从 `.qjs` 编来的：
 `Convention` 是装载时记下的，`Guest::Wasm(&compile_qjs(src))` 会把 JsV1 丢掉，
@@ -351,7 +351,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 移一份已经坏掉的契约。对照：`agenterm-lua` 的 `compile_lua(source)` 没有 label 参数，
 干净。
 
-### 第一条门的实测缺口清单（2026-08-24，rev `df8decd`；2026-08-25 在 rev `f8adef8` 上复测）
+### 第一条门的实测缺口清单（2026-08-24，rev `049ebba`；2026-08-25 在 rev `e1122ff` 上复测）
 
 把 `scripts/qjs/lib/fleet.js` 的每一种构造拿去**真编一次**，得到下表。这不是读源码估的，
 是 209 行里逐条构造喂给编译器的结果。**没有归档任何东西**——这张表是路线图的下一份输入。
@@ -379,13 +379,13 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 | **`JSON.parse` / `JSON.stringify`** | 每个带参 wrapper | 先撞属性访问 | M5（也可用 `.qjs` 自举） |
 | ~~**带参宿主调用**~~ | `__host.fleet_call(opId, params)` | ~~自由名字先被拒~~ | **已交付 2026-08-25** |
 
-**2026-08-25 复测的三处变化**（上游 rev 抬到 `f8adef8`，逐条编译验证）：
+**2026-08-25 复测的三处变化**（上游 rev 抬到 `e1122ff`，逐条编译验证）：
 
 | 缺口 | 2026-08-24 | 2026-08-25 |
 |------|-----------|-----------|
 | 带参宿主调用 | 够不着门 | **能**：`fleet_call("tabs.list", "{}")` 真的到达 bridge，`fleet_result()` 真的取回答案 |
-| `%` / `typeof` | 「解析后明确拒绝」 | **能**：`7 % 3` → `1`，`typeof "x"` → `"string"`（上游 `dd35c44` / `c707558`） |
-| `-0` 字面量丢符号 | 上游缺陷，`1 / -0` 给 `Infinity` | **已修**（上游 `1cba206`）：`let z = -0; 1 / z` → `-Infinity` |
+| `%` / `typeof` | 「解析后明确拒绝」 | **能**：`7 % 3` → `1`，`typeof "x"` → `"string"`（上游 `4b02663` / `c284fbd`） |
+| `-0` 字面量丢符号 | 上游缺陷，`1 / -0` 给 `Infinity` | **已修**（上游 `c87f5c5`）：`let z = -0; 1 / z` → `-Infinity` |
 
 其余各行原样成立：对象字面量、属性访问、函数当值、`?:`、`try/catch`、JSON 逐条复测仍被拒，
 诊断文案与上表一致。
@@ -676,7 +676,7 @@ wasm，缺的是**门**。锁在
 逃出 root 的规格串被拒，判据落在**规范化之后**的路径上——`../`、符号链接、
 绝对路径因此是同一件事，而不是三件各自要写对的文本判断。
 
-模块（rev `8bbdf2d`）加的正是那条走廊，而且它落在第 ① 间：`import` 是**编译期取入**，
+模块（rev `a1f76f9`）加的正是那条走廊，而且它落在第 ① 间：`import` 是**编译期取入**，
 不是装载期链接——第 ④/⑤/⑥ 间完全没变，仍是一个 `.wasm`、一道装载门、一套 `Limits`。
 「做对」的部分只有一个词：**命名空间**。`format!` 把库的顶层名字倒进脚本作用域，
 `import` 把它们收进一个对象——两者的差别就是这张图上「房间之间有没有墙」。
@@ -793,9 +793,9 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 `--profile abi-release` / `abi-dev`（工作区默认 `panic = "abort"` 会静默产出无
 `catch_unwind` 围栏的库）。不是树坏了。
 
-### 抬 rev 到 `df8decd` 后的重测（2026-08-24，同机同工具链）
+### 抬 rev 到 `049ebba` 后的重测（2026-08-24，同机同工具链）
 
-上游从 `f694733` 抬到 `df8decd`（5 个提交），`.qjs` 从整数表达式长成真正的 M1/M2 子集。
+上游从 `85189c7` 抬到 `049ebba`（5 个提交），`.qjs` 从整数表达式长成真正的 M1/M2 子集。
 本 crate **58 passed, 0 failed**；根 crate 的 `script_engine` 另加 2 条（feature 开时跑）。
 
 | 目标 | 数 | 变化 |
@@ -829,7 +829,7 @@ cargo check --workspace --all-targets --exclude agenterm-abi     # clean
 `crates/agenterm-qjswasm/README.md`（每条都有测试）；`.wasm` 侧是完整的。
 `.qjs` **还够不着 `agenterm.*` 门**——自由名字在编译期就被拒，门今天只有手写 `.wasm`
 客人能调。**最后这句已于 2026-08-25 作废**，见下文「门落地 + 门被攻击后的重测」；
-同表的 `-0` 字面量缺陷也已由上游 `1cba206` 修好（`let z = -0; 1 / z` → `-Infinity`）。
+同表的 `-0` 字面量缺陷也已由上游 `c87f5c5` 修好（`let z = -0; 1 / z` → `-Infinity`）。
 
 ### 接缝对抗审查后的重测（2026-08-25，同机同工具链）
 
@@ -883,10 +883,10 @@ cargo test -p agenterm-qjswasm    # 86 passed, 0 failed, 1 ignored
 一把锁住缺陷的锁。（那条 `#[ignore]` 已于 2026-08-25 撤销：上游把信息补出来了，测试
 现在断言 `Budget("max_memory_pages")`。全仓 `#[ignore]` 归零。）
 
-### 门落地 + 门被攻击后的重测（2026-08-25，同机同工具链，上游 rev `f8adef8`）
+### 门落地 + 门被攻击后的重测（2026-08-25，同机同工具链，上游 rev `e1122ff`）
 
-三件事按顺序发生：`.qjs` 接上门（rev `6920c60` 的 `Names::Declared`）、门被专门攻了一轮
-（26 条攻击测，五条缺陷）、缺陷里能在本仓修的三条修掉（rev 抬到 `f8adef8`）。
+三件事按顺序发生：`.qjs` 接上门（rev `1271a00` 的 `Names::Declared`）、门被专门攻了一轮
+（26 条攻击测，五条缺陷）、缺陷里能在本仓修的三条修掉（rev 抬到 `e1122ff`）。
 
 ```sh
 cargo test -p agenterm-qjswasm            # 133 passed, 0 failed, 0 ignored
@@ -895,7 +895,7 @@ cargo clippy -p agenterm-qjswasm --all-targets -- -D warnings   # clean
 cargo fmt -p agenterm-qjswasm --check                            # clean
 ```
 
-### 数组落地后的重测（2026-08-26，上游 rev `577af37`）
+### 数组落地后的重测（2026-08-26，上游 rev `8f73c5c`）
 
 ```sh
 cargo test -p agenterm-qjswasm                                    # 138 passed, 0 failed
@@ -914,7 +914,7 @@ cargo test --workspace --exclude agenterm-abi                     # 781 passed /
 `the_array_claims_in_this_crates_own_copy`（22 条断言）、`the_array_claims_that_are_traps`、
 `an_array_does_not_cross_this_crates_face`。写第三条时发现上游加了 `TAG_ARRAY` 却没加
 `host_decode` 里给它具名的那一臂——本层收到的是 `V1: unknown tag 7`，读起来像引擎有毛病。
-上游 `577af37` 修掉，本层断言改成整句相等而不是 `contains`（后者在错答案上会通过）。
+上游 `8f73c5c` 修掉，本层断言改成整句相等而不是 `contains`（后者在错答案上会通过）。
 
 | 目标 | 数 | 变化 |
 |------|----|------|
@@ -932,7 +932,7 @@ cargo test --workspace --exclude agenterm-abi                     # 781 passed /
 
 | # | 缺陷 | 处置 |
 |---|------|------|
-| 1 | 桥的答案撑爆客人堆 → `Trap("unreachable executed")`，且槽从此报废 | **已修**：抬 rev 到 `f8adef8`，客人自报堆耗尽 → `Budget("max_memory_pages")`；不自愈这件事写进 `Engine::call` 文档并有测 |
+| 1 | 桥的答案撑爆客人堆 → `Trap("unreachable executed")`，且槽从此报废 | **已修**：抬 rev 到 `e1122ff`，客人自报堆耗尽 → `Budget("max_memory_pages")`；不自愈这件事写进 `Engine::call` 文档并有测 |
 | 2 | 桥 panic 直接穿出 `Engine::call`，`run_once` 漏掉它承诺回收的槽 | **已修**：门接住 → `Door`（带 panic 原话与当时的 op）；`run_once` 另加回收-再抛的 finally |
 | 3 | 光提一个零参数门函数就等于调用它（`typeof fleet_result` 给 `"string"`） | **上游**：`tinyvm-qjs` `emit.rs` 的「裸宿主名 = 零参调用」规则，`Names::Declared` 之后不再无害；测试留着，头注说明修好后改成什么 |
 | 4 | `check` 收下 `execute` 装不进去的脚本 | **已修**：`check_qjs` = 编译 + 过装载闸门 |
@@ -966,8 +966,8 @@ cargo test --workspace --exclude agenterm-abi                     # 781 passed /
 ## 接下来：按「解锁什么」排，不按工作量排
 
 现状一句话：**引擎可用**，边界从「没有闭包、没有标准库」缩到了「**没有标准库**」——
-闭包（`68afb35`）、数组（`048bcf2`）、整个 DecimalLiteral（`ab29522`）、模板字面量
-（`653cebe`）、箭头函数（`ee3842b`）都到了。写 fleet 绑定和自动化脚本够用且顺手；
+闭包（`eb9229c`）、数组（`c0d7ae4`）、整个 DecimalLiteral（`05d506e`）、模板字面量
+（`3d8ed07`）、箭头函数（`ff5d2ac`）都到了。写 fleet 绑定和自动化脚本够用且顺手；
 缺的是**方法**，不是语法。
 
 **01 · ~~迁移两处生产调用点 / 归档 `agenterm-qjs`~~ —— 2026-08-28 已完成，本条留档**
@@ -1007,7 +1007,7 @@ feature 与可选依赖、workspace 成员、`QjsEngineBackend` 适配层、注�
 三种做法（`this` 走调用约定 / 属性读时装进闭包 / 调用点特化）全部实现、
 全部通过一份**在任何实现之前写好**的语料，再按边际成本比。
 输的两种连同它们的 feature 一起删了；赢的那种转正，
-`trim` / `indexOf` / `push` / `pop` / `map` 现在是本引擎的真能力（rev `21d8d9a`）。
+`trim` / `indexOf` / `push` / `pop` / `map` 现在是本引擎的真能力（rev `130e929`）。
 
 **判决路径**：加第五个方法的边际三方全 0 → 两条斜率各赢一条、互不支配 →
 边际行数打平（各 1 行）→ **泄漏清单最短者胜**。截距同样指向它。
@@ -1405,7 +1405,7 @@ selection.`，而它验的是**纯函数**，不是**任何产品路径会调用
 | `fleet.qjs` 29 个操作 | `grep -oE 'call\("[a-z.-]+"'` 去重 = **29** |
 | `.qjs` 语料干净 | `script corpus-scan --dir scripts/qjs` → `1 scripts ok` |
 | `script run` 走通门 | 一个用了 `map`+箭头、`trim`、`push`、模板、`.length`、`JSON.stringify`、`for` 的脚本跑出 `alpha:5 beta:4` / `ok 2 {"n":2}` |
-| `qualify` 出自足 `.wasm` + 收据 | **17 041 字节**，收据带 `steps 23745` / `peak_call_depth 10` / `peak_activation_slots 117`，engine 栏写着 `agenterm-qjswasm 0.1.16 (tinyvm 21d8d9a)`（该次测量时的 pin） |
+| `qualify` 出自足 `.wasm` + 收据 | **17 041 字节**，收据带 `steps 23745` / `peak_call_depth 10` / `peak_activation_slots 117`，engine 栏写着 `agenterm-qjswasm 0.1.16 (tinyvm 130e929)`（该次测量时的 pin） |
 | `pack load` 复现同样的 stdout 与值 | **一字不差** |
 | 失败路径的退出码 | 目录当产物、文件不存在、不是 wasm——**三条都退 1**（顺手查的：一次 `exit=0` 是 `head` 的退出码，不是命令的） |
 

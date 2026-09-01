@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "be1447c";
+pub const UPSTREAM_TINYVM_REV: &str = "028a914";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -718,7 +718,7 @@ pub enum QjswasmError {
     /// boundary like [`CapabilityBoundary`](Self::CapabilityBoundary), reached
     /// at run time because a receiver's type is a run-time fact; unlike it,
     /// this one says which property. `None` only if the name could not be
-    /// read back, which no build of tinyvm-qjs since d2e66b3 produces.
+    /// read back, which no build of tinyvm-qjs since 9847658 produces.
     UnsupportedMethod(Option<String>),
     /// A host function was handed a value of the wrong type at run time --
     /// `print(s.length)`, a Number where the door says String. Not knowable

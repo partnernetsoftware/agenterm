@@ -1271,7 +1271,7 @@ mod tests {
     /// This test used to assert the opposite -- "imports from another module
     /// name are none of the door's business" -- and let such a module load.
     /// Measured, that is what it bought (a `wasi_snapshot_preview1.fd_write`
-    /// guest, aarch64-apple-darwin, upstream rev `df8decd`):
+    /// guest, aarch64-apple-darwin, upstream rev `049ebba`):
     ///
     /// ```text
     /// validate_wasm = Ok(())

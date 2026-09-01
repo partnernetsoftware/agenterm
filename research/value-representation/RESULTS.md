@@ -19,7 +19,7 @@ This file is the third-party-reproducible form of its §8.
 | date | 2026-08-24 (UTC) |
 | host | Darwin arm64 (aarch64-apple-darwin) |
 | rustc / cargo | 1.97.0 (`2d8144b78`) / 1.97.0 (`c980f4866`) |
-| execution core | `tinyvm` path dependency `../../../tinyvm/crates/tinyvm` @ `f694733` |
+| execution core | `tinyvm` path dependency `../../../tinyvm/crates/tinyvm` @ `85189c7` |
 | this repo | branch `qjswasm-m0` |
 | host budget | tinyvm `Limits::default()` — `max_steps` 16 000 000, `max_call_depth` 512, `max_activation_slots` 1 048 576 |
 | products | 4 builds (V1P1 / V1P2 / V2P1 / V2P2) × 9 corpus programs + 2 probes = **36 `.wasm` modules** |

@@ -177,7 +177,7 @@ fn a_statically_settled_wrong_type_is_refused_at_compile_time() {
 ///
 /// The cause was upstream and deliberate: `unbox_string` -> `require_tag`
 /// emitted a bare `unreachable`, "the runtime half of the policy whose
-/// compile-time half is `static_type`". Fixed upstream in tinyvm 1012da1:
+/// compile-time half is `static_type`". Fixed upstream in tinyvm 932243c:
 /// the guest records `"<host>#<n>"` (the sixth fault code) before the trap,
 /// and this crate reads it back as [`QjswasmError::HostArgument`]. This is
 /// the assertion the old test said to write when that day came.

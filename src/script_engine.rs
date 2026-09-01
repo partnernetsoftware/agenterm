@@ -948,7 +948,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         let bridge: Option<agenterm_qjswasm::FleetBridgeFn> = fleet_bridge;
 
         // `"main"` with no arguments is still the entry convention after the
-        // `df8decd` bump, re-checked rather than assumed: the compiler exports
+        // `049ebba` bump, re-checked rather than assumed: the compiler exports
         // exactly one function, still named `main`, and its parameters are the
         // script's `$N`. A script that names none — which is every script this
         // path can run, since there is no route for passing arguments in from
@@ -1568,7 +1568,7 @@ mod tests {
 
     /// A `.qjs` script's completion value reaches the caller.
     ///
-    /// Before the `df8decd` bump this backend could not have reported one: the
+    /// Before the `049ebba` bump this backend could not have reported one: the
     /// compiled entry returned an `i32` and `.qjs` had no way to reach
     /// `agenterm.print`, so a script's entire observable output was nothing at
     /// all. The value is the whole result of running a `.qjs` script through
@@ -1614,9 +1614,9 @@ mod tests {
         let engine = QjswasmEngineBackend;
         let options = ScriptInvocationOptions::default();
         // This has now been overtaken twice, which is the assertion working:
-        // `%` stood here until the bump to `6920c60` implemented it (dd35c44),
-        // and `1 ? 2 : 3` replaced it until the bump to `f21f0f2` implemented
-        // the conditional (5bdb557).
+        // `%` stood here until the bump to `1271a00` implemented it (4b02663),
+        // and `1 ? 2 : 3` replaced it until the bump to `14a641a` implemented
+        // the conditional (32fc548).
         //
         // **The second one went unnoticed for a day**, and the reason is worth
         // more than the fix: this test lives in the root crate's lib behind

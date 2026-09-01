@@ -9,7 +9,7 @@ Write findings to `prd/review-qjswasm-2026-08-30-grok.md` (create it).
 |---|---|---|---|
 | core | `tinyvm` (`~/repos/tinyvm/crates/tinyvm`) | `libm` only (everything else optional) | MVP wasm interpreter, no JIT |
 | compiler | `tinyvm-qjs` (`~/repos/tinyvm/crates/tinyvm-qjs`) | `tinyvm` only | 24 405 lines: lex → parse → AST → lower to V1 boxed values (tag:i32 / payload:i64) → runtime prelude (bump heap, object/array records, per-method prefabs, gated: unused code is not emitted) → encode `.wasm` |
-| product engine | `agenterm-qjswasm` (`~/repos/agenterm/crates/agenterm-qjswasm`) | tinyvm + tinyvm-qjs (git pin `c7b6004`), serde/serde_json, sha2, png, agenterm-platform (window/process features), agenterm-script-common | the `tool.*` door (42 host ops: fs/process/env/crypto/time/image/window), slots, budgets, fault legibility |
+| product engine | `agenterm-qjswasm` (`~/repos/agenterm/crates/agenterm-qjswasm`) | tinyvm + tinyvm-qjs (git pin `e8f1686`), serde/serde_json, sha2, png, agenterm-platform (window/process features), agenterm-script-common | the `tool.*` door (42 host ops: fs/process/env/crypto/time/image/window), slots, budgets, fault legibility |
 
 Above it: `agenterm` CLI (`script run/check/task run`, worker process, `--profile tool`, `--max-operations`), 71 `.qjs` scripts in `~/repos/agenterm/scripts/qjs` (all ported from the retired rh language; 7 of 10 GUI journeys PASS on macOS; the quick qualification lane `bootstrap.sh --quick` passes 8/8 gates).
 

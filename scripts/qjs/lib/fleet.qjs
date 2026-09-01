@@ -12,7 +12,7 @@
 // This file is now a **full** port of `fleet.js`: the same 29 operations, in
 // the same order, under the same names, with the same params shapes. It was a
 // partial port of 8 while the engine could not build an object or stringify
-// one; both landed at tinyvm `f21f0f2`, so the reason for the gap is gone and
+// one; both landed at tinyvm `14a641a`, so the reason for the gap is gone and
 // the gap went with it. "Equivalent to `fleet.js`" is the gate for retiring
 // `agenterm-qjs`, and a binding that covered a quarter of the surface was not
 // that, whatever the language could do.
@@ -29,7 +29,7 @@
 const STATUS_OK = 0;
 const STATUS_ERR = 1;
 
-// `export`ed since tinyvm 8bbdf2d, which is when a `.qjs` script first gained
+// `export`ed since tinyvm a1f76f9, which is when a `.qjs` script first gained
 // a way to say `import * as fleet from "..."`. Until then the only way to use
 // this file was to paste its text in front of a script from Rust -- which is
 // why a complete, tested, 29-operation binding had no consumers at all.
@@ -48,7 +48,7 @@ export const fleet = {};
 ///
 ///      This paragraph used to say the fallback also caught *arrays*, because
 ///      the engine had no Array type and `tabs.list` therefore came back as
-///      text. Arrays landed at tinyvm `048bcf2`; `tabs.list` now returns a
+///      text. Arrays landed at tinyvm `c0d7ae4`; `tabs.list` now returns a
 ///      list a caller can index, and the `catch` is back to catching only what
 ///      it was written for.
 ///   2. **A refusal throws.** Under `fleet.js` the host function itself throws,

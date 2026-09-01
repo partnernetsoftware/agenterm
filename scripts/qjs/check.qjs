@@ -681,7 +681,7 @@ function freeze_identity(worker, repo, scratch, sequence) {
 
 // The completed gates by duration, longest first; equal durations keep
 // lane order, as the insertion sort here did (the engine's `sort` is
-// stable, tinyvm `eb95e42`).
+// stable, tinyvm `e45010b`).
 function slowest_gates(timing) {
   const completed = [];
   for (const gate of timing.gates) {

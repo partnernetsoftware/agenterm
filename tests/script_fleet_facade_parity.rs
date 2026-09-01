@@ -208,7 +208,7 @@ fn lua_and_qjs_fleet_facades_expose_identical_operation_catalogs() {
 // It was a 8-of-29 partial port until 2026-08-25, for a reason that was true
 // at the time and is not any more: the engine could not build an object
 // literal or stringify one, so nineteen operations had no way to express
-// their params. Both landed upstream at tinyvm `f21f0f2`.
+// their params. Both landed upstream at tinyvm `14a641a`.
 
 #[test]
 fn qjs_and_qjswasm_fleet_facades_are_the_same_binding() {

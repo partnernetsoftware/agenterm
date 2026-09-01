@@ -325,7 +325,7 @@ impl Slot {
                     return QjswasmError::Budget("max_memory_pages");
                 }
                 Some(tinyvm_qjs::GuestFault::UncaughtThrow) => {
-                    // Since tinyvm 94237cb the epilogue records where the
+                    // Since tinyvm 25fcf02 the epilogue records where the
                     // thrown String is; read it here, where the memory is.
                     let message = match self.instance.memory_at(0) {
                         Ok(Some(view)) => tinyvm_qjs::guest_thrown_message(&view),
@@ -334,7 +334,7 @@ impl Slot {
                     return QjswasmError::UncaughtThrow(message);
                 }
                 // The fourth reason the comment here anticipated, which
-                // arrived at tinyvm `ec67034`. Reported as its own thing and
+                // arrived at tinyvm `c2300fc`. Reported as its own thing and
                 // not as a trap: a trap says "the guest stopped and the core
                 // does not know why", which for a capability boundary sends
                 // the reader looking for a defect that is not there.

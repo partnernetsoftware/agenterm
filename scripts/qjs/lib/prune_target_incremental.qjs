@@ -349,7 +349,7 @@ function tree_metadata_digest(root, maximum_entries, scratch_path) {
       records.push(kind + "|" + relative + "|" + metadata.len + "|" + metadata.modified_ms);
     }
   }
-  // The engine's `sort` (tinyvm `eb95e42`): default order is the code-unit
+  // The engine's `sort` (tinyvm `e45010b`): default order is the code-unit
   // order `<` gives, which is what the merge sort it replaced compared by;
   // 3.3x cheaper on 1 000 strings, and a root can hold 100 000 records.
   const serialized = JSON.stringify(records.sort());

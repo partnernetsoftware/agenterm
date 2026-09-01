@@ -471,7 +471,7 @@ fn the_first_migrated_task_script_validates_the_real_manifest() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    // The reason, not just the fact: since tinyvm 94237cb a thrown String is
+    // The reason, not just the fact: since tinyvm 25fcf02 a thrown String is
     // readable by the host, and this is the line every migrated gate script
     // exists to print when it fails.
     assert!(

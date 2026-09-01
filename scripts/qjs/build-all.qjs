@@ -38,7 +38,7 @@ const cells = [
 ];
 
 // rh kept the last `limit` characters; so does this (`substring`, tinyvm
-// `fb1a1a6`).
+// `b2b60fb`).
 function tail_of(text, limit) {
   const value = ("" + text).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
   if (value.length <= limit) { return value; }

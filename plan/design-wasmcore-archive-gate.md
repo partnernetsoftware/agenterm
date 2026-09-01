@@ -333,7 +333,7 @@ std 客人只是没走到堆压力大的路径。这两个是**调参**，属于
 
 ### 3.12 wasm 特性面（bulk memory / SIMD / 多内存 / 线程）
 
-读码：tinyvm `df8decd` 的解码器识别 bulk memory、sign-extension、non-trapping
+读码：tinyvm `049ebba` 的解码器识别 bulk memory、sign-extension、non-trapping
 float→int、multi-value、reference types、多表、多内存、extended-const、tail-call
 （`crates/tinyvm/src/wasm.rs:156-168` 的 `FeatureUsage`）。**SIMD 在 `simd` cargo feature
 后面，`agenterm-qjswasm/Cargo.toml:29` 没开**；wasm 线程/原子没有实现。
@@ -346,7 +346,7 @@ float→int、multi-value、reference types、多表、多内存、extended-cons
 
 ### 3.13 一条容易被漏掉的事实：核**有**一个 WASI 适配器，是我们不开它
 
-上游 tinyvm（`df8decd`）自带 `crates/tinyvm/src/wasi_p1.rs`——一个可选的
+上游 tinyvm（`049ebba`）自带 `crates/tinyvm/src/wasi_p1.rs`——一个可选的
 `wasi_snapshot_preview1` 适配器，绑 16 个函数（`args_get` / `args_sizes_get` /
 `environ_get` / `environ_sizes_get` / `clock_time_get` / `random_get` /
 `fd_prestat_get` / `fd_prestat_dir_name` / `fd_close` / `fd_read` / `fd_write` /

@@ -24,7 +24,7 @@ function isArtifactName(name) {
   if (role === "") { return false; }
   // "Every character is a-z": delete each letter in turn and check nothing
   // survives -- 26 `replaceAll` calls on a string a few characters long.
-  // The engine has `s[i]` / `charCodeAt` since tinyvm `fb1a1a6` (`split("")`
+  // The engine has `s[i]` / `charCodeAt` since tinyvm `b2b60fb` (`split("")`
   // is still a named refusal: it would have to produce lone surrogates for
   // non-BMP text), but the deletion is the cheaper spelling -- measured
   // 2026-08-31 in `rh_compat.only_chars`, each character access is a prefab

@@ -153,7 +153,7 @@ function parent_dir(p) {
 
 // rh's multi-line template literals as a line array: each line followed by
 // a newline, the way the backtick text ended. The engine has had multi-line
-// template literals since tinyvm `b7e757c` (probed 2026-08-31); the callers
+// template literals since tinyvm `ef799d9` (probed 2026-08-31); the callers
 // hand this helper arrays, so the spelling stays.
 function lines_text(lines) {
   let text = "";
@@ -869,7 +869,7 @@ const remote_ui_declared_evidence = [
 ];
 
 // Win32 message and key numbers, as winuser.h spells them (hex literals
-// since tinyvm `b7e757c`; they were decimal with the hex in a comment
+// since tinyvm `ef799d9`; they were decimal with the hex in a comment
 // before that).
 const WM_CLOSE = 0x0010;
 const WM_KEYDOWN = 0x0100;

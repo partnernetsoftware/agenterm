@@ -5076,7 +5076,7 @@ mod tests {
         // A source that will not build has no artifact, so no digest: the
         // compiler's own diagnostic instead of a fingerprint of nothing.
         //
-        // This used to be a plain template literal; upstream `653cebe` landed
+        // This used to be a plain template literal; upstream `3d8ed07` landed
         // those. An elision replaces it because it is refused for a reason a
         // language bump will not overtake: a hole is not an `undefined` and
         // this engine cannot tell them apart.

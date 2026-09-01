@@ -18,7 +18,7 @@ function child(value, key) {
 }
 
 // rh's `type_of(x) == "map"` / `"array"`, over `Array.isArray` (tinyvm
-// `c9df46f`).
+// `12cfdfe`).
 function is_map(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

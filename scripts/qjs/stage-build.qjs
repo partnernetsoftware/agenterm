@@ -41,7 +41,7 @@ rh.create_dir_all(destination_directory);
 
 const artifact_manifest_path = rh.join(repo, "scripts/artifacts.json");
 const manifest = rh.parse_file(artifact_manifest_path);
-// rh asked `type_of(x) == "array"`: `Array.isArray` (tinyvm `c9df46f`).
+// rh asked `type_of(x) == "array"`: `Array.isArray` (tinyvm `12cfdfe`).
 function is_array(value) {
   return Array.isArray(value);
 }

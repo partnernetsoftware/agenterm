@@ -19,7 +19,7 @@
 //!   -- could not be fixed in this repository at all: it was `#[ignore]`d
 //!   rather than inverted, because asserting the wrong behaviour so it passes
 //!   would turn a bug report into a lock on the bug. Its header names the
-//!   upstream change that closed it, tinyvm `f8adef8`.
+//!   upstream change that closed it, tinyvm `e1122ff`.
 //!
 //! Every `FINDING` header states: reproducer, what was observed, what was
 //! expected, and why the expectation is the crate's own and not this file's
@@ -353,8 +353,8 @@ fn a_killed_slot_is_a_typed_refusal_and_its_id_is_never_recycled() {
 /// Three different failure classes are run through it here.
 ///
 /// The trapping guest is a hand-written `unreachable`. It used to be `"2" * 2`,
-/// a String-to-Number coercion, which the `f21f0f2` bump implemented (ba143c5);
-/// then a call on a non-function, named at a4e12fd; then `"" + {}`, named at
+/// a String-to-Number coercion, which the `14a641a` bump implemented (eafb257);
+/// then a call on a non-function, named at efd4134; then `"" + {}`, named at
 /// the bump after it. Every stop a `.qjs` program can reach now has a name, so
 /// the nameless trap has to be written by hand. What is under test is the
 /// accounting, not the fault.
@@ -645,7 +645,7 @@ fn finding_3_a_missing_export_is_blamed_on_the_guest() {
 /// at `max_memory_pages`, so call it a budget" -- would have mislabelled a
 /// genuinely broken script, which is the silent misclassification `classify`'s
 /// doctrine exists to prevent. The header used to say the fix had to be
-/// upstream, and it was: tinyvm `f8adef8` has the allocator record
+/// upstream, and it was: tinyvm `e1122ff` has the allocator record
 /// `FAULT_HEAP_EXHAUSTED` in the first word of the guest's own memory before it
 /// gives up, and `tinyvm_qjs::guest_fault` reads it back. `slot.rs` consults it
 /// on the error path of a `JsV1` slot, so the guest states the reason and the

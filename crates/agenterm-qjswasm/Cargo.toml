@@ -26,9 +26,8 @@ agenterm-platform = { path = "../agenterm-platform", default-features = false, f
 png = "0.17"
 # tinyvm is the execution core; tinyvm-qjs is the `.qjs` -> `.wasm` compiler.
 # Both pinned by revision, never vendored: the write knife lives in ../tinyvm
-# (PRD 35). A private-repo git dep needs the system git client -- see
-# .cargo/config.toml's `[net] git-fetch-with-cli`, measured against a real 401
-# from cargo's built-in libgit2 client.
+# (PRD 35). The public upstream is still pinned by exact revision; see
+# .cargo/config.toml's `[net] git-fetch-with-cli` for the shared fetch path.
 #
 # `tinyvm-qjs` was deliberately NOT a dependency until 2026-08-24, on the
 # argument that agenterm's language must not be hostage to another repo's
@@ -37,8 +36,8 @@ png = "0.17"
 # vocabulary, so the layering rule governs: generic engine capability upstream,
 # business here. This crate keeps the half that is business -- the `agenterm.*`
 # door, slots, budget policy -- and re-exports the compiler's face.
-tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "be1447c" }
-tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "be1447c" }
+tinyvm = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "028a914" }
+tinyvm-qjs = { git = "https://github.com/partnernetsoftware/tinyvm", rev = "028a914" }
 # The `tool.*` door speaks JSON where the wasm vocabulary has no record type:
 # `process.command` takes its spec as one, and `fs.metadata` / `fs.read_dir`
 # answer with one. Same crates the rest of the workspace already carries.

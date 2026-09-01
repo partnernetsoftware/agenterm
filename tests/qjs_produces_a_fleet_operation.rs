@@ -154,7 +154,7 @@ fn assert_payload_conforms(spec: &OperationSpec, params_json: &str) {
 /// `?:` and `JSON.stringify` were all refused, so the earlier version assembled
 /// its payload by string concatenation and said in a comment that when those
 /// landed the script should be rewritten to look like `fleet.js` proper, with
-/// the assertions below unchanged. They landed at tinyvm `f21f0f2`. This is
+/// the assertions below unchanged. They landed at tinyvm `14a641a`. This is
 /// that rewrite, and the assertions are unchanged.
 ///
 /// What the driver returns is load-bearing. `call` parses the broker's answer,
@@ -331,7 +331,7 @@ fn a_script_that_asks_for_nothing_reaches_nothing() {
 /// test measured how much of the catalog that left and asserted the shortfall
 /// was real. Its own doc said what to do when Number-to-String landed --
 /// "the numeric operations join them and this count should be revisited rather
-/// than silently drifting". They landed at tinyvm `f21f0f2`, and
+/// than silently drifting". They landed at tinyvm `14a641a`, and
 /// [`a_numeric_fleet_payload_survives_the_trip`] measures one going out as a
 /// JSON number. So the shortfall is gone and the test becomes the equality it
 /// was told to become.

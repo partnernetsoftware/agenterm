@@ -11,7 +11,7 @@
 //! diagnostic intact rather than a generic load rejection. That is the part a
 //! version bump upstream could break, and the part no upstream test covers.
 //!
-//! Two of those seam facts are new as of the `df8decd` bump and are what most
+//! Two of those seam facts are new as of the `049ebba` bump and are what most
 //! of this file is now about:
 //!
 //! * **The calling convention changed.** A compiled entry point speaks the V1
@@ -155,20 +155,20 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 ///
 /// It has now caught that five times, which is what it is for.
 ///
-/// (1) The bump to `6920c60` -- taken for `Names::Declared`, the mechanism that
-/// lets a `.qjs` script reach the door -- also brought `%` (dd35c44) and
-/// `typeof` (c707558), this list's first two entries at the time. Measured:
+/// (1) The bump to `1271a00` -- taken for `Names::Declared`, the mechanism that
+/// lets a `.qjs` script reach the door -- also brought `%` (4b02663) and
+/// `typeof` (c284fbd), this list's first two entries at the time. Measured:
 /// `return 1 % 2;` is `Number(1.0)` and `return typeof 1;` is `Str("number")`.
 ///
-/// (2) The bump to `f21f0f2` brought the conditional expression (5bdb557) and
-/// object literals (f203858), the next two entries. Measured: `return 1 ? 2 :
+/// (2) The bump to `14a641a` brought the conditional expression (32fc548) and
+/// object literals (c3262d2), the next two entries. Measured: `return 1 ? 2 :
 /// 3;` is `Number(2.0)`, and `return {};` now compiles and runs -- it fails one
 /// step later, at this crate's own face, because `Value` has no variant for a
 /// guest heap reference. That is a different boundary with its own test, and
 /// deliberately not this one: a source that compiles does not belong in a list
 /// of sources the compiler refuses, whatever happens to it afterwards.
 ///
-/// (3) The bump to `048bcf2` brought arrays, this list's third entry. Measured:
+/// (3) The bump to `c0d7ae4` brought arrays, this list's third entry. Measured:
 /// `return [1, 2, 3];` compiles and runs, and its `.length` is `3`. Its
 /// replacement is the one array form that did *not* land -- the elision
 /// `[1, , 2]`, which is a hole and not an `undefined`, and which the engine
@@ -176,7 +176,7 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// replacement is deliberate: it keeps a `[` in the list, so a future bump
 /// that widens array syntax lands here rather than nowhere.
 ///
-/// (4) The bump to `68afb35` brought **closures that capture**, this list's
+/// (4) The bump to `eb9229c` brought **closures that capture**, this list's
 /// last entry. Measured: `function outer() { let a = 1; function inner() {
 /// return a; } return inner(); }` runs and answers `1`, and
 /// `function mk(n) { return function () { return n; }; }` gives a closure that
@@ -184,7 +184,7 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// engine has no plan for rather than a capability queued behind one -- so the
 /// list keeps an entry that will not be overtaken by the next language bump.
 ///
-/// (5) The bump to `ab29522` brought the whole DecimalLiteral grammar, so
+/// (5) The bump to `05d506e` brought the whole DecimalLiteral grammar, so
 /// `return 1.5;` -- this list's fourth entry since the beginning -- compiles.
 /// Measured: `Number(1.5)`, and `0.1 + 0.2` is `0.30000000000000004`, which is
 /// what says these are doubles rather than decimals being humoured. Its
@@ -192,7 +192,7 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// *different grammar* rather than the next thing queued behind the one that
 /// just landed.
 ///
-/// (6) The bump to `653cebe` brought **template literals** -- this list's
+/// (6) The bump to `3d8ed07` brought **template literals** -- this list's
 /// first entry since the beginning. Measured: `` return `a${1}b`; `` answers
 /// `"a1b"`, and `` `${1}${2}` `` answers `"12"` rather than `3`. Its
 /// replacement is a *tagged* template, which stays refused for a structural
@@ -202,8 +202,8 @@ fn a_returned_string_is_text_and_outlives_the_slot_it_came_from() {
 /// (3): it keeps a backtick in the list, so a bump that widens template
 /// syntax lands here rather than nowhere.
 ///
-/// (7) The bump to `9e02e37` brought **arrow functions** (which landed
-/// upstream in `ee3842b`; the pin skipped straight past it) -- and brought them
+/// (7) The bump to `af3eed6` brought **arrow functions** (which landed
+/// upstream in `ff5d2ac`; the pin skipped straight past it) -- and brought them
 /// because closures had: in that engine an arrow *is* a function expression,
 /// so once a function expression could capture, so could an arrow. Measured:
 /// `let f = (x) => x + 1; return f(1);` answers `2`, `x => x` needs no
@@ -482,7 +482,7 @@ fn the_method_claims_in_this_crates_own_copy() {
     );
 
     // "没落地的方法仍然按各自接收者的规矩拒绝"
-    // (`toUpperCase` and `toFixed` sat here until tinyvm be1447c gave the
+    // (`toUpperCase` and `toFixed` sat here until tinyvm 028a914 gave the
     // engine both; `trimStart` and `toPrecision` took their seats.)
     for source in ["return \"ab\".trimStart();", "return (1).toPrecision();"] {
         let mut eng = engine();
@@ -518,8 +518,8 @@ fn the_string_length_claim_in_this_crates_own_copy() {
     assert_eq!(returns("return `a${1}b`.length;"), JsValue::Number(3.0));
 
     // "那是一条臂，不是原型链：其它属性仍然 trap，而且是故意不给 undefined"
-    // -- and since tinyvm d2e66b3 a String receiver's trap names the
-    // property; since 1707721 so does a Number receiver's.
+    // -- and since tinyvm 9847658 a String receiver's trap names the
+    // property; since 904b041 so does a Number receiver's.
     for (source, want) in [
         ("return \"ab\".trim;", Some("trim")),
         ("return \"ab\".trimStart;", Some("trimStart")),
@@ -534,7 +534,7 @@ fn the_string_length_claim_in_this_crates_own_copy() {
                 matches!(&err, QjswasmError::UnsupportedMethod(Some(n)) if n == name),
                 "{source:?}: want `{name}` named, got {err:?}"
             ),
-            // A Number receiver names its key too since tinyvm 1707721.
+            // A Number receiver names its key too since tinyvm 904b041.
             None => assert!(
                 matches!(&err, QjswasmError::PropertyOfNonObject(Some(k)) if k == "toPrecision"),
                 "{source:?}: want `toPrecision` named off a Number, got {err:?}"
@@ -659,7 +659,7 @@ fn the_template_claims_in_this_crates_own_copy() {
 /// Both are deliberate answers and not accidents, so both are pinned: a
 /// dropped write and a fabricated method result are each a wrong answer that
 /// looks like a right one, which is the failure this engine refuses. They
-/// were bare traps until tinyvm afc1e34; now a non-index write on an Array
+/// were bare traps until tinyvm 16da41d; now a non-index write on an Array
 /// says so (`InvalidWrite`), and the absent method stays a trap of its own
 /// kind.
 #[test]
@@ -707,7 +707,7 @@ fn an_array_does_not_cross_this_crates_face() {
         // found that upstream had added the tag without adding the arm that
         // names it, so a host was told "V1: unknown tag 7" -- which reads as
         // an engine defect and says nothing about what to do instead. Fixed
-        // upstream at `577af37`; an equality here is what keeps it fixed.
+        // upstream at `8f73c5c`; an equality here is what keeps it fixed.
         QjswasmError::Door(text) => assert_eq!(
             text,
             "the `.qjs` entry point returned V1: an Array is a guest heap \
@@ -759,10 +759,10 @@ fn arithmetic_is_binary64_so_division_by_zero_is_infinity() {
 /// so it traps -- a recorded divergence, not an accident, and the trap is the
 /// honest answer until `throw new TypeError(...)` exists to replace it.
 ///
-/// It used to be `"2" * 2`, a String-to-Number coercion. The `f21f0f2` bump
-/// implemented all three ECMA-262 string conversions (ba143c5), so that source
+/// It used to be `"2" * 2`, a String-to-Number coercion. The `14a641a` bump
+/// implemented all three ECMA-262 string conversions (eafb257), so that source
 /// now evaluates to `Number(4.0)` and stopped testing anything. Then it was a
-/// call on a non-function, named at a4e12fd; then `"" + {}`, named at the
+/// call on a non-function, named at efd4134; then `"" + {}`, named at the
 /// bump after it. Every stop a `.qjs` program can reach now has a name, which
 /// is the goal -- so the nameless trap this test classifies is a hand-written
 /// guest whose `main` is an `unreachable`, the one shape that can never carry
@@ -784,7 +784,7 @@ fn a_runtime_fault_in_a_compiled_guest_is_a_trap() {
 
 /// A module refused while validating a function body says which function,
 /// by the name the compiler wrote into the `name` section. Until tinyvm
-/// 3e21027's successor this face said "loading wasm: validation: type
+/// 1fc4f45's successor this face said "loading wasm: validation: type
 /// mismatch" and nothing else, and the author bisected (PRD A7).
 #[test]
 fn a_module_refused_in_a_function_names_the_function() {
@@ -884,7 +884,7 @@ fn a_refused_write_and_a_named_boundary_are_named_here_too() {
 /// refusal at this face, with the kind. ECMA-262 would answer `[object
 /// Object]`; this engine never converts one quietly (a value silently becoming
 /// that text in a command line is the footgun), and until the bump after
-/// a4e12fd the stop was a bare trap that this test's neighbour used as its
+/// efd4134 the stop was a bare trap that this test's neighbour used as its
 /// example. The class is `Script`: the script's own doing, and
 /// `JSON.stringify` is the spelling that says what was meant.
 #[test]
@@ -929,7 +929,7 @@ fn a_value_with_no_primitive_form_is_named_with_its_kind() {
 /// that this crate spends the evidence instead of leaving it on the floor,
 /// which is what it did until now.
 /// A String property this engine lacks is named at the engine face. Until
-/// tinyvm d2e66b3 the guest trapped bare (or, if the program said `.length`
+/// tinyvm 9847658 the guest trapped bare (or, if the program said `.length`
 /// somewhere, as a nameless capability boundary), and every migrated script
 /// that reached `slice` reported "guest trapped: unreachable executed"
 /// (`slice`, then `substring`, then `padStart` have since landed; `trimStart`
@@ -958,7 +958,7 @@ fn a_missing_string_method_is_named_at_the_engine_face() {
     );
 }
 
-/// `print(s.length)` names the call and the argument since tinyvm 1012da1;
+/// `print(s.length)` names the call and the argument since tinyvm 932243c;
 /// it was "guest trapped: unreachable executed", the first thing every
 /// script author saw.
 #[test]
@@ -983,7 +983,7 @@ fn a_host_argument_of_the_wrong_type_is_named_at_the_engine_face() {
     );
 }
 
-/// `undefined.x` names the key since tinyvm 1707721; it was "guest trapped:
+/// `undefined.x` names the key since tinyvm 904b041; it was "guest trapped:
 /// unreachable executed", and every migrated script guards JSON fields with
 /// `=== undefined` because of it.
 #[test]
@@ -1008,7 +1008,7 @@ fn a_property_read_off_undefined_is_named_at_the_engine_face() {
     );
 }
 
-/// `slice` itself answers since tinyvm 6b9464a: code-unit positions, negative
+/// `slice` itself answers since tinyvm b04e2cd: code-unit positions, negative
 /// indices, the harness's truncation shape.
 #[test]
 fn slice_answers_on_code_units() {
@@ -1398,10 +1398,10 @@ fn the_prd_states_the_revision_this_build_pins() {
     );
 }
 
-/// A call on a non-function names the callee since tinyvm a4e12fd; it was
+/// A call on a non-function names the callee since tinyvm efd4134; it was
 /// "guest trapped: unreachable executed", which is what a lint that wrote
 /// `[...].concat(x)` -- a method this engine did not have then -- died
-/// with. `concat` landed in c9df46f (2026-08-31), so `splice` stands in
+/// with. `concat` landed in 12cfdfe (2026-08-31), so `splice` stands in
 /// as the method the engine still lacks. A script that can catch gets the
 /// TypeError instead and never reaches the engine face as an error.
 #[test]

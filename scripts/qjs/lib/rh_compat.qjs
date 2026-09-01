@@ -117,7 +117,7 @@ export function parse_file(p) {
 }
 
 // rh wrote pretty JSON (serde's two-space shape). The engine's `space`
-// argument (tinyvm `1f86bbc`) answers the same bytes serde does at every
+// argument (tinyvm `eeb0cbd`) answers the same bytes serde does at every
 // gap, so this is pretty again after a compact interlude; every reader
 // parses it back either way.
 export function stringify_pretty(v) {
@@ -223,7 +223,7 @@ export function sha256_file(p) {
 // here because two or more of the migrated entries needed it.
 
 // rh's `type_of(x) == "array"` / `"map"`, over `Array.isArray` (tinyvm
-// `c9df46f`); a map is any other non-null object.
+// `12cfdfe`); a map is any other non-null object.
 export function is_array(v) {
   return Array.isArray(v);
 }
@@ -237,7 +237,7 @@ export function int_div(a, b) {
   return (a - (a % b)) / b;
 }
 
-// rh's `arr.contains(v)` for arrays: `includes` (tinyvm `c9df46f`).
+// rh's `arr.contains(v)` for arrays: `includes` (tinyvm `12cfdfe`).
 export function array_has(arr, v) {
   return arr.includes(v);
 }
@@ -245,7 +245,7 @@ export function array_has(arr, v) {
 // "Every character of `text` is in `alphabet`": delete each allowed
 // character and check nothing is left (the same trick artifact_manifest.qjs
 // uses for its role names). Kept after the engine grew `charCodeAt` / `s[i]`
-// (tinyvm `fb1a1a6`) because it is the cheaper spelling, measured
+// (tinyvm `b2b60fb`) because it is the cheaper spelling, measured
 // 2026-08-31: a 64-hex check is 52k steps this way and 93k-113k as a
 // per-position walk (charCodeAt + a code array, a 128-entry table, or
 // `s[i]` + an object table); ten digits 11k vs 18k. Each character access
@@ -473,7 +473,7 @@ export function rfc3339_from_ms(ms) {
 }
 
 // rh's `rh::bytes::from_text` for printable-ASCII text: one `charCodeAt`
-// per position (tinyvm `fb1a1a6`); anything outside 32..126 is refused,
+// per position (tinyvm `b2b60fb`); anything outside 32..126 is refused,
 // not guessed. Measured 2026-08-31 against the 95-entry `startsWith` +
 // `replace` peel it replaces: 36k steps for a 40-byte text instead of
 // 1.1M, and a 300-byte text finishes (the peel hit the host deadline).
@@ -550,7 +550,7 @@ export function fnv1a64_hex(text) {
 }
 
 // A sorted copy of an array of strings by `<`: the engine's `sort` (tinyvm
-// `eb95e42`; stable, in place, default order = the code-unit order `<`
+// `e45010b`; stable, in place, default order = the code-unit order `<`
 // uses) over a `concat` copy, so the caller's array stays as it was.
 export function sort_strings(values) {
   return [].concat(values).sort();

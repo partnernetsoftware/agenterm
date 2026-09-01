@@ -21,7 +21,7 @@ import * as rh from "lib/rh_compat";
 import * as artifact_manifest from "lib/artifact_manifest";
 
 // rh's `.contains` on the metadata's `features`, an array of strings:
-// `includes` (tinyvm `c9df46f`).
+// `includes` (tinyvm `12cfdfe`).
 function array_has(values, wanted) {
   return values.includes(wanted);
 }
