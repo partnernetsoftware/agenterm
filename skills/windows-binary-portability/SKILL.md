@@ -31,8 +31,9 @@ to satisfy the import.
 The loader names one symbol, you fix it, it names the next. Two rounds of that
 is a process failure, not bad luck.
 
-Use `scripts/probe-imports.ps1` (in this repo). Run it **on the target
-machine**. It parses the PE import table itself — the target has no Visual
+The probe moved with `agenterm-con` to the `minicon` repository. From a
+`minicon` checkout, use its `scripts/probe-imports.ps1` and run it **on the
+target machine**. It parses the PE import table itself — the target has no Visual
 Studio, so `dumpbin` is not available there — resolves every named import
 against the running system, and prints the complete missing set in one pass.
 

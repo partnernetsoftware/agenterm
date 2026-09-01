@@ -1,8 +1,8 @@
 // Owned WinForms fixture for the agenterm-cu Windows UIA journey.
 //
-// This is source, not a checked-in binary. Windows PowerShell's Add-Type
-// compiles it with the .NET Framework compiler already present on the court,
-// so the journey needs neither a C toolchain nor a tracked PowerShell script.
+// This is source, not a checked-in binary. The .NET Framework csc.exe already
+// present on Windows compiles it, so the journey needs neither an external C
+// toolchain nor a PowerShell source/runtime.
 using System;
 using System.Diagnostics;
 using System.Drawing;

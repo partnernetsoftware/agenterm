@@ -2086,7 +2086,7 @@
     },
     {
       "id": "cu-windows-smoke",
-      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and a typed refusal without a grant, an owned C# WinForms fixture loaded through Add-Type and resolved by pid and exact title, a bounded tree with real rectangles and a menu bar, query, invoke press and an idempotent set-checked, menu inspect that terminates, focused, window-place refused without actuate then read back from the inventory, a screenshot sized to the window, the destructive close gate on a second window, and no orphan.",
+      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, bounded tree and menu, query, invoke and idempotent set-checked, focused, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
       "entry": "scripts/qjs/cu-windows-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

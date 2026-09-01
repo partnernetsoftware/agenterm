@@ -650,10 +650,10 @@ costs a full candidate cycle:
 - [x] the zero-tracked-`.ps1` migration invariant applies to test fixtures as
   well as production automation. The first real Windows CU journey introduced
   a WinForms `.ps1` fixture and Candidate correctly rejected it only after the
-  expensive build and MCP gates had passed. The fixture is C# source now;
-  Windows PowerShell `Add-Type` uses the court's .NET Framework compiler to
-  load it, so the journey keeps real Win32/UIA controls without restoring a
-  PowerShell source layer or requiring an external C toolchain. Cheap
+  expensive build and MCP gates had passed. The fixture is C# source now and
+  the journey invokes the .NET Framework `csc.exe` already present on Windows,
+  so it keeps real Win32/UIA controls without restoring a PowerShell source or
+  runtime dependency and without requiring an external C toolchain. Cheap
   migration audit must run before expensive qualification whenever tracked
   source topology changes.
 - [ ] failure screenshots are restricted to known runner-created windows and
