@@ -214,6 +214,8 @@ fn script_release_court_emits_only_active_qjswasm_evidence() {
         .find(|gate| gate["id"] == "script-smoke")
         .expect("script-smoke qualification gate");
     assert_eq!(gate["suite"], "script-qjswasm-smoke");
+    assert!(CHECK_QJS.contains("typeof gate.suite === \"string\""));
+    assert!(CHECK_QJS.contains("evidence_list_spec(worker, repo, suite_id)"));
     let evidence = gate["evidence"].as_array().expect("script evidence array");
     assert_eq!(evidence.len(), 7);
     assert!(evidence.iter().all(|id| {

@@ -640,13 +640,17 @@ function assert_declarations(worker, repo, scratch, sequence, gate_manifest, rep
   for (const gate of gate_manifest.required_gates) {
     if (gate.evidence.length === 0) { continue; }
     const gate_id = "" + gate.id;
-    const suite_path = path.join(repo, "scripts/qjs/" + gate_id + ".qjs");
+    let suite_id = gate_id;
+    if (typeof gate.suite === "string" && ("" + gate.suite) !== "") {
+      suite_id = "" + gate.suite;
+    }
+    const suite_path = path.join(repo, "scripts/qjs/" + suite_id + ".qjs");
     if (!rh.exists(suite_path)) {
       problems.push("check_evidence_suite_missing:" + gate_id);
       if (report_each) { print("EVIDENCE-DECLARATIONS " + gate_id + ": suite missing (" + suite_path + ")"); }
       continue;
     }
-    const result = execute(evidence_list_spec(worker, repo, gate_id), repo, scratch, sequence_value);
+    const result = execute(evidence_list_spec(worker, repo, suite_id), repo, scratch, sequence_value);
     sequence_value = sequence_value + 1;
     if (!result.success) {
       problems.push("check_evidence_declaration_failed:" + gate_id + ":" + result.stderr);

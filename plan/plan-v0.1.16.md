@@ -1223,3 +1223,16 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   marker（run-owned source fixture 本身仍在 failure bundle 内）。
 - integrated Quick 全绿：PRD alignment 64 capabilities / 123 executable evidence，
   Clippy，全库 711 tests；下一证据只接受新的 exact-SHA Candidate。
+
+### A.21 Candidate `33561751560`：证据 suite override 未被资格检查器消费
+
+- exact SHA `61cc7b37bfd45fc0fecc00eed0d6483c6093d610` 的 preflight 通过，六格进入
+  构建；Windows x86_64 完整质量门在 repository lint 后确定性停止于
+  `check_evidence_declaration_stale:script-smoke`。
+- manifest 已把 gate id `script-smoke` 的实际证据文件声明为
+  `suite: script-qjswasm-smoke`，但 `check.qjs` 仍以 gate id 拼接旧同名文件，
+  因而把迁移历史的十九条回答与当前七条合同比较。这是 typed-boundary 漏接，
+  不是新 court 的行为失败。
+- 资格检查现在像 PRD alignment 一样解析非空 `gate.suite`，并把同一 effective
+  suite 同时用于存在性检查和 `--list-evidence` 执行；本地十五个 suite 的声明
+  双射全部通过。旧 Candidate 不重跑失败 job，修复须形成新 SHA 后整套重发。

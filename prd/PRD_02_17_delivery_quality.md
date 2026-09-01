@@ -719,6 +719,13 @@ costs a full candidate cycle:
   run-owned source fixture itself remains in the failure bundle). Integrated Quick passes PRD alignment
   (64 capabilities / 123 executable evidence), Clippy and 711 library tests;
   remote exact-SHA Candidate evidence remains required.
+- [x] qualification evidence declarations support a gate id whose executable
+  suite has a different name. The manifest's non-empty `suite` override is the
+  single routing value for both source existence and `--list-evidence`;
+  Candidate `33561751560` exposed the old split routing when it compared the
+  archived `script-smoke` port against the active `script-qjswasm-smoke`
+  declaration. The local declaration court now proves all fifteen suite
+  mappings before another Candidate is spent.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
