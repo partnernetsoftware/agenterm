@@ -646,6 +646,12 @@ costs a full candidate cycle:
   The court now seeds one sentinel before the completion snapshot, then proves
   Paste is enabled and Copy replaces that same sentinel; no product assertion
   is removed.
+- [x] Candidate `33538298527` proved `remote-ui-smoke` end to end in 44.4 s
+  and `remote-ui-upgrade-smoke` in 13.1 s. The next stable stop was the
+  stress-inclusive Fleet court's 4,096 host-operation default: its explicit
+  16 × 258 concurrent journal mutations alone require 4,128 process starts.
+  That owning court and task contract are priced at 8,192 operations; the
+  default for ordinary scripts remains unchanged.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

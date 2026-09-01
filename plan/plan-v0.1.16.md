@@ -1120,3 +1120,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 下一冻结点先写入唯一 copy sentinel，再取得 completed snapshot；仍要求 Paste
   启用，并要求 Copy 把同一 sentinel 替换为真实选区内容。该修复只建立测试前置
   条件，不弱化产品合同。
+
+### A.9 Candidate `33538298527`：Fleet stress 宿主操作定价
+
+- `remote-ui-smoke` 44.4 s 全绿，`remote-ui-upgrade-smoke` 13.1 s 全绿；此前
+  heap、selection、clipboard 三个停点均已闭合。
+- stress-inclusive Fleet 旅程按合同执行 16 × 258 个并发 mutation，仅 process
+  start 已 4,128 次，通用 4,096 host-op 默认从数学上不可能容纳。
+- 只给 `fleet-smoke` CLI 与 task contract 配置 8,192 host ops；普通脚本默认
+  不变，timeout、wasm steps、output 与 cleanup 门仍独立生效。

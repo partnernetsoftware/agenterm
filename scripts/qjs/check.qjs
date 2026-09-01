@@ -179,10 +179,18 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
     // 1G, the engine's hard cap: rh's 100M was AST-level steps, this engine
     // counts wasm instructions, and prd-alignment alone measures ~356M on
     // 2026-08-30. The wall-clock timeout beside it is the runaway guard.
-    "--max-operations", "1000000000",
-    path.join(repo, "scripts/qjs/" + entry + ".qjs"),
-    "--"
+    "--max-operations", "1000000000"
   ];
+  // The stress-inclusive Fleet court deliberately starts 16 concurrent
+  // clients for each of 258 journal mutations: 4,128 process starts before
+  // its ordinary discovery/restart calls. Price only that owning journey
+  // above the 4,096 default; other scripts retain the general guard.
+  if (entry === "fleet-smoke") {
+    arguments_list.push("--max-host-operations");
+    arguments_list.push("8192");
+  }
+  arguments_list.push(path.join(repo, "scripts/qjs/" + entry + ".qjs"));
+  arguments_list.push("--");
   for (const item of script_arguments) { arguments_list.push("" + item); }
   return arguments_list;
 }

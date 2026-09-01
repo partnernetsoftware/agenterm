@@ -144,6 +144,14 @@ fn remote_ui_smoke_prices_its_large_bump_heap_without_raising_the_default() {
 }
 
 #[test]
+fn fleet_stress_prices_its_intentional_client_fanout_at_the_owning_court() {
+    let budget = &TASKS["contracts"]["fleet-smoke"]["budget"];
+    assert_eq!(budget["max_host_operations"], 8_192);
+    assert!(CHECK_QJS.contains("entry === \"fleet-smoke\""));
+    assert!(CHECK_QJS.contains("arguments_list.push(\"8192\")"));
+}
+
+#[test]
 fn remote_ui_selection_checks_cell_ownership_not_global_event_stasis() {
     let smoke = include_str!("../scripts/qjs/remote-ui-smoke.qjs");
     let start = smoke
