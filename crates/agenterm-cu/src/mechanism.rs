@@ -1924,6 +1924,47 @@ pub mod clipboard {
         buf.truncate(required);
         Ok(buf)
     }
+
+    fn require_set_abi() -> Result<(), MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < dynlib::CLIPBOARD_SET_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "clipboard type write requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    dynlib::CLIPBOARD_SET_ABI_MINOR
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn set_type(type_name: &str, bytes: &[u8]) -> Result<(), MechanismError> {
+        require_set_abi()?;
+        let f = call_sym::<super::ClipboardSet>(b"agt_clipboard_set")?;
+        let status = unsafe {
+            f(
+                type_name.as_ptr(),
+                type_name.len(),
+                bytes.as_ptr(),
+                bytes.len(),
+            )
+        };
+        map_status("agt_clipboard_set", status)
+    }
+
+    pub fn set_file(path: &str) -> Result<(), MechanismError> {
+        require_set_abi()?;
+        let f = call_sym::<super::ClipboardSetFile>(b"agt_clipboard_set_file")?;
+        let status = unsafe { f(path.as_ptr(), path.len()) };
+        map_status("agt_clipboard_set_file", status)
+    }
+
+    pub fn clear() -> Result<(), MechanismError> {
+        require_set_abi()?;
+        let f = call_sym::<super::ClipboardClear>(b"agt_clipboard_clear")?;
+        let status = unsafe { f() };
+        map_status("agt_clipboard_clear", status)
+    }
 }
 
 pub fn send_node_keys(
@@ -2304,6 +2345,9 @@ type ClipboardSetText = unsafe extern "C" fn(*const u8, usize) -> i32;
 type ClipboardTypes = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type ClipboardGetText = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type ClipboardGet = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
+type ClipboardSet = unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> i32;
+type ClipboardSetFile = unsafe extern "C" fn(*const u8, usize) -> i32;
+type ClipboardClear = unsafe extern "C" fn() -> i32;
 type LastError = unsafe extern "C" fn(*mut agt_error) -> i32;
 
 #[cfg(test)]

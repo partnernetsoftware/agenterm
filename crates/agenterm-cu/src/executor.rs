@@ -768,6 +768,11 @@ impl Executor {
                     clipboard_read()
                 }
             }
+            Command::ClipboardWrite {
+                type_name, path, ..
+            } => clipboard_write(type_name, path),
+            Command::ClipboardWriteFile { path, .. } => clipboard_write_file(path),
+            Command::ClipboardClear { apply, .. } => clipboard_clear(*apply),
             Command::Copy {
                 window, name, role, ..
             } => copy(*window, name.as_deref(), role.as_deref()),
@@ -1127,6 +1132,72 @@ fn write_clipboard_bytes(
         ));
     }
     Ok(())
+}
+
+fn clipboard_write(type_name: &str, path: &str) -> Result<serde_json::Value, CuError> {
+    if type_name.is_empty() || type_name.len() > 256 || type_name.contains('\0') {
+        return Err(CuError::new(
+            "invalid_input",
+            "clipboard-write --type must be 1..256 bytes without NUL",
+        ));
+    }
+    let bytes = std::fs::read(path).map_err(|error| {
+        CuError::new(
+            "clipboard_write_failed",
+            format!("clipboard-write --path {path}: {error}"),
+        )
+    })?;
+    if bytes.len() > MAX_CLIPBOARD_TYPE_BYTES {
+        return Err(CuError::new(
+            "invalid_input",
+            "clipboard-write source must be at most 16777216 bytes",
+        ));
+    }
+    let sha256 = clipboard_sha256_hex(&bytes);
+    mechanism::clipboard::set_type(type_name, &bytes).map_err(map_mechanism_err)?;
+    let stored = mechanism::clipboard::get_type(type_name, MAX_CLIPBOARD_TYPE_BYTES)
+        .map_err(map_mechanism_err)?;
+    let verified = stored == bytes;
+    Ok(serde_json::json!({
+        "type": type_name,
+        "bytes": bytes.len(),
+        "sha256": sha256,
+        "verified": verified,
+        "mechanism": "libagenterm",
+    }))
+}
+
+fn clipboard_write_file(path: &str) -> Result<serde_json::Value, CuError> {
+    if !std::path::Path::new(path).exists() {
+        return Err(CuError::new(
+            "invalid_input",
+            "clipboard-write-file path does not exist",
+        ));
+    }
+    mechanism::clipboard::set_file(path).map_err(map_mechanism_err)?;
+    Ok(serde_json::json!({
+        "path": path,
+        "mechanism": "libagenterm",
+        "verified": true,
+    }))
+}
+
+fn clipboard_clear(apply: bool) -> Result<serde_json::Value, CuError> {
+    if !apply {
+        return Ok(serde_json::json!({
+            "status": "planned",
+            "applyRequired": true,
+            "operation": "clipboard-clear",
+        }));
+    }
+    mechanism::clipboard::clear().map_err(map_mechanism_err)?;
+    let types = mechanism::clipboard::available_types().unwrap_or_default();
+    Ok(serde_json::json!({
+        "status": "cleared",
+        "verified": types.is_empty(),
+        "types": types,
+        "mechanism": "libagenterm",
+    }))
 }
 
 fn capabilities_payload() -> serde_json::Value {

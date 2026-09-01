@@ -266,6 +266,96 @@ pub(crate) fn set_text(text: &str, timeout: std::time::Duration) -> Result<(), C
     Err(classify_attempt_errors("write", &errors))
 }
 
+pub(crate) fn set_type(
+    type_name: &str,
+    bytes: &[u8],
+    timeout: Duration,
+) -> Result<(), ClipboardError> {
+    if !clipboard_type_name_ok(type_name) {
+        return Err(ClipboardError::Backend {
+            message: "clipboard type name is empty, too long, or contains a control character"
+                .into(),
+        });
+    }
+    if bytes.len() > crate::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES {
+        return Err(ClipboardError::TooLarge {
+            limit: crate::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES,
+        });
+    }
+    let timeout = bounded_helper_timeout(timeout)?;
+    let deadline = Instant::now() + timeout;
+    require_capability_for_io()?;
+    let display = display_facts_from_env();
+    let backends = ClipboardBackendFacts::probe();
+    if !can_write(display, backends) {
+        return Err(ClipboardError::Unavailable {
+            message: "no display-matched clipboard write path".to_string(),
+        });
+    }
+    let mut errors = Vec::new();
+    if display.x11 {
+        match x11_clipboard::set_type(type_name, bytes, timeout) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if !can_write_helper(display, backends) {
+                    return Err(error);
+                }
+                errors.push(format!("native-x11: {}", error.message()));
+            }
+        }
+    }
+    if display.wayland && backends.wl_copy {
+        let remaining = remaining_budget(deadline, timeout)?;
+        match write_via_command_bytes(&["wl-copy", "--type", type_name], bytes, remaining) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("wl-copy: {}", error.message())),
+        }
+    }
+    if display.x11 && backends.xclip {
+        let remaining = remaining_budget(deadline, timeout)?;
+        match write_via_command_bytes(
+            &["xclip", "-selection", "clipboard", "-t", type_name, "-i"],
+            bytes,
+            remaining,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("xclip: {}", error.message())),
+        }
+    }
+    Err(classify_attempt_errors("write-type", &errors))
+}
+
+pub(crate) fn set_file(path: &str, timeout: Duration) -> Result<(), ClipboardError> {
+    let uri = format!("file://{path}\r\n");
+    set_type("text/uri-list", uri.as_bytes(), timeout)
+}
+
+pub(crate) fn clear(timeout: Duration) -> Result<(), ClipboardError> {
+    let timeout = bounded_helper_timeout(timeout)?;
+    require_capability_for_io()?;
+    let display = display_facts_from_env();
+    let backends = ClipboardBackendFacts::probe();
+    let mut errors = Vec::new();
+    if display.x11 {
+        match x11_clipboard::clear(timeout) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if !can_write_helper(display, backends) {
+                    return Err(error);
+                }
+                errors.push(format!("native-x11: {}", error.message()));
+            }
+        }
+    }
+    if display.wayland && backends.wl_copy {
+        match write_via_command_bytes(&["wl-copy", "--clear"], &[], timeout) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("wl-copy: {}", error.message())),
+        }
+    }
+    Err(classify_attempt_errors("clear", &errors))
+}
+
 /// Read Unicode text from the system clipboard.
 pub(crate) fn get_text(
     max_read_bytes: usize,
@@ -637,6 +727,14 @@ fn clipboard_types_indicate_unicode_text(types: &str) -> bool {
 }
 
 fn write_via_command(argv: &[&str], text: &str, timeout: Duration) -> Result<(), ClipboardError> {
+    write_via_command_bytes(argv, text.as_bytes(), timeout)
+}
+
+fn write_via_command_bytes(
+    argv: &[&str],
+    bytes: &[u8],
+    timeout: Duration,
+) -> Result<(), ClipboardError> {
     let program = argv
         .first()
         .copied()
@@ -655,10 +753,10 @@ fn write_via_command(argv: &[&str], text: &str, timeout: Duration) -> Result<(),
     let mut stdin = child.stdin.take().ok_or_else(|| ClipboardError::Backend {
         message: "missing stdin".to_owned(),
     })?;
-    let text = text.as_bytes().to_vec();
+    let payload = bytes.to_vec();
     let writer = thread::spawn(move || {
         let result = stdin
-            .write_all(&text)
+            .write_all(&payload)
             .map_err(|error| ClipboardError::Backend {
                 message: error.to_string(),
             });

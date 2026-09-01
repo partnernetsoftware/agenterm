@@ -278,6 +278,8 @@ pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
 pub const CLIPBOARD_TYPES_ABI_MINOR: u16 = 19;
 /// ABI 1.23: `agt_clipboard_get` (one named type as bytes).
 pub const CLIPBOARD_GET_ABI_MINOR: u16 = 23;
+/// ABI 1.24: `agt_clipboard_set` / `agt_clipboard_set_file` / `agt_clipboard_clear`.
+pub const CLIPBOARD_SET_ABI_MINOR: u16 = 24;
 /// The first minor that can hand back a whole node id.
 pub const NODE_ID_STRING_ABI_MINOR: u16 = 22;
 /// ABI 1.20: `agt_a11y_application_set_hidden` (application-level hide).

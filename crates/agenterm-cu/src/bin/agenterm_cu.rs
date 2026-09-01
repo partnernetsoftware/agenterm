@@ -980,47 +980,38 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
-        "clipboard-read" | "clipboard" => {
-            if verb == "clipboard" && args.first().map(String::as_str) == Some("read") {
+        "clipboard-read" => match parse_clipboard_read(target, &mut args) {
+            Ok(command) => command,
+            Err(message) => return usage_err(message),
+        },
+        "clipboard-write" => match parse_clipboard_write(target, &mut args) {
+            Ok(command) => command,
+            Err(message) => return usage_err(message),
+        },
+        "clipboard-write-file" => match parse_clipboard_write_file(target, &mut args) {
+            Ok(command) => command,
+            Err(message) => return usage_err(message),
+        },
+        "clipboard-clear" => match parse_clipboard_clear(target, &mut args) {
+            Ok(command) => command,
+            Err(message) => return usage_err(message),
+        },
+        "clipboard" => {
+            let sub = args
+                .first()
+                .cloned()
+                .filter(|first| !first.starts_with('-'));
+            if let Some(sub) = sub {
                 args.remove(0);
-            }
-            let type_name = match flag_text(&mut args, "--type") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let type_name = type_name.or_else(|| {
-                args.first()
-                    .cloned()
-                    .filter(|first| !first.starts_with('-'))
-                    .map(|value| {
-                        args.remove(0);
-                        value
-                    })
-            });
-            let max_bytes = match flag_parsed::<usize>(&mut args, "--max-bytes") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let out = match flag_text(&mut args, "--out") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let replace = take_switch(&mut args, "--replace");
-            if !args.is_empty() {
-                return usage_err(format!(
-                    "clipboard-read accepts only --type T --max-bytes N --out PATH [--replace]; unexpected {:?}",
-                    args[0]
-                ));
-            }
-            if type_name.is_none() && (max_bytes.is_some() || out.is_some() || replace) {
-                return usage_err("clipboard-read --max-bytes/--out/--replace require --type");
-            }
-            Command::ClipboardRead {
-                target,
-                type_name,
-                max_bytes,
-                out,
-                replace,
+                match parse_clipboard_subcommand(target, &sub, &mut args) {
+                    Ok(command) => command,
+                    Err(message) => return usage_err(message),
+                }
+            } else {
+                match parse_clipboard_read(target, &mut args) {
+                    Ok(command) => command,
+                    Err(message) => return usage_err(message),
+                }
             }
         }
         "copy" => {
@@ -2065,6 +2056,128 @@ fn parse_page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
     })
 }
 
+fn parse_clipboard_read(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let type_name = flag_text(args, "--type")?;
+    let type_name = type_name.or_else(|| {
+        args.first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+            .map(|value| {
+                args.remove(0);
+                value
+            })
+    });
+    let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?;
+    let out = flag_text(args, "--out")?;
+    let replace = take_switch(args, "--replace");
+    if !args.is_empty() {
+        return Err(format!(
+            "clipboard-read accepts only --type T --max-bytes N --out PATH [--replace]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    if type_name.is_none() && (max_bytes.is_some() || out.is_some() || replace) {
+        return Err("clipboard-read --max-bytes/--out/--replace require --type".into());
+    }
+    Ok(Command::ClipboardRead {
+        target,
+        type_name,
+        max_bytes,
+        out,
+        replace,
+    })
+}
+
+fn parse_clipboard_write(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let type_name = flag_text(args, "--type")?;
+    let path = flag_text(args, "--path")?;
+    let type_name = type_name.or_else(|| {
+        args.first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+            .map(|value| {
+                args.remove(0);
+                value
+            })
+    });
+    let path = path.or_else(|| {
+        args.first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+            .map(|value| {
+                args.remove(0);
+                value
+            })
+    });
+    if !args.is_empty() {
+        return Err(format!(
+            "clipboard-write accepts --type T --path P; unexpected {:?}",
+            args[0]
+        ));
+    }
+    let (Some(type_name), Some(path)) = (type_name, path) else {
+        return Err("clipboard-write requires --type T --path P".into());
+    };
+    Ok(Command::ClipboardWrite {
+        target,
+        type_name,
+        path,
+    })
+}
+
+fn parse_clipboard_write_file(
+    target: TargetRef,
+    args: &mut Vec<String>,
+) -> Result<Command, String> {
+    let path = flag_text(args, "--path")?;
+    let path = path.or_else(|| {
+        args.first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+            .map(|value| {
+                args.remove(0);
+                value
+            })
+    });
+    if !args.is_empty() {
+        return Err(format!(
+            "clipboard-write-file accepts --path P; unexpected {:?}",
+            args[0]
+        ));
+    }
+    let Some(path) = path else {
+        return Err("clipboard-write-file requires --path P".into());
+    };
+    Ok(Command::ClipboardWriteFile { target, path })
+}
+
+fn parse_clipboard_subcommand(
+    target: TargetRef,
+    sub: &str,
+    args: &mut Vec<String>,
+) -> Result<Command, String> {
+    match sub {
+        "read" => parse_clipboard_read(target, args),
+        "write" => parse_clipboard_write(target, args),
+        "write-file" => parse_clipboard_write_file(target, args),
+        "clear" => parse_clipboard_clear(target, args),
+        other => Err(format!(
+            "unknown clipboard subcommand {other:?}; expected read|write|write-file|clear"
+        )),
+    }
+}
+
+fn parse_clipboard_clear(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let apply = take_switch(args, "--apply");
+    if !args.is_empty() {
+        return Err(format!(
+            "clipboard-clear accepts only --apply; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::ClipboardClear { target, apply })
+}
+
 /// `--expect` is a JSON array of closed-shape items; an unknown key or a
 /// non-array is a usage error before any tree is read.
 fn parse_expectations(raw: &str) -> Result<Vec<Expectation>, String> {
@@ -2346,6 +2459,16 @@ Commands:
                               (default 1 MiB, max 16 MiB), sha256, utf8 or
                               base64. --out writes the bytes (0600; --replace
                               overwrites). Requires observe.
+  clipboard-write --type T --path P
+  clipboard write T P         publish one native type from a regular file
+                              (≤16 MiB) and read it back (actuate).
+  clipboard-write-file --path P
+  clipboard write-file P      put a file reference on the clipboard
+                              (macOS POSIX file / Linux text/uri-list /
+                              Windows CF_HDROP), not the file bytes (actuate).
+  clipboard-clear [--apply]
+  clipboard clear [--apply]   empty the clipboard. Without --apply this is
+                              planned and performs nothing (actuate).
   copy --window HANDLE [--name PAT [--role ROLE]]
                               copies AT-SPI Text.GetText onto the native
                               clipboard (Linux X11: SetSelectionOwner, not
@@ -2570,6 +2693,37 @@ mod tests {
             mcu.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
             "usage"
         );
+    }
+
+    #[test]
+    fn clipboard_write_and_clear_are_typed_not_unknown() {
+        let write = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "clipboard".into(),
+            "write".into(),
+            "string".into(),
+            "/tmp/cu-clip-write.bin".into(),
+        ]);
+        assert_eq!(write.command, "clipboard-write");
+        assert_eq!(write.error.expect("refused").code, "refused");
+        let missing = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "clipboard-write".into(),
+        ]);
+        assert_eq!(missing.command, "usage");
+        let planned = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "clipboard-clear".into(),
+        ]);
+        assert_eq!(planned.command, "clipboard-clear");
+        assert!(planned.ok, "{:?}", planned.error);
+        assert_eq!(planned.data.as_ref().unwrap()["status"], "planned");
+        assert_eq!(planned.data.as_ref().unwrap()["applyRequired"], true);
     }
 
     #[test]

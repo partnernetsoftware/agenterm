@@ -273,6 +273,90 @@ pub(crate) fn get_type(
     Ok(bytes)
 }
 
+pub(crate) fn set_type(
+    type_name: &str,
+    bytes: &[u8],
+    timeout: Duration,
+) -> Result<(), ClipboardError> {
+    let format = format_from_name(type_name)?;
+    if matches!(format, 2 | 3 | 14) {
+        return Err(ClipboardError::Backend(
+            "CF_BITMAP/CF_METAFILEPICT/CF_ENHMETAFILE are GDI handles, not byte payloads",
+        ));
+    }
+    if bytes.len() > crate::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES {
+        return Err(ClipboardError::TooLarge {
+            limit: crate::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES,
+        });
+    }
+    let _guard = open(ptr::null_mut(), timeout)?;
+    if unsafe { EmptyClipboard() } == 0 {
+        return Err(ClipboardError::Backend(
+            "could not clear the Windows clipboard",
+        ));
+    }
+    let allocation = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)) };
+    if allocation.is_null() {
+        return Err(ClipboardError::Backend(
+            "could not allocate clipboard format data",
+        ));
+    }
+    let destination = unsafe { GlobalLock(allocation) } as *mut u8;
+    if destination.is_null() {
+        unsafe { GlobalFree(allocation) };
+        return Err(ClipboardError::Backend(
+            "could not lock clipboard format data",
+        ));
+    }
+    unsafe {
+        if !bytes.is_empty() {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
+        }
+        GlobalUnlock(allocation);
+    }
+    if unsafe { SetClipboardData(format, allocation) }.is_null() {
+        unsafe { GlobalFree(allocation) };
+        return Err(ClipboardError::Backend(
+            "could not publish clipboard format data",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn set_file(path: &str, timeout: Duration) -> Result<(), ClipboardError> {
+    if !std::path::Path::new(path).exists() {
+        return Err(ClipboardError::Backend("clipboard file does not exist"));
+    }
+    let absolute = std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_owned());
+    let wide: Vec<u16> = absolute
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .chain(std::iter::once(0))
+        .collect();
+    let header = 20usize;
+    let total = header + wide.len() * 2;
+    let mut payload = vec![0u8; total];
+    payload[0..4].copy_from_slice(&(header as u32).to_le_bytes());
+    payload[16..20].copy_from_slice(&1u32.to_le_bytes()); // fWide
+    let dest = &mut payload[header..];
+    for (i, unit) in wide.iter().enumerate() {
+        dest[i * 2..i * 2 + 2].copy_from_slice(&unit.to_le_bytes());
+    }
+    set_type("CF_HDROP", &payload, timeout)
+}
+
+pub(crate) fn clear(timeout: Duration) -> Result<(), ClipboardError> {
+    let _guard = open(ptr::null_mut(), timeout)?;
+    if unsafe { EmptyClipboard() } == 0 {
+        return Err(ClipboardError::Backend(
+            "could not clear the Windows clipboard",
+        ));
+    }
+    Ok(())
+}
+
 fn format_from_name(name: &str) -> Result<u32, ClipboardError> {
     if let Some(standard) = standard_format_id(name) {
         return Ok(standard);

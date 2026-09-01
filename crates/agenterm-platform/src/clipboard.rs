@@ -142,6 +142,20 @@ pub fn get_type(type_name: &str, max_bytes: usize) -> ClipboardResult<Vec<u8>> {
         .map_err(selected::clipboard::map_error)
 }
 
+pub fn set_type(type_name: &str, bytes: &[u8]) -> ClipboardResult<()> {
+    selected::clipboard::set_type(type_name, bytes, DEFAULT_OPEN_TIMEOUT)
+        .map_err(selected::clipboard::map_error)
+}
+
+pub fn set_file(path: &str) -> ClipboardResult<()> {
+    selected::clipboard::set_file(path, DEFAULT_OPEN_TIMEOUT)
+        .map_err(selected::clipboard::map_error)
+}
+
+pub fn clear() -> ClipboardResult<()> {
+    selected::clipboard::clear(DEFAULT_OPEN_TIMEOUT).map_err(selected::clipboard::map_error)
+}
+
 pub fn has_unicode_text() -> bool {
     selected::clipboard::has_unicode_text()
 }

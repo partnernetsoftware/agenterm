@@ -96,6 +96,29 @@ fn macos_as_clause_owned(type_name: &str) -> Result<String, ClipboardError> {
     })
 }
 
+fn applescript_safe_path(path: &std::path::Path) -> Result<String, ClipboardError> {
+    let path_str = path.to_str().ok_or_else(|| ClipboardError::Backend {
+        message: "clipboard path is not UTF-8".into(),
+    })?;
+    if path_str.contains('"') || path_str.contains('\\') {
+        return Err(ClipboardError::Backend {
+            message: "clipboard path is not AppleScript-safe".into(),
+        });
+    }
+    Ok(path_str.to_owned())
+}
+
+fn clip_temp_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "agenterm-clip-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ))
+}
+
 pub(crate) fn get_type(
     type_name: &str,
     max_bytes: usize,
@@ -105,22 +128,8 @@ pub(crate) fn get_type(
     if max_bytes == 0 {
         return Err(ClipboardError::TooLarge { limit: 0 });
     }
-    let path = std::env::temp_dir().join(format!(
-        "agenterm-clip-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    let path_str = path.to_str().ok_or_else(|| ClipboardError::Backend {
-        message: "clipboard temp path is not UTF-8".into(),
-    })?;
-    if path_str.contains('"') || path_str.contains('\\') {
-        return Err(ClipboardError::Backend {
-            message: "clipboard temp path is not AppleScript-safe".into(),
-        });
-    }
+    let path = clip_temp_path();
+    let path_str = applescript_safe_path(&path)?;
     let script = format!(
         "set outFile to POSIX file \"{path_str}\"\n\
          set f to open for access outFile with write permission\n\
@@ -139,6 +148,53 @@ pub(crate) fn get_type(
         return Err(ClipboardError::TooLarge { limit: max_bytes });
     }
     Ok(bytes)
+}
+
+pub(crate) fn set_type(
+    type_name: &str,
+    bytes: &[u8],
+    timeout: Duration,
+) -> Result<(), ClipboardError> {
+    let as_clause = macos_as_clause_owned(type_name)?;
+    if bytes.len() > crate::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES {
+        return Err(ClipboardError::TooLarge {
+            limit: crate::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES,
+        });
+    }
+    let path = clip_temp_path();
+    let path_str = applescript_safe_path(&path)?;
+    std::fs::write(&path, bytes).map_err(|error| ClipboardError::Backend {
+        message: format!("clipboard type file write: {error}"),
+    })?;
+    let script = format!(
+        "set inFile to POSIX file \"{path_str}\"\n\
+         set the clipboard to (read inFile as {as_clause})\n"
+    );
+    let run = write_via_command_script("osascript", &script, timeout);
+    let _ = std::fs::remove_file(&path);
+    run
+}
+
+pub(crate) fn set_file(path: &str, timeout: Duration) -> Result<(), ClipboardError> {
+    let path_str = applescript_safe_path(std::path::Path::new(path))?;
+    if !std::path::Path::new(path).exists() {
+        return Err(ClipboardError::Backend {
+            message: "clipboard file does not exist".into(),
+        });
+    }
+    let script = format!("set the clipboard to POSIX file \"{path_str}\"\n");
+    write_via_command_script("osascript", &script, timeout)
+}
+
+pub(crate) fn clear(timeout: Duration) -> Result<(), ClipboardError> {
+    // AppleScript `set the clipboard to ""` leaves a string flavour.
+    // NSPasteboard clearContents matches MCU.
+    write_via_command_script(
+        "osascript",
+        "use framework \"AppKit\"\n\
+         current application's NSPasteboard's generalPasteboard()'s clearContents()\n",
+        timeout,
+    )
 }
 
 fn write_via_command_script(

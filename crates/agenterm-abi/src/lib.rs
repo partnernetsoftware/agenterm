@@ -98,7 +98,8 @@ use agenterm_platform::accessibility_tree::{
 };
 use agenterm_platform::app_inventory::{launch as launch_app, list_installed};
 use agenterm_platform::clipboard::{
-    available_types, get_text, get_type, has_unicode_text, set_text,
+    available_types, clear as clipboard_clear, get_text, get_type, has_unicode_text, set_file,
+    set_text, set_type,
 };
 use agenterm_platform::contract::app_inventory::AppInventoryError;
 use agenterm_platform::desktop_host::{
@@ -296,7 +297,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 23);
+abi_version!(1, 24);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -5309,6 +5310,151 @@ pub extern "C" fn agt_clipboard_get(
         Ok(s) => s,
         Err(_) => {
             record_error(c"agt_clipboard_get", c"panic", "panic in agt_clipboard_get");
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.24: publish one clipboard type from a bounded byte payload.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_clipboard_set(
+    type_ptr: *const u8,
+    type_len: usize,
+    buf: *const u8,
+    len: usize,
+) -> agt_status {
+    fn inner(type_ptr: *const u8, type_len: usize, buf: *const u8, len: usize) -> agt_status {
+        if type_ptr.is_null() {
+            record_error(c"agt_clipboard_set", c"bad_text", "type pointer is null");
+            return agt_status::AGT_FAILED;
+        }
+        if type_len == 0 || type_len > 256 {
+            record_error(
+                c"agt_clipboard_set",
+                c"bad_text",
+                "type length must be 1..256",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if len > 0 && buf.is_null() {
+            record_error(c"agt_clipboard_set", c"bad_pointer", "buf is null");
+            return agt_status::AGT_FAILED;
+        }
+        if len > MAX_CLIPBOARD_TYPE_BYTES {
+            record_error(
+                c"agt_clipboard_set",
+                c"clipboard_failed",
+                "clipboard payload exceeds 16 MiB",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let type_bytes = unsafe { std::slice::from_raw_parts(type_ptr, type_len) };
+        let type_name = match std::str::from_utf8(type_bytes) {
+            Ok(name) => name,
+            Err(_) => {
+                record_error(c"agt_clipboard_set", c"bad_text", "type is not UTF-8");
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let payload = if len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(buf, len) }
+        };
+        match set_type(type_name, payload) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(error) => {
+                record_error(c"agt_clipboard_set", c"clipboard_failed", error.message());
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(type_ptr, type_len, buf, len))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(c"agt_clipboard_set", c"panic", "panic in agt_clipboard_set");
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.24: put a file reference on the clipboard.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_clipboard_set_file(path: *const u8, path_len: usize) -> agt_status {
+    fn inner(path: *const u8, path_len: usize) -> agt_status {
+        if path.is_null() {
+            record_error(c"agt_clipboard_set_file", c"bad_pointer", "path is null");
+            return agt_status::AGT_FAILED;
+        }
+        if path_len == 0 || path_len > 4096 {
+            record_error(
+                c"agt_clipboard_set_file",
+                c"bad_text",
+                "path length must be 1..4096",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(path, path_len) };
+        let path = match std::str::from_utf8(bytes) {
+            Ok(path) => path,
+            Err(_) => {
+                record_error(c"agt_clipboard_set_file", c"bad_text", "path is not UTF-8");
+                return agt_status::AGT_FAILED;
+            }
+        };
+        match set_file(path) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(error) => {
+                record_error(
+                    c"agt_clipboard_set_file",
+                    c"clipboard_failed",
+                    error.message(),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(path, path_len))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_clipboard_set_file",
+                c"panic",
+                "panic in agt_clipboard_set_file",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.24: empty the clipboard.
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_clipboard_clear() -> agt_status {
+    match catch_unwind(|| match clipboard_clear() {
+        Ok(()) => agt_status::AGT_OK,
+        Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+            agt_status::AGT_UNSUPPORTED
+        }
+        Err(error) => {
+            record_error(c"agt_clipboard_clear", c"clipboard_failed", error.message());
+            agt_status::AGT_FAILED
+        }
+    }) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_clipboard_clear",
+                c"panic",
+                "panic in agt_clipboard_clear",
+            );
             agt_status::AGT_FAILED
         }
     }

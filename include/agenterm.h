@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 23
+#define AGT_ABI_MINOR 24
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -740,6 +740,20 @@ agt_status agt_clipboard_types(uint8_t* buf, size_t cap, size_t* out_len);
 agt_status agt_clipboard_get(
     const uint8_t* type, size_t type_len,
     uint8_t* buf, size_t cap, size_t* out_len);
+
+/* ABI 1.24: publish one clipboard type from a byte payload (len <= 16 MiB).
+ * `type` is the host spelling. NULL type/buf (with len>0) is bad_text /
+ * bad_pointer. */
+agt_status agt_clipboard_set(
+    const uint8_t* type, size_t type_len,
+    const uint8_t* buf, size_t len);
+
+/* ABI 1.24: put a file reference on the clipboard (macOS POSIX file /
+ * Linux text/uri-list / Windows CF_HDROP). Does not copy file bytes. */
+agt_status agt_clipboard_set_file(const uint8_t* path, size_t path_len);
+
+/* ABI 1.24: empty the clipboard. */
+agt_status agt_clipboard_clear(void);
 
 /* --- parent console (milestone 9) ------------------------------------ */
 

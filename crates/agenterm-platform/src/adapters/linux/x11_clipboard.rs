@@ -36,11 +36,17 @@ struct Atoms {
     atom: Atom,
 }
 
+struct OwnedSelection {
+    type_name: String,
+    type_atom: Atom,
+    bytes: Vec<u8>,
+}
+
 struct NativeClipboard {
     conn: RustConnection,
     window: Window,
     atoms: Atoms,
-    owned: Option<Vec<u8>>,
+    owned: Option<OwnedSelection>,
 }
 
 static STATE: Mutex<Option<NativeClipboard>> = Mutex::new(None);
@@ -155,15 +161,15 @@ impl NativeClipboard {
     }
 
     fn write_selection(&self, request: &SelectionRequestEvent, property: Atom) -> bool {
-        let Some(bytes) = self.owned.as_deref() else {
+        let Some(owned) = self.owned.as_ref() else {
             return false;
         };
+        let bytes = owned.bytes.as_slice();
         if request.target == self.atoms.targets {
-            let targets = [
-                self.atoms.targets,
-                self.atoms.utf8_string,
-                self.atoms.string,
-            ];
+            let mut targets = vec![self.atoms.targets, owned.type_atom];
+            if owned.type_atom == self.atoms.utf8_string {
+                targets.push(self.atoms.string);
+            }
             return self
                 .conn
                 .change_property32(
@@ -176,7 +182,11 @@ impl NativeClipboard {
                 .and_then(|_| self.conn.flush())
                 .is_ok();
         }
-        if request.target == self.atoms.utf8_string || request.target == self.atoms.string {
+        if request.target == owned.type_atom
+            || (owned.type_atom == self.atoms.utf8_string
+                && (request.target == self.atoms.utf8_string
+                    || request.target == self.atoms.string))
+        {
             return self
                 .conn
                 .change_property8(
@@ -193,8 +203,17 @@ impl NativeClipboard {
     }
 
     fn set_text(&mut self, text: &str) -> Result<(), ClipboardError> {
+        self.set_type("UTF8_STRING", text.as_bytes())
+    }
+
+    fn set_type(&mut self, type_name: &str, bytes: &[u8]) -> Result<(), ClipboardError> {
         self.pump()?;
-        self.owned = Some(text.as_bytes().to_vec());
+        let type_atom = intern(&self.conn, type_name.as_bytes())?;
+        self.owned = Some(OwnedSelection {
+            type_name: type_name.to_owned(),
+            type_atom,
+            bytes: bytes.to_vec(),
+        });
         self.conn
             .set_selection_owner(self.window, self.atoms.clipboard, CURRENT_TIME)
             .map_err(|error| backend(format!("X11 SetSelectionOwner send failed: {error}")))?;
@@ -241,13 +260,16 @@ impl NativeClipboard {
         timeout: Duration,
     ) -> Result<String, ClipboardError> {
         self.pump()?;
-        if let Some(bytes) = self.owned.as_deref() {
-            if bytes.len() > max_read_bytes {
-                return Err(ClipboardError::TooLarge {
-                    limit: max_read_bytes,
-                });
+        if let Some(owned) = self.owned.as_ref() {
+            if owned.type_atom == self.atoms.utf8_string || owned.type_name == "UTF8_STRING" {
+                if owned.bytes.len() > max_read_bytes {
+                    return Err(ClipboardError::TooLarge {
+                        limit: max_read_bytes,
+                    });
+                }
+                return String::from_utf8(owned.bytes.clone())
+                    .map_err(|error| backend(error.to_string()));
             }
-            return String::from_utf8(bytes.to_vec()).map_err(|error| backend(error.to_string()));
         }
         self.convert_clipboard(self.atoms.utf8_string, max_read_bytes, timeout)
     }
@@ -259,14 +281,16 @@ impl NativeClipboard {
         timeout: Duration,
     ) -> Result<Vec<u8>, ClipboardError> {
         self.pump()?;
-        if type_name == "UTF8_STRING" || type_name == "text/plain;charset=utf-8" {
-            if let Some(bytes) = self.owned.as_deref() {
-                if bytes.len() > max_read_bytes {
+        if let Some(owned) = self.owned.as_ref() {
+            if owned.type_name == type_name
+                || (type_name == "UTF8_STRING" && owned.type_atom == self.atoms.utf8_string)
+            {
+                if owned.bytes.len() > max_read_bytes {
                     return Err(ClipboardError::TooLarge {
                         limit: max_read_bytes,
                     });
                 }
-                return Ok(bytes.to_vec());
+                return Ok(owned.bytes.clone());
             }
         }
         let target = intern(&self.conn, type_name.as_bytes())?;
@@ -413,6 +437,32 @@ pub(super) fn get_type(
     with_state(|state| state.get_type(type_name, max_read_bytes, timeout))
 }
 
+pub(super) fn set_type(
+    type_name: &str,
+    bytes: &[u8],
+    _timeout: Duration,
+) -> Result<(), ClipboardError> {
+    with_state(|state| state.set_type(type_name, bytes))
+}
+
+pub(super) fn clear(_timeout: Duration) -> Result<(), ClipboardError> {
+    with_state(|state| {
+        state.pump()?;
+        state.owned = None;
+        state
+            .conn
+            .set_selection_owner(NONE, state.atoms.clipboard, CURRENT_TIME)
+            .map_err(|error| {
+                backend(format!("X11 clear SetSelectionOwner send failed: {error}"))
+            })?;
+        state
+            .conn
+            .flush()
+            .map_err(|error| backend(format!("X11 clear flush failed: {error}")))?;
+        Ok(())
+    })
+}
+
 /// A 1-byte `get_text` probe of a longer payload is `TooLarge`, not absence.
 fn probe_indicates_unicode_text(result: Result<String, ClipboardError>) -> bool {
     match result {
@@ -425,7 +475,10 @@ fn probe_indicates_unicode_text(result: Result<String, ClipboardError>) -> bool 
 pub(super) fn has_unicode_text() -> bool {
     match with_state(|state| {
         state.pump()?;
-        Ok(state.owned.as_ref().is_some_and(|bytes| !bytes.is_empty()))
+        Ok(state.owned.as_ref().is_some_and(|owned| {
+            !owned.bytes.is_empty()
+                && (owned.type_atom == state.atoms.utf8_string || owned.type_name == "UTF8_STRING")
+        }))
     }) {
         Ok(true) => true,
         Ok(false) => probe_indicates_unicode_text(get_text(1, Duration::from_millis(200))),

@@ -526,6 +526,27 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replace: bool,
     },
+    /// MCU `clipboard write <type> <file>`: publish one native type from a
+    /// regular file (≤16 MiB) and read it back.
+    ClipboardWrite {
+        target: TargetRef,
+        #[serde(rename = "type")]
+        type_name: String,
+        path: String,
+    },
+    /// MCU `clipboard write-file <path>`: put a file reference on the
+    /// clipboard, not the file's bytes.
+    ClipboardWriteFile {
+        target: TargetRef,
+        path: String,
+    },
+    /// MCU `clipboard clear`: empties the clipboard. Without `apply` this
+    /// is a planned no-op.
+    ClipboardClear {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        apply: bool,
+    },
     /// Copy AT-SPI `Text.GetText` onto the native clipboard
     /// (`agt_clipboard_set_text`). With `--name`, the unique showing named
     /// node. With `--window` and no `--name`, the showing focused node
@@ -882,6 +903,9 @@ impl Command {
             Self::Focus { .. } => "focus".into(),
             Self::SendText { .. } => "send-text".into(),
             Self::ClipboardRead { .. } => "clipboard-read".into(),
+            Self::ClipboardWrite { .. } => "clipboard-write".into(),
+            Self::ClipboardWriteFile { .. } => "clipboard-write-file".into(),
+            Self::ClipboardClear { .. } => "clipboard-clear".into(),
             Self::Copy { .. } => "copy".into(),
             Self::Paste { .. } => "paste".into(),
             Self::SendKeys { .. } => "send-keys".into(),
@@ -927,6 +951,9 @@ impl Command {
             | Self::Focus { target, .. }
             | Self::SendText { target, .. }
             | Self::ClipboardRead { target, .. }
+            | Self::ClipboardWrite { target, .. }
+            | Self::ClipboardWriteFile { target, .. }
+            | Self::ClipboardClear { target, .. }
             | Self::Copy { target, .. }
             | Self::Paste { target, .. }
             | Self::SendKeys { target, .. }
@@ -960,6 +987,9 @@ impl Command {
             | Self::Focus { .. }
             | Self::SendText { .. }
             | Self::Copy { .. }
+            | Self::ClipboardWrite { .. }
+            | Self::ClipboardWriteFile { .. }
+            | Self::ClipboardClear { .. }
             | Self::Paste { .. }
             | Self::SendKeys { .. }
             | Self::Scroll { .. }

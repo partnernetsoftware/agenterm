@@ -335,8 +335,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   non-mutating: it keeps one native Unicode-text snapshot only in memory,
   compares the command result, and never prints or persists the content. It
   does not seed then restore text because that would destroy unrelated native
-  clipboard formats. Standalone write, remote live evidence, and other
-  platforms remain open.
+  clipboard formats. ABI 1.24 `clipboard-write` / `clipboard-write-file` /
+  `clipboard-clear --apply` require Actuate; clear without `--apply` is planned
+  and performs nothing. Remote live evidence remains open.
 - [~] standalone `pointer-move --x X --y Y` is target-neutral and requires the
   Actuate grant. `current` reuses the existing bounded
   `agt_input_pointer_move` mechanism; SSH and VNC preserve the exact signed
