@@ -133,6 +133,8 @@ function spec(program, args, options) {
     if (options.env !== undefined) { s.env = options.env; }
     if (options.timeout_ms !== undefined) { s.timeout_ms = options.timeout_ms; }
     if (options.stdin !== undefined) { s.stdin_text = options.stdin; }
+    if (options.stdout_path !== undefined) { s.stdout_path = options.stdout_path; }
+    if (options.stderr_path !== undefined) { s.stderr_path = options.stderr_path; }
   }
   return JSON.stringify(s);
 }
@@ -150,12 +152,26 @@ export function command_status(program, args, options) {
   return code;
 }
 
-// rh's `command_stdout_file(path)`: run, write stdout to `path`, return the
-// exit code. The 47 call sites then `read_to_string` the file; that still
-// works, and a caller that wants the text directly has `command().stdout`.
+// rh's `command_stdout_file(path)`: send both child streams directly to files
+// so a cold Cargo invocation cannot overflow the tool door's bounded answer.
+// Callers read stdout only after success; this helper owns stderr scratch.
 export function command_stdout_file(program, args, stdout_path, options) {
-  const out = command(program, args, options);
-  atomic_write(stdout_path, out.stdout);
+  const redirected = {};
+  if (options !== undefined) {
+    if (options.cwd !== undefined) { redirected.cwd = options.cwd; }
+    if (options.env !== undefined) { redirected.env = options.env; }
+    if (options.timeout_ms !== undefined) { redirected.timeout_ms = options.timeout_ms; }
+    if (options.stdin !== undefined) { redirected.stdin = options.stdin; }
+  }
+  const stderr_path = stdout_path + ".stderr.tmp";
+  redirected.stdout_path = stdout_path;
+  redirected.stderr_path = stderr_path;
+  let out;
+  try {
+    out = command(program, args, redirected);
+  } finally {
+    try_remove_file(stderr_path);
+  }
   return out.exit_code === null ? -1 : out.exit_code;
 }
 

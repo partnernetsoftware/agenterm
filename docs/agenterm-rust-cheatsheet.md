@@ -2986,6 +2986,17 @@ lanes preserve their exact IEEE-754 representation. A useful oracle serializes
 all results into memory and compares every byte across WABT-compiled tinyvm,
 JavaScriptCore and browser executions.
 
+## Map public script budgets through every engine seam
+
+An invocation budget is not effective merely because the CLI and task parser
+accepted it. Every selected engine adapter must translate the relevant public
+field into its native limiter. For qjswasm, a tool result becomes a guest
+string, so `ScriptBudgets::string_bytes` also sets the tool door's
+`max_bridge_result_bytes`; otherwise an explicitly budgeted multi-megabyte
+file read still fails at the engine's 1 MiB default. Pin both cases in a unit
+test: no override preserves the engine default, while an explicit bounded
+override reaches the native limiter exactly.
+
 ## Typed errors require an all-target consumer sweep
 
 When a shared Rust API changes an error from `String` to a typed record, search

@@ -107,11 +107,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 - [x] Linux x64 CI keeps Clippy, build, library tests, and entrypoint smoke on
   the same explicit Cargo target tree; unit tests no longer create a second
   host-default cold build after the client binaries have already compiled
-- [x] evidence declaration parity runs immediately after repository lint and
+- [~] evidence declaration parity runs immediately after repository lint and
   before rustfmt, Clippy, broad tests or artifact builds; the recursive
-  quality-timing contract is excluded from the broad Cargo invocation and run
-  serially as a second `unit-tests` gate spec, preserving first-failure timing
-  semantics without target-lock contention
+  quality-timing contract remains excluded from the broad Cargo invocation.
+  Its old `rhai_migration` owner left with Rhai on 2026-08-29, so qualification
+  no longer invokes that deleted target; a qjswasm-native fixture is follow-up
+  work rather than a false green gate
 - [x] `lint.cmd` is the fail-fast developer entry point: its thin bootstrap
   invokes the named Rhai `lint` task for JSON, strict UTF-8/NUL/conflict-marker
   checks, incremental rustfmt/Clippy, and production Rhai validation against

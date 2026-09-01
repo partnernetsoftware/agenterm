@@ -359,6 +359,12 @@ fn qjs_budget(options: &ScriptInvocationOptions) -> agenterm_qjswasm::Budget {
     if let Some(budgets) = options.budgets.as_ref() {
         budget.limits.max_steps = budgets.operations;
         budget.max_host_ops = budgets.host_operations;
+        // A tool result becomes a guest string, so the public invocation's
+        // string ceiling is also the qjswasm door's all-or-nothing result
+        // ceiling. Keeping the engine default here used to reject a valid
+        // 3.5 MiB `fs_read_to_string` in the supply-chain task even though
+        // that task explicitly requested the reviewed 8 MiB string budget.
+        budget.max_bridge_result_bytes = budgets.string_bytes;
     }
     budget.cancel = options.cancellation.clone();
     budget.fixed_clock_ms = options.fixed_clock_ms;
@@ -1381,6 +1387,30 @@ mod tests {
     // `script_backend::ENV_LOCK`. Two module-local mutexes used to leave a
     // window in which a label resolved by extension saw another test's env.
     use crate::script_backend::ENV_LOCK;
+
+    #[test]
+    #[cfg(feature = "script-qjswasm")]
+    fn qjs_budget_maps_the_public_string_ceiling_to_bridge_results() {
+        let defaults = agenterm_qjswasm::Budget::default();
+        let without_override = qjs_budget(&ScriptInvocationOptions::default());
+        assert_eq!(
+            without_override.max_bridge_result_bytes,
+            defaults.max_bridge_result_bytes
+        );
+
+        let invocation_budget = ScriptBudgets {
+            string_bytes: 3 * 1024 * 1024,
+            ..ScriptBudgets::default()
+        };
+        let options = ScriptInvocationOptions {
+            budgets: Some(invocation_budget),
+            ..ScriptInvocationOptions::default()
+        };
+        assert_eq!(
+            qjs_budget(&options).max_bridge_result_bytes,
+            3 * 1024 * 1024
+        );
+    }
 
     // `gate_two_trait_equivalence` lived here: four assertions that the
     // rquickjs engine and this one agreed on stdout and on values, refused the

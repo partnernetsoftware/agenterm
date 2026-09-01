@@ -242,17 +242,6 @@ function cargo_fmt_check_spec(environment) {
   return spec("cargo", ["fmt", "--", "--check"], 60000, environment, 0);
 }
 
-function cargo_preflight_selftest_spec(environment) {
-  // Building the rhai_migration integration test links the whole agenterm
-  // crate -- minutes on a cold CI target, not seconds.
-  return spec("cargo", [
-    "test", "--quiet", "--locked",
-    "--test", "rhai_migration",
-    "preflight_task_is_fail_closed_and_writes_reports_for_real_git_fixtures",
-    "--", "--nocapture"
-  ], 600000, environment, 0);
-}
-
 function cargo_clippy_all_spec(environment) {
   // 60s only fit a fully warm cache; any crate edit forces a workspace
   // re-lint that runs minutes on CI runners.
@@ -274,7 +263,6 @@ function cargo_unit_primary_spec(environment) {
     "--skip", "preflight_benchmark_task_measures_clean_public_worker_runs",
     "--skip", "prd_alignment_task_matches_public_catalogs_and_fails_closed",
     "--skip", "supply_chain_task_is_deterministic_and_covers_the_resolved_lock_graph",
-    "--skip", "quality_timing_is_complete_on_success_and_failure_and_renders_markdown",
     "--skip", "rhai_working_context_smoke_is_private_ephemeral_and_orphan_free",
     "--skip", "rhai_server_smoke_preserves_headless_authority_and_cleanup",
     "--skip", "rhai_wake_smoke_preserves_concurrent_ipc_pty_and_expired_mutation",
@@ -300,15 +288,6 @@ function cargo_unit_primary_spec(environment) {
     "--skip", "_executes_natively_without_interpreter",
     "--skip", "native_pack_executes_without_interpreter"
   ], 900000, environment, 0);
-}
-
-function cargo_unit_migration_spec(environment) {
-  return spec("cargo", [
-    "test", "--quiet", "--locked", "--all-features",
-    "--test", "rhai_migration",
-    "quality_timing_is_complete_on_success_and_failure_and_renders_markdown",
-    "--", "--nocapture"
-  ], 300000, environment, 0);
 }
 
 function build_artifact_timeout_ms(release) {
@@ -965,11 +944,7 @@ if (skip_smoke !== 0) {
   for (const id of smoke_gate_ids()) { qualification.timing_set_gate(timing, id, "skipped", 0, 0, false); }
 }
 const full_started = rh.now_ms();
-let gate = run_gate(
-  context, timing, "preflight-selftest", "read-only preflight self-test",
-  cargo_preflight_selftest_spec(empty_environment()), repo, scratch, sequence
-);
-sequence = gate.sequence;
+let gate;
 
 if (release !== 0) {
   gate = run_gate(
@@ -1030,10 +1005,9 @@ gate = run_gate(
   repo, scratch, sequence
 );
 sequence = gate.sequence;
-gate = run_gate_two(
+gate = run_gate(
   context, timing, "unit-tests", "unit tests",
-  cargo_unit_primary_spec(build_environment), cargo_unit_migration_spec(build_environment),
-  repo, scratch, sequence
+  cargo_unit_primary_spec(build_environment), repo, scratch, sequence
 );
 sequence = gate.sequence;
 

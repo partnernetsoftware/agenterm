@@ -79,10 +79,6 @@
       "evidence": []
     },
     {
-      "id": "preflight-selftest",
-      "evidence": []
-    },
-    {
       "id": "release-preflight",
       "evidence": []
     },

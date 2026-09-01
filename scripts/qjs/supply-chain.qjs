@@ -6,14 +6,11 @@
 //
 // Runs under `--profile tool`.
 //
-// GAP (budget): `cargo metadata --locked` for this workspace is ~3.5 MB of
-// JSON. The door parks at most `max_bridge_result_bytes` (1 MiB) per answer,
-// so neither `process.command` nor `fs.read_to_string` can carry it, and
-// `JSON.parse` of a document that size would exhaust `max_steps` (16 M)
-// besides. The port is the faithful mapping and is correct on a workspace
-// whose metadata fits; on this one it stops at `supply_chain_cargo_metadata`
-// or at the parse. Raising the budget (or a slimmer metadata source) is the
-// fix, not a rewrite of this gate.
+// `cargo metadata --locked` for this workspace is several MiB because most of
+// each package record describes targets that this inventory never consumes.
+// Keep the authoritative resolver output, then project it through jq before
+// it enters the wasm guest. This preserves every field used below while
+// avoiding a multi-million-byte JSON parse and its disproportionate step cost.
 import * as rh from "lib/rh_compat";
 
 // rh's `rh::crypto::sha256_file`; rh_compat has no spelling for it yet.
@@ -54,8 +51,7 @@ const cargo_lock_path = rh.join(repo, "Cargo.lock");
 let lock_text = rh.read_text(cargo_lock_path);
 lock_text = lock_text.replaceAll("\r\n", "\n");
 lock_text = lock_text.replaceAll("\r", "\n");
-const checksum_keys = [];
-const checksum_values = [];
+const checksum_by_key = {};
 let lock_name = "";
 let lock_version = "";
 let lock_source = "";
@@ -64,8 +60,8 @@ for (const source_line of lock_text.split("\n")) {
   const line = source_line.trim();
   if (line === "[[package]]") {
     if (lock_checksum !== "") {
-      checksum_keys.push(lock_name + "\n" + lock_version + "\n" + lock_source);
-      checksum_values.push(lock_checksum);
+      const checksum_key = lock_name + "\n" + lock_version + "\n" + lock_source;
+      checksum_by_key[checksum_key] = lock_checksum;
     }
     lock_name = "";
     lock_version = "";
@@ -102,14 +98,15 @@ for (const source_line of lock_text.split("\n")) {
   }
 }
 if (lock_checksum !== "") {
-  checksum_keys.push(lock_name + "\n" + lock_version + "\n" + lock_source);
-  checksum_values.push(lock_checksum);
+  const checksum_key = lock_name + "\n" + lock_version + "\n" + lock_source;
+  checksum_by_key[checksum_key] = lock_checksum;
 }
 
 rh.create_dir_all(output_parent);
 const run_stamp = rh.now_ms();
 const metadata_name = "cargo-metadata-" + run_stamp + ".json";
 const metadata_path = rh.join(output_parent, metadata_name);
+const compact_metadata_path = metadata_path + ".compact";
 const manifest_path = rh.join(repo, "Cargo.toml");
 const metadata_code = rh.command_stdout_file(
   "cargo",
@@ -128,8 +125,23 @@ rh.require(
   metadata_code === 0,
   "supply_chain_cargo_metadata:exit=" + metadata_code
 );
-const metadata = rh.parse_file(metadata_path);
+const compact_metadata_code = rh.command_stdout_file(
+  "jq",
+  [
+    "-c",
+    "{packages:[.packages[]|{id,name,version,source,license}],workspace_members,resolve:{nodes:[.resolve.nodes[]|{id}]}}",
+    metadata_path
+  ],
+  compact_metadata_path,
+  { cwd: repo, timeout_ms: 120000 }
+);
+rh.require(
+  compact_metadata_code === 0,
+  "supply_chain_compact_metadata:exit=" + compact_metadata_code
+);
+const metadata = rh.parse_file(compact_metadata_path);
 rh.try_remove_file(metadata_path);
+rh.try_remove_file(compact_metadata_path);
 rh.require(
   metadata.resolve !== undefined && metadata.resolve !== null,
   "supply_chain_resolve_missing"
@@ -195,6 +207,7 @@ const allowed_list = [
   "Apache-2.0 / MIT",
   "Apache-2.0 AND ISC",
   "Apache-2.0 AND MIT",
+  "Apache-2.0/MIT",
   "Apache-2.0 OR ISC OR MIT",
   "Apache-2.0 OR MIT",
   // Bare form of the already-reviewed
@@ -208,7 +221,12 @@ const allowed_list = [
   "BSD-2-Clause OR Apache-2.0 OR MIT",
   "BSD-2-Clause OR MIT OR Apache-2.0",
   "BSD-3-Clause",
+  "BSD-3-Clause AND MIT",
   "BSD-3-Clause OR MIT OR Apache-2.0",
+  "BSD-3-Clause/MIT",
+  // All three alternatives are permissive/public-domain terms already
+  // admitted independently by this policy.
+  "CC0-1.0 OR MIT-0 OR Apache-2.0",
   "CC0-1.0",
   "CDLA-Permissive-2.0",
   // Dual license, and we take the BSD-3-Clause option (already
@@ -225,10 +243,14 @@ const allowed_list = [
   "MIT OR Zlib OR Apache-2.0",
   "MIT/Apache-2.0",
   "MPL-2.0+",
+  "MPL-2.0",
   // Bare form of the already-reviewed
   // "(MIT OR Apache-2.0) AND Unicode-3.0": the ICU4X crates (18
   // packages) carry Unicode-3.0 alone.
   "Unicode-3.0",
+  // Bare form of the same public-domain dedication already reviewed for
+  // `Unlicense OR MIT`; async_io_stream 0.3.x declares only this branch.
+  "Unlicense",
   "Unlicense/MIT",
   "Unlicense OR MIT",
   "Zlib",
@@ -271,27 +293,18 @@ rh.require(
   "supply_chain_workspace_package_count"
 );
 
+const dependency_by_sort_key = {};
+const dependency_sort_keys = [];
+for (const candidate of dependencies) {
+  const key =
+    "" + candidate.name + "\n" + candidate.version + "\n" +
+      candidate.source + "\n" + candidate.id;
+  dependency_by_sort_key[key] = candidate;
+  dependency_sort_keys.push(key);
+}
 const sorted_dependencies = [];
-const picked = {};
-for (let pass = 0; pass < dependencies.length; pass = pass + 1) {
-  let best_index = -1;
-  let best_key = "";
-  for (let index = 0; index < dependencies.length; index = index + 1) {
-    const index_key = "" + index;
-    if (picked[index_key] !== true) {
-      const candidate = dependencies[index];
-      const key =
-        "" + candidate.name + "\n" + candidate.version + "\n" +
-          candidate.source + "\n" + candidate.id;
-      if (best_index < 0 || key < best_key) {
-        best_index = index;
-        best_key = key;
-      }
-    }
-  }
-  const picked_key = "" + best_index;
-  picked[picked_key] = true;
-  sorted_dependencies.push(dependencies[best_index]);
+for (const key of rh.sort_strings(dependency_sort_keys)) {
+  sorted_dependencies.push(dependency_by_sort_key[key]);
 }
 
 for (const pkg of sorted_dependencies) {
@@ -342,14 +355,8 @@ for (const pkg of sorted_dependencies) {
     );
     const key = pkg_name + "\n" + pkg_version + "\n" + package_source;
     if (package_source.startsWith("registry+")) {
-      let checksum_found = 0;
-      for (let index = 0; index < checksum_keys.length; index = index + 1) {
-        if (checksum_keys[index] === key) {
-          checksum_found = 1;
-        }
-      }
       rh.require(
-        checksum_found === 1,
+        typeof checksum_by_key[key] === "string",
         "supply_chain_checksum_missing:" + pkg_name + ":" + pkg_version
       );
     }
@@ -440,16 +447,8 @@ for (const pkg of sorted_dependencies) {
     referenceType: "purl",
     referenceLocator: reference_locator
   });
-  let checksum_found = 0;
-  let checksum_index = -1;
-  for (let index = 0; index < checksum_keys.length; index = index + 1) {
-    if (checksum_keys[index] === key) {
-      checksum_found = 1;
-      checksum_index = index;
-    }
-  }
-  if (checksum_found === 1) {
-    const checksum_value = checksum_values[checksum_index];
+  if (typeof checksum_by_key[key] === "string") {
+    const checksum_value = checksum_by_key[key];
     const checksums = [];
     checksums.push({
       algorithm: "SHA256",
