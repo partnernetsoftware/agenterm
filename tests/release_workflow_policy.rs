@@ -181,7 +181,8 @@ fn script_api_catalog_streams_to_a_run_owned_file_before_guest_parsing() {
 fn script_smoke_executes_its_declared_complete_catalog_string_budget() {
     let budget = &TASKS["contracts"]["script-smoke"]["budget"];
     assert_eq!(budget["max_string_bytes"], 8_388_608);
-    assert!(CHECK_QJS.contains("entry === \"script-smoke\""));
+    assert!(CHECK_QJS.contains("return { entry: \"script-qjswasm-smoke\", args: [repo"));
+    assert!(CHECK_QJS.contains("entry === \"script-qjswasm-smoke\""));
     assert!(CHECK_QJS.contains("arguments_list.push(\"8388608\")"));
     assert!(SCRIPT_SMOKE_QJS.contains("\"--max-string-bytes\", \"8388608\", \"--\""));
 }

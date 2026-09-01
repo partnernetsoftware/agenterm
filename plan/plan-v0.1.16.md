@@ -1236,3 +1236,14 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 资格检查现在像 PRD alignment 一样解析非空 `gate.suite`，并把同一 effective
   suite 同时用于存在性检查和 `--list-evidence` 执行；本地十五个 suite 的声明
   双射全部通过。旧 Candidate 不重跑失败 job，修复须形成新 SHA 后整套重发。
+
+### A.22 Candidate `33562201197`：执行 catalog 仍指向归档 suite
+
+- 五个非 Windows-x86_64 build cell 成功；Windows 完整门越过声明检查、Clippy、
+  tests、构建、remote UI、upgrade 与 Fleet stress，随后真正执行 `script-smoke`
+  时仍进入旧文件，并在 Rhai task timer 源码处两次确定性失败；runtime 与 aggregate
+  正确 fail-closed。
+- `check.qjs` 为避免嵌套 task runner，保存了一份任务入口映射；该副本没有随
+  `agenterm.tasks.json` 的 active entry 更新。现在 task id 仍为稳定的
+  `script-smoke`，但执行 entry 明确映射到 `script-qjswasm-smoke`，其 8 MiB string
+  budget 也随 effective entry 判定。policy test 同时钉入口和预算，防止只修一半。

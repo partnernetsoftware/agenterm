@@ -726,6 +726,13 @@ costs a full candidate cycle:
   archived `script-smoke` port against the active `script-qjswasm-smoke`
   declaration. The local declaration court now proves all fifteen suite
   mappings before another Candidate is spent.
+- [x] the qualification driver's embedded task catalog maps the stable
+  `script-smoke` task id to the active `script-qjswasm-smoke` entry and applies
+  the task's reviewed 8 MiB string budget to that effective entry. Candidate
+  `33562201197` proved declaration routing alone was insufficient: the full
+  Windows court passed through remote UI, upgrade, and Fleet stress before its
+  stale execution mapping entered the archived Rhai journey twice and failed
+  closed before runtime courts or aggregate.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

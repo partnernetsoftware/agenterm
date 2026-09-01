@@ -155,7 +155,7 @@ function catalog_entry(repo, id) {
     return { entry: "fleet-smoke", args: [repo, path.join(repo, "dist/agenterm.com"), "--skip-event-load"] };
   }
   if (id === "script-smoke") {
-    return { entry: "script-smoke", args: [repo, path.join(repo, "dist/agenterm.com"), path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.exe")] };
+    return { entry: "script-qjswasm-smoke", args: [repo, path.join(repo, "dist/agenterm.com"), path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.exe")] };
   }
   if (id === "control-center-smoke") {
     return { entry: "control-center-smoke", args: [repo, path.join(repo, "dist/agenterm-cc.exe")] };
@@ -192,7 +192,7 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
   // The Script API catalog is intentionally multi-megabyte and the task
   // contract already declares an 8 MiB complete-string court. Keep the
   // generic 1 MiB default everywhere else.
-  if (entry === "script-smoke") {
+  if (entry === "script-qjswasm-smoke") {
     arguments_list.push("--max-string-bytes");
     arguments_list.push("8388608");
   }
