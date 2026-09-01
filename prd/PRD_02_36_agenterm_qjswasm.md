@@ -792,6 +792,12 @@ Candidate `33555584960` 证明 backend selection 已生效；下一停点是 qjs
 单一 expression，不接 `print; return` statement program。probe 现用 string
 expression，并核对 eval 的返回 stdout。
 
+Candidate `33557523885` 的 `remote-ui-smoke` 首次在共享 runner 负载下耗尽
+`max_steps`，有界重试已打印完整产品 PASS；但 coordinator 先把 canonical timing
+写成 `failed`，第二次写 `passed` 被单向状态机拒绝。首次可重试执行现只保留诊断，
+canonical gate 只由首次成功、重试成功或最终失败终结一次；这不放宽 qjswasm 预算，
+也不把两次真实失败改成成功。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

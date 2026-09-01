@@ -315,6 +315,25 @@ fn qualification_recreates_owned_scratch_after_a_gate_cleans_target() {
 }
 
 #[test]
+fn retryable_smoke_finalizes_its_canonical_timing_state_once() {
+    let first_attempt = CHECK_QJS
+        .split_once("function run_gate_retryable_first(")
+        .and_then(|(_, tail)| tail.split_once("\nfunction run_gate_two("))
+        .map(|(body, _)| body)
+        .expect("retryable first-attempt helper");
+    assert!(first_attempt.contains("all_output, 0)"));
+    assert!(first_attempt.contains("timing_set_gate(timing, id, \"passed\""));
+
+    let retry_loop = CHECK_QJS
+        .split_once("if (skip_smoke === 0) {")
+        .and_then(|(_, tail)| tail.split_once("\nif (skip_smoke !== 0)"))
+        .map(|(body, _)| body)
+        .expect("smoke retry loop");
+    assert!(retry_loop.contains("run_gate_retryable_first("));
+    assert!(retry_loop.contains("completed = run_gate(context, timing, id, id + \" (retry)\""));
+}
+
+#[test]
 fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     for contract in [
         "\"native_six_cell\": true",

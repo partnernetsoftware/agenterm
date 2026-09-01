@@ -1191,3 +1191,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 显式 qjswasm 选择已生效；parser 正确拒绝 `print(...); return 0;` 多语句源码。
 - topology probe 改为字符串 expression，由 eval 返回值形成 stdout；不把 run
   program 语法混进 eval 合同。
+
+### A.18 Candidate `33557523885`：重试只终结一次 canonical gate
+
+- Windows 完整门禁再次越过前序停点；`remote-ui-smoke` 首次在共享 runner 负载下
+  耗尽 `max_steps`，第二次已打印完整产品 PASS。
+- 失败来自 qualification coordinator：首次尝试过早把 canonical timing gate 写成
+  `failed`，重试成功再写 `passed` 被合法的单向状态机拒绝。
+- 首次可重试执行现在只收集诊断，不终结 timing；首次成功、重试成功或最终重试失败
+  三种结果都只写一次 canonical 状态。重试仍有界，第二次失败仍 fail-closed。

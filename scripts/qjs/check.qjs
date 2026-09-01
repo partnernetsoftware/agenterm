@@ -470,7 +470,7 @@ function gate_failure(label, result) {
     + bounded_text(result.stdout, 8192) + "\n" + bounded_text(result.stderr, 8192);
 }
 
-function run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output) {
+function run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output, finalize_failure) {
   const command_sequence = rh.int_of(sequence);
   const result = execute(command_spec, repo, scratch, command_sequence);
   qualification.add_process_observation(context, result.process_samples, [], command_spec.allow_powershell);
@@ -485,8 +485,10 @@ function run_gate_step(context, timing, id, label, command_spec, repo, scratch, 
   }
   if (!result.success) {
     const duration = rh.now_ms() - started;
-    qualification.timing_set_gate(timing, id, "failed", duration, result.exit_code, result.timed_out);
-    qualification.timing_finish(timing, "failed");
+    if (finalize_failure !== 0) {
+      qualification.timing_set_gate(timing, id, "failed", duration, result.exit_code, result.timed_out);
+      qualification.timing_finish(timing, "failed");
+    }
     throw gate_failure(label, result);
   }
   return { context: context, timing: timing, sequence: command_sequence + 1 };
@@ -496,7 +498,22 @@ function run_gate(context, timing, id, label, command_spec, repo, scratch, seque
   print("\n==> " + label);
   const started = rh.now_ms();
   const all_output = [];
-  const step = run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output);
+  const step = run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output, 1);
+  const duration = rh.now_ms() - started;
+  qualification.add_result(context, id, "passed", duration, all_output);
+  qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
+  print("PASS: " + label + " (" + duration + " ms)");
+  return { context: context, timing: timing, sequence: step.sequence };
+}
+
+// A retryable first attempt may collect diagnostics, but it must not finalize
+// the canonical gate as failed. The gate receives exactly one terminal timing
+// state: first-attempt success, retry success, or final retry failure.
+function run_gate_retryable_first(context, timing, id, label, command_spec, repo, scratch, sequence) {
+  print("\n==> " + label);
+  const started = rh.now_ms();
+  const all_output = [];
+  const step = run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output, 0);
   const duration = rh.now_ms() - started;
   qualification.add_result(context, id, "passed", duration, all_output);
   qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
@@ -508,8 +525,8 @@ function run_gate_two(context, timing, id, label, first_spec, second_spec, repo,
   print("\n==> " + label);
   const started = rh.now_ms();
   const all_output = [];
-  let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output);
-  step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output);
+  let step = run_gate_step(context, timing, id, label, first_spec, repo, scratch, sequence, started, all_output, 1);
+  step = run_gate_step(context, timing, id, label, second_spec, repo, scratch, step.sequence, started, all_output, 1);
   const duration = rh.now_ms() - started;
   qualification.add_result(context, id, "passed", duration, all_output);
   qualification.timing_set_gate(timing, id, "passed", duration, 0, false);
@@ -1139,7 +1156,7 @@ if (skip_smoke === 0) {
     // deterministically both times. One bounded retry keeps the gate honest.
     let completed;
     try {
-      completed = run_gate(context, timing, id, id, smoke_spec, repo, scratch, sequence);
+      completed = run_gate_retryable_first(context, timing, id, id, smoke_spec, repo, scratch, sequence);
     } catch (first_failure) {
       print("RETRY " + id + " after transient failure: " + first_failure);
       try {

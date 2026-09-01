@@ -695,6 +695,13 @@ costs a full candidate cycle:
   that qjs `script eval` accepts one expression, not a statement program. The
   topology probe is now a string expression whose evaluated value is the
   observed stdout; it no longer embeds `print; return` syntax.
+- [x] Candidate `33557523885` proved that a bounded retry could not recover:
+  the first load-sensitive `remote-ui-smoke` attempt finalized its canonical
+  timing gate as failed, then the product-complete retry was rejected as an
+  illegal failed-to-passed transition. A retryable first attempt now records
+  diagnostics without finalizing timing; the canonical gate is written once
+  by first success, retry success, or final retry failure. The retry remains
+  bounded and a deterministic two-attempt failure remains fail-closed.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
