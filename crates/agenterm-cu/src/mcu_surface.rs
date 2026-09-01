@@ -20,11 +20,34 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "discover",
-        verbs: &["windows", "windows-watch", "apps"],
+        verbs: &[
+            "windows",
+            "windows-watch",
+            "apps",
+            "launch",
+            "quit",
+            "hide",
+            "show",
+        ],
     },
     Group {
         id: "snapshot",
-        verbs: &["tree", "query", "focused", "observe", "screenshot"],
+        verbs: &[
+            "tree",
+            "query",
+            "focused",
+            "observe",
+            "screenshot",
+            "shot",
+            "elements",
+            "inspect",
+            "snapshot",
+            "hit",
+            "diff",
+            "zoom",
+            "find",
+            "read",
+        ],
     },
     Group {
         id: "semantic",
@@ -39,7 +62,20 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "input-local",
-        verbs: &["click", "send-text", "send-keys", "scroll", "pointer-move"],
+        verbs: &[
+            "click",
+            "dclick",
+            "rclick",
+            "send-text",
+            "type",
+            "send-keys",
+            "key",
+            "scroll",
+            "pointer-move",
+            "move",
+            "drag",
+            "ghost",
+        ],
     },
     Group {
         id: "input-global",
@@ -47,11 +83,24 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "page-js",
-        verbs: &["page-js"],
+        verbs: &["page-js", "page"],
     },
     Group {
         id: "geometry",
-        verbs: &["window-place", "close", "orderwin", "spaces", "displays"],
+        verbs: &[
+            "window-place",
+            "close",
+            "orderwin",
+            "spaces",
+            "displays",
+            "movewin",
+            "resize",
+            "frame",
+            "maximize",
+            "minimize",
+            "restore",
+            "raise",
+        ],
     },
     Group {
         id: "shell-pty-job",
@@ -59,11 +108,11 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "process",
-        verbs: &["process"],
+        verbs: &["process", "ps", "kill", "signal", "exec", "state"],
     },
     Group {
         id: "resource",
-        verbs: &["resource"],
+        verbs: &["resource", "open", "notify"],
     },
     Group {
         id: "power",
@@ -95,7 +144,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "runtime",
-        verbs: &["daemon"],
+        verbs: &["daemon", "audit", "session", "lock", "service", "term"],
     },
     Group {
         id: "desktop-helper",
@@ -133,6 +182,38 @@ pub const ALIGN_VERBS: &[&str] = &[
     "desktop-helper",
     "simulator",
     "browser",
+    "page",
+    // MCU leaf spellings that stay typed (not silent unknown). Live
+    // aliases (dclick/rclick/shot/type/key/move/launch/quit/hide/show/
+    // elements/clipboard) have dedicated parse arms and are not listed here.
+    "drag",
+    "ghost",
+    "inspect",
+    "snapshot",
+    "hit",
+    "diff",
+    "zoom",
+    "find",
+    "read",
+    "movewin",
+    "resize",
+    "frame",
+    "maximize",
+    "minimize",
+    "restore",
+    "raise",
+    "ps",
+    "kill",
+    "signal",
+    "exec",
+    "state",
+    "open",
+    "notify",
+    "audit",
+    "session",
+    "lock",
+    "service",
+    "term",
 ];
 
 pub fn is_align_verb(verb: &str) -> bool {
@@ -155,7 +236,43 @@ pub fn is_typed_only_verb(verb: &str) -> bool {
 }
 
 fn typed_only_reason(verb: &str) -> &'static str {
-    group_status(group_id_for_verb(verb), host_os()).1
+    match verb {
+        "page" => {
+            "MCU page click/nav/targets stay CDP; page read --js maps to page-js --expression"
+        }
+        "drag" => "pixel drag is not mapped; use invoke press or pointer-move --to desktop",
+        "ghost" => "MCU ghost cursor overlay stays MCU; this binary will not draw on the desktop",
+        "inspect" => {
+            "MCU inspect empty-chrome is tree/query ax+next_actions; use query --window or unlock"
+        }
+        "snapshot" => "MCU snapshot token is not mapped; use tree/query",
+        "hit" => "hit-test is not mapped; use query --within or get-extents",
+        "diff" => "MCU diff is observe poll-diff; use observe --window",
+        "zoom" => "MCU zoom overlay is not mapped; screenshots are last resort",
+        "find" => "MCU find is query filters; use query --role/--text/--identifier",
+        "read" => "MCU read is query/get-text; use query or get-text --window",
+        "movewin" | "resize" | "frame" => {
+            "MCU frame/movewin/resize is window-place --action frame --x --y --width --height"
+        }
+        "maximize" => {
+            "MCU maximize workArea is not mapped; window-place fullscreen is the Spectacle verb"
+        }
+        "minimize" | "restore" => {
+            "MCU minimize/restore is not mapped; linux windows --minimized reads WM hidden state"
+        }
+        "raise" => {
+            "MCU raise is orderwin --relation above; macOS cannot restack another app without activating it"
+        }
+        "ps" | "kill" | "signal" | "exec" | "state" => {
+            "process introspect/kill stays MCU / qjs process.*; typed refuse"
+        }
+        "open" => "MCU open (non-GUI path) stays MCU; typed refuse",
+        "notify" => "host notification stays MCU; typed refuse",
+        "audit" | "session" | "lock" | "service" | "term" => {
+            "MCU runtime session/lock/audit/term stays MCU; typed refuse"
+        }
+        _ => group_status(group_id_for_verb(verb), host_os()).1,
+    }
 }
 
 fn tree_live(os: &str) -> bool {
@@ -536,6 +653,15 @@ mod tests {
         assert_eq!(group_id_for_verb("pty"), "shell-pty-job");
         assert_eq!(group_id_for_verb("windows-watch"), "discover");
         assert_eq!(group_id_for_verb("orderwin"), "geometry");
+        assert_eq!(group_id_for_verb("dclick"), "input-local");
+        assert_eq!(group_id_for_verb("launch"), "discover");
+        assert_eq!(group_id_for_verb("page"), "page-js");
+        assert_eq!(group_id_for_verb("drag"), "input-local");
+        assert!(is_align_verb("drag") && is_align_verb("page"));
+        assert!(!is_align_verb("dclick") && !is_align_verb("launch"));
+        let page_reason = typed_reason_for_verb("page");
+        assert!(page_reason.starts_with("unsupported:"), "{page_reason}");
+        assert!(!page_reason.contains("unknown MCU group"), "{page_reason}");
         let pty = typed_reason_for_verb("pty");
         assert!(!pty.contains("unknown MCU group"), "{pty}");
         assert!(pty.contains("PTY") || pty.contains("job"), "{pty}");

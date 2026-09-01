@@ -386,7 +386,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 all,
             }
         }
-        "tree" => {
+        "tree" | "elements" => {
             let window = flag_window_opt(&mut args);
             let depth = match flag_parsed::<u32>(&mut args, "--depth") {
                 Ok(value) => value,
@@ -396,7 +396,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
             };
-            let flat = take_switch(&mut args, "--flat");
+            let flat = verb == "elements" || take_switch(&mut args, "--flat");
             Command::Tree {
                 target,
                 window,
@@ -838,7 +838,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 expect,
             }
         }
-        "screenshot" => {
+        "screenshot" | "shot" => {
             let path = flag_value(&mut args, "--out")
                 .or_else(|| args.first().cloned())
                 .unwrap_or_default();
@@ -852,7 +852,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 window,
             }
         }
-        "pointer-move" => {
+        "pointer-move" | "move" => {
             let to = match flag_text(&mut args, "--to") {
                 Ok(value) => value,
                 Err(message) => return usage_err(message),
@@ -891,19 +891,45 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
             Command::PointerPosition { target }
         }
-        "click" => {
-            let window = flag_window_opt(&mut args);
+        "click" | "dclick" | "rclick" => {
+            let mut window = flag_window_opt(&mut args);
+            match flag_text(&mut args, "--to") {
+                Ok(Some(to)) if to == "desktop" => {
+                    return usage_err(
+                        "click --to desktop is not mapped; use invoke or pointer-move --to desktop",
+                    );
+                }
+                Ok(Some(to)) => {
+                    if window.is_some() {
+                        return usage_err("click accepts --window or --to, not both");
+                    }
+                    window = match agenterm_cu::observe::parse_window_token(&to) {
+                        Ok(handle) => Some(handle),
+                        Err(message) => return usage_err(message.replace("--window", "--to")),
+                    };
+                }
+                Ok(None) => {}
+                Err(message) => return usage_err(message),
+            }
             let node = flag_value(&mut args, "--node");
             let name = flag_value(&mut args, "--name");
             let role = flag_value(&mut args, "--role");
             let coords = flag_coords(&mut args, "--coords");
             let degraded = args.iter().any(|arg| arg == "--degraded");
             args.retain(|arg| arg != "--degraded");
-            let clicks = flag_u32(&mut args, "--clicks").unwrap_or(1);
-            let button = match flag_value(&mut args, "--button").as_deref() {
-                Some("right") => PointerButton::Right,
-                Some("middle") => PointerButton::Middle,
-                _ => PointerButton::Left,
+            let clicks = if verb == "dclick" {
+                2
+            } else {
+                flag_u32(&mut args, "--clicks").unwrap_or(1)
+            };
+            let button = if verb == "rclick" {
+                PointerButton::Right
+            } else {
+                match flag_value(&mut args, "--button").as_deref() {
+                    Some("right") => PointerButton::Right,
+                    Some("middle") => PointerButton::Middle,
+                    _ => PointerButton::Left,
+                }
             };
             Command::Click {
                 target,
@@ -937,7 +963,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
-        "send-text" => {
+        "send-text" | "type" => {
             // `--` ends flag parsing so the text may itself start with a dash.
             let literal_text = match args.iter().position(|arg| arg == "--") {
                 Some(index) => Some(args.split_off(index)[1..].join(" ")),
@@ -954,7 +980,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
-        "clipboard-read" => {
+        "clipboard-read" | "clipboard" => {
             if !args.is_empty() {
                 return usage_err("clipboard-read accepts no command arguments");
             }
@@ -1007,7 +1033,7 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
-        "send-keys" => {
+        "send-keys" | "key" => {
             // `--` ends flag parsing so a chord may itself start with a dash.
             let literal_keys = match args.iter().position(|arg| arg == "--") {
                 Some(index) => Some(args.split_off(index)[1..].join("+")),
@@ -1135,7 +1161,18 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 role,
             }
         }
-        "app" => {
+        "app" | "launch" | "quit" | "hide" | "show" => {
+            if verb != "app" {
+                if verb == "launch"
+                    && !args.iter().any(|arg| arg == "--path")
+                    && args.first().is_some_and(|first| !first.starts_with('-'))
+                {
+                    let path = args.remove(0);
+                    args.insert(0, path);
+                    args.insert(0, "--path".into());
+                }
+                args.insert(0, verb.to_string());
+            }
             let action_text = flag_value(&mut args, "--action")
                 .or_else(|| {
                     args.first()
@@ -1489,30 +1526,30 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
             Command::ClipboardRead { target }
         }
-        "page-js" => {
-            let window = match flag_window(&mut args) {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let expression = match flag_text(&mut args, "--expression") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let port = match flag_parsed::<u16>(&mut args, "--port") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            if !args.is_empty() {
-                return usage_err(format!(
-                    "page-js accepts only --window H --expression EXPR --port N; unexpected {:?}",
-                    args[0]
-                ));
-            }
-            Command::PageJs {
-                target,
-                window,
-                expression,
-                port,
+        "page-js" | "page" => {
+            if verb == "page" {
+                if args.first().map(String::as_str) == Some("read") {
+                    args.remove(0);
+                }
+                if let Some(index) = args.iter().position(|arg| arg == "--js") {
+                    args[index] = "--expression".into();
+                }
+                if !args.iter().any(|arg| arg == "--expression") {
+                    Command::Align {
+                        target,
+                        group: "page".into(),
+                    }
+                } else {
+                    match parse_page_js(target, &mut args) {
+                        Ok(command) => command,
+                        Err(message) => return usage_err(message),
+                    }
+                }
+            } else {
+                match parse_page_js(target, &mut args) {
+                    Ok(command) => command,
+                    Err(message) => return usage_err(message),
+                }
             }
         }
         other if agenterm_cu::mcu_surface::is_align_verb(other) => Command::Align {
@@ -1967,6 +2004,24 @@ fn flag_coords(args: &mut Vec<String>, flag: &str) -> Option<[i32; 2]> {
     Some([x, y])
 }
 
+fn parse_page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let window = flag_window(args)?;
+    let expression = flag_text(args, "--expression")?;
+    let port = flag_parsed::<u16>(args, "--port")?;
+    if !args.is_empty() {
+        return Err(format!(
+            "page-js accepts only --window H --expression EXPR --port N; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageJs {
+        target,
+        window,
+        expression,
+        port,
+    })
+}
+
 /// `--expect` is a JSON array of closed-shape items; an unknown key or a
 /// non-array is a usage error before any tree is read.
 fn parse_expectations(raw: &str) -> Result<Vec<Expectation>, String> {
@@ -2190,8 +2245,14 @@ Commands:
                               linux/windows typed unsupported.
   displays                    native screen frames via agt_screen_list (MCU 系统).
   cursor                      alias of pointer-position
-  clip                        alias of clipboard-read (observe text only)
+  clip / clipboard            alias of clipboard-read (observe text only)
   caps                        alias of capabilities
+  dclick / rclick             aliases of click (--clicks 2 / --button right)
+  shot                        alias of screenshot
+  type / key / move           aliases of send-text / send-keys / pointer-move
+  elements                    alias of tree --flat
+  launch / quit / hide / show aliases of app <action>
+  page                        MCU page: `page read --js` → page-js; other page verbs typed
   screenshot --out PATH [--window HANDLE]
   pointer-move --x X --y Y moves to absolute screen coordinates without any
                               press/release/click/drag/wheel side effect
@@ -2662,14 +2723,29 @@ mod tests {
             ("displays", "displays"),
             ("cursor", "pointer-position"),
             ("clip", "clipboard-read"),
+            ("clipboard", "clipboard-read"),
+            ("shot", "screenshot"),
+            ("elements", "tree"),
+            ("move", "pointer-move"),
         ] {
-            let reply = dispatch(vec![
+            let mut argv = vec![
                 "--target".into(),
                 "current".into(),
                 "--grant".into(),
                 "observe".into(),
                 verb.into(),
-            ]);
+            ];
+            if verb == "move" {
+                argv.extend([
+                    "--to".into(),
+                    "desktop".into(),
+                    "--x".into(),
+                    "0".into(),
+                    "--y".into(),
+                    "0".into(),
+                ]);
+            }
+            let reply = dispatch(argv);
             assert_eq!(reply.command, command, "{verb}");
             assert_ne!(
                 reply.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
@@ -2678,6 +2754,89 @@ mod tests {
                 reply.error
             );
         }
+        let dclick = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "dclick".into(),
+            "--window".into(),
+            "1".into(),
+            "--name".into(),
+            "Ok".into(),
+        ]);
+        assert_eq!(dclick.command, "click");
+        assert_ne!(
+            dclick.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage",
+            "dclick must not be unknown: {:?}",
+            dclick.error
+        );
+        let launch = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "launch".into(),
+            "/Applications/Nonexistent.app".into(),
+        ]);
+        assert_eq!(launch.command, "app");
+        assert_ne!(
+            launch.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage",
+            "launch must not be unknown: {:?}",
+            launch.error
+        );
+        let page = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "page".into(),
+            "targets".into(),
+        ]);
+        assert_eq!(page.command, "page");
+        let page_err = page.error.expect("typed page");
+        assert_eq!(page_err.code, "unsupported");
+        assert!(
+            !page_err.message.contains("unknown"),
+            "{}",
+            page_err.message
+        );
+        let page_js = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "page".into(),
+            "read".into(),
+            "--js".into(),
+            "1+1".into(),
+        ]);
+        assert_eq!(page_js.command, "page-js");
+        assert_ne!(
+            page_js
+                .error
+                .as_ref()
+                .map(|e| e.code.as_str())
+                .unwrap_or(""),
+            "usage"
+        );
+        let drag = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "drag".into(),
+        ]);
+        assert_eq!(drag.command, "drag");
+        let drag_err = drag.error.expect("typed drag");
+        assert_eq!(drag_err.code, "unsupported", "{drag_err:?}");
+        assert!(
+            !drag_err.message.contains("unknown"),
+            "{}",
+            drag_err.message
+        );
     }
 
     #[test]
