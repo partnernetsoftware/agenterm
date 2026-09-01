@@ -629,6 +629,11 @@ costs a full candidate cycle:
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
   evidence before changing engine or supervisor code.
+- [x] that evidence identified a time-of-check/time-of-use race in qjswasm's
+  cancellable sleep: the second `elapsed()` sample could cross the requested
+  duration before ordinary `Duration` subtraction. The wait now uses
+  saturating subtraction and exits on zero; the expired-budget regression is
+  owned by the engine unit suite.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

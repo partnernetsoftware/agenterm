@@ -251,6 +251,11 @@ Windows checklist:
   epoch and terminal mode before the only PTY write. Carry an explicit origin
   bit so CLI/control paste never inherits an interactive modal accidentally.
 - Retry only documented transient errors, with a strict attempt/deadline bound.
+- Never guard `total - started.elapsed()` with an earlier `elapsed() < total`
+  sample: pre-emption can cross the deadline between the two reads and
+  `Duration` subtraction panics. Use `saturating_sub`/`checked_sub`, stop on
+  zero, and test the already-expired case. Under panic-abort this otherwise
+  appears on Windows as worker exit `0xc0000409`, not as a Rust assertion.
 - Do not use the whole Windows desktop (`HWND = 0`) as deterministic UIA success
   evidence: unrelated providers can recycle, reject calls, or exceed the bounded
   deadline. Let desktop-wide ABI probes typed-fail when a provider is unavailable,

@@ -1666,7 +1666,14 @@ fn cancellable_sleep(
         {
             return Err(CANCELLED_MARK.to_string());
         }
-        let left = total - started.elapsed();
+        // `elapsed()` is sampled twice: the loop condition can be true and
+        // the second sample can cross `total` before subtraction, especially
+        // on a pre-empted Windows runner. Duration subtraction panics there,
+        // and panic-abort turns the worker into an opaque 0xc0000409 crash.
+        let left = total.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            break;
+        }
         std::thread::sleep(left.min(Duration::from_millis(25)));
     }
     Ok(())
@@ -2072,6 +2079,17 @@ fn finish_child(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellable_sleep_tolerates_a_deadline_crossing_between_samples() {
+        // This is the arithmetic edge hit when Windows pre-empts the worker
+        // after its loop condition but before it computes the next slice.
+        assert_eq!(
+            Duration::from_millis(1).saturating_sub(Duration::from_millis(2)),
+            Duration::ZERO
+        );
+        cancellable_sleep(&None, Duration::ZERO).expect("zero sleep is complete");
+    }
 
     /// The bill reads string lengths off the raw arguments by position, so
     /// the positions have to follow the declaration exactly: two words per
