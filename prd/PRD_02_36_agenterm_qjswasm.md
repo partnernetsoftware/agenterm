@@ -743,6 +743,12 @@ army、终端 scrollbar 与 raw full-screen wheel；随后两次稳定停在 sel
 start/end；进入 dragging 后要求 start 锚点不变且 live highlight 不缩小。根级
 event journal 按设计允许推进。
 
+Candidate `33534679251` 已越过修正后的 selection 锚点门，并稳定走到系统菜单
+剪贴板状态。干净 Windows runner 可以没有 text clipboard format；旧脚本却在写入
+已知文本之前读取 `paste.enabled`，把未建立的环境前置条件误判为产品失败。现先写入
+唯一 sentinel，再取得 completed snapshot 并断言 Paste 启用；随后的 Copy 必须把
+同一 sentinel 替换为选区文本，因此没有删除或放宽复制/粘贴行为门。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

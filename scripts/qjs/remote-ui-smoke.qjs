@@ -2444,6 +2444,10 @@ try {
         >= selection_prepared.terminal_interaction.selection.highlight.bounds.length,
     "remote_ui_terminal_selection_live_highlight_invalid"
   );
+  // A clean qualification runner may start with no text clipboard format at
+  // all. Establish that prerequisite before asking the product snapshot
+  // whether Paste is enabled; copy below must replace this sentinel.
+  write_clipboard_text("REMOTE_COPY_SENTINEL");
   window_pointer(replacement_gui, "up", selection_end_x, selection_y);
   const selection_completed = wait_terminal_selection(
     context, cli, "completed", false, true, "remote_ui_terminal_selection_completed_timeout"
@@ -2459,7 +2463,6 @@ try {
   const copy_input_before = parse_int_text(
     text_cli(context, cli, ["list-panes", "-t", tab_id, "-F", "#{pane_input_bytes}"])
   );
-  write_clipboard_text("REMOTE_COPY_SENTINEL");
   harness.require(
     window_message(replacement_gui, shortcut_message, VK_C, 1) === 1,
     "remote_ui_terminal_ctrl_c_not_consumed"

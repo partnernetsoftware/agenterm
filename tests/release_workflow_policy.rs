@@ -168,6 +168,30 @@ fn remote_ui_selection_checks_cell_ownership_not_global_event_stasis() {
 }
 
 #[test]
+fn remote_ui_paste_enablement_has_a_known_clipboard_precondition() {
+    let smoke = include_str!("../scripts/qjs/remote-ui-smoke.qjs");
+    let seed = smoke
+        .find("write_clipboard_text(\"REMOTE_COPY_SENTINEL\")")
+        .expect("selection court seeds the clipboard");
+    let snapshot = smoke[seed..]
+        .find("const selection_completed =")
+        .map(|offset| seed + offset)
+        .expect("selection completion snapshot follows the seed");
+    let paste_gate = smoke[snapshot..]
+        .find("selection_completed.system_menu.paste.enabled")
+        .map(|offset| snapshot + offset)
+        .expect("selection court checks paste enablement");
+    assert!(seed < snapshot && snapshot < paste_gate);
+    assert_eq!(
+        smoke
+            .matches("write_clipboard_text(\"REMOTE_COPY_SENTINEL\")")
+            .count(),
+        1,
+        "copy must consume the same known sentinel instead of masking the precondition"
+    );
+}
+
+#[test]
 fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(CANDIDATE.contains("name: Release Candidate"));
     assert!(CANDIDATE.contains("workflow_dispatch:"));

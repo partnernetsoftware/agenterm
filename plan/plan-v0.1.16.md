@@ -1110,3 +1110,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 修复仅校正证据对象：`prepared + capture_owned` 不变，选择 start/end cell
   跨 screen-generation 不变；dragging 后 start 锚点不变且 highlight 不缩小。
   不删除选择、复制、粘贴或截图门禁。
+
+### A.8 Candidate `33534679251`：先建立剪贴板前置条件
+
+- 修正后的 selection cell/anchor、phase、capture 与 live-highlight 门均已通过；
+  Windows 完整门继续推进到系统菜单剪贴板状态。
+- 干净 runner 可能根本没有 text clipboard format。旧脚本先读取
+  `paste.enabled`，随后才写入文本，因果顺序错误。
+- 下一冻结点先写入唯一 copy sentinel，再取得 completed snapshot；仍要求 Paste
+  启用，并要求 Copy 把同一 sentinel 替换为真实选区内容。该修复只建立测试前置
+  条件，不弱化产品合同。

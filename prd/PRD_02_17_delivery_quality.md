@@ -639,6 +639,13 @@ costs a full candidate cycle:
   the terminal-cell selection/anchor plus phase, capture and live-highlight
   evidence; the product invariant remains strict while unrelated journal
   progress is allowed.
+- [x] Candidate `33534679251` proved the corrected selection ownership court
+  and reached system-menu clipboard evidence. Its stable failure was a harness
+  precondition error: a clean Windows runner may have no text clipboard format,
+  but the script inspected `paste.enabled` before seeding known clipboard text.
+  The court now seeds one sentinel before the completion snapshot, then proves
+  Paste is enabled and Copy replaces that same sentinel; no product assertion
+  is removed.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
