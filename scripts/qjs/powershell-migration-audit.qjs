@@ -330,9 +330,9 @@ for (const source_line of rh.read_text(stdout_path).split("\n")) {
     batch_count = batch_count + 1;
   }
 }
-rh.require(batch_count === 7, "migration_batch_inventory_count:" + batch_count);
-for (const name of ["build.bat", "check.cmd", "lint.cmd", "release.cmd", "rh-check.cmd",
-                    "scripts/rh-check.cmd", "scripts/bootstrap.cmd"]) {
+rh.require(batch_count === 5, "migration_batch_inventory_count:" + batch_count);
+for (const name of ["build.bat", "check.cmd", "lint.cmd", "release.cmd",
+                    "scripts/bootstrap.cmd"]) {
   rh.require(batch_paths[name] === true, "migration_batch_inventory_missing:" + name);
 }
 
@@ -340,18 +340,6 @@ require_thin_batch_alias(repo, "build.bat", "build");
 require_thin_batch_alias(repo, "check.cmd", "check");
 require_thin_batch_alias(repo, "lint.cmd", "lint");
 require_thin_batch_alias(repo, "release.cmd", "release");
-rh.require(
-  normalized_alias(rh.join(repo, "rh-check.cmd")) === "@echo off\n\"%~dp0scripts\\rh-check.cmd\" %*",
-  "migration_rh_check_alias_not_thin"
-);
-const rh_check_lower = rh.read_text(rh.join(repo, "scripts/rh-check.cmd")).toLowerCase();
-rh.require(
-  rh_check_lower.includes("cargo build --locked --bin agenterm")
-    && rh_check_lower.includes("cargo test -p agenterm-rh --locked")
-    && !rh_check_lower.includes("powershell")
-    && !rh_check_lower.includes("pwsh"),
-  "migration_rh_check_not_native"
-);
 const bootstrap_lower = rh.read_text(rh.join(repo, "scripts/bootstrap.cmd")).toLowerCase();
 for (const rule of BUSINESS_RULES) {
   rh.require(!bootstrap_lower.includes(rule), "migration_batch_bootstrap_business_rule:" + rule);

@@ -43,7 +43,8 @@ court，要么这一格仍走 GitHub `macos-15-intel`。**别当它已经有了�
    全是关的，那不代表进不去。我为此白白轮询了十分钟。
 2. **`utmctl exec` 只回退出码，不回 stdout。** 要输出就往 guest 里写文件再
    `pull`。另外经 `sh -c` → utm-court → utmctl 这条链，`%`、`&`、括号都会被吃掉；
-   推一个 `.bat` / `.ps1` 再 exec 它。
+   推一个 invocation-owned `.bat` 再 exec 它，结束即删；不要在仓库恢复
+   PowerShell 源码层。
 3. **Windows guest agent 在 session 0，没有桌面。** 任何要看窗口的东西在那里
    都返回空。要落到交互 session：
    `schtasks /create /tn X /tr PAYLOAD.bat /sc once /st 00:00 /ru <user> /it /f`
@@ -53,9 +54,11 @@ court，要么这一格仍走 GitHub `macos-15-intel`。**别当它已经有了�
 
 ## 已验证到什么程度
 
-`scripts/cu-windows-court-smoke.sh` 是我今天跑通的配方（push 交叉编译的
-`agenterm-cu.exe` + `agenterm.dll` → 在交互 session 执行 → 收集 → release）。
-在此之上 `cu-windows-smoke` 旅程 11 STEP / 11 EVIDENCE 连过两次。
+已归档的最初 court 探针跑通了 push 交叉编译的 `agenterm-cu.exe` +
+`agenterm.dll` → 在交互 session 执行 → 收集 → release；它内嵌 PowerShell
+business logic，已在零 PowerShell migration gate 下删除，不再作为活入口。
+现在的真源是注册任务 `cu-windows-smoke`：C# WinForms fixture 由 Windows 自带
+.NET Framework compiler 临时编译，旅程 11 STEP / 11 EVIDENCE 连过两次。
 所以「本机 UTM court 能承担 execute-only 这一层」不是推测。
 
 ## 我不建议的

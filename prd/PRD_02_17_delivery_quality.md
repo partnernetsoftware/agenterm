@@ -655,7 +655,16 @@ costs a full candidate cycle:
   so it keeps real Win32/UIA controls without restoring a PowerShell source or
   runtime dependency and without requiring an external C toolchain. Cheap
   migration audit must run before expensive qualification whenever tracked
-  source topology changes.
+  source topology changes. The same audit found two inline `pwsh` runtime-court
+  steps before the replacement Candidate; they use Git Bash plus standard
+  runner tools now, so build/test orchestration does not regain a second
+  Windows-only implementation language.
+- [x] an exploratory local Windows-court shell probe that generated a guest
+  `.ps1` was not a second supported journey: it duplicated the registered
+  `cu-windows-smoke` orchestration and escaped the ordinary task catalog. It
+  is deleted; the registered qjswasm task plus its C# fixture owns the durable
+  behavior, while a UTM adapter may use invocation-owned transport glue and
+  must remove it after the court run.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

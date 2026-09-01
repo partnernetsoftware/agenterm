@@ -786,45 +786,39 @@ jobs:
 
       - name: Execute final Windows archive
         if: matrix.family == 'windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $archive = Get-ChildItem part -File -Filter 'agenterm-*-windows-*.zip' |
-            Select-Object -First 1
-          if (-not $archive) { throw 'runtime_archive_missing' }
-          $sidecar = Get-Content "$($archive.FullName).sha256" -Raw
-          $expectedHash = ($sidecar -split '\s+')[0].ToLowerInvariant()
-          $actualHash = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualHash -ne $expectedHash) { throw 'runtime_archive_hash_mismatch' }
-          Expand-Archive -LiteralPath $archive.FullName -DestinationPath runtime
-          $version = (Get-Content "$($archive.FullName).provenance.json" -Raw |
-            ConvertFrom-Json).version
-          $output = & .\runtime\agenterm.com cli --version
-          if ($LASTEXITCODE -ne 0 -or "$output" -notmatch [regex]::Escape($version)) {
-            throw "runtime_version_probe_failed: $output"
-          }
-          "PASS ${{ matrix.platform_id }} $actualHash $output"
+          set -euo pipefail
+          archive="$(find part -maxdepth 1 -type f \
+            -name 'agenterm-*-windows-*.zip' -print -quit)"
+          test -n "$archive"
+          (cd part && sha256sum -c "$(basename "$archive").sha256")
+          actual_hash="$(sha256sum "$archive" | cut -d' ' -f1)"
+          mkdir runtime
+          tar -xf "$archive" -C runtime
+          version="$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
+            "$archive.provenance.json")"
+          output="$(runtime/agenterm.com cli --version)"
+          grep -Fq "$version" <<<"$output"
+          echo "PASS ${{ matrix.platform_id }} $actual_hash $output"
 
       - name: Scan final Windows Candidate bytes with Defender
         if: matrix.family == 'windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $mpcmd = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
-          if (-not (Test-Path $mpcmd)) {
-            $platformRoot = "$env:ProgramData\Microsoft\Windows Defender\Platform"
-            $mpcmd = Get-ChildItem $platformRoot -Filter MpCmdRun.exe -File -Recurse |
-              Sort-Object FullName -Descending |
-              Select-Object -First 1 -ExpandProperty FullName
-          }
-          if (-not $mpcmd -or -not (Test-Path $mpcmd)) {
-            throw 'defender_cli_missing'
-          }
-          & $mpcmd -Scan -ScanType 3 -File (Resolve-Path runtime).Path -DisableRemediation
-          if ($LASTEXITCODE -ne 0) {
-            throw "defender_final_candidate_scan_failed:$LASTEXITCODE"
-          }
-          "DEFENDER PASS ${{ matrix.platform_id }}"
+          set -euo pipefail
+          program_files="$(cygpath -u "$PROGRAMFILES")"
+          program_data="$(cygpath -u "$PROGRAMDATA")"
+          mpcmd="$program_files/Windows Defender/MpCmdRun.exe"
+          if [[ ! -f "$mpcmd" ]]; then
+            mpcmd="$(find "$program_data/Microsoft/Windows Defender/Platform" \
+              -type f -name MpCmdRun.exe -print 2>/dev/null | sort -r | head -n 1)"
+          fi
+          test -n "$mpcmd" && test -f "$mpcmd"
+          "$mpcmd" -Scan -ScanType 3 -File "$(cygpath -w "$PWD/runtime")" \
+            -DisableRemediation
+          echo "DEFENDER PASS ${{ matrix.platform_id }}"
 
       - name: Execute final Linux archive
         if: matrix.family == 'linux'

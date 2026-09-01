@@ -985,7 +985,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 100000000,
+        "max_operations": 300000000,
         "max_output_bytes": 1048576
       },
       "network": [],

@@ -1068,6 +1068,16 @@ Migration ledger:
 - [x] `git ls-files '*.ps1'` returns no files. Tests,
   helpers, and archived implementations are not exceptions; Git history is the
   permanent archive after each parity and rollback boundary closes.
+- [x] after rh left the repository, the Windows bootstrap inventory is five
+  files: four thin public aliases plus `scripts/bootstrap.cmd`. The migration
+  audit no longer requires the deleted `rh-check.cmd` pair; retaining those
+  names in the gate would make the qjswasm-era source state impossible to
+  qualify while providing no PowerShell-drift protection.
+- [x] the full qjswasm migration audit scans every tracked automation entry
+  after the cheap inventory checks. Its declared operation budget is 300
+  million steps (still bounded by 120 seconds and 1 MiB output); the inherited
+  100 million-step value expired before a clean tree could publish its report,
+  so it had only ever demonstrated early-failure paths.
 - [x] `agenterm.tasks.json` and shared rh modules under `scripts/rh/` own build,
   lint, test, qualification, packaging, release rehearsal, and approved release
   semantics.

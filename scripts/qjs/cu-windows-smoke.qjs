@@ -20,8 +20,8 @@
 // Runs under --profile tool on a Windows desktop, in an *interactive*
 // session: UI Automation in session 0 sees no desktop at all, so a runner
 // that reaches this host through a service or a guest agent has to hand
-// off to the logged-on session first (scripts/cu-windows-court-smoke.sh
-// does that with a one-shot scheduled task).
+// off to the logged-on session first (the UTM court contract does that with
+// an invocation-owned one-shot scheduled task).
 //
 // The owned fixture is examples/csharp/agenterm_uia_fixture.cs. The .NET
 // Framework csc.exe already present on Windows compiles it, so no external C
