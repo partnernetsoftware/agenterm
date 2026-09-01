@@ -648,7 +648,7 @@ pub fn parse_text_selection(raw: &str) -> Result<(i32, i32), String> {
 }
 
 /// Chromium-family AX/window titles look like
-/// `App Store Connect - Brave Origin - wjcpns`. The profile is the last
+/// `App Store Connect - Brave Origin - profile-a`. The profile is the last
 /// segment after ` - {app} - `. Not a CDP profile id.
 pub fn browser_profile_from_identity(app: &str, title: &str) -> Option<String> {
     let app = app.trim();
@@ -2672,10 +2672,10 @@ mod tests {
         assert_eq!(
             browser_profile_from_identity(
                 "Brave Origin",
-                "App Store Connect - Brave Origin - wjcpns"
+                "App Store Connect - Brave Origin - profile-a"
             )
             .as_deref(),
-            Some("wjcpns")
+            Some("profile-a")
         );
         assert_eq!(
             browser_profile_from_identity("Brave Origin", "Grok - Brave Origin - work").as_deref(),
@@ -2689,8 +2689,20 @@ mod tests {
         assert!(browser_profile_from_identity("Brave Origin", "App Store Connect").is_none());
         assert!(browser_profile_from_identity("TextEdit", "notes.txt").is_none());
         let rows = [
-            window(1, 1, "Brave Origin", "ASC - Brave Origin - wjcpns", false),
-            window(2, 1, "Brave Origin", "Mail - Brave Origin - wjcpns", false),
+            window(
+                1,
+                1,
+                "Brave Origin",
+                "ASC - Brave Origin - profile-a",
+                false,
+            ),
+            window(
+                2,
+                1,
+                "Brave Origin",
+                "Mail - Brave Origin - profile-a",
+                false,
+            ),
             window(3, 2, "Brave Origin", "Chat - Brave Origin - other", false),
         ];
         let profiles: Vec<_> = rows
@@ -2702,7 +2714,7 @@ mod tests {
                     .to_owned()
             })
             .collect();
-        assert_eq!(profiles, ["wjcpns", "wjcpns", "other"]);
+        assert_eq!(profiles, ["profile-a", "profile-a", "other"]);
     }
 
     #[test]
@@ -2717,14 +2729,14 @@ mod tests {
             16784,
             1,
             "Brave Origin",
-            "App Store Connect - Brave Origin - wjcpns",
+            "App Store Connect - Brave Origin - profile-a",
             false,
         );
         assert_eq!(
             browser_profile_from_identity(&profiled.app_name, &profiled.title).as_deref(),
-            Some("wjcpns")
+            Some("profile-a")
         );
-        assert_eq!(window_row_json(&profiled)["browser_profile"], "wjcpns");
+        assert_eq!(window_row_json(&profiled)["browser_profile"], "profile-a");
         let other = window(9, 2, "Brave Origin", "Grok - Brave Origin - work", false);
         assert_eq!(
             browser_profile_from_identity(&other.app_name, &other.title).as_deref(),
