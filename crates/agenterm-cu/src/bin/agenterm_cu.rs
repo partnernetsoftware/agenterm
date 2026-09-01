@@ -1960,9 +1960,8 @@ fn parse_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command
         args.first()
             .cloned()
             .filter(|first| !first.starts_with('-'))
-            .map(|value| {
+            .inspect(|_| {
                 args.remove(0);
-                value
             })
     });
     if !args.is_empty() {
