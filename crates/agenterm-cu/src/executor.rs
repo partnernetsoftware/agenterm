@@ -1471,6 +1471,18 @@ fn capabilities_payload() -> serde_json::Value {
                 serde_json::json!({ "group": "geometry", "mode": "raise" }),
             ),
             "screenshot": screenshot_verb,
+            "click": {
+                "status": tree_verb.get("status").cloned().unwrap_or(serde_json::json!("unsupported")),
+                "grant": "actuate",
+                "backend": "agt_a11y_node_perform",
+                "group": "input-local",
+            },
+            "dclick": {
+                "status": tree_verb.get("status").cloned().unwrap_or(serde_json::json!("unsupported")),
+                "grant": "actuate",
+                "alias_of": "click",
+                "group": "input-local",
+            },
             "receipts": { "status": "available" },
             // `hide` / `show` need an application-level hidden state, which
             // only macOS has; `quit` needs the application's own Quit menu

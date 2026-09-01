@@ -754,20 +754,10 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 expect,
             }
         }
-        "screenshot" | "shot" => {
-            let path = flag_value(&mut args, "--out")
-                .or_else(|| args.first().cloned())
-                .unwrap_or_default();
-            if !args.is_empty() {
-                args.remove(0);
-            }
-            let window = flag_window_opt(&mut args);
-            Command::Screenshot {
-                target,
-                path,
-                window,
-            }
-        }
+        "screenshot" | "shot" => match parse_screenshot(target, &mut args) {
+            Ok(command) => command,
+            Err(message) => return usage_err(message),
+        },
         "pointer-move" | "move" => {
             let to = match flag_text(&mut args, "--to") {
                 Ok(value) => value,
@@ -1960,6 +1950,40 @@ fn flag_coords(args: &mut Vec<String>, flag: &str) -> Option<[i32; 2]> {
     Some([x, y])
 }
 
+fn parse_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    // Closed flags: `--window` is never a positional path. The old parser
+    // treated argv[0] as `--out`, so `screenshot --window 16784` stored
+    // path="--window" and then failed "handle must be non-zero".
+    let window = flag_window(args)?;
+    let path = flag_text(args, "--out")?;
+    let path = path.or_else(|| {
+        args.first()
+            .cloned()
+            .filter(|first| !first.starts_with('-'))
+            .map(|value| {
+                args.remove(0);
+                value
+            })
+    });
+    if !args.is_empty() {
+        return Err(format!(
+            "screenshot accepts --out PATH --window HANDLE; unexpected {:?}",
+            args[0]
+        ));
+    }
+    let path = path.unwrap_or_else(|| {
+        std::env::temp_dir()
+            .join(format!("agenterm-cu-{}.png", std::process::id()))
+            .to_string_lossy()
+            .into_owned()
+    });
+    Ok(Command::Screenshot {
+        target,
+        path,
+        window,
+    })
+}
+
 fn parse_query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Command, String> {
     // Closed CLI shape (mcu lesson): an unknown flag, a missing value, or a
     // stray positional fails here, before any tree is read.
@@ -2966,6 +2990,33 @@ mod tests {
         assert_eq!(reply.command, "query");
         if let Some(error) = reply.error {
             assert_ne!(error.code, "usage");
+        }
+    }
+
+    #[test]
+    fn screenshot_window_flag_is_not_eaten_as_path() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "screenshot".into(),
+            "--window".into(),
+            "16784".into(),
+        ]);
+        assert_eq!(reply.command, "screenshot");
+        let code = reply
+            .error
+            .as_ref()
+            .map(|error| error.code.as_str())
+            .unwrap_or("");
+        assert_ne!(code, "usage");
+        if let Some(error) = &reply.error {
+            assert!(
+                !error.message.contains("handle must be non-zero"),
+                "screenshot --window 16784 must not drop the handle: {:?}",
+                error
+            );
         }
     }
 
