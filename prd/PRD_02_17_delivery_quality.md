@@ -691,6 +691,10 @@ costs a full candidate cycle:
   deliberately no default; the black-box eval probe now explicitly selects
   `AGENTERM_SCRIPT_BACKEND=qjswasm`, while file entries continue routing by
   `.qjs`. No ambient default is introduced.
+- [x] Candidate `33555584960` proved explicit backend selection and exposed
+  that qjs `script eval` accepts one expression, not a statement program. The
+  topology probe is now a string expression whose evaluated value is the
+  observed stdout; it no longer embeds `print; return` syntax.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

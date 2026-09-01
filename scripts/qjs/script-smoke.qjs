@@ -590,7 +590,7 @@ function assert_process_and_streams(context, cli, audit_path, runtime_dir) {
   const topology_output = smoke.run_cli(
     context,
     cli,
-    ["script", "eval", "print(\"process_timeout_topology\"); return 0;", "--profile", "tool", "--timeout-ms", "180000"],
+    ["script", "eval", "\"process_timeout_topology\"", "--profile", "tool", "--timeout-ms", "180000"],
     0,
     audit_path,
     { AGENTERM_SCRIPT_BACKEND: "qjswasm" },

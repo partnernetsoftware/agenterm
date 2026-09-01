@@ -788,6 +788,10 @@ Candidate `33553926461` 证明 qjs process door 后停在 extensionless `script 
 它没有 `.qjs` 可路由，却错误假设默认引擎。产品继续保持 no-default；该黑盒 eval
 显式注入 `AGENTERM_SCRIPT_BACKEND=qjswasm`，文件入口仍按扩展名选择。
 
+Candidate `33555584960` 证明 backend selection 已生效；下一停点是 qjs `eval` 只接
+单一 expression，不接 `print; return` statement program。probe 现用 string
+expression，并核对 eval 的返回 stdout。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

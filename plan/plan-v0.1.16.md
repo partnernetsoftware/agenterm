@@ -1185,3 +1185,9 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   路由，而测试仍假设存在默认引擎。
 - eval probe 显式设置 `AGENTERM_SCRIPT_BACKEND=qjswasm`；不新增 ambient default，
   `.qjs` 文件仍靠扩展名路由。
+
+### A.17 Candidate `33555584960`：eval 是 expression
+
+- 显式 qjswasm 选择已生效；parser 正确拒绝 `print(...); return 0;` 多语句源码。
+- topology probe 改为字符串 expression，由 eval 返回值形成 stdout；不把 run
+  program 语法混进 eval 合同。
