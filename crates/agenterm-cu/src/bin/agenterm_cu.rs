@@ -2072,9 +2072,8 @@ fn parse_clipboard_read(target: TargetRef, args: &mut Vec<String>) -> Result<Com
         args.first()
             .cloned()
             .filter(|first| !first.starts_with('-'))
-            .map(|value| {
+            .inspect(|_| {
                 args.remove(0);
-                value
             })
     });
     let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?;
@@ -2105,18 +2104,16 @@ fn parse_clipboard_write(target: TargetRef, args: &mut Vec<String>) -> Result<Co
         args.first()
             .cloned()
             .filter(|first| !first.starts_with('-'))
-            .map(|value| {
+            .inspect(|_| {
                 args.remove(0);
-                value
             })
     });
     let path = path.or_else(|| {
         args.first()
             .cloned()
             .filter(|first| !first.starts_with('-'))
-            .map(|value| {
+            .inspect(|_| {
                 args.remove(0);
-                value
             })
     });
     if !args.is_empty() {
@@ -2144,9 +2141,8 @@ fn parse_clipboard_write_file(
         args.first()
             .cloned()
             .filter(|first| !first.starts_with('-'))
-            .map(|value| {
+            .inspect(|_| {
                 args.remove(0);
-                value
             })
     });
     if !args.is_empty() {
