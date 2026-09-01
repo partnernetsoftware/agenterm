@@ -592,6 +592,31 @@ costs a full candidate cycle:
   for fewer promotion attempts.
 - [ ] The Windows job is the only long pole. The remaining five platforms finish
   in a fraction of its wall clock and idle waiting for it.
+- [~] v0.1.16 exposed why compiled target caches are not equivalent to
+  Cargo-home dependency caches. Two exact-SHA Windows attempts restored the
+  same cross-SHA-derived `target/debug` tree and the freshly rebuilt Script
+  worker then fast-failed with `0xc0000409` before its first gate. Candidate
+  target caches are now exact-source only and publish only after a successful
+  quality process; registry/git caches remain reusable across revisions. The
+  cold v3 court is the pending verdict on whether cached incremental state was
+  causal rather than merely correlated.
+
+### v0.1.16 qualification lessons
+
+- [x] qjswasm maps the public invocation string budget into the tool door's
+  all-or-nothing result ceiling; an explicit 8 MiB task can therefore read its
+  reviewed multi-megabyte input without silently retaining the engine's 1 MiB
+  default.
+- [x] deterministic SPDX generation keeps full `cargo metadata --locked` as
+  resolver authority but projects only consumed fields before wasm parsing;
+  the resulting inventory covers 647 resolved packages without exhausting one
+  billion interpreter steps.
+- [x] the five-sample preflight benchmark uses the preflight task's declared
+  100 million-step contract. Its old 10 million Rhai-era override exhausted
+  the Windows child before report publication and falsely surfaced as a
+  missing-report failure.
+- [x] an exact-SHA preflight rejected a dispatch raced by a concurrent `main`
+  push before any build began. This is expected protection, not flaky CI.
 
 ### Verify locally before spending a candidate
 

@@ -194,6 +194,24 @@ fn candidate_cargo_home_caches_are_platform_isolated_and_revision_reusable() {
 }
 
 #[test]
+fn windows_candidate_target_cache_is_exact_source_and_success_only() {
+    let restore = CANDIDATE
+        .split("      - name:")
+        .find(|step| step.contains("Restore Windows x86_64 debug and release-fast targets"))
+        .expect("Windows target cache restore step");
+    let save = CANDIDATE
+        .split("      - name:")
+        .find(|step| step.contains("Save Windows x86_64 debug and release-fast targets"))
+        .expect("Windows target cache save step");
+
+    assert!(restore.contains("cargo-target-v3-windows-x86_64-candidate-"));
+    assert!(restore.contains("${{ inputs.source_sha }}"));
+    assert!(!restore.contains("restore-keys:"));
+    assert!(save.contains("if: success() && matrix.platform_id == 'windows-x86_64'"));
+    assert!(save.contains("cargo-target-v3-windows-x86_64-candidate-"));
+}
+
+#[test]
 fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(PROMOTION.contains("workflow_dispatch:"));
     assert!(PROMOTION.contains("candidate_run_id:"));
