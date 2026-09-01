@@ -2422,8 +2422,8 @@
     },
     {
       "id": "script-smoke",
-      "description": "Prove the unrestricted Script Runtime API, binary framing, supervision, Fleet, named tasks, HTTP, filesystem lifecycle, and audit privacy",
-      "entry": "scripts/qjs/script-smoke.qjs",
+      "description": "Prove the active qjswasm API, check/run/eval, tool process, bounded output, typed failures, computation budget, and audit privacy",
+      "entry": "scripts/qjs/script-qjswasm-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
@@ -2438,9 +2438,7 @@
       ],
       "side_effects": [
         "artifact_write",
-        "process_spawn",
-        "gui_spawn",
-        "network_loopback"
+        "process_spawn"
       ]
     },
     {

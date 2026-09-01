@@ -709,6 +709,16 @@ costs a full candidate cycle:
   feeds Rhai syntax to extensionless eval. Both attempts failed identically.
   It must be behaviorally ported or truthfully removed from this version's
   evidence contract; selecting qjswasm alone would not make Rhai source valid.
+- [x] the active Script release court now owns seven executable qjswasm claims
+  instead of signing nineteen Rhai-era claims from unreachable source strings.
+  Its local public run passes API/catalog dogfood, `.qjs` check/run, expression
+  eval, argv, bounded child stdout/stderr, typed missing-child failure,
+  computation-budget refusal and audit privacy. Its intentional failure probe
+  retains a bounded suite=`script` bundle and a successful eval record without
+  copying source or argument markers into audit, command log or manifest (the
+  run-owned source fixture itself remains in the failure bundle). Integrated Quick passes PRD alignment
+  (64 capabilities / 123 executable evidence), Clippy and 711 library tests;
+  remote exact-SHA Candidate evidence remains required.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

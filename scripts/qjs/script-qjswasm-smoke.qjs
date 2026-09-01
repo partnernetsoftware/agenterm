@@ -1,0 +1,247 @@
+// Public black-box court for the active qjswasm Script Runtime.
+//
+// This suite intentionally proves only behavior that the shipped `.qjs`
+// backend executes. Rhai-only task scheduling, HTTP, project fixtures and REPL
+// evidence went dark with the rh implementation and are not emitted here.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+import * as smoke from "lib/script_smoke_helpers";
+
+const EVIDENCE = [
+  "script.api-tree",
+  "script.qjs-runtime",
+  "script.qjs-robustness-budget",
+  "script.qjs-tool-process",
+  "script.typed-errors",
+  "script.stream",
+  "script.audit"
+];
+
+const REDACTIONS = ["AUDIT_SOURCE_SECRET", "AUDIT_ARG_SECRET"];
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function emit(context, id) {
+  harness.emit_evidence(context, EVIDENCE, id);
+}
+
+function api_contract(context, cli, runtime_dir, audit_path) {
+  print("STEP active qjswasm API discovery and repository dogfood");
+  const envelope_path = rh.join(runtime_dir, "script-api-envelope.json");
+  const catalog_path = rh.join(runtime_dir, "script-catalog.json");
+  const envelope = smoke.cli_json_spooled(
+    context,
+    cli,
+    ["script", "api", "--json"],
+    audit_path,
+    envelope_path
+  );
+  require(envelope.ok, "script_qjs_api_envelope");
+  const catalog = envelope.value;
+  rh.atomic_write(catalog_path, rh.stringify_pretty(catalog) + "\n");
+  require(
+    catalog.api_version === 2
+      && catalog.schema_version === 3
+      && catalog.execution_model === "unrestricted_local"
+      && catalog.framing.version === 1
+      && catalog.supervisor.global_concurrency === 8,
+    "script_qjs_api_identity"
+  );
+  require(
+    catalog.exit_classes.limit === 3
+      && catalog.exit_classes.child === 4
+      && catalog.exit_classes.cancelled === 5,
+    "script_qjs_exit_classes"
+  );
+
+  const repo = rh.absolute(".");
+  const verified = smoke.cli_text(
+    context,
+    cli,
+    [
+      "script", "run", rh.join(repo, "scripts/qjs/verify-script-contract.qjs"),
+      "--profile", "tool", "--timeout-ms", "180000",
+      "--max-string-bytes", "8388608", "--",
+      rh.join(repo, "docs/agenterm-rh-runtime.md"),
+      catalog_path
+    ],
+    audit_path
+  );
+  require(
+    verified.startsWith("PASS: Script verified the Script API contract"),
+    "script_qjs_api_dogfood"
+  );
+  emit(context, "script.api-tree");
+  return catalog;
+}
+
+function runtime_source() {
+  return "// AUDIT_SOURCE_SECRET must be fingerprinted, never copied to audit output.\n"
+    + "const values=[]; let i=0;\n"
+    + "while(arg(i)===0){ values.push(tool_result()); i=i+1; }\n"
+    + "const spec={program:values[0],args:[\"--version\"],timeout_ms:5000};\n"
+    + "if(process_command(JSON.stringify(spec))!==0){throw \"process_command:\"+tool_result();}\n"
+    + "const output=JSON.parse(tool_result());\n"
+    + "const missing={program:\"agenterm-definitely-missing-executable\",args:[],timeout_ms:1000};\n"
+    + "const missing_status=process_command(JSON.stringify(missing));\n"
+    + "const missing_detail=tool_result();\n"
+    + "time_now_ms(); const before=Number(tool_result());\n"
+    + "time_sleep_ms(2); time_now_ms(); const after=Number(tool_result());\n"
+    + "print(JSON.stringify({argv:values,success:output.success,exit_code:output.exit_code,"
+    + "stdout:output.stdout,stderr:output.stderr,timed_out:output.timed_out,"
+    + "missing_status:missing_status,missing_detail:missing_detail,monotonic:after>=before}));\n"
+    + "return;\n";
+}
+
+function active_runtime(context, cli, runtime_dir, audit_path) {
+  print("STEP qjs run/check, argv, time and typed process/stream behavior");
+  const source_path = rh.join(runtime_dir, "active-runtime.qjs");
+  rh.atomic_write(source_path, runtime_source());
+
+  const checked = smoke.cli_text(
+    context,
+    cli,
+    ["script", "check", source_path, "--profile", "tool"],
+    audit_path
+  );
+  require(checked === "OK", "script_qjs_check");
+
+  const output = smoke.run_cli(
+    context,
+    cli,
+    [
+      "script", "run", source_path,
+      "--profile", "tool", "--timeout-ms", "180000", "--",
+      cli, "AUDIT_ARG_SECRET"
+    ],
+    0,
+    audit_path,
+    {},
+    REDACTIONS
+  );
+  const result = JSON.parse(output.stdout.trim());
+  require(
+    result.argv.length === 2
+      && result.argv[0] === cli
+      && result.argv[1] === "AUDIT_ARG_SECRET"
+      && result.success
+      && result.exit_code === 0
+      && result.stdout.startsWith("agenterm 0.1.16")
+      && result.stderr === ""
+      && !result.timed_out
+      && result.missing_status !== 0
+      && result.missing_detail.includes("agenterm-definitely-missing-executable")
+      && result.monotonic,
+    "script_qjs_runtime_result"
+  );
+  emit(context, "script.qjs-runtime");
+  emit(context, "script.qjs-tool-process");
+  emit(context, "script.typed-errors");
+  emit(context, "script.stream");
+  return source_path;
+}
+
+function robustness(context, cli, runtime_dir, audit_path) {
+  print("STEP qjs computation and output budgets fail closed");
+  const loop_path = rh.join(runtime_dir, "budget-loop.qjs");
+  rh.atomic_write(loop_path, "while(true){}\n");
+  const limited = smoke.run_cli(
+    context,
+    cli,
+    [
+      "script", "run", loop_path,
+      "--profile", "tool", "--max-operations", "1000", "--timeout-ms", "5000"
+    ],
+    3,
+    audit_path,
+    {},
+    []
+  );
+  require(
+    (limited.stdout + limited.stderr).includes("max_steps"),
+    "script_qjs_step_budget_untyped"
+  );
+
+  const eval_result = smoke.run_cli(
+    context,
+    cli,
+    ["script", "eval", "40 + 2", "--profile", "tool", "--timeout-ms", "5000"],
+    0,
+    audit_path,
+    {AGENTERM_SCRIPT_BACKEND: "qjswasm"},
+    []
+  );
+  require(eval_result.stdout.trim() === "42", "script_qjs_eval_expression");
+  emit(context, "script.qjs-robustness-budget");
+}
+
+function audit_contract(context, audit_path) {
+  print("STEP qjs audit is identity-bearing and content-redacted");
+  require(rh.exists(audit_path), "script_qjs_audit_missing");
+  const text = rh.read_text(audit_path);
+  require(
+    text.includes("invocation_id")
+      && !text.includes("AUDIT_SOURCE_SECRET")
+      && !text.includes("AUDIT_ARG_SECRET"),
+    "script_qjs_audit_privacy"
+  );
+  emit(context, "script.audit");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of EVIDENCE) { print(id); }
+  return;
+}
+
+harness.require(
+  args.length === 4 || (args.length === 5 && args[4] === "--internal-failure-bundle-probe"),
+  "expected: REPO CLI_EXE SCRIPT_EXE GUI_EXE [--internal-failure-bundle-probe]"
+);
+const repo = rh.absolute(args[0]);
+const cli = rh.absolute(args[1]);
+const script = rh.absolute(args[2]);
+const gui = rh.absolute(args[3]);
+const internal_failure_probe = args.length === 5;
+for (const executable of [cli, script, gui]) {
+  harness.require(rh.exists(executable), "script_qjs_executable_missing");
+}
+
+const context = harness.new_context(repo, "script");
+const runtime_dir = rh.join(context.run_directory, "runtime");
+const audit_path = rh.join(runtime_dir, "audit.jsonl");
+rh.create_dir_all(runtime_dir);
+let succeeded = 0;
+let failure = "";
+try {
+  const catalog = api_contract(context, cli, runtime_dir, audit_path);
+  active_runtime(context, cli, runtime_dir, audit_path);
+  robustness(context, cli, runtime_dir, audit_path);
+  audit_contract(context, audit_path);
+  require(catalog.api_version === 2, "script_qjs_catalog_lost");
+  if (internal_failure_probe) {
+    throw "INTERNAL_FAILURE_BUNDLE_PROBE:script:" + context.run_id;
+  }
+  succeeded = 1;
+  print("PASS: active qjswasm runtime, tool process, budgets and audit privacy");
+} catch (error) {
+  const safe_error = harness.redact_text("" + error, REDACTIONS);
+  const marker = "INTERNAL_FAILURE_BUNDLE_PROBE:script:" + context.run_id;
+  failure = internal_failure_probe && safe_error.includes(marker)
+    ? marker + "\nintentional script failure-bundle probe"
+    : safe_error;
+}
+
+harness.scrub_retained_text(context, REDACTIONS);
+let completion_failure = "";
+try {
+  harness.complete(context, [], succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && completion_failure === "") { harness.remove_run(context); }
+if (succeeded === 0) { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

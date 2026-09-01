@@ -805,6 +805,13 @@ extensionless eval；两次均拒绝 no-default。不能用环境变量掩盖：
 源码仍不是 qjs。该分支以及紧随其后的 Rhai HTTP fixture / modules/tasks 必须逐项真迁移，
 或在版本 evidence contract 中按「dark」事实降级，未执行不得继续签发 evidence。
 
+本轮采用后一条已由产品现状决定的路径：v0.1.16 不临时发明 qjswasm task scheduler
+或 HTTP 门。`script-smoke` 入口改为一条新的 active qjswasm 黑盒，只签发 API tree、
+`.qjs` check/run + expression eval、tool process、stdout/stderr、typed missing-child、
+compute budget 与 audit privacy 七条真证据；Rhai-era 19 条列表从 qualification manifest
+移除，旧脚本仅作 syntax-checked migration history。后续能力实现时必须以新的真实
+黑盒重新晋级，不能复用旧 evidence 名称冒充已迁移。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

@@ -255,6 +255,35 @@ lua or qjs binding at all, and 9 of the 29 that do send a params object
 > work, not a revival of rh; the rh implementation and `.rh` corpus remain
 > archived.
 
+> **2026-09-02 release-evidence correction.** The first mechanical port of
+> `script-smoke` kept Rhai payload strings and still declared all nineteen
+> Rhai-era evidence IDs. Candidate `33559145060` proved that this was not a
+> behavioral port: the first task-timer payload failed twice before execution.
+> The active task is now `scripts/qjs/script-qjswasm-smoke.qjs`; the old file is
+> syntax-checked migration history only. Current shipped claims are deliberately
+> smaller and executable:
+>
+> - [x] active qjswasm runtime executes `.qjs` check/run and expression eval
+> - [x] qjswasm computation budget fails closed with the public limit exit class
+> - [x] qjswasm tool profile executes bounded child processes with typed failures
+> - [x] qjswasm tool process returns bounded child stdout and stderr
+> - [x] qjswasm tool process reports a missing child as a typed failure
+> - [x] privacy-bounded audit records contain identity without source or argument content
+>
+> Rhai-only task scheduling, high-level HTTP, the deleted project/north-star
+> fixtures, persistent REPL, framed Rhai payloads and Rhai-specific evidence
+> remain dark. They are not silently treated as qjswasm behavior, and the
+> active qualification manifest no longer permits their evidence IDs.
+
+### Active qjswasm release evidence
+
+- [x] active qjswasm runtime executes `.qjs` check/run and expression eval
+- [x] qjswasm computation budget fails closed with the public limit exit class
+- [x] qjswasm tool profile executes bounded child processes with typed failures
+- [x] qjswasm tool process returns bounded child stdout and stderr
+- [x] qjswasm tool process reports a missing child as a typed failure
+- [x] privacy-bounded audit records contain identity without source or argument content
+
 rh ran the whole build/qualify/release pipeline, and nothing else did. Moving
 it out turned every one of those off. This is the list; each item stays dark
 until its `.qjs` port lands (PRD 02.36 A1.2/A1.3: `path.qjs`, then the

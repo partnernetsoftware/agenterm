@@ -1,4 +1,7 @@
-// Public black-box Script Runtime regression and self-hosting journey.
+// Archived Rhai-era Script Runtime journey retained for migration reference.
+// The active `script-smoke` task is scripts/qjs/script-qjswasm-smoke.qjs.
+// This file is syntax-checked but must not emit release evidence: most nested
+// payloads below are Rhai source, not qjswasm programs.
 //
 // Args:
 //   --list-evidence

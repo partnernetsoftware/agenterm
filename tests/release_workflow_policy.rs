@@ -23,7 +23,7 @@ static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/qjs/lib/script_smoke_helpers.qjs").replace("\r\n", "\n")
 });
 static SCRIPT_SMOKE_QJS: LazyLock<String> =
-    LazyLock::new(|| include_str!("../scripts/qjs/script-smoke.qjs").replace("\r\n", "\n"));
+    LazyLock::new(|| include_str!("../scripts/qjs/script-qjswasm-smoke.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -57,6 +57,10 @@ static AUTOMATION_AUDIT_QJS: LazyLock<String> = LazyLock::new(|| {
 static TASKS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../agenterm.tasks.json"))
         .expect("agenterm.tasks.json must remain valid JSON")
+});
+static QUALIFICATION_GATES: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../scripts/qualification-gates.json"))
+        .expect("scripts/qualification-gates.json must remain valid JSON")
 });
 static GIT_ATTRIBUTES: LazyLock<String> =
     LazyLock::new(|| include_str!("../.gitattributes").replace("\r\n", "\n"));
@@ -184,21 +188,41 @@ fn script_smoke_executes_its_declared_complete_catalog_string_budget() {
 
 #[test]
 fn script_process_court_uses_the_qjs_tool_door_not_a_retired_rhai_child() {
-    let process_court = SCRIPT_SMOKE_QJS
-        .split("function assert_process_and_streams")
-        .nth(1)
-        .expect("process court exists");
-    let active = process_court
-        .split("// Archived Rhai contract below")
-        .next()
-        .expect("active qjs process court");
-    assert!(active.contains("process_command(JSON.stringify(command_spec))"));
-    assert!(active.contains("process_pid(lifecycle_child)"));
-    assert!(active.contains("{ AGENTERM_SCRIPT_BACKEND: \"qjswasm\" }"));
-    assert!(active.contains("\"\\\"process_timeout_topology\\\"\""));
-    assert!(!active.contains("print(\\\"process_timeout_topology\\\"); return 0;"));
-    assert!(!active.contains("process.rh"));
-    assert!(!active.contains("std::process::command"));
+    assert!(SCRIPT_SMOKE_QJS.contains("process_command(JSON.stringify(spec))"));
+    assert!(SCRIPT_SMOKE_QJS.contains("AGENTERM_SCRIPT_BACKEND: \"qjswasm\""));
+    assert!(SCRIPT_SMOKE_QJS.contains("script.qjs-tool-process"));
+    assert!(!SCRIPT_SMOKE_QJS.contains("process.rh"));
+    assert!(!SCRIPT_SMOKE_QJS.contains("rh::task"));
+    assert!(!SCRIPT_SMOKE_QJS.contains("std::process::command"));
+    assert!(!SCRIPT_SMOKE_QJS.contains("script.rh-"));
+}
+
+#[test]
+fn script_release_court_emits_only_active_qjswasm_evidence() {
+    let task = TASKS["tasks"]
+        .as_array()
+        .expect("task catalog array")
+        .iter()
+        .find(|task| task["id"] == "script-smoke")
+        .expect("script-smoke task");
+    assert_eq!(task["entry"], "scripts/qjs/script-qjswasm-smoke.qjs");
+
+    let gate = QUALIFICATION_GATES["required_gates"]
+        .as_array()
+        .expect("qualification gate array")
+        .iter()
+        .find(|gate| gate["id"] == "script-smoke")
+        .expect("script-smoke qualification gate");
+    assert_eq!(gate["suite"], "script-qjswasm-smoke");
+    let evidence = gate["evidence"].as_array().expect("script evidence array");
+    assert_eq!(evidence.len(), 7);
+    assert!(evidence.iter().all(|id| {
+        let id = id.as_str().expect("evidence id");
+        SCRIPT_SMOKE_QJS.contains(&format!("\"{id}\""))
+            && !id.starts_with("script.rh-")
+            && id != "script.http"
+            && id != "script.modules-tasks"
+    }));
 }
 
 #[test]

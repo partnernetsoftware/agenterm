@@ -1210,3 +1210,16 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   Rhai 语法，必须迁移行为或把已知 dark capability 从本版证据合同中如实降级。
 - HTTP fixture、modules/tasks 及后续 Rhai-era 分支仍需逐项核对，禁止仅改扩展名或
   在未执行时继续签发对应 evidence。
+
+### A.20 active qjswasm evidence court：本地资格
+
+- `script-smoke` 已切到 `scripts/qjs/script-qjswasm-smoke.qjs`；旧机械移植只保留
+  syntax-checked 历史，不再是 task/evidence owner。
+- 新 court 端到端 PASS：API tree + repository contract dogfood、`.qjs` check/run、
+  expression eval、argv、tool process、stdout/stderr、typed missing child、compute
+  budget fail-closed 与 audit privacy，共七条 evidence。
+- intentional failure-bundle probe 以 exit 1 留下 suite=`script` 的 bounded bundle，
+  command log 保留成功 eval=`42`；audit、command log 与 manifest 不含 source/argument
+  marker（run-owned source fixture 本身仍在 failure bundle 内）。
+- integrated Quick 全绿：PRD alignment 64 capabilities / 123 executable evidence，
+  Clippy，全库 711 tests；下一证据只接受新的 exact-SHA Candidate。

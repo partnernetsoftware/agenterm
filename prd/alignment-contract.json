@@ -522,20 +522,12 @@
       "evidence_ids": ["cli.control-receipts"]
     },
     {
-      "id": "scripting.rhai-runtime",
+      "id": "scripting.qjswasm-runtime",
       "kind": "behavior",
       "status": "shipped",
       "evidence_mode": "black-box",
-      "prd": "deterministic JSON-compatible values, arguments, bounded computation",
-      "evidence_ids": ["script.rh-runtime"]
-    },
-    {
-      "id": "scripting.rhai-fleet",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "Script API v2 maps every current typed operation exactly once to `fleet`",
-      "evidence_ids": ["script.rh-fleet"]
+      "prd": "active qjswasm runtime executes `.qjs` check/run and expression eval",
+      "evidence_ids": ["script.qjs-runtime"]
     },
     {
       "id": "scripting.api-tree",
@@ -546,28 +538,20 @@
       "evidence_ids": ["script.api-tree"]
     },
     {
-      "id": "scripting.rhai-robustness-budget",
+      "id": "scripting.qjswasm-robustness-budget",
       "kind": "behavior",
       "status": "shipped",
       "evidence_mode": "black-box",
-      "prd": "source, value, operation, call/expression depth",
-      "evidence_ids": ["script.rh-robustness-budget", "script.rh-framed"]
+      "prd": "qjswasm computation budget fails closed with the public limit exit class",
+      "evidence_ids": ["script.qjs-robustness-budget"]
     },
     {
-      "id": "scripting.supervisor",
-      "kind": "architecture",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "Rhai-independent supervisor owns a kill-on-close Windows Job Object",
-      "evidence_ids": ["script.supervisor"]
-    },
-    {
-      "id": "scripting.persistent-repl-supervision",
+      "id": "scripting.qjswasm-tool-process",
       "kind": "behavior",
       "status": "shipped",
       "evidence_mode": "black-box",
-      "prd": "Windows hosted persistent REPL supervision",
-      "evidence_ids": ["script.repl-supervision"]
+      "prd": "qjswasm tool profile executes bounded child processes with typed failures",
+      "evidence_ids": ["script.qjs-tool-process"]
     },
     {
       "id": "scripting.audit",
@@ -578,92 +562,20 @@
       "evidence_ids": ["script.audit"]
     },
     {
-      "id": "scripting.modules-tasks",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "local modules resolve from an explicit script/project root",
-      "evidence_ids": ["script.modules-tasks"]
-    },
-    {
       "id": "scripting.stream",
       "kind": "behavior",
       "status": "shipped",
       "evidence_mode": "black-box",
-      "prd": "child stdout/stderr expose a bytes-first `Stream` with invocation-local",
+      "prd": "qjswasm tool process returns bounded child stdout and stderr",
       "evidence_ids": ["script.stream"]
-    },
-    {
-      "id": "scripting.http",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "an independent loopback HTTP fixture covers request/response, headers,",
-      "evidence_ids": ["script.http"]
-    },
-    {
-      "id": "scripting.fleet-v2",
-      "kind": "architecture",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "Script API v2 maps every current typed operation exactly once to `fleet` and verifies mutation receipts, correlated events, and post-state",
-      "evidence_ids": ["script.fleet-v2"]
-    },
-    {
-      "id": "fleet.tabs-set-note",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "`fleet.tabs.set_note` returns a receipt, causal `tab.note` event",
-      "evidence_ids": ["script.fleet-tabs-set-note"]
-    },
-    {
-      "id": "scripting.fs-lifecycle",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "blocking `read`, `read_to_string`, text/bytes `write`, `exists`",
-      "evidence_ids": ["script.fs-lifecycle"]
-    },
-    {
-      "id": "scripting.runtime-lifecycle",
-      "kind": "architecture",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "`temp_dir` exposes only the current invocation-owned directory",
-      "evidence_ids": ["script.runtime-lifecycle"]
-    },
-    {
-      "id": "scripting.exit-classes",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "public result envelopes expose stable success, configuration, limit,",
-      "evidence_ids": ["script.exit-classes"]
     },
     {
       "id": "scripting.typed-errors",
       "kind": "behavior",
       "status": "shipped",
       "evidence_mode": "black-box",
-      "prd": "`Output.require_success(code)` emits the same stable `child_nonzero`",
+      "prd": "qjswasm tool process reports a missing child as a typed failure",
       "evidence_ids": ["script.typed-errors"]
-    },
-    {
-      "id": "scripting.direct-entry",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "one-shot `run`, `eval`, `check`, `api`, and task invocations still own",
-      "evidence_ids": ["script.direct-entry"]
-    },
-    {
-      "id": "scripting.north-star",
-      "kind": "behavior",
-      "status": "shipped",
-      "evidence_mode": "black-box",
-      "prd": "public `examples/script-daily-check` north-star task combines Unicode",
-      "evidence_ids": ["script.north-star"]
     },
     {
       "id": "scripting.rust-host-rhai-language",

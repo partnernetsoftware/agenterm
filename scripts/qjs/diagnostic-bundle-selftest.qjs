@@ -229,7 +229,7 @@ if (failure === "") {
   const script_before = retained_bundles(bundle_root);
   const script_probe = start_task_probe(
     outer_context, script, repo,
-    path.join(repo, "scripts/qjs/script-smoke.qjs"),
+    path.join(repo, "scripts/qjs/script-qjswasm-smoke.qjs"),
     [repo, cli, script, gui], "120000",
     ["--max-string-bytes", "8388608", "--max-output-bytes", "1048576"]
   );
