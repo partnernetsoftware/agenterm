@@ -672,6 +672,15 @@ costs a full candidate cycle:
   24,780 added lines of shipped observe, transport, authorization and receipt
   behavior. The correction is bounded at 2 MiB in the top-level and both
   Windows platform records, rather than inheriting Unix's 4 MiB allowance.
+- [x] Cargo target inventory remains an exact, bounded walk without sending
+  every file or a large directory listing through the Script bridge. Candidate
+  `33523176989` proved both the generic 4,096-host-operation ceiling and the
+  bounded bridge-result size are smaller than normal release trees. One
+  `fs.tree_summary(path, max_entries)` operation now performs the walk natively,
+  refuses atomically beyond 1,000,000 entries, and returns only fixed-size
+  totals; the task keeps the generic host-op budget and its coordinator honors
+  the same 120-second deadline. A 204,283-file / 44,738,264,418-byte local tree
+  completed in 1.88 seconds without increasing either Script compute budget.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

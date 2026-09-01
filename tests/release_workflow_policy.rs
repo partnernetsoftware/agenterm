@@ -25,6 +25,10 @@ static INTERNAL_VERSION_QJS: LazyLock<String> = LazyLock::new(|| {
 static AUTOMATION_AUDIT_QJS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/qjs/cross-platform-automation-audit.qjs").replace("\r\n", "\n")
 });
+static TASKS: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../agenterm.tasks.json"))
+        .expect("agenterm.tasks.json must remain valid JSON")
+});
 static GIT_ATTRIBUTES: LazyLock<String> =
     LazyLock::new(|| include_str!("../.gitattributes").replace("\r\n", "\n"));
 
@@ -56,6 +60,14 @@ fn windows_cu_budget_is_the_governing_two_mib_control_cli_budget() {
             .unwrap_or_else(|| panic!("missing Windows platform {arch}"));
         assert_eq!(budget_for(&platform["executables"]), CONTROL_CLI_BUDGET);
     }
+}
+
+#[test]
+fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
+    let budget = &TASKS["contracts"]["target-report"]["budget"];
+    assert_eq!(budget["timeout_ms"], 120_000);
+    assert!(budget.get("max_host_operations").is_none());
+    assert!(CHECK_QJS.contains("task(worker, repo, \"target-report\", 120000, [], no_env, 0)"));
 }
 
 #[test]

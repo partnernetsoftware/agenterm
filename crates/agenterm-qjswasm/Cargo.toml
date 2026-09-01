@@ -19,7 +19,7 @@ agenterm-script-common = { path = "../agenterm-script-common" }
 # The `process.window_*` and `process.platform_facts` ops: the platform
 # crate owns the process-window contract and its adapters; the door only
 # maps a handle to a pid and JSON to the contract types.
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["window", "portable-pixel-window", "process"] }
+agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["filesystem-usage", "window", "portable-pixel-window", "process"] }
 # `image.inspect_png`: the evidence PNGs the GUI journeys read back --
 # width, height, sample count, mean luminance -- decoded with the same
 # crate the root uses to write them.

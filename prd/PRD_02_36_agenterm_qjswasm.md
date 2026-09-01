@@ -688,6 +688,17 @@ A1.3 开 `tool.fs/process/env` 门（37 个具名 import）；然后才迁第一
 要同时用到两者，而那要 A1.6 先接线。表里 A1.2 / A1.3 两行原先写的是「迁一个非门脚本」「迁 8 个
 门脚本」，与本节末尾定下的顺序不一致，已按实际发生的事重写；迁脚本本身现在是 A1.5。
 
+#### A1.12b · 大树统计不逐 entry 过桥（2026-09-01，已完成）
+
+v0.1.16 Candidate `33523176989` 的 `target-report` 先用尽默认 4,096 host
+ops；本机抬高后又被单个大型 `deps/` 的 `fs.read_dir` JSON 撞穿
+bridge-result 上限。两次失败证明抬预算不是解法。平台 crate 现拥有
+`regular_tree_summary_bounded`，`tool.fs.tree_summary(path,max_entries)` 只做
+契约/JSON 翻译；原生侧硬顶 1,000,000 entries、拒绝 partial truth、不跟随
+symlink/reparse，并只把固定大小摘要过桥。`target-report` 保留默认 host-op
+与 compute 预算；204,283 files / 44,738,264,418 B 实测 1.88 s，后续同树
+0.90 s。门测试钉精确 bucket/bytes 与 ceiling+1 拒绝。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

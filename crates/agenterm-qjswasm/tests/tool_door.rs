@@ -154,6 +154,47 @@ fn fs_create_dir_all_then_read_dir_is_sorted_json() {
     assert!(nested.join("mid").is_dir());
 }
 
+#[test]
+fn fs_tree_summary_is_exact_bounded_and_small_across_a_nested_tree() {
+    let dir = Scratch::new("tree-summary");
+    let root = dir.path("target");
+    let deps = root.join("debug").join("deps");
+    std::fs::create_dir_all(&deps).expect("nested fixture");
+    std::fs::write(root.join("root.bin"), "x").expect("root fixture");
+    std::fs::write(root.join("debug").join("debug.bin"), "abc").expect("debug fixture");
+    std::fs::write(deps.join("dependency.bin"), "12345").expect("deps fixture");
+
+    let out = run_tool(&format!(
+        r#"
+        if (fs_tree_summary({root}, 5) !== 0) {{ return "summary: " + tool_result(); }}
+        return tool_result();
+        "#,
+        root = js(&root)
+    ));
+    let report: serde_json::Value =
+        serde_json::from_str(&string_of(&out)).expect("tree summary JSON");
+    assert_eq!(report["complete"], true);
+    assert_eq!(report["entries"], 5);
+    assert_eq!(report["files"], 3);
+    assert_eq!(report["bytes"], 9);
+    assert_eq!(report["profiles"][0]["name"], "(root)");
+    assert_eq!(report["profiles"][0]["files"], 1);
+    assert_eq!(report["profiles"][1]["name"], "debug");
+    assert_eq!(report["profiles"][1]["files"], 2);
+
+    let bounded = run_tool(&format!(
+        r#"
+        let status = fs_tree_summary({root}, 4);
+        return status + ":" + tool_result();
+        "#,
+        root = js(&root)
+    ));
+    assert!(
+        string_of(&bounded).contains("tree summary entry limit 4 exceeded"),
+        "{bounded:?}"
+    );
+}
+
 /// A missing file is status 1 with a readable diagnostic, not a trap and not
 /// an empty string.
 #[test]

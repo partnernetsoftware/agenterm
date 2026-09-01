@@ -21,6 +21,7 @@
         "std.fs.exists",
         "std.fs.metadata",
         "std.fs.read-dir",
+        "std.fs.tree-summary",
         "std.fs.read-to-string",
         "std.fs.copy",
         "std.fs.create-dir-all",

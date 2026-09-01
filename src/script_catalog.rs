@@ -287,6 +287,18 @@ pub fn entries() -> Vec<ScriptApiEntry> {
             ),
         ),
         shipped_local_entry(
+            "std.fs.tree-summary",
+            "system/filesystem/tree-summary",
+            "bounded recursive filesystem summary",
+            None,
+            RustMapping::Adapted,
+            "bounded_tree_summary(path, max_entries)",
+            (
+                &["filesystem_metadata", "bounded_directory_enumeration"],
+                &["fs_tree_summary"],
+            ),
+        ),
+        shipped_local_entry(
             "std.fs.create-dir",
             "system/filesystem/create-directory",
             "std::fs::create_dir",

@@ -250,6 +250,7 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `fs_exists(p)` / `env_has(n)` | `tool.fs.exists` / `tool.env.has` | 直接 `1`/`0`；`-1` = 问不了（非 UTF-8），诊断暂存 |
 | `fs_read_to_string(p)` `fs_write(p, text)` `fs_create_dir_all(p)` `fs_remove_file(p)` | `tool.fs.*` | status `0`/`1`；文本或诊断暂存 |
 | `fs_metadata(p)` / `fs_read_dir(p)` | `tool.fs.metadata` / `tool.fs.read_dir` | status；暂存 JSON `{is_file,is_dir,len}` / 按名排序的 `[{name,path,is_file,is_dir,is_symlink}]` |
+| `fs_tree_summary(p,max_entries)` | `tool.fs.tree_summary` | status；原生侧在显式 entry 上限内递归统计文件数、逻辑字节、mtime 与首层 bucket，固定大小 JSON 过桥；超限整体拒绝，不返回截断真相 |
 | `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,timed_out}`；无 `timeout_ms` 默认 60 s 后杀 |
 | `process_id()` | `tool.process.id` | 直接 pid |
 | `env_get(n)` / `env_cwd()` | `tool.env.get` / `tool.env.cwd` | status；值或诊断暂存（未设置是 status `1`，不是空串——要空串用 `env_has`） |

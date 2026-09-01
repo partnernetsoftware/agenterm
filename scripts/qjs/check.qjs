@@ -1079,7 +1079,9 @@ ordinary_gate("supply-chain", "locked dependency licenses and SPDX inventory",
   // package lock was contended; the manifest budget is 300s.
   task(worker, repo, "supply-chain", 180000, [repo, path.join(repo, "dist/agenterm-sbom.spdx.json")], no_env, 0));
 ordinary_gate("target-report", "Cargo target inventory",
-  task(worker, repo, "target-report", 10000, [], no_env, 0));
+  // The manifest owns a 120 s bounded exact walk. Do not let this coordinator
+  // silently replace that contract with a 10 s process timeout on large trees.
+  task(worker, repo, "target-report", 120000, [], no_env, 0));
 ordinary_gate("internal-version-policy", "internal version publication policy",
   task(worker, repo, "internal-version-policy", 10000, [], no_env, 0));
 ordinary_gate("qualification-selftest", "qualification fail-closed self-test",

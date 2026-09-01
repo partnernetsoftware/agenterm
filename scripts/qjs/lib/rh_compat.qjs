@@ -106,6 +106,10 @@ export function read_dir(p) {
   return JSON.parse(door(fs_read_dir(p), "fs_read_dir " + p));
 }
 
+export function tree_summary(p, max_entries) {
+  return JSON.parse(door(fs_tree_summary(p, max_entries), "fs_tree_summary " + p));
+}
+
 export function create_dir_all(p) {
   door(fs_create_dir_all(p), "fs_create_dir_all " + p);
 }

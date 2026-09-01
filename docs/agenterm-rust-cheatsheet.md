@@ -606,6 +606,16 @@ Use the smallest authoritative evidence first:
 7. Release artifact and size.
 8. Integrated repository/release gate only at the proper boundary.
 
+When a Script task summarizes a large filesystem tree, do not issue one host
+call per entry or return a whole directory listing through a bounded bridge.
+Put the neutral bounded walk in `agenterm-platform`, require an explicit entry
+ceiling, fail without partial truth when the ceiling is crossed, and return a
+fixed-size aggregate through one Script host operation. The v0.1.16 Candidate
+proved both failure modes in sequence: 4,096 host operations were insufficient,
+then one `deps/` listing exceeded the bridge result cap. Native aggregation
+measured 204,283 files / 44,738,264,418 logical bytes in 1.88 seconds without
+raising Script compute or host-operation budgets.
+
 GUI tests inherit `AGENTERM_NO_ACTIVATE=1`. Use public `wait-*` commands instead
 of fixed sleeps. A test that launches a GUI must own endpoint/workspace
 isolation and process cleanup.

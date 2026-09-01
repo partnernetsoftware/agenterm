@@ -66,65 +66,30 @@ if (exists !== 0) {
   }
 }
 
-const pending = [];
-if (exists !== 0) {
-  pending.push({ queue_root: "" + target_path, queue_profile: "(root)" });
-}
-
-const seen_profiles = {};
-const file_rows = [];
 let file_count = 0;
 let total_bytes = 0;
 let oldest_millis = 0;
 let oldest_text = "";
 let newest_millis = 0;
 let newest_text = "";
-let head = 0;
-while (head < pending.length) {
-  const item = pending[head];
-  const item_profile = "" + item.queue_profile;
-  const scan_path = rh.absolute("" + item.queue_root);
-  head = head + 1;
-  for (const dir_entry of rh.read_dir(scan_path)) {
-    if (dir_entry.is_dir) {
-      const child = "" + dir_entry.path;
-      let child_profile = "" + item_profile;
-      if (item_profile === "(root)") {
-        child_profile = "" + dir_entry.name;
-      }
-      pending.push({ queue_root: child, queue_profile: child_profile });
-    }
-    if (dir_entry.is_file) {
-      // The door's read_dir entry carries no metadata; ask for the file's.
-      const metadata = rh.metadata("" + dir_entry.path);
-      let modified_millis = 0;
-      if (metadata.modified_ms !== undefined && metadata.modified_ms !== null) {
-        modified_millis = metadata.modified_ms;
-      }
-      const bytes = metadata.len;
-
-      file_count = file_count + 1;
-      total_bytes = total_bytes + bytes;
-      if (file_count === 1) {
-        oldest_millis = modified_millis;
-        oldest_text = rh.rfc3339_from_ms(modified_millis);
-        newest_millis = modified_millis;
-        newest_text = rh.rfc3339_from_ms(modified_millis);
-      }
-      if (modified_millis < oldest_millis) {
-        oldest_millis = modified_millis;
-        oldest_text = rh.rfc3339_from_ms(modified_millis);
-      }
-      if (modified_millis > newest_millis) {
-        newest_millis = modified_millis;
-        newest_text = rh.rfc3339_from_ms(modified_millis);
-      }
-
-      if (seen_profiles[item_profile] === undefined) {
-        seen_profiles[item_profile] = true;
-      }
-      file_rows.push({ profile: item_profile, bytes: bytes });
-    }
+let profile_reports = [];
+if (exists !== 0) {
+  // One bounded native walk avoids two independent failure modes of the old
+  // script-side traversal: one host operation per file and a whole large
+  // directory encoded into one bridge result. The native operation refuses
+  // the entire answer if this explicit ceiling is reached.
+  const summary = rh.tree_summary(target_path, 1000000);
+  rh.require(summary.complete === true, "target_report_incomplete_tree_summary");
+  file_count = summary.files;
+  total_bytes = summary.bytes;
+  profile_reports = summary.profiles;
+  if (summary.oldest_modified_ms !== null) {
+    oldest_millis = summary.oldest_modified_ms;
+    oldest_text = rh.rfc3339_from_ms(oldest_millis);
+  }
+  if (summary.newest_modified_ms !== null) {
+    newest_millis = summary.newest_modified_ms;
+    newest_text = rh.rfc3339_from_ms(newest_millis);
   }
 }
 
@@ -136,19 +101,6 @@ if (file_count > 0) {
 }
 const oldest_age_whole = rh.int_div(oldest_age_thousandths, 1000);
 const oldest_age_frac = oldest_age_thousandths % 1000;
-
-const profile_reports = [];
-for (const name of Object.keys(seen_profiles)) {
-  let files = 0;
-  let bytes = 0;
-  for (const row of file_rows) {
-    if (row.profile === name) {
-      files = files + 1;
-      bytes = bytes + row.bytes;
-    }
-  }
-  profile_reports.push({ name: name, files: files, bytes: bytes });
-}
 
 const report = {
   schema_version: 1,

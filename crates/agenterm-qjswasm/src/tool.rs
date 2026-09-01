@@ -8,6 +8,7 @@
 //! fs.create_dir_all(ptr, len)             -> i32   // status
 //! fs.remove_file(ptr, len)                -> i32   // status
 //! fs.read_dir(ptr, len)                   -> i32   // status, JSON array parked
+//! fs.tree_summary(ptr, len, max_entries)  -> i32   // status, bounded JSON summary parked
 //! fs.metadata(ptr, len)                   -> i32   // status, JSON object parked
 //! process.command(ptr, len)               -> i32   // status, JSON object parked; spec is JSON
 //! process.id()                            -> i32   // this process's pid
@@ -108,7 +109,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 42] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 43] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -118,6 +119,7 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 42] = [
     ("fs.create_dir_all", 2, 1),
     ("fs.remove_file", 2, 1),
     ("fs.read_dir", 2, 1),
+    ("fs.tree_summary", 3, 1),
     ("fs.metadata", 2, 1),
     ("process.command", 2, 1),
     ("process.command_stdout", 2, 1),
@@ -195,6 +197,11 @@ pub(crate) fn declarations() -> Vec<HostFn> {
         decl("fs.create_dir_all", s(), HostResult::I32),
         decl("fs.remove_file", s(), HostResult::I32),
         decl("fs.read_dir", s(), HostResult::I32),
+        decl(
+            "fs.tree_summary",
+            vec![HostParam::StrPtrLen, HostParam::I32],
+            HostResult::I32,
+        ),
         decl("fs.metadata", s(), HostResult::I32),
         decl("process.command", s(), HostResult::I32),
         decl("process.command_stdout", s(), HostResult::I32),
@@ -818,6 +825,21 @@ pub(crate) fn install(
         let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
         answer(&state, "fs.read_dir", || read_dir(utf8(path)?))
     })?;
+
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "fs.tree_summary",
+        move |args, memory| {
+            let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+            let max_entries = arg(args, 2)?;
+            answer(&state, "fs.tree_summary", || {
+                tree_summary(utf8(path)?, max_entries)
+            })
+        },
+    )?;
 
     let state = Rc::clone(&shared);
     bind_metered(module, &meter, DOOR, "fs.metadata", move |args, memory| {
@@ -1725,6 +1747,38 @@ fn read_dir(path: &str) -> Result<String, String> {
         })
         .collect();
     Ok(serde_json::Value::Array(items).to_string())
+}
+
+/// Summarize one filesystem tree without sending every directory entry through
+/// the guest bridge. The caller chooses a positive entry ceiling, itself
+/// capped here, so one host operation cannot hide an unbounded native walk.
+/// Symlinks are ignored exactly as `fs.read_dir` callers that only recurse into
+/// `is_dir` and count `is_file` ignored them.
+fn tree_summary(path: &str, max_entries: i32) -> Result<String, String> {
+    let max_entries = usize::try_from(max_entries)
+        .map_err(|_| "fs.tree_summary: max_entries must be a positive integer".to_string())?;
+    let summary = agenterm_platform::filesystem_usage::regular_tree_summary_bounded(
+        std::path::Path::new(path),
+        max_entries,
+    )
+    .map_err(|e| format!("fs.tree_summary `{path}`: {e}"))?;
+    let profiles: Vec<serde_json::Value> = summary
+        .buckets
+        .into_iter()
+        .map(|bucket| {
+            serde_json::json!({"name": bucket.name, "files": bucket.files, "bytes": bucket.bytes})
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "complete": true,
+        "entries": summary.entries,
+        "files": summary.files,
+        "bytes": summary.bytes,
+        "oldest_modified_ms": summary.oldest_modified_ms,
+        "newest_modified_ms": summary.newest_modified_ms,
+        "profiles": profiles,
+    })
+    .to_string())
 }
 
 /// What `process.command` takes, as JSON. Unknown fields are refused rather
