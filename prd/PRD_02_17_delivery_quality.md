@@ -733,6 +733,12 @@ costs a full candidate cycle:
   Windows court passed through remote UI, upgrade, and Fleet stress before its
   stale execution mapping entered the archived Rhai journey twice and failed
   closed before runtime courts or aggregate.
+- [x] qjswasm's 64 MiB default remains the ordinary Script contract; only the
+  two measured long Windows UI courts opt into a bounded 256 MiB heap.
+  Candidate `33563996064` proved the active Script court and its seven claims,
+  then reproduced `workbench-smoke` heap exhaustion twice after its final
+  sidebar interaction. `remote-ui-smoke` and `workbench-smoke` therefore own
+  the explicit 4096-page price; every other suite retains 1024 pages.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

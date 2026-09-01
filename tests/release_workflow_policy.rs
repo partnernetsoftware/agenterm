@@ -149,13 +149,13 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
 }
 
 #[test]
-fn remote_ui_smoke_prices_its_large_bump_heap_without_raising_the_default() {
+fn long_ui_smokes_price_their_bump_heaps_without_raising_the_default() {
     let check = include_str!("../scripts/qjs/check.qjs");
     let engine = include_str!("../src/script_engine.rs");
     assert!(
         check.contains("AGENTERM_QJS_MAX_MEMORY_PAGES: \"4096\"")
-            && check.contains("id === \"remote-ui-smoke\""),
-        "the one measured long GUI court must opt into its 256 MiB heap"
+            && check.contains("id === \"remote-ui-smoke\" || id === \"workbench-smoke\""),
+        "the two measured long GUI courts must opt into their 256 MiB heaps"
     );
     assert!(
         engine.contains("pub(crate) const QJS_MAX_MEMORY_PAGES: usize = 1024;"),

@@ -1138,16 +1138,18 @@ if (skip_smoke === 0) {
     if (id === "remote-ui-upgrade-smoke") { extra.push(upgrade_fixture); }
     if (id === "fleet-smoke" && include_stress !== 0) { extra.push("--event-load"); }
     const smoke_allow_powershell = id === "remote-ui-smoke" ? 1 : 0;
-    // qjswasm deliberately keeps a 64 MiB default bump heap. This one long
-    // Windows black-box journey parses enough full UI projections to consume
-    // that bounded heap before its final interaction leaves; Candidate
+    // qjswasm deliberately keeps a 64 MiB default bump heap. These two long
+    // Windows black-box journeys parse enough full UI projections to consume
+    // that bounded heap before their final interaction leaves. Candidate
     // 33530768743 reproduced the same max_memory_pages failure twice after
     // completing the title/note step. Price this owning court explicitly at
     // 256 MiB instead of weakening the default for every script. Candidate
     // 33544608465 reached PASS twice but exhausted 128 MiB while publishing
     // final receipts after load-sensitive polling, proving 128 MiB was only a
-    // cliff rather than stable headroom.
-    const smoke_env = id === "remote-ui-smoke"
+    // cliff rather than stable headroom. Candidate 33563996064 then proved
+    // workbench-smoke independently exhausts 64 MiB twice after its final
+    // sidebar interaction. Price only these owning journeys at 256 MiB.
+    const smoke_env = (id === "remote-ui-smoke" || id === "workbench-smoke")
       ? {
           AGENTERM_NO_ACTIVATE: "1",
           AGENTERM_SCRIPT_WORKER_STDERR: "inherit",

@@ -1247,3 +1247,15 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   `agenterm.tasks.json` 的 active entry 更新。现在 task id 仍为稳定的
   `script-smoke`，但执行 entry 明确映射到 `script-qjswasm-smoke`，其 8 MiB string
   budget 也随 effective entry 判定。policy test 同时钉入口和预算，防止只修一半。
+
+### A.23 Candidate `33563996064`：active Script 通过，Workbench heap 定价
+
+- 五个轻 build cell 继续成功；Windows 完整门真实执行 active qjswasm court，七条
+  evidence 与 PASS 全部出现，证明执行映射与 8 MiB catalog budget 修复成立。
+- 后续 theme、working-context 也通过；`workbench-smoke` 在最后 sidebar interaction
+  后两次都以 typed `max_memory_pages` 停止。它已签发前两条 evidence，但尚未到完整
+  PASS，所以 runtime/aggregate 正确 fail-closed。
+- qjswasm 全局默认继续保持 1024 pages（64 MiB）。只有已测得会累积大量完整 UI
+  projections 的 `remote-ui-smoke` 与 `workbench-smoke` 两条 owning journeys 显式
+  使用 4096 pages（256 MiB）；其它脚本不继承该扩容。policy test 钉住这两个 id
+  和不变的全局默认。
