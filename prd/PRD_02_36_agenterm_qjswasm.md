@@ -775,6 +775,10 @@ verifier。Script budget 是每次 invocation 的显式合同，不继承；该 
 catalog 时仍只有 1 MiB。现只给 verifier 子调用显式同价 8 MiB，其余 children
 仍走默认。
 
+Candidate `33550278872` 第二次复现 PRD alignment 被宿主取消。根因是 full release
+lane 仍写死 Rhai 时代 10 秒，而 task contract 与 Quick lane 均为 120 秒；通常
+6–8 秒只是侥幸。现两条 lane 统一执行 120 秒合同，catalog/assertion 内容不变。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

@@ -674,6 +674,11 @@ costs a full candidate cycle:
   contracts, not inherited authority, so that nested verifier still had 1 MiB
   while reading the same complete catalog. The nested CLI now declares the
   same 8 MiB input contract explicitly; unrelated children remain at default.
+- [x] Candidate `33550278872` reproduced a release-driver timing split: the
+  full lane still gave PRD alignment the obsolete 10 s Rhai-era timeout while
+  its task contract and Quick lane both declare 120 s. Normal runs finish in
+  6–8 s, so runner load made this intermittent. Both lanes now execute the
+  same 120 s contract; alignment assertions and catalogs are unchanged.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

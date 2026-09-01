@@ -100,6 +100,17 @@ fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
 }
 
 #[test]
+fn all_prd_alignment_lanes_honor_the_declared_120_second_contract() {
+    let budget = &TASKS["contracts"]["prd-alignment"]["budget"];
+    assert_eq!(budget["timeout_ms"], 120_000);
+    assert!(
+        CHECK_QJS.contains("direct_task(\n      bootstrap_worker, repo, \"prd-alignment\", 120000")
+    );
+    assert!(CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 120000"));
+    assert!(!CHECK_QJS.contains("task(worker, repo, \"prd-alignment\", 10000"));
+}
+
+#[test]
 fn native_ipc_settings_paths_compare_host_separator_neutrally() {
     assert!(NATIVE_IPC_SMOKE_QJS.contains("function comparable_path(p)"));
     assert!(NATIVE_IPC_SMOKE_QJS.contains("replaceAll(\"\\\\\", \"/\")"));

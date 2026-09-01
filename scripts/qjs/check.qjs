@@ -1076,7 +1076,7 @@ function ordinary_gate(id, label, command_spec) {
 }
 
 ordinary_gate("prd-alignment", "PRD capability alignment",
-  task(worker, repo, "prd-alignment", 10000, [], no_env, 0));
+  task(worker, repo, "prd-alignment", 120000, [], no_env, 0));
 ordinary_gate("task-catalog", "repository script task catalog",
   task_catalog_spec(worker, repo));
 ordinary_gate("mcp-conformance", "public MCP conformance and isolation",

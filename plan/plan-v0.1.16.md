@@ -1161,3 +1161,11 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   catalog。
 - verifier 调用显式采用相同 8 MiB complete-string 合同；其他 child 不变，禁止
   用环境传播或全局抬价掩盖调用边界。
+
+### A.14 Candidate `33550278872`：PRD alignment 消除 10 秒随机 cliff
+
+- full release lane 第二次在 `prd-alignment` 被宿主取消；正常 6–8 秒、负载时超过
+  写死的 10 秒。
+- task contract 与 Quick lane 早已是 120 秒，只有 full lane 留着 Rhai-era 旧值。
+- full/Quick 统一为 120 秒；验证内容、catalog 与 fail-closed 断言不变，并以策略
+  测试禁止 10 秒旧值回归。
