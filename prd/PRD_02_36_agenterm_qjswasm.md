@@ -798,6 +798,13 @@ Candidate `33557523885` 的 `remote-ui-smoke` 首次在共享 runner 负载下�
 canonical gate 只由首次成功、重试成功或最终失败终结一次；这不放宽 qjswasm 预算，
 也不把两次真实失败改成成功。
 
+Candidate `33559145060` 证明上述 retry 修复成立：六个 build cell 全绿，remote UI
+首次耗尽后重试完整 PASS，upgrade 与 Fleet stress 继续全绿。新的确定性停点是
+`script-smoke` 的 task timer 分支仍把 Rhai 的 `rh::task` / `std::time` 源码送入
+extensionless eval；两次均拒绝 no-default。不能用环境变量掩盖：即使选 qjswasm，
+源码仍不是 qjs。该分支以及紧随其后的 Rhai HTTP fixture / modules/tasks 必须逐项真迁移，
+或在版本 evidence contract 中按「dark」事实降级，未执行不得继续签发 evidence。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

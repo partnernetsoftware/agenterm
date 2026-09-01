@@ -1200,3 +1200,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   `failed`，重试成功再写 `passed` 被合法的单向状态机拒绝。
 - 首次可重试执行现在只收集诊断，不终结 timing；首次成功、重试成功或最终重试失败
   三种结果都只写一次 canonical 状态。重试仍有界，第二次失败仍 fail-closed。
+
+### A.19 Candidate `33559145060`：重试修复成立，Script 旧能力仍未迁移
+
+- preflight 与六个 build cell 全绿；`remote-ui-smoke` 首次受负载耗尽、重试完整
+  PASS，证明 canonical timing 只终结一次的修复成立。upgrade 与 Fleet stress 也绿。
+- 下一确定性停点是 `script-smoke` 的 task timer 分支仍执行 Rhai 源码；两次都因
+  extensionless eval 没有默认引擎而失败。这里不能只注入 qjswasm：源码本身也是
+  Rhai 语法，必须迁移行为或把已知 dark capability 从本版证据合同中如实降级。
+- HTTP fixture、modules/tasks 及后续 Rhai-era 分支仍需逐项核对，禁止仅改扩展名或
+  在未执行时继续签发对应 evidence。

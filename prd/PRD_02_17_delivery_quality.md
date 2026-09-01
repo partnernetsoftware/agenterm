@@ -702,6 +702,13 @@ costs a full candidate cycle:
   diagnostics without finalizing timing; the canonical gate is written once
   by first success, retry success, or final retry failure. The retry remains
   bounded and a deterministic two-attempt failure remains fail-closed.
+- [~] Candidate `33559145060` proved the retry repair: all six build cells
+  passed, a load-sensitive remote UI first attempt exhausted its step budget,
+  and the complete retry was accepted; upgrade and Fleet stress then passed.
+  The next deterministic stop is the Script task-timer branch, which still
+  feeds Rhai syntax to extensionless eval. Both attempts failed identically.
+  It must be behaviorally ported or truthfully removed from this version's
+  evidence contract; selecting qjswasm alone would not make Rhai source valid.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
