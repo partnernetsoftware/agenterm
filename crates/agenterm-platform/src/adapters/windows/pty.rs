@@ -1679,11 +1679,6 @@ pub(crate) fn backend_report() -> crate::pty::BackendReport {
     }
 }
 
-/// The Windows build number, for callers that only want to print it.
-pub(crate) fn windows_build() -> Option<u32> {
-    current_windows_build().ok()
-}
-
 /// The pre-ConPTY path: an agent process stands in for the pseudoconsole.
 ///
 /// Deliberately built from the same pieces as the ConPTY path — the same

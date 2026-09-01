@@ -42,6 +42,9 @@ pub fn backend_report() -> BackendReport {
 
 /// The report every platform without a second backend answers: the one
 /// PTY it has. `selected.rs` decides who answers; no `cfg` lives here.
+// This facade remains compiled on Windows so the module has one neutral
+// shape, but `selected.rs` chooses the runtime ConPTY/console-agent report.
+#[allow(dead_code)]
 pub(crate) fn single_backend_report(kind: &'static str) -> BackendReport {
     BackendReport {
         kind,

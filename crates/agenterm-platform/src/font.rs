@@ -105,6 +105,9 @@ pub fn primary_face_report(size_px: u16) -> Result<PrimaryFaceReport, FontError>
 /// The report assembled from the portable metrics and the rasterizer's
 /// name -- what every platform without a native face report answers.
 /// `selected.rs` decides who answers; no `cfg` lives here.
+// This facade remains compiled on Windows so the module has one neutral
+// shape, but `selected.rs` chooses the native Windows report there.
+#[allow(dead_code)]
 pub(crate) fn portable_primary_face_report(size_px: u16) -> Result<PrimaryFaceReport, FontError> {
     let metrics = primary_metrics(size_px)?;
     Ok(PrimaryFaceReport {
