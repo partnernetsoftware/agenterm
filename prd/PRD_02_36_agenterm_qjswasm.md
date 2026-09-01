@@ -760,6 +760,11 @@ Candidate `33542571817` 证明 Fleet stress 以 72.0 s 全绿，随后推进到
 bridge envelope。现复用已有 `stdout_path`，直接流入 run-owned 文件后才由 guest
 解析；不抬 bridge cap，也不接受截断 JSON。
 
+Candidate `33544608465` 两次都已打印 `remote-ui-smoke` 完整产品 PASS，随后在
+最终收据/清理分配时耗尽 128 MiB；而较少轮询的早先 run 同价可绿，证明它是
+load-sensitive cliff，不是稳定余量。只把该 owning court 调到 4096 页（256 MiB）；
+qjswasm 通用默认仍为 1024 页（64 MiB）。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

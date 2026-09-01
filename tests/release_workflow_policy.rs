@@ -136,9 +136,9 @@ fn remote_ui_smoke_prices_its_large_bump_heap_without_raising_the_default() {
     let check = include_str!("../scripts/qjs/check.qjs");
     let engine = include_str!("../src/script_engine.rs");
     assert!(
-        check.contains("AGENTERM_QJS_MAX_MEMORY_PAGES: \"2048\"")
+        check.contains("AGENTERM_QJS_MAX_MEMORY_PAGES: \"4096\"")
             && check.contains("id === \"remote-ui-smoke\""),
-        "the one measured long GUI court must opt into its 128 MiB heap"
+        "the one measured long GUI court must opt into its 256 MiB heap"
     );
     assert!(
         engine.contains("pub(crate) const QJS_MAX_MEMORY_PAGES: usize = 1024;"),

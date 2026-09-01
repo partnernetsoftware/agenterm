@@ -659,6 +659,11 @@ costs a full candidate cycle:
   catalog through the 1 MiB bridge envelope. The existing run-owned
   `stdout_path` mechanism now streams those bytes to disk before guest JSON
   parsing; the bridge cap remains unchanged and partial JSON remains refused.
+- [x] Candidate `33544608465` exposed that 128 MiB was a load-sensitive cliff
+  for the no-GC `remote-ui-smoke` bump heap: both attempts printed the complete
+  product PASS before final receipt/cleanup allocation exhausted the heap,
+  while earlier runs had passed at the same price. The owning court now has
+  256 MiB stable headroom; the global qjswasm default remains 64 MiB.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

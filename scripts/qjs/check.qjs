@@ -1115,12 +1115,15 @@ if (skip_smoke === 0) {
     // that bounded heap before its final interaction leaves; Candidate
     // 33530768743 reproduced the same max_memory_pages failure twice after
     // completing the title/note step. Price this owning court explicitly at
-    // 128 MiB instead of weakening the default for every script.
+    // 256 MiB instead of weakening the default for every script. Candidate
+    // 33544608465 reached PASS twice but exhausted 128 MiB while publishing
+    // final receipts after load-sensitive polling, proving 128 MiB was only a
+    // cliff rather than stable headroom.
     const smoke_env = id === "remote-ui-smoke"
       ? {
           AGENTERM_NO_ACTIVATE: "1",
           AGENTERM_SCRIPT_WORKER_STDERR: "inherit",
-          AGENTERM_QJS_MAX_MEMORY_PAGES: "2048"
+          AGENTERM_QJS_MAX_MEMORY_PAGES: "4096"
         }
       : no_activate;
     const smoke_spec = task(worker, repo, id, smoke_timeout_ms(id), extra, smoke_env, smoke_allow_powershell);
