@@ -1289,6 +1289,12 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 relative,
             }
         }
+        "frame" | "movewin" | "resize" | "maximize" => {
+            match parse_mcu_place_alias(target, &verb, &mut args) {
+                Ok(command) => command,
+                Err(message) => return usage_err(message),
+            }
+        }
         "window-place" => {
             let action = flag_value(&mut args, "--action")
                 .or_else(|| args.first().cloned())
@@ -2167,6 +2173,119 @@ fn parse_clipboard_subcommand(
     }
 }
 
+fn parse_optional_window(args: &mut Vec<String>) -> Result<Option<isize>, String> {
+    if let Some(window) = flag_window(args)? {
+        return Ok(Some(window));
+    }
+    let Some(first) = args.first() else {
+        return Ok(None);
+    };
+    if first.starts_with('-') {
+        return Ok(None);
+    }
+    let token = args.remove(0);
+    agenterm_cu::observe::parse_window_token(&token)
+        .map(Some)
+        .map_err(|message| message.replace("--window", "window handle"))
+}
+
+fn take_i32_flag_or_positional(
+    args: &mut Vec<String>,
+    flag: &'static str,
+) -> Result<Option<i32>, String> {
+    if let Some(value) = flag_parsed::<i32>(args, flag)? {
+        return Ok(Some(value));
+    }
+    let Some(first) = args.first() else {
+        return Ok(None);
+    };
+    if first.starts_with('-') && first != "-" && first.parse::<i32>().is_err() {
+        return Ok(None);
+    }
+    let raw = args.remove(0);
+    raw.parse::<i32>()
+        .map(Some)
+        .map_err(|_| format!("{flag} value {raw:?} is not an i32"))
+}
+
+fn parse_mcu_place_alias(
+    target: TargetRef,
+    verb: &str,
+    args: &mut Vec<String>,
+) -> Result<Command, String> {
+    let window = parse_optional_window(args)?;
+    let command = match verb {
+        "maximize" => {
+            if !args.is_empty() {
+                return Err(format!(
+                    "maximize accepts --window H; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Command::WindowPlace {
+                target,
+                action: "fullscreen".into(),
+                window,
+                frame: None,
+            }
+        }
+        "movewin" => {
+            let x = take_i32_flag_or_positional(args, "--x")?
+                .ok_or_else(|| "movewin requires --x X --y Y (or HANDLE X Y)".to_owned())?;
+            let y = take_i32_flag_or_positional(args, "--y")?
+                .ok_or_else(|| "movewin requires --x X --y Y (or HANDLE X Y)".to_owned())?;
+            if !args.is_empty() {
+                return Err(format!("movewin unexpected {:?}", args[0]));
+            }
+            Command::WindowPlace {
+                target,
+                action: "move".into(),
+                window,
+                frame: Some([x, y, 0, 0]),
+            }
+        }
+        "resize" => {
+            let width = take_i32_flag_or_positional(args, "--width")?
+                .ok_or_else(|| "resize requires --width W --height H (or HANDLE W H)".to_owned())?;
+            let height = take_i32_flag_or_positional(args, "--height")?
+                .ok_or_else(|| "resize requires --width W --height H (or HANDLE W H)".to_owned())?;
+            if !args.is_empty() {
+                return Err(format!("resize unexpected {:?}", args[0]));
+            }
+            Command::WindowPlace {
+                target,
+                action: "resize".into(),
+                window,
+                frame: Some([0, 0, width, height]),
+            }
+        }
+        _ => {
+            let x = take_i32_flag_or_positional(args, "--x")?.ok_or_else(|| {
+                "frame requires --x --y --width --height (or HANDLE X Y W H)".to_owned()
+            })?;
+            let y = take_i32_flag_or_positional(args, "--y")?.ok_or_else(|| {
+                "frame requires --x --y --width --height (or HANDLE X Y W H)".to_owned()
+            })?;
+            let width = take_i32_flag_or_positional(args, "--width")?.ok_or_else(|| {
+                "frame requires --x --y --width --height (or HANDLE X Y W H)".to_owned()
+            })?;
+            let height = take_i32_flag_or_positional(args, "--height")?.ok_or_else(|| {
+                "frame requires --x --y --width --height (or HANDLE X Y W H)".to_owned()
+            })?;
+            if !args.is_empty() {
+                return Err(format!("frame unexpected {:?}", args[0]));
+            }
+            Command::WindowPlace {
+                target,
+                action: "frame".into(),
+                window,
+                frame: Some([x, y, width, height]),
+            }
+        }
+    };
+    Ok(command)
+}
+
 fn parse_clipboard_clear(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let apply = take_switch(args, "--apply");
     if !args.is_empty() {
@@ -2581,6 +2700,13 @@ Commands:
                               OK are not this condition. Timeout is typed ("timeout")
                               and reports the last GetText. Never screenshot / XTest /
                               --coords. `--` ends flag parsing.
+  frame HANDLE|--window H --x X --y Y --width W --height H
+                              alias of window-place --action frame
+  movewin HANDLE|--window H --x X --y Y
+                              alias of window-place move (keeps current size)
+  resize HANDLE|--window H --width W --height H
+                              alias of window-place resize (keeps current origin)
+  maximize HANDLE|--window H  alias of window-place --action fullscreen
   window-place --action <id> [--window HANDLE]
       ids: center|fullscreen|left-half|right-half|top-half|bottom-half
            upper-left|lower-left|upper-right|lower-right
@@ -3061,6 +3187,84 @@ mod tests {
             !drag_err.message.contains("unknown"),
             "{}",
             drag_err.message
+        );
+        let frame = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "frame".into(),
+            "1".into(),
+            "10".into(),
+            "20".into(),
+            "300".into(),
+            "200".into(),
+        ]);
+        assert_eq!(frame.command, "window-place");
+        assert_ne!(
+            frame.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage",
+            "frame must not be unknown: {:?}",
+            frame.error
+        );
+        let movewin = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "movewin".into(),
+            "--window".into(),
+            "1".into(),
+            "--x".into(),
+            "40".into(),
+            "--y".into(),
+            "50".into(),
+        ]);
+        assert_eq!(movewin.command, "window-place");
+        assert_ne!(
+            movewin
+                .error
+                .as_ref()
+                .map(|e| e.code.as_str())
+                .unwrap_or(""),
+            "usage",
+            "movewin must not be unknown: {:?}",
+            movewin.error
+        );
+        let maximize = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "maximize".into(),
+            "--window".into(),
+            "1".into(),
+        ]);
+        assert_eq!(maximize.command, "window-place");
+        assert_ne!(
+            maximize
+                .error
+                .as_ref()
+                .map(|e| e.code.as_str())
+                .unwrap_or(""),
+            "usage"
+        );
+        let write = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
+            "clipboard".into(),
+            "write".into(),
+            "--type".into(),
+            "string".into(),
+            "--path".into(),
+            "/tmp/cu-clip-write.bin".into(),
+        ]);
+        assert_eq!(write.command, "clipboard-write");
+        assert_ne!(
+            write.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage"
         );
     }
 

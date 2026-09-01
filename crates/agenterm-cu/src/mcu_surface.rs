@@ -195,10 +195,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "zoom",
     "find",
     "read",
-    "movewin",
-    "resize",
-    "frame",
-    "maximize",
     "minimize",
     "restore",
     "raise",
@@ -251,12 +247,6 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "zoom" => "MCU zoom overlay is not mapped; screenshots are last resort",
         "find" => "MCU find is query filters; use query --role/--text/--identifier",
         "read" => "MCU read is query/get-text; use query or get-text --window",
-        "movewin" | "resize" | "frame" => {
-            "MCU frame/movewin/resize is window-place --action frame --x --y --width --height"
-        }
-        "maximize" => {
-            "MCU maximize workArea is not mapped; window-place fullscreen is the Spectacle verb"
-        }
         "minimize" | "restore" => {
             "MCU minimize/restore is not mapped; linux windows --minimized reads WM hidden state"
         }
@@ -659,6 +649,8 @@ mod tests {
         assert_eq!(group_id_for_verb("drag"), "input-local");
         assert!(is_align_verb("drag") && is_align_verb("page"));
         assert!(!is_align_verb("dclick") && !is_align_verb("launch"));
+        assert!(!is_align_verb("movewin") && !is_align_verb("frame") && !is_align_verb("maximize"));
+        assert_eq!(group_id_for_verb("movewin"), "geometry");
         let page_reason = typed_reason_for_verb("page");
         assert!(page_reason.starts_with("unsupported:"), "{page_reason}");
         assert!(!page_reason.contains("unknown MCU group"), "{page_reason}");

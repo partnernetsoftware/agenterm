@@ -3278,13 +3278,42 @@ fn window_place(
     window: Option<isize>,
     frame: Option<[i32; 4]>,
 ) -> Result<serde_json::Value, CuError> {
-    let request = if action_raw.trim() == "frame" {
-        let Some([x, y, width, height]) = frame else {
+    let action = action_raw.trim();
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let screens = mechanism::window_enumerate::list_screens().map_err(map_mechanism_err)?;
+    if screens.is_empty() {
+        return Err(CuError::new("failed", "no screens available"));
+    }
+    let target_window = if let Some(handle) = window {
+        windows
+            .iter()
+            .find(|item| item.handle == handle)
+            .ok_or_else(|| CuError::new("failed", format!("window handle {handle} not found")))?
+    } else {
+        windows
+            .iter()
+            .find(|item| item.focused)
+            .or_else(|| windows.first())
+            .ok_or_else(|| CuError::new("failed", "no top-level window to place"))?
+    };
+    let request = if action == "frame" || action == "move" || action == "resize" {
+        let Some([mut x, mut y, mut width, mut height]) = frame else {
             return Err(CuError::new(
                 "invalid_input",
-                "window-place --action frame requires --x X --y Y --width W --height H",
+                match action {
+                    "move" => "movewin requires --window H --x X --y Y",
+                    "resize" => "resize requires --window H --width W --height H",
+                    _ => "window-place --action frame requires --x X --y Y --width W --height H",
+                },
             ));
         };
+        if action == "move" {
+            width = i32::try_from(target_window.bounds.width).unwrap_or(0);
+            height = i32::try_from(target_window.bounds.height).unwrap_or(0);
+        } else if action == "resize" {
+            x = target_window.bounds.x;
+            y = target_window.bounds.y;
+        }
         if width <= 0 || height <= 0 {
             return Err(CuError::new(
                 "invalid_input",
@@ -3319,23 +3348,6 @@ fn window_place(
                 format!("unknown window-place action '{action_raw}'"),
             )
         })?)
-    };
-    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-    let screens = mechanism::window_enumerate::list_screens().map_err(map_mechanism_err)?;
-    if screens.is_empty() {
-        return Err(CuError::new("failed", "no screens available"));
-    }
-    let target_window = if let Some(handle) = window {
-        windows
-            .iter()
-            .find(|item| item.handle == handle)
-            .ok_or_else(|| CuError::new("failed", format!("window handle {handle} not found")))?
-    } else {
-        windows
-            .iter()
-            .find(|item| item.focused)
-            .or_else(|| windows.first())
-            .ok_or_else(|| CuError::new("failed", "no top-level window to place"))?
     };
     let history = crate::place::PlaceHistory::open()
         .map_err(|error| CuError::new("failed", format!("history: {error}")))?;

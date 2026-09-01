@@ -8,7 +8,7 @@
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
 **还差什么（2026-09-01，夜）**：~~读富内容仍未做~~ **已做**：`clipboard-read --type`（MCU `clipboard read`）按宿主自己的类型名读有界字节，回复 `sha256` + utf8/base64，可选 `--out`。macOS 只认 `clipboard info` 的 AppleScript class（`«class PNGf»` / `string`），不认 UTI。`clipboard write`/`write-file`/`clear --apply` 已接 ABI 1.24。
-MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js` 已是 live 别名，其余 MCU 命令名（`drag`/`inspect`/`page targets`/`ps`/`maximize`…）typed 拒绝，不再 `unknown command`。
+MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js`/`frame`/`movewin`/`resize`/`maximize` 已是 live 别名（几何四词走 `window-place`），其余 MCU 命令名（`drag`/`inspect`/`page targets`/`ps`/`minimize`…）typed 拒绝，不再 `unknown command`。
 **截图三个平台都通了**：macOS 那句「被系统拿走」只对了一半——SDK 里确实没了，但符号还在框架里，
 dlsym 拿到就能抓（和本仓够 SkyLight 是同一套办法），实测 macOS 26.5 抓到真内容；符号哪天真没了
 就是点名 ScreenCaptureKit 的 typed 拒绝，不退化成整屏抓图；
