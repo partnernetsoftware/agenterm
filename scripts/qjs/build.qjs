@@ -697,12 +697,21 @@ if (profile === "release" && external_target === 0) {
   const clean_stdout = clean.stdout.trim();
   if (clean_stdout !== "") { print(clean_stdout); }
 
+  // A mature dev `deps/` can hold tens of thousands of files. Asking the
+  // Script fs.read_dir door to serialize that whole directory exceeds the
+  // intentionally bounded bridge result before cleanup can begin. Cargo owns
+  // this tree and its dry-run reports the exact files/bytes it would reclaim
+  // without materializing an unbounded directory listing in the guest.
   const dev_report = rh.command(
-    worker,
-    task_arguments("target-report", task_manifest, [development_target]),
-    { cwd: repo, env: environment, timeout_ms: 30000 }
+    "cargo",
+    ["clean", "--dry-run", "--target-dir", development_target],
+    { cwd: repo, env: environment, timeout_ms: 3600000 }
   );
-  require(dev_report.exit_code === 0, "build_development_target_report");
+  if (dev_report.exit_code !== 0) {
+    const diagnostic = ("" + dev_report.stdout + dev_report.stderr).trim();
+    if (diagnostic !== "") { print(diagnostic); }
+    throw "build_development_target_dry_run:exit=" + dev_report.exit_code;
+  }
   const dev_report_stdout = dev_report.stdout.trim();
   if (dev_report_stdout !== "") { print(dev_report_stdout); }
 

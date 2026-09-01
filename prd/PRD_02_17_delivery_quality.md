@@ -634,6 +634,13 @@ costs a full candidate cycle:
   duration before ordinary `Duration` subtraction. The wait now uses
   saturating subtraction and exits on zero; the expired-budget regression is
   owned by the engine unit suite.
+- [x] release cleanup inventories the disposable release target through the
+  bounded Script walker. A mature development `deps/` can contain tens of
+  thousands of entries and cannot be serialized as one bounded `fs.read_dir`
+  answer; that tree is Cargo-owned, so its pre-delete evidence comes from
+  `cargo clean --dry-run --target-dir ...` (exact file/byte summary) before the
+  real clean. Failure diagnostics retain the typed error; cleanup is never
+  silently skipped and the Script API ceiling is not raised to hide topology.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

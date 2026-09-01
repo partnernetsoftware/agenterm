@@ -9,6 +9,8 @@ static INTEGRITY: LazyLock<String> = LazyLock::new(|| {
 });
 static RELEASE_POLICY: LazyLock<String> =
     LazyLock::new(|| include_str!("../release-policy.json").replace("\r\n", "\n"));
+static BUILD_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
 static PREFLIGHT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/preflight.qjs").replace("\r\n", "\n"));
 static INTERNAL_VERSION_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -63,6 +65,12 @@ fn windows_candidate_retains_script_worker_crash_diagnostics() {
         .expect("Windows release quality step");
     assert!(quality.contains("AGENTERM_SCRIPT_WORKER_STDERR: inherit"));
     assert!(quality.contains("agenterm-release-check.log"));
+}
+
+#[test]
+fn release_cleanup_does_not_serialize_a_large_development_deps_directory() {
+    assert!(BUILD_QJS.contains("[\"clean\", \"--dry-run\", \"--target-dir\", development_target]"));
+    assert!(BUILD_QJS.contains("build_development_target_dry_run"));
 }
 
 #[test]
