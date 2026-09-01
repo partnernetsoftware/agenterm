@@ -2,7 +2,7 @@
 
 Chrome/Chromium Manifest V3 extension for AgenTerm browser integration. **Usage monitoring** is the first module; the shell is designed so more capabilities can plug in without rewrites.
 
-**Owner:** WJ C (`wanjochan@gmail.com`)
+**Owner:** Partnernet Software
 
 ## Install (Load unpacked)
 
@@ -30,7 +30,7 @@ The extension reads the DOM (and embedded JSON when present). It does not store 
 
 Open from the extension icon → **Options**, or `chrome://extensions` → AgenTerm WebExt → **Extension options**.
 
-- **Email destination** — default `wanjochan@gmail.com`
+- **Email destination** — empty by default; configure an address locally before enabling mail alerts
 - **Threshold %** — alert when *remaining* usage ≤ this (default 15%), or when a “limit reached” banner is detected
 - **Poll interval** — default 30 minutes (background alarm + optional tab poll)
 - **Per-provider** enable/disable

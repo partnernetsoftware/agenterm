@@ -592,14 +592,16 @@ costs a full candidate cycle:
   for fewer promotion attempts.
 - [ ] The Windows job is the only long pole. The remaining five platforms finish
   in a fraction of its wall clock and idle waiting for it.
-- [~] v0.1.16 exposed why compiled target caches are not equivalent to
+- [x] v0.1.16 exposed why compiled target caches are not equivalent to
   Cargo-home dependency caches. Two exact-SHA Windows attempts restored the
   same cross-SHA-derived `target/debug` tree and the freshly rebuilt Script
   worker then fast-failed with `0xc0000409` before its first gate. Candidate
   target caches are now exact-source only and publish only after a successful
-  quality process; registry/git caches remain reusable across revisions. The
-  cold v3 court is the pending verdict on whether cached incremental state was
-  causal rather than merely correlated.
+  quality process; registry/git caches remain reusable across revisions. A
+  subsequent v3 cold court rebuilt the worker from source and reproduced the
+  identical fast-fail, disproving failed-cache contamination as the cause.
+  Keep the safer cache policy, but investigate the Windows worker startup
+  independently instead of spending another six-grid retry on that hypothesis.
 
 ### v0.1.16 qualification lessons
 
@@ -617,6 +619,16 @@ costs a full candidate cycle:
   missing-report failure.
 - [x] an exact-SHA preflight rejected a dispatch raced by a concurrent `main`
   push before any build began. This is expected protection, not flaky CI.
+- [x] a public source tag is itself a release asset. Candidate preflight scans
+  every tracked public-text file, not only the latest diff, for host-home paths,
+  personal email addresses and common private-key/token forms. The v0.1.16
+  audit found legacy plan paths plus a browser-extension default address in the
+  current tree; those must be redacted before a new Candidate even though no
+  executable package contained them.
+- [ ] failure screenshots are restricted to known runner-created windows and
+  directories before any self-hosted Candidate court may upload them. Hosted
+  ephemeral runners remain the current owner; a whole-desktop self-hosted
+  capture is fail-closed rather than an acceptable diagnostic shortcut.
 
 ### Verify locally before spending a candidate
 

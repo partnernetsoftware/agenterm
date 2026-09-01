@@ -29,7 +29,7 @@
  */
 
 export const DEFAULT_CONFIG = {
-  emailDestination: "wanjochan@gmail.com",
+  emailDestination: "",
   pollIntervalMinutes: 30,
   webhookUrl: "",
   webhookEnabled: false,

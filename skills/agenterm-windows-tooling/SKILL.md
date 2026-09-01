@@ -12,7 +12,7 @@ order; only one works immediately.
 ## Proven approach: symlink into an already-active PATH directory
 
 ```powershell
-New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.local\bin\<tool>.exe" `
+New-Item -ItemType SymbolicLink -Path "~/.local/bin/<tool>.exe" `
     -Target "$env:LOCALAPPDATA\Programs\<tool>\bin\<tool>.exe" -Force
 ```
 
@@ -49,5 +49,5 @@ Then create the symlink as above.
 Drop it directly into `~/.local/bin` — no symlink needed:
 
 ```powershell
-Invoke-WebRequest -Uri "<download-url>" -OutFile "$env:USERPROFILE\.local\bin\<tool>.exe"
+Invoke-WebRequest -Uri "<download-url>" -OutFile "~/.local/bin/<tool>.exe"
 ```

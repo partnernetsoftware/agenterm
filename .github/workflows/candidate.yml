@@ -40,6 +40,10 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$SOURCE_SHA" origin/main
 
+      - name: Scan tracked public text for disclosures
+        shell: bash
+        run: ./scripts/doc-redact-check.sh
+
       - name: Resolve checked-in release policy
         id: release_policy
         shell: bash

@@ -202,7 +202,7 @@ visibility checklist; fix launch durability first.
 
 ## Desensitization checklist for commits
 
-- Replace account names with `<user>` / `wjc2022_*` instance labels only if already public product instance names (`main`/`dev`/`work`).
+- Replace account names with `<user>`; retain only public product instance names (`main`/`dev`/`work`).
 - Replace host/RDP client with `<host>` / `<rdp-client>`.
 - Replace absolute user profile paths with `%LOCALAPPDATA%\AgenTerm\...` or `<workspace>`.
 - Keep pipe hashes truncated if needed: `agt-v1-<12-hex>…`.

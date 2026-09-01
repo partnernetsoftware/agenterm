@@ -223,7 +223,7 @@ Rev 2 of the design answers all 15 issues (none wontfix / needs-user-input). Hea
 - **Severity**: minor
 - **Description / fix applied in rev 3**:
   1. **`RH_HOST_FS_READ_CAP` is misattributed.** Rev 2 said the caps were "copied from `src/script_rh_host.rs` `host_process_request` and `RH_HOST_FS_READ_CAP`". The constant is not in that file at all — it is `crates/agenterm-rh/src/host_api.rs:35`. Only the process/env caps come from `host_process_request` (lines 300-386). Both now cited separately with the correct paths. (This error originated in review Issue 4 and was copied into the design.)
-  2. **`wbox/` is not in this tree.** It is a **sibling repo** at `/Users/cbzw032/repos/wbox`; the background table and References read as a workspace-relative path. Now marked as a sibling repo. The pin content itself is correct.
+  2. **`wbox/` is not in this tree.** It is a **sibling repo** at `~/repos/wbox`; the background table and References read as a workspace-relative path. Now marked as a sibling repo. The pin content itself is correct.
   3. **`Duration` is not a `ValueKind` variant.** Rev 2's `ValueKind` → Language 1 mapping table had a `Duration` row; `transpile.rs`'s enum has no such variant (it has `FileLock` as its last member). Row relabelled as a non-`ValueKind` value produced by `std::time::Duration::*`.
 - **Status**: fixed in rev 3
 

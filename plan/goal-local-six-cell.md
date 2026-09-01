@@ -1013,7 +1013,7 @@ cargo-zigbuild test --release --target aarch64-unknown-linux-gnu.2.28 --no-run \
 ### 坑：交叉构建的测试二进制会带着**构建机的绝对路径**
 
 `env!("CARGO_BIN_EXE_minicon")` 与 `env!("CARGO_MANIFEST_DIR")` 是**编译期**宏，
-二进制里存的是 `/Users/wjc/repos/minicon/...` 这样的字面量。
+二进制里存的是 `~/repos/minicon/...` 这样的字面量。
 **在运行时设同名环境变量毫无作用**——这是我第一反应试的，失败点纹丝不动。
 真正的解法是在 guest 里把那些路径原样造出来，之后 `minicon_alignment` 立刻通过。
 

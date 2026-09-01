@@ -45,6 +45,17 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
 }
 
 #[test]
+fn candidate_scans_the_full_tracked_public_text_before_building() {
+    let preflight = CANDIDATE
+        .split_once("  preflight:\n")
+        .and_then(|(_, tail)| tail.split_once("\n  build:\n"))
+        .map(|(preflight, _)| preflight)
+        .expect("one preflight job before build");
+    assert!(preflight.contains("name: Scan tracked public text for disclosures"));
+    assert!(preflight.contains("run: ./scripts/doc-redact-check.sh"));
+}
+
+#[test]
 fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     for contract in [
         "\"native_six_cell\": true",
