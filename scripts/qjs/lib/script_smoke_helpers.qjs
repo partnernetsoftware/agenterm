@@ -148,13 +148,14 @@ export function cli_json(context, cli, args, audit_path) {
   return JSON.parse(run_cli(context, cli, args, 0, audit_path, {}, []).stdout);
 }
 
-// rh's `command.stdout_file(spool)`: the door has no spool, so the text is
-// captured (1 MiB cap) and written to `spool_path` for the same readers.
+// rh's `command.stdout_file(spool)`: stream the potentially multi-megabyte
+// catalog directly to the run-owned file. The small result envelope remains
+// under the bridge cap; partial JSON is never admitted to the guest.
 export function cli_json_spooled(context, cli, args, audit_path, spool_path) {
   const spec = configured_program(context, cli, cli_arguments(context, args), audit_path, {});
+  spec.stdout_path = spool_path;
   const output = JSON.parse(run_spec(spec));
   require(output.success, "script_smoke_spooled_cli_failed:" + output.stderr);
-  rh.atomic_write(spool_path, output.stdout);
   return JSON.parse(rh.read_text(spool_path));
 }
 

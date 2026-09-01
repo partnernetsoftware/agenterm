@@ -755,6 +755,11 @@ Candidate `33538298527` 中 `remote-ui-smoke` 已端到端 PASS（44.4 s），up
 8,192 定价仍在 load 完成前耗尽。只给该 owning court 与任务合同定价 16,384；
 普通脚本默认不变。
 
+Candidate `33542571817` 证明 Fleet stress 以 72.0 s 全绿，随后推进到
+`script-smoke` 的 API discovery：多 MB JSON catalog 被旧 helper 捕获进 1 MiB
+bridge envelope。现复用已有 `stdout_path`，直接流入 run-owned 文件后才由 guest
+解析；不抬 bridge cap，也不接受截断 JSON。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

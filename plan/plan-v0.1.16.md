@@ -1130,3 +1130,11 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   前后控制调用。
 - 只给 `fleet-smoke` CLI 与 task contract 配置 16,384 host ops；普通脚本默认
   不变，timeout、wasm steps、output 与 cleanup 门仍独立生效。
+
+### A.10 Candidate `33542571817`：大 catalog 走文件流
+
+- Fleet stress 已完整 PASS（72.0 s），16,384 host-op 定价成立。
+- `script-smoke` 第一段 API discovery 的 JSON 超过 1 MiB；旧的
+  `cli_json_spooled` 名为 spool，实际仍先把 stdout 塞进 bridge envelope。
+- helper 现给 process door 配置 run-owned `stdout_path`，小 envelope 只带状态，
+  guest 再从文件完整解析。1 MiB bridge 默认不抬，截断 JSON 仍 fail closed。

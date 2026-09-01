@@ -654,6 +654,11 @@ costs a full candidate cycle:
   exhausted before load completion. That owning court and task contract are
   priced at 16,384 operations; the
   default for ordinary scripts remains unchanged.
+- [x] Candidate `33542571817` proved Fleet stress end to end in 72.0 s and
+  then exposed `script-smoke` API discovery capturing a multi-megabyte JSON
+  catalog through the 1 MiB bridge envelope. The existing run-owned
+  `stdout_path` mechanism now streams those bytes to disk before guest JSON
+  parsing; the bridge cap remains unchanged and partial JSON remains refused.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

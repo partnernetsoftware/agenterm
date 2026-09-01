@@ -19,6 +19,9 @@ static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
 static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/native-ipc-smoke.qjs").replace("\r\n", "\n"));
+static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/lib/script_smoke_helpers.qjs").replace("\r\n", "\n")
+});
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -149,6 +152,12 @@ fn fleet_stress_prices_its_intentional_client_fanout_at_the_owning_court() {
     assert_eq!(budget["max_host_operations"], 16_384);
     assert!(CHECK_QJS.contains("entry === \"fleet-smoke\""));
     assert!(CHECK_QJS.contains("arguments_list.push(\"16384\")"));
+}
+
+#[test]
+fn script_api_catalog_streams_to_a_run_owned_file_before_guest_parsing() {
+    assert!(SCRIPT_SMOKE_HELPERS_QJS.contains("spec.stdout_path = spool_path"));
+    assert!(!SCRIPT_SMOKE_HELPERS_QJS.contains("rh.atomic_write(spool_path, output.stdout)"));
 }
 
 #[test]
