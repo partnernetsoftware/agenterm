@@ -2336,9 +2336,19 @@ fn click_command(
         let after = window
             .map(|handle| mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err))
             .transpose()?;
-        let (verified, method, reason) = match (&before, &after) {
-            (Some(was), Some(is)) if observe::tree_changed(was, is) => (true, "tree-diff", None),
-            (Some(_), Some(_)) => (false, "tree-diff", Some("no_observable_change")),
+        let (verified, method, reason) = match (&before, &after, &resolved.matched) {
+            (Some(was), Some(is), Some(hit)) => {
+                let now = observe::node_by_id(is, &resolved.node_id);
+                let proof = observe::verify_press(hit, now, was, is);
+                (proof.verified, proof.method, proof.reason)
+            }
+            (Some(was), Some(is), None) => {
+                if observe::tree_changed_semantically(was, is) {
+                    (true, "tree-diff", None)
+                } else {
+                    (false, "tree-diff", Some("no_observable_change"))
+                }
+            }
             _ => (false, "none", Some("no_window_scope")),
         };
         let verified = verified && mechanism_error.is_none();
@@ -2352,6 +2362,12 @@ fn click_command(
             "method": method,
             "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
         });
+        if reason == Some("checked_unchanged") {
+            payload["next_actions"] = serde_json::json!([
+                "AX did not flip checked; Chromium custom switch is not a native checkbox",
+                "re-query then retry, or mcu browser/CDP click on the DOM control",
+            ]);
+        }
         payload["before"] = before_node.unwrap_or(serde_json::Value::Null);
         payload["after"] = after_node.clone().unwrap_or(serde_json::Value::Null);
         payload["receipt"] = ticket.json();
@@ -3253,10 +3269,30 @@ fn resolve_actuation_node(
             backend: Some(tree.backend),
         }));
     }
-    Ok(node.map(|node_id| ResolvedNode {
-        node_id: node_id.to_owned(),
-        matched: None,
-        backend: None,
+    let Some(node_id) = node else {
+        return Ok(None);
+    };
+    let Some(window) = window else {
+        return Err(CuError::new(
+            "invalid_input",
+            format!(
+                "{verb} --node requires --window <handle> so the path is resolved against one tree snapshot"
+            ),
+        ));
+    };
+    let tree = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let Some(matched) = observe::node_by_id(&tree, node_id).cloned() else {
+        return Err(CuError::new(
+            "a11y_node_not_found",
+            format!(
+                "{verb} --node {node_id:?} is not in the current window tree; re-query and use the new path (Chromium AX ids are not stable)"
+            ),
+        ));
+    };
+    Ok(Some(ResolvedNode {
+        node_id: matched.id.clone(),
+        matched: Some(matched),
+        backend: Some(tree.backend),
     }))
 }
 
@@ -5024,14 +5060,10 @@ fn invoke_payload(
                 _ => (false, "value-readback", Some("value_unreadable")),
             }
         }
-        (mechanism::NodeAction::Press, Some(_)) => {
-            if observe::tree_changed(&before, &after) {
-                (true, "tree-diff", None)
-            } else {
-                (false, "tree-diff", Some("no_observable_change"))
-            }
+        (mechanism::NodeAction::Press, now) => {
+            let proof = observe::verify_press(&target, now.as_ref(), &before, &after);
+            (proof.verified, proof.method, proof.reason)
         }
-        (mechanism::NodeAction::Press, None) => (true, "tree-diff", Some("node_gone")),
         (_, None) => (false, "node-readback", Some("node_gone")),
         _ => (false, "none", Some("unverifiable_action")),
     };
@@ -5041,6 +5073,14 @@ fn invoke_payload(
         "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
     });
     let after_state = after_node.as_ref().map(observe::node_state_json);
+    let next_actions = if reason == Some("checked_unchanged") || reason == Some("state_mismatch") {
+        serde_json::json!([
+            "AX did not flip checked; Chromium custom switch is not a native checkbox",
+            "re-query then retry, or mcu browser/CDP click on the DOM control",
+        ])
+    } else {
+        serde_json::Value::Null
+    };
     let receipt = serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
@@ -5056,6 +5096,7 @@ fn invoke_payload(
         "before": observe::node_state_json(&target),
         "after": after_state,
         "tree_changed": observe::tree_changed(&before, &after),
+        "next_actions": next_actions,
         "receipt": ticket.json(),
     });
     receipts.complete(
@@ -7012,7 +7053,8 @@ mod tests {
         assert!(
             matches!(
                 code,
-                "a11y_invalid_node_id"
+                "invalid_input"
+                    | "a11y_invalid_node_id"
                     | "a11y_node_not_found"
                     | "a11y_backend_failed"
                     | "dylib_load"

@@ -1288,6 +1288,17 @@ pub fn node_by_id<'a>(tree: &'a A11yTree, id: &str) -> Option<&'a A11yNode> {
 /// window: node set, roles, names, text or states. Bounds are ignored (a
 /// layout pass is not a semantic change).
 pub fn tree_changed(before: &A11yTree, after: &A11yTree) -> bool {
+    tree_changed_with(before, after, false)
+}
+
+/// Like [`tree_changed`], but a focus-only state flip is not a success
+/// proof. Chromium custom switches often take AXPress, move focus, and
+/// leave `checked` unchanged.
+pub fn tree_changed_semantically(before: &A11yTree, after: &A11yTree) -> bool {
+    tree_changed_with(before, after, true)
+}
+
+fn tree_changed_with(before: &A11yTree, after: &A11yTree, ignore_focus: bool) -> bool {
     if before.nodes.len() != after.nodes.len() {
         return true;
     }
@@ -1296,8 +1307,87 @@ pub fn tree_changed(before: &A11yTree, after: &A11yTree) -> bool {
             || a.role != b.role
             || a.name != b.name
             || a.text != b.text
-            || a.states != b.states
+            || states_for_diff(&a.states, ignore_focus) != states_for_diff(&b.states, ignore_focus)
     })
+}
+
+fn states_for_diff(states: &[String], ignore_focus: bool) -> Vec<String> {
+    let mut out: Vec<String> = states
+        .iter()
+        .filter(|state| !ignore_focus || !state.eq_ignore_ascii_case("focused"))
+        .cloned()
+        .collect();
+    out.sort();
+    out
+}
+
+/// Checkbox / switch / radio: `checked` is the business state. Focus is not.
+pub fn is_toggle_control(node: &A11yNode) -> bool {
+    if checked_state(node) != Tri::Unknown {
+        return true;
+    }
+    matches!(
+        normalize_role(&node.role).as_str(),
+        "checkbox" | "switch" | "toggle" | "radiobutton" | "togglebutton"
+    )
+}
+
+/// Proof for `invoke press` / tree-addressed `click` after a re-read.
+pub struct PressProof {
+    pub verified: bool,
+    pub method: &'static str,
+    pub reason: Option<&'static str>,
+}
+
+pub fn verify_press(
+    before_node: &A11yNode,
+    after_node: Option<&A11yNode>,
+    before_tree: &A11yTree,
+    after_tree: &A11yTree,
+) -> PressProof {
+    if is_toggle_control(before_node) {
+        let Some(now) = after_node else {
+            return PressProof {
+                verified: false,
+                method: "checked-readback",
+                reason: Some("node_gone"),
+            };
+        };
+        let was = checked_state(before_node);
+        let is = checked_state(now);
+        if was != Tri::Unknown && is != Tri::Unknown && was.as_bool() != is.as_bool() {
+            return PressProof {
+                verified: true,
+                method: "checked-readback",
+                reason: None,
+            };
+        }
+        return PressProof {
+            verified: false,
+            method: "checked-readback",
+            reason: Some("checked_unchanged"),
+        };
+    }
+    if after_node.is_none() {
+        return PressProof {
+            verified: true,
+            method: "tree-diff",
+            reason: Some("node_gone"),
+        };
+    }
+    if tree_changed_semantically(before_tree, after_tree) {
+        PressProof {
+            verified: true,
+            method: "tree-diff",
+            reason: None,
+        }
+    } else {
+        PressProof {
+            verified: false,
+            method: "tree-diff",
+            reason: Some("no_observable_change"),
+        }
+    }
 }
 
 /// Decimal value of a node's text, for `increment` / `decrement` receipts.
@@ -2265,6 +2355,33 @@ mod tests {
         let mut gone = before.clone();
         gone.nodes.pop();
         assert!(tree_changed(&before, &gone));
+        let mut focused_only = before.clone();
+        focused_only.nodes[1].states = vec!["focused".into()];
+        assert!(tree_changed(&before, &focused_only));
+        assert!(!tree_changed_semantically(&before, &focused_only));
+        let mut checkbox = node("/0/c", "checkbox", "workflow", &["click"]);
+        checkbox.states = vec!["checked".into(), "enabled".into()];
+        let mut still_checked = checkbox.clone();
+        still_checked.states.push("focused".into());
+        let mut unchecked = checkbox.clone();
+        unchecked.states = vec!["unchecked".into(), "enabled".into()];
+        let toggle_tree = tree(vec![checkbox.clone()], false);
+        let focused_tree = tree(vec![still_checked.clone()], false);
+        let flipped_tree = tree(vec![unchecked.clone()], false);
+        let focus_only = verify_press(&checkbox, Some(&still_checked), &toggle_tree, &focused_tree);
+        assert!(!focus_only.verified);
+        assert_eq!(focus_only.method, "checked-readback");
+        assert_eq!(focus_only.reason, Some("checked_unchanged"));
+        let flipped = verify_press(&checkbox, Some(&unchecked), &toggle_tree, &flipped_tree);
+        assert!(flipped.verified);
+        assert_eq!(flipped.method, "checked-readback");
+        assert!(is_toggle_control(&checkbox));
+        assert!(!is_toggle_control(&node(
+            "/0",
+            "button",
+            "OK",
+            &["enabled"]
+        )));
         assert_eq!(
             node_by_id(&before, "/0/1").map(|n| n.role.as_str()),
             Some("static-text")
