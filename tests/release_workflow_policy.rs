@@ -146,9 +146,9 @@ fn remote_ui_smoke_prices_its_large_bump_heap_without_raising_the_default() {
 #[test]
 fn fleet_stress_prices_its_intentional_client_fanout_at_the_owning_court() {
     let budget = &TASKS["contracts"]["fleet-smoke"]["budget"];
-    assert_eq!(budget["max_host_operations"], 8_192);
+    assert_eq!(budget["max_host_operations"], 16_384);
     assert!(CHECK_QJS.contains("entry === \"fleet-smoke\""));
-    assert!(CHECK_QJS.contains("arguments_list.push(\"8192\")"));
+    assert!(CHECK_QJS.contains("arguments_list.push(\"16384\")"));
 }
 
 #[test]

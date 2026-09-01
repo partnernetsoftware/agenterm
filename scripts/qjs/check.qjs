@@ -182,12 +182,12 @@ function script_run_arguments(repo, entry, timeout_ms, script_arguments) {
     "--max-operations", "1000000000"
   ];
   // The stress-inclusive Fleet court deliberately starts 16 concurrent
-  // clients for each of 258 journal mutations: 4,128 process starts before
-  // its ordinary discovery/restart calls. Price only that owning journey
+  // clients for each of 258 journal mutations: 4,128 process starts and the
+  // same number of waits before its ordinary discovery/restart calls. Price only that owning journey
   // above the 4,096 default; other scripts retain the general guard.
   if (entry === "fleet-smoke") {
     arguments_list.push("--max-host-operations");
-    arguments_list.push("8192");
+    arguments_list.push("16384");
   }
   arguments_list.push(path.join(repo, "scripts/qjs/" + entry + ".qjs"));
   arguments_list.push("--");

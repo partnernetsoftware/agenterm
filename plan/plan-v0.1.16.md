@@ -1125,7 +1125,8 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 
 - `remote-ui-smoke` 44.4 s 全绿，`remote-ui-upgrade-smoke` 13.1 s 全绿；此前
   heap、selection、clipboard 三个停点均已闭合。
-- stress-inclusive Fleet 旅程按合同执行 16 × 258 个并发 mutation，仅 process
-  start 已 4,128 次，通用 4,096 host-op 默认从数学上不可能容纳。
-- 只给 `fleet-smoke` CLI 与 task contract 配置 8,192 host ops；普通脚本默认
+- stress-inclusive Fleet 旅程按合同执行 16 × 258 个并发 mutation，共 4,128 次
+  process start 与同数 wait；通用 4,096 和首次 8,192 定价均不可能容纳主体及
+  前后控制调用。
+- 只给 `fleet-smoke` CLI 与 task contract 配置 16,384 host ops；普通脚本默认
   不变，timeout、wasm steps、output 与 cleanup 门仍独立生效。

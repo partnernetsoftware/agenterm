@@ -649,8 +649,10 @@ costs a full candidate cycle:
 - [x] Candidate `33538298527` proved `remote-ui-smoke` end to end in 44.4 s
   and `remote-ui-upgrade-smoke` in 13.1 s. The next stable stop was the
   stress-inclusive Fleet court's 4,096 host-operation default: its explicit
-  16 × 258 concurrent journal mutations alone require 4,128 process starts.
-  That owning court and task contract are priced at 8,192 operations; the
+  16 × 258 concurrent journal mutations require 4,128 process starts and the
+  same number of waits. The first 8,192-price Candidate therefore still
+  exhausted before load completion. That owning court and task contract are
+  priced at 16,384 operations; the
   default for ordinary scripts remains unchanged.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit

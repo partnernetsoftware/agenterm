@@ -751,8 +751,9 @@ Candidate `33534679251` 已越过修正后的 selection 锚点门，并稳定走
 
 Candidate `33538298527` 中 `remote-ui-smoke` 已端到端 PASS（44.4 s），upgrade
 亦 PASS（13.1 s）。下一稳定停点是 stress-inclusive `fleet-smoke` 的宿主操作账：
-其 16 × 258 并发 journal mutation 单是 process start 就有 4,128 次，必然超过
-通用 4,096 默认。只给该 owning court 与任务合同定价 8,192；普通脚本默认不变。
+其 16 × 258 并发 journal mutation 有 4,128 次 process start 和同数 wait；首次
+8,192 定价仍在 load 完成前耗尽。只给该 owning court 与任务合同定价 16,384；
+普通脚本默认不变。
 
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
