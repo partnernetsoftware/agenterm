@@ -18,9 +18,12 @@ function cleanup_run_reports(run_directory, iterations) {
 // the binary names `cli script task run` as its replacement, so that is the
 // spelling here; the rest of the argument list is rh's.
 function task_args(task_manifest, repo, run_report, timeout_ms) {
+  // Keep the measured child on the preflight task's declared 100M-step
+  // contract. The old 10M Rhai-era override made the qjswasm child exhaust
+  // fuel on Windows before it could publish its report.
   return [
     "cli", "script", "task", "run", "preflight", "--manifest", task_manifest,
-    "--timeout-ms", "" + timeout_ms, "--max-operations", "10000000",
+    "--timeout-ms", "" + timeout_ms, "--max-operations", "100000000",
     "--", repo, run_report, "--quiet"
   ];
 }
