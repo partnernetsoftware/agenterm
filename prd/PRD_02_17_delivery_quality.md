@@ -625,6 +625,10 @@ costs a full candidate cycle:
   audit found legacy plan paths plus a browser-extension default address in the
   current tree; those must be redacted before a new Candidate even though no
   executable package contained them.
+- [x] Windows Candidate keeps framed Script worker stderr inside the bounded
+  owning quality log. Dev/release-fast use panic-abort, whose Windows exit
+  `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
+  evidence before changing engine or supervisor code.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted

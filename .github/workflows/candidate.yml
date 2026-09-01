@@ -191,6 +191,10 @@ jobs:
         shell: cmd
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
+          # A panic-abort worker exits as 0xc0000409 on Windows. Keep its
+          # bounded stderr in the owning gate log; discarding it turns the
+          # actionable panic site into an opaque host_worker_crash.
+          AGENTERM_SCRIPT_WORKER_STDERR: inherit
         run: |
           @echo off
           set "LOG=%RUNNER_TEMP%\agenterm-release-check.log"

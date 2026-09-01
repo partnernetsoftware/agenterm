@@ -56,6 +56,16 @@ fn candidate_scans_the_full_tracked_public_text_before_building() {
 }
 
 #[test]
+fn windows_candidate_retains_script_worker_crash_diagnostics() {
+    let quality = CANDIDATE
+        .split("      - name:")
+        .find(|step| step.contains("Run release quality gate"))
+        .expect("Windows release quality step");
+    assert!(quality.contains("AGENTERM_SCRIPT_WORKER_STDERR: inherit"));
+    assert!(quality.contains("agenterm-release-check.log"));
+}
+
+#[test]
 fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     for contract in [
         "\"native_six_cell\": true",
