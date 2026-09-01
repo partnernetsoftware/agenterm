@@ -686,6 +686,11 @@ costs a full candidate cycle:
   timeout, missing-child refusal, nonzero exit, child kill/reap and complete
   version output. The remaining archived branches are migrated serially as
   Candidate reaches them; no retired backend is restored.
+- [x] Candidate `33553926461` proved the qjs process door and stopped at an
+  extensionless `script eval` that assumed a default engine. The product has
+  deliberately no default; the black-box eval probe now explicitly selects
+  `AGENTERM_SCRIPT_BACKEND=qjswasm`, while file entries continue routing by
+  `.qjs`. No ambient default is introduced.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

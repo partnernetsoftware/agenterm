@@ -784,6 +784,10 @@ Candidate `33551702747` 推进到 process 分支，证实名为 `.qjs` 的 smoke
 stdin、timeout、missing child、nonzero、kill/reap 与完整输出；不恢复 retired Rhai。
 其余旧分支按 Candidate 到达顺序继续迁移。
 
+Candidate `33553926461` 证明 qjs process door 后停在 extensionless `script eval`：
+它没有 `.qjs` 可路由，却错误假设默认引擎。产品继续保持 no-default；该黑盒 eval
+显式注入 `AGENTERM_SCRIPT_BACKEND=qjswasm`，文件入口仍按扩展名选择。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |

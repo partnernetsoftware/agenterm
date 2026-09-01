@@ -1178,3 +1178,10 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   missing child、nonzero、child kill/reap、完整输出均从 public `script run` 证明。
 - 不恢复 Rhai，不把旧语法改扩展名冒充迁移；余下 archived branches 按实际到达
   顺序替换。
+
+### A.16 Candidate `33553926461`：eval 显式选择 qjswasm
+
+- qjs process door 已越过；下一停点是 extensionless `script eval` 无法靠文件名
+  路由，而测试仍假设存在默认引擎。
+- eval probe 显式设置 `AGENTERM_SCRIPT_BACKEND=qjswasm`；不新增 ambient default，
+  `.qjs` 文件仍靠扩展名路由。

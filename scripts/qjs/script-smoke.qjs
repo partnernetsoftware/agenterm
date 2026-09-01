@@ -587,12 +587,16 @@ function assert_process_and_streams(context, cli, audit_path, runtime_dir) {
     "script_process_context_mismatch"
   );
 
-  const topology = smoke.cli_text(
+  const topology_output = smoke.run_cli(
     context,
     cli,
     ["script", "eval", "print(\"process_timeout_topology\"); return 0;", "--profile", "tool", "--timeout-ms", "180000"],
-    audit_path
+    0,
+    audit_path,
+    { AGENTERM_SCRIPT_BACKEND: "qjswasm" },
+    []
   );
+  const topology = topology_output.stdout.trim();
   script_smoke_require_contains(topology, "process_timeout_topology", "script_eval_topology_probe_failed");
 
   const timeout_spec = {

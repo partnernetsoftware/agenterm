@@ -194,6 +194,7 @@ fn script_process_court_uses_the_qjs_tool_door_not_a_retired_rhai_child() {
         .expect("active qjs process court");
     assert!(active.contains("process_command(JSON.stringify(command_spec))"));
     assert!(active.contains("process_pid(lifecycle_child)"));
+    assert!(active.contains("{ AGENTERM_SCRIPT_BACKEND: \"qjswasm\" }"));
     assert!(!active.contains("process.rh"));
     assert!(!active.contains("std::process::command"));
 }
