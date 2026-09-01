@@ -16,6 +16,7 @@ serde_json = "1"
 # lock and the sealed current desktop-session identity mechanism. Desktop
 # actuation continues to load libagenterm dynamically.
 libloading = "0.8"
+sha2 = { version = "0.11", default-features = false }
 agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "locking"] }
 
 # These feature lists must stay complete on their own. Until milestone 46 the

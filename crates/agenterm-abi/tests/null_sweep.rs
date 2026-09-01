@@ -170,6 +170,7 @@ type A11yNodeSendKeys = unsafe extern "C" fn(isize, *const c_char, *const u8, us
 type A11yManualAccessibilityPoke = unsafe extern "C" fn(isize) -> i32;
 type A11yApplicationSetHidden = unsafe extern "C" fn(u32, i32) -> i32;
 type ClipboardTypes = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
+type ClipboardGet = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
 type AppListInstalled = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type AppLaunch = unsafe extern "C" fn(*const u8, usize) -> i32;
 type A11yObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
@@ -909,6 +910,22 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<ClipboardTypes> = unsafe { sym(lib, b"agt_clipboard_types") };
                 unsafe { CallResult::Status(f(std::ptr::null_mut(), 1, std::ptr::null_mut())) }
+            }),
+        },
+        SweepCase {
+            label: "agt_clipboard_get[type=NULL,buf=NULL,out_len=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<ClipboardGet> = unsafe { sym(lib, b"agt_clipboard_get") };
+                unsafe {
+                    CallResult::Status(f(
+                        std::ptr::null(),
+                        1,
+                        std::ptr::null_mut(),
+                        1,
+                        std::ptr::null_mut(),
+                    ))
+                }
             }),
         },
         SweepCase {

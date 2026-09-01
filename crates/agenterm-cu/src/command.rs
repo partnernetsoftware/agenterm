@@ -512,12 +512,19 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         role: Option<String>,
     },
-    /// Read the target session's native Unicode-text clipboard directly.
-    /// This is independent of accessibility-node `copy` / `paste`; absence
-    /// of Unicode text is a successful empty string and the native ABI owns
-    /// the bounded whole-payload read.
+    /// Read the target session's clipboard. Without `type_name` this is
+    /// Unicode text plus the host type list. With `type_name` it is one
+    /// native type as bounded bytes (MCU `clipboard read`).
     ClipboardRead {
         target: TargetRef,
+        #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+        type_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_bytes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        out: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        replace: bool,
     },
     /// Copy AT-SPI `Text.GetText` onto the native clipboard
     /// (`agt_clipboard_set_text`). With `--name`, the unique showing named
@@ -976,6 +983,10 @@ mod tests {
     fn clipboard_read_is_target_neutral_observation() {
         let command = Command::ClipboardRead {
             target: TargetRef::Vnc,
+            type_name: None,
+            max_bytes: None,
+            out: None,
+            replace: false,
         };
         assert_eq!(command.verb(), "clipboard-read");
         assert_eq!(command.target(), TargetRef::Vnc);

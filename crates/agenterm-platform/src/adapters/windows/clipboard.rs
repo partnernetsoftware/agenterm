@@ -230,6 +230,82 @@ pub(crate) fn get_text(max_utf8_bytes: usize, timeout: Duration) -> Result<Strin
     Ok(decoded)
 }
 
+pub(crate) fn get_type(
+    type_name: &str,
+    max_bytes: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>, ClipboardError> {
+    let format = format_from_name(type_name)?;
+    if matches!(format, 2 | 3 | 14) {
+        return Err(ClipboardError::Backend(
+            "CF_BITMAP/CF_METAFILEPICT/CF_ENHMETAFILE are GDI handles, not byte payloads; use CF_DIB or a registered PNG format",
+        ));
+    }
+    let _guard = open(ptr::null_mut(), timeout)?;
+    if unsafe { IsClipboardFormatAvailable(format) } == 0 {
+        return Err(ClipboardError::Backend(
+            "the clipboard does not carry that format",
+        ));
+    }
+    let allocation = unsafe { GetClipboardData(format) };
+    if allocation.is_null() {
+        return Err(ClipboardError::Backend(
+            "could not read clipboard format data",
+        ));
+    }
+    let allocation_size = unsafe { GlobalSize(allocation) };
+    if allocation_size == 0 {
+        return Err(ClipboardError::Backend(
+            "clipboard format data has no readable allocation",
+        ));
+    }
+    if allocation_size > max_bytes {
+        return Err(ClipboardError::TooLarge { limit: max_bytes });
+    }
+    let source = unsafe { GlobalLock(allocation) } as *const u8;
+    if source.is_null() {
+        return Err(ClipboardError::Backend(
+            "could not lock clipboard format data",
+        ));
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(source, allocation_size) }.to_vec();
+    unsafe { GlobalUnlock(allocation) };
+    Ok(bytes)
+}
+
+fn format_from_name(name: &str) -> Result<u32, ClipboardError> {
+    if let Some(standard) = standard_format_id(name) {
+        return Ok(standard);
+    }
+    let mut wide: Vec<u16> = name.encode_utf16().collect();
+    wide.push(0);
+    let format = unsafe {
+        windows_sys::Win32::System::DataExchange::RegisterClipboardFormatW(wide.as_ptr())
+    };
+    if format == 0 {
+        return Err(ClipboardError::Backend(
+            "could not resolve clipboard format name",
+        ));
+    }
+    Ok(format)
+}
+
+fn standard_format_id(name: &str) -> Option<u32> {
+    Some(match name {
+        "CF_TEXT" => 1,
+        "CF_BITMAP" => 2,
+        "CF_METAFILEPICT" => 3,
+        "CF_TIFF" => 6,
+        "CF_OEMTEXT" => 7,
+        "CF_DIB" => 8,
+        "CF_UNICODETEXT" => 13,
+        "CF_ENHMETAFILE" => 14,
+        "CF_HDROP" => 15,
+        "CF_DIBV5" => 17,
+        _ => return None,
+    })
+}
+
 pub(crate) fn map_error(error: ClipboardError) -> crate::contract::clipboard::ClipboardError {
     match &error {
         ClipboardError::Unavailable => {

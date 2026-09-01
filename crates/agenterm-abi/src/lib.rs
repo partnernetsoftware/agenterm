@@ -97,7 +97,9 @@ use agenterm_platform::accessibility_tree::{
     set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
 };
 use agenterm_platform::app_inventory::{launch as launch_app, list_installed};
-use agenterm_platform::clipboard::{available_types, get_text, has_unicode_text, set_text};
+use agenterm_platform::clipboard::{
+    available_types, get_text, get_type, has_unicode_text, set_text,
+};
 use agenterm_platform::contract::app_inventory::AppInventoryError;
 use agenterm_platform::desktop_host::{
     DesktopActionSpec, DesktopHost, DesktopHostError, MAX_DESKTOP_ACTIONS, MAX_DESKTOP_LABEL_BYTES,
@@ -294,7 +296,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 22);
+abi_version!(1, 23);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -5241,6 +5243,72 @@ pub extern "C" fn agt_clipboard_types(buf: *mut u8, cap: usize, out_len: *mut us
                 c"panic",
                 "panic in agt_clipboard_types",
             );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+const MAX_CLIPBOARD_TYPE_BYTES: usize =
+    agenterm_platform::contract::clipboard::MAX_CLIPBOARD_TYPE_BYTES;
+
+/// ABI 1.23: read one clipboard type as raw bytes, two-stage (§3.4).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_clipboard_get(
+    type_ptr: *const u8,
+    type_len: usize,
+    buf: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> agt_status {
+    fn inner(
+        type_ptr: *const u8,
+        type_len: usize,
+        buf: *mut u8,
+        cap: usize,
+        out_len: *mut usize,
+    ) -> agt_status {
+        if out_len.is_null() {
+            record_error(c"agt_clipboard_get", c"bad_pointer", "out_len is null");
+            return agt_status::AGT_FAILED;
+        }
+        if type_ptr.is_null() {
+            record_error(c"agt_clipboard_get", c"bad_text", "type pointer is null");
+            return agt_status::AGT_FAILED;
+        }
+        if type_len == 0 || type_len > 256 {
+            record_error(
+                c"agt_clipboard_get",
+                c"bad_text",
+                "type length must be 1..256",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let type_bytes = unsafe { std::slice::from_raw_parts(type_ptr, type_len) };
+        let type_name = match std::str::from_utf8(type_bytes) {
+            Ok(name) => name,
+            Err(_) => {
+                record_error(c"agt_clipboard_get", c"bad_text", "type is not UTF-8");
+                return agt_status::AGT_FAILED;
+            }
+        };
+        match get_type(type_name, MAX_CLIPBOARD_TYPE_BYTES) {
+            Ok(bytes) => copy_bytes_two_stage(c"agt_clipboard_get", &bytes, buf, cap, out_len),
+            Err(agenterm_platform::contract::clipboard::ClipboardError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(error) => {
+                record_error(c"agt_clipboard_get", c"clipboard_failed", error.message());
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(type_ptr, type_len, buf, cap, out_len)
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(c"agt_clipboard_get", c"panic", "panic in agt_clipboard_get");
             agt_status::AGT_FAILED
         }
     }

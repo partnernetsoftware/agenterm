@@ -981,10 +981,47 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
             }
         }
         "clipboard-read" | "clipboard" => {
-            if !args.is_empty() {
-                return usage_err("clipboard-read accepts no command arguments");
+            if verb == "clipboard" && args.first().map(String::as_str) == Some("read") {
+                args.remove(0);
             }
-            Command::ClipboardRead { target }
+            let type_name = match flag_text(&mut args, "--type") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let type_name = type_name.or_else(|| {
+                args.first()
+                    .cloned()
+                    .filter(|first| !first.starts_with('-'))
+                    .map(|value| {
+                        args.remove(0);
+                        value
+                    })
+            });
+            let max_bytes = match flag_parsed::<usize>(&mut args, "--max-bytes") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let out = match flag_text(&mut args, "--out") {
+                Ok(value) => value,
+                Err(message) => return usage_err(message),
+            };
+            let replace = take_switch(&mut args, "--replace");
+            if !args.is_empty() {
+                return usage_err(format!(
+                    "clipboard-read accepts only --type T --max-bytes N --out PATH [--replace]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            if type_name.is_none() && (max_bytes.is_some() || out.is_some() || replace) {
+                return usage_err("clipboard-read --max-bytes/--out/--replace require --type");
+            }
+            Command::ClipboardRead {
+                target,
+                type_name,
+                max_bytes,
+                out,
+                replace,
+            }
         }
         "copy" => {
             let window = flag_window_opt(&mut args);
@@ -1524,7 +1561,13 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                     args[0]
                 ));
             }
-            Command::ClipboardRead { target }
+            Command::ClipboardRead {
+                target,
+                type_name: None,
+                max_bytes: None,
+                out: None,
+                replace: false,
+            }
         }
         "page-js" | "page" => {
             if verb == "page" {
@@ -2297,10 +2340,12 @@ Commands:
                               --window is set. Without --window stays the
                               plain type-into-focused inject.
                               `--` ends flag parsing
-  clipboard-read              reads the target session's native Unicode-text
-                              clipboard as bounded UTF-8. Requires observe;
-                              empty text is successful. Independent of node
-                              copy / paste and never writes an audit payload.
+  clipboard-read [--type T] [--max-bytes N] [--out PATH [--replace]]
+                              no --type: Unicode text plus host type names.
+                              --type T: one native type as bounded bytes
+                              (default 1 MiB, max 16 MiB), sha256, utf8 or
+                              base64. --out writes the bytes (0600; --replace
+                              overwrites). Requires observe.
   copy --window HANDLE [--name PAT [--role ROLE]]
                               copies AT-SPI Text.GetText onto the native
                               clipboard (Linux X11: SetSelectionOwner, not
@@ -2503,12 +2548,38 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_read_type_requires_observe_and_is_not_unknown() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "clipboard-read".into(),
+            "--type".into(),
+            "«class PNGf»".into(),
+        ]);
+        assert_eq!(reply.command, "clipboard-read");
+        assert_eq!(reply.error.expect("typed refusal").code, "refused");
+        let mcu = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "clipboard".into(),
+            "read".into(),
+            "«class PNGf»".into(),
+        ]);
+        assert_eq!(mcu.command, "clipboard-read");
+        assert_ne!(
+            mcu.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+            "usage"
+        );
+    }
+
+    #[test]
     fn clipboard_read_cli_rejects_extra_arguments() {
         let reply = dispatch(vec![
             "--target".into(),
             "current".into(),
             "clipboard-read".into(),
             "unexpected".into(),
+            "extra".into(),
         ]);
         assert!(!reply.ok);
         assert_eq!(reply.command, "usage");

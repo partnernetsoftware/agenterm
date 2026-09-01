@@ -501,6 +501,82 @@ fn probe_xsel_has_text() -> bool {
 /// MIME names, which is exactly the type list, so no new mechanism is
 /// needed -- the same probe that decides "is there text on the clipboard"
 /// already reads it. Names are passed through as the session spelled them.
+fn clipboard_type_name_ok(type_name: &str) -> bool {
+    let bytes = type_name.as_bytes();
+    (1..=256).contains(&bytes.len()) && !bytes.iter().any(|b| *b == 0 || *b == b'\n' || *b == b'\r')
+}
+
+pub(crate) fn get_type(
+    type_name: &str,
+    max_read_bytes: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>, ClipboardError> {
+    if !clipboard_type_name_ok(type_name) {
+        return Err(ClipboardError::Backend {
+            message: "clipboard type name is empty, too long, or contains a control character"
+                .into(),
+        });
+    }
+    let timeout = bounded_helper_timeout(timeout)?;
+    let deadline = Instant::now() + timeout;
+    require_capability_for_io()?;
+    let display = display_facts_from_env();
+    let backends = ClipboardBackendFacts::probe();
+    if !can_read(display, backends) {
+        return Err(ClipboardError::Unavailable {
+            message: "no display-matched clipboard read path".to_string(),
+        });
+    }
+    let mut errors = Vec::new();
+    if display.x11 {
+        match x11_clipboard::get_type(type_name, max_read_bytes, timeout) {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                if matches!(error, ClipboardError::TooLarge { .. }) {
+                    return Err(error);
+                }
+                if !can_read_helper(display, backends) {
+                    return Err(error);
+                }
+                errors.push(format!("native-x11: {}", error.message()));
+            }
+        }
+    }
+    if display.wayland && backends.wl_paste {
+        let remaining = remaining_budget(deadline, timeout)?;
+        match read_via_command_bytes(
+            &["wl-paste", "--type", type_name, "--no-newline"],
+            max_read_bytes,
+            remaining,
+        ) {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                if matches!(error, ClipboardError::TooLarge { .. }) {
+                    return Err(error);
+                }
+                errors.push(format!("wl-paste: {}", error.message()));
+            }
+        }
+    }
+    if display.x11 && backends.xclip {
+        let remaining = remaining_budget(deadline, timeout)?;
+        match read_via_command_bytes(
+            &["xclip", "-selection", "clipboard", "-t", type_name, "-o"],
+            max_read_bytes,
+            remaining,
+        ) {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                if matches!(error, ClipboardError::TooLarge { .. }) {
+                    return Err(error);
+                }
+                errors.push(format!("xclip: {}", error.message()));
+            }
+        }
+    }
+    Err(classify_attempt_errors("read-type", &errors))
+}
+
 pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
     let facts = ClipboardBackendFacts::probe();
     let helpers: &[&[&str]] = if facts.wayland_read() {
@@ -628,6 +704,17 @@ fn read_via_command(
     limit: usize,
     timeout: Duration,
 ) -> Result<String, ClipboardError> {
+    let bytes = read_via_command_bytes(argv, limit, timeout)?;
+    String::from_utf8(bytes).map_err(|error| ClipboardError::Backend {
+        message: error.to_string(),
+    })
+}
+
+fn read_via_command_bytes(
+    argv: &[&str],
+    limit: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>, ClipboardError> {
     let program = argv
         .first()
         .copied()
@@ -705,9 +792,7 @@ fn read_via_command(
         return Err(timeout_error(timeout, "clipboard read"));
     }
     wait_child_with_timeout(&mut child, remaining, "clipboard read")?;
-    String::from_utf8(bytes).map_err(|error| ClipboardError::Backend {
-        message: error.to_string(),
-    })
+    Ok(bytes)
 }
 
 fn read_stdout_bounded(stdout: &mut impl Read, limit: usize) -> Result<Vec<u8>, ClipboardError> {

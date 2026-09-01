@@ -7,7 +7,7 @@
 | 纪律 | 吸收**命令集与分层教训**，不搬 TypeScript / helper protocol-v40 |
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
-**还差什么（2026-09-01，夜）**：读富内容（图片/文件字节）仍未做，只报类型；
+**还差什么（2026-09-01，夜）**：~~读富内容仍未做~~ **已做**：`clipboard-read --type`（MCU `clipboard read`）按宿主自己的类型名读有界字节，回复 `sha256` + utf8/base64，可选 `--out`。macOS 只认 `clipboard info` 的 AppleScript class（`«class PNGf»` / `string`），不认 UTI。写/clear 仍未做。
 MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js` 已是 live 别名，其余 MCU 命令名（`drag`/`inspect`/`page targets`/`ps`/`maximize`…）typed 拒绝，不再 `unknown command`。
 **截图三个平台都通了**：macOS 那句「被系统拿走」只对了一半——SDK 里确实没了，但符号还在框架里，
 dlsym 拿到就能抓（和本仓够 SkyLight 是同一套办法），实测 macOS 26.5 抓到真内容；符号哪天真没了

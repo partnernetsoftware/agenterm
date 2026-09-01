@@ -16,10 +16,10 @@ use std::borrow::Cow;
 /// normalized vocabulary: a caller matching on them is matching on what
 /// the platform actually said.
 ///
-/// This reports names only. Reading arbitrary rich content is a separate
-/// question with its own policy, and knowing what is there is the half an
-/// agent needs to choose its next move.
+/// This reports names only. Reading a named type is [`crate::clipboard::get_type`].
 pub const MAX_CLIPBOARD_TYPES: usize = 64;
+/// Hard ceiling for one rich clipboard read (MCU `clipboard read` is 16 MiB).
+pub const MAX_CLIPBOARD_TYPE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]

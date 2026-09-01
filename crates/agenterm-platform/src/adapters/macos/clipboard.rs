@@ -69,6 +69,94 @@ fn bounded_helper_timeout(timeout: Duration) -> Result<Duration, ClipboardError>
 /// names are passed through as the system spelled them: a caller matching
 /// on `«class PNGf»` is matching on what macOS actually said, not on a
 /// vocabulary invented here.
+/// AppleScript `as` clause for a clipboard-info class name. Other spellings
+/// (UTI, NSPasteboard names MCU uses) are refused rather than interpolated.
+fn macos_as_clause_owned(type_name: &str) -> Result<String, ClipboardError> {
+    let t = type_name.trim();
+    if t.eq_ignore_ascii_case("string") {
+        return Ok("string".into());
+    }
+    if t.eq_ignore_ascii_case("unicode text") {
+        return Ok("Unicode text".into());
+    }
+    let inner = t
+        .strip_prefix("«class ")
+        .and_then(|rest| rest.strip_suffix('»'));
+    if let Some(inner) = inner
+        && !inner.is_empty()
+        && inner.len() <= 32
+        && inner.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ')
+    {
+        return Ok(format!("«class {inner}»"));
+    }
+    Err(ClipboardError::Backend {
+        message: format!(
+            "clipboard type {t:?} is not an AppleScript clipboard-info class (string, Unicode text, or «class XXXX»)"
+        ),
+    })
+}
+
+pub(crate) fn get_type(
+    type_name: &str,
+    max_bytes: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>, ClipboardError> {
+    let as_clause = macos_as_clause_owned(type_name)?;
+    if max_bytes == 0 {
+        return Err(ClipboardError::TooLarge { limit: 0 });
+    }
+    let path = std::env::temp_dir().join(format!(
+        "agenterm-clip-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let path_str = path.to_str().ok_or_else(|| ClipboardError::Backend {
+        message: "clipboard temp path is not UTF-8".into(),
+    })?;
+    if path_str.contains('"') || path_str.contains('\\') {
+        return Err(ClipboardError::Backend {
+            message: "clipboard temp path is not AppleScript-safe".into(),
+        });
+    }
+    let script = format!(
+        "set outFile to POSIX file \"{path_str}\"\n\
+         set f to open for access outFile with write permission\n\
+         set eof of f to 0\n\
+         write (the clipboard as {as_clause}) to f\n\
+         close access f\n"
+    );
+    let run = write_via_command_script("osascript", &script, timeout);
+    let bytes = std::fs::read(&path);
+    let _ = std::fs::remove_file(&path);
+    run?;
+    let bytes = bytes.map_err(|error| ClipboardError::Backend {
+        message: format!("clipboard type file: {error}"),
+    })?;
+    if bytes.len() > max_bytes {
+        return Err(ClipboardError::TooLarge { limit: max_bytes });
+    }
+    Ok(bytes)
+}
+
+fn write_via_command_script(
+    program: &str,
+    script: &str,
+    timeout: Duration,
+) -> Result<(), ClipboardError> {
+    let mut child = Command::new(program)
+        .arg("-e")
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| unavailable_or_backend(program, error))?;
+    wait_child(&mut child, timeout, timeout)
+}
+
 pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
     let listing = read_via_command_with_args(
         "osascript",
@@ -386,5 +474,24 @@ mod tests {
             })
         );
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn as_clause_accepts_clipboard_info_classes_only() {
+        assert_eq!(macos_as_clause_owned("string").unwrap(), "string");
+        assert_eq!(
+            macos_as_clause_owned("«class PNGf»").unwrap(),
+            "«class PNGf»"
+        );
+        assert!(macos_as_clause_owned("public.png").is_err());
+        assert!(macos_as_clause_owned("«class PNGf» & do shell script \"x\"").is_err());
+    }
+
+    #[test]
+    fn unknown_clipboard_info_class_fails_without_hanging() {
+        let started = Instant::now();
+        let result = get_type("«class ZZZZ»", 1024, HELPER_TIMEOUT);
+        assert!(result.is_err(), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 }

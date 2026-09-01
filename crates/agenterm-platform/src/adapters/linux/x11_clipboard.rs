@@ -252,12 +252,46 @@ impl NativeClipboard {
         self.convert_clipboard(self.atoms.utf8_string, max_read_bytes, timeout)
     }
 
+    fn get_type(
+        &mut self,
+        type_name: &str,
+        max_read_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, ClipboardError> {
+        self.pump()?;
+        if type_name == "UTF8_STRING" || type_name == "text/plain;charset=utf-8" {
+            if let Some(bytes) = self.owned.as_deref() {
+                if bytes.len() > max_read_bytes {
+                    return Err(ClipboardError::TooLarge {
+                        limit: max_read_bytes,
+                    });
+                }
+                return Ok(bytes.to_vec());
+            }
+        }
+        let target = intern(&self.conn, type_name.as_bytes())?;
+        self.convert_clipboard_bytes(target, max_read_bytes, timeout)
+    }
+
     fn convert_clipboard(
         &mut self,
         target: Atom,
         max_read_bytes: usize,
         timeout: Duration,
     ) -> Result<String, ClipboardError> {
+        let bytes = self.convert_clipboard_bytes(target, max_read_bytes, timeout)?;
+        if target == self.atoms.string {
+            return Ok(bytes.into_iter().map(char::from).collect());
+        }
+        String::from_utf8(bytes).map_err(|error| backend(error.to_string()))
+    }
+
+    fn convert_clipboard_bytes(
+        &mut self,
+        target: Atom,
+        max_read_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, ClipboardError> {
         let _ = self.conn.delete_property(self.window, self.atoms.property);
         self.conn
             .convert_selection(
@@ -280,9 +314,9 @@ impl NativeClipboard {
                         && notify.target == target =>
                 {
                     if notify.property == NONE {
-                        return Ok(String::new());
+                        return Err(backend("X11 selection has no such target"));
                     }
-                    return self.read_property(notify.property, max_read_bytes);
+                    return self.read_property_bytes(notify.property, max_read_bytes);
                 }
                 Ok(Some(event)) => self.handle_event(event)?,
                 Ok(None) => {
@@ -303,11 +337,11 @@ impl NativeClipboard {
         }
     }
 
-    fn read_property(
+    fn read_property_bytes(
         &self,
         property: Atom,
         max_read_bytes: usize,
-    ) -> Result<String, ClipboardError> {
+    ) -> Result<Vec<u8>, ClipboardError> {
         let long_length = u32::try_from(max_read_bytes / 4 + 2).unwrap_or(u32::MAX);
         let reply = self
             .conn
@@ -330,10 +364,7 @@ impl NativeClipboard {
                 limit: max_read_bytes,
             });
         }
-        if reply.type_ == self.atoms.string {
-            return Ok(reply.value.into_iter().map(char::from).collect());
-        }
-        String::from_utf8(reply.value).map_err(|error| backend(error.to_string()))
+        Ok(reply.value)
     }
 }
 
@@ -372,6 +403,14 @@ pub(super) fn set_text(text: &str, _timeout: Duration) -> Result<(), ClipboardEr
 
 pub(super) fn get_text(max_read_bytes: usize, timeout: Duration) -> Result<String, ClipboardError> {
     with_state(|state| state.get_text(max_read_bytes, timeout))
+}
+
+pub(super) fn get_type(
+    type_name: &str,
+    max_read_bytes: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>, ClipboardError> {
+    with_state(|state| state.get_type(type_name, max_read_bytes, timeout))
 }
 
 /// A 1-byte `get_text` probe of a longer payload is `TooLarge`, not absence.

@@ -1859,6 +1859,71 @@ pub mod clipboard {
             message: "clipboard text is not UTF-8".into(),
         })
     }
+
+    /// Two-stage `agt_clipboard_get` (ABI 1.23): one host type as raw bytes.
+    pub fn get_type(type_name: &str, max_bytes: usize) -> Result<Vec<u8>, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < dynlib::CLIPBOARD_GET_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "clipboard type read requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    dynlib::CLIPBOARD_GET_ABI_MINOR
+                ),
+            });
+        }
+        let f = call_sym::<super::ClipboardGet>(b"agt_clipboard_get")?;
+        let type_bytes = type_name.as_bytes();
+        let mut required = 0usize;
+        let status = unsafe {
+            f(
+                type_bytes.as_ptr(),
+                type_bytes.len(),
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+            )
+        };
+        if status == dynlib::AGT_UNSUPPORTED {
+            return Err(MechanismError::Unsupported {
+                reason: "agt_clipboard_get: mechanism unavailable on this host".to_owned(),
+            });
+        }
+        if status == dynlib::AGT_OK {
+            return Ok(Vec::new());
+        }
+        if status != dynlib::AGT_FAILED {
+            return Err(last_mechanism_error("agt_clipboard_get"));
+        }
+        let probe = last_mechanism_error("agt_clipboard_get");
+        match &probe {
+            MechanismError::Failed { code, .. } if code == "buffer_too_small" => {}
+            other => return Err(other.clone()),
+        }
+        if required == 0 {
+            return Ok(Vec::new());
+        }
+        if required > max_bytes {
+            return Err(MechanismError::Failed {
+                code: "clipboard_too_large".into(),
+                message: format!(
+                    "clipboard type payload is {required} bytes; max-bytes is {max_bytes}"
+                ),
+            });
+        }
+        let mut buf = vec![0u8; required];
+        let status = unsafe {
+            f(
+                type_bytes.as_ptr(),
+                type_bytes.len(),
+                buf.as_mut_ptr(),
+                required,
+                &mut required,
+            )
+        };
+        map_status("agt_clipboard_get", status)?;
+        buf.truncate(required);
+        Ok(buf)
+    }
 }
 
 pub fn send_node_keys(
@@ -2238,6 +2303,7 @@ type NodeGetCaretOffset = unsafe extern "C" fn(isize, *const std::ffi::c_char, *
 type ClipboardSetText = unsafe extern "C" fn(*const u8, usize) -> i32;
 type ClipboardTypes = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type ClipboardGetText = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
+type ClipboardGet = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
 type LastError = unsafe extern "C" fn(*mut agt_error) -> i32;
 
 #[cfg(test)]

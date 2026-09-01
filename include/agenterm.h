@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 22
+#define AGT_ABI_MINOR 23
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -730,6 +730,16 @@ int32_t    agt_clipboard_has_text(void);
  * empty; a host with no way to enumerate types answers AGT_UNSUPPORTED,
  * which is a different fact. Reports names only and reads no content. */
 agt_status agt_clipboard_types(uint8_t* buf, size_t cap, size_t* out_len);
+
+/* ABI 1.23: read one clipboard type as raw bytes, two-stage (spec 3.4).
+ * `type` is the host's own spelling from agt_clipboard_types (not a
+ * normalized UTI). A name the clipboard does not carry is
+ * AGT_FAILED{code="clipboard_failed"} rather than an empty payload.
+ * Reads are capped at 16 MiB; larger payloads are clipboard_failed, not
+ * torn. NULL type, or type that is not UTF-8, is bad_text. */
+agt_status agt_clipboard_get(
+    const uint8_t* type, size_t type_len,
+    uint8_t* buf, size_t cap, size_t* out_len);
 
 /* --- parent console (milestone 9) ------------------------------------ */
 

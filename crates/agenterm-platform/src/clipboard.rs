@@ -133,6 +133,15 @@ pub fn available_types() -> ClipboardResult<Vec<String>> {
     selected::clipboard::available_types().map_err(selected::clipboard::map_error)
 }
 
+/// Read one clipboard type as raw bytes, capped at `max_bytes`.
+///
+/// The type name is the host's own spelling from [`available_types`]. A
+/// name this host does not carry is a typed failure, not an empty payload.
+pub fn get_type(type_name: &str, max_bytes: usize) -> ClipboardResult<Vec<u8>> {
+    selected::clipboard::get_type(type_name, max_bytes, DEFAULT_OPEN_TIMEOUT)
+        .map_err(selected::clipboard::map_error)
+}
+
 pub fn has_unicode_text() -> bool {
     selected::clipboard::has_unicode_text()
 }

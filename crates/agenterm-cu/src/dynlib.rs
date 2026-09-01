@@ -276,6 +276,8 @@ pub const WINDOW_STACKING_ABI_MINOR: u16 = 17;
 pub const OBSERVE_NOTIFICATIONS_ABI_MINOR: u16 = 18;
 /// ABI 1.19: `agt_clipboard_types` (what the clipboard is carrying).
 pub const CLIPBOARD_TYPES_ABI_MINOR: u16 = 19;
+/// ABI 1.23: `agt_clipboard_get` (one named type as bytes).
+pub const CLIPBOARD_GET_ABI_MINOR: u16 = 23;
 /// The first minor that can hand back a whole node id.
 pub const NODE_ID_STRING_ABI_MINOR: u16 = 22;
 /// ABI 1.20: `agt_a11y_application_set_hidden` (application-level hide).

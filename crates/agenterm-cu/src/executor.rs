@@ -755,7 +755,19 @@ impl Executor {
                 role,
                 ..
             } => send_text(text, *window, name.as_deref(), role.as_deref()),
-            Command::ClipboardRead { .. } => clipboard_read(),
+            Command::ClipboardRead {
+                type_name,
+                max_bytes,
+                out,
+                replace,
+                ..
+            } => {
+                if let Some(type_name) = type_name {
+                    clipboard_read_type(type_name, *max_bytes, out.as_deref(), *replace)
+                } else {
+                    clipboard_read()
+                }
+            }
             Command::Copy {
                 window, name, role, ..
             } => copy(*window, name.as_deref(), role.as_deref()),
@@ -959,6 +971,162 @@ fn clipboard_read() -> Result<serde_json::Value, CuError> {
         object.insert("types_reason".into(), serde_json::json!(reason));
     }
     Ok(payload)
+}
+
+const DEFAULT_CLIPBOARD_TYPE_BYTES: usize = 1024 * 1024;
+const MAX_CLIPBOARD_TYPE_BYTES: usize = 16 * 1024 * 1024;
+
+fn clipboard_read_type(
+    type_name: &str,
+    max_bytes: Option<usize>,
+    out: Option<&str>,
+    replace: bool,
+) -> Result<serde_json::Value, CuError> {
+    if type_name.is_empty() || type_name.len() > 256 || type_name.contains('\0') {
+        return Err(CuError::new(
+            "invalid_input",
+            "clipboard-read --type must be 1..256 bytes without NUL",
+        ));
+    }
+    let max_bytes = max_bytes.unwrap_or(DEFAULT_CLIPBOARD_TYPE_BYTES);
+    if max_bytes == 0 || max_bytes > MAX_CLIPBOARD_TYPE_BYTES {
+        return Err(CuError::new(
+            "invalid_input",
+            "clipboard-read --max-bytes must be 1..16777216",
+        ));
+    }
+    let bytes = mechanism::clipboard::get_type(type_name, max_bytes).map_err(map_mechanism_err)?;
+    let sha256 = clipboard_sha256_hex(&bytes);
+    let mut payload = serde_json::json!({
+        "type": type_name,
+        "bytes": bytes.len(),
+        "sha256": sha256,
+        "mechanism": "libagenterm",
+    });
+    if let Some(path) = out {
+        write_clipboard_bytes(path, &bytes, &sha256, replace)?;
+        payload
+            .as_object_mut()
+            .expect("object")
+            .insert("out".into(), serde_json::json!(path));
+        return Ok(payload);
+    }
+    let (encoding, value) = clipboard_encoding_and_value(type_name, &bytes);
+    payload
+        .as_object_mut()
+        .expect("object")
+        .insert("encoding".into(), serde_json::json!(encoding));
+    payload
+        .as_object_mut()
+        .expect("object")
+        .insert("value".into(), serde_json::json!(value));
+    Ok(payload)
+}
+
+fn clipboard_sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn clipboard_encoding_and_value(type_name: &str, bytes: &[u8]) -> (&'static str, String) {
+    let textual = type_name.eq_ignore_ascii_case("string")
+        || type_name.eq_ignore_ascii_case("unicode text")
+        || type_name.contains("utf8")
+        || type_name.contains("UTF8")
+        || type_name.contains("text/plain")
+        || type_name == "CF_TEXT"
+        || type_name == "CF_UNICODETEXT"
+        || type_name == "CF_OEMTEXT"
+        || type_name.starts_with("public.utf8")
+        || type_name.starts_with("public.plain-text")
+        || type_name.starts_with("public.text")
+        || type_name.starts_with("public.url")
+        || type_name.starts_with("public.file-url");
+    if textual && let Ok(text) = std::str::from_utf8(bytes) {
+        return ("utf8", text.to_owned());
+    }
+    ("base64", encode_base64(bytes))
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        let b0 = bytes[i];
+        let b1 = bytes.get(i + 1).copied();
+        let b2 = bytes.get(i + 2).copied();
+        out.push(TABLE[(b0 >> 2) as usize] as char);
+        out.push(TABLE[(((b0 & 0x03) << 4) | (b1.unwrap_or(0) >> 4)) as usize] as char);
+        match (b1, b2) {
+            (None, _) => {
+                out.push('=');
+                out.push('=');
+            }
+            (Some(b1), None) => {
+                out.push(TABLE[((b1 & 0x0f) << 2) as usize] as char);
+                out.push('=');
+            }
+            (Some(b1), Some(b2)) => {
+                out.push(TABLE[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+                out.push(TABLE[(b2 & 0x3f) as usize] as char);
+            }
+        }
+        i += 3;
+    }
+    out
+}
+
+fn write_clipboard_bytes(
+    path: &str,
+    bytes: &[u8],
+    sha256: &str,
+    replace: bool,
+) -> Result<(), CuError> {
+    let flags = if replace {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .to_owned()
+    } else {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .to_owned()
+    };
+    let mut file = flags.open(path).map_err(|error| {
+        CuError::new(
+            "clipboard_write_failed",
+            format!("clipboard-read --out {path}: {error}"),
+        )
+    })?;
+    use std::io::Write;
+    file.write_all(bytes).map_err(|error| {
+        CuError::new(
+            "clipboard_write_failed",
+            format!("clipboard-read --out {path}: {error}"),
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    let stored = std::fs::read(path).map_err(|error| {
+        CuError::new(
+            "clipboard_write_failed",
+            format!("clipboard-read --out reread {path}: {error}"),
+        )
+    })?;
+    if stored.len() != bytes.len() || clipboard_sha256_hex(&stored) != sha256 {
+        return Err(CuError::new(
+            "clipboard_write_failed",
+            "clipboard-read --out failed hash/length verification",
+        ));
+    }
+    Ok(())
 }
 
 fn capabilities_payload() -> serde_json::Value {
@@ -5957,6 +6125,14 @@ mod tests {
     use crate::target::TargetRef;
 
     static NEXT_AUDIT_SCRATCH: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn clipboard_base64_padding_matches_rfc4648() {
+        assert_eq!(encode_base64(b""), "");
+        assert_eq!(encode_base64(b"f"), "Zg==");
+        assert_eq!(encode_base64(b"fo"), "Zm8=");
+        assert_eq!(encode_base64(b"foo"), "Zm9v");
+    }
 
     #[test]
     fn persisted_one_shot_is_audited_revalidated_and_exhausted() {
