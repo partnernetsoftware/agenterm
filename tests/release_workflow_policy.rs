@@ -17,6 +17,8 @@ static BUILD_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/build.qjs").replace("\r\n", "\n"));
 static CHECK_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/check.qjs").replace("\r\n", "\n"));
+static NATIVE_IPC_SMOKE_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/native-ipc-smoke.qjs").replace("\r\n", "\n"));
 static PREFLIGHT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/preflight.qjs").replace("\r\n", "\n"));
 static INTERNAL_VERSION_QJS: LazyLock<String> = LazyLock::new(|| {
@@ -68,6 +70,25 @@ fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
     assert_eq!(budget["timeout_ms"], 120_000);
     assert!(budget.get("max_host_operations").is_none());
     assert!(CHECK_QJS.contains("task(worker, repo, \"target-report\", 120000, [], no_env, 0)"));
+}
+
+#[test]
+fn native_ipc_settings_paths_compare_host_separator_neutrally() {
+    assert!(NATIVE_IPC_SMOKE_QJS.contains("function comparable_path(p)"));
+    assert!(NATIVE_IPC_SMOKE_QJS.contains("replaceAll(\"\\\\\", \"/\")"));
+    for path in [
+        "native_settings_path",
+        "expected_native_settings",
+        "dev_settings_path",
+        "dev_expected_settings",
+        "override_protocol.settings_path",
+        "context.settings_path",
+    ] {
+        assert!(
+            NATIVE_IPC_SMOKE_QJS.contains(&format!("comparable_path({path})")),
+            "missing separator-neutral comparison for {path}"
+        );
+    }
 }
 
 #[test]

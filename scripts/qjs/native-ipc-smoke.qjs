@@ -41,6 +41,12 @@ function file_name(p) {
   return parts[parts.length - 1];
 }
 
+// PathBuf display uses the host separator, while the harness deliberately
+// builds paths with `/` on every host. Compare path identity, not spelling.
+function comparable_path(p) {
+  return ("" + p).replaceAll("\\", "/");
+}
+
 function scoped_settings_path(settings_base, scope_id, is_main) {
   if (is_main !== 0) {
     return rh.join(settings_base, "settings.json");
@@ -647,8 +653,9 @@ try {
     "native_ipc_custom_native_contract"
   );
   const native_settings_match =
-    native_settings_path === expected_native_settings
-      || (custom_instance !== "main" && native_settings_path.endsWith(expected_native_settings_suffix));
+    comparable_path(native_settings_path) === comparable_path(expected_native_settings)
+      || (custom_instance !== "main"
+        && comparable_path(native_settings_path).endsWith(comparable_path(expected_native_settings_suffix)));
   harness.require(
     native_settings_match,
     "native_ipc_custom_native_settings_path:expected="
@@ -730,8 +737,8 @@ try {
         && dev_transport === native_transport
         && dev_endpoint !== native_endpoint
         && dev_server_scope_id !== native_scope_id
-        && dev_settings_path === dev_expected_settings
-        && dev_settings_path !== native_settings_path,
+        && comparable_path(dev_settings_path) === comparable_path(dev_expected_settings)
+        && comparable_path(dev_settings_path) !== comparable_path(native_settings_path),
       "native_ipc_main_dev_authority_separation"
     );
 
@@ -780,7 +787,7 @@ try {
     override_server
   );
   harness.require(
-    override_protocol.settings_path === context.settings_path,
+    comparable_path(override_protocol.settings_path) === comparable_path(context.settings_path),
     "native_ipc_explicit_settings_override_lost"
   );
   invoke(

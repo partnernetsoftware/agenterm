@@ -681,6 +681,13 @@ costs a full candidate cycle:
   totals; the task keeps the generic host-op budget and its coordinator honors
   the same 120-second deadline. A 204,283-file / 44,738,264,418-byte local tree
   completed in 1.88 seconds without increasing either Script compute budget.
+- [x] Native IPC smoke compares settings-path identity with host separators
+  normalized only at the assertion boundary. Candidate `33526000111` proved
+  the target-inventory repair (`4,176` files in `179 ms`) and then exposed the
+  deterministic Windows spelling difference: the harness composed `/` while
+  `PathBuf` reported `\\`. Both retry attempts failed identically. Product path
+  derivation remains unchanged; custom, dev, and explicit-override assertions
+  now accept separator-equivalent paths while still rejecting scope aliasing.
 - [ ] failure screenshots are restricted to known runner-created windows and
   directories before any self-hosted Candidate court may upload them. Hosted
   ephemeral runners remain the current owner; a whole-desktop self-hosted
