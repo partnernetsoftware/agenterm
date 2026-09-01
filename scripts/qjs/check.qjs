@@ -1102,7 +1102,20 @@ if (skip_smoke === 0) {
     if (id === "remote-ui-upgrade-smoke") { extra.push(upgrade_fixture); }
     if (id === "fleet-smoke" && include_stress !== 0) { extra.push("--event-load"); }
     const smoke_allow_powershell = id === "remote-ui-smoke" ? 1 : 0;
-    const smoke_spec = task(worker, repo, id, smoke_timeout_ms(id), extra, no_activate, smoke_allow_powershell);
+    // qjswasm deliberately keeps a 64 MiB default bump heap. This one long
+    // Windows black-box journey parses enough full UI projections to consume
+    // that bounded heap before its final interaction leaves; Candidate
+    // 33530768743 reproduced the same max_memory_pages failure twice after
+    // completing the title/note step. Price this owning court explicitly at
+    // 128 MiB instead of weakening the default for every script.
+    const smoke_env = id === "remote-ui-smoke"
+      ? {
+          AGENTERM_NO_ACTIVATE: "1",
+          AGENTERM_SCRIPT_WORKER_STDERR: "inherit",
+          AGENTERM_QJS_MAX_MEMORY_PAGES: "2048"
+        }
+      : no_activate;
+    const smoke_spec = task(worker, repo, id, smoke_timeout_ms(id), extra, smoke_env, smoke_allow_powershell);
     // GUI journeys on shared runners are load-sensitive: transient races
     // pass on a second attempt while genuine regressions fail
     // deterministically both times. One bounded retry keeps the gate honest.

@@ -1088,3 +1088,15 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 
 相比收窄前需要同时推进发布链证据观测、安装尾设计、脚本引擎深化、低成本尾账
 等多条独立泳道，收窄后的范围是可在一个集中 session 内完成的。
+
+### A.6 Candidate `33530768743`：长旅程 heap 定价
+
+- 六个原生构建格全部成功；Windows 唯一完整门禁越过上一 Candidate 的
+  host-door 缺口。
+- `remote-ui-smoke` 连续两次在标题/备注交互之后以
+  `limit:max_memory_pages` 失败，属于 64 MiB 无 GC bump heap 的稳定资源价格，
+  不是 GUI 瞬态竞态。
+- 下一冻结点仅给该 owning court 配置 2048 页（128 MiB）；通用 qjswasm
+  默认继续保持 1024 页（64 MiB），并保留 1G 指令与 600 秒独立上限。
+- 下一 Candidate 的判据仍是余下 Windows 旅程、六格 execute-only court 与
+  aggregate 全绿；只越过 heap 停点不构成 Candidate 通过。

@@ -129,6 +129,21 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
 }
 
 #[test]
+fn remote_ui_smoke_prices_its_large_bump_heap_without_raising_the_default() {
+    let check = include_str!("../scripts/qjs/check.qjs");
+    let engine = include_str!("../src/script_engine.rs");
+    assert!(
+        check.contains("AGENTERM_QJS_MAX_MEMORY_PAGES: \"2048\"")
+            && check.contains("id === \"remote-ui-smoke\""),
+        "the one measured long GUI court must opt into its 128 MiB heap"
+    );
+    assert!(
+        engine.contains("pub(crate) const QJS_MAX_MEMORY_PAGES: usize = 1024;"),
+        "ordinary qjswasm invocations must retain the 64 MiB default"
+    );
+}
+
+#[test]
 fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(CANDIDATE.contains("name: Release Candidate"));
     assert!(CANDIDATE.contains("workflow_dispatch:"));

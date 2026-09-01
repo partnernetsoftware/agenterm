@@ -625,6 +625,13 @@ costs a full candidate cycle:
   audit found legacy plan paths plus a browser-extension default address in the
   current tree; those must be redacted before a new Candidate even though no
   executable package contained them.
+- [x] Candidate `33530768743` ran all six builds green and advanced the Windows
+  `remote-ui-smoke` through its former host-door stop, then reproduced the same
+  `max_memory_pages` limit twice after the title/note interaction. The owning
+  court prices its measured no-GC bump heap at 2048 pages (128 MiB); the global
+  qjswasm default remains 1024 pages (64 MiB), with independent step and wall
+  deadlines. A resource limit is raised only at the measured owner, never as a
+  repository-wide retry switch.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

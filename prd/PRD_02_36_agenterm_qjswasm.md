@@ -726,6 +726,15 @@ qjswasm 绑定。
 - [ ] Windows exact-SHA Candidate 重新执行 `remote-ui-smoke` 及其后所有门并封存
   receipts；在此证据前不宣称迁移完成。
 
+Candidate `33530768743` 已证明上一轮 host-door 缺口关闭：Windows
+`remote-ui-smoke` 通过窗口控制、UI action、PTY、GUI 替换/重连、主题、CWD、
+标签树与标题/备注编辑后，连续两次在同一点答
+`limit:max_memory_pages`。这是无 GC bump heap 的已测资源价格，不是瞬态 GUI
+竞态。通用 qjswasm 上限仍为 1024 页（64 MiB）；只有该 owning court 经
+`check.qjs` 显式采用 2048 页（128 MiB），且保留 1G 步与 600 秒两道独立
+上限。下一 Candidate 必须跑过余下旅程与六格聚合，不能把 heap 放宽冒充
+通过。
+
 ### B. 需求为零或已决定不做（带数字，不需再决策）
 
 | 事 | 数字 / 理由 |
