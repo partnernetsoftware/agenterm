@@ -4,8 +4,7 @@ use x11rb::{
     connection::Connection,
     protocol::xproto::{
         Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
-        StackMode,
-        Window,
+        StackMode, Window,
     },
 };
 

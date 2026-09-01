@@ -108,8 +108,10 @@ const CG_RECT_NULL: CgRect = CgRect {
 
 unsafe extern "C" {
     fn dlopen(path: *const std::ffi::c_char, mode: i32) -> *mut std::ffi::c_void;
-    fn dlsym(handle: *mut std::ffi::c_void, symbol: *const std::ffi::c_char)
-    -> *mut std::ffi::c_void;
+    fn dlsym(
+        handle: *mut std::ffi::c_void,
+        symbol: *const std::ffi::c_char,
+    ) -> *mut std::ffi::c_void;
     fn CFRelease(cf: CfTypeRef);
     fn CGImageGetWidth(image: CgImageRef) -> usize;
     fn CGImageGetHeight(image: CgImageRef) -> usize;
@@ -177,7 +179,8 @@ fn capture_window_image(window_id: u32) -> Result<WindowImage, UiScreenshotError
     }
     let width = unsafe { CGImageGetWidth(image) };
     let height = unsafe { CGImageGetHeight(image) };
-    let ok = u32::try_from(width).is_ok() && u32::try_from(height).is_ok() && width > 0 && height > 0;
+    let ok =
+        u32::try_from(width).is_ok() && u32::try_from(height).is_ok() && width > 0 && height > 0;
     if !ok {
         unsafe { CFRelease(image as CfTypeRef) };
         return Err(UiScreenshotError::Failed {

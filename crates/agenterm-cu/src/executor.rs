@@ -1774,10 +1774,13 @@ fn orderwin_payload(
             let mut payload = payload;
             if let Some(object) = payload.as_object_mut() {
                 object.insert("verified".into(), serde_json::json!(false));
-                object.insert("verification".into(), serde_json::json!({
-                    "method": "stacking-readback",
-                    "reason": reason,
-                }));
+                object.insert(
+                    "verification".into(),
+                    serde_json::json!({
+                        "method": "stacking-readback",
+                        "reason": reason,
+                    }),
+                );
             }
             Ok(payload)
         }

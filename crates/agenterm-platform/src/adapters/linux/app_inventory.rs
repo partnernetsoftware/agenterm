@@ -280,13 +280,12 @@ mod tests {
         assert_eq!(expand_exec("gedit %U"), vec!["gedit".to_owned()]);
         assert_eq!(
             expand_exec("app --flag %f --other"),
-            vec![
-                "app".to_owned(),
-                "--flag".to_owned(),
-                "--other".to_owned()
-            ]
+            vec!["app".to_owned(), "--flag".to_owned(), "--other".to_owned()]
         );
-        assert_eq!(expand_exec("app 100%%"), vec!["app".to_owned(), "100%".to_owned()]);
+        assert_eq!(
+            expand_exec("app 100%%"),
+            vec!["app".to_owned(), "100%".to_owned()]
+        );
     }
 
     #[test]

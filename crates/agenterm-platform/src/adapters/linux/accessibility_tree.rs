@@ -508,15 +508,19 @@ fn application_windows(process_id: u32) -> Result<Vec<u32>, AccessibilityTreeErr
     use x11rb::connection::Connection;
     use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
 
-    let (connection, screen) = x11rb::connect(None)
-        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    let (connection, screen) = x11rb::connect(None).map_err(|error| {
+        AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+    })?;
     let root = connection
         .setup()
         .roots
         .get(screen)
         .map(|item| item.root)
         .ok_or_else(|| {
-            AccessibilityTreeError::failed("a11y_backend_failed", "configured X11 screen is missing")
+            AccessibilityTreeError::failed(
+                "a11y_backend_failed",
+                "configured X11 screen is missing",
+            )
         })?;
     let intern = |name: &[u8]| -> Result<u32, AccessibilityTreeError> {
         connection
@@ -536,7 +540,9 @@ fn application_windows(process_id: u32) -> Result<Vec<u32>, AccessibilityTreeErr
         .get_property(false, root, client_list, AtomEnum::WINDOW, 0, 1024)
         .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?
         .reply()
-        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+        .map_err(|error| {
+            AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+        })?;
     let mut owned = Vec::new();
     for window in listing.value32().into_iter().flatten() {
         let Ok(cookie) = connection.get_property(false, window, wm_pid, AtomEnum::CARDINAL, 0, 1)
@@ -557,15 +563,19 @@ fn set_window_iconified(window: u32, iconify: bool) -> Result<(), AccessibilityT
     use x11rb::protocol::xproto::{ClientMessageEvent, ConnectionExt as _, EventMask};
 
     const ICONIC_STATE: u32 = 3;
-    let (connection, screen) = x11rb::connect(None)
-        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    let (connection, screen) = x11rb::connect(None).map_err(|error| {
+        AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+    })?;
     let root = connection
         .setup()
         .roots
         .get(screen)
         .map(|item| item.root)
         .ok_or_else(|| {
-            AccessibilityTreeError::failed("a11y_backend_failed", "configured X11 screen is missing")
+            AccessibilityTreeError::failed(
+                "a11y_backend_failed",
+                "configured X11 screen is missing",
+            )
         })?;
     if iconify {
         let atom = connection
@@ -596,14 +606,16 @@ fn set_window_iconified(window: u32, iconify: bool) -> Result<(), AccessibilityT
     }
     // Round-trip before returning: `flush` alone loses a request the server
     // has not processed by the time the connection is dropped.
-    connection
-        .flush()
-        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+    connection.flush().map_err(|error| {
+        AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+    })?;
     connection
         .get_input_focus()
         .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?
         .reply()
-        .map_err(|error| AccessibilityTreeError::failed("a11y_backend_failed", error.to_string()))?;
+        .map_err(|error| {
+            AccessibilityTreeError::failed("a11y_backend_failed", error.to_string())
+        })?;
     Ok(())
 }
 
@@ -1709,7 +1721,6 @@ fn semantic_chord(keys: &str) -> Option<SemanticChord> {
         _ => None,
     }
 }
-
 
 fn activate_window_node(
     window_handle: Option<isize>,

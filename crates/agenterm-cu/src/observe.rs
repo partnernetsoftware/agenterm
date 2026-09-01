@@ -1921,7 +1921,13 @@ mod tests {
         let t = tree(
             vec![
                 menu_node("/0", None, "menu bar", "", &["enabled", "sensitive"]),
-                menu_node("/0/0", Some("/0"), "menu", "File", &["enabled", "sensitive"]),
+                menu_node(
+                    "/0/0",
+                    Some("/0"),
+                    "menu",
+                    "File",
+                    &["enabled", "sensitive"],
+                ),
                 menu_node(
                     "/0/0/0",
                     Some("/0/0"),
@@ -1939,7 +1945,13 @@ mod tests {
                     &["selectable", "visible"],
                 ),
                 menu_node("/0/0/2", Some("/0/0"), "menu", "More", &["enabled"]),
-                menu_node("/0/0/2/0", Some("/0/0/2"), "menu item", "Deeper", &["enabled"]),
+                menu_node(
+                    "/0/0/2/0",
+                    Some("/0/0/2"),
+                    "menu item",
+                    "Deeper",
+                    &["enabled"],
+                ),
                 menu_node(
                     "/0/0/3",
                     Some("/0/0"),

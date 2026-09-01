@@ -1924,7 +1924,11 @@ fn read_node(index: usize, with_identifier: bool) -> Result<A11yNode, MechanismE
         None
     } else if whole_ids {
         let parent = read_node_string(index, dynlib::AGT_A11Y_STR_PARENT_ID)?;
-        if parent.is_empty() { None } else { Some(parent) }
+        if parent.is_empty() {
+            None
+        } else {
+            Some(parent)
+        }
     } else if record.parent_id_truncated != 0 {
         return Err(MechanismError::Failed {
             code: "a11y_node_id_truncated".into(),
