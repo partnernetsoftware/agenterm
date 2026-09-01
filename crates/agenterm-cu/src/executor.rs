@@ -1456,6 +1456,7 @@ fn capabilities_payload() -> serde_json::Value {
             },
             "tree": tree_verb,
             "query": tree_verb,
+            "inspect": crate::mcu_surface::verb_declaration("inspect"),
             "invoke": tree_verb,
             "verify": tree_verb,
             "menu-inspect": menu_verb,

@@ -405,94 +405,10 @@ fn dispatch(mut args: Vec<String>) -> agenterm_cu::CuReply {
                 flat,
             }
         }
-        "query" => {
-            // Closed CLI shape (mcu lesson): an unknown flag, a missing
-            // value, or a stray positional fails here, before any tree is
-            // read, instead of quietly returning the whole tree.
-            let window = match flag_window(&mut args) {
-                Ok(Some(value)) => value,
-                Ok(None) => return usage_err("query requires --window <handle>"),
-                Err(message) => return usage_err(message),
-            };
-            let depth = match flag_parsed::<u32>(&mut args, "--depth") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let max_nodes = match flag_parsed::<usize>(&mut args, "--max-nodes") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let role = match flag_text(&mut args, "--role") {
-                Ok(value) => value
-                    .map(|raw| agenterm_cu::observe::parse_roles(&raw))
-                    .unwrap_or_default(),
-                Err(message) => return usage_err(message),
-            };
-            let text = match flag_text(&mut args, "--text") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let text_exact = match flag_text(&mut args, "--text-exact") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            if text.is_some() && text_exact.is_some() {
-                return usage_err("query accepts --text or --text-exact, not both");
-            }
-            let identifier = match flag_text(&mut args, "--identifier") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let actionable = take_switch(&mut args, "--actionable");
-            let within = match flag_text(&mut args, "--within") {
-                Ok(Some(raw)) => match agenterm_cu::observe::parse_within(&raw) {
-                    Ok(rect) => Some(rect),
-                    Err(message) => return usage_err(message),
-                },
-                Ok(None) => None,
-                Err(message) => return usage_err(message),
-            };
-            let offset = match flag_parsed::<usize>(&mut args, "--offset") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let max = match flag_parsed::<usize>(&mut args, "--max") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            let selector = match flag_text(&mut args, "--selector") {
-                Ok(value) => value,
-                Err(message) => return usage_err(message),
-            };
-            if let Some(raw) = selector.as_deref()
-                && let Err(message) = agenterm_cu::observe::parse_selector(raw)
-            {
-                return usage_err(message);
-            }
-            if !args.is_empty() {
-                return usage_err(format!(
-                    "query accepts only --window H --depth N --max-nodes N --role R,R \
-                     --text T | --text-exact T --identifier ID --actionable \
-                     --within X,Y,W,H --offset N --max N --selector PATH; unexpected {:?}",
-                    args[0]
-                ));
-            }
-            Command::Query {
-                target,
-                window,
-                depth,
-                max_nodes,
-                role,
-                text,
-                text_exact,
-                identifier,
-                actionable,
-                within,
-                offset,
-                max,
-                selector,
-            }
-        }
+        "query" | "inspect" => match parse_query(target, &verb, &mut args) {
+            Ok(command) => command,
+            Err(message) => return usage_err(message),
+        },
         "invoke" => {
             // Closed shape: flags first, then exactly `<action> [VALUE]`.
             let window = match flag_window(&mut args) {
@@ -2044,6 +1960,70 @@ fn flag_coords(args: &mut Vec<String>, flag: &str) -> Option<[i32; 2]> {
     Some([x, y])
 }
 
+fn parse_query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Command, String> {
+    // Closed CLI shape (mcu lesson): an unknown flag, a missing value, or a
+    // stray positional fails here, before any tree is read.
+    if verb == "inspect" && args.iter().any(|arg| arg == "--app") {
+        return Err(
+            "inspect --app is MCU window inventory; use mcu inspect --app, or query --window"
+                .into(),
+        );
+    }
+    let window = match parse_optional_window(args)? {
+        Some(value) => value,
+        None => {
+            return Err(format!(
+                "{verb} requires --window <handle> (MCU `{verb} HANDLE` is also accepted)"
+            ));
+        }
+    };
+    let depth = flag_parsed::<u32>(args, "--depth")?;
+    let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+    let role = flag_text(args, "--role")?
+        .map(|raw| agenterm_cu::observe::parse_roles(&raw))
+        .unwrap_or_default();
+    let text = flag_text(args, "--text")?;
+    let text_exact = flag_text(args, "--text-exact")?;
+    if text.is_some() && text_exact.is_some() {
+        return Err("query accepts --text or --text-exact, not both".into());
+    }
+    let identifier = flag_text(args, "--identifier")?;
+    let actionable = take_switch(args, "--actionable");
+    let within = match flag_text(args, "--within")? {
+        Some(raw) => Some(agenterm_cu::observe::parse_within(&raw)?),
+        None => None,
+    };
+    let offset = flag_parsed::<usize>(args, "--offset")?;
+    let max = flag_parsed::<usize>(args, "--max")?;
+    let selector = flag_text(args, "--selector")?;
+    if let Some(raw) = selector.as_deref() {
+        agenterm_cu::observe::parse_selector(raw)?;
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "{verb} accepts only --window H --depth N --max-nodes N --role R,R \
+             --text T | --text-exact T --identifier ID --actionable \
+             --within X,Y,W,H --offset N --max N --selector PATH; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::Query {
+        target,
+        window,
+        depth,
+        max_nodes,
+        role,
+        text,
+        text_exact,
+        identifier,
+        actionable,
+        within,
+        offset,
+        max,
+        selector,
+    })
+}
+
 fn parse_page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let window = flag_window(args)?;
     let expression = flag_text(args, "--expression")?;
@@ -2456,9 +2436,12 @@ Commands:
                               while the platform walks; reply carries truncated /
                               visited / returned. --flat numbers nodes (index, depth)
                               in walk order — the same identity query reports
-  query --window HANDLE|App#N [--depth N] [--max-nodes N] [--role R,R] [--text T | --text-exact T]
-        [--identifier ID] [--actionable] [--within X,Y,W,H] [--offset N] [--max N]
-        [--selector PATH]   MCU Role[idx] / Role@title / *@title / #desc; scopes to that subtree
+  query | inspect --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
+        [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]
+        [--offset N] [--max N] [--selector PATH]
+                              inspect is a live alias of query (MCU `inspect HANDLE`).
+                              MCU `inspect --app` inventory stays MCU. MCU Role[idx] /
+                              Role@title / *@title / #desc; scopes to that subtree.
                               bounded, filtered flat node list with visited /
                               matched / returned / truncated; roles accept AXTextArea
                               or text-area; an unknown flag fails before the walk
@@ -2967,6 +2950,75 @@ mod tests {
     }
 
     #[test]
+    fn inspect_is_live_alias_of_query() {
+        let positional = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "inspect".into(),
+            "Brave Origin#14278".into(),
+        ]);
+        assert_eq!(positional.command, "query");
+        assert_ne!(
+            positional
+                .error
+                .as_ref()
+                .map(|e| e.code.as_str())
+                .unwrap_or(""),
+            "usage",
+            "inspect HANDLE must dispatch as query: {:?}",
+            positional.error
+        );
+        let flagged = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "inspect".into(),
+            "--window".into(),
+            "1".into(),
+        ]);
+        assert_eq!(flagged.command, "query");
+        assert_ne!(
+            flagged
+                .error
+                .as_ref()
+                .map(|e| e.code.as_str())
+                .unwrap_or(""),
+            "usage"
+        );
+        let app = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "inspect".into(),
+            "--app".into(),
+            "ChatGPT".into(),
+        ]);
+        assert_eq!(app.command, "usage");
+        assert_eq!(app.error.expect("usage").code, "usage");
+        let query_positional = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "query".into(),
+            "Brave Origin#14278".into(),
+        ]);
+        assert_eq!(query_positional.command, "query");
+        assert_ne!(
+            query_positional
+                .error
+                .as_ref()
+                .map(|e| e.code.as_str())
+                .unwrap_or(""),
+            "usage"
+        );
+    }
+
+    #[test]
     fn query_selector_invalid_is_usage() {
         let reply = dispatch(vec![
             "--target".into(),
@@ -3078,6 +3130,7 @@ mod tests {
             ("shot", "screenshot"),
             ("elements", "tree"),
             ("move", "pointer-move"),
+            ("inspect", "query"),
         ] {
             let mut argv = vec![
                 "--target".into(),
@@ -3095,6 +3148,9 @@ mod tests {
                     "--y".into(),
                     "0".into(),
                 ]);
+            }
+            if verb == "inspect" {
+                argv.extend(["--window".into(), "1".into()]);
             }
             let reply = dispatch(argv);
             assert_eq!(reply.command, command, "{verb}");

@@ -185,10 +185,9 @@ pub const ALIGN_VERBS: &[&str] = &[
     "page",
     // MCU leaf spellings that stay typed (not silent unknown). Live
     // aliases (dclick/rclick/shot/type/key/move/launch/quit/hide/show/
-    // elements/clipboard) have dedicated parse arms and are not listed here.
+    // elements/clipboard/inspect) have dedicated parse arms and are not listed here.
     "drag",
     "ghost",
-    "inspect",
     "snapshot",
     "hit",
     "diff",
@@ -238,9 +237,6 @@ fn typed_only_reason(verb: &str) -> &'static str {
         }
         "drag" => "pixel drag is not mapped; use invoke press or pointer-move --to desktop",
         "ghost" => "MCU ghost cursor overlay stays MCU; this binary will not draw on the desktop",
-        "inspect" => {
-            "MCU inspect empty-chrome is tree/query ax+next_actions; use query --window or unlock"
-        }
         "snapshot" => "MCU snapshot token is not mapped; use tree/query",
         "hit" => "hit-test is not mapped; use query --within or get-extents",
         "diff" => "MCU diff is observe poll-diff; use observe --window",
@@ -470,6 +466,16 @@ pub fn host_os() -> &'static str {
 pub fn verb_declaration(verb: &str) -> Value {
     let os = host_os();
     let group = group_id_for_verb(verb);
+    if verb == "inspect" {
+        return json!({
+            "status": if tree_live(os) { "available" } else { "unsupported" },
+            "alias_of": "query",
+            "reason": "MCU inspect HANDLE is query --window; inspect --app inventory stays MCU",
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if verb == "page-js" {
         return json!({
             "status": "available",
@@ -596,6 +602,7 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "spaces",
         "displays",
         "unlock",
+        "inspect",
     ] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
@@ -649,6 +656,8 @@ mod tests {
         assert_eq!(group_id_for_verb("drag"), "input-local");
         assert!(is_align_verb("drag") && is_align_verb("page"));
         assert!(!is_align_verb("dclick") && !is_align_verb("launch"));
+        assert!(!is_align_verb("inspect"));
+        assert_eq!(verb_declaration("inspect")["alias_of"], "query");
         assert!(!is_align_verb("movewin") && !is_align_verb("frame") && !is_align_verb("maximize"));
         assert_eq!(group_id_for_verb("movewin"), "geometry");
         let page_reason = typed_reason_for_verb("page");
