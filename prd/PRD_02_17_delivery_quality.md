@@ -739,6 +739,13 @@ costs a full candidate cycle:
   then reproduced `workbench-smoke` heap exhaustion twice after its final
   sidebar interaction. `remote-ui-smoke` and `workbench-smoke` therefore own
   the explicit 4096-page price; every other suite retains 1024 pages.
+- [x] a state wait that already parsed and validated a public UI snapshot
+  returns that exact snapshot to its assertion caller. Candidate `33565932154`
+  proved the Workbench heap price, then exhausted the immutable one-billion
+  step ceiling twice because nine render waits discarded their successful
+  snapshot and immediately fetched and parsed the same projection again. The
+  journey now reuses those answers while preserving every interaction,
+  geometry assertion, evidence id, and final PASS condition.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

@@ -170,7 +170,7 @@ function wait_tab_render(context, cli, target) {
       if (tab.id === target) {
         const render = tab.render;
         if (!is_null(render) && !is_null(render["text"]) && render["text"].width > 0) {
-          return 0;
+          return snapshot;
         }
       }
     }
@@ -192,7 +192,7 @@ function wait_tab_label_render(context, cli, target) {
             && tab_render.node.width > 0
             && tab_actions.close.bounds.width > 0
             && tab_actions.new_child.bounds.width > 0) {
-          return 0;
+          return snapshot;
         }
       }
     }
@@ -436,15 +436,13 @@ try {
   assert_editor_closed(snapshot, root, "initial-normal");
 
   print("STEP a single text click selects without entering edit mode");
-  wait_tab_render(context, cli, peer);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, peer);
   click_tab_text(gui_child, snapshot, peer);
   snapshot = json_cli(
     context, cli, ["wait-ui", "--active", peer, "--focus", "tabs", "--timeout-ms", "30000"]
   );
   assert_editor_closed(snapshot, peer, "single-click-peer");
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   click_tab_text(gui_child, snapshot, root);
   snapshot = json_cli(
     context, cli, ["wait-ui", "--active", root, "--focus", "tabs", "--timeout-ms", "30000"]
@@ -452,8 +450,7 @@ try {
   assert_editor_closed(snapshot, root, "single-click-root");
 
   print("STEP non-text double clicks never enter tab editing");
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   root_tab = tab_by_id(snapshot, root);
   harness.require(!is_null(root_tab), "workbench_tab_missing:" + root);
   const root_render = root_tab.render;
@@ -471,8 +468,7 @@ try {
   assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "tree-indent");
 
   print("STEP double-clicking tab text opens independent controls and Save restores normal mode");
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   double_click_tab_text(gui_child, snapshot, root);
   snapshot = wait_for_editor(context, cli, root, 1);
   assert_editor_open(snapshot, root, "mouse-double-click");
@@ -556,8 +552,7 @@ try {
   json_cli(context, cli, ["ui-action", "tabs-hide"]);
   assert_editor_closed(wait_for_editor(context, cli, root, 0), root, "tabs-hide");
   json_cli(context, cli, ["ui-action", "tabs-show"]);
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   root_tab = tab_by_id(snapshot, root);
   harness.require(
     root_tab.name === saved_name && root_tab.note === saved_note,
@@ -565,20 +560,17 @@ try {
   );
 
   print("STEP layout changes invalidate an unfinished double-click candidate");
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   click_tab_text(gui_child, snapshot, root);
   json_cli(context, cli, ["ui-action", "select-tab", "-t", peer]);
   double_click_tab_message(gui_child, snapshot, root);
   assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "candidate-tab-switch");
   json_cli(context, cli, ["ui-action", "select-tab", "-t", root]);
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   click_tab_text(gui_child, snapshot, root);
   json_cli(context, cli, ["ui-action", "tabs-hide"]);
   json_cli(context, cli, ["ui-action", "tabs-show"]);
-  wait_tab_render(context, cli, root);
-  snapshot = json_cli(context, cli, ["ui-snapshot"]);
+  snapshot = wait_tab_render(context, cli, root);
   double_click_tab_message(gui_child, snapshot, root);
   assert_editor_closed(json_cli(context, cli, ["ui-snapshot"]), root, "candidate-tabs-hide");
   const pre_resize_snapshot = json_cli(context, cli, ["ui-snapshot"]);
@@ -708,8 +700,7 @@ try {
 
   for (const width of [180, 250, 480]) {
     json_cli(context, cli, ["ui-action", "tabs-set-width", "--width", "" + width]);
-    wait_tab_label_render(context, cli, target);
-    const width_snapshot = json_cli(context, cli, ["ui-snapshot"]);
+    const width_snapshot = wait_tab_label_render(context, cli, target);
     const tab = tab_by_id(width_snapshot, target);
     harness.require(!is_null(tab), "workbench_tab_missing:" + target);
     const tab_actions = tab.actions;

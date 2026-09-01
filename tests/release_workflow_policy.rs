@@ -24,6 +24,8 @@ static SCRIPT_SMOKE_HELPERS_QJS: LazyLock<String> = LazyLock::new(|| {
 });
 static SCRIPT_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/script-qjswasm-smoke.qjs").replace("\r\n", "\n"));
+static WORKBENCH_SMOKE_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/workbench-smoke.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -161,6 +163,18 @@ fn long_ui_smokes_price_their_bump_heaps_without_raising_the_default() {
         engine.contains("pub(crate) const QJS_MAX_MEMORY_PAGES: usize = 1024;"),
         "ordinary qjswasm invocations must retain the 64 MiB default"
     );
+}
+
+#[test]
+fn workbench_render_waits_reuse_the_snapshot_that_satisfied_the_wait() {
+    assert!(WORKBENCH_SMOKE_QJS.contains("return snapshot;"));
+    assert!(
+        !WORKBENCH_SMOKE_QJS
+            .contains("wait_tab_render(context, cli, root);\n  snapshot = json_cli")
+    );
+    assert!(!WORKBENCH_SMOKE_QJS.contains(
+        "wait_tab_label_render(context, cli, target);\n    const width_snapshot = json_cli"
+    ));
 }
 
 #[test]

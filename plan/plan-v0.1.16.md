@@ -1259,3 +1259,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   projections 的 `remote-ui-smoke` 与 `workbench-smoke` 两条 owning journeys 显式
   使用 4096 pages（256 MiB）；其它脚本不继承该扩容。policy test 钉住这两个 id
   和不变的全局默认。
+
+### A.24 Candidate `33565932154`：Workbench snapshot 双取耗尽硬步骤预算
+
+- 256 MiB owning heap 生效，上一轮 `max_memory_pages` 不再出现；active Script 等前序
+  gates 继续通过。Workbench 两次都推进到相同的 sidebar 后段，然后以 typed
+  `max_steps` 停止。1 billion 是引擎硬上限，不再抬预算。
+- 脚本的 render wait 已取得并验证完整 `ui-snapshot`，九个调用点却丢弃它并立即
+  再取一份相同 snapshot；最后三宽度 court 也如此。helper 现在返回已满足 wait 的
+  snapshot，调用点直接复用。所有 pointer 操作、状态断言、三宽度 geometry court、
+  evidence 与 PASS 保持不变；修的是重复解析成本，不是删覆盖。
