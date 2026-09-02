@@ -190,7 +190,7 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     assert_eq!(task["entry"], "scripts/qjs/workbench-court.qjs");
     assert_eq!(
         TASKS["contracts"]["workbench-smoke"]["budget"]["timeout_ms"],
-        600_000
+        1_000_000
     );
 
     let gate = QUALIFICATION_GATES["required_gates"]
@@ -202,9 +202,9 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     assert_eq!(gate["suite"], "workbench-court");
     assert!(CHECK_QJS.contains("return { entry: \"workbench-court\", args: [repo"));
 
-    assert!(
-        WORKBENCH_COURT_QJS.contains("for (const phase of [\"editing\", \"scroll\", \"widths\"])",)
-    );
+    assert!(WORKBENCH_COURT_QJS.contains(
+        "for (const phase of [\"editing\", \"scroll\", \"width-180\", \"width-250\", \"width-480\"])"
+    ));
     assert!(WORKBENCH_COURT_QJS.contains("scripts/qjs/workbench-smoke.qjs"));
     assert!(WORKBENCH_COURT_QJS.contains("args: ["));
     assert!(!WORKBENCH_COURT_QJS.contains("arguments:"));
@@ -214,6 +214,7 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     assert!(WORKBENCH_COURT_QJS.contains("\"--max-operations\", \"1000000000\""));
     assert!(WORKBENCH_COURT_QJS.contains("\"--timeout-ms\", \"120000\""));
     assert!(WORKBENCH_COURT_QJS.contains("timeout_ms: 180000"));
+    assert!(CHECK_QJS.contains("return 1000000;"));
     for evidence in [
         "ux.workbench-inline-edit",
         "ux.workbench-compact-tree",
@@ -223,7 +224,9 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     }
     assert!(WORKBENCH_SMOKE_QJS.contains("if (phase === \"editing\")"));
     assert!(WORKBENCH_SMOKE_QJS.contains("if (phase === \"scroll\")"));
-    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase === \"widths\")"));
+    for phase in ["width-180", "width-250", "width-480"] {
+        assert!(WORKBENCH_SMOKE_QJS.contains(&format!("phase === \"{phase}\"")));
+    }
     assert!(WORKBENCH_SMOKE_QJS.contains("expected: REPO GUI_EXE CLI_EXE --phase PHASE"));
     assert!(!WORKBENCH_SMOKE_QJS.contains("phase = \"all\""));
 }

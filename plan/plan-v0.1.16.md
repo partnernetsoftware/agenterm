@@ -1305,3 +1305,17 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   两者各自在独立 GUI/IPC/cleanup 上下文重建同一深树 fixture。`scroll` 保留滚动候选失效
   断言并发出 inline evidence；`widths` 保留 180/250/480 三档完整几何断言并发出 compact
   evidence。仍不提高单 invocation 的 1,000,000,000-step 上限。
+
+### A.27 Candidate `33580368055`：三档宽度各自成为有界 court
+
+- preflight 与五个普通 build cell 全绿；Windows 重门通过 Workbench 之前的全部门禁。
+  `editing` 与 `scroll` phase 在首跑和 retry 中都成功，分别发出 archived-Proxy 与
+  inline-edit evidence；唯一失败是 `widths` 两次都在固定 1,000,000,000-step 上限耗尽。
+- 不抬引擎上限、不删除深四层 CJK fixture，也不删除 180/250/480 任一几何断言。内部
+  phase 进一步收敛为 `editing`、`scroll`、`width-180`、`width-250`、`width-480`；每个
+  width court 独立重建 fixture 并只验证自己的一档宽度。最后的 `width-480` 才发出
+  compact-tree evidence，因此前两档或最后一档任一失败都无法让公共 gate 变绿。
+- 五个 phase 的 180 秒 wrapper hard stop 最坏合计 900 秒；公共 task/gate deadline 相应
+  对齐为 1,000 秒，只扩 wall-clock robustness envelope，不改变任一 qjswasm 引擎步数上限。
+- 新 exact-SHA Candidate 必须重新跑完整重门、六 build 与六 execute-only runtime；旧 run
+  不做 failed-jobs 局部重跑。

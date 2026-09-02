@@ -1,7 +1,7 @@
 // Bounded coordinator for the Windows Workbench qualification court.
 //
-// The editing/proxy and geometry/scroll journeys each own an isolated GUI,
-// cleanup bundle and qjswasm budget. Their streams are spooled so the outer
+// Editing, scroll, and each geometry width own an isolated GUI, cleanup bundle
+// and qjswasm budget. Their streams are spooled so the outer
 // qualification gate receives only the same three public evidence ids and a
 // bounded phase verdict on success; a failed phase still forwards diagnostics.
 import * as rh from "lib/rh_compat";
@@ -32,7 +32,7 @@ const observed = {};
 rh.try_remove_dir_all(spool_root);
 rh.create_dir_all(spool_root);
 
-for (const phase of ["editing", "scroll", "widths"]) {
+for (const phase of ["editing", "scroll", "width-180", "width-250", "width-480"]) {
   const stdout_path = rh.join(spool_root, phase + ".stdout");
   const stderr_path = rh.join(spool_root, phase + ".stderr");
   const spec = {
@@ -94,5 +94,5 @@ for (const id of EVIDENCE) {
 }
 rh.try_remove_dir_all(spool_root);
 require(missing_evidence === "", "workbench_evidence_missing:" + missing_evidence);
-print("PASS: split Workbench court preserved editing, Proxy, scroll and compact-tree evidence");
+print("PASS: split Workbench court preserved editing, Proxy, scroll and three-width compact-tree evidence");
 return;

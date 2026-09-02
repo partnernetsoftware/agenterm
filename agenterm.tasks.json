@@ -479,7 +479,7 @@
         "workbench-evidence"
       ],
       "budget": {
-        "timeout_ms": 600000,
+        "timeout_ms": 1000000,
         "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },

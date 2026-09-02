@@ -401,7 +401,11 @@ const cli = rh.absolute(args[2]);
 harness.require(args[3] === "--phase", "workbench_phase_option");
 const phase = "" + args[4];
 harness.require(
-  phase === "editing" || phase === "scroll" || phase === "widths",
+  phase === "editing"
+    || phase === "scroll"
+    || phase === "width-180"
+    || phase === "width-250"
+    || phase === "width-480",
   "workbench_phase_value:" + phase
 );
 harness.require(rh.exists(gui), "workbench_gui_missing");
@@ -614,7 +618,10 @@ try {
   harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-proxy-archived");
   }
 
-  if (phase === "scroll" || phase === "widths") {
+  if (phase === "scroll"
+      || phase === "width-180"
+      || phase === "width-250"
+      || phase === "width-480") {
   print("STEP compact and full geometry stay bounded for a deep CJK row");
   let target = "" + root;
   for (let depth = 1; depth < 5; depth = depth + 1) {
@@ -709,8 +716,10 @@ try {
   harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-inline-edit");
   }
 
-  if (phase === "widths") {
-  for (const width of [180, 250, 480]) {
+  if (phase === "width-180" || phase === "width-250" || phase === "width-480") {
+  let width = 480;
+  if (phase === "width-180") { width = 180; }
+  if (phase === "width-250") { width = 250; }
     json_cli(context, cli, ["ui-action", "tabs-set-width", "--width", "" + width]);
     const width_snapshot = wait_tab_label_render(context, cli, target);
     const tab = tab_by_id(width_snapshot, target);
@@ -729,8 +738,9 @@ try {
         && tab_render.name.left < tab_actions.new_child.bounds.left,
       "workbench_tree_geometry:" + width + ":" + JSON.stringify(tab)
     );
+  if (phase === "width-480") {
+    harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-compact-tree");
   }
-  harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-compact-tree");
   }
   }
   print("PASS: bounded Workbench phase " + phase);

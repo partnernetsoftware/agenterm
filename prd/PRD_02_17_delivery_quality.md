@@ -746,25 +746,30 @@ costs a full candidate cycle:
   snapshot and immediately fetched and parsed the same projection again. The
   journey now reuses those answers while preserving every interaction,
   geometry assertion, evidence id, and final PASS condition.
-- [x] one public Workbench qualification gate owns three bounded, isolated
+- [x] one public Workbench qualification gate owns five bounded, isolated
   qjswasm journeys instead of one unboundedly large invocation. Candidate
   `33567664449` proved snapshot reuse was insufficient: the complete journey
   still hit the immutable one-billion-step ceiling twice at the same sidebar
   stage. Candidate `33578689381` then proved `editing` complete but the former
   combined `geometry` phase still exhausted after completing scroll-candidate
-  invalidation and before width evidence. The final phases are `editing`,
-  `scroll`, and `widths`: editing retains all physical editing and archived
-  Proxy behavior, while scroll and widths each rebuild the same deep-tree
-  fixture and retain their respective invalidation and 180/250/480 geometry
-  assertions. Each phase owns its own GUI, IPC address,
+  invalidation and before width evidence. Candidate `33580368055` proved
+  `editing` and `scroll` complete, then showed that rebuilding the deep-tree
+  fixture plus all three width courts still exceeds one invocation. The final
+  phases are `editing`, `scroll`, `width-180`, `width-250`, and `width-480`:
+  editing retains all physical editing and archived Proxy behavior, while
+  scroll and each width court rebuild the same deep-tree fixture and retain the
+  invalidation or exact 180/250/480 geometry assertion they own. Each phase owns
+  its own GUI, IPC address,
   cleanup, failure bundle, and one-billion-step budget. The coordinator keeps
-  the stable `workbench-smoke` gate identity and succeeds only after all three
+  the stable `workbench-smoke` gate identity and succeeds only after all five
   child exits and all three original evidence ids; no assertion is skipped and the
   engine ceiling is not raised. Child streams are file-spooled so successful
   phases forward only bounded evidence/PASS lines; failure diagnostics still
   reach the owning quality log. The 120-second engine deadline precedes the
   180-second wrapper stop, preserving a cleanup grace period, and the public
-  gate/task deadline is an aligned 600 seconds.
+  gate/task deadline is an aligned 1,000 seconds. Compact-tree evidence is emitted
+  only after the last width court, so the coordinator cannot pass it unless all
+  three widths have already succeeded.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

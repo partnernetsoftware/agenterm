@@ -322,8 +322,11 @@ function smoke_timeout_ms(id) {
     // fixtures) plus the rest of the journey.
     return 1200000;
   }
-  if (id === "remote-ui-smoke" || id === "cli-smoke" || id === "fleet-smoke"
-      || id === "workbench-smoke") {
+  if (id === "workbench-smoke") {
+    // Five isolated phases each retain a 180s last-resort process guard.
+    return 1000000;
+  }
+  if (id === "remote-ui-smoke" || id === "cli-smoke" || id === "fleet-smoke") {
     return 600000;
   }
   return 300000;
