@@ -959,6 +959,11 @@ costs a full candidate cycle:
   `startup-smoke` 前耗尽通用 4,096 host-op；原因是每个 retained gate 每秒采样进程树，调用量
   随整趟墙钟线性增长。`check` task 现独立硬顶 32,768（1h wall / 1G wasm steps 不变），普通
   Script 默认和单个旅程预算不变，绝不通过删除采样换绿。
+- [x] Windows runtime court 用 ZIP-aware 解包器执行最终封存字节。Candidate
+  `33695620444` 已使 Windows x86_64 完整 release-quality 全绿，六个 build cell 也全绿；最终
+  runtime 中 macOS/Linux 四格通过，两个 Windows 格均在 SHA-256 `OK` 后被 Git Bash
+  `tar -xf` 拒绝，尚未执行产品。court 现复用其下一行已依赖的 Python 标准库 `zipfile` 解包，
+  不 checkout、不 Cargo、不重建 Candidate 字节；随后继续执行版本和 Defender 门。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

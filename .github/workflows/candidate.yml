@@ -795,7 +795,7 @@ jobs:
           (cd part && sha256sum -c "$(basename "$archive").sha256")
           actual_hash="$(sha256sum "$archive" | cut -d' ' -f1)"
           mkdir runtime
-          tar -xf "$archive" -C runtime
+          python -m zipfile -e "$archive" runtime
           version="$(python -c \
             'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
             "$archive.provenance.json")"

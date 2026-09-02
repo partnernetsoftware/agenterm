@@ -212,6 +212,21 @@ fn only_owned_terminal_payload_courts_allow_powershell() {
 }
 
 #[test]
+fn windows_runtime_court_extracts_zip_with_the_python_it_already_uses() {
+    let workflow = include_str!("../.github/workflows/candidate.yml");
+    let windows = workflow
+        .split("- name: Execute final Windows archive")
+        .nth(1)
+        .expect("Windows runtime court")
+        .split("- name: Scan final Windows Candidate bytes with Defender")
+        .next()
+        .expect("Windows runtime court boundary");
+    assert!(windows.contains("python -m zipfile -e \"$archive\" runtime"));
+    assert!(!windows.contains("tar -xf \"$archive\""));
+    assert!(windows.contains("json.load(open(sys.argv[1]"));
+}
+
+#[test]
 fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
     assert!(CHECK_QJS.contains("\"--skip\", \"powershell_waits_for_explicit_agenterm_exe\""));
     assert!(CHECK_QJS.contains("function cargo_unit_powershell_compat_spec(environment)"));

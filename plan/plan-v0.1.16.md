@@ -1546,3 +1546,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   已有 Python 标准库 `socket.create_connection`，Unix 仍用 Bash `/dev/tcp`；request 继续只经环境
   传入、response 直接写 owned file，wire bytes 和断言不变。helper 失败现保留 stderr，下一次
   不再只得到无来源的 `wake_smoke_expired_tcp_failed`。
+
+### A.48 Candidate `33695620444`：Windows ZIP 不由 Git Bash tar 猜格式
+
+- Windows x86_64 完整 release-quality **全绿**，证明 A.45–A.47 的 ancestry、host-op、wake
+  raw socket 修复均成立；六个 build cell 全绿，macOS/Linux 四个 execute-only runtime 亦绿。
+- 两个 Windows runtime 均先把 archive SHA-256 校验为 `OK`，随后 Git Bash `tar -xf` 报
+  `This does not look like a tar archive`，因此失败发生在解包器选择，产品尚未执行。Windows
+  court 改用下一行本已依赖的 `python -m zipfile -e`；仍只消费 matching Candidate part，
+  不 checkout、不 Cargo、不重建，解包后继续 `agenterm.com cli --version` 与 Defender 扫描。
