@@ -118,6 +118,14 @@ fn target_inventory_keeps_default_host_ops_and_matches_its_outer_timeout() {
 }
 
 #[test]
+fn full_check_prices_owned_process_sampling_without_raising_script_defaults() {
+    let budget = &TASKS["contracts"]["check"]["budget"];
+    assert_eq!(budget["timeout_ms"], 3_600_000);
+    assert_eq!(budget["max_host_operations"], 32_768);
+    assert_eq!(budget["max_operations"], 1_000_000_000);
+}
+
+#[test]
 fn all_prd_alignment_lanes_honor_the_declared_120_second_contract() {
     let budget = &TASKS["contracts"]["prd-alignment"]["budget"];
     assert_eq!(budget["timeout_ms"], 120_000);

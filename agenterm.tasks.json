@@ -112,6 +112,7 @@
       "budget": {
         "timeout_ms": 3600000,
         "max_operations": 1000000000,
+        "max_host_operations": 32768,
         "max_output_bytes": 1048576
       },
       "network": [

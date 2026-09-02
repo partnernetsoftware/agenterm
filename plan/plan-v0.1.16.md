@@ -1527,3 +1527,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   payload。资格驱动现沿 owned tree 向上查父链：只有 retained gate root **之下**的 AgenTerm
   产品进程拥有 PowerShell 时才允许；gate root 自身虽也是 AgenTerm script worker，但明确不算
   产品祖先。因此 terminal compatibility 可被记录，直接脚本 shell-out 仍会使门失败。
+
+### A.46 Candidate `33692792092`：长生命周期资格协调器单独定价 host-op
+
+- 五个普通平台格全绿；Windows x86_64 已越过静态检查、717 tests、release-fast build、MCP、
+  supply-chain 与前置 selftests，随后在 `startup-smoke` 起点以 `max_host_ops` fail-closed。它尚未
+  到达 A.45 的 wake/native-IPC 裁决点。
+- 真实进程证据使外层 `check.qjs` 对每个 retained gate 每秒调用一次 process-tree，并伴随
+  state/time/wait 等有界宿主调用；整趟共享旧 4,096 默认额度会按总墙钟耗尽。现只在 `check`
+  task contract 设置 32,768 host-op：按 1 小时硬 deadline 和采样频率留有界余量，1G wasm
+  steps 与所有普通脚本默认不变；不删采样、不填常量、不扩大子旅程能力。

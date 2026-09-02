@@ -953,6 +953,11 @@ costs a full candidate cycle:
   `native-ipc-compat-smoke` 启动历史 AgenTerm server 后的 PowerShell 是被测终端载荷，现仅当
   PowerShell 的祖先链在 retained gate root 之下出现 AgenTerm 产品进程时才归入
   `terminal_compatibility_payloads`；root 自身不算，故直接自动化仍 fail-closed。
+- [x] 完整 qualification 的 host-op 预算覆盖其有界进程采样。Candidate `33692792092` 在
+  五个普通平台格全绿后，Windows x86_64 越过全部静态、717 tests、构建与前置门，却在首个
+  `startup-smoke` 前耗尽通用 4,096 host-op；原因是每个 retained gate 每秒采样进程树，调用量
+  随整趟墙钟线性增长。`check` task 现独立硬顶 32,768（1h wall / 1G wasm steps 不变），普通
+  Script 默认和单个旅程预算不变，绝不通过删除采样换绿。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

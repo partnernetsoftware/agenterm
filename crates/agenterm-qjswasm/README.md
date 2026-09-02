@@ -357,6 +357,10 @@ payload 是指向**该槽线性内存**的指针，而 `run_once` 在返回前�
 `host_bytes` / `waited_ms` / `heap_pages`；失败的调用留在 `Engine::take_failed_cost`），
 所以「这个脚本贵不贵」「是算得多还是等得久」是可度量的，不是靠猜。
 
+长生命周期协调器要按它**实际拥有的宿主调用**单独定价。比如完整 qualification 每秒对
+retained child 做进程树采样，host-op 会随被测门的总墙钟线性增长；它在 task contract 中
+有独立硬顶，不得靠抬高普通脚本默认值，也不得因为额度耗尽而删掉采样。
+
 ## 隔离与预算
 
 一份 `.wasm`（手写的或 `.qjs` 编出来的）= 一个槽 = 一份预算。槽间互不可见，

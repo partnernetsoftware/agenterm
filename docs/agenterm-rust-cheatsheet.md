@@ -3047,3 +3047,7 @@ whose parent chain contains a descendant AgenTerm product process is terminal
 payload; a shell launched directly beneath the retained Script-worker root is
 repository automation even though that root executable is also named AgenTerm.
 Keep any intentional direct-launch compatibility probe in its own exact court.
+For a long-lived coordinator, price the task's host-operation budget from its
+worst-case bounded sampling cadence and wall deadline. Keep that override in
+the owning task contract; do not raise the engine default or remove evidence
+collection when the old generic allowance is exhausted.
