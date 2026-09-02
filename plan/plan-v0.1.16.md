@@ -1451,3 +1451,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   自建 .NET fixture、只接收两个参数；`check.qjs` 的迁移 catalog 仍传旧版的 DLL 与 C fixture
   四参数。现按公开任务表恢复为 repo + staged `agenterm-cu.exe` 两参数，并以 policy test 同时
   禁止旧 `agenterm.dll` / `agenterm_plain_window.c` 参数回流。产品和旅程成功条件不变。
+
+### A.39 Candidate `33679035822`：外部编译器路径服从其命令行语法
+
+- A.38 生效：CU 门不再按参数数量拒绝，capabilities 步通过并进入真实 WinForms fixture；随后
+  `csc.exe` 以 CS1504 报告仓根下不存在的 `agenterm_uia_fixture.cs`。原文件实际位于
+  `examples/csharp/`，调度 checkout 无缺失。
+- qjs 平台中立 `join` 会在 Windows rooted base 后加入 `/`；Win32 文件 API 通常接受它，
+  但 `csc.exe` 把 `/` 当 option prefix，因而错误解释混合分隔符源路径。现只在 CSC 边界把
+  source 和 `/out:` 路径规范成反斜杠，不改变共享 path 语义；policy test 同时钉住两处。

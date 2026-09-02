@@ -265,6 +265,11 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 `tool.fs.read_to_string` 这样的全名，沙箱槽永远为空——回执上写的就是它。
 证据在 `tests/tool_door.rs` 与 `src/host.rs` / `src/tool.rs` 的单测。
 
+工具脚本把路径交给外部程序时，还必须服从那个程序自己的命令行语法。Windows 本身通常接受
+`/`，但 `csc.exe` 把它当选项前缀；传入由平台中立 `join` 生成的混合分隔符路径，会让存在的
+源文件被解析成错误位置。共享 path helper 不为一个消费者改语义：只在 `csc.exe` 调用边界把
+源文件和 `/out:` 路径规范为反斜杠，并用 journey/policy test 钉住。
+
 **CLI 还没接**：`script_engine.rs` 里的 qjswasm 后端仍只建沙箱引擎。
 
 `.wasm` 侧是完整的：任何过 tinyvm 装载门的标准模块都能装载、按名调用、有预算地执行。

@@ -73,6 +73,13 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
+// Most Win32 APIs accept `/`, but csc.exe reserves it as the option prefix.
+// Normalize only at that external compiler boundary; keep the shared path
+// helpers platform-neutral.
+function csc_path(value) {
+  return ("" + value).replaceAll("/", "\\");
+}
+
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
   for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
@@ -210,9 +217,9 @@ try {
   );
 
   print("STEP start the owned WinForms fixture and resolve its two windows by pid and exact title");
-  const fixture_source = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
+  const fixture_source = csc_path(rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs"));
   ensure(direct_file(fixture_source), "cu_windows_smoke_fixture_missing:" + fixture_source);
-  const fixture_executable = rh.join(run_directory, "agenterm-uia-fixture.exe");
+  const fixture_executable = csc_path(rh.join(run_directory, "agenterm-uia-fixture.exe"));
   const compile = rh.command(framework_csc(), [
     "/nologo", "/target:winexe", "/out:" + fixture_executable,
     "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",

@@ -30,6 +30,8 @@ static WORKBENCH_COURT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/workbench-court.qjs").replace("\r\n", "\n"));
 static CONTROL_CENTER_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/control-center-smoke.qjs").replace("\r\n", "\n"));
+static CU_WINDOWS_SMOKE_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/cu-windows-smoke.qjs").replace("\r\n", "\n"));
 static TEST_HARNESS_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/lib/test_harness.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
@@ -163,6 +165,12 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     assert!(cu_entry.contains("args: [repo, path.join(repo, \"dist/agenterm-cu.exe\")]"));
     assert!(!cu_entry.contains("dist/agenterm.dll"));
     assert!(!cu_entry.contains("agenterm_plain_window.c"));
+    assert!(CU_WINDOWS_SMOKE_QJS.contains(
+        "const fixture_source = csc_path(rh.join(repo, \"examples/csharp/agenterm_uia_fixture.cs\"));"
+    ));
+    assert!(CU_WINDOWS_SMOKE_QJS.contains(
+        "const fixture_executable = csc_path(rh.join(run_directory, \"agenterm-uia-fixture.exe\"));"
+    ));
 }
 
 #[test]
