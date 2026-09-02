@@ -921,6 +921,11 @@ costs a full candidate cycle:
   `33681265610` 已证明 CSC source/output 路径修复有效，随后以 CS5001 揭示旧
   `Add-Type` fixture 只有外部调用的 `Run()`。现加入 `[STAThread] Main` 最小转发并由策略测试
   钉住；原窗口、控件和 UIA 行为不变，发布产品字节不含该 fixture。
+- [x] failure-bundle 的 owned-root 删除边界比较路径身份，不比较平台显示拼写。Candidate
+  `33683368295` 已证明 Windows CU 11/11 全绿，随后 diagnostic selftest 因 `/./` 和 `\`/`/`
+  混排误判同一直接父目录。现先有界词法归一 separator/case/dot segments，再坚持 candidate
+  直接父目录与 owned root 精确相等；绝不改成 prefix，`..` 越根 fail-closed。诊断文件与最终
+  清理排除使用同一规则。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

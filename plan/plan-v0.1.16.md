@@ -1469,3 +1469,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - fixture 现增加最小 `[STAThread] public static void Main() { Run(); }`，保留原 `Run` 和全部
   窗口/控件行为。policy test 要求 STA 入口与 Run 转发同时存在，防止再次产出不可启动的
   fixture；产品字节不受影响。
+
+### A.41 Candidate `33683368295`：owned-root 判断比较路径身份而非显示拼写
+
+- A.40 与整条 Windows CU 已权威通过：11 STEP / 11 EVIDENCE，含真实 CSC 编译、UIA
+  tree/query/invoke/menu/focus、window-place、截图、close 与 cleanup，整门 7.8 秒 PASS。
+- 下一门 diagnostic bundle 在清理首个 CLI failure bundle 时，将同一目录的 `/./` 与 Windows
+  `\`/`/` 混合显示当作不同父目录，误报 `diagnostic_bundle_outside_owned_root`。修复不是放宽成
+  prefix：先词法统一分隔符、大小写和 `.`/`..`，然后仍要求 candidate 的**直接父目录**精确
+  等于 owned root；诊断文件父目录、before/after identity 与 outer-context 排除也使用同一
+  规则。越过根的 `..` 直接拒绝。

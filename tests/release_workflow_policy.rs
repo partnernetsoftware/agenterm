@@ -35,6 +35,9 @@ static CU_WINDOWS_SMOKE_QJS: LazyLock<String> =
 static CU_WINDOWS_FIXTURE_CS: &str = include_str!("../examples/csharp/agenterm_uia_fixture.cs");
 static TEST_HARNESS_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/lib/test_harness.qjs").replace("\r\n", "\n"));
+static DIAGNOSTIC_BUNDLE_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/diagnostic-bundle-selftest.qjs").replace("\r\n", "\n")
+});
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -142,6 +145,23 @@ fn native_ipc_settings_paths_compare_host_separator_neutrally() {
             "missing separator-neutral comparison for {path}"
         );
     }
+}
+
+#[test]
+fn diagnostic_bundle_path_identity_is_separator_and_dot_neutral_but_parent_exact() {
+    assert!(
+        DIAGNOSTIC_BUNDLE_QJS.contains("replaceAll(\"\\\\\", \"/\").toLowerCase().split(\"/\")")
+    );
+    assert!(DIAGNOSTIC_BUNDLE_QJS.contains("if (part === \"\" || part === \".\")"));
+    assert!(DIAGNOSTIC_BUNDLE_QJS.contains("if (part === \"..\")"));
+    assert!(DIAGNOSTIC_BUNDLE_QJS.contains("!normalized[normalized.length - 1].endsWith(\":\")"));
+    assert!(DIAGNOSTIC_BUNDLE_QJS.contains(
+        "comparable_path(path.parent(comparable_path(resolved))) === comparable_path(root)"
+    ));
+    assert!(
+        !DIAGNOSTIC_BUNDLE_QJS
+            .contains("path.parent(resolved).toLowerCase() === root.toLowerCase()")
+    );
 }
 
 #[test]

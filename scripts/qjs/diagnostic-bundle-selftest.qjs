@@ -21,11 +21,38 @@ function trimmed(value) {
   return ("" + value).trim();
 }
 
-// rh's `PathBuf::from(p).file_name`: the last component. No `s[i]` here, so
-// split on the separator.
+// Compare absolute host paths lexically after normalizing Windows separators,
+// case, and dot segments. This is stricter than prefix matching: deletion
+// still requires the candidate's exact parent to equal the owned root.
+function comparable_path(p) {
+  const parts = ("" + p).replaceAll("\\", "/").toLowerCase().split("/");
+  const normalized = [];
+  for (const part of parts) {
+    if (part === "" || part === ".") { continue; }
+    if (part === "..") {
+      assert_ok(
+        normalized.length > 0 && !normalized[normalized.length - 1].endsWith(":"),
+        "diagnostic_path_parent_escape"
+      );
+      normalized.pop();
+    } else {
+      normalized.push(part);
+    }
+  }
+  return normalized.join("/");
+}
+
 function file_name(p) {
-  const parts = ("" + p).split("/");
+  const parts = comparable_path(p).split("/");
   return parts[parts.length - 1];
+}
+
+function array_has_path(values, candidate) {
+  const wanted = comparable_path(candidate);
+  for (const value of values) {
+    if (comparable_path(value) === wanted) { return true; }
+  }
+  return false;
 }
 
 function retained_bundles(bundle_root) {
@@ -43,7 +70,7 @@ function only_new_bundle(bundle_root, before, suite) {
   const matches = [];
   for (const p of retained_bundles(bundle_root)) {
     const name = file_name(p);
-    if (!rh.array_has(before, p) && name.startsWith(suite + "-")) {
+    if (!array_has_path(before, p) && name.startsWith(suite + "-")) {
       matches.push(p);
     }
   }
@@ -60,7 +87,7 @@ function remove_bundle(bundle_root, p) {
   const root = rh.absolute(bundle_root);
   const resolved = rh.absolute(p);
   assert_ok(
-    path.parent(resolved).toLowerCase() === root.toLowerCase(),
+    comparable_path(path.parent(comparable_path(resolved))) === comparable_path(root),
     "diagnostic_bundle_outside_owned_root:" + resolved
   );
   if (rh.exists(resolved)) { rh.remove_dir_all(resolved); }
@@ -96,7 +123,8 @@ function assert_bounded_bundle(bundle, suite, marker_kind) {
     names.push(name);
     const diagnostic = path.join(failure_directory, name);
     if (!rh.exists(diagnostic)
-        || path.parent(rh.absolute(diagnostic)).toLowerCase() !== rh.absolute(failure_directory).toLowerCase()
+        || comparable_path(path.parent(comparable_path(rh.absolute(diagnostic))))
+            !== comparable_path(rh.absolute(failure_directory))
         || rh.metadata(diagnostic).len > 65792) {
       return "diagnostic_bundle_diagnostic_bound:" + suite + ":" + name;
     }
@@ -260,7 +288,8 @@ if (failure === "") {
   reap_probe(script_probe);
 }
 for (const p of retained_bundles(bundle_root)) {
-  if (!rh.array_has(initial, p) && p !== outer_context.run_directory) {
+  if (!array_has_path(initial, p)
+      && comparable_path(p) !== comparable_path(outer_context.run_directory)) {
     remove_bundle(bundle_root, p);
   }
 }
