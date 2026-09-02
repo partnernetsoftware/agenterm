@@ -297,6 +297,7 @@ function cargo_unit_primary_spec(environment) {
     "--skip", "rhai_qualified_package_accepts_only_the_exact_receipt_bytes",
     "--skip", "uses_bundled_pack",
     "--skip", "uses_native_bundled_pack",
+    "--skip", "powershell_waits_for_explicit_agenterm_exe",
     "--skip", "pack_builds",
     "--skip", "native_pack_",
     "--skip", "source_cache_is_stable_for_same_source",
@@ -305,6 +306,14 @@ function cargo_unit_primary_spec(environment) {
     "--skip", "_executes_natively_without_interpreter",
     "--skip", "native_pack_executes_without_interpreter"
   ], 900000, environment, 0);
+}
+
+function cargo_unit_powershell_compat_spec(environment) {
+  return spec("cargo", [
+    "test", "--quiet", "--locked", "--all-features",
+    "--test", "agenterm_cli_forwarding",
+    "powershell_waits_for_explicit_agenterm_exe", "--", "--exact"
+  ], 120000, environment, 1);
 }
 
 function build_artifact_timeout_ms(release) {
@@ -1076,9 +1085,11 @@ gate = run_gate(
   repo, scratch, sequence
 );
 sequence = gate.sequence;
-gate = run_gate(
+gate = run_gate_two(
   context, timing, "unit-tests", "unit tests",
-  cargo_unit_primary_spec(build_environment), repo, scratch, sequence
+  cargo_unit_primary_spec(build_environment),
+  cargo_unit_powershell_compat_spec(build_environment),
+  repo, scratch, sequence
 );
 sequence = gate.sequence;
 

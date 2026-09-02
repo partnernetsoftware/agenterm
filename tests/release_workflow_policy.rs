@@ -177,6 +177,17 @@ fn qualification_samples_the_exact_owned_gate_process_tree() {
 }
 
 #[test]
+fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
+    assert!(CHECK_QJS.contains("\"--skip\", \"powershell_waits_for_explicit_agenterm_exe\""));
+    assert!(CHECK_QJS.contains("function cargo_unit_powershell_compat_spec(environment)"));
+    assert!(
+        CHECK_QJS.contains("powershell_waits_for_explicit_agenterm_exe\", \"--\", \"--exact\"")
+    );
+    assert!(CHECK_QJS.contains("], 120000, environment, 1);"));
+    assert!(CHECK_QJS.contains("cargo_unit_powershell_compat_spec(build_environment)"));
+}
+
+#[test]
 fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     for (name, source) in WINDOWS_RELEASE_SMOKES {
         for gap in [

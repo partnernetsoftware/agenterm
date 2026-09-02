@@ -1504,3 +1504,15 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   fail-closed，显式 terminal-compatibility payload 单列。直接文件重定向保留完整长日志与 deadline。
 - 本机证据：tool-door 45/45、Quick 711/711 与全部静态/PRD/Clippy 门通过；下一 Candidate
   由 Windows runner 裁决 ancestry 与 receipt。
+
+### A.44 Candidate `33690308624`：声明过的 PowerShell 兼容测试必须独立成 court
+
+- 真实进程树采样在 Windows 权威 runner 生效，并于 `unit-tests` 抓到
+  `powershell.exe:<pid>`；717 个 broad tests 全绿，但 gate 因未声明 PowerShell 正确
+  fail-closed。这不是仓库自动化偷偷依赖 PowerShell：命中来自公开黑盒
+  `powershell_waits_for_explicit_agenterm_exe`，它专门验证 PowerShell 调用 GUI-subsystem PE
+  时会同步等待并转发 CLI。
+- broad cargo test 继续 `allow_powershell=0`，并只跳过这一 exact test；同一个 `unit-tests`
+  gate 随后以第二条 exact cargo command 执行该测试，单独标记 terminal compatibility。
+  因此任意其他测试或构建脚本新起 PowerShell 仍会失败，显式兼容 payload 则进入 receipt 的
+  `terminal_compatibility_payloads`，不混入 `automation_processes`。

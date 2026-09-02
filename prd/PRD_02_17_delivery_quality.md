@@ -940,6 +940,12 @@ costs a full candidate cycle:
   child handle/PID，每秒只取该 owned tree，把实际 sample 与 PowerShell identity 写入
   qualification context。未声明 PowerShell 仍拒绝，
   remote-UI 的显式 terminal-compatibility payload 独立记录；本机 Quick 已证明真实采样路径。
+- [x] PowerShell 终端兼容测试与禁止 PowerShell 自动化的 broad test court 分开执行。
+  Candidate `33690308624` 的真实采样在 717 个测试全绿后抓到专门验证 PowerShell launcher 的
+  `powershell_waits_for_explicit_agenterm_exe`，并因 broad court 未声明而正确拒绝。现在 broad
+  command 只跳过该 exact test、保持 `allow_powershell=0`；同一 `unit-tests` gate 的第二条 exact
+  command 单独运行它并声明 terminal compatibility，使其 PID 证据进入专用 receipt 列，而其他
+  新增 PowerShell 自动化仍 fail-closed。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is
