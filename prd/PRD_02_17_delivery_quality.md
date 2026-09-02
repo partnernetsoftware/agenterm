@@ -874,6 +874,10 @@ costs a full candidate cycle:
 
 ### Diagnosis
 
+- [x] qjswasm 必须区分 JSON `null` 与属性缺失 `undefined`。Candidate
+  `33656458802` 已证明 Workbench 五个有界 phase 全绿，随后 Control Center 离线合同因把
+  明确序列化的 `connected_server: null` 写成 `=== undefined` 而稳定失败；三个同类 court
+  已统一按产品 schema 检查 null，并由 release policy test 防回归。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

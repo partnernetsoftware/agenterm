@@ -591,7 +591,7 @@ try {
       && snapshot.schema_version === 1
       && snapshot.executable === "agenterm-cc"
       && snapshot.process_role === "isolated_projection"
-      && snapshot.connected_server === undefined
+      && snapshot.connected_server === null
       && snapshot.views.length === 4
       && !rh.exists(registry),
     "control_center_offline_contract"
@@ -948,7 +948,7 @@ try {
   harness.require(
     unavailable.server_state === "unavailable"
       && unavailable.server_reason === "server_unreachable"
-      && unavailable.connected_server === undefined,
+      && unavailable.connected_server === null,
     "control_center_unavailable_context_truth"
   );
 
@@ -999,7 +999,7 @@ try {
   harness.require(
     incompatible_snapshot.server_state === "unavailable"
       && incompatible_snapshot.server_reason === "server_incompatible"
-      && incompatible_snapshot.connected_server === undefined
+      && incompatible_snapshot.connected_server === null
       && incompatible_probe_output.success
       && harness.child_state(first) === "running"
       && renderer_after_incompatible_probe.state === "running"

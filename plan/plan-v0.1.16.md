@@ -1354,3 +1354,16 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   login agent 可消费 GUI job；陈旧且无超时的旧 job 还会饿死后续任务。它属于本地 court
   生命周期债务，不再用来解释本次产品门红；本版最终判决仍由 GitHub 原生 Windows x86_64
   Candidate 给出。
+
+### A.31 Candidate `33656458802`：JSON `null` 不是缺失字段
+
+- 上一刀已成立：Windows x86_64 完整门中 Workbench 的 `editing`、`scroll` 与
+  `width-180/250/480` 全部通过，公共 gate 用时 26.9 秒。门禁继续前进后，首次停在
+  `control-center-smoke` 的离线合同；首跑与 retry 都在 0.7 秒内同点失败，因此不是负载或
+  超时。
+- 产品的离线 snapshot 明确序列化 `connected_server: null`，Rust 合同测试也一直钉住 JSON
+  null；Rhai 迁移来的 qjswasm smoke 却把它与不存在的属性混淆为 `undefined`，三个同类断言
+  都是不可满足条件。修复统一检查 `=== null`，不改产品 schema、离线行为或门禁预算；策略
+  测试同时钉住三个 null court 并拒绝旧的 undefined 写法。
+- 同一正式发布目标内，Candidate 失败后的局部修复、验证、推送与新 exact-current-main
+  Candidate 属于连续的非发布资格循环，可自动推进；公开 Promotion 仍是独立的人类授权边界。

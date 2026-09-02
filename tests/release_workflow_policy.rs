@@ -28,6 +28,8 @@ static WORKBENCH_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/workbench-smoke.qjs").replace("\r\n", "\n"));
 static WORKBENCH_COURT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/workbench-court.qjs").replace("\r\n", "\n"));
+static CONTROL_CENTER_SMOKE_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/control-center-smoke.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -150,6 +152,17 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
             assert!(!source.contains(gap), "{name} still contains {gap}");
         }
     }
+}
+
+#[test]
+fn control_center_smoke_distinguishes_json_null_from_missing_fields() {
+    assert_eq!(
+        CONTROL_CENTER_SMOKE_QJS
+            .matches("connected_server === null")
+            .count(),
+        3
+    );
+    assert!(!CONTROL_CENTER_SMOKE_QJS.contains("connected_server === undefined"));
 }
 
 #[test]

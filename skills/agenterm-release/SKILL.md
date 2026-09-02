@@ -59,8 +59,12 @@ delivery topology from an older release or from Git push behavior.
    validate locally, push a coherent increment, and create a new Candidate.
    Never rebuild silently during Promotion.
 
-Candidate dispatch is mechanical and may be automated after an explicit
-exact-SHA candidate request. It creates no tag or public Release.
+Candidate dispatch is mechanical and creates no tag or public Release. An
+explicit release-Candidate goal authorizes the whole continuous qualification
+loop: when a failed Candidate yields a scoped fix and a new current-main SHA,
+validate, push, and dispatch the replacement exact-SHA Candidate without asking
+the human to repeat authorization for each repair commit. A request limited to
+one named SHA does not authorize later SHAs. Public Promotion remains separate.
 
 ## Promotion workflow
 

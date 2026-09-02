@@ -59,7 +59,13 @@ request a precise human action.
    fields, and expected non-publishing effect.
 
 Do not make every `main` push run a six-platform Candidate. Candidate creation
-requires explicit intent even when its mechanical dispatch is automated.
+requires explicit release-Candidate intent even when its mechanical dispatch
+is automated. Once that release goal is active, a failed Candidate's scoped
+repair may be validated, pushed, and dispatched as a replacement
+exact-current-main Candidate without a second human authorization; this is one
+continuous non-publishing qualification loop. Only a request explicitly
+limited to one named SHA stops at that SHA. Promotion always requires its own
+human approval.
 The current Candidate input must equal the dispatch-time `main` HEAD; it is not
 a selector for an older ancestor. Supporting historical commits would require
 separately sealing and verifying the workflow-controller commit as well as the
