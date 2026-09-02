@@ -32,7 +32,7 @@ const observed = {};
 rh.try_remove_dir_all(spool_root);
 rh.create_dir_all(spool_root);
 
-for (const phase of ["editing", "geometry"]) {
+for (const phase of ["editing", "scroll", "widths"]) {
   const stdout_path = rh.join(spool_root, phase + ".stdout");
   const stderr_path = rh.join(spool_root, phase + ".stderr");
   const spec = {

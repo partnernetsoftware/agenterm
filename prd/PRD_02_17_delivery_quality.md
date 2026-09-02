@@ -746,16 +746,20 @@ costs a full candidate cycle:
   snapshot and immediately fetched and parsed the same projection again. The
   journey now reuses those answers while preserving every interaction,
   geometry assertion, evidence id, and final PASS condition.
-- [x] one public Workbench qualification gate owns two bounded, isolated
+- [x] one public Workbench qualification gate owns three bounded, isolated
   qjswasm journeys instead of one unboundedly large invocation. Candidate
   `33567664449` proved snapshot reuse was insufficient: the complete journey
   still hit the immutable one-billion-step ceiling twice at the same sidebar
-  stage. The `editing` phase retains inline editing and archived Proxy chrome;
-  the `geometry` phase retains deep-tree construction, scroll-candidate
-  invalidation, and all width courts. Each phase owns its own GUI, IPC address,
+  stage. Candidate `33578689381` then proved `editing` complete but the former
+  combined `geometry` phase still exhausted after completing scroll-candidate
+  invalidation and before width evidence. The final phases are `editing`,
+  `scroll`, and `widths`: editing retains all physical editing and archived
+  Proxy behavior, while scroll and widths each rebuild the same deep-tree
+  fixture and retain their respective invalidation and 180/250/480 geometry
+  assertions. Each phase owns its own GUI, IPC address,
   cleanup, failure bundle, and one-billion-step budget. The coordinator keeps
-  the stable `workbench-smoke` gate identity and succeeds only after both child
-  exits and all three original evidence ids; no assertion is skipped and the
+  the stable `workbench-smoke` gate identity and succeeds only after all three
+  child exits and all three original evidence ids; no assertion is skipped and the
   engine ceiling is not raised. Child streams are file-spooled so successful
   phases forward only bounded evidence/PASS lines; failure diagnostics still
   reach the owning quality log. The 120-second engine deadline precedes the

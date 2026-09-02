@@ -1290,3 +1290,18 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   诊断送入外层质量日志。子 invocation 显式继承 4096-page owning heap；120 秒
   qjswasm deadline 先于 180 秒 wrapper hard stop，使引擎有 60 秒释放其直接 GUI handle
   和写 failure bundle。公共 gate 总 deadline 与 task contract 对齐为 600 秒。
+
+### A.26 Candidate `33578689381`：Editing 已有界，Geometry 再按证据边界切开
+
+- preflight、五个非 Windows-x86_64 build cell 全绿；Windows 完整门再次通过 717 个
+  library tests 与 Workbench 前全部公开 journeys。`editing` phase 两次均成功并发出
+  archived-Proxy evidence，证明第一刀的 coordinator、stream spool、预算继承和清理路径
+  工作正常。timing receipt 把首个失败钉为 `workbench-smoke`，gate 总计 46,440 ms、
+  `timed_out=false`；这不是 runner 或 wrapper wall timeout。
+- 原 `geometry` phase 两次都完成深树、sidebar scroll、pending double-click invalidation，
+  并发出 inline-edit evidence；随后在三档 width court 前稳定命中 `max_steps`。所以判决
+  已收窄为：共享的深树 fixture 加上 scroll 与 widths 仍不应共用一次 qjswasm invocation。
+- 公共 gate 与三条 evidence 不变。内部 phase 细分为 `editing`、`scroll`、`widths`；后
+  两者各自在独立 GUI/IPC/cleanup 上下文重建同一深树 fixture。`scroll` 保留滚动候选失效
+  断言并发出 inline evidence；`widths` 保留 180/250/480 三档完整几何断言并发出 compact
+  evidence。仍不提高单 invocation 的 1,000,000,000-step 上限。

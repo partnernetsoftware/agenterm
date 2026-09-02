@@ -202,7 +202,9 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     assert_eq!(gate["suite"], "workbench-court");
     assert!(CHECK_QJS.contains("return { entry: \"workbench-court\", args: [repo"));
 
-    assert!(WORKBENCH_COURT_QJS.contains("for (const phase of [\"editing\", \"geometry\"])"));
+    assert!(
+        WORKBENCH_COURT_QJS.contains("for (const phase of [\"editing\", \"scroll\", \"widths\"])",)
+    );
     assert!(WORKBENCH_COURT_QJS.contains("scripts/qjs/workbench-smoke.qjs"));
     assert!(WORKBENCH_COURT_QJS.contains("args: ["));
     assert!(!WORKBENCH_COURT_QJS.contains("arguments:"));
@@ -219,8 +221,9 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     ] {
         assert!(WORKBENCH_COURT_QJS.contains(evidence));
     }
-    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase !== \"geometry\")"));
-    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase !== \"editing\")"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase === \"editing\")"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase === \"scroll\")"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase === \"widths\")"));
     assert!(WORKBENCH_SMOKE_QJS.contains("expected: REPO GUI_EXE CLI_EXE --phase PHASE"));
     assert!(!WORKBENCH_SMOKE_QJS.contains("phase = \"all\""));
 }
