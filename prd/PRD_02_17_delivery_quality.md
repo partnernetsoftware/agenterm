@@ -874,6 +874,11 @@ costs a full candidate cycle:
 
 ### Diagnosis
 
+- [x] 长生命周期子进程身份只取 qjswasm process door 的原生
+  `process_pid(handle)`，不经 shell 或进程表旁证。Candidate `33658788475` 已证明 null 修复
+  生效，随后在 Windows 暴露旧 Control Center helper 记录的是 MSYS shell PID、protocol
+  报告的是 native PE PID；跨平台 helper 现直接 spawn 原 spec 并保留同一 handle 的
+  wait/kill/cleanup 所有权。
 - [x] qjswasm 必须区分 JSON `null` 与属性缺失 `undefined`。Candidate
   `33656458802` 已证明 Workbench 五个有界 phase 全绿，随后 Control Center 离线合同因把
   明确序列化的 `connected_server: null` 写成 `=== undefined` 而稳定失败；三个同类 court

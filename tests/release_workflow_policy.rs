@@ -30,6 +30,8 @@ static WORKBENCH_COURT_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/workbench-court.qjs").replace("\r\n", "\n"));
 static CONTROL_CENTER_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/control-center-smoke.qjs").replace("\r\n", "\n"));
+static TEST_HARNESS_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/lib/test_harness.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -163,6 +165,19 @@ fn control_center_smoke_distinguishes_json_null_from_missing_fields() {
         3
     );
     assert!(!CONTROL_CENTER_SMOKE_QJS.contains("connected_server === undefined"));
+}
+
+#[test]
+fn control_center_children_use_the_doors_cross_platform_pid() {
+    let start = TEST_HARNESS_QJS
+        .split("export function start_child")
+        .nth(1)
+        .and_then(|source| source.split("export function child_state").next())
+        .expect("start_child body");
+    assert!(start.contains("const handle = start(spec);"));
+    assert!(start.contains("const pid = process_pid(handle);"));
+    assert!(!start.contains("program: \"sh\""));
+    assert!(!start.contains("echo $$"));
 }
 
 #[test]

@@ -1367,3 +1367,16 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   测试同时钉住三个 null court 并拒绝旧的 undefined 写法。
 - 同一正式发布目标内，Candidate 失败后的局部修复、验证、推送与新 exact-current-main
   Candidate 属于连续的非发布资格循环，可自动推进；公开 Promotion 仍是独立的人类授权边界。
+
+### A.32 Candidate `33658788475`：跨平台 child PID 来自 process door
+
+- 上一轮 null 修复成立：Control Center 离线合同与 launch-failure evidence 均已发出；Workbench
+  五个 phase 继续全绿。新停点是启动 server 后，protocol 的原生进程 PID 与 harness 记录的
+  PID 不同，首跑和 retry 都立即失败。
+- qjswasm 的 `process_pid(handle)` 已是跨平台原生子进程身份，其他 Windows release smoke
+  也已使用并通过；Control Center 的旧 wave-2 helper 却仍借 Git Bash/MSYS 执行
+  `sh -c 'echo $$; exec ...'`。在 Unix 上 exec 可保持 PID，在 Windows 上 shell PID 不等于
+  随后启动的 native PE PID，因此断言必然失败。
+- `start_child` 现直接 spawn 原始 spec，并立即从 door handle 取得 OS PID；handle 的 wait/kill/
+  cleanup 所有权不变。策略测试拒绝 shell witness 回归，且 process-door 自测钉住 PID 在 wait
+  前后稳定。修复不改变产品 server、IPC 或 Control Center 行为。

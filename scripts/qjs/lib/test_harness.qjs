@@ -490,13 +490,11 @@ export function complete_collected(context, owned_children, succeeded, failure) 
 //
 // control-center-smoke and control-center-macos-smoke drive a server, a
 // Control Center renderer, a human GUI and an incompatible peer as children
-// and compare `child.id` (the OS pid) with the pid a protocol probe, a
-// registry file, a lease or a screenshot names -- 40 sites between them.
-// The door's handle is a slot index, not a pid, so `start_child` spawns
-// through `sh -c 'echo $$ > "$1"; shift; exec "$@"'`: the shell records its
-// own pid and then *becomes* the program, so the handle, the pid file and the
-// process are one process (kill on the handle kills the real program). Unix
-// only: Windows has no exec, and a `process.pid(handle)` door op is the gap.
+// and compare the child's OS pid with the pid a protocol probe, a registry
+// file, a lease or a screenshot names. The door now exposes that identity
+// directly through `process_pid(handle)`, on every host. Do not reintroduce
+// the old `sh -c 'echo $$; exec ...'` witness: on Windows its MSYS shell pid
+// is not the spawned native PE's pid.
 //
 // A child here is an object {handle, pid, waited, output}; `child_wait` is
 // idempotent (rh's `wait_with_output` could be called again after
@@ -504,34 +502,16 @@ export function complete_collected(context, owned_children, succeeded, failure) 
 // `complete_children` is rh's `complete_impl` over these objects, recording
 // pids the way rh did rather than handles.
 
-let wave2_child_counter = 0;
-
 export function start_child(context, spec, label) {
-  wave2_child_counter = wave2_child_counter + 1;
-  const pid_path = join(context.run_directory, "child-" + label + "-" + wave2_child_counter + ".pid");
-  if (exists(pid_path)) { door(fs_remove_file(pid_path), "fs_remove_file " + pid_path); }
-  const args = ["-c", "echo $$ > \"$1\"; shift; exec \"$@\"", "sh", pid_path, "" + spec.program];
-  for (const a of spec.args) { args.push("" + a); }
-  const wrapped = { program: "sh", args: args };
-  if (spec.env !== undefined) { wrapped.env = spec.env; }
-  if (spec.env_remove !== undefined) { wrapped.env_remove = spec.env_remove; }
-  if (spec.current_dir !== undefined) { wrapped.current_dir = spec.current_dir; }
-  const handle = start(wrapped);
-  let pid_text = "";
-  for (let attempt = 0; attempt < 500; attempt = attempt + 1) {
-    if (exists(pid_path)) {
-      pid_text = read_text(pid_path).trim();
-      if (pid_text !== "") { break; }
-    }
-    if (state(handle) === "exited") {
-      // The shell left before writing: the program itself failed to exec.
-      const output = wait(handle, 2000);
-      throw "test_harness_child_exec_failed:" + label + ":" + output.stderr;
-    }
-    time_sleep_ms(10);
+  const handle = start(spec);
+  const pid = process_pid(handle);
+  if (pid <= 0) {
+    const reason = tool_result();
+    process_kill(handle);
+    process_wait(handle, 2000);
+    throw "test_harness_child_pid_unavailable:" + label + ":" + reason;
   }
-  require(pid_text !== "", "test_harness_child_pid_timeout:" + label);
-  return { handle: handle, pid: Number(pid_text), label: "" + label, waited: false, output: null };
+  return { handle: handle, pid: pid, label: "" + label, waited: false, output: null };
 }
 
 export function child_state(child) {
@@ -553,7 +533,7 @@ export function child_kill(child) {
 
 // rh's `std::process::list()` membership test, as `ps -p PID`: exit 0 is
 // present (a reaped child is gone; a waited-for one never lingers as a
-// zombie). Unix only, like `start_child`.
+// zombie).
 /// Whether `pid` is a live process.
 ///
 /// `ps` does not exist on Windows, so the POSIX spelling returned "absent"
@@ -990,9 +970,8 @@ export function configured_spec_with_env(context, program, args, extra_env, remo
 
 // rh's `child.id` for a spawned handle, now that the door answers it
 // directly: `process_pid(handle)` is the child's OS pid. This replaces the
-// `pgrep -f` witness (`spawned_pid_witness` above) and the `sh -c 'echo $$'`
-// wrapper (`start_child`), both of which asked the host's process table for
-// a fact the door now carries. A non-positive answer is the door's refusal.
+// old process-table and shell witnesses with the fact the door now carries.
+// A non-positive answer is the door's refusal.
 export function spawned_pid(handle) {
   const pid = process_pid(handle);
   if (pid <= 0) { throw "process_pid:" + tool_result(); }
@@ -1024,4 +1003,3 @@ export function wait_for_spawned_server(context, cli, server) {
   }
   throw "test_harness_server_ready_timeout";
 }
-
