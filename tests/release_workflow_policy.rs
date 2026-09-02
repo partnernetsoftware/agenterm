@@ -165,6 +165,8 @@ fn control_center_smoke_distinguishes_json_null_from_missing_fields() {
         3
     );
     assert!(!CONTROL_CENTER_SMOKE_QJS.contains("connected_server === undefined"));
+    assert!(CONTROL_CENTER_SMOKE_QJS.contains("live_snapshot.server_reason === null"));
+    assert!(!CONTROL_CENTER_SMOKE_QJS.contains("live_snapshot.server_reason === undefined"));
 }
 
 #[test]

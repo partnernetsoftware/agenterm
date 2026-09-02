@@ -689,7 +689,7 @@ try {
   const typed_endpoint = "tcp:" + context.address;
   harness.require(
     live_snapshot.server_state === "connected"
-      && live_snapshot.server_reason === undefined
+      && live_snapshot.server_reason === null
       && live_server.endpoint === typed_endpoint
       && live_server.logical_instance === "main"
       && live_server.pid === server.pid
@@ -697,6 +697,7 @@ try {
       && live_server.epoch === bootstrap.server_epoch
       && live_server.sequence === bootstrap.position.sequence
       && live_server.version !== undefined
+      && live_server.version !== null
       && live_server.version !== ""
       && live_server.build.git_commit !== ""
       && live_server.build.profile !== ""

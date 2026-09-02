@@ -882,7 +882,9 @@ costs a full candidate cycle:
 - [x] qjswasm 必须区分 JSON `null` 与属性缺失 `undefined`。Candidate
   `33656458802` 已证明 Workbench 五个有界 phase 全绿，随后 Control Center 离线合同因把
   明确序列化的 `connected_server: null` 写成 `=== undefined` 而稳定失败；三个同类 court
-  已统一按产品 schema 检查 null，并由 release policy test 防回归。
+  已统一按产品 schema 检查 null，并由 release policy test 防回归。Candidate
+  `33661044197` 又推进到 connected semantic snapshot，证明同为未跳过序列化 Option 的
+  `server_reason: null` 也必须遵守这条规则；可选版本还须显式拒绝 null。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

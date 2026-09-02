@@ -1380,3 +1380,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - `start_child` 现直接 spawn 原始 spec，并立即从 door handle 取得 OS PID；handle 的 wait/kill/
   cleanup 所有权不变。策略测试拒绝 shell witness 回归，且 process-door 自测钉住 PID 在 wait
   前后稳定。修复不改变产品 server、IPC 或 Control Center 行为。
+
+### A.33 Candidate `33661044197`：connected snapshot 的空 reason 仍是 JSON null
+
+- native child PID 修复成立：Control Center 已越过 server identity、创建两个真实 PTY，并完成
+  inspect/select 与 stable-ID post-state evidence。新停点推进到 connected semantic snapshot。
+- `SnapshotDocument.server_reason` 与 `connected_server` 一样是未跳过序列化的 Rust `Option`；
+  connected 状态的 `None` 因而是 JSON `null`，不是缺失字段。port 只修了前者中的一个名字，
+  留下同类 `=== undefined` 断言。现按 schema 检查 `=== null`，并同时拒绝把可选 version 的
+  JSON null 当作有效版本；不修改产品协议或成功条件。
