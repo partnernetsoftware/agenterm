@@ -13,10 +13,10 @@
 // the original's `server_child.id` check.
 //
 // Host-shaped: on Windows the PTY runs `cmd.exe`; elsewhere it runs `sh`
-// with the same 80-line loop. The raw newline-delimited IPC leg uses the
-// release runner's Git Bash on every host, over `/dev/tcp` (the door has no
-// TCP surface, exactly as rh had none). This keeps repository automation
-// independent of PowerShell while preserving the same wire journey.
+// with the same 80-line loop. The raw newline-delimited IPC leg uses Python's
+// standard socket library on Windows and Bash `/dev/tcp` elsewhere (the door
+// has no TCP surface, exactly as rh had none). This keeps repository
+// automation independent of PowerShell while preserving the same wire journey.
 //
 // Changed on purpose: the original sent rh's `fnv1a64` as a signed decimal,
 // which is not the product's `fnv1a64:<16 hex>` fingerprint spelling
@@ -154,16 +154,36 @@ function echo_loop_line(prefix) {
 // of the shell-out. The request text rides in the environment so no quoting
 // rule of either shell touches it.
 function raw_ipc_request(host, port, request_text, response_path) {
+  if (windows_host) {
+    const python =
+      "import os,socket,sys; "
+      + "s=socket.create_connection((os.environ['WAKE_HOST'],int(os.environ['WAKE_PORT'])),25); "
+      + "s.sendall(os.environ['WAKE_REQUEST'].encode('utf-8')); "
+      + "sys.stdout.buffer.write(s.makefile('rb').readline()); "
+      + "s.close()";
+    const output = rh.command(
+      "python", ["-c", python],
+      {
+        timeout_ms: 30000,
+        stdout_path: response_path,
+        env: { WAKE_HOST: host, WAKE_PORT: "" + port, WAKE_REQUEST: request_text }
+      }
+    );
+    if (!output.success) { throw "wake_smoke_raw_python:" + output.stderr; }
+    return output.exit_code;
+  }
   const sh =
     "exec 3<>/dev/tcp/" + host + "/" + port + " || exit 2; "
     + "printf '%s' \"$WAKE_REQUEST\" >&3; "
     + "IFS= read -r -t 25 line <&3; "
     + "printf '%s\\n' \"$line\"; "
     + "exec 3>&-; exit 0";
-  return rh.command_stdout_file(
-    "bash", ["-c", sh], response_path,
-    { timeout_ms: 30000, env: { WAKE_REQUEST: request_text } }
+  const output = rh.command(
+    "bash", ["-c", sh],
+    { timeout_ms: 30000, stdout_path: response_path, env: { WAKE_REQUEST: request_text } }
   );
+  if (!output.success) { throw "wake_smoke_raw_bash:" + output.stderr; }
+  return output.exit_code;
 }
 
 // rh's `stdout_text() + stderr_text()` for a drained client.

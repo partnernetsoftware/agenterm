@@ -949,7 +949,8 @@ costs a full candidate cycle:
   新增 PowerShell 自动化仍 fail-closed。
 - [x] PowerShell 的资格分类看 owned ancestry，不以整个 gate 名称作白名单。Candidate
   `33691160604` 的 `wake-smoke` 真实行为已通过，却因脚本自身用 PowerShell 发 raw TCP 而被
-  正确拒绝；该 leg 现改用六格 runner 已有的 Git Bash `/dev/tcp`。同轮
+  正确拒绝；该 leg 现于 Windows 使用 runner 自带 Python 标准 socket、Unix 使用 Bash
+  `/dev/tcp`，并保留 child stderr 诊断。两者发送同一原始协议字节且不依赖 PowerShell。同轮
   `native-ipc-compat-smoke` 启动历史 AgenTerm server 后的 PowerShell 是被测终端载荷，现仅当
   PowerShell 的祖先链在 retained gate root 之下出现 AgenTerm 产品进程时才归入
   `terminal_compatibility_payloads`；root 自身不算，故直接自动化仍 fail-closed。

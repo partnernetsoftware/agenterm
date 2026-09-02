@@ -1521,8 +1521,8 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 
 - A.44 生效：broad unit tests 保持零 PowerShell，exact launcher court 单独捕获并记录
   `powershell.exe`；随后 `wake-smoke` 的产品断言全部 PASS，但其 raw TCP helper 仍直接启动
-  PowerShell，真实进程审计正确拒绝。该 helper 现统一使用六格 runner 已有 Git Bash
-  `/dev/tcp`，删除仓库自动化对 PowerShell 的依赖。
+  PowerShell，真实进程审计正确拒绝。该 helper 现于 Windows 使用 runner 自带 Python 标准
+  socket、Unix 使用 Bash `/dev/tcp`，删除仓库自动化对 PowerShell 的依赖。
 - 同轮 `native-ipc-compat-smoke` 中历史 AgenTerm server 启动的 PowerShell 属于刻意被测的终端
   payload。资格驱动现沿 owned tree 向上查父链：只有 retained gate root **之下**的 AgenTerm
   产品进程拥有 PowerShell 时才允许；gate root 自身虽也是 AgenTerm script worker，但明确不算
@@ -1537,3 +1537,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   state/time/wait 等有界宿主调用；整趟共享旧 4,096 默认额度会按总墙钟耗尽。现只在 `check`
   task contract 设置 32,768 host-op：按 1 小时硬 deadline 和采样频率留有界余量，1G wasm
   steps 与所有普通脚本默认不变；不删采样、不填常量、不扩大子旅程能力。
+
+### A.47 Candidate `33694349714`：Windows Git Bash 存在不等于支持 `/dev/tcp`
+
+- A.46 生效：Windows x86_64 越过旧 `max_host_ops` 停点，`startup-smoke` 完整 PASS；随后
+  `wake-smoke` 两次都在 raw request helper 返回非零，产品侧并发 IPC/PTY 步已通过。
+- GitHub Windows runner 的 Git Bash 不能作为 `/dev/tcp` 能力合同。Windows raw leg 改用 runner
+  已有 Python 标准库 `socket.create_connection`，Unix 仍用 Bash `/dev/tcp`；request 继续只经环境
+  传入、response 直接写 owned file，wire bytes 和断言不变。helper 失败现保留 stderr，下一次
+  不再只得到无来源的 `wake_smoke_expired_tcp_failed`。

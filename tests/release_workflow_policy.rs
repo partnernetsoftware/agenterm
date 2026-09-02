@@ -190,9 +190,13 @@ fn qualification_samples_the_exact_owned_gate_process_tree() {
 }
 
 #[test]
-fn wake_court_uses_git_bash_for_raw_tcp_without_powershell_automation() {
+fn wake_court_uses_portable_raw_tcp_without_powershell_automation() {
     let wake = include_str!("../scripts/qjs/wake-smoke.qjs");
+    assert!(wake.contains("\"python\", [\"-c\", python]"));
+    assert!(wake.contains("socket.create_connection"));
     assert!(wake.contains("\"bash\", [\"-c\", sh]"));
+    assert!(wake.contains("wake_smoke_raw_python:"));
+    assert!(wake.contains("wake_smoke_raw_bash:"));
     assert!(!wake.to_ascii_lowercase().contains("\"powershell\""));
 }
 
