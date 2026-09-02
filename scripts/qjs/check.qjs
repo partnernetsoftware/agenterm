@@ -57,12 +57,11 @@
 //     values across rh's native-pack boundary and do nothing here. The
 //     "Slowest completed gates" list, a typed no-op in rh, is real here.
 //
-// Kept as rh had it, including what it inherits: process sampling was
-// already a stub (no PowerShell observation, `process_samples` 0), so
-// `write_receipt` refuses with `qualification_process_observation_missing`
-// exactly as the rh driver would have; the full lane is Windows-shaped
-// (build.bat through cmd.exe, dist/agenterm.exe, %TEMP%) and is refused on
-// unix unless `--quick`.
+// Process observation is native and owned: every gate is spawned through a
+// qjs handle, its exact PID anchors once-per-second process-tree samples, and
+// undeclared PowerShell descendants fail closed before a receipt can exist.
+// The full lane remains Windows-shaped (build.bat through cmd.exe,
+// dist/agenterm.exe, %TEMP%) and is refused on unix unless `--quick`.
 import * as rh from "lib/rh_compat";
 import * as path from "lib/path";
 import * as qualification from "lib/qualification";
@@ -388,6 +387,24 @@ function evidence_lines_of_file(p) {
   return lines;
 }
 
+function native_process_tree(root_pid) {
+  if (process_tree(root_pid) !== 0) { throw "check_process_tree:" + tool_result(); }
+  return JSON.parse(tool_result());
+}
+
+function sample_owned_processes(root_pid, observed_powershell) {
+  for (const process of native_process_tree(root_pid)) {
+    const name = ("" + process.executable_name).toLowerCase();
+    if (name !== "powershell.exe" && name !== "pwsh.exe"
+        && name !== "powershell" && name !== "pwsh") { continue; }
+    const identity = "" + process.executable_name + ":" + process.id;
+    if (!rh.array_has(observed_powershell, identity)) {
+      observed_powershell.push(identity);
+    }
+  }
+  return 1;
+}
+
 function execute(command_spec, repo, scratch, sequence) {
   require(command_spec.arguments.length > 0, "check_execute_argv_empty");
   const timeout_ms = command_spec.timeout_ms;
@@ -402,38 +419,43 @@ function execute(command_spec, repo, scratch, sequence) {
   const stderr_path = path.join(scratch, "command-" + seq_text + ".stderr");
   rh.try_remove_file(stdout_path);
   rh.try_remove_file(stderr_path);
-  const options = { cwd: "" + repo, timeout_ms: timeout_ms + 10000 };
-  if (Object.keys(command_spec.environment).length > 0) { options.env = command_spec.environment; }
-  let program = "" + command_spec.program;
-  let argv = [];
-  const redirected = !host_is_windows();
-  if (redirected) {
-    // The shell records nothing and then *becomes* the program, so the
-    // door's timeout kills the program itself.
-    argv = ["-c", "out=$1; err=$2; shift 2; exec \"$@\" >\"$out\" 2>\"$err\"", "sh", stdout_path, stderr_path, program];
-    program = "sh";
-  }
-  for (const item of command_spec.arguments) { argv.push("" + item); }
+  const child_spec = {
+    program: "" + command_spec.program,
+    args: [],
+    current_dir: "" + repo,
+    env: command_spec.environment,
+    timeout_ms: timeout_ms + 10000,
+    stdout_path: stdout_path,
+    stderr_path: stderr_path
+  };
+  for (const item of command_spec.arguments) { child_spec.args.push("" + item); }
   const started = rh.now_ms();
-  const result = rh.command(program, argv, options);
+  const handle = process_spawn(JSON.stringify(child_spec));
+  if (handle < 0) { throw "check_process_spawn:" + tool_result(); }
+  const root_pid = process_pid(handle);
+  if (root_pid <= 0) { throw "check_process_pid:" + tool_result(); }
+  const observed_powershell = [];
+  let process_samples = 0;
+  for (;;) {
+    process_samples = process_samples + sample_owned_processes(root_pid, observed_powershell);
+    if (process_state(handle) !== 0) { throw "check_process_state:" + tool_result(); }
+    if (tool_result() === "exited") { break; }
+    if (rh.now_ms() - started > timeout_ms + 10000) {
+      process_kill(handle);
+      break;
+    }
+    time_sleep_ms(1000);
+  }
+  if (process_wait(handle, 10000) !== 0) { throw "check_process_wait:" + tool_result(); }
+  const result = JSON.parse(tool_result());
   const duration = rh.now_ms() - started;
-  let stdout = { text: result.stdout, truncated: false };
-  let stderr = { text: result.stderr, truncated: false };
   // The command itself may have removed target/ after the pre-spawn check.
   // This is intentional for the release build, so recreate the owned evidence
   // directory after the child returns and before publishing its streams.
   rh.create_dir_all(scratch);
-  if (redirected) {
-    stdout = read_stream(stdout_path);
-    stderr = read_stream(stderr_path);
-  } else {
-    rh.atomic_write(stdout_path, result.stdout);
-    rh.atomic_write(stderr_path, result.stderr);
-  }
+  const stdout = read_stream(stdout_path);
+  const stderr = read_stream(stderr_path);
   const timed_out = result.timed_out || duration > timeout_ms;
-  // Process sampling was already a stub in rh (no observation, no samples).
-  const observed_powershell = [];
-  const process_samples = 0;
   const powershell_violation = observed_powershell.length > 0 && allow_powershell === 0;
   return {
     success: result.success && !powershell_violation && !timed_out,
@@ -480,7 +502,9 @@ function gate_failure(label, result) {
 function run_gate_step(context, timing, id, label, command_spec, repo, scratch, sequence, started, all_output, finalize_failure) {
   const command_sequence = rh.int_of(sequence);
   const result = execute(command_spec, repo, scratch, command_sequence);
-  qualification.add_process_observation(context, result.process_samples, [], command_spec.allow_powershell);
+  qualification.add_process_observation(
+    context, result.process_samples, result.observed_powershell, command_spec.allow_powershell
+  );
   print_streams(result);
   if (result.observed_powershell.length > 0 && command_spec.allow_powershell !== 0) {
     print("OBSERVED explicit terminal compatibility payload: " + joined_text(result.observed_powershell, ","));

@@ -93,7 +93,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   runs print the slowest gates; independent preflight fixtures and isolated
   GUI/script diagnostic probes run concurrently without sharing Cargo targets,
   IPC addresses, or cleanup ownership
-- [~] the Rhai check runner polls typed process ancestry once per second for
+- [x] the qjswasm check runner polls typed process ancestry once per second for
   every owned gate
   and rejects a `powershell.exe`/`pwsh.exe` automation descendant; the one
   remote-UI PowerShell terminal-compatibility payload is explicitly declared
@@ -932,6 +932,14 @@ costs a full candidate cycle:
   执行 `harness.complete()`。probe 现与正式 `script-smoke` 同用 qjswasm 1G hard cap，仍受
   child wait 与 gate wall deadline 双重约束；完整自测已通过三类 bundle 的 bounded、privacy、
   identity 和 orphan-free 合同。
+- [x] qualification receipt 的 process observation 来自 owned gate 的真实进程树，不接受
+  迁移占位计数。Candidate `33687716296` 已让 required gates、diagnostic bundle、Workbench、
+  Control Center 与 Windows CU 全部通过，最终 receipt 因 qjs driver 的 `process_samples=0`
+  正确 fail-closed。tool door 现由 `agenterm-platform` 提供有界
+  `[{id,parent_id,executable_name}]` 清单，并在原生侧投影 exact PID 的传递子树；driver 持有
+  child handle/PID，每秒只取该 owned tree，把实际 sample 与 PowerShell identity 写入
+  qualification context。未声明 PowerShell 仍拒绝，
+  remote-UI 的显式 terminal-compatibility payload 独立记录；本机 Quick 已证明真实采样路径。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

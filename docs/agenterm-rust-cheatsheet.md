@@ -3029,3 +3029,15 @@ back, and `rendered_snapshot` carries no renderer payload. Linux and macOS curre
 renderer-request strategy whose document may carry a rendered snapshot. Probe
 window readiness through the process-window facts door tied to the owned child
 handle, and capture a real PNG separately when visual evidence is required.
+
+## Observe qualification descendants through the platform process facade
+
+A release receipt must not turn “a command was invoked” into process-tree
+evidence. Spawn each owned gate through a retained Script handle, anchor the
+observation at `process_pid(handle)`, and sample the transitive descendants from
+`agenterm_platform::process::list()` while that handle is live. Project only
+the neutral `{id,parent_id,executable_name}` tuple through the tool door; native
+enumeration and its bounds stay in the platform crate. Record the actual sample
+count and any forbidden automation descendants, then fail closed before writing
+the receipt. A constant nonzero sample or an empty hard-coded process list is
+not evidence.

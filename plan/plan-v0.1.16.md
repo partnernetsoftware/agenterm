@@ -1490,3 +1490,17 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 嵌套 probe 现与正式 journey 同用 1G operation court，外层 45 秒 child wait 和 60 秒 gate
   deadline 不变。本机完整自测已通过 CLI / GUI / Script 三种 failure bundle 的 bounded、
   privacy、identity 与 orphan-free 检查，并清理自己创建的运行目录。
+
+### A.43 Candidate `33687716296`：receipt 不接受 process-observation 迁移占位
+
+- A.42 已由 Windows x86_64 权威 runner 通过：required gates 全绿，diagnostic bundle 三路
+  PASS；Workbench、Control Center、Windows CU 亦全绿。失败首次推进到最终
+  `qualification-receipt` stage，报 `qualification_process_observation_missing`。
+- qjs check driver 继承了旧迁移注释与 `process_samples=0`，因此所有行为虽通过，receipt 仍正确
+  拒绝没有进程树证据的资格声明。不能填常量或删除断言。
+- qjs tool door 新增平台 facade 的有界 `process.list`，并在原生侧以 exact PID 计算小型
+  `process.tree`，都只投影 `{id,parent_id,executable_name}`。driver 现通过 retained handle
+  启动每个 gate，每秒采样 owned tree，记录真实 sample 与 PowerShell identity；未声明 PowerShell
+  fail-closed，显式 terminal-compatibility payload 单列。直接文件重定向保留完整长日志与 deadline。
+- 本机证据：tool-door 45/45、Quick 711/711 与全部静态/PRD/Clippy 门通过；下一 Candidate
+  由 Windows runner 裁决 ancestry 与 receipt。

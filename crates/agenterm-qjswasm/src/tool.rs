@@ -112,7 +112,7 @@ const TOOL_PANICKED: &str = "tool door: an operation panicked";
 
 /// The exact raw shape of each import: `(field, params, results)`, all `i32`.
 /// The other half of [`declarations`]; a unit test derives one from the other.
-pub(crate) const SIGNATURES: [(&str, usize, usize); 46] = [
+pub(crate) const SIGNATURES: [(&str, usize, usize); 48] = [
     ("fs.exists", 2, 1),
     ("fs.read_to_string", 2, 1),
     ("fs.write", 4, 1),
@@ -143,6 +143,8 @@ pub(crate) const SIGNATURES: [(&str, usize, usize); 46] = [
     ("process.kill", 1, 1),
     ("process.wait", 2, 1),
     ("process.pid", 1, 1),
+    ("process.list", 0, 1),
+    ("process.tree", 1, 1),
     ("process.kill_pid", 1, 1),
     ("clipboard.get_text", 0, 1),
     ("clipboard.set_text", 2, 1),
@@ -285,6 +287,8 @@ pub(crate) fn declarations() -> Vec<HostFn> {
             HostResult::I32,
         ),
         decl("process.pid", vec![HostParam::I32], HostResult::I32),
+        decl("process.list", Vec::new(), HostResult::I32),
+        decl("process.tree", vec![HostParam::I32], HostResult::I32),
         decl("process.kill_pid", vec![HostParam::I32], HostResult::I32),
         decl("clipboard.get_text", Vec::new(), HostResult::I32),
         decl(
@@ -1156,6 +1160,84 @@ pub(crate) fn install(
             }
         })
     })?;
+
+    // A bounded native process inventory lets qualification observe the
+    // descendants of the exact gate child it owns. The platform crate owns
+    // enumeration and its target-specific caps; the door only projects the
+    // neutral identity tuple into JSON.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.list",
+        move |_args, _memory| {
+            answer(&state, "process.list", || {
+                let processes = agenterm_platform::process::list()
+                    .map_err(|error| format!("process.list: {error}"))?;
+                Ok(serde_json::Value::Array(
+                    processes
+                        .into_iter()
+                        .map(|process| {
+                            serde_json::json!({
+                                "id": process.id,
+                                "parent_id": process.parent_id,
+                                "executable_name": process.executable_name,
+                            })
+                        })
+                        .collect(),
+                )
+                .to_string())
+            })
+        },
+    )?;
+
+    // Qualification samples once per second. Computing the transitive closure
+    // here keeps the complete machine inventory out of guest memory and bills
+    // only the small subtree rooted at the exact child handle's PID.
+    let state = Rc::clone(&shared);
+    bind_metered(
+        module,
+        &meter,
+        DOOR,
+        "process.tree",
+        move |args, _memory| {
+            let raw_root = arg(args, 0)?;
+            answer(&state, "process.tree", || {
+                let root = u32::try_from(raw_root)
+                    .map_err(|_| "process.tree: pid is negative".to_string())?;
+                let mut processes = agenterm_platform::process::list()
+                    .map_err(|error| format!("process.tree: {error}"))?;
+                let mut owned = std::collections::HashSet::from([root]);
+                loop {
+                    let before = owned.len();
+                    for process in &processes {
+                        if owned.contains(&process.parent_id) {
+                            owned.insert(process.id);
+                        }
+                    }
+                    if owned.len() == before {
+                        break;
+                    }
+                }
+                processes.retain(|process| owned.contains(&process.id));
+                processes.sort_by_key(|process| process.id);
+                Ok(serde_json::Value::Array(
+                    processes
+                        .into_iter()
+                        .map(|process| {
+                            serde_json::json!({
+                                "id": process.id,
+                                "parent_id": process.parent_id,
+                                "executable_name": process.executable_name,
+                            })
+                        })
+                        .collect(),
+                )
+                .to_string())
+            })
+        },
+    )?;
 
     // PID termination and the clipboard are unrestricted tool-runtime
     // capabilities inherited from rh. They are not Agent permission policy;

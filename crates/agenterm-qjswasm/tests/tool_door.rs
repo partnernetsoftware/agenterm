@@ -303,6 +303,45 @@ fn process_pid_is_stable_across_the_wait_and_a_second_wait_replays() {
 }
 
 #[test]
+fn process_list_and_tree_contain_the_tool_host_identity() {
+    let out = run_tool(
+        r#"
+        const me = process_id();
+        if (process_list() !== 0) { throw tool_result(); }
+        const processes = JSON.parse(tool_result());
+        let found = false;
+        for (const process of processes) {
+            if (process.id === me && process.parent_id >= 0 && process.executable_name !== "") {
+                found = true;
+            }
+        }
+        if (process_tree(me) !== 0) { throw tool_result(); }
+        const tree = JSON.parse(tool_result());
+        let tree_found = false;
+        for (const process of tree) {
+            if (process.id === me && process.executable_name !== "") { tree_found = true; }
+        }
+        return "" + found + "|" + tree_found;
+        "#,
+    );
+    assert_eq!(string_of(&out), "true|true", "{out:?}");
+    assert!(
+        out.tool_calls
+            .iter()
+            .any(|call| call == "tool.process.list"),
+        "{:?}",
+        out.tool_calls
+    );
+    assert!(
+        out.tool_calls
+            .iter()
+            .any(|call| call == "tool.process.tree"),
+        "{:?}",
+        out.tool_calls
+    );
+}
+
+#[test]
 fn process_kill_pid_refuses_a_negative_id_before_touching_the_host() {
     let out = run_tool(
         r#"

@@ -253,6 +253,8 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `fs_tree_summary(p,max_entries)` | `tool.fs.tree_summary` | status；原生侧在显式 entry 上限内递归统计文件数、逻辑字节、mtime 与首层 bucket，固定大小 JSON 过桥；超限整体拒绝，不返回截断真相 |
 | `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,timed_out}`；无 `timeout_ms` 默认 60 s 后杀 |
 | `process_id()` | `tool.process.id` | 直接 pid |
+| `process_list()` | `tool.process.list` | status；暂存平台 facade 的有界进程清单 `[{id,parent_id,executable_name}]`，供 owned-child ancestry 与清理证明使用 |
+| `process_tree(pid)` | `tool.process.tree` | status；原生侧从同一有界清单计算含根 PID 的传递子树，只把 owned subtree 暂存给高频资格采样 |
 | `process_pid(handle)` / `process_kill_pid(pid)` | `tool.process.pid` / `tool.process.kill_pid` | 已启动 child 的 PID；或对任意 PID 做强制终止并返回 typed status |
 | `process_platform_facts(handle)` / `process_window_*` | `tool.process.platform_facts` / `tool.process.window_*` | 通过 platform crate 观察、驱动 child 的原生窗口、控件、消息、指针和尺寸 |
 | `clipboard_get_text()` / `clipboard_set_text(text)` | `tool.clipboard.get_text` / `tool.clipboard.set_text` | 有界 Unicode 系统剪贴板；读取最多 1 MiB，失败为 typed status，不返回截断文本 |

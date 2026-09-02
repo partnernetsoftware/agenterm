@@ -167,6 +167,16 @@ fn diagnostic_bundle_path_identity_is_separator_and_dot_neutral_but_parent_exact
 }
 
 #[test]
+fn qualification_samples_the_exact_owned_gate_process_tree() {
+    assert!(CHECK_QJS.contains("const handle = process_spawn(JSON.stringify(child_spec));"));
+    assert!(CHECK_QJS.contains("const root_pid = process_pid(handle);"));
+    assert!(CHECK_QJS.contains("process_samples + sample_owned_processes"));
+    assert!(CHECK_QJS.contains("if (process_tree(root_pid) !== 0)"));
+    assert!(CHECK_QJS.contains("result.observed_powershell, command_spec.allow_powershell"));
+    assert!(!CHECK_QJS.contains("const process_samples = 0;"));
+}
+
+#[test]
 fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     for (name, source) in WINDOWS_RELEASE_SMOKES {
         for gap in [
@@ -522,14 +532,14 @@ fn qualification_recreates_owned_scratch_after_a_gate_cleans_target() {
         .map(|(execute, _)| execute)
         .expect("check execute function");
     let child = execute
-        .find("const result = rh.command")
+        .find("const handle = process_spawn")
         .expect("child command");
     let recreate = execute[child..]
         .find("rh.create_dir_all(scratch);")
         .expect("post-child scratch recreation");
     let publish = execute[child..]
-        .find("rh.atomic_write(stdout_path")
-        .expect("Windows stream publication");
+        .find("const stdout = read_stream(stdout_path);")
+        .expect("redirected stream publication");
     assert!(recreate < publish);
 }
 
