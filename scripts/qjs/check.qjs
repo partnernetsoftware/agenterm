@@ -166,7 +166,7 @@ function catalog_entry(repo, id) {
   if (id === "cu-windows-smoke") {
     return {
       entry: "cu-windows-smoke",
-      args: [repo, path.join(repo, "dist/agenterm-cu.exe"), path.join(repo, "dist/agenterm.dll"), path.join(repo, "examples/c/agenterm_plain_window.c")]
+      args: [repo, path.join(repo, "dist/agenterm-cu.exe")]
     };
   }
   throw "check_task_unknown:" + id;

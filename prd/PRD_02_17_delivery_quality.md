@@ -909,6 +909,10 @@ costs a full candidate cycle:
   court-owned PNG 提供 owner 与 capture strategy；三者必须同轮对齐，任何一项失败都继续等待
   或 fail-closed。UTM x86 guest 的平台拒绝只记为非权威 court 缺口，不替代 GitHub Windows
   x86 Candidate 证据。
+- [x] 发布调度 catalog 的实参必须与当前旅程入口合同一致。Candidate `33676834153` 已证明
+  Control Center 全门 14 条证据与清理闭环通过，随后 `cu-windows-smoke` 因 catalog 仍传旧版
+  DLL/C fixture 四参数，在 77 ms 内按两参数合同 fail-closed。调度现只传 repo 与 staged
+  `agenterm-cu.exe`；策略测试禁止两个已删除旧参数回流，避免“脚本已迁移、隐藏调度副本未迁移”。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

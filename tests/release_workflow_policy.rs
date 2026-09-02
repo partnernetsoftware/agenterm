@@ -154,6 +154,15 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
             assert!(!source.contains(gap), "{name} still contains {gap}");
         }
     }
+
+    let cu_entry = CHECK_QJS
+        .split("if (id === \"cu-windows-smoke\")")
+        .nth(1)
+        .and_then(|source| source.split("throw \"check_task_unknown:").next())
+        .expect("Windows CU catalog entry");
+    assert!(cu_entry.contains("args: [repo, path.join(repo, \"dist/agenterm-cu.exe\")]"));
+    assert!(!cu_entry.contains("dist/agenterm.dll"));
+    assert!(!cu_entry.contains("agenterm_plain_window.c"));
 }
 
 #[test]

@@ -1441,3 +1441,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   synthesized projection 代替截图，也不能从截图 JSON 发明 renderer 字段。
 - 本地 UTM x86 court 的辅助预跑被 guest 以“PE 不适用于此平台”拒绝，已释放 VM，并不作为
   本轮产品或脚本的裁决证据；权威 Windows x86 runner 仍是 GitHub Candidate court。
+
+### A.38 Candidate `33676834153`：任务调度参数必须跟随旅程合同
+
+- A.37 已由权威 Windows x86 runner 完整证明：Control Center 14 条证据全部发出，包含
+  incompatible isolation、causal tab/new-epoch refresh、server recovery、typed close 与
+  orphan-free cleanup，整门 12.3 秒 PASS。
+- 下一门 `cu-windows-smoke` 在 77 ms 内以 `expected: REPO AGENTERM_CU_EXE` 拒绝。旅程已改为
+  自建 .NET fixture、只接收两个参数；`check.qjs` 的迁移 catalog 仍传旧版的 DLL 与 C fixture
+  四参数。现按公开任务表恢复为 repo + staged `agenterm-cu.exe` 两参数，并以 policy test 同时
+  禁止旧 `agenterm.dll` / `agenterm_plain_window.c` 参数回流。产品和旅程成功条件不变。
