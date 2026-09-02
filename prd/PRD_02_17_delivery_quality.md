@@ -917,6 +917,10 @@ costs a full candidate cycle:
   Windows CU 已通过 capabilities 并进入 fixture 编译，但 `csc.exe` 把混合分隔符中的 `/`
   当 option prefix，CS1504 指向错误的仓根文件。现仅在 CSC source 与 `/out:` 参数边界规范
   为反斜杠；共享 path helper 不为单一消费者改语义，策略测试钉住两处真实调用。
+- [x] 测试 fixture 从运行时类型装载迁成独立 EXE 时必须显式拥有进程入口。Candidate
+  `33681265610` 已证明 CSC source/output 路径修复有效，随后以 CS5001 揭示旧
+  `Add-Type` fixture 只有外部调用的 `Run()`。现加入 `[STAThread] Main` 最小转发并由策略测试
+  钉住；原窗口、控件和 UIA 行为不变，发布产品字节不含该 fixture。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

@@ -32,6 +32,7 @@ static CONTROL_CENTER_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/control-center-smoke.qjs").replace("\r\n", "\n"));
 static CU_WINDOWS_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/cu-windows-smoke.qjs").replace("\r\n", "\n"));
+static CU_WINDOWS_FIXTURE_CS: &str = include_str!("../examples/csharp/agenterm_uia_fixture.cs");
 static TEST_HARNESS_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/lib/test_harness.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
@@ -171,6 +172,9 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     assert!(CU_WINDOWS_SMOKE_QJS.contains(
         "const fixture_executable = csc_path(rh.join(run_directory, \"agenterm-uia-fixture.exe\"));"
     ));
+    assert!(CU_WINDOWS_FIXTURE_CS.contains("[STAThread]"));
+    assert!(CU_WINDOWS_FIXTURE_CS.contains("public static void Main()"));
+    assert!(CU_WINDOWS_FIXTURE_CS.contains("Run();"));
 }
 
 #[test]

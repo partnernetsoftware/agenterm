@@ -1460,3 +1460,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - qjs 平台中立 `join` 会在 Windows rooted base 后加入 `/`；Win32 文件 API 通常接受它，
   但 `csc.exe` 把 `/` 当 option prefix，因而错误解释混合分隔符源路径。现只在 CSC 边界把
   source 和 `/out:` 路径规范成反斜杠，不改变共享 path 语义；policy test 同时钉住两处。
+
+### A.40 Candidate `33681265610`：从 Add-Type 类型迁为 EXE 时必须补入口
+
+- A.39 生效：CSC 不再报 source missing，且正确写出完整 target 路径；随后 CS5001 明确指出
+  fixture 没有适用的静态 `Main`。该 C# 文件最初由 PowerShell `Add-Type` 装载后显式调用
+  `AgentermUiaFixture.Run()`，迁成 `/target:winexe` 直出 EXE 时只改了调用方，漏了进程入口。
+- fixture 现增加最小 `[STAThread] public static void Main() { Run(); }`，保留原 `Run` 和全部
+  窗口/控件行为。policy test 要求 STA 入口与 Run 转发同时存在，防止再次产出不可启动的
+  fixture；产品字节不受影响。

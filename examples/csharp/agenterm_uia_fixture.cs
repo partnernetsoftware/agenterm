@@ -13,6 +13,12 @@ public static class AgentermUiaFixture
     private static int presses;
     private static int things;
 
+    [STAThread]
+    public static void Main()
+    {
+        Run();
+    }
+
     public static void Run()
     {
         Application.EnableVisualStyles();
