@@ -3019,3 +3019,13 @@ all tests and secondary binaries for string-only operations (`contains`,
 `is_empty`, direct string equality), then run `cargo clippy --all-targets
 --all-features -- -D warnings`. A normal library build can miss those consumers
 because feature-gated integration tests are separate compilation targets.
+
+## Keep native window facts separate from screenshot documents
+
+Cross-platform GUI tests must not infer native window identity, title, presence,
+or foreground state from screenshot JSON. On Windows the Control Center uses a
+direct native-window capture: `--output` must name a real PNG that can be read
+back, and `rendered_snapshot` carries no renderer payload. Linux and macOS currently use a
+renderer-request strategy whose document may carry a rendered snapshot. Probe
+window readiness through the process-window facts door tied to the owned child
+handle, and capture a real PNG separately when visual evidence is required.

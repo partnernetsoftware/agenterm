@@ -1416,3 +1416,14 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   deadline 和 120 秒 task court 双重约束。超时还会报告最后的 status state、screenshot exit
   或实际标题，从而区分“尚未 ready”与“标题合同漂移”，不降低标题必须包含 endpoint 与 tab
   count 的成功条件。
+
+### A.36 Candidate `33670731144`：原生窗口事实与截图证据不可混为一个探针
+
+- 10 秒 readiness 修复让诊断收敛为三次相同的 `screenshot_exit=1`。Windows Control Center
+  使用 `DirectNativeWindow`：`screenshot --output` 必须落到可读回的真实 PNG，结果中的
+  `rendered_snapshot` 为 null；旧 smoke 却把 Windows 的 `NUL` 当作截图文件，并尝试从
+  renderer-only snapshot 读取标题，因此命令必然失败。这不是窗口未出现。
+- 标题、窗口存在性和前台状态现统一读取 qjswasm `process.platform_facts` 门；它直接观察同一
+  owner PID 的原生顶层窗口。真实 PNG 仍在随后独立步骤写入 court 自有路径并校验尺寸、摘要与
+  owner，不减少视觉证据。policy test 禁止 title waiter 恢复 `NUL` screenshot 或读取
+  `rendered_snapshot.window_title`。

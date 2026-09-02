@@ -896,6 +896,12 @@ costs a full candidate cycle:
   title waiter；它同时执行 status/screenshot IPC，不能把 `400 × 10 ms` 当成完整 wall
   budget。该 waiter 现有 10 秒单调 deadline，仍要求标题包含 exact endpoint 与 tab count，
   并在超时时保留最后状态/标题/命令 exit；90 秒 owner 与 120 秒 task court 继续兜底清理。
+- [x] 原生窗口 readiness 与截图证据必须使用各自的合同。Candidate `33670731144` 把上一轮
+  诊断收敛为三次 `screenshot_exit=1`：Windows `DirectNativeWindow` 要求真实可读回的 PNG
+  输出，且成功文档没有 renderer snapshot；`NUL` 既不是合法 PNG 证据，也不能提供标题。
+  title waiter 现读取同一 owner handle 的 `process.platform_facts`，继续验证存在性、窗口 id、
+  endpoint/tab 标题与 no-activate；后续独立截图步骤仍对 court 自有 PNG 做尺寸、摘要和 owner
+  校验。回归测试禁止把 renderer-only 字段重新用于 Windows title readiness。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

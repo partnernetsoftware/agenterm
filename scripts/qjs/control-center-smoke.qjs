@@ -153,6 +153,16 @@ function window_key(child, key) {
   }
 }
 
+// Window identity/readiness belongs to the native process-window door. On
+// Windows a Control Center screenshot captures a real PNG file and returns no
+// renderer snapshot, so it cannot double as a title probe.
+function platform_facts(child) {
+  if (process_platform_facts(child.handle) !== 0) {
+    throw "process_platform_facts:" + child.label + ":" + tool_result();
+  }
+  return JSON.parse(tool_result());
+}
+
 function configured(context, executable, registry, args) {
   const spec = harness.configured_spec(context, executable, args);
   spec.env.AGENTERM_CC_REGISTRY_PATH = "" + registry;
@@ -360,22 +370,14 @@ function wait_for_window_title(context, control_center, registry, child, require
       const status = json_from_output(capture);
       last_observation = "state=" + status.state;
       if (status.state === "running") {
-        const snapshot = harness.run_spec(configured(context, control_center, registry,
-          ["screenshot", "--output", "NUL", "--json"]));
-        if (snapshot.success) {
-          const document = json_from_output(snapshot);
-          const observed_title = "" + document.rendered_snapshot.window_title;
-          last_observation = "title=" + observed_title;
-          if (title_contains_all(observed_title, required) !== 0) {
-            return {
-              top_level_window_title: observed_title,
-              top_level_window_present: 1,
-              foreground_window_id: 0,
-              top_level_window_is_foreground: 0
-            };
-          }
-        } else {
-          last_observation = "screenshot_exit=" + snapshot.exit_code;
+        const facts = platform_facts(child);
+        const observed_title = "" + facts.top_level_window_title;
+        last_observation = "window=" + JSON.stringify(facts);
+        if (facts.top_level_window_supported
+            && facts.top_level_window_present
+            && facts.top_level_window_id !== 0
+            && title_contains_all(observed_title, required) !== 0) {
+          return facts;
         }
       }
     } else {
@@ -743,7 +745,7 @@ try {
   const first_window = wait_for_window_title(context, control_center, registry, first,
     [context.address, live_tab_label], "control_center_live");
   harness.require(
-    first_window.foreground_window_id === 0 || first_window.top_level_window_is_foreground === 0,
+    first_window.foreground_window_id === 0 || !first_window.top_level_window_is_foreground,
     "control_center_no_activate_stole_foreground"
   );
   const running = offline_json(context, control_center, registry, ["status", "--json"],
@@ -778,7 +780,7 @@ try {
       && rendered.luminance > 1.0
       && rendered.luminance < 254.9
       && (first_window.foreground_window_id === 0
-          || first_window.top_level_window_is_foreground === 0),
+          || !first_window.top_level_window_is_foreground),
     "control_center_cockpit_png_truth:" + JSON.stringify(capture)
   );
   rh.create_dir_all(durable_evidence_directory);
@@ -959,7 +961,7 @@ try {
     ["server_unreachable"], "control_center_unavailable_refresh");
   harness.require(
     unavailable_window.foreground_window_id === 0
-      || unavailable_window.top_level_window_is_foreground === 0,
+      || !unavailable_window.top_level_window_is_foreground,
     "control_center_reuse_stole_foreground"
   );
   const unavailable = offline_json(context, control_center, registry, ["snapshot", "--json"],
@@ -982,7 +984,7 @@ try {
     "control_center_refreshed_snapshot");
   harness.require(
     (refreshed_window.foreground_window_id === 0
-        || refreshed_window.top_level_window_is_foreground === 0)
+        || !refreshed_window.top_level_window_is_foreground)
       && refreshed.server_state === "connected"
       && refreshed.connected_server.pid === live_server.pid
       && refreshed.connected_server.epoch === live_server.epoch
@@ -1108,7 +1110,7 @@ try {
       && ("" + causal_capture.projection.window_title).includes(causal_tab_label)
       && harness.child_state(first) === "running"
       && (first_window.foreground_window_id === 0
-          || first_window.top_level_window_is_foreground === 0),
+          || !first_window.top_level_window_is_foreground),
     "control_center_causal_tab_projection"
   );
   require_state_file_unchanged(context_state_path, context_state, "control_center_causal_context_after_tab");
@@ -1132,7 +1134,7 @@ try {
       && loss_capture.projection.server_state === "unavailable"
       && loss_capture.projection.server_reason === "server_unreachable"
       && (first_window.foreground_window_id === 0
-          || first_window.top_level_window_is_foreground === 0),
+          || !first_window.top_level_window_is_foreground),
     "control_center_server_loss_truth"
   );
   require_state_file_unchanged(context_state_path, context_state, "control_center_causal_context_after_loss");
@@ -1156,7 +1158,7 @@ try {
       && restart_capture.projection.server_state === "connected"
       && ("" + restart_capture.projection.window_title).includes(context.address)
       && (first_window.foreground_window_id === 0
-          || first_window.top_level_window_is_foreground === 0),
+          || !first_window.top_level_window_is_foreground),
     "control_center_server_restart_identity"
   );
   require_state_file_unchanged(context_state_path, context_state, "control_center_causal_context_after_restart");
@@ -1196,7 +1198,7 @@ try {
   harness.require(
     replacement.pid !== first_pid
       && (replacement_window.foreground_window_id === 0
-          || replacement_window.top_level_window_is_foreground === 0),
+          || !replacement_window.top_level_window_is_foreground),
     "control_center_stale_owner_recovery"
   );
   const killed_pid = replacement.pid;

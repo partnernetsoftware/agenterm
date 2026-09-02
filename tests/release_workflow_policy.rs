@@ -203,6 +203,10 @@ fn control_center_projection_owner_outlives_short_command_helpers() {
     );
     assert!(title_waiter.contains("const deadline = rh.now_ms() + 10000;"));
     assert!(title_waiter.contains("_title_timeout:\" + last_observation"));
+    assert!(title_waiter.contains("const facts = platform_facts(child);"));
+    assert!(title_waiter.contains("facts.top_level_window_present"));
+    assert!(!title_waiter.contains("[\"screenshot\", \"--output\", \"NUL\""));
+    assert!(!title_waiter.contains("document.rendered_snapshot.window_title"));
     assert!(!title_waiter.contains("attempt < 400"));
 }
 
