@@ -1269,3 +1269,24 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   再取一份相同 snapshot；最后三宽度 court 也如此。helper 现在返回已满足 wait 的
   snapshot，调用点直接复用。所有 pointer 操作、状态断言、三宽度 geometry court、
   evidence 与 PASS 保持不变；修的是重复解析成本，不是删覆盖。
+
+### A.25 Candidate `33567664449`：Workbench 单旅程本身超过硬步骤预算
+
+- snapshot 复用已生效，五个非 Windows-x86_64 build cell 继续全绿；Windows 完整门
+  再次越过 Script、Theme、Remote UI、Fleet 等前序门禁，但 `workbench-smoke` 在同一
+  sidebar 后段两次确定性命中 `max_steps`。因此问题不是重复取 snapshot，而是把编辑、
+  Proxy、深树、滚动失效与三档宽度几何装进一次 qjswasm invocation，超过固定的
+  1,000,000,000-step 单次上限。
+- 不提高引擎硬上限，也不删除交互或断言。稳定的公共 gate id 仍是
+  `workbench-smoke`；其 owning court 在两个独立 GUI/IPC/cleanup 上下文中依次执行
+  `editing` 与 `geometry` phase，每个 phase 各有独立的一 billion-step 上限。外层
+  coordinator 只在三条原 evidence 全部出现且两个子旅程都正常退出时成功；任一子旅程
+  失败都保持 fail-closed。
+- 本地 evidence declaration court 与 release workflow policy test 钉住 task/suite
+  路由、两 phase、三 evidence、固定预算和不变的全局 qjswasm 默认值。新的 exact-SHA
+  Candidate 必须完整重跑六格；不得只重跑旧 run 的失败 job。
+- 子旅程 stdout/stderr 先流入 coordinator 自有的临时文件，成功时只转发 evidence 与
+  phase PASS，避免两份完整 STEP 笔录叠加冲击 1 MiB bridge；失败时再把该 phase 的
+  诊断送入外层质量日志。子 invocation 显式继承 4096-page owning heap；120 秒
+  qjswasm deadline 先于 180 秒 wrapper hard stop，使引擎有 60 秒释放其直接 GUI handle
+  和写 failure bundle。公共 gate 总 deadline 与 task contract 对齐为 600 秒。

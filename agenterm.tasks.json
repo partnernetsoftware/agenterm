@@ -479,7 +479,7 @@
         "workbench-evidence"
       ],
       "budget": {
-        "timeout_ms": 300000,
+        "timeout_ms": 600000,
         "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
@@ -2009,7 +2009,7 @@
     {
       "id": "workbench-smoke",
       "description": "Prove physical inline tab editing, archived Proxy chrome, and compact deep-tree geometry",
-      "entry": "scripts/qjs/workbench-smoke.qjs",
+      "entry": "scripts/qjs/workbench-court.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

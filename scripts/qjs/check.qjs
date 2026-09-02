@@ -137,9 +137,12 @@ function catalog_entry(repo, id) {
     return { entry: "startup-smoke", args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.com"), "1000"] };
   }
   if (id === "wake-smoke" || id === "cli-smoke" || id === "server-smoke"
-      || id === "theme-smoke" || id === "working-context-smoke" || id === "workbench-smoke"
+      || id === "theme-smoke" || id === "working-context-smoke"
       || id === "remote-ui-smoke") {
     return { entry: id, args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.com")] };
+  }
+  if (id === "workbench-smoke") {
+    return { entry: "workbench-court", args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.com")] };
   }
   if (id === "native-ipc-smoke") {
     return { entry: "native-ipc-smoke", args: [repo, path.join(repo, "dist/agenterm.exe"), path.join(repo, "dist/agenterm.exe")] };
@@ -319,7 +322,8 @@ function smoke_timeout_ms(id) {
     // fixtures) plus the rest of the journey.
     return 1200000;
   }
-  if (id === "remote-ui-smoke" || id === "cli-smoke" || id === "fleet-smoke") {
+  if (id === "remote-ui-smoke" || id === "cli-smoke" || id === "fleet-smoke"
+      || id === "workbench-smoke") {
     return 600000;
   }
   return 300000;

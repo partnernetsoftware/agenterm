@@ -1,0 +1,98 @@
+// Bounded coordinator for the Windows Workbench qualification court.
+//
+// The editing/proxy and geometry/scroll journeys each own an isolated GUI,
+// cleanup bundle and qjswasm budget. Their streams are spooled so the outer
+// qualification gate receives only the same three public evidence ids and a
+// bounded phase verdict on success; a failed phase still forwards diagnostics.
+import * as rh from "lib/rh_compat";
+
+const EVIDENCE = [
+  "ux.workbench-inline-edit",
+  "ux.workbench-compact-tree",
+  "ux.workbench-proxy-archived"
+];
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of EVIDENCE) { print(id); }
+  return;
+}
+
+require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");
+const repo = rh.absolute(args[0]);
+const gui = rh.absolute(args[1]);
+const cli = rh.absolute(args[2]);
+const phase_script = rh.join(repo, "scripts/qjs/workbench-smoke.qjs");
+const spool_root = rh.join(repo, "target/smoke/workbench-court-" + rh.pid());
+const observed = {};
+rh.try_remove_dir_all(spool_root);
+rh.create_dir_all(spool_root);
+
+for (const phase of ["editing", "geometry"]) {
+  const stdout_path = rh.join(spool_root, phase + ".stdout");
+  const stderr_path = rh.join(spool_root, phase + ".stderr");
+  const spec = {
+    program: cli,
+    args: [
+      "cli", "script", "run",
+      "--profile", "tool",
+      "--timeout-ms", "120000",
+      "--max-operations", "1000000000",
+      phase_script, "--",
+      repo, gui, cli, "--phase", phase
+    ],
+    env: {
+      AGENTERM_NO_ACTIVATE: "1",
+      AGENTERM_QJS_MAX_MEMORY_PAGES: "4096"
+    },
+    // The qjswasm wall deadline fires first, so its slot can drop the direct
+    // GUI child and publish the phase failure bundle. The process deadline is
+    // only a 60-second last-resort guard around a wedged CLI wrapper.
+    timeout_ms: 180000,
+    stdout_path: stdout_path,
+    stderr_path: stderr_path
+  };
+  const door_status = process_command(JSON.stringify(spec));
+  const door_result = tool_result();
+  let child_stdout = "";
+  let child_stderr = "";
+  if (rh.exists(stdout_path)) { child_stdout = rh.read_text(stdout_path); }
+  if (rh.exists(stderr_path)) { child_stderr = rh.read_text(stderr_path); }
+  rh.try_remove_file(stdout_path);
+  rh.try_remove_file(stderr_path);
+  if (door_status !== 0) {
+    if (child_stdout !== "") { print(child_stdout); }
+    if (child_stderr !== "") { print(child_stderr); }
+    rh.try_remove_dir_all(spool_root);
+    throw "workbench_phase_process:" + phase + ":" + door_result;
+  }
+  const result = JSON.parse(door_result);
+  if (result.success !== true || result.exit_code !== 0) {
+    if (child_stdout !== "") { print(child_stdout); }
+    if (child_stderr !== "") { print(child_stderr); }
+    rh.try_remove_dir_all(spool_root);
+    throw "workbench_phase_failed:" + phase + ":" + result.exit_code;
+  }
+  for (const line of child_stdout.split("\n")) {
+    const line_text = line.trim();
+    if (line_text.startsWith("EVIDENCE ")) {
+      const id = line_text.slice(9);
+      observed[id] = true;
+      print("EVIDENCE " + id);
+    }
+  }
+  print("PASS: bounded Workbench phase " + phase);
+}
+
+let missing_evidence = "";
+for (const id of EVIDENCE) {
+  if (observed[id] !== true && missing_evidence === "") { missing_evidence = id; }
+}
+rh.try_remove_dir_all(spool_root);
+require(missing_evidence === "", "workbench_evidence_missing:" + missing_evidence);
+print("PASS: split Workbench court preserved editing, Proxy, scroll and compact-tree evidence");
+return;

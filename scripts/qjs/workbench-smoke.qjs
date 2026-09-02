@@ -394,10 +394,13 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   return;
 }
 
-harness.require(args.length === 3, "expected: REPO GUI_EXE CLI_EXE");
+harness.require(args.length === 5, "expected: REPO GUI_EXE CLI_EXE --phase PHASE");
 const repo = rh.absolute(args[0]);
 const gui = rh.absolute(args[1]);
 const cli = rh.absolute(args[2]);
+harness.require(args[3] === "--phase", "workbench_phase_option");
+const phase = "" + args[4];
+harness.require(phase === "editing" || phase === "geometry", "workbench_phase_value:" + phase);
 harness.require(rh.exists(gui), "workbench_gui_missing");
 harness.require(rh.exists(cli), "workbench_cli_missing");
 
@@ -435,6 +438,7 @@ try {
   const peer_tab = tab_by_id(snapshot, peer);
   assert_editor_closed(snapshot, root, "initial-normal");
 
+  if (phase !== "geometry") {
   print("STEP a single text click selects without entering edit mode");
   snapshot = wait_tab_render(context, cli, peer);
   click_tab_text(gui_child, snapshot, peer);
@@ -605,7 +609,9 @@ try {
     "workbench_proxy_surface_not_archived"
   );
   harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-proxy-archived");
+  }
 
+  if (phase !== "editing") {
   print("STEP compact and full geometry stay bounded for a deep CJK row");
   let target = "" + root;
   for (let depth = 1; depth < 5; depth = depth + 1) {
@@ -719,7 +725,8 @@ try {
     );
   }
   harness.emit_evidence(context, workbench_declared_evidence, "ux.workbench-compact-tree");
-  print("PASS: inline Tabs editing and compact tree geometry");
+  }
+  print("PASS: bounded Workbench phase " + phase);
   succeeded = 1;
 } catch (error) {
   failure = "" + error;

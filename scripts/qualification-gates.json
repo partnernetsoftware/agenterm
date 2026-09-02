@@ -206,6 +206,7 @@
     },
     {
       "id": "workbench-smoke",
+      "suite": "workbench-court",
       "evidence": [
         "ux.workbench-inline-edit",
         "ux.workbench-compact-tree",

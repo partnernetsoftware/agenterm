@@ -26,6 +26,8 @@ static SCRIPT_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/script-qjswasm-smoke.qjs").replace("\r\n", "\n"));
 static WORKBENCH_SMOKE_QJS: LazyLock<String> =
     LazyLock::new(|| include_str!("../scripts/qjs/workbench-smoke.qjs").replace("\r\n", "\n"));
+static WORKBENCH_COURT_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/workbench-court.qjs").replace("\r\n", "\n"));
 const WINDOWS_RELEASE_SMOKES: &[(&str, &str)] = &[
     (
         "remote-ui-smoke",
@@ -175,6 +177,52 @@ fn workbench_render_waits_reuse_the_snapshot_that_satisfied_the_wait() {
     assert!(!WORKBENCH_SMOKE_QJS.contains(
         "wait_tab_label_render(context, cli, target);\n    const width_snapshot = json_cli"
     ));
+}
+
+#[test]
+fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
+    let task = TASKS["tasks"]
+        .as_array()
+        .expect("task catalog array")
+        .iter()
+        .find(|task| task["id"] == "workbench-smoke")
+        .expect("workbench-smoke task");
+    assert_eq!(task["entry"], "scripts/qjs/workbench-court.qjs");
+    assert_eq!(
+        TASKS["contracts"]["workbench-smoke"]["budget"]["timeout_ms"],
+        600_000
+    );
+
+    let gate = QUALIFICATION_GATES["required_gates"]
+        .as_array()
+        .expect("qualification gate array")
+        .iter()
+        .find(|gate| gate["id"] == "workbench-smoke")
+        .expect("workbench-smoke qualification gate");
+    assert_eq!(gate["suite"], "workbench-court");
+    assert!(CHECK_QJS.contains("return { entry: \"workbench-court\", args: [repo"));
+
+    assert!(WORKBENCH_COURT_QJS.contains("for (const phase of [\"editing\", \"geometry\"])"));
+    assert!(WORKBENCH_COURT_QJS.contains("scripts/qjs/workbench-smoke.qjs"));
+    assert!(WORKBENCH_COURT_QJS.contains("args: ["));
+    assert!(!WORKBENCH_COURT_QJS.contains("arguments:"));
+    assert!(WORKBENCH_COURT_QJS.contains("AGENTERM_QJS_MAX_MEMORY_PAGES: \"4096\""));
+    assert!(WORKBENCH_COURT_QJS.contains("stdout_path: stdout_path"));
+    assert!(WORKBENCH_COURT_QJS.contains("const line_text = line.trim();"));
+    assert!(WORKBENCH_COURT_QJS.contains("\"--max-operations\", \"1000000000\""));
+    assert!(WORKBENCH_COURT_QJS.contains("\"--timeout-ms\", \"120000\""));
+    assert!(WORKBENCH_COURT_QJS.contains("timeout_ms: 180000"));
+    for evidence in [
+        "ux.workbench-inline-edit",
+        "ux.workbench-compact-tree",
+        "ux.workbench-proxy-archived",
+    ] {
+        assert!(WORKBENCH_COURT_QJS.contains(evidence));
+    }
+    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase !== \"geometry\")"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("if (phase !== \"editing\")"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("expected: REPO GUI_EXE CLI_EXE --phase PHASE"));
+    assert!(!WORKBENCH_SMOKE_QJS.contains("phase = \"all\""));
 }
 
 #[test]
