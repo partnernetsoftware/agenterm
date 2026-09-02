@@ -1427,3 +1427,17 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   owner PID 的原生顶层窗口。真实 PNG 仍在随后独立步骤写入 court 自有路径并校验尺寸、摘要与
   owner，不减少视觉证据。policy test 禁止 title waiter 恢复 `NUL` screenshot 或读取
   `rendered_snapshot.window_title`。
+
+### A.37 Candidate `33673183281`：Windows causal projection 使用三份正交证据
+
+- A.36 修复成立：本轮已通过 live title、真实 native PNG、renderer failure isolation、Human
+  GUI detach、原生键盘/指针、owner reuse、no-activate 与 context refresh，随后才停在
+  `incompatible_renderer_frame_timeout`。失败截图本身成功且明确报告
+  `capture_strategy=direct-native-window`，说明第二个旧 helper 仍错误等待 Windows 不会返回的
+  renderer snapshot。
+- Windows causal projection 现组合三个有明确所有权的事实：`snapshot --json` 提供语义
+  server state/reason，`process.platform_facts` 提供同一 child 的窗口 id/title/foreground，真实
+  PNG 提供 exact owner 与 `direct-native-window` 视觉证据。只有三者同轮对齐才返回；不能用
+  synthesized projection 代替截图，也不能从截图 JSON 发明 renderer 字段。
+- 本地 UTM x86 court 的辅助预跑被 guest 以“PE 不适用于此平台”拒绝，已释放 VM，并不作为
+  本轮产品或脚本的裁决证据；权威 Windows x86 runner 仍是 GitHub Candidate court。

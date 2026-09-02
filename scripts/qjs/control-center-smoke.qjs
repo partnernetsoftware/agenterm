@@ -14,9 +14,9 @@
 // visual proof survives successful harness cleanup.
 //
 // Ported from scripts/rh/control-center-smoke.rh; runs under `--profile tool`.
-// This is the Windows journey (cmd.exe PTYs, `agenterm.exe` siblings, `NUL`
-// screenshot sink) and stays that way. Children are door handles carried in
-// the harness's wave-2 child objects so their pids can be compared with what
+// This is the Windows journey (cmd.exe PTYs, `agenterm.exe` siblings, native
+// window facts and court-owned PNG evidence) and stays that way. Children are
+// door handles carried in the harness's wave-2 child objects so their pids can be compared with what
 // the server, registry and renderer report. PNG inspection and native key
 // input use bounded tool-door operations backed by agenterm-platform.
 import * as rh from "lib/rh_compat";
@@ -265,8 +265,8 @@ function wait_for_active_tab(context, cli_executable, child, target_tab_id,
   throw code_text + "_timeout:" + last;
 }
 
-function wait_for_rendered_projection(context, executable, registry, output_path, child,
-                                      expected_state, expected_reason, required_title, code) {
+function wait_for_native_projection(context, executable, registry, output_path, child,
+                                    expected_state, expected_reason, required_title, code) {
   const output_path_text = "" + output_path;
   const expected_state_text = "" + expected_state;
   const expected_reason_text = "" + expected_reason;
@@ -275,33 +275,55 @@ function wait_for_rendered_projection(context, executable, registry, output_path
   let last = "";
   for (let attempt = 0; attempt < 64; attempt = attempt + 1) {
     if (rh.now_ms() >= deadline) { break; }
-    const spec = configured(context, executable, registry,
-      ["screenshot", "--output", output_path_text, "--json"]);
-    spec.timeout_ms = 2000;
-    const captured = harness.run_spec(spec);
-    last = process_output_text(captured);
-    if (captured.success) {
-      const document = json_from_output(captured);
-      if (document.rendered_snapshot !== undefined) {
-        const rendered = document.rendered_snapshot;
-        const observed_state = "" + rendered.server_state;
-        let observed_reason = "";
-        if (rendered.server_reason !== undefined) { observed_reason = "" + rendered.server_reason; }
-        const observed_title = "" + rendered.window_title;
-        let reason_matches = 0;
-        if (expected_reason_text === "") {
-          reason_matches = 1;
-        } else if (observed_reason === expected_reason_text) {
-          reason_matches = 1;
-        }
-        const title_matches = title_contains_all(observed_title, required_title);
-        if (observed_state === expected_state_text && reason_matches !== 0 && title_matches !== 0) {
-          document.projection = {
-            server_state: observed_state,
-            server_reason: observed_reason,
-            window_title: observed_title
-          };
-          return document;
+    const snapshot_spec = configured(context, executable, registry, ["snapshot", "--json"]);
+    snapshot_spec.timeout_ms = 2000;
+    const snapshot_output = harness.run_spec(snapshot_spec);
+    last = "snapshot_exit=" + snapshot_output.exit_code;
+    if (snapshot_output.success) {
+      const snapshot = json_from_output(snapshot_output);
+      const facts = platform_facts(child);
+      const observed_state = "" + snapshot.server_state;
+      let observed_reason = "";
+      if (snapshot.server_reason !== undefined && snapshot.server_reason !== null) {
+        observed_reason = "" + snapshot.server_reason;
+      }
+      const observed_title = "" + facts.top_level_window_title;
+      last = "projection=" + JSON.stringify({
+        server_state: observed_state,
+        server_reason: observed_reason,
+        window: facts
+      });
+      let reason_matches = 0;
+      if (expected_reason_text === "") {
+        reason_matches = 1;
+      } else if (observed_reason === expected_reason_text) {
+        reason_matches = 1;
+      }
+      const title_matches = title_contains_all(observed_title, required_title);
+      if (observed_state === expected_state_text
+          && reason_matches !== 0
+          && title_matches !== 0
+          && facts.top_level_window_supported
+          && facts.top_level_window_present
+          && facts.top_level_window_id !== 0) {
+        const capture_spec = configured(context, executable, registry,
+          ["screenshot", "--output", output_path_text, "--json"]);
+        capture_spec.timeout_ms = 2000;
+        const captured = harness.run_spec(capture_spec);
+        last = process_output_text(captured);
+        if (captured.success) {
+          const document = json_from_output(captured);
+          if (document.owner_pid === child.pid
+              && document.capture_strategy === "direct-native-window") {
+            document.projection = {
+              source: "semantic-snapshot+native-window-facts",
+              server_state: observed_state,
+              server_reason: observed_reason,
+              window_title: observed_title
+            };
+            return document;
+          }
+          last = "capture_identity=" + JSON.stringify(document);
         }
       }
     }
@@ -1046,7 +1068,7 @@ try {
     "--server-endpoint", incompatible_endpoint,
     "--logical-instance", "incompatible"
   ], "control_center_incompatible_renderer_open");
-  const incompatible_frame = wait_for_rendered_projection(context, control_center, registry, causal_png,
+  const incompatible_frame = wait_for_native_projection(context, control_center, registry, causal_png,
     first, "unavailable", "server_incompatible", ["server_incompatible"],
     "control_center_incompatible_renderer_frame");
   rh.atomic_write(incompatible_renderer_stop, stop_marker);
@@ -1078,7 +1100,7 @@ try {
     "--server-endpoint", context.address,
     "--logical-instance", "main"
   ], "control_center_incompatible_restore");
-  const restored_incompatible_frame = wait_for_rendered_projection(context, control_center, registry,
+  const restored_incompatible_frame = wait_for_native_projection(context, control_center, registry,
     causal_png, first, "connected", "", [context.address], "control_center_incompatible_restore_frame");
   const restored_incompatible_status = offline_json(context, control_center, registry,
     ["status", "--json"], "control_center_incompatible_restore_status");
@@ -1099,7 +1121,7 @@ try {
   const causal_tab_count = refreshed.connected_server.tabs.length + 1;
   const causal_tab_label = "" + causal_tab_count + " tabs";
   const causal_tab = prove_pty(context, cli_executable, "causal-refresh");
-  const causal_capture = wait_for_rendered_projection(context, control_center, registry, causal_png,
+  const causal_capture = wait_for_native_projection(context, control_center, registry, causal_png,
     first, "connected", "", [context.address, causal_tab_label], "control_center_causal_tab_refresh");
   const causal_bootstrap = cli_json(context, cli_executable, ["ui-bootstrap"]);
   harness.require(
@@ -1126,7 +1148,7 @@ try {
     prior_server_output.success && process_present(prior_server_pid) === 0,
     "control_center_prior_server_exit_failure:" + prior_server_output.stderr
   );
-  const loss_capture = wait_for_rendered_projection(context, control_center, registry, causal_png,
+  const loss_capture = wait_for_native_projection(context, control_center, registry, causal_png,
     first, "unavailable", "server_unreachable", ["server_unreachable"], "control_center_causal_server_loss");
   harness.require(
     harness.child_state(first) === "running"
@@ -1147,7 +1169,7 @@ try {
   const restarted_protocol = wait_for_server_causal(context, cli_executable, restarted_server,
     "control_center_causal_restart_ready");
   const restarted_bootstrap = cli_json(context, cli_executable, ["ui-bootstrap"]);
-  const restart_capture = wait_for_rendered_projection(context, control_center, registry, causal_png,
+  const restart_capture = wait_for_native_projection(context, control_center, registry, causal_png,
     first, "connected", "", [context.address], "control_center_causal_server_restart");
   harness.require(
     harness.child_state(first) === "running"

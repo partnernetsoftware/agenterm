@@ -583,10 +583,16 @@ Research spike assets = density reference only.
 | Surface | Schema | Must carry hit contract? |
 |---------|--------|---------------------------|
 | `agenterm-cc snapshot --json` → `SnapshotDocument` | CLI / automation | **Yes** — cockpit presentation + chrome |
-| Screenshot `rendered_snapshot` → `RendererSnapshot` | PNG pairing / no-activate capture | **Yes** — same cockpit hit fields + `selected_view` |
+| Renderer-request screenshot `rendered_snapshot` → `RendererSnapshot` | Linux/macOS PNG pairing / no-activate capture | **Yes** — same cockpit hit fields + `selected_view` |
+| Windows direct-native screenshot + process-window facts | Native PNG plus owner/window identity | **No renderer snapshot** — pair `snapshot --json`, owned process-window facts and exact-owner PNG |
 | Capabilities `views[]` | Discovery | Four API views only; optional future `chrome_views` |
 
-Both snapshot paths must agree on cockpit hit fields when a live shell is running. CLI snapshot without GUI may omit pixel hints but should still report logical presentation when projection is available.
+Renderer-request snapshots must agree on cockpit hit fields when a live shell is
+running. A Windows direct-native screenshot intentionally has no renderer
+snapshot; causal evidence pairs the semantic CLI snapshot, the owned native
+window facts, and the exact-owner PNG instead. CLI snapshot without GUI may
+omit pixel hints but should still report logical presentation when projection
+is available.
 
 #### 10.2 Schema version policy
 
@@ -840,7 +846,7 @@ Unchanged in spirit: projection-only; no second authority; softmgr owns installs
 |--------|-----|
 | Connection | Projection `server_state`/`server_reason` + derived badge flags |
 | Navigation | `navigation_status` |
-| Evidence | screenshot + structured renderer snapshot with `tab_lines` |
+| Evidence | renderer snapshot where available; on Windows, semantic snapshot + owned native-window facts + exact-owner PNG |
 | Capabilities | views[4]; chrome selected_view separate |
 
 ### Evidence IDs (existing + proposed)

@@ -902,6 +902,13 @@ costs a full candidate cycle:
   title waiter 现读取同一 owner handle 的 `process.platform_facts`，继续验证存在性、窗口 id、
   endpoint/tab 标题与 no-activate；后续独立截图步骤仍对 court 自有 PNG 做尺寸、摘要和 owner
   校验。回归测试禁止把 renderer-only 字段重新用于 Windows title readiness。
+- [x] Windows causal projection 必须把语义、窗口和像素证据正交组合。Candidate
+  `33673183281` 已越过 live title 与首张真实 PNG，随后第二个旧 helper 因等待
+  `DirectNativeWindow` 不携带的 renderer snapshot 而失败。现在 `snapshot --json` 提供
+  server state/reason，`process.platform_facts` 提供同一 owner 的窗口 id/title/foreground，
+  court-owned PNG 提供 owner 与 capture strategy；三者必须同轮对齐，任何一项失败都继续等待
+  或 fail-closed。UTM x86 guest 的平台拒绝只记为非权威 court 缺口，不替代 GitHub Windows
+  x86 Candidate 证据。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

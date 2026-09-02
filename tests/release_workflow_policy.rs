@@ -208,6 +208,20 @@ fn control_center_projection_owner_outlives_short_command_helpers() {
     assert!(!title_waiter.contains("[\"screenshot\", \"--output\", \"NUL\""));
     assert!(!title_waiter.contains("document.rendered_snapshot.window_title"));
     assert!(!title_waiter.contains("attempt < 400"));
+
+    let projection_waiter = CONTROL_CENTER_SMOKE_QJS
+        .split("function wait_for_native_projection")
+        .nth(1)
+        .and_then(|source| source.split("function state_file_facts").next())
+        .expect("native projection waiter body");
+    assert!(projection_waiter.contains("[\"snapshot\", \"--json\"]"));
+    assert!(projection_waiter.contains("const facts = platform_facts(child);"));
+    assert!(
+        projection_waiter.contains("[\"screenshot\", \"--output\", output_path_text, \"--json\"]")
+    );
+    assert!(projection_waiter.contains("document.capture_strategy === \"direct-native-window\""));
+    assert!(projection_waiter.contains("source: \"semantic-snapshot+native-window-facts\""));
+    assert!(!projection_waiter.contains("document.rendered_snapshot"));
 }
 
 #[test]
