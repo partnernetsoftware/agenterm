@@ -187,9 +187,11 @@ function wait_tab_label_render(context, cli, target) {
         const tab_render = tab.render;
         const tab_actions = tab.actions;
         if (!is_null(tab_render) && !is_null(tab_actions)
+            && !is_null(tab_render.node)
+            && tab_render.node.x >= 0
+            && tab_render.node.y >= 0
             && tab_render.name.width > 0
             && tab_render.note.width > 0
-            && tab_render.node.width > 0
             && tab_actions.close.bounds.width > 0
             && tab_actions.new_child.bounds.width > 0) {
           return snapshot;

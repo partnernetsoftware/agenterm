@@ -1338,3 +1338,19 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 每个 width court 在设置宽度前，先用公开 `ui-action select-tab -t TARGET` 选中最终深层行，
   再用 `wait-ui --active TARGET --focus terminal` 钉住可观察状态；随后原几何 wait/assert 不变。
   这修复 fixture 前置条件，不放宽断言、轮询次数或引擎预算。
+
+### A.30 Candidate `33584961921`：`render.node` 是点，不是矩形
+
+- 五个普通 build cell 再次全绿；Windows x86_64 完整门仍只在 `width-180` 耗尽固定
+  10 亿步。活动行前置修复已生效，因此不能继续把同一症状归因于 detached fixture。
+- 本机 Windows ARM64 UTM court 用原生 ARM64 调试体复现了相同行为：四层 CJK 深树、
+  最深活动行和 180px 侧栏已经真实显示，但脚本仍在 `wait_tab_label_render` 轮询。这证明
+  故障属于跨 ISA 的测试断言，不是 Windows x86_64 构建或指令集回归。
+- 公开 `ui-snapshot` 合同把 tree node 表示为点 `{x, y}`；等待函数却检查不存在的
+  `render.node.width > 0`，所以成功渲染也永远不能满足条件。修复改为验证 node 存在且
+  `x/y` 已发布，保留 name/note/Add/Close 的正宽度条件以及后续全部几何断言。策略测试
+  同时拒绝 `node.width` 回归；不增加轮询、wall timeout、heap 或引擎步骤预算。
+- 基础设施旁证：`qemu-guest-agent ready` 只证明 session-0 transport，并不证明交互
+  login agent 可消费 GUI job；陈旧且无超时的旧 job 还会饿死后续任务。它属于本地 court
+  生命周期债务，不再用来解释本次产品门红；本版最终判决仍由 GitHub 原生 Windows x86_64
+  Candidate 给出。

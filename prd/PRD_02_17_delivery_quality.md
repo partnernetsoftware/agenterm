@@ -780,7 +780,14 @@ costs a full candidate cycle:
   are not the active row, while label geometry intentionally requires the
   active row's Add/Close actions. Each width court therefore selects its final
   deep target through public `ui-action select-tab` and waits for public active
-  state before applying the unchanged width assertion.
+  state before applying the unchanged width assertion. Candidate
+  `33584961921` then proved the active-row repair but still exhausted the same
+  width court. A native Windows ARM64 UTM reproduction showed the fully rendered
+  four-level CJK target at 180 px while the script kept polling: the public
+  snapshot represents `render.node` as the point `{x, y}`, but the wait had
+  required the nonexistent `node.width`. The wait now validates the published
+  point coordinates plus the unchanged positive label/action bounds; a policy
+  regression rejects the impossible field without raising any runtime budget.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

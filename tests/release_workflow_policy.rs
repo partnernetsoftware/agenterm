@@ -232,6 +232,9 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     );
     assert!(WORKBENCH_SMOKE_QJS.contains("[\"set-tab-note\", \"-t\", target, child_note]"));
     assert!(WORKBENCH_SMOKE_QJS.contains("[\"ui-action\", \"select-tab\", \"-t\", target]"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("tab_render.node.x >= 0"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("tab_render.node.y >= 0"));
+    assert!(!WORKBENCH_SMOKE_QJS.contains("tab_render.node.width"));
     assert!(WORKBENCH_SMOKE_QJS.contains("set_tab_editor_text(gui_child, child_name, child_note)"));
     assert!(WORKBENCH_SMOKE_QJS.contains("expected: REPO GUI_EXE CLI_EXE --phase PHASE"));
     assert!(!WORKBENCH_SMOKE_QJS.contains("phase = \"all\""));
