@@ -263,6 +263,11 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 `process.command` 抓的 stdout/stderr 同一个数；操作里 panic 报 `QjswasmError::Door`
 不伪装成 status 1。**每次调用都记名**：`Outcome::tool_calls` 按调用顺序列出
 `tool.fs.read_to_string` 这样的全名，沙箱槽永远为空——回执上写的就是它。
+
+嵌套执行一条公开 journey 的诊断探针必须继承该 journey 的 operation court，不能另留一份
+迁移时代的小预算。否则探针可能已经发出全部行为证据，却在 `complete()` 封存
+`manifest.json` / `cleanup.json` 前耗尽步骤，留下看似“bundle 缺文件”的次生症状。外层 wall
+deadline 仍负责约束总时长；预算对齐不是取消上限。
 证据在 `tests/tool_door.rs` 与 `src/host.rs` / `src/tool.rs` 的单测。
 
 工具脚本把路径交给外部程序时，还必须服从那个程序自己的命令行语法。Windows 本身通常接受

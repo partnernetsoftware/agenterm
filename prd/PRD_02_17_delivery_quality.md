@@ -926,6 +926,12 @@ costs a full candidate cycle:
   混排误判同一直接父目录。现先有界词法归一 separator/case/dot segments，再坚持 candidate
   直接父目录与 owned root 精确相等；绝不改成 prefix，`..` 越根 fail-closed。诊断文件与最终
   清理排除使用同一规则。
+- [x] 嵌套 failure probe 使用被测公开 journey 的 operation court。Candidate
+  `33685381915` 已证明路径归一修复成立，并把下一个失败收敛为 Script bundle 缺收尾文件；
+  本机同参数复现显示旅程 7 条 evidence 全部发出后才以旧 100M `max_steps` 退出，尚未来得及
+  执行 `harness.complete()`。probe 现与正式 `script-smoke` 同用 qjswasm 1G hard cap，仍受
+  child wait 与 gate wall deadline 双重约束；完整自测已通过三类 bundle 的 bounded、privacy、
+  identity 和 orphan-free 合同。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

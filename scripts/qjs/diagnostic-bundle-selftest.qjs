@@ -7,8 +7,9 @@
 // (harness.start / state / wait / kill): the .qjs ports of theme-smoke and
 // script-smoke, run as `SCRIPT_EXE cli script run --profile tool ...` where
 // rh ran `SCRIPT_EXE rh run ENTRY --profile local ...`. The step budget is
-// the qjs engine's (100M, the ceiling), not rh's 10M: a smoke that drives a
-// GUI measures past 16M here.
+// the qjs engine's hard cap (1G), not rh's 10M: this nested probe must use the
+// same operation court as the authoritative script-smoke gate or it can spend
+// its smaller budget after emitting evidence but before sealing its bundle.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 import * as path from "lib/path";
@@ -183,7 +184,7 @@ function start_task_probe(context, script, repo, entry, probe_arguments, timeout
     "cli", "script", "run",
     "--profile", "tool",
     "--timeout-ms", "" + timeout,
-    "--max-operations", "100000000"
+    "--max-operations", "1000000000"
   ];
   for (const limit of extra_limits) { arguments.push("" + limit); }
   arguments.push("" + entry);

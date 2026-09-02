@@ -1479,3 +1479,14 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   prefix：先词法统一分隔符、大小写和 `.`/`..`，然后仍要求 candidate 的**直接父目录**精确
   等于 owned root；诊断文件父目录、before/after identity 与 outer-context 排除也使用同一
   规则。越过根的 `..` 直接拒绝。
+
+### A.42 Candidate `33685381915`：嵌套 failure probe 与正式 journey 共用预算合同
+
+- A.41 已生效：CLI failure bundle 越过 Windows 混合分隔符 owned-root 检查；同轮前 18 个
+  质量门全部通过。新失败为 Script probe 目录存在但缺 `manifest.json` / `cleanup.json`。
+- 本机按 Candidate 参数复现后确认：内层 `script-qjswasm-smoke` 已发出全部 7 条 evidence，
+  随后以 `max_steps` 在 `harness.complete()` 前退出。外层 diagnostic selftest 仍给它 Rhai
+  迁移期的 100M，而同一旅程的正式 `script-smoke` 已使用 qjswasm 1G hard cap。
+- 嵌套 probe 现与正式 journey 同用 1G operation court，外层 45 秒 child wait 和 60 秒 gate
+  deadline 不变。本机完整自测已通过 CLI / GUI / Script 三种 failure bundle 的 bounded、
+  privacy、identity 与 orphan-free 检查，并清理自己创建的运行目录。

@@ -162,6 +162,8 @@ fn diagnostic_bundle_path_identity_is_separator_and_dot_neutral_but_parent_exact
         !DIAGNOSTIC_BUNDLE_QJS
             .contains("path.parent(resolved).toLowerCase() === root.toLowerCase()")
     );
+    assert!(DIAGNOSTIC_BUNDLE_QJS.contains("\"--max-operations\", \"1000000000\""));
+    assert!(!DIAGNOSTIC_BUNDLE_QJS.contains("\"--max-operations\", \"100000000\"\n"));
 }
 
 #[test]
