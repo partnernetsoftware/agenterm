@@ -1329,3 +1329,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   原物理深树路径与滚动候选失效断言。三个 width court 改用公开 `new-window --parent`、
   `set-tab-note` 创建同样的四层 CJK 名称/备注树，再执行原 180/250/480 快照几何断言。
   这是从重复的 fixture 搭建中去掉已由别门拥有的 UI 输入成本，不删除产品断言、不抬预算。
+
+### A.29 Candidate `33583516394`：Detached fixture 必须先成为活动行
+
+- CLI fixture 优化已生效但 `width-180` 仍在 `wait_tab_label_render` 内耗尽；该 helper 不只等
+  文本，还要求活动行独有的 Add/Close actions。四个 `new-window -d` 子标签从未被选中，
+  所以轮询的是不可能条件，而非几何计算过慢。
+- 每个 width court 在设置宽度前，先用公开 `ui-action select-tab -t TARGET` 选中最终深层行，
+  再用 `wait-ui --active TARGET --focus terminal` 钉住可观察状态；随后原几何 wait/assert 不变。
+  这修复 fixture 前置条件，不放宽断言、轮询次数或引擎预算。

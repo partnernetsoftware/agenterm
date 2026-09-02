@@ -732,6 +732,11 @@ try {
   let width = 480;
   if (phase === "width-180") { width = 180; }
   if (phase === "width-250") { width = 250; }
+    json_cli(context, cli, ["ui-action", "select-tab", "-t", target]);
+    json_cli(
+      context, cli,
+      ["wait-ui", "--active", target, "--focus", "terminal", "--timeout-ms", "30000"]
+    );
     json_cli(context, cli, ["ui-action", "tabs-set-width", "--width", "" + width]);
     const width_snapshot = wait_tab_label_render(context, cli, target);
     const tab = tab_by_id(width_snapshot, target);

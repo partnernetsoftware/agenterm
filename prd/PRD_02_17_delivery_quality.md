@@ -775,7 +775,12 @@ costs a full candidate cycle:
   path; width courts instead build the identical four-level CJK name/note tree
   through public `new-window --parent` and `set-tab-note` commands before applying
   the unchanged geometry assertions. This removes duplicate fixture cost, not
-  behavior evidence, and does not raise the engine ceiling.
+  behavior evidence, and does not raise the engine ceiling. Candidate
+  `33583516394` exposed the remaining fixture precondition: detached children
+  are not the active row, while label geometry intentionally requires the
+  active row's Add/Close actions. Each width court therefore selects its final
+  deep target through public `ui-action select-tab` and waits for public active
+  state before applying the unchanged width assertion.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required
