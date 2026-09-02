@@ -1403,3 +1403,16 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 同一 Candidate 字节在本机 Windows ARM64 UTM 与 Windows x86_64 UTM 的交互登录桌面均能
   创建 registry 且保持窗口存活，排除通用产品崩溃与 ISA 回归。early-exit 现在会带 exit code
   和 stderr，后续失败不再丢失根因。
+
+### A.35 Candidate `33668249758`：异步标题 readiness 使用单调时间预算
+
+- 90 秒 owner 修复已成立：三次 Control Center run 都不再 `early_exit`，而是保持存活直至
+  `live_title_timeout`；前置离线、PID、PTY、导航与 connected snapshot 仍全绿。五个非
+  Windows-x86_64 构建格也均成功。
+- 旧 title waiter 用 `400 × sleep(10 ms)` 作为约 4 秒 readiness 窗，但每轮还包含独立
+  status/screenshot IPC，且产品 projection worker 是异步刷新。Windows runner 在完整门负载下
+  三次都未在这段偶然预算内发布目标标题；整门 26.1 秒的三次同点失败与该短窗吻合。
+- waiter 现与同文件其他 causal waits 一致，使用 10 秒单调 deadline；child 仍受 90 秒 owner
+  deadline 和 120 秒 task court 双重约束。超时还会报告最后的 status state、screenshot exit
+  或实际标题，从而区分“尚未 ready”与“标题合同漂移”，不降低标题必须包含 endpoint 与 tab
+  count 的成功条件。

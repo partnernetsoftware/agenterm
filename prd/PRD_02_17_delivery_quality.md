@@ -891,6 +891,11 @@ costs a full candidate cycle:
   first/replacement/recovered owner 现使用低于 120 秒 task court 的 90 秒有界 deadline，命令
   helper 仍为 15 秒；Windows ARM64 与 x86_64 UTM 交互桌面对照均证明同源窗口可持续存活，
   early-exit 证据也已补齐 exit code 与 stderr。
+- [x] 异步 GUI readiness 必须由单调时间预算而非轮询次数的偶然乘积定义。Candidate
+  `33668249758` 证明 owner deadline 修复生效后，Windows x86_64 三次稳定停在旧约 4 秒
+  title waiter；它同时执行 status/screenshot IPC，不能把 `400 × 10 ms` 当成完整 wall
+  budget。该 waiter 现有 10 秒单调 deadline，仍要求标题包含 exact endpoint 与 tab count，
+  并在超时时保留最后状态/标题/命令 exit；90 秒 owner 与 120 秒 task court 继续兜底清理。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

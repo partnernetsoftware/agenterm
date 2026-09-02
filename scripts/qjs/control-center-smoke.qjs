@@ -352,16 +352,20 @@ function wait_for_registry(registry_path, expected_pid, child, code) {
 
 function wait_for_window_title(context, control_center, registry, child, required, code) {
   const code_text = "" + code;
-  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+  const deadline = rh.now_ms() + 10000;
+  let last_observation = "status_not_ready";
+  while (rh.now_ms() < deadline) {
     const capture = harness.run_spec(configured(context, control_center, registry, ["status", "--json"]));
     if (capture.success) {
       const status = json_from_output(capture);
+      last_observation = "state=" + status.state;
       if (status.state === "running") {
         const snapshot = harness.run_spec(configured(context, control_center, registry,
           ["screenshot", "--output", "NUL", "--json"]));
         if (snapshot.success) {
           const document = json_from_output(snapshot);
           const observed_title = "" + document.rendered_snapshot.window_title;
+          last_observation = "title=" + observed_title;
           if (title_contains_all(observed_title, required) !== 0) {
             return {
               top_level_window_title: observed_title,
@@ -370,8 +374,12 @@ function wait_for_window_title(context, control_center, registry, child, require
               top_level_window_is_foreground: 0
             };
           }
+        } else {
+          last_observation = "screenshot_exit=" + snapshot.exit_code;
         }
       }
+    } else {
+      last_observation = "status_exit=" + capture.exit_code;
     }
     if (harness.child_state(child) === "exited") {
       const output = harness.child_wait(child, 2000);
@@ -379,7 +387,7 @@ function wait_for_window_title(context, control_center, registry, child, require
     }
     rh.sleep_ms(10);
   }
-  throw code_text + "_title_timeout";
+  throw code_text + "_title_timeout:" + last_observation;
 }
 
 function wait_for_exit(child, code) {

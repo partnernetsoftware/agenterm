@@ -184,6 +184,11 @@ fn control_center_children_use_the_doors_cross_platform_pid() {
 
 #[test]
 fn control_center_projection_owner_outlives_short_command_helpers() {
+    let title_waiter = CONTROL_CENTER_SMOKE_QJS
+        .split("function wait_for_window_title")
+        .nth(1)
+        .and_then(|source| source.split("function wait_for_exit").next())
+        .expect("window title waiter body");
     assert!(CONTROL_CENTER_SMOKE_QJS.contains("spec.timeout_ms = 15000;"));
     assert!(CONTROL_CENTER_SMOKE_QJS.contains("spec.timeout_ms = 90000;"));
     assert_eq!(
@@ -196,6 +201,9 @@ fn control_center_projection_owner_outlives_short_command_helpers() {
         CONTROL_CENTER_SMOKE_QJS
             .contains("_early_exit:exit=\" + output.exit_code + \":\" + output.stderr")
     );
+    assert!(title_waiter.contains("const deadline = rh.now_ms() + 10000;"));
+    assert!(title_waiter.contains("_title_timeout:\" + last_observation"));
+    assert!(!title_waiter.contains("attempt < 400"));
 }
 
 #[test]
