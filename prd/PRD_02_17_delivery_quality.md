@@ -769,7 +769,13 @@ costs a full candidate cycle:
   180-second wrapper stop, preserving a cleanup grace period, and the public
   gate/task deadline is an aligned 1,000 seconds. Compact-tree evidence is emitted
   only after the last width court, so the coordinator cannot pass it unless all
-  three widths have already succeeded.
+  three widths have already succeeded. Candidate `33582007316` further proved
+  that even one width court exceeds the fixed step budget when it first repeats
+  four rounds of physical editor typing. Editing and scroll retain that physical
+  path; width courts instead build the identical four-level CJK name/note tree
+  through public `new-window --parent` and `set-tab-note` commands before applying
+  the unchanged geometry assertions. This removes duplicate fixture cost, not
+  behavior evidence, and does not raise the engine ceiling.
 - [x] Windows Candidate keeps framed Script worker stderr inside the bounded
   owning quality log. Dev/release-fast use panic-abort, whose Windows exit
   `0xc0000409` is otherwise only an opaque fast-fail; the panic site is required

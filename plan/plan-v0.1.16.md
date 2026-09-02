@@ -1319,3 +1319,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   对齐为 1,000 秒，只扩 wall-clock robustness envelope，不改变任一 qjswasm 引擎步数上限。
 - 新 exact-SHA Candidate 必须重新跑完整重门、六 build 与六 execute-only runtime；旧 run
   不做 failed-jobs 局部重跑。
+
+### A.28 Candidate `33582007316`：几何 fixture 不再重复支付物理编辑成本
+
+- preflight 与五个普通 build cell 再次全绿；Windows 重门在 Workbench 前全绿。
+  `editing`、`scroll` 首跑与 retry 再次稳定成功；最小的 `width-180` 单独仍耗尽 10 亿步，
+  证明成本主体是每个 width phase 用物理编辑器四次创建深树，而不是三档 width 循环。
+- 物理双击、草稿、Save/Cancel、键盘和归档 Proxy 仍由 `editing` 原样证明；`scroll` 仍保留
+  原物理深树路径与滚动候选失效断言。三个 width court 改用公开 `new-window --parent`、
+  `set-tab-note` 创建同样的四层 CJK 名称/备注树，再执行原 180/250/480 快照几何断言。
+  这是从重复的 fixture 搭建中去掉已由别门拥有的 UI 输入成本，不删除产品断言、不抬预算。

@@ -625,19 +625,31 @@ try {
   print("STEP compact and full geometry stay bounded for a deep CJK row");
   let target = "" + root;
   for (let depth = 1; depth < 5; depth = depth + 1) {
-    const child_snapshot = json_cli(context, cli, ["ui-action", "new-child", "-t", target]);
-    let child = null;
-    for (const tab of child_snapshot.tabs) {
-      if (tab.active) { child = tab; }
-    }
-    harness.require(!is_null(child), "workbench_active_tab_missing");
     const child_name = "层级-" + depth + "-工作";
     const child_note = "备注-" + depth;
-    set_tab_editor_text(gui_child, child_name, child_note);
-    wait_for_editor_draft(context, cli, child.id, child_name.length, child_note.length);
-    click_bounds(gui_child, child.actions.save.bounds);
-    wait_for_editor(context, cli, child.id, 0);
-    target = "" + child.id;
+    if (phase === "scroll") {
+      const child_snapshot = json_cli(context, cli, ["ui-action", "new-child", "-t", target]);
+      let child = null;
+      for (const tab of child_snapshot.tabs) {
+        if (tab.active) { child = tab; }
+      }
+      harness.require(!is_null(child), "workbench_active_tab_missing");
+      set_tab_editor_text(gui_child, child_name, child_note);
+      wait_for_editor_draft(context, cli, child.id, child_name.length, child_note.length);
+      click_bounds(gui_child, child.actions.save.bounds);
+      wait_for_editor(context, cli, child.id, 0);
+      target = "" + child.id;
+    } else {
+      // Physical editor behavior belongs to the editing phase. Width courts
+      // create the identical hierarchy through the public control CLI so their
+      // fixed qjswasm budget prices geometry rather than duplicate typing.
+      target = text_cli(
+        context,
+        cli,
+        ["new-window", "-d", "-n", child_name, "--parent", target, "-F", "#{window_id}"]
+      );
+      text_cli(context, cli, ["set-tab-note", "-t", target, child_note]);
+    }
   }
 
   if (phase === "scroll") {

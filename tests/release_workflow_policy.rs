@@ -227,6 +227,11 @@ fn workbench_court_splits_one_public_gate_without_dropping_evidence() {
     for phase in ["width-180", "width-250", "width-480"] {
         assert!(WORKBENCH_SMOKE_QJS.contains(&format!("phase === \"{phase}\"")));
     }
+    assert!(
+        WORKBENCH_SMOKE_QJS.contains("\"new-window\", \"-d\", \"-n\", child_name, \"--parent\"")
+    );
+    assert!(WORKBENCH_SMOKE_QJS.contains("[\"set-tab-note\", \"-t\", target, child_note]"));
+    assert!(WORKBENCH_SMOKE_QJS.contains("set_tab_editor_text(gui_child, child_name, child_note)"));
     assert!(WORKBENCH_SMOKE_QJS.contains("expected: REPO GUI_EXE CLI_EXE --phase PHASE"));
     assert!(!WORKBENCH_SMOKE_QJS.contains("phase = \"all\""));
 }
