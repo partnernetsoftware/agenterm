@@ -12,11 +12,11 @@
 // The server's identity is `process_pid(handle)` against `protocol.pid`,
 // the original's `server_child.id` check.
 //
-// Host-shaped: on Windows the PTY runs `cmd.exe` and the raw
-// newline-delimited IPC leg shells out to `powershell`, exactly as the
-// original did; elsewhere the PTY runs `sh` with the same 80-line loop and
-// the IPC leg is `bash` over `/dev/tcp` (the door has no TCP surface,
-// exactly as rh had none). The journey itself is the same on both.
+// Host-shaped: on Windows the PTY runs `cmd.exe`; elsewhere it runs `sh`
+// with the same 80-line loop. The raw newline-delimited IPC leg uses the
+// release runner's Git Bash on every host, over `/dev/tcp` (the door has no
+// TCP surface, exactly as rh had none). This keeps repository automation
+// independent of PowerShell while preserving the same wire journey.
 //
 // Changed on purpose: the original sent rh's `fnv1a64` as a signed decimal,
 // which is not the product's `fnv1a64:<16 hex>` fingerprint spelling
@@ -154,23 +154,6 @@ function echo_loop_line(prefix) {
 // of the shell-out. The request text rides in the environment so no quoting
 // rule of either shell touches it.
 function raw_ipc_request(host, port, request_text, response_path) {
-  if (windows_host) {
-    // Host and port must be separate `TcpClient` arguments (the one-string
-    // form binds the AddressFamily overload).
-    const ps =
-      "$req=$env:WAKE_REQUEST; "
-      + "$c=New-Object Net.Sockets.TcpClient('" + host + "'," + port + "); "
-      + "$s=$c.GetStream(); "
-      + "$b=[Text.Encoding]::UTF8.GetBytes($req); "
-      + "$s.Write($b,0,$b.Length); $s.Flush(); "
-      + "$r=New-Object IO.StreamReader($s); "
-      + "$r.ReadLine(); "
-      + "$c.Close()";
-    return rh.command_stdout_file(
-      "powershell", ["-NoProfile", "-Command", ps], response_path,
-      { timeout_ms: 30000, env: { WAKE_REQUEST: request_text } }
-    );
-  }
   const sh =
     "exec 3<>/dev/tcp/" + host + "/" + port + " || exit 2; "
     + "printf '%s' \"$WAKE_REQUEST\" >&3; "

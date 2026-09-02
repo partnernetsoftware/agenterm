@@ -3041,3 +3041,9 @@ enumeration and its bounds stay in the platform crate. Record the actual sample
 count and any forbidden automation descendants, then fail closed before writing
 the receipt. A constant nonzero sample or an empty hard-coded process list is
 not evidence.
+
+Classify an observed shell by its owned ancestry, not by the gate name. A shell
+whose parent chain contains a descendant AgenTerm product process is terminal
+payload; a shell launched directly beneath the retained Script-worker root is
+repository automation even though that root executable is also named AgenTerm.
+Keep any intentional direct-launch compatibility probe in its own exact court.

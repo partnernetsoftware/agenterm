@@ -170,10 +170,33 @@ fn diagnostic_bundle_path_identity_is_separator_and_dot_neutral_but_parent_exact
 fn qualification_samples_the_exact_owned_gate_process_tree() {
     assert!(CHECK_QJS.contains("const handle = process_spawn(JSON.stringify(child_spec));"));
     assert!(CHECK_QJS.contains("const root_pid = process_pid(handle);"));
-    assert!(CHECK_QJS.contains("process_samples + sample_owned_processes"));
+    assert!(CHECK_QJS.contains("+ sample_owned_processes(root_pid"));
     assert!(CHECK_QJS.contains("if (process_tree(root_pid) !== 0)"));
     assert!(CHECK_QJS.contains("result.observed_powershell, command_spec.allow_powershell"));
     assert!(!CHECK_QJS.contains("const process_samples = 0;"));
+    assert!(CHECK_QJS.contains("function product_terminal_payload(tree, process, root_pid)"));
+    assert!(CHECK_QJS.contains("if (parent_id === root_pid) { return false; }"));
+    assert!(
+        CHECK_QJS.contains("&& observed_terminal_powershell.length !== observed_powershell.length")
+    );
+}
+
+#[test]
+fn wake_court_uses_git_bash_for_raw_tcp_without_powershell_automation() {
+    let wake = include_str!("../scripts/qjs/wake-smoke.qjs");
+    assert!(wake.contains("\"bash\", [\"-c\", sh]"));
+    assert!(!wake.to_ascii_lowercase().contains("\"powershell\""));
+}
+
+#[test]
+fn only_owned_terminal_payload_courts_allow_powershell() {
+    assert!(
+        CHECK_QJS
+            .contains("(id === \"remote-ui-smoke\" || id === \"native-ipc-compat-smoke\") ? 1 : 0")
+    );
+    assert!(
+        CHECK_QJS.contains("a direct script shell-out remains\n// repository automation and fails")
+    );
 }
 
 #[test]
@@ -183,7 +206,7 @@ fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
     assert!(
         CHECK_QJS.contains("powershell_waits_for_explicit_agenterm_exe\", \"--\", \"--exact\"")
     );
-    assert!(CHECK_QJS.contains("], 120000, environment, 1);"));
+    assert!(CHECK_QJS.contains("], 120000, environment, 2);"));
     assert!(CHECK_QJS.contains("cargo_unit_powershell_compat_spec(build_environment)"));
 }
 

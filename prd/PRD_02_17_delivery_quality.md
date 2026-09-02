@@ -94,11 +94,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   GUI/script diagnostic probes run concurrently without sharing Cargo targets,
   IPC addresses, or cleanup ownership
 - [x] the qjswasm check runner polls typed process ancestry once per second for
-  every owned gate
-  and rejects a `powershell.exe`/`pwsh.exe` automation descendant; the one
-  remote-UI PowerShell terminal-compatibility payload is explicitly declared
-  and reported separately. Clean-checkout release-rehearsal evidence remains
-  to be recorded
+  every owned gate and rejects a `powershell.exe`/`pwsh.exe` automation
+  descendant. PowerShell is a terminal-compatibility payload only when a
+  descendant AgenTerm product process owns it; direct script shell-outs remain
+  forbidden even in those courts. The exact launcher compatibility test is the
+  sole direct-launch exception. Clean-checkout release-rehearsal evidence
+  remains to be recorded
 - [x] local, CI, and Release lanes run real-repository preflight,
   supply-chain, and PRD fixtures exactly once through their named gates instead
   of duplicating them inside the broad parallel Cargo invocation; this avoids
@@ -946,6 +947,12 @@ costs a full candidate cycle:
   command 只跳过该 exact test、保持 `allow_powershell=0`；同一 `unit-tests` gate 的第二条 exact
   command 单独运行它并声明 terminal compatibility，使其 PID 证据进入专用 receipt 列，而其他
   新增 PowerShell 自动化仍 fail-closed。
+- [x] PowerShell 的资格分类看 owned ancestry，不以整个 gate 名称作白名单。Candidate
+  `33691160604` 的 `wake-smoke` 真实行为已通过，却因脚本自身用 PowerShell 发 raw TCP 而被
+  正确拒绝；该 leg 现改用六格 runner 已有的 Git Bash `/dev/tcp`。同轮
+  `native-ipc-compat-smoke` 启动历史 AgenTerm server 后的 PowerShell 是被测终端载荷，现仅当
+  PowerShell 的祖先链在 retained gate root 之下出现 AgenTerm 产品进程时才归入
+  `terminal_compatibility_payloads`；root 自身不算，故直接自动化仍 fail-closed。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

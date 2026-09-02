@@ -98,6 +98,9 @@ function spec(program, arguments_list, timeout_ms, environment, allow_powershell
   };
 }
 
+// allow_powershell: 0 = none, 1 = only a shell owned by a descendant AgenTerm
+// product process, 2 = the one exact direct-launch compatibility subcourt.
+
 function empty_environment() {
   return {};
 }
@@ -313,7 +316,7 @@ function cargo_unit_powershell_compat_spec(environment) {
     "test", "--quiet", "--locked", "--all-features",
     "--test", "agenterm_cli_forwarding",
     "powershell_waits_for_explicit_agenterm_exe", "--", "--exact"
-  ], 120000, environment, 1);
+  ], 120000, environment, 2);
 }
 
 function build_artifact_timeout_ms(release) {
@@ -401,14 +404,47 @@ function native_process_tree(root_pid) {
   return JSON.parse(tool_result());
 }
 
-function sample_owned_processes(root_pid, observed_powershell) {
-  for (const process of native_process_tree(root_pid)) {
-    const name = ("" + process.executable_name).toLowerCase();
-    if (name !== "powershell.exe" && name !== "pwsh.exe"
-        && name !== "powershell" && name !== "pwsh") { continue; }
+function powershell_process(process) {
+  const name = ("" + process.executable_name).toLowerCase();
+  return name === "powershell.exe" || name === "pwsh.exe"
+    || name === "powershell" || name === "pwsh";
+}
+
+function agenterm_process(process) {
+  const name = ("" + process.executable_name).toLowerCase();
+  return name.startsWith("agenterm");
+}
+
+// A shell is a product terminal payload only when an AgenTerm descendant of
+// the retained gate root owns it. The gate root is itself an AgenTerm script
+// worker, so it is deliberately excluded: a direct script shell-out remains
+// repository automation and fails even inside a terminal-compatibility court.
+function product_terminal_payload(tree, process, root_pid) {
+  let parent_id = rh.int_of(process.parent_id);
+  for (let depth = 0; depth < tree.length && parent_id > 0; depth = depth + 1) {
+    if (parent_id === root_pid) { return false; }
+    let parent = undefined;
+    for (const candidate of tree) {
+      if (rh.int_of(candidate.id) === parent_id) { parent = candidate; break; }
+    }
+    if (parent === undefined) { return false; }
+    if (agenterm_process(parent)) { return true; }
+    parent_id = rh.int_of(parent.parent_id);
+  }
+  return false;
+}
+
+function sample_owned_processes(root_pid, observed_powershell, observed_terminal_powershell) {
+  const tree = native_process_tree(root_pid);
+  for (const process of tree) {
+    if (!powershell_process(process)) { continue; }
     const identity = "" + process.executable_name + ":" + process.id;
     if (!rh.array_has(observed_powershell, identity)) {
       observed_powershell.push(identity);
+    }
+    if (product_terminal_payload(tree, process, root_pid)
+        && !rh.array_has(observed_terminal_powershell, identity)) {
+      observed_terminal_powershell.push(identity);
     }
   }
   return 1;
@@ -444,9 +480,11 @@ function execute(command_spec, repo, scratch, sequence) {
   const root_pid = process_pid(handle);
   if (root_pid <= 0) { throw "check_process_pid:" + tool_result(); }
   const observed_powershell = [];
+  const observed_terminal_powershell = [];
   let process_samples = 0;
   for (;;) {
-    process_samples = process_samples + sample_owned_processes(root_pid, observed_powershell);
+    process_samples = process_samples
+      + sample_owned_processes(root_pid, observed_powershell, observed_terminal_powershell);
     if (process_state(handle) !== 0) { throw "check_process_state:" + tool_result(); }
     if (tool_result() === "exited") { break; }
     if (rh.now_ms() - started > timeout_ms + 10000) {
@@ -465,7 +503,11 @@ function execute(command_spec, repo, scratch, sequence) {
   const stdout = read_stream(stdout_path);
   const stderr = read_stream(stderr_path);
   const timed_out = result.timed_out || duration > timeout_ms;
-  const powershell_violation = observed_powershell.length > 0 && allow_powershell === 0;
+  let powershell_violation = observed_powershell.length > 0 && allow_powershell === 0;
+  if (allow_powershell === 1
+      && observed_terminal_powershell.length !== observed_powershell.length) {
+    powershell_violation = true;
+  }
   return {
     success: result.success && !powershell_violation && !timed_out,
     exit_code: result.exit_code,
@@ -1179,7 +1221,8 @@ if (skip_smoke === 0) {
     const extra = [];
     if (id === "remote-ui-upgrade-smoke") { extra.push(upgrade_fixture); }
     if (id === "fleet-smoke" && include_stress !== 0) { extra.push("--event-load"); }
-    const smoke_allow_powershell = id === "remote-ui-smoke" ? 1 : 0;
+    const smoke_allow_powershell =
+      (id === "remote-ui-smoke" || id === "native-ipc-compat-smoke") ? 1 : 0;
     // qjswasm deliberately keeps a 64 MiB default bump heap. These two long
     // Windows black-box journeys parse enough full UI projections to consume
     // that bounded heap before their final interaction leaves. Candidate

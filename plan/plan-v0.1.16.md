@@ -1516,3 +1516,14 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   gate 随后以第二条 exact cargo command 执行该测试，单独标记 terminal compatibility。
   因此任意其他测试或构建脚本新起 PowerShell 仍会失败，显式兼容 payload 则进入 receipt 的
   `terminal_compatibility_payloads`，不混入 `automation_processes`。
+
+### A.45 Candidate `33691160604`：PowerShell 判定看进程祖先，不看门名
+
+- A.44 生效：broad unit tests 保持零 PowerShell，exact launcher court 单独捕获并记录
+  `powershell.exe`；随后 `wake-smoke` 的产品断言全部 PASS，但其 raw TCP helper 仍直接启动
+  PowerShell，真实进程审计正确拒绝。该 helper 现统一使用六格 runner 已有 Git Bash
+  `/dev/tcp`，删除仓库自动化对 PowerShell 的依赖。
+- 同轮 `native-ipc-compat-smoke` 中历史 AgenTerm server 启动的 PowerShell 属于刻意被测的终端
+  payload。资格驱动现沿 owned tree 向上查父链：只有 retained gate root **之下**的 AgenTerm
+  产品进程拥有 PowerShell 时才允许；gate root 自身虽也是 AgenTerm script worker，但明确不算
+  产品祖先。因此 terminal compatibility 可被记录，直接脚本 shell-out 仍会使门失败。
