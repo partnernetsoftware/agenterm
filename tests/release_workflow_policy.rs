@@ -183,6 +183,22 @@ fn control_center_children_use_the_doors_cross_platform_pid() {
 }
 
 #[test]
+fn control_center_projection_owner_outlives_short_command_helpers() {
+    assert!(CONTROL_CENTER_SMOKE_QJS.contains("spec.timeout_ms = 15000;"));
+    assert!(CONTROL_CENTER_SMOKE_QJS.contains("spec.timeout_ms = 90000;"));
+    assert_eq!(
+        CONTROL_CENTER_SMOKE_QJS
+            .matches("configured_owner(context, control_center")
+            .count(),
+        3
+    );
+    assert!(
+        CONTROL_CENTER_SMOKE_QJS
+            .contains("_early_exit:exit=\" + output.exit_code + \":\" + output.stderr")
+    );
+}
+
+#[test]
 fn long_ui_smokes_price_their_bump_heaps_without_raising_the_default() {
     let check = include_str!("../scripts/qjs/check.qjs");
     let engine = include_str!("../src/script_engine.rs");

@@ -885,6 +885,12 @@ costs a full candidate cycle:
   已统一按产品 schema 检查 null，并由 release policy test 防回归。Candidate
   `33661044197` 又推进到 connected semantic snapshot，证明同为未跳过序列化 Option 的
   `server_reason: null` 也必须遵守这条规则；可选版本还须显式拒绝 null。
+- [x] GUI journey 的短命令 deadline 不得误杀长生命周期 owner。Candidate
+  `33663218554` 已证明 Control Center owner 发布 registry 后仍在 live-window 步骤稳定退出；
+  qjswasm process door 会执行 spec 的 15 秒 deadline，而该 owner 必须贯穿余下 journey。
+  first/replacement/recovered owner 现使用低于 120 秒 task court 的 90 秒有界 deadline，命令
+  helper 仍为 15 秒；Windows ARM64 与 x86_64 UTM 交互桌面对照均证明同源窗口可持续存活，
+  early-exit 证据也已补齐 exit code 与 stderr。
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

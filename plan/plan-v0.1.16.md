@@ -1389,3 +1389,17 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   connected 状态的 `None` 因而是 JSON `null`，不是缺失字段。port 只修了前者中的一个名字，
   留下同类 `=== undefined` 断言。现按 schema 检查 `=== null`，并同时拒绝把可选 version 的
   JSON null 当作有效版本；不修改产品协议或成功条件。
+
+### A.34 Candidate `33663218554`：长生命周期窗口不能继承短命令 deadline
+
+- 上一轮 connected snapshot 修复成立：离线合同、server/native PID、两个真实 PTY、typed
+  navigation 与 connected snapshot 均已通过；Windows x86_64 随后稳定停在第一个 live
+  Control Center window。失败发生在 registry 已发布之后，说明 native owner 曾成功启动。
+- qjswasm `process_spawn` 会在 spec deadline 到期后强制终止 child。`configured` 为短命令设置的
+  15 秒 deadline 被误用于必须贯穿余下多步 journey 的窗口 owner；两次 run context 相隔约
+  17.8 秒，与 15 秒 child deadline 加清理吻合。修复新增 90 秒 owner deadline，仍短于
+  120 秒 task court，并覆盖 first/replacement/recovered 三个 owner；status/screenshot 等短命令
+  继续保持 15 秒。
+- 同一 Candidate 字节在本机 Windows ARM64 UTM 与 Windows x86_64 UTM 的交互登录桌面均能
+  创建 registry 且保持窗口存活，排除通用产品崩溃与 ISA 回归。early-exit 现在会带 exit code
+  和 stderr，后续失败不再丢失根因。

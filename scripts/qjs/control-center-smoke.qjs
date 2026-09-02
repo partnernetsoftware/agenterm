@@ -160,6 +160,15 @@ function configured(context, executable, registry, args) {
   return spec;
 }
 
+// Command helpers are bounded at 15 seconds, but a native projection owner
+// must remain alive across the whole multi-step journey. Keep its deadline
+// below the 120-second task court so the harness still owns bounded cleanup.
+function configured_owner(context, executable, registry, args) {
+  const spec = configured(context, executable, registry, args);
+  spec.timeout_ms = 90000;
+  return spec;
+}
+
 function offline(context, executable, registry, args, code) {
   const output = harness.run_spec(configured(context, executable, registry, args));
   harness.require(output.success, code + ":" + output.stdout + output.stderr);
@@ -365,7 +374,8 @@ function wait_for_window_title(context, control_center, registry, child, require
       }
     }
     if (harness.child_state(child) === "exited") {
-      throw code_text + "_early_exit";
+      const output = harness.child_wait(child, 2000);
+      throw code_text + "_early_exit:exit=" + output.exit_code + ":" + output.stderr;
     }
     rh.sleep_ms(10);
   }
@@ -714,7 +724,7 @@ try {
   );
 
   print("STEP live open is nonactivating and renders the same endpoint/tabs");
-  const first_spec = configured(context, control_center, registry, [
+  const first_spec = configured_owner(context, control_center, registry, [
     "open", "--no-activate",
     "--server-endpoint", context.address,
     "--logical-instance", "main"
@@ -1165,7 +1175,7 @@ try {
   prove_pty(context, cli_executable, "after-close");
 
   print("STEP a killed projection leaves server/PTY alive and is replaceable");
-  const replacement_spec = configured(context, control_center, registry, [
+  const replacement_spec = configured_owner(context, control_center, registry, [
     "open", "--no-activate",
     "--server-endpoint", context.address,
     "--logical-instance", "main"
@@ -1191,7 +1201,7 @@ try {
     "control_center_kill_affected_server"
   );
   prove_pty(context, cli_executable, "after-kill");
-  const recovered_spec = configured(context, control_center, registry, [
+  const recovered_spec = configured_owner(context, control_center, registry, [
     "open", "--no-activate",
     "--server-endpoint", context.address,
     "--logical-instance", "main"
