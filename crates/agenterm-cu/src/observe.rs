@@ -647,18 +647,59 @@ pub fn parse_text_selection(raw: &str) -> Result<(i32, i32), String> {
     Ok((start, end))
 }
 
+/// The comparable core of an app or window-title app segment: lowercase,
+/// no `.exe` suffix, ASCII alphanumerics only. `None` when fewer than four
+/// characters survive, which is too little to match anything on.
+fn app_token(raw: &str) -> Option<String> {
+    let lower = raw.trim().to_ascii_lowercase();
+    let base = lower.strip_suffix(".exe").unwrap_or(&lower);
+    let token: String = base.chars().filter(char::is_ascii_alphanumeric).collect();
+    (token.len() >= 4).then_some(token)
+}
+
+/// The ` - ` that joins a Chromium window title's segments.
+const SEPARATOR: &str = " - ";
+
+/// Every byte offset in `title` where [`SEPARATOR`] starts, left to right.
+/// Overlapping runs (` - - `) are all reported, which `str::match_indices`
+/// would not do; every offset is a char boundary because the first byte is
+/// ASCII space.
+fn separator_offsets(title: &str) -> Vec<usize> {
+    let bytes = title.as_bytes();
+    (0..bytes.len().saturating_sub(SEPARATOR.len() - 1))
+        .filter(|&i| &bytes[i..i + SEPARATOR.len()] == SEPARATOR.as_bytes())
+        .collect()
+}
+
 /// Chromium-family AX/window titles look like
 /// `App Store Connect - Brave Origin - profile-a`. The profile is the last
-/// segment after ` - {app} - `. Not a CDP profile id.
+/// ` - ` segment; the one before it names the browser. Not a CDP profile id.
+///
+/// The app segment is compared **loosely** to the inventory's `app_name`,
+/// because only macOS reports a display name there (`kCGWindowOwnerName`
+/// = `Brave Origin`). Linux reports `/proc/<pid>/comm` (`brave`,
+/// `chromium-browse` -- truncated at 15 bytes) and Windows the image name
+/// (`brave.exe`), so an exact ` - {app} - ` marker never occurs off macOS
+/// and every Chromium row answered `browser_profile: null` there. Both
+/// sides reduce to an alphanumeric token of at least four characters and
+/// match when one contains the other.
 pub fn browser_profile_from_identity(app: &str, title: &str) -> Option<String> {
-    let app = app.trim();
     let title = title.trim();
-    if app.is_empty() || title.is_empty() {
-        return None;
-    }
-    let marker = format!(" - {app} - ");
-    let index = title.rfind(&marker)?;
-    let profile = title[index + marker.len()..].trim();
+    let wanted = app_token(app)?;
+    // Which " - " ends the app segment is not always the last one: a
+    // profile name may itself contain " - " (`Grok - Brave Origin - my -
+    // profile`), and splitting on the last two separators then reads `my`
+    // as the app and loses the profile. So the split points are scanned
+    // from the right and the first one whose *preceding* segment matches
+    // the application wins; everything behind it is the profile.
+    let profile = separator_offsets(title).into_iter().rev().find_map(|cut| {
+        let (_, title_app) = title.get(..cut)?.rsplit_once(" - ")?;
+        let found = app_token(title_app)?;
+        (found == wanted || found.contains(&wanted) || wanted.contains(&found))
+            .then(|| title.get(cut + SEPARATOR.len()..))
+            .flatten()
+    })?;
+    let profile = profile.trim();
     if profile.is_empty() || profile.len() > 64 {
         return None;
     }
@@ -972,6 +1013,148 @@ pub fn inventory<'a>(
         page_truncated,
     };
     (returned.to_vec(), counts)
+}
+
+// ---------------------------------------------------------------------------
+// Focus resolution for the inventory (`windows --focused`, `focused-window`).
+// ---------------------------------------------------------------------------
+
+/// The application the host reports as frontmost (macOS: NSWorkspace's
+/// `frontmostApplication`; other hosts: none yet).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FrontmostApp {
+    pub name: String,
+    pub pid: u32,
+    pub bundle_id: Option<String>,
+}
+
+impl FrontmostApp {
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": self.name,
+            "pid": self.pid,
+            "bundle_id": self.bundle_id,
+        })
+    }
+}
+
+/// Which window of the inventory is the focused one, and how that was
+/// decided. `handle` is `None` only when no application is frontmost or
+/// the frontmost one has no window in the inventory (a menu-bar-only app,
+/// a window on another Space, an app the inventory cannot see); `reason`
+/// says which.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FocusResolution {
+    pub app: Option<FrontmostApp>,
+    pub handle: Option<isize>,
+    /// `inventory-mark` (the mechanism marked it), `ax-focused-window`
+    /// (the frontmost app's own AXFocusedWindow), or
+    /// `frontmost-app-front-window` (the frontmost app's topmost window in
+    /// the stacking order, inventory order when there is none).
+    pub via: Option<&'static str>,
+    /// `no_frontmost_app` or `frontmost_app_has_no_inventory_window`.
+    pub reason: Option<&'static str>,
+}
+
+impl FocusResolution {
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "handle": self.handle,
+            "via": self.via,
+            "reason": self.reason,
+        })
+    }
+}
+
+/// Decide the focused window of `windows`, in this order:
+///
+/// 1. a row the mechanism already marked `focused` (first one wins);
+/// 2. `ax_window` -- the frontmost app's own focused window -- when it is
+///    in the inventory and belongs to that app's pid;
+/// 3. the frontmost app's topmost inventory window: lowest `z_index` in
+///    `stacking`, or its first inventory row when the host reports no
+///    stacking order (the macOS list is front-to-back already);
+/// 4. otherwise no window, with the reason.
+///
+/// The frontmost-app fallback exists because the mechanism's system-wide
+/// accessibility read can fail wholesale from a process outside the GUI
+/// session's front process chain (see `macos_focus`), and an inventory
+/// that then says "nothing is focused" is wrong, not merely empty.
+pub fn resolve_focus(
+    windows: &[WindowInfo],
+    stacking: &[crate::mechanism::window_enumerate::WindowStacking],
+    app: Option<FrontmostApp>,
+    ax_window: Option<isize>,
+) -> FocusResolution {
+    if let Some(marked) = windows.iter().find(|window| window.focused) {
+        return FocusResolution {
+            app,
+            handle: Some(marked.handle),
+            via: Some("inventory-mark"),
+            reason: None,
+        };
+    }
+    let Some(front) = app else {
+        return FocusResolution {
+            app: None,
+            handle: None,
+            via: None,
+            reason: Some("no_frontmost_app"),
+        };
+    };
+    if let Some(handle) = ax_window
+        && windows
+            .iter()
+            .any(|window| window.handle == handle && window.process_id == front.pid)
+    {
+        return FocusResolution {
+            app: Some(front),
+            handle: Some(handle),
+            via: Some("ax-focused-window"),
+            reason: None,
+        };
+    }
+    let mine: Vec<&WindowInfo> = windows
+        .iter()
+        .filter(|window| window.process_id == front.pid)
+        .collect();
+    if mine.is_empty() {
+        return FocusResolution {
+            app: Some(front),
+            handle: None,
+            via: None,
+            reason: Some("frontmost_app_has_no_inventory_window"),
+        };
+    }
+    let z = |window: &WindowInfo| {
+        stacking
+            .iter()
+            .find(|row| row.handle == window.handle)
+            .map(|row| row.z_index)
+    };
+    let top = mine
+        .iter()
+        .copied()
+        .filter(|window| z(window).is_some())
+        .min_by_key(|window| z(window))
+        .unwrap_or(mine[0]);
+    FocusResolution {
+        app: Some(front),
+        handle: Some(top.handle),
+        via: Some("frontmost-app-front-window"),
+        reason: None,
+    }
+}
+
+/// Write the resolution back into the rows: exactly the resolved window
+/// is `focused`, every other row is not. Without a resolved window the
+/// rows are left as the mechanism reported them.
+pub fn apply_focus(windows: &mut [WindowInfo], focus: &FocusResolution) {
+    if let Some(handle) = focus.handle {
+        for window in windows.iter_mut() {
+            window.focused = window.handle == handle;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2623,6 +2806,86 @@ mod tests {
     }
 
     #[test]
+    fn focus_resolution_prefers_the_mark_then_ax_then_the_front_window() {
+        use crate::mechanism::window_enumerate::WindowStacking;
+        let windows = vec![
+            window(1, 100, "TextEdit", "fixture-1.txt", false),
+            window(2, 200, "Brave Origin", "Codex", false),
+            window(3, 200, "Brave Origin", "Inbox", false),
+            window(4, 200, "Brave Origin", "Grok", false),
+        ];
+        let stacking = vec![
+            WindowStacking {
+                handle: 1,
+                z_index: 0,
+                occluded_percent: 0,
+            },
+            WindowStacking {
+                handle: 3,
+                z_index: 1,
+                occluded_percent: 10,
+            },
+            WindowStacking {
+                handle: 2,
+                z_index: 2,
+                occluded_percent: 50,
+            },
+        ];
+        let brave = FrontmostApp {
+            name: "Brave Origin".into(),
+            pid: 200,
+            bundle_id: Some("com.brave.Browser".into()),
+        };
+        // No frontmost app at all: nothing resolved, typed reason.
+        let none = resolve_focus(&windows, &stacking, None, None);
+        assert_eq!(none.handle, None);
+        assert_eq!(none.reason, Some("no_frontmost_app"));
+        assert_eq!(none.json()["reason"], "no_frontmost_app");
+        // The frontmost app's own AX focused window wins when it is one of
+        // its inventory rows.
+        let ax = resolve_focus(&windows, &stacking, Some(brave.clone()), Some(4));
+        assert_eq!(ax.handle, Some(4));
+        assert_eq!(ax.via, Some("ax-focused-window"));
+        // An AX handle that is not this app's window is not trusted: the
+        // stacking order decides (3 is above 2; 4 has no z row).
+        let foreign = resolve_focus(&windows, &stacking, Some(brave.clone()), Some(1));
+        assert_eq!(foreign.handle, Some(3));
+        assert_eq!(foreign.via, Some("frontmost-app-front-window"));
+        // No stacking order: the first inventory row of that pid.
+        let no_z = resolve_focus(&windows, &[], Some(brave.clone()), None);
+        assert_eq!(no_z.handle, Some(2));
+        // A frontmost app without inventory windows is explicit.
+        let finder = FrontmostApp {
+            name: "Finder".into(),
+            pid: 300,
+            bundle_id: None,
+        };
+        let orphan = resolve_focus(&windows, &stacking, Some(finder.clone()), Some(9));
+        assert_eq!(orphan.handle, None);
+        assert_eq!(orphan.reason, Some("frontmost_app_has_no_inventory_window"));
+        assert_eq!(orphan.app.as_ref().map(|app| app.pid), Some(300));
+        assert_eq!(finder.json()["name"], "Finder");
+        // A mechanism mark beats everything and is kept as the source.
+        let mut marked = windows.clone();
+        marked[0].focused = true;
+        let mark = resolve_focus(&marked, &stacking, Some(brave), Some(4));
+        assert_eq!(mark.handle, Some(1));
+        assert_eq!(mark.via, Some("inventory-mark"));
+        // apply_focus marks exactly the resolved row.
+        let mut rows = windows.clone();
+        apply_focus(&mut rows, &ax);
+        let focused: Vec<isize> = rows
+            .iter()
+            .filter(|w| w.focused)
+            .map(|w| w.handle)
+            .collect();
+        assert_eq!(focused, [4]);
+        let mut untouched = windows.clone();
+        apply_focus(&mut untouched, &orphan);
+        assert!(untouched.iter().all(|w| !w.focused));
+    }
+
+    #[test]
     fn window_inventory_filters_and_pages() {
         let windows = vec![
             window(1, 100, "TextEdit", "fixture-1.txt", false),
@@ -2688,6 +2951,54 @@ mod tests {
         );
         assert!(browser_profile_from_identity("Brave Origin", "App Store Connect").is_none());
         assert!(browser_profile_from_identity("TextEdit", "notes.txt").is_none());
+        // Only macOS reports a display name in `app_name`. Windows reports
+        // the image name and Linux `/proc/<pid>/comm` (capped at 15 bytes),
+        // so an exact " - {app} - " marker never matches there and every
+        // Chromium row answered `browser_profile: null` off macOS.
+        assert_eq!(
+            browser_profile_from_identity("brave.exe", "Grok - Brave Browser - work").as_deref(),
+            Some("work")
+        );
+        assert_eq!(
+            browser_profile_from_identity("chrome", "Inbox - Google Chrome - Profile 1").as_deref(),
+            Some("Profile 1")
+        );
+        assert_eq!(
+            browser_profile_from_identity("chromium-browse", "Docs - Chromium - profile-a")
+                .as_deref(),
+            Some("profile-a")
+        );
+        // The no-profile shape stays a miss: a title needs both the app
+        // segment and the profile segment behind it.
+        assert!(browser_profile_from_identity("brave.exe", "Grok - Brave Browser").is_none());
+        // Two short tokens must not pair up just because one contains the
+        // other: four characters is the floor on both sides.
+        assert!(browser_profile_from_identity("vim", "notes - vim - 2").is_none());
+        assert!(browser_profile_from_identity("bash", "log - sh - 2").is_none());
+        // A different application is still not a match.
+        assert!(browser_profile_from_identity("brave.exe", "Notes - TextEdit - work").is_none());
+        // A profile name may itself contain " - ": the app segment, not the
+        // last separator, decides where the profile starts.
+        assert_eq!(
+            browser_profile_from_identity("Brave Origin", "Grok - Brave Origin - my - profile")
+                .as_deref(),
+            Some("my - profile")
+        );
+        assert_eq!(
+            browser_profile_from_identity("brave.exe", "Grok - Brave Browser - a - b - c")
+                .as_deref(),
+            Some("a - b - c")
+        );
+        // The scan stops at the first matching app segment, so a page title
+        // that happens to repeat the browser name does not steal the split.
+        assert_eq!(
+            browser_profile_from_identity(
+                "Brave Origin",
+                "Brave Origin tips - Brave Origin - work"
+            )
+            .as_deref(),
+            Some("work")
+        );
         let rows = [
             window(
                 1,

@@ -100,9 +100,20 @@ fn collapse_ws(raw: &str) -> String {
 /// Chromium heading's value is its level (`"1"`), so the name is the text.
 const VALUE_IS_NOT_TEXT_ROLES: &[&str] = &["heading", "progress-indicator", "slider", "stepper"];
 
-/// The string a node shows: its value first, else its accessible name
-/// for a non-container role.
+/// The string a node shows: for a non-container role, its value first,
+/// else its accessible name.
+///
+/// A container never speaks, whether its words arrive as `name` **or** as
+/// `text`: its value is the concatenation of rows that are reported on
+/// their own, so emitting it would swallow every one of them in the
+/// ancestor merge and leave one blob with no usable node id. This check
+/// must therefore come before the value check, not after: on Windows a
+/// Chromium web root is UIA `Document` -> role `document`, which is a
+/// container, and its `TextPattern` hands back the whole page in `text`.
 fn label(node: &A11yNode) -> Option<String> {
+    if is_container(&node.role) {
+        return None;
+    }
     let normalized = crate::observe::normalize_role(&node.role);
     let value_is_text = !VALUE_IS_NOT_TEXT_ROLES
         .iter()
@@ -112,9 +123,6 @@ fn label(node: &A11yNode) -> Option<String> {
         if !text.is_empty() {
             return Some(text);
         }
-    }
-    if is_container(&node.role) {
-        return None;
     }
     let name = collapse_ws(&node.name);
     (!name.is_empty()).then_some(name)
@@ -458,6 +466,85 @@ mod tests {
                 .iter()
                 .all(|row| row.text != "hidden" && row.text != "offscreen")
         );
+    }
+
+    /// Windows UIA reports a Chromium web root as `Document`, whose
+    /// `TextPattern` value is the whole page. `document` is a container
+    /// role, so its words belong to the rows below it -- if the container
+    /// itself is emitted, the ancestor merge folds every leaf into it and
+    /// `page text` degrades to one blob whose id addresses nothing
+    /// clickable.
+    #[test]
+    fn a_container_with_text_never_swallows_its_children() {
+        let s = &["showing", "visible"];
+        let whole_page = "Enter code Type the code shown Next";
+        let tree = {
+            let nodes = vec![
+                node("/0", "window", "", None, [0, 0, 800, 600], s),
+                node(
+                    "/0/0",
+                    "document",
+                    "",
+                    Some(whole_page),
+                    [0, 0, 800, 600],
+                    s,
+                ),
+                node(
+                    "/0/0/0",
+                    "heading",
+                    "Enter code",
+                    Some("2"),
+                    [20, 100, 300, 30],
+                    s,
+                ),
+                node(
+                    "/0/0/1",
+                    "static-text",
+                    "",
+                    Some("Type the code shown"),
+                    [20, 150, 300, 20],
+                    s,
+                ),
+                node("/0/0/2", "button", "Next", None, [20, 250, 100, 30], s),
+            ];
+            let returned = nodes.len();
+            A11yTree {
+                backend: "uia".into(),
+                window_handle: Some(1),
+                root_id: "/0".into(),
+                nodes,
+                truncated: false,
+                visited: returned,
+                returned,
+            }
+        };
+        let reading = read(&tree, None, DEFAULT_MAX_BYTES);
+        let rows: Vec<(&str, &str)> = reading
+            .rows
+            .iter()
+            .map(|row| (row.id.as_str(), row.text.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("/0/0/0", "Enter code"),
+                ("/0/0/1", "Type the code shown"),
+                ("/0/0/2", "Next"),
+            ],
+            "the children are the rows, not one merged document blob"
+        );
+        assert!(
+            reading.rows.iter().all(|row| row.text != whole_page),
+            "the container's concatenated text is never a row"
+        );
+        assert_eq!(reading.merged, 0);
+        // A container with text is not even a candidate.
+        assert_eq!(reading.candidates, 3);
+        // The same holds for the other web-root spellings.
+        for role in ["web-area", "group", "region", "scroll-area"] {
+            let container = node("/0/0", role, "", Some(whole_page), [0, 0, 800, 600], s);
+            assert_eq!(label(&container), None, "{role}");
+        }
     }
 
     #[test]

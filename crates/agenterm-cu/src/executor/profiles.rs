@@ -9,6 +9,7 @@ use super::*;
 use crate::browser_profiles::{
     self as profiles, AppResolveError, BrowserApp, ProfileEntry, ProfileMatchError,
 };
+use crate::tab_strip::TabRow;
 
 /// How long `browser open` waits for the window by default, and the
 /// ceiling a caller may raise it to.
@@ -279,6 +280,16 @@ pub(super) fn browser_open_payload(
         .filter(|window| window.profile == entry.name)
         .collect();
     let before_json: Vec<serde_json::Value> = before.iter().map(ProfileWindow::json).collect();
+    // The strips of the profile's windows before the launch, so the reply
+    // can say which tab the URL became (the selected tab the strip gained).
+    let strips_before: Vec<(isize, Vec<TabRow>)> = before
+        .iter()
+        .filter_map(|window| {
+            mechanism::tree_for_window(Some(window.handle))
+                .ok()
+                .map(|tree| (window.handle, TabRow::from_tree(&tree)))
+        })
+        .collect();
     let argv = profiles::open_argv(app, &entry.directory, url);
     // The reply's `created` field says which of the two postconditions
     // can close the loop: a new window of the profile, or (a URL into a
@@ -436,12 +447,39 @@ pub(super) fn browser_open_payload(
         )
         .with_detail(serde_json::json!({ "reason": "timeout", "receipt": receipt })));
     };
+    // Which tab is the new one: the selected tab the window's strip gained
+    // (a created window starts from an empty strip).
+    let strip_before: Vec<TabRow> = strips_before
+        .into_iter()
+        .find(|(handle, _)| *handle == window.handle)
+        .map(|(_, rows)| rows)
+        .unwrap_or_default();
+    let strip_after: Vec<TabRow> = mechanism::tree_for_window(Some(window.handle))
+        .map(|tree| TabRow::from_tree(&tree))
+        .unwrap_or_default();
+    let new_tab = crate::tab_strip::new_tab_from_strips(&strip_before, &strip_after).cloned();
     let mut payload = receipt;
     if let Some(object) = payload.as_object_mut() {
         object.insert("handle".into(), serde_json::json!(window.handle));
         object.insert("browser_profile".into(), serde_json::json!(window.profile));
         object.insert("title".into(), serde_json::json!(window.title));
         object.insert("created".into(), serde_json::json!(created));
+        object.insert(
+            "tab_index".into(),
+            serde_json::json!(new_tab.as_ref().map(|tab| tab.index)),
+        );
+        object.insert(
+            "tab_title".into(),
+            serde_json::json!(new_tab.as_ref().map(|tab| tab.title.clone())),
+        );
+        object.insert(
+            "tabs".into(),
+            serde_json::json!({
+                "before": strip_before.len(),
+                "after": strip_after.len(),
+                "diff": "the selected tab the strip gained (tab_index / tab_title null when no tab can be told apart)",
+            }),
+        );
         object.insert(
             "next_actions".into(),
             serde_json::json!([

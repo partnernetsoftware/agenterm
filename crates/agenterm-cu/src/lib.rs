@@ -17,6 +17,7 @@ pub mod grant_management;
 pub mod host_actions;
 pub mod hotkeys;
 #[cfg(target_os = "macos")]
+pub mod macos_focus;
 pub mod macos_spaces;
 pub mod mcu_surface;
 pub mod mechanism;

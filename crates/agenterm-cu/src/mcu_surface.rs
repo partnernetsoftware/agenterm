@@ -299,13 +299,20 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         "semantic" => {
             if os == "macos" {
                 ("available", "invoke/verify/wait/menu/unlock classify-only")
-            } else if tree_live(os) {
+            } else if os == "linux" {
                 // Background menus are no longer macOS-only: AT-SPI2 and
                 // UIA both publish a menu bar in the window's own tree, and
-                // both have been executed against a real one.
+                // both have been executed against a real one. Neither is
+                // `unlock` macOS-only any more: the poke exists on Linux as
+                // a bus property instead of an element attribute.
                 (
                     "available",
-                    "invoke/verify/wait/menu share the CLI; unlock is macOS-only (no poke to map)",
+                    "invoke/verify/wait/menu share the CLI; unlock pokes org.a11y.Status (IsEnabled + ScreenReaderEnabled), the AT-SPI analogue of macOS AXManualAccessibility",
+                )
+            } else if os == "windows" {
+                (
+                    "available",
+                    "invoke/verify/wait/menu share the CLI; unlock has no poke to map because the UIA walk is the poke (Chromium enables accessibility answering WM_GETOBJECT)",
                 )
             } else {
                 ("unsupported", "semantic a11y not mapped")
@@ -786,6 +793,30 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `semantic` row used to tell Linux and Windows callers that
+    /// `unlock is macOS-only (no poke to map)`. That is wrong on Linux --
+    /// the poke is the `org.a11y.Status` toggle -- and on Windows the
+    /// reason is not "macOS-only" but "the UIA walk is the poke".
+    #[test]
+    fn semantic_row_names_each_hosts_unlock_mechanism() {
+        let (status, macos) = group_status("semantic", "macos");
+        assert_eq!(status, "available");
+        assert!(macos.contains("unlock"), "{macos}");
+        let (status, linux) = group_status("semantic", "linux");
+        assert_eq!(status, "available");
+        assert!(linux.contains("org.a11y.Status"), "{linux}");
+        assert!(linux.contains("AXManualAccessibility"), "{linux}");
+        let (status, windows) = group_status("semantic", "windows");
+        assert_eq!(status, "available");
+        assert!(windows.contains("WM_GETOBJECT"), "{windows}");
+        for reason in [linux, windows] {
+            assert!(
+                !reason.contains("macOS-only"),
+                "unlock is not macOS-only any more: {reason}"
+            );
+        }
+    }
 
     #[test]
     fn mcu_groups_have_no_silent_gap_on_three_os() {

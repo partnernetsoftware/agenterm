@@ -487,8 +487,9 @@ fn browser(
     }
 }
 
-/// `tab list` / `tab select`: the tab strip through the a11y tree,
-/// background only. The flat spellings pass their sub-command in.
+/// `tab list` / `tab select` / `tab close`: the tab strip through the
+/// a11y tree, background only (`tab close --port` may close over CDP).
+/// The flat spellings pass their sub-command in.
 fn tab(target: TargetRef, sub: Option<&str>, args: &mut Vec<String>) -> Result<Command, String> {
     let sub = match sub {
         Some(sub) => sub.to_owned(),
@@ -532,11 +533,16 @@ fn tab(target: TargetRef, sub: Option<&str>, args: &mut Vec<String>) -> Result<C
         }
         "close" => {
             let title = flag_text(args, "--title")?;
+            let index = flag_parsed::<usize>(args, "--index")?;
             let exact = take_switch(args, "--exact");
             let expect = flag_text(args, "--expect")?;
+            let port = flag_parsed::<u16>(args, "--port")?;
+            if title.is_some() && index.is_some() {
+                return Err("tab close takes --title T --exact or --index N, not both".into());
+            }
             if !args.is_empty() {
                 return Err(format!(
-                    "tab close accepts only --window H --title T --exact --expect gone; unexpected {:?}",
+                    "tab close accepts only --window H (--title T --exact | --index N) --expect gone [--port N]; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -544,8 +550,10 @@ fn tab(target: TargetRef, sub: Option<&str>, args: &mut Vec<String>) -> Result<C
                 target,
                 window,
                 title,
+                index,
                 exact,
                 expect,
+                port,
             })
         }
         other => Err(format!(

@@ -1029,17 +1029,26 @@ pub enum Command {
     /// Destructive, so gated like `close`: an exact tab identity (`title`
     /// with `exact`), the strip snapshot the receipt carries, and the
     /// postcondition `expect == "gone"` (the title is read back as absent
-    /// from the strip). A tab whose row offers no close button is typed
-    /// `unsupported`; a keyboard shortcut is never substituted.
+    /// from the strip). `index` is the exact alternative to `title` for
+    /// same-title duplicates (0-based, `tab list` order). A background
+    /// tab whose row offers no close button is selected first, closed,
+    /// and the previous selection is restored (`selection_restored`);
+    /// with `port` the tab is closed by `Target.closeTarget` instead when
+    /// its title names exactly one page target of the instance. A
+    /// keyboard shortcut is never substituted.
     TabClose {
         target: TargetRef,
         window: isize,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         exact: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
     },
     /// The profiles of one Chromium-family application's user data
     /// directory (`Local State` -> `profile.info_cache`), each joined to
@@ -1917,8 +1926,10 @@ mod tests {
             target: TargetRef::Current,
             window: 7,
             title: Some("cu-live".into()),
+            index: None,
             exact: true,
             expect: Some("gone".into()),
+            port: None,
         };
         assert_eq!(close.verb(), "tab-close");
         assert_eq!(close.required_grant(), Grant::Actuate);
@@ -1927,6 +1938,22 @@ mod tests {
             serde_json::json!({
                 "verb": "tab-close", "target": "current", "window": 7,
                 "title": "cu-live", "exact": true, "expect": "gone"
+            })
+        );
+        let by_index = Command::TabClose {
+            target: TargetRef::Current,
+            window: 7,
+            title: None,
+            index: Some(3),
+            exact: false,
+            expect: Some("gone".into()),
+            port: Some(9222),
+        };
+        assert_eq!(
+            serde_json::to_value(&by_index).expect("serialize"),
+            serde_json::json!({
+                "verb": "tab-close", "target": "current", "window": 7,
+                "index": 3, "expect": "gone", "port": 9222
             })
         );
         // The bare wire form decodes; the executor's gate refuses it.
@@ -1939,8 +1966,10 @@ mod tests {
             Command::TabClose {
                 window: 7,
                 title: None,
+                index: None,
                 exact: false,
                 expect: None,
+                port: None,
                 ..
             }
         ));

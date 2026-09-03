@@ -248,9 +248,95 @@ pub fn connect_target(
     Ok((target, session))
 }
 
+/// The browser-level websocket (`/json/version` -> `webSocketDebuggerUrl`):
+/// the one endpoint that accepts `Target.closeTarget` for any target of
+/// the instance without attaching to that target first.
+pub fn browser_ws_url(port: u16) -> Result<String, CdpError> {
+    let version = http_get_json(port, "/json/version")?;
+    version["webSocketDebuggerUrl"]
+        .as_str()
+        .filter(|url| !url.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            CdpError::typed(
+                "unsupported",
+                "CDP /json/version offers no browser webSocketDebuggerUrl",
+            )
+        })
+}
+
+/// Every page target whose title equals `title` exactly (case-sensitive),
+/// in listing order. `tab close --port` closes over CDP only when this is
+/// exactly one: one port serves every profile of the instance, so a title
+/// shared by two tabs (any window, any profile) cannot name a target.
+pub fn page_targets_titled<'a>(targets: &'a [PageTarget], title: &str) -> Vec<&'a PageTarget> {
+    targets
+        .iter()
+        .filter(|target| target.is_page() && target.title == title)
+        .collect()
+}
+
+/// `Target.closeTarget` over `session`: `Ok(true)` when the browser
+/// accepted the close (the tab is gone or going), `Ok(false)` when it
+/// answered `success: false`. Nothing here activates anything.
+pub fn close_target<T: super::ws::Transport>(
+    session: &mut Session<T>,
+    target_id: &str,
+) -> Result<bool, CdpError> {
+    let result = session.call("Target.closeTarget", json!({ "targetId": target_id }))?;
+    Ok(result["success"].as_bool().unwrap_or(false))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn titled_page_targets_are_exact_and_pages_only() {
+        let mut targets = fixture();
+        assert_eq!(
+            page_targets_titled(&targets, "Inbox - Mail")
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["A1"]
+        );
+        // Substring / case are not matches; an iframe is not a page.
+        assert!(page_targets_titled(&targets, "Inbox").is_empty());
+        assert!(page_targets_titled(&targets, "inbox - mail").is_empty());
+        assert!(page_targets_titled(&targets, "frame").is_empty());
+        // A second window's tab with the same title makes it not unique.
+        targets.push(PageTarget {
+            id: "D4".into(),
+            url: "https://mail.example/other".into(),
+            title: "Inbox - Mail".into(),
+            kind: "page".into(),
+            attached: Some(false),
+            ws_url: None,
+        });
+        assert_eq!(page_targets_titled(&targets, "Inbox - Mail").len(), 2);
+    }
+
+    #[test]
+    fn close_target_reports_the_browser_answer_and_never_activates() {
+        use super::super::ws::fake;
+        let mut session = fake::session(|method, params| match method {
+            "Target.closeTarget" => {
+                assert_eq!(params["targetId"], "B2");
+                Ok(json!({ "success": true }))
+            }
+            other => Err(format!("unexpected {other}")),
+        });
+        assert!(close_target(&mut session, "B2").expect("closed"));
+        assert_eq!(session.transport.methods(), ["Target.closeTarget"]);
+        let mut refused = fake::session(|_, _| Ok(json!({ "success": false })));
+        assert!(!close_target(&mut refused, "B2").expect("answered"));
+        let mut failing = fake::session(|_, _| Err("No target with given id found".into()));
+        let err = close_target(&mut failing, "B2").expect_err("typed");
+        assert_eq!(err.code, "cdp_method_failed");
+        assert_eq!(err.failed_method(), Some("Target.closeTarget"));
+        assert_eq!(browser_ws_url(1).expect_err("port 1").code, "unsupported");
+    }
 
     fn fixture() -> Vec<PageTarget> {
         parse_targets(&json!([

@@ -14,7 +14,7 @@ pub fn parse(
 ) -> Result<Command, String> {
     match spec.name {
         "capabilities" => Ok(Command::Capabilities { target }),
-        "windows" => windows(target, args),
+        "windows" => windows(spelled, target, args),
         "windows-watch" => windows_watch(target, args),
         "apps" => apps(target, args),
         "app" => app(spelled, target, args),
@@ -68,11 +68,21 @@ pub fn parse(
     }
 }
 
-fn windows(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+/// `windows`, and its alias `focused-window` (= `windows --focused true`:
+/// the one focused window, or the explicit `{focused_app, window: null}`).
+fn windows(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let pid = flag_parsed::<u32>(args, "--pid")?;
     let app = flag_text(args, "--app")?;
     let title = flag_text(args, "--title")?;
-    let focused = flag_tristate(args, "--focused");
+    let mut focused = flag_tristate(args, "--focused");
+    if spelled == "focused-window" {
+        if focused == Some(false) {
+            return Err(
+                "focused-window is windows --focused true; it does not take --focused false".into(),
+            );
+        }
+        focused = Some(true);
+    }
     let minimized = flag_tristate(args, "--minimized");
     let browser_profile = flag_text(args, "--browser-profile")?;
     if browser_profile

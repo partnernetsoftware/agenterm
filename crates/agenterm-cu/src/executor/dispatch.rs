@@ -318,14 +318,18 @@ impl Executor {
             Command::TabClose {
                 window,
                 title,
+                index,
                 exact,
                 expect,
+                port,
                 ..
             } => tab_close_payload(
                 *window,
                 title.as_deref(),
+                *index,
                 *exact,
                 expect.as_deref(),
+                *port,
                 &mut self.open_receipts(command.target())?,
             ),
             Command::BrowserProfiles { app, .. } => browser_profiles_payload(app.as_deref()),

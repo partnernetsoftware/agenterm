@@ -82,13 +82,21 @@ An idle Chromium window is not blank either: replies carry `ax` plus
 `next_actions` naming a deeper `query --role WebArea`, never "screenshot" or
 "install an extension".
 
-**`unlock`** (actuate) asks the application to build its full a11y tree:
-`AXManualAccessibility` + `AXEnhancedUserInterface` on the app,
-`AXManualAccessibility` on the window, a renderer wake, then bounded
-re-reads. It reports `poked`, `grew`, `returned_before`, `web_nodes_before`
-/ `web_nodes_after`, `rereads` and `poke` separately because the poke's own
-status is not the outcome (AppKit calls the attribute unsupported even when
-it lands; only the re-read can claim anything).
+**`unlock`** (actuate) asks the application to build its full a11y tree,
+then bounded re-reads. The poke is per host and the reply's `poke` field
+names the one that ran: macOS sets `AXManualAccessibility` +
+`AXEnhancedUserInterface` on the app and `AXManualAccessibility` on the
+window plus a renderer wake; Linux flips the desktop-wide `org.a11y.Status`
+switch (`IsEnabled` + `ScreenReaderEnabled` on the session-bus name
+`org.a11y.Bus`) that a Chromium renderer watches before it publishes a web
+tree; Windows has **no** separate poke to make, because a Chromium process
+turns accessibility on when it answers `WM_GETOBJECT` for its window and
+the UIA walk sends that itself (`poked: false` **with** a reason -- a
+silent success there would be the lie). It reports `poked`, `grew`,
+`returned_before`, `web_nodes_before` / `web_nodes_after`, `rereads` and
+`poke` separately because the poke's own status is not the outcome (AppKit
+calls the attribute unsupported even when it lands, and the Linux flags may
+already be set; only the re-read can claim anything).
 
 ## 3. Locate a node and act
 
@@ -144,27 +152,69 @@ running browser (never a restart, no CDP port needed):
 cu browser profiles                                         # {name, directory, last_used, windows:[handles]} from Local State
 cu browser profiles --app "Brave Origin"                    # or Brave Browser / Google Chrome; others -> unsupported
 cu --grant actuate browser open --profile X --url "$U"      # open -na <app> --args --profile-directory=<dir> URL on the
-                                                            # running instance; reply {handle, browser_profile, title, created}
+                                                            # running instance; reply {handle, browser_profile, title, created,
+                                                            # tab_index, tab_title} (the selected tab the strip gained)
 cu windows --browser-profile X                              # only that profile's windows (case-insensitive substring)
 cu page text --window "$H"                                  # read the active tab; pick a row, click --node / invoke --node
 cu --grant actuate tab close --window "$H" --title "$T" --exact --expect gone   # the row's own close button; verified
+cu --grant actuate tab close --window "$H" --index 3 --expect gone             # same-title duplicates: the tab-list index
+cu --grant actuate tab close --window "$H" --title "$T" --exact --expect gone --port 9222   # Target.closeTarget when the
+                                                            # title names one page target of the instance; else the a11y path
 # unknown name -> browser_profile_not_found, two hits -> browser_profile_ambiguous (candidates in error.detail)
 # no window within --timeout-ms (default 8000) -> browser_window_not_found
 ```
 
 `browser open` with a URL into a profile that already has a window opens
-a tab there (`created: false`, the window's title changes); without a
-URL, or for a profile with no window, a new window appears (`created:
-true`). `tab close` is destructive and gated like `close`: exact title,
+a tab there (`created: false`, the window's title changes, and
+`tab_index` / `tab_title` say which tab it became); without a URL, or for
+a profile with no window, a new window appears (`created: true`). `tab
+close` is destructive and gated like `close`: an exact tab (`--title T
+--exact`, or `--index N` from `tab list` when two tabs share a title),
 the strip snapshot in the receipt, `--expect gone` read back from the
-strip; a row with no close button (macOS Chromium shows it on the active
-tab only) is typed `unsupported`, never a keyboard shortcut. The
-real-instance gate is `scripts/cu-brave-live-smoke.sh`
-(`AGENTERM_CU_SMOKE_PROFILE=<name>`; it refuses to guess a profile).
+strip. macOS Chromium exposes the row's close button on the selected (or
+hovered) tab only, so a background tab is selected first inside its
+window (never raised), closed, and the previously selected tab is
+pressed again (`selection_restored: true|false`, `select_first` in the
+reply); with `--port N` a title that names exactly one page target of
+the whole instance is closed by `Target.closeTarget` instead (`via:
+cdp-close-target`, nothing selected), and no listener / no unique target
+falls back to the a11y path (`cdp_fallback`). A keyboard shortcut is
+never substituted. The real-instance gates are
+`scripts/cu-brave-live-smoke.sh` (a11y only) and
+`scripts/cu-brave-live-cdp-smoke.sh` (every CDP verb on a background tab
+of the real instance, the selected tab and the front window checked
+after each); both take `AGENTERM_CU_SMOKE_PROFILE=<name>` and refuse to
+guess a profile.
 
-macOS Chromium (Chrome, Brave, Edge) publishes only the **active** tab's
-`web-area`; every other tab is a `radio-button` row of the tab-strip
-`tab-group`. Two paths, neither of which raises the window:
+**Platform evidence.** Everything in this section is proven on macOS
+against a real Brave instance. Linux and Windows are **code-complete but
+have no live evidence**: the pure matchers accept the AT-SPI2 / UIA role
+spellings and the profile suffix that those hosts' `app_name` produces,
+and that is all unit tests can show. The two journeys are written --
+`scripts/cu-linux-smoke.sh` (browser section) and
+`scripts/qjs/cu-windows-browser-smoke.qjs` -- and each exits with a typed
+`SKIP[no_chromium_browser]` and **no** evidence id until a guest with a
+Chromium-family browser runs it. Read a skip as "not run", never as a
+pass.
+
+**After a browser restart.** Quitting Brave / Chrome and starting it
+again restores only the *last-used* profile's session by itself; the
+other profiles' windows stay closed until something opens them. `browser
+open --profile X` with **no URL** hands `--profile-directory=<dir>` to
+the running instance, which makes Brave restore that profile's own last
+session (its windows and tabs), so that -- once per profile -- is the
+way to bring the other profiles back; a URL would open one tab instead.
+`focused-window` (= `windows --focused true`) is the "front window
+unchanged" read for these checks: exactly one row, or the explicit
+`{focused_app, window: null}` when the frontmost app has no window in
+the inventory (never an empty list).
+
+Chromium (Chrome, Brave, Edge) publishes only the **active** tab's
+`web-area`; every other tab is a tab-strip row and nothing more. The strip
+is read on every backend, whatever that backend calls the roles -- macOS AX
+`tab-group` / `radio-button`, AT-SPI2 and UIA both `page tab list` / `page
+tab` (roles compare on their alphanumeric core, so separator and `AX`
+prefix spellings all match). Two paths, neither of which raises the window:
 
 ```bash
 cu tab list --window "$H"                                   # index, title, selected
@@ -301,7 +351,13 @@ from "not observable".
   `examples/objc/agenterm_ax_fixture.m`), `cu-macos-web-smoke` (WKWebView),
   `cu-macos-pointer-smoke`, `scripts/cu-linux-smoke.sh`,
   `scripts/cu-linux-cross-tier-tree.sh` (current / ssh / vnc same tree),
-  `cu-windows-smoke`, `scripts/cu-cdp-smoke.sh` (CDP tab addressing).
+  `cu-windows-smoke`, `scripts/cu-cdp-smoke.sh` (CDP tab addressing),
+  `scripts/cu-brave-live-smoke.sh` / `scripts/cu-brave-live-cdp-smoke.sh`
+  (macOS, real Brave instance). The browser/tab journeys for the other two
+  hosts -- `scripts/cu-linux-smoke.sh` (browser section) and
+  `scripts/qjs/cu-windows-browser-smoke.qjs` -- exist and have **not** run:
+  both exit with a typed `SKIP[no_chromium_browser]` until a guest with a
+  Chromium-family browser exists.
 - Layering: `libagenterm` (`agt_*` exports) <- `Command` / typed `CuReply`
   <- `Executor` <- the single `agenterm-cu` binary. Product code never opens
   raw OS APIs; mechanisms report typed `Available` / `Unsupported` / `Failed`.

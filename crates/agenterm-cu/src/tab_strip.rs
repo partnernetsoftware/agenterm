@@ -44,9 +44,10 @@ impl TabEntry<'_> {
 }
 
 /// `(container role, item role)` pairs that are a browser tab strip on
-/// some backend. macOS AX: `tab-group` / `radio-button` (Chromium); AT-SPI:
-/// `page-tab-list` / `page-tab`; UIA: `tab` / `tab-item`. Roles compare
-/// case-insensitively and accept the platform spelling (`AXRadioButton`).
+/// some backend. macOS AX: `tab-group` / `radio-button` (Chromium); AT-SPI
+/// and UIA: `page tab list` / `page tab` (both adapters spell them with
+/// spaces). Roles compare on their alphanumeric core, so every separator
+/// spelling and the platform prefix (`AXRadioButton`) match.
 const TAB_STRIP_ROLES: &[(&str, &str)] = &[
     ("tab-group", "radio-button"),
     ("page-tab-list", "page-tab"),
@@ -54,10 +55,11 @@ const TAB_STRIP_ROLES: &[(&str, &str)] = &[
 ];
 
 fn role_is(role: &str, wanted: &str) -> bool {
-    let lower = role.trim().to_ascii_lowercase();
-    let stripped = lower.strip_prefix("ax").unwrap_or(&lower);
-    let compact: String = stripped.chars().filter(|ch| *ch != '-').collect();
-    stripped == wanted || compact == wanted.replace('-', "")
+    // The adapters do not agree on separators: macOS AX gives
+    // `AXTabGroup`, AT-SPI and UIA both give `page tab list` with
+    // spaces. Compare on the alphanumeric core, which is what
+    // `observe::normalize_role` already does everywhere else.
+    crate::observe::normalize_role(role) == crate::observe::normalize_role(wanted)
 }
 
 /// The tab-strip entries of one window tree, in walk order: every item
@@ -196,10 +198,301 @@ pub fn match_tab<'a>(
     }
 }
 
+/// How `tab close` names its tab: exactly one of an exact title or a
+/// strip index (0-based, the order `tab list` numbers), the index being
+/// the way to name one of two same-title tabs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TabCloseSpec {
+    Title(String),
+    Index(usize),
+}
+
+impl TabCloseSpec {
+    pub fn from_parts(title: Option<&str>, index: Option<usize>) -> Result<Self, String> {
+        match (title, index) {
+            (Some(_), Some(_)) => {
+                Err("tab close takes --title T --exact or --index N, not both".into())
+            }
+            (None, None) => Err("tab close requires --title T --exact or --index N".into()),
+            (Some(title), None) => {
+                if title.trim().is_empty() {
+                    Err("tab close --title must not be empty".into())
+                } else {
+                    Ok(Self::Title(title.to_owned()))
+                }
+            }
+            (None, Some(index)) => Ok(Self::Index(index)),
+        }
+    }
+
+    pub fn json(&self) -> Value {
+        match self {
+            Self::Title(title) => json!({ "title": title, "exact": true }),
+            Self::Index(index) => json!({ "index": index }),
+        }
+    }
+}
+
+/// Exactly one strip entry for a `tab close` spec: case-sensitive title
+/// equality (two equal titles are `Ambiguous`, with the index as the way
+/// out) or the strip index.
+pub fn match_tab_exact<'a>(
+    entries: &'a [TabEntry<'a>],
+    spec: &TabCloseSpec,
+) -> Result<&'a TabEntry<'a>, TabMatchError> {
+    if entries.is_empty() {
+        return Err(TabMatchError::NotFound {
+            reason: "no_tab_strip",
+            message: "the window tree has no tab strip (no tab-group / radio-button rows)".into(),
+        });
+    }
+    match spec {
+        TabCloseSpec::Index(index) => entries.get(*index).ok_or_else(|| TabMatchError::NotFound {
+            reason: "no_match",
+            message: format!(
+                "tab --index {index} is out of range; the strip has {} tab(s)",
+                entries.len()
+            ),
+        }),
+        TabCloseSpec::Title(title) => {
+            let hits: Vec<&TabEntry<'a>> = entries
+                .iter()
+                .filter(|entry| entry.title() == title)
+                .collect();
+            match hits.as_slice() {
+                [] => Err(TabMatchError::NotFound {
+                    reason: "no_match",
+                    message: format!(
+                        "no tab title equals {title:?}; {} tab(s) in the strip",
+                        entries.len()
+                    ),
+                }),
+                [one] => Ok(one),
+                many => Err(TabMatchError::Ambiguous {
+                    count: many.len(),
+                    message: format!(
+                        "{} tab titles equal {title:?}; refusing to guess -- name one with --index N (from tab list)",
+                        many.len()
+                    ),
+                }),
+            }
+        }
+    }
+}
+
+/// Where the tab that sat at `previous` is after the tab at `closed` is
+/// gone: unchanged before it, one to the left after it, nowhere when it
+/// was the closed tab itself.
+pub fn index_after_close(previous: usize, closed: usize) -> Option<usize> {
+    match previous.cmp(&closed) {
+        std::cmp::Ordering::Less => Some(previous),
+        std::cmp::Ordering::Equal => None,
+        std::cmp::Ordering::Greater => Some(previous - 1),
+    }
+}
+
+/// One strip row detached from its tree (`tab list` shape), so strips of
+/// two reads -- or two windows -- can be compared.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TabRow {
+    pub index: usize,
+    pub title: String,
+    pub selected: Tri,
+}
+
+impl TabRow {
+    pub fn from_entry(entry: &TabEntry<'_>) -> Self {
+        Self {
+            index: entry.index,
+            title: entry.title().to_owned(),
+            selected: entry.selected(),
+        }
+    }
+
+    pub fn from_tree(tree: &A11yTree) -> Vec<Self> {
+        tab_strip_entries(tree)
+            .iter()
+            .map(Self::from_entry)
+            .collect()
+    }
+}
+
+/// The tab `browser open --url` added: the single selected row of `after`
+/// when the strip grew by one row over `before`, or when that row's
+/// title is not in `before` at all. `None` when nothing new can be told
+/// apart (no single selected row, same size and a title already present).
+pub fn new_tab_from_strips<'a>(before: &[TabRow], after: &'a [TabRow]) -> Option<&'a TabRow> {
+    let selected: Vec<&TabRow> = after
+        .iter()
+        .filter(|row| row.selected == Tri::True)
+        .collect();
+    let [row] = selected.as_slice() else {
+        return None;
+    };
+    if after.len() == before.len() + 1 || !before.iter().any(|old| old.title == row.title) {
+        Some(row)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mechanism::A11yBounds;
+
+    #[test]
+    fn close_spec_is_exactly_one_of_exact_title_or_index() {
+        assert_eq!(
+            TabCloseSpec::from_parts(Some("Codex"), None),
+            Ok(TabCloseSpec::Title("Codex".into()))
+        );
+        assert_eq!(
+            TabCloseSpec::from_parts(None, Some(2)),
+            Ok(TabCloseSpec::Index(2))
+        );
+        assert!(TabCloseSpec::from_parts(Some("a"), Some(1)).is_err());
+        assert!(TabCloseSpec::from_parts(None, None).is_err());
+        assert!(TabCloseSpec::from_parts(Some(" "), None).is_err());
+        assert_eq!(
+            TabCloseSpec::Title("Codex".into()).json(),
+            json!({ "title": "Codex", "exact": true })
+        );
+        assert_eq!(TabCloseSpec::Index(2).json(), json!({ "index": 2 }));
+    }
+
+    #[test]
+    fn exact_close_match_is_case_sensitive_and_indexes_duplicates() {
+        let tree = fake_tree(vec![
+            node("/0", None, "window", "Codex", &["showing"]),
+            node("/0/1", Some("/0"), "tab-group", "", &["showing"]),
+            node(
+                "/0/1/0",
+                Some("/0/1"),
+                "radio-button",
+                "Codex",
+                &["showing", "selected"],
+            ),
+            node(
+                "/0/1/1",
+                Some("/0/1"),
+                "radio-button",
+                "Notes",
+                &["showing", "unselected"],
+            ),
+            node(
+                "/0/1/2",
+                Some("/0/1"),
+                "radio-button",
+                "Codex",
+                &["showing", "unselected"],
+            ),
+        ]);
+        let entries = tab_strip_entries(&tree);
+        assert_eq!(
+            match_tab_exact(&entries, &TabCloseSpec::Title("Notes".into()))
+                .expect("one")
+                .index,
+            1
+        );
+        // A substring or a case difference is not equality.
+        assert!(matches!(
+            match_tab_exact(&entries, &TabCloseSpec::Title("notes".into())),
+            Err(TabMatchError::NotFound {
+                reason: "no_match",
+                ..
+            })
+        ));
+        // Two equal titles: ambiguous, and the message points at --index.
+        match match_tab_exact(&entries, &TabCloseSpec::Title("Codex".into())) {
+            Err(TabMatchError::Ambiguous { count, message }) => {
+                assert_eq!(count, 2);
+                assert!(message.contains("--index"), "{message}");
+            }
+            other => panic!("duplicates must be ambiguous: {other:?}"),
+        }
+        assert_eq!(
+            match_tab_exact(&entries, &TabCloseSpec::Index(2))
+                .expect("third")
+                .node
+                .id,
+            "/0/1/2"
+        );
+        assert!(matches!(
+            match_tab_exact(&entries, &TabCloseSpec::Index(3)),
+            Err(TabMatchError::NotFound {
+                reason: "no_match",
+                ..
+            })
+        ));
+        assert!(matches!(
+            match_tab_exact(&[], &TabCloseSpec::Index(0)),
+            Err(TabMatchError::NotFound {
+                reason: "no_tab_strip",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn index_after_close_shifts_only_the_tabs_to_the_right() {
+        assert_eq!(index_after_close(0, 3), Some(0));
+        assert_eq!(index_after_close(3, 3), None);
+        assert_eq!(index_after_close(5, 3), Some(4));
+    }
+
+    #[test]
+    fn new_tab_is_the_selected_row_that_the_strip_gained() {
+        let row = |index: usize, title: &str, selected: bool| TabRow {
+            index,
+            title: title.into(),
+            selected: if selected { Tri::True } else { Tri::False },
+        };
+        let before = vec![row(0, "Inbox", true), row(1, "Codex", false)];
+        // One more row, the selected one: that is the new tab.
+        let grown = vec![
+            row(0, "Inbox", false),
+            row(1, "Codex", false),
+            row(2, "cu-real-1", true),
+        ];
+        let hit = new_tab_from_strips(&before, &grown).expect("new tab");
+        assert_eq!((hit.index, hit.title.as_str()), (2, "cu-real-1"));
+        // Same size but a title the strip did not have (a tab replaced by
+        // navigation): still told apart by the title.
+        let replaced = vec![row(0, "Inbox", false), row(1, "cu-real-2", true)];
+        assert_eq!(
+            new_tab_from_strips(&before, &replaced).map(|r| r.index),
+            Some(1)
+        );
+        // Same size, known title: nothing new can be claimed.
+        let same = vec![row(0, "Inbox", false), row(1, "Codex", true)];
+        assert_eq!(new_tab_from_strips(&before, &same), None);
+        // No single selected row: unknown.
+        let none_selected = vec![
+            row(0, "Inbox", false),
+            row(1, "x", false),
+            row(2, "y", false),
+        ];
+        assert_eq!(new_tab_from_strips(&before, &none_selected), None);
+        // A window created for the profile: the empty before-strip.
+        let fresh = vec![row(0, "cu-real-3", true)];
+        assert_eq!(
+            new_tab_from_strips(&[], &fresh).map(|r| r.title.as_str()),
+            Some("cu-real-3")
+        );
+        let tree = fake_tree(vec![
+            node("/0", None, "window", "", &["showing"]),
+            node("/0/1", Some("/0"), "tab-group", "", &["showing"]),
+            node(
+                "/0/1/0",
+                Some("/0/1"),
+                "radio-button",
+                "A",
+                &["showing", "selected"],
+            ),
+        ]);
+        assert_eq!(TabRow::from_tree(&tree), vec![row(0, "A", true)]);
+    }
 
     fn node(id: &str, parent: Option<&str>, role: &str, name: &str, states: &[&str]) -> A11yNode {
         A11yNode {
@@ -320,6 +613,63 @@ mod tests {
             ),
         ]);
         assert_eq!(tab_strip_entries(&uia).len(), 1);
+    }
+
+    /// The Linux AT-SPI and Windows UIA adapters both publish the strip
+    /// as `page tab list` / `page tab` -- with **spaces**, not hyphens.
+    /// A role comparison that only strips hyphens finds no strip at all
+    /// there, which made `tab list` / `tab select` answer an empty strip
+    /// on both platforms. The macOS spelling must keep working next to it.
+    #[test]
+    fn strip_roles_match_every_adapter_separator_spelling() {
+        let spelled = |container: &str, item: &str| {
+            fake_tree(vec![
+                node("/0", None, "window", "", &["showing"]),
+                node("/0/0", Some("/0"), container, "", &["showing"]),
+                node(
+                    "/0/0/0",
+                    Some("/0/0"),
+                    item,
+                    "One",
+                    &["showing", "selected"],
+                ),
+                node(
+                    "/0/0/1",
+                    Some("/0/0"),
+                    item,
+                    "Two",
+                    &["showing", "unselected"],
+                ),
+            ])
+        };
+        // AT-SPI (Linux) and UIA (Windows) both emit these two strings.
+        let atspi = spelled("page tab list", "page tab");
+        let entries = tab_strip_entries(&atspi);
+        let titles: Vec<&str> = entries.iter().map(TabEntry::title).collect();
+        assert_eq!(
+            titles,
+            ["One", "Two"],
+            "space-separated AT-SPI / UIA roles are a tab strip"
+        );
+        assert_eq!(entries[0].selected(), Tri::True);
+        // The macOS AX spelling, plain and prefixed, still matches.
+        assert_eq!(
+            tab_strip_entries(&spelled("tab-group", "radio-button")).len(),
+            2
+        );
+        assert_eq!(
+            tab_strip_entries(&spelled("AXTabGroup", "AXRadioButton")).len(),
+            2
+        );
+        // UIA's own `Tab` / `TabItem` control types, and hyphenated
+        // AT-SPI, stay strips as well.
+        assert_eq!(tab_strip_entries(&spelled("Tab", "Tab Item")).len(), 2);
+        assert_eq!(
+            tab_strip_entries(&spelled("page-tab-list", "page-tab")).len(),
+            2
+        );
+        // A non-strip container is still not a strip.
+        assert!(tab_strip_entries(&spelled("group", "radio button")).is_empty());
     }
 
     #[test]

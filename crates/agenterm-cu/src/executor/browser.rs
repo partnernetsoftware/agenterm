@@ -44,6 +44,45 @@ pub(super) const UNLOCK_REREADS: usize = 5;
 pub(super) const UNLOCK_REREAD_INTERVAL: std::time::Duration =
     std::time::Duration::from_millis(200);
 
+/// What `unlock` actually did on this host, for the reply's `poke` field.
+///
+/// macOS sets `AXManualAccessibility`; Linux flips the desktop-wide
+/// `org.a11y.Status` flags (`IsEnabled` + `ScreenReaderEnabled` on the
+/// session-bus name `org.a11y.Bus`) that a Chromium-family browser watches
+/// before it builds a renderer tree; Windows has no separate poke, because
+/// a Chromium process turns accessibility on when it answers `WM_GETOBJECT`
+/// for its window and the UIA tree walk sends that itself.
+pub(super) fn unlock_poke_description() -> &'static str {
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "other"
+    };
+    poke_description_for(os)
+}
+
+/// The `poke` sentence for one OS name. Split out of
+/// [`unlock_poke_description`] so every host's wording is checkable from
+/// any host: `cfg!` alone would hide two thirds of it from the test run.
+fn poke_description_for(os: &str) -> &'static str {
+    match os {
+        "macos" => {
+            "AXManualAccessibility + AXEnhancedUserInterface on the application, AXManualAccessibility on the window, then a renderer wake (hit-test + children reads)"
+        }
+        "linux" => {
+            "org.a11y.Status IsEnabled + ScreenReaderEnabled on the session-bus name org.a11y.Bus (the desktop-wide switch a Chromium renderer watches before it builds a web tree), then a re-read"
+        }
+        "windows" => {
+            "no separate poke on Windows: a Chromium process enables accessibility when it answers WM_GETOBJECT for its window, which the UIA tree walk itself sends, so the walk is the poke"
+        }
+        _ => "no accessibility poke is mapped on this OS",
+    }
+}
+
 pub(super) fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
@@ -105,7 +144,12 @@ pub(super) fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError
         "web_nodes_before": web_before,
         "web_nodes_after": web_after,
         "rereads": rereads,
-        "poke": "AXManualAccessibility + AXEnhancedUserInterface on the application, AXManualAccessibility on the window, then a renderer wake (hit-test + children reads)",
+        // The mechanism differs per host, so the reply must not describe
+        // the macOS one everywhere: Linux flips the `org.a11y.Status`
+        // session-bus switch a Chromium browser watches, and Windows has
+        // no separate poke at all because the UIA walk itself sends
+        // WM_GETOBJECT, which is what turns Chromium accessibility on.
+        "poke": unlock_poke_description(),
         "next_actions": observe::empty_chrome_next_actions(ax, &app),
         "window": window,
         "visited": after.visited,
@@ -873,13 +917,14 @@ pub(super) const TAB_CLOSE_READBACK: Duration = Duration::from_millis(2_500);
 
 pub(super) const TAB_CLOSE_READBACK_POLL: Duration = Duration::from_millis(50);
 
-/// The three-part gate for `tab close`: `--window H --title T --exact`
-/// (target), the strip snapshot the receipt always carries, and
-/// `--expect gone` (postcondition). Every missing part is named in one
-/// refusal; nothing is read before it passes.
+/// The three-part gate for `tab close`: a target (`--window H` plus
+/// `--title T --exact` or `--index N`), the strip snapshot the receipt
+/// always carries, and `--expect gone` (postcondition). Every missing
+/// part is named in one refusal; nothing is read before it passes.
 pub(super) fn tab_close_gate(
     window: isize,
     title: Option<&str>,
+    index: Option<usize>,
     exact: bool,
     expect: Option<&str>,
 ) -> Result<(), CuError> {
@@ -887,18 +932,24 @@ pub(super) fn tab_close_gate(
         Some("gone") | None => {}
         Some(other) => {
             return Err(invalid_input(format!(
-                "tab close --expect accepts only 'gone' (the tab title is read back as absent from the strip), got {other:?}"
+                "tab close --expect accepts only 'gone' (one fewer strip row with the tab's title is read back), got {other:?}"
             )));
         }
+    }
+    let has_title = title.is_some_and(|title| !title.trim().is_empty());
+    if has_title && index.is_some() {
+        return Err(invalid_input(
+            "tab close takes --title T --exact or --index N, not both".into(),
+        ));
     }
     let mut missing = Vec::new();
     if window == 0 {
         missing.push("target");
     }
-    if title.is_none_or(|title| title.trim().is_empty()) {
-        missing.push("title");
+    if !has_title && index.is_none() {
+        missing.push("selector");
     }
-    if !exact {
+    if has_title && !exact {
         missing.push("exact");
     }
     if expect.is_none() {
@@ -909,15 +960,16 @@ pub(super) fn tab_close_gate(
     }
     Err(CuError::new(
         "refused",
-        "tab close is destructive: it needs an exact tab (--window HANDLE --title T --exact) and a \
-         checkable postcondition (--expect gone); the strip snapshot is written to the receipt \
-         before the press; nothing was performed",
+        "tab close is destructive: it needs an exact tab (--window HANDLE with --title T --exact or \
+         --index N) and a checkable postcondition (--expect gone); the strip snapshot is written to \
+         the receipt before the press; nothing was performed",
     )
     .with_detail(serde_json::json!({
         "reason": "destructive_gate",
         "missing": missing,
         "required": {
-            "target": "--window HANDLE --title T --exact",
+            "target": "--window HANDLE",
+            "selector": "--title T --exact | --index N",
             "snapshot": "tab strip rows (always written to the receipt)",
             "postcondition": "--expect gone",
         },
@@ -943,15 +995,163 @@ pub(super) fn tab_close_button<'a>(
     })
 }
 
+/// What the a11y close path has to do for one strip entry, decided from
+/// one tree read: press the row's button directly, or -- a background tab
+/// with no button -- select the row first (in the window; nothing is
+/// raised), close, and press the previously selected row again.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct TabClosePlan {
+    pub target_id: String,
+    pub target_index: usize,
+    pub target_selected: bool,
+    pub button_id: Option<String>,
+    /// `(index, title)` of the selected row when it is not the target.
+    pub previously_selected: Option<(usize, String)>,
+    pub select_first: bool,
+}
+
+impl TabClosePlan {
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "button": self.button_id,
+            "select_first": self.select_first,
+            "restore_to": self.previously_selected.as_ref().map(|(index, title)| {
+                serde_json::json!({ "index": index, "title": title })
+            }),
+        })
+    }
+}
+
+pub(super) fn tab_close_plan(
+    tree: &mechanism::A11yTree,
+    entries: &[crate::tab_strip::TabEntry<'_>],
+    hit: &crate::tab_strip::TabEntry<'_>,
+) -> TabClosePlan {
+    let button_id = tab_close_button(tree, &hit.node.id).map(|node| node.id.clone());
+    let target_selected = hit.selected() == observe::Tri::True;
+    let previously_selected = entries
+        .iter()
+        .find(|entry| entry.index != hit.index && entry.selected() == observe::Tri::True)
+        .map(|entry| (entry.index, entry.title().to_owned()));
+    TabClosePlan {
+        target_id: hit.node.id.clone(),
+        target_index: hit.index,
+        target_selected,
+        select_first: button_id.is_none() && !target_selected,
+        button_id,
+        previously_selected,
+    }
+}
+
+/// The strip row (after the close) that the previously selected tab
+/// became: the row at its shifted index when the title still agrees, else
+/// the one row carrying that title. `None` when it cannot be told.
+pub(super) fn restore_row<'a>(
+    rows_after: &'a [serde_json::Value],
+    previously_selected: &(usize, String),
+    closed_index: usize,
+) -> Option<&'a serde_json::Value> {
+    let (index, title) = previously_selected;
+    let expected = crate::tab_strip::index_after_close(*index, closed_index)?;
+    if let Some(row) = rows_after
+        .iter()
+        .find(|row| row["index"] == expected && row["title"] == title.as_str())
+    {
+        return Some(row);
+    }
+    let titled: Vec<&serde_json::Value> = rows_after
+        .iter()
+        .filter(|row| row["title"] == title.as_str())
+        .collect();
+    match titled.as_slice() {
+        [one] => Some(one),
+        _ => None,
+    }
+}
+
+/// How many rows of `rows` carry `title`.
+fn titled_rows(rows: &[serde_json::Value], title: &str) -> usize {
+    rows.iter().filter(|row| row["title"] == title).count()
+}
+
+/// How long `tab close` waits for a background tab to become the selected
+/// one (and grow its close button) after pressing its row.
+pub(super) const TAB_CLOSE_SELECT_WAIT: Duration = Duration::from_millis(1_500);
+
+struct CloseReadback {
+    present: bool,
+    window_present: bool,
+    rows_after: Vec<serde_json::Value>,
+    polls: usize,
+    error: Option<CuError>,
+}
+
+/// Poll the strip after the close until `title` appears `expected` times
+/// (one fewer than before), the window is gone, or the budget runs out.
+fn tab_close_readback(
+    window: isize,
+    title: &str,
+    expected: usize,
+    rows_before: &[serde_json::Value],
+    started: Instant,
+    stop_early: bool,
+) -> CloseReadback {
+    let mut out = CloseReadback {
+        present: true,
+        window_present: true,
+        rows_after: rows_before.to_vec(),
+        polls: 0,
+        error: None,
+    };
+    while started.elapsed() < TAB_CLOSE_READBACK {
+        out.polls += 1;
+        match mechanism::window_enumerate::enumerate_top_level() {
+            Ok(now) if !now.iter().any(|item| item.handle == window) => {
+                out.window_present = false;
+                out.present = false;
+                out.rows_after = Vec::new();
+            }
+            Ok(_) => match mechanism::tree_for_window(Some(window)) {
+                Ok(after) => {
+                    out.rows_after = tab_rows(&after);
+                    out.present = titled_rows(&out.rows_after, title) > expected;
+                }
+                Err(error) => {
+                    out.error = Some(map_mechanism_err(error));
+                    break;
+                }
+            },
+            Err(error) => {
+                out.error = Some(map_mechanism_err(error));
+                break;
+            }
+        }
+        if !out.present || stop_early {
+            break;
+        }
+        thread::sleep(TAB_CLOSE_READBACK_POLL);
+    }
+    out
+}
+
+/// One row press plus a bounded re-read; `Ok(tree)` is the tree after
+/// the press (the caller judges it).
+fn press_row(window: isize, node_id: &str) -> Result<(), CuError> {
+    mechanism::perform_node_action(Some(window), node_id, mechanism::NodeAction::Press)
+        .map_err(map_mechanism_err)
+}
+
 pub(super) fn tab_close_payload(
     window: isize,
     title: Option<&str>,
+    index: Option<usize>,
     exact: bool,
     expect: Option<&str>,
+    port: Option<u16>,
     receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
-    tab_close_gate(window, title, exact, expect)?;
-    let title = title.unwrap_or_default();
+    tab_close_gate(window, title, index, exact, expect)?;
+    let spec = crate::tab_strip::TabCloseSpec::from_parts(title, index).map_err(invalid_input)?;
     let not_performed = |error: CuError| {
         let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
         detail["effect"] = serde_json::json!("not_performed");
@@ -965,122 +1165,343 @@ pub(super) fn tab_close_payload(
         .iter()
         .map(crate::tab_strip::TabEntry::json)
         .collect();
-    if entries.is_empty() {
-        return Err(not_performed(tab_match_error(
-            crate::tab_strip::TabMatchError::NotFound {
-                reason: "no_tab_strip",
-                message: "the window tree has no tab strip (no tab-group / radio-button rows)"
-                    .into(),
-            },
-            &rows_before,
-        )));
-    }
-    // Exact, case-sensitive title equality: the gate asked for --exact.
-    let hits: Vec<&crate::tab_strip::TabEntry<'_>> = entries
-        .iter()
-        .filter(|entry| entry.title() == title)
-        .collect();
-    let hit = match hits.as_slice() {
-        [one] => *one,
-        [] => {
-            return Err(not_performed(tab_match_error(
-                crate::tab_strip::TabMatchError::NotFound {
-                    reason: "no_match",
-                    message: format!(
-                        "no tab title equals {title:?}; {} tab(s) in the strip",
-                        entries.len()
-                    ),
-                },
-                &rows_before,
-            )));
-        }
-        many => {
-            return Err(not_performed(tab_match_error(
-                crate::tab_strip::TabMatchError::Ambiguous {
-                    count: many.len(),
-                    message: format!(
-                        "{} tab titles equal {title:?}; refusing to guess",
-                        many.len()
-                    ),
-                },
-                &rows_before,
-            )));
-        }
-    };
+    let hit = crate::tab_strip::match_tab_exact(&entries, &spec)
+        .map_err(|error| not_performed(tab_match_error(error, &rows_before)))?;
     let tab_json = hit.json();
-    let Some(button) = tab_close_button(&before, &hit.node.id) else {
+    let title = hit.title().to_owned();
+    let plan = tab_close_plan(&before, &entries, hit);
+    let expected_titled = titled_rows(&rows_before, &title).saturating_sub(1);
+    let snapshot = serde_json::json!({ "tabs": rows_before.len(), "nodes": before.returned });
+
+    // CDP first when a port is named: the tab is closed by the browser
+    // itself, no row is pressed and no selection moves -- but only when
+    // the title names exactly one page target of the whole instance (one
+    // port serves every profile); otherwise the a11y path below.
+    let mut cdp_fallback = None;
+    let mut cdp_target: Option<crate::cdp::PageTarget> = None;
+    if let Some(port) = port {
+        match crate::cdp::targets::list_targets(port) {
+            Ok(targets) => {
+                let titled = crate::cdp::targets::page_targets_titled(&targets, &title);
+                match titled.as_slice() {
+                    [one] => cdp_target = Some((*one).clone()),
+                    [] => {
+                        cdp_fallback = Some(serde_json::json!({
+                            "reason": "title_not_listed",
+                            "port": port,
+                            "matched": 0,
+                        }));
+                    }
+                    many => {
+                        cdp_fallback = Some(serde_json::json!({
+                            "reason": "title_not_unique",
+                            "port": port,
+                            "matched": many.len(),
+                            "candidates": many.iter().map(|t| t.identity_json()).collect::<Vec<_>>(),
+                        }));
+                    }
+                }
+            }
+            Err(error) => {
+                cdp_fallback = Some(serde_json::json!({
+                    "reason": if error.code == "unsupported" { "no_listener" } else { error.code },
+                    "port": port,
+                    "message": error.message,
+                }));
+            }
+        }
+    }
+
+    if let Some(target) = cdp_target {
+        let port = port.unwrap_or(crate::cdp::DEFAULT_PORT);
+        let ticket = receipts.reserve(
+            "tab-close",
+            window,
+            serde_json::json!({
+                "action": "Target.closeTarget",
+                "via": "cdp-close-target",
+                "tab": tab_json,
+                "target": target.identity_json(),
+                "port": port,
+                "postcondition": "gone",
+                "before": rows_before,
+                "snapshot": snapshot,
+            }),
+        )?;
+        let started = Instant::now();
+        let closed: Result<bool, CuError> = crate::cdp::targets::browser_ws_url(port)
+            .and_then(|url| crate::cdp::ws::connect(&url))
+            .and_then(|mut session| crate::cdp::targets::close_target(&mut session, &target.id))
+            .map_err(CuError::from);
+        let mechanism_error = match closed {
+            Ok(true) => None,
+            Ok(false) => Some(CuError::new(
+                "cdp_method_failed",
+                "Target.closeTarget answered success: false",
+            )),
+            Err(error) => Some(error),
+        };
+        let readback = tab_close_readback(
+            window,
+            &title,
+            expected_titled,
+            &rows_before,
+            started,
+            mechanism_error.is_some(),
+        );
+        let selection_restored = plan.previously_selected.as_ref().map(|previous| {
+            restore_row(&readback.rows_after, previous, plan.target_index)
+                .is_some_and(|row| row["selected"] == true)
+        });
+        return finish_tab_close(
+            window,
+            &before,
+            tab_json,
+            serde_json::json!({
+                "via": "cdp-close-target",
+                "action": "Target.closeTarget",
+                "node": serde_json::Value::Null,
+                "cdp": { "port": port, "target": target.identity_json(), "matched": 1 },
+                "select_first": false,
+                "selected_before": plan.previously_selected.as_ref().map(|(index, _)| index),
+                "selection_restored": selection_restored,
+            }),
+            rows_before,
+            readback,
+            mechanism_error,
+            ticket,
+            receipts,
+            &title,
+        );
+    }
+
+    // The a11y path: the row's own close button, after selecting a
+    // background row when Chromium shows the button on the selected tab
+    // only. Selecting a row switches the tab inside its window and never
+    // brings the window forward.
+    if plan.button_id.is_none() && !plan.select_first {
         return Err(CuError::new(
             "unsupported",
             format!(
-                "tab {} ({:?}) exposes no close button in the accessibility tree; a keyboard shortcut is never substituted",
+                "tab {} ({:?}) is selected but exposes no close button in the accessibility tree; a keyboard shortcut is never substituted",
                 hit.index,
-                hit.title()
+                title
             ),
         )
         .with_detail(serde_json::json!({
             "reason": "tab_close_button_missing",
             "tab": tab_json,
-            "hint": "macOS Chromium exposes the close button on the active tab only: `tab select` it first, then `tab close`",
+            "cdp_fallback": cdp_fallback,
             "effect": "not_performed",
         })));
-    };
-    let button = button.clone();
+    }
     let ticket = receipts.reserve(
         "tab-close",
         window,
         serde_json::json!({
             "action": "press",
+            "via": "tab-close",
             "tab": tab_json,
-            "node": observe::node_state_json(&button),
+            "plan": plan.json(),
+            "cdp_fallback": cdp_fallback,
             "postcondition": "gone",
             "before": rows_before,
-            "snapshot": { "tabs": rows_before.len(), "nodes": before.returned },
+            "snapshot": snapshot,
         }),
     )?;
     let started = Instant::now();
-    let mechanism_error =
-        mechanism::perform_node_action(Some(window), &button.id, mechanism::NodeAction::Press)
-            .err()
-            .map(map_mechanism_err);
-    // Postcondition: no strip row carries the title any more. A window
-    // that closed with its last tab is gone too, which the reply says.
-    let mut polls = 0usize;
-    let mut present = true;
-    let mut window_present = true;
-    let mut rows_after: Vec<serde_json::Value> = rows_before.clone();
-    let mut readback_error = None;
-    while started.elapsed() < TAB_CLOSE_READBACK {
-        polls += 1;
-        match mechanism::window_enumerate::enumerate_top_level() {
-            Ok(now) if !now.iter().any(|item| item.handle == window) => {
-                window_present = false;
-                present = false;
-                rows_after = Vec::new();
-            }
-            Ok(_) => match mechanism::tree_for_window(Some(window)) {
-                Ok(after) => {
-                    let after_entries = crate::tab_strip::tab_strip_entries(&after);
-                    present = after_entries.iter().any(|entry| entry.title() == title);
-                    rows_after = after_entries
-                        .iter()
-                        .map(crate::tab_strip::TabEntry::json)
-                        .collect();
+    let mut select_step = serde_json::Value::Null;
+    let mut button_id = plan.button_id.clone();
+    let mut mechanism_error = None;
+    if plan.select_first {
+        let mut polls = 0usize;
+        let mut selected = false;
+        match press_row(window, &plan.target_id) {
+            Ok(()) => {
+                let select_started = Instant::now();
+                loop {
+                    polls += 1;
+                    match mechanism::tree_for_window(Some(window)) {
+                        Ok(now) => {
+                            selected =
+                                observe::node_by_id(&now, &plan.target_id).is_some_and(|node| {
+                                    observe::selected_state(node) == observe::Tri::True
+                                });
+                            button_id =
+                                tab_close_button(&now, &plan.target_id).map(|node| node.id.clone());
+                        }
+                        Err(error) => {
+                            mechanism_error = Some(map_mechanism_err(error));
+                            break;
+                        }
+                    }
+                    if button_id.is_some() || select_started.elapsed() >= TAB_CLOSE_SELECT_WAIT {
+                        break;
+                    }
+                    thread::sleep(TAB_CLOSE_READBACK_POLL);
                 }
-                Err(error) => {
-                    readback_error = Some(map_mechanism_err(error));
-                    break;
-                }
-            },
-            Err(error) => {
-                readback_error = Some(map_mechanism_err(error));
-                break;
             }
+            Err(error) => mechanism_error = Some(error),
         }
-        if !present || mechanism_error.is_some() {
-            break;
+        select_step = serde_json::json!({
+            "performed": true,
+            "selected": selected,
+            "button_found": button_id.is_some(),
+            "polls": polls,
+        });
+        if mechanism_error.is_none() && button_id.is_none() {
+            // The row took the selection but grew no button: put the
+            // selection back and refuse, performed nothing destructive.
+            let restored = plan.previously_selected.as_ref().and_then(|(_, _)| {
+                entries
+                    .iter()
+                    .find(|entry| entry.selected() == observe::Tri::True)
+                    .map(|entry| entry.node.id.clone())
+            });
+            let mut selection_restored = None;
+            if let Some(previous_id) = restored {
+                selection_restored = Some(
+                    press_row(window, &previous_id).is_ok()
+                        && mechanism::tree_for_window(Some(window)).is_ok_and(|now| {
+                            observe::node_by_id(&now, &previous_id).is_some_and(|node| {
+                                observe::selected_state(node) == observe::Tri::True
+                            })
+                        }),
+                );
+            }
+            let payload = serde_json::json!({
+                "tab": tab_json,
+                "select_first": select_step,
+                "selection_restored": selection_restored,
+                "receipt": ticket.json(),
+            });
+            receipts.complete(
+                &ticket,
+                "tab-close",
+                window,
+                false,
+                serde_json::json!({
+                    "performed": false,
+                    "select_first": payload["select_first"],
+                    "selection_restored": selection_restored,
+                    "verification": { "method": "tab-strip-readback", "reason": "tab_close_button_missing" },
+                }),
+            )?;
+            return Err(CuError::new(
+                "unsupported",
+                format!(
+                    "tab {} ({:?}) was selected but still exposes no close button; a keyboard shortcut is never substituted",
+                    hit.index, title
+                ),
+            )
+            .with_detail(serde_json::json!({
+                "reason": "tab_close_button_missing",
+                "effect": "not_performed",
+                "receipt": payload,
+            })));
         }
-        thread::sleep(TAB_CLOSE_READBACK_POLL);
     }
+    let button_id = button_id.unwrap_or_default();
+    if mechanism_error.is_none()
+        && let Err(error) = press_row(window, &button_id)
+    {
+        mechanism_error = Some(error);
+    }
+    let mut readback = tab_close_readback(
+        window,
+        &title,
+        expected_titled,
+        &rows_before,
+        started,
+        mechanism_error.is_some(),
+    );
+    // Restore: the row that was selected before is pressed again when the
+    // close moved the selection off it (Chromium selects a neighbour of
+    // the closed tab when the closed one was selected).
+    let mut restore_step = serde_json::Value::Null;
+    let mut selection_restored = None;
+    if let Some(previous) = plan.previously_selected.as_ref()
+        && readback.window_present
+        && mechanism_error.is_none()
+        && readback.error.is_none()
+    {
+        match restore_row(&readback.rows_after, previous, plan.target_index) {
+            Some(row) if row["selected"] == true => {
+                selection_restored = Some(true);
+                restore_step = serde_json::json!({ "performed": false, "already_selected": true });
+            }
+            Some(row) => {
+                let row_id = row["id"].as_str().unwrap_or_default().to_owned();
+                let pressed = press_row(window, &row_id);
+                let verified = pressed.is_ok()
+                    && match mechanism::tree_for_window(Some(window)) {
+                        Ok(now) => {
+                            readback.rows_after = tab_rows(&now);
+                            observe::node_by_id(&now, &row_id).is_some_and(|node| {
+                                observe::selected_state(node) == observe::Tri::True
+                            })
+                        }
+                        Err(_) => false,
+                    };
+                selection_restored = Some(verified);
+                restore_step = serde_json::json!({
+                    "performed": true,
+                    "row": row_id,
+                    "verified": verified,
+                    "error": pressed.err().as_ref().map(error_payload),
+                });
+            }
+            None => {
+                selection_restored = Some(false);
+                restore_step =
+                    serde_json::json!({ "performed": false, "reason": "previous_tab_not_found" });
+            }
+        }
+    }
+    finish_tab_close(
+        window,
+        &before,
+        tab_json,
+        serde_json::json!({
+            "via": "tab-close",
+            "action": "press",
+            "node": button_id,
+            "cdp_fallback": cdp_fallback,
+            "select_first": if plan.select_first { select_step } else { serde_json::json!(false) },
+            "selected_before": plan.previously_selected.as_ref().map(|(index, _)| index),
+            "restore": restore_step,
+            "selection_restored": selection_restored,
+        }),
+        rows_before,
+        readback,
+        mechanism_error,
+        ticket,
+        receipts,
+        &title,
+    )
+}
+
+/// Complete the receipt and shape the reply / error of either close path.
+#[allow(clippy::too_many_arguments)]
+fn finish_tab_close(
+    window: isize,
+    before: &mechanism::A11yTree,
+    tab_json: serde_json::Value,
+    extra: serde_json::Value,
+    rows_before: Vec<serde_json::Value>,
+    readback: CloseReadback,
+    mechanism_error: Option<CuError>,
+    ticket: receipt::ReceiptTicket,
+    receipts: &mut ReceiptLog,
+    title: &str,
+) -> Result<serde_json::Value, CuError> {
+    let CloseReadback {
+        present,
+        window_present,
+        rows_after,
+        polls,
+        error: readback_error,
+    } = readback;
     let verified = !present && mechanism_error.is_none() && readback_error.is_none();
     let reason = if mechanism_error.is_some() {
         Some("mechanism_failed")
@@ -1095,7 +1516,6 @@ pub(super) fn tab_close_payload(
         "method": "tab-strip-readback",
         "reason": reason,
         "polls": polls,
-        "elapsed_ms": started.elapsed().as_millis() as u64,
     });
     let after = serde_json::json!({
         "present": present,
@@ -1111,26 +1531,30 @@ pub(super) fn tab_close_payload(
             "performed": mechanism_error.is_none(),
             "after": after,
             "verification": verification,
+            "selection_restored": extra["selection_restored"],
             "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
         }),
     )?;
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
         "backend": before.backend,
         "window": window,
         "tab": tab_json,
-        "node": observe::node_state_json(&button),
-        "action": "press",
-        "via": "tab-close",
         "postcondition": "gone",
         "performed": mechanism_error.is_none(),
         "verified": verified,
         "verification": verification,
+        "focus_changed": false,
         "before": rows_before,
         "after": after,
         "receipt": ticket.json(),
     });
+    if let (Some(object), Some(more)) = (payload.as_object_mut(), extra.as_object()) {
+        for (key, value) in more {
+            object.insert(key.clone(), value.clone());
+        }
+    }
     if let Some(error) = mechanism_error.or(readback_error) {
         return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
     }
@@ -1138,7 +1562,8 @@ pub(super) fn tab_close_payload(
         return Err(CuError::new(
             "unverified",
             format!(
-                "the close button of tab {title:?} was pressed but the strip still lists it after {polls} polls"
+                "tab {title:?} was closed ({}) but the strip still lists it after {polls} polls",
+                payload["via"].as_str().unwrap_or("tab-close")
             ),
         )
         .with_detail(serde_json::json!({ "reason": "tab_still_present", "receipt": payload })));
@@ -1228,6 +1653,35 @@ pub(super) fn browser_chrome_refusal(verb: &str, node: &mechanism::A11yNode) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `poke` field is what the caller reads to know what was done to
+    /// their browser. It used to be the macOS sentence on every host, so a
+    /// Linux reply named an attribute Linux has no notion of and a Windows
+    /// reply claimed a poke that never happens there.
+    #[test]
+    fn unlock_poke_names_each_hosts_own_mechanism() {
+        let macos = poke_description_for("macos");
+        assert!(macos.contains("AXManualAccessibility"), "{macos}");
+        let linux = poke_description_for("linux");
+        assert!(linux.contains("org.a11y.Status"), "{linux}");
+        assert!(linux.contains("ScreenReaderEnabled"), "{linux}");
+        assert!(linux.contains("org.a11y.Bus"), "{linux}");
+        let windows = poke_description_for("windows");
+        assert!(windows.contains("WM_GETOBJECT"), "{windows}");
+        assert!(windows.contains("no separate poke"), "{windows}");
+        // No host may be told it got the macOS attribute set on it.
+        for poke in [linux, windows, poke_description_for("other")] {
+            assert!(
+                !poke.contains("AXManualAccessibility"),
+                "the macOS attribute must not be claimed off macOS: {poke}"
+            );
+        }
+        // The live reply uses the running host's wording.
+        assert_eq!(
+            unlock_poke_description(),
+            poke_description_for(crate::mcu_surface::host_os()),
+        );
+    }
 
     #[test]
     fn spaces_and_page_js_are_mapped_verbs() {
@@ -1653,8 +2107,10 @@ mod tests {
             target: TargetRef::Current,
             window: 0,
             title: None,
+            index: None,
             exact: false,
             expect: None,
+            port: None,
         });
         assert!(!bare.ok);
         assert_eq!(bare.command, "tab-close");
@@ -1664,24 +2120,36 @@ mod tests {
         assert_eq!(detail["reason"], "destructive_gate");
         assert_eq!(
             detail["missing"],
-            serde_json::json!(["target", "title", "exact", "postcondition"])
+            serde_json::json!(["target", "selector", "postcondition"])
         );
         assert_eq!(detail["effect"], "not_performed");
-        let inexact = tab_close_gate(7, Some("x"), false, Some("gone")).unwrap_err();
+        let inexact = tab_close_gate(7, Some("x"), None, false, Some("gone")).unwrap_err();
         assert_eq!(
             inexact.detail.unwrap()["missing"],
             serde_json::json!(["exact"])
         );
-        let wrong = tab_close_gate(7, Some("x"), true, Some("closed")).unwrap_err();
+        let wrong = tab_close_gate(7, Some("x"), None, true, Some("closed")).unwrap_err();
         assert_eq!(wrong.code, "invalid_input");
-        assert!(tab_close_gate(7, Some("x"), true, Some("gone")).is_ok());
+        assert!(tab_close_gate(7, Some("x"), None, true, Some("gone")).is_ok());
+        // --index is the exact selector on its own: no --exact needed.
+        assert!(tab_close_gate(7, None, Some(2), false, Some("gone")).is_ok());
+        let both = tab_close_gate(7, Some("x"), Some(2), true, Some("gone")).unwrap_err();
+        assert_eq!(both.code, "invalid_input");
+        assert!(both.message.contains("not both"), "{}", both.message);
+        let no_post = tab_close_gate(7, None, Some(2), false, None).unwrap_err();
+        assert_eq!(
+            no_post.detail.unwrap()["missing"],
+            serde_json::json!(["postcondition"])
+        );
         // Observe-only authorization never reaches the strip.
         let denied = observe_executor().execute(&Command::TabClose {
             target: TargetRef::Current,
             window: 7,
             title: Some("x".into()),
+            index: None,
             exact: true,
             expect: Some("gone".into()),
+            port: None,
         });
         assert!(!denied.ok);
         // A grant denial is also `refused`, but never the destructive gate.
@@ -1717,6 +2185,110 @@ mod tests {
         let mut inert = tree.clone();
         inert.nodes[2].actions.clear();
         assert!(tab_close_button(&inert, "/0/1/0/1").is_none());
+    }
+
+    /// A Chromium strip: `Inbox` (0), `Codex` (1, selected, with its close
+    /// button), `Notes` (2), `Codex` (3) -- a background duplicate.
+    fn chromium_strip() -> mechanism::A11yTree {
+        let mut strip = node_at("/0/1", "", "AXTabGroup", &["showing"]);
+        strip.parent_id = Some("/0".into());
+        let row = |id: &str, title: &str, selected: bool| {
+            let mut row = node_at(
+                id,
+                title,
+                "AXRadioButton",
+                &["showing", if selected { "selected" } else { "unselected" }],
+            );
+            row.parent_id = Some("/0/1".into());
+            row.actions = vec!["click".into()];
+            row
+        };
+        let mut close = node_at("/0/1/1/0", "关闭", "AXButton", &["showing"]);
+        close.parent_id = Some("/0/1/1".into());
+        close.actions = vec!["click".into()];
+        tree_of(vec![
+            node_at("/0", "Codex", "AXWindow", &["showing"]),
+            strip,
+            row("/0/1/0", "Inbox", false),
+            row("/0/1/1", "Codex", true),
+            close,
+            row("/0/1/2", "Notes", false),
+            row("/0/1/3", "Codex", false),
+        ])
+    }
+
+    #[test]
+    fn tab_close_plan_selects_a_background_row_first_and_remembers_the_selection() {
+        let tree = chromium_strip();
+        let entries = crate::tab_strip::tab_strip_entries(&tree);
+        assert_eq!(entries.len(), 4);
+        // The selected row has its button: press it, nothing to restore
+        // (the selection was on the closed tab itself).
+        let selected = tab_close_plan(&tree, &entries, &entries[1]);
+        assert_eq!(selected.button_id.as_deref(), Some("/0/1/1/0"));
+        assert!(!selected.select_first);
+        assert!(selected.target_selected);
+        assert_eq!(selected.previously_selected, None);
+        // A background row: no button, so select it first and come back
+        // to `Codex` at index 1 afterwards.
+        let background = tab_close_plan(&tree, &entries, &entries[2]);
+        assert_eq!(background.button_id, None);
+        assert!(background.select_first);
+        assert!(!background.target_selected);
+        assert_eq!(
+            background.previously_selected,
+            Some((1, "Codex".to_owned()))
+        );
+        assert_eq!(background.json()["restore_to"]["index"], 1);
+        // Same-title duplicates are only reachable by index: the plan is
+        // for row 3, not row 1.
+        let by_index =
+            crate::tab_strip::match_tab_exact(&entries, &crate::tab_strip::TabCloseSpec::Index(3))
+                .expect("fourth");
+        let duplicate = tab_close_plan(&tree, &entries, by_index);
+        assert_eq!(duplicate.target_id, "/0/1/3");
+        assert!(duplicate.select_first);
+        assert!(matches!(
+            crate::tab_strip::match_tab_exact(
+                &entries,
+                &crate::tab_strip::TabCloseSpec::Title("Codex".into()),
+            ),
+            Err(crate::tab_strip::TabMatchError::Ambiguous { count: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn restore_row_follows_the_shifted_index_then_the_unique_title() {
+        let rows = |titles: &[(&str, bool)]| -> Vec<serde_json::Value> {
+            titles
+                .iter()
+                .enumerate()
+                .map(|(index, (title, selected))| {
+                    serde_json::json!({
+                        "index": index, "id": format!("/0/1/{index}"),
+                        "title": title, "selected": selected,
+                    })
+                })
+                .collect()
+        };
+        // Closed index 2 (`Notes`): `Codex` at 1 stays at 1.
+        let after = rows(&[("Inbox", false), ("Codex", false), ("Codex", true)]);
+        let previous = (1usize, "Codex".to_owned());
+        let row = restore_row(&after, &previous, 2).expect("row");
+        assert_eq!(row["index"], 1);
+        assert_eq!(row["selected"], false);
+        // Closed index 0: the previously selected row shifts left by one.
+        let row = restore_row(&after, &(2usize, "Codex".to_owned()), 0).expect("shifted");
+        assert_eq!(row["index"], 1);
+        // Index disagrees on the title: the unique title decides.
+        let moved = rows(&[("Notes", false), ("Inbox", true)]);
+        let row = restore_row(&moved, &(0usize, "Inbox".to_owned()), 3).expect("by title");
+        assert_eq!(row["index"], 1);
+        // Neither the index nor a unique title: unknown.
+        let twice = rows(&[("Codex", false), ("Codex", false)]);
+        assert_eq!(restore_row(&twice, &(5usize, "Codex".to_owned()), 0), None);
+        // The previously selected tab was the closed one: nothing to restore.
+        assert_eq!(restore_row(&after, &(2usize, "Codex".to_owned()), 2), None);
     }
 
     #[test]

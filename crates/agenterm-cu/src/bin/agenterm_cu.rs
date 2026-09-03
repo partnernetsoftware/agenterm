@@ -499,6 +499,68 @@ mod tests {
         let err = close_bare.error.expect("refused");
         assert_eq!(err.code, "refused");
         assert_eq!(err.detail.expect("detail")["reason"], "destructive_gate");
+        // `--index N` is the exact selector for same-title duplicates and
+        // `--port N` names the CDP listener; both parse and reach the
+        // executor (window 7 is not a real handle).
+        let close_index = run(&[
+            "--target", "current", "--grant", "actuate", "tab", "close", "--window", "7",
+            "--index", "2", "--expect", "gone", "--port", "9222",
+        ]);
+        assert_eq!(close_index.command, "tab-close");
+        let err = close_index.error.expect("no such window");
+        assert_ne!(err.code, "usage");
+        assert_ne!(
+            err.detail.as_ref().and_then(|d| d["reason"].as_str()),
+            Some("destructive_gate")
+        );
+        let close_both = run(&[
+            "--target", "current", "--grant", "actuate", "tab", "close", "--window", "7",
+            "--title", "x", "--exact", "--index", "2", "--expect", "gone",
+        ]);
+        let err = close_both.error.expect("usage");
+        assert_eq!(err.code, "usage");
+        assert!(err.message.contains("not both"), "{}", err.message);
+        let close_bad_port = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "actuate",
+            "tab-close",
+            "--window",
+            "7",
+            "--index",
+            "2",
+            "--expect",
+            "gone",
+            "--port",
+            "x",
+        ]);
+        assert_eq!(close_bad_port.error.expect("usage").code, "usage");
+        // `focused-window` is `windows --focused true`; `--focused false`
+        // contradicts it.
+        let focused_window = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "observe",
+            "focused-window",
+        ]);
+        assert_eq!(focused_window.command, "windows");
+        if let Some(data) = focused_window.data.as_ref() {
+            assert_eq!(data["filter"]["focused"], true);
+            assert!(data.get("focused_app").is_some(), "{data}");
+            assert!(data.get("window").is_some(), "{data}");
+        }
+        let contradiction = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "observe",
+            "focused-window",
+            "--focused",
+            "false",
+        ]);
+        assert_eq!(contradiction.error.expect("usage").code, "usage");
         // `browser` group word and its two sub-commands.
         let no_browser_sub = run(&["--target", "current", "--grant", "observe", "browser"]);
         assert_eq!(no_browser_sub.error.expect("usage").code, "usage");

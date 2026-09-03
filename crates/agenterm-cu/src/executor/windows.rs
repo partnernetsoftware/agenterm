@@ -3,6 +3,8 @@
 
 use super::*;
 
+use crate::observe::FrontmostApp;
+
 /// Window inventory. The bare verb keeps its array reply; any filter or page
 /// field switches to the inventory object with counts. `browser_profile`
 /// is the one filter the plain `WindowFilter` cannot judge from the
@@ -16,7 +18,8 @@ pub(super) fn windows_payload(
     max: Option<usize>,
 ) -> Result<serde_json::Value, CuError> {
     let page = observe::Page::new(offset, max).map_err(invalid_input)?;
-    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let mut windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     // Stacking is an additional read, and a host without one is not an
     // error: the rows simply carry no z_index / occluded_percent, and the
     // envelope says why.
@@ -28,6 +31,7 @@ pub(super) fn windows_payload(
             (Vec::new(), Some(format!("{code}: {message}")))
         }
     };
+    let focus = resolve_inventory_focus(&mut windows, &stacking);
     let row_json = |window: &WindowInfo| {
         let mut row = observe::window_row_json_with_stacking(window, &stacking);
         if row
@@ -60,8 +64,9 @@ pub(super) fn windows_payload(
         .collect();
     let (hits, page_truncated) = page.apply(&matched);
     let rows = serde_json::Value::Array(hits.iter().copied().map(row_json).collect());
-    Ok(serde_json::json!({
+    let mut payload = serde_json::json!({
         "mechanism": "libagenterm",
+        "focus": focus.json(),
         "stacking": match &stacking_reason {
             None => serde_json::json!({ "status": "available", "order": "front-to-back" }),
             Some(reason) => serde_json::json!({ "status": "unsupported", "reason": reason }),
@@ -80,7 +85,70 @@ pub(super) fn windows_payload(
         "offset": page.offset,
         "truncated": page_truncated,
         "windows": rows,
-    }))
+    });
+    // `--focused true` is a question with one answer: the focused window,
+    // or an explicit "the frontmost app has no window here" -- never a
+    // bare empty list that reads as "nothing is focused".
+    if filter.focused == Some(true)
+        && let Some(object) = payload.as_object_mut()
+    {
+        let window = focus
+            .handle
+            .and_then(|handle| windows.iter().find(|window| window.handle == handle))
+            .map(row_json);
+        object.insert(
+            "focused_app".into(),
+            focus
+                .app
+                .as_ref()
+                .map(FrontmostApp::json)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        object.insert("window".into(), window.unwrap_or(serde_json::Value::Null));
+    }
+    Ok(payload)
+}
+
+/// Decide the inventory's focused window and write it into the rows.
+/// The mechanism's own mark is kept when it made one; otherwise the
+/// frontmost application (NSWorkspace on macOS) and its own focused
+/// window / topmost window decide (`observe::resolve_focus`).
+pub(super) fn resolve_inventory_focus(
+    windows: &mut [WindowInfo],
+    stacking: &[mechanism::window_enumerate::WindowStacking],
+) -> observe::FocusResolution {
+    // The frontmost app is always reported; its AX read is only needed
+    // when the mechanism left no mark.
+    let app = frontmost_app();
+    let already_marked = windows.iter().any(|window| window.focused);
+    let ax_window = if already_marked {
+        None
+    } else {
+        app.as_ref().and_then(|app| focused_window_of(app.pid))
+    };
+    let focus = observe::resolve_focus(windows, stacking, app, ax_window);
+    observe::apply_focus(windows, &focus);
+    focus
+}
+
+#[cfg(target_os = "macos")]
+fn frontmost_app() -> Option<FrontmostApp> {
+    crate::macos_focus::frontmost_app()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn frontmost_app() -> Option<FrontmostApp> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn focused_window_of(pid: u32) -> Option<isize> {
+    crate::macos_focus::focused_window_of(pid)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn focused_window_of(_pid: u32) -> Option<isize> {
+    None
 }
 
 /// The Chromium profile name a browser window belongs to: parsed from the
@@ -111,7 +179,12 @@ pub(super) fn ax_root_browser_profile(window: &WindowInfo) -> Option<String> {
 }
 
 pub(super) fn filtered_windows(filter: &observe::WindowFilter) -> Result<Vec<WindowInfo>, CuError> {
-    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let mut windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    if filter.focused.is_some() {
+        let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+        resolve_inventory_focus(&mut windows, &stacking);
+    }
     Ok(windows
         .into_iter()
         .filter(|window| filter.matches(window))

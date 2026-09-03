@@ -351,12 +351,13 @@ group, with a typed reason for anything this host does not support.
     VerbSpec {
         name: "windows",
         command: "windows",
-        aliases: &[],
+        aliases: &["focused-window"],
         scope: Scope::Observe,
         family: Family::Windows,
         summary: "top-level window inventory, filtered and paged",
         usage: "windows [--pid N] [--app SUB] [--title SUB] [--focused [BOOL]] [--minimized [BOOL]]
-        [--browser-profile SUB] [--offset N] [--max N]",
+        [--browser-profile SUB] [--offset N] [--max N]
+focused-window                                      (= windows --focused true)",
         args: &[
             ArgSpec {
                 flag: "--pid",
@@ -376,7 +377,7 @@ group, with a typed reason for anything this host does not support.
             ArgSpec {
                 flag: "--focused",
                 value: "[BOOL]",
-                help: "only focused (true, default) or unfocused windows",
+                help: "only the focused window (true, default; reply adds focused_app + window) or unfocused windows",
             },
             ArgSpec {
                 flag: "--minimized",
@@ -391,9 +392,21 @@ group, with a typed reason for anything this host does not support.
 {windows, visited, matched, returned, offset, truncated}. Browser rows
 carry browser_profile (the Chromium profile name from the window's
 " - <App> - <profile>" identity suffix, read from the AX root when the
-inventory title lacks it); --browser-profile SUB keeps only those rows
+inventory title lacks it; the <App> segment is matched loosely against
+app_name, because only macOS reports a display name there -- Linux
+reports /proc/<pid>/comm and Windows the image name);
+--browser-profile SUB keeps only those rows
 (case-insensitive substring), so an agent can address one profile's
-window of a multi-profile instance."#,
+window of a multi-profile instance. Focus: the mechanism's own mark is
+kept when it made one; otherwise the frontmost application (NSWorkspace
+on macOS) decides -- its own AXFocusedWindow, else its topmost window in
+the stacking order -- because the system-wide accessibility focus read
+fails from a process outside the GUI front chain (tmux, SSH, an agent
+bridge). Every object reply carries focus: {handle, via, reason}; with
+--focused true (alias focused-window) it also carries focused_app
+{name, pid, bundle_id} and window (the row, or null with reason
+frontmost_app_has_no_inventory_window / no_frontmost_app), so a
+"front window unchanged" check never reads an empty list as "none"."#,
     },
     VerbSpec {
         name: "windows-watch",
@@ -509,15 +522,30 @@ needed. `launch PATH`, `quit`, `hide` and `show` are the MCU spellings of
         aliases: &[],
         scope: Scope::Observe,
         family: Family::Windows,
-        summary: "ask the app to build its full a11y tree (macOS)",
+        summary: "ask the app to build its full a11y tree",
         usage: "unlock --window HANDLE",
         args: &[WINDOW],
-        details: r#"Asks the owning application to build its full accessibility tree (macOS
-AXManualAccessibility), reading the bounded tree before and after. Reports
-poked (the request was delivered), grew and returned_before separately,
-because the poke's own status is not the outcome: AppKit calls the
-attribute unsupported even when it lands, so only the re-read can claim
-anything about the tree."#,
+        details: r#"Asks the owning application to build its full accessibility tree,
+reading the bounded tree before and after. The poke is per host and the
+reply's poke field names the one that ran: macOS sets AXManualAccessibility
+(plus AXEnhancedUserInterface on the application); Linux flips the
+desktop-wide org.a11y.Status switch (IsEnabled + ScreenReaderEnabled on the
+session-bus name org.a11y.Bus) that a Chromium renderer watches before it
+publishes a web tree; Windows has no separate poke to make, because a
+Chromium process turns accessibility on when it answers WM_GETOBJECT for
+its window and the UIA tree walk sends that itself -- there poked is false
+WITH a reason, which is not a failure.
+
+Reports poked (the request was delivered), grew and returned_before
+separately, because the poke's own status is not the outcome: AppKit calls
+the attribute unsupported even when it lands, and the Linux flags may
+already be set, so only the re-read can claim anything about the tree.
+
+Evidence: macOS is proven on a real Brave instance
+(scripts/cu-brave-live-smoke.sh). The Linux and Windows paths are
+code-complete but have no live run yet; scripts/cu-linux-smoke.sh and
+scripts/qjs/cu-windows-browser-smoke.qjs carry the journey and exit with a
+typed SKIP until a host with a Chromium-family browser runs them."#,
     },
     VerbSpec {
         name: "close",
@@ -1397,9 +1425,13 @@ which answered:
 backend ax / uia / at-spi2). On macOS Chromium only the active tab has a
 web-area there, so a background tab needs `tab select` first. Web
 static-text keeps its words in AXValue; a link / button is one row (its
-inner text merged). Then invoke --node / click --node. Walk budget
-defaults depth 64 / 6000 nodes because the platform's 1000-node
-breadth-first budget is spent on browser chrome before web content.
+inner text merged). A container role is never a row of its own even when
+the backend hands back its whole concatenated text (Windows UIA reports a
+Chromium web root as Document, whose TextPattern is the entire page): the
+rows are the nodes inside it, each with an id worth clicking. Then invoke
+--node / click --node. Walk budget defaults depth 64 / 6000 nodes because
+the platform's 1000-node breadth-first budget is spent on browser chrome
+before web content.
 
 --target-id | --target-url | --target-title [--port N] reads the CDP page
 target instead (backend "cdp", via Accessibility.getFullAXTree; fallback
@@ -1620,8 +1652,17 @@ focus_changed: true. Prefer page text / page find, which need no pixels."#,
 tab list --window HANDLE                            (MCU spelling)",
         args: &[WINDOW],
         details: r#"The browser tab strip through the a11y tree: index, title, selected per
-tab (macOS Chromium lists background tabs only as tab-group radio-buttons;
-their content is not in the tree)."#,
+tab. The strip is read on every backend, whatever it calls the roles:
+macOS AX tab-group / radio-button, AT-SPI2 and UIA both "page tab list" /
+"page tab" (roles are compared on their alphanumeric core, so separator
+and AX-prefix spellings all match). A background tab's content is never in
+the tree -- only its row is; use tab select, or the CDP page verbs.
+
+Evidence: macOS is proven on a real Brave instance
+(scripts/cu-brave-live-smoke.sh). Linux and Windows are code-complete with
+no live run yet; scripts/cu-linux-smoke.sh and
+scripts/qjs/cu-windows-browser-smoke.qjs carry the journey and exit with a
+typed SKIP until a host with a Chromium-family browser runs them."#,
     },
     VerbSpec {
         name: "tab-select",
@@ -1657,38 +1698,55 @@ fallback when no CDP port is open."#,
         aliases: &["tab close"],
         scope: Scope::Actuate,
         family: Family::Browser,
-        summary: "close one tab through its own close button (gated)",
-        usage: "tab-close --window HANDLE --title T --exact --expect gone
+        summary: "close one tab through its own close button or CDP (gated)",
+        usage: "tab-close --window HANDLE (--title T --exact | --index N) --expect gone [--port N]
 tab close ...                                       (MCU spelling)",
         args: &[
             WINDOW,
             ArgSpec {
                 flag: "--title",
                 value: "T",
-                help: "the tab's exact title (from tab-list)",
+                help: "the tab's exact title (from tab-list); needs --exact",
+            },
+            ArgSpec {
+                flag: "--index",
+                value: "N",
+                help: "the tab's strip index from tab-list (0-based); the exact selector for same-title duplicates",
             },
             ArgSpec {
                 flag: "--exact",
                 value: "",
-                help: "required: the title is matched exactly, never as a substring",
+                help: "required with --title: the title is matched exactly, never as a substring",
             },
             ArgSpec {
                 flag: "--expect",
                 value: "gone",
-                help: "checkable postcondition: the title reads back as absent from the strip",
+                help: "checkable postcondition: one fewer strip row with that title reads back",
+            },
+            ArgSpec {
+                flag: "--port",
+                value: "N",
+                help: "CDP port: close by Target.closeTarget when the title names exactly one page target of the instance; else the a11y path",
             },
         ],
-        details: r#"Destructive, so gated like close: --window H --title T --exact names the
-tab (exact, case-sensitive title equality; no match -> a11y_tab_not_found,
-two -> a11y_tab_ambiguous), the strip snapshot is written to the receipt
+        details: r#"Destructive, so gated like close: --window H plus --title T --exact
+(exact, case-sensitive title equality; no match -> a11y_tab_not_found,
+two -> a11y_tab_ambiguous, name one with --index) or --index N (tab-list
+order) names the tab, the strip snapshot is written to the receipt
 before anything is pressed, and --expect gone is the postcondition read
-back from the tab strip (up to 2.5 s). Any missing part -> refused
-(destructive_gate) with nothing performed. The press goes to the tab
-row's own close button (the button child of the Chromium tab
-radio-button); a row that exposes none -> typed unsupported
-(tab_close_button_missing) -- macOS Chromium shows it on the active tab
-only, so `tab select` first. A keyboard shortcut is never substituted.
-Reply: performed, verified, before / after strip rows, receipt."#,
+back from the tab strip (one fewer row with that title, up to 2.5 s).
+Any missing part -> refused (destructive_gate) with nothing performed.
+The press goes to the tab row's own close button (the button child of
+the Chromium tab radio-button). macOS Chromium exposes that button on
+the selected (or hovered) tab only, so a background tab is selected
+first in the same window (never raising it), closed, and the previously
+selected tab is pressed again; the reply says selection_restored
+true|false and select_first. With --port N and a listener, a title that
+names exactly one page target of the whole instance is closed by
+Target.closeTarget instead (via cdp-close-target, no selection change);
+no listener, no such target, or two targets fall back to the a11y path
+(cdp_fallback says why). A keyboard shortcut is never substituted.
+Reply: performed, verified, via, before / after strip rows, receipt."#,
     },
     VerbSpec {
         name: "browser-profiles",
@@ -1757,10 +1815,16 @@ window) and the user's browser is never quit or restarted. Then polls the
 window inventory (default 8000 ms) until a window with that
 browser_profile appears that was not in the before snapshot, or -- when
 the profile already had a window and a URL was given -- until that
-window's title changes. Reply: {handle, browser_profile, title, created}
-plus the receipt (reserved before `open`, completed / failed after the
-read-back); timeout -> browser_window_not_found. `open` activates the
-browser, so this is actuation; nothing here needs a CDP port."#,
+window's title changes. Reply: {handle, browser_profile, title, created,
+tab_index, tab_title, tabs: {before, after}} -- the new tab is the
+selected row the window's strip gained (diffed against the strip read
+before the launch; null when none can be told apart) -- plus the receipt
+(reserved before `open`, completed / failed after the read-back); timeout
+-> browser_window_not_found. `open` activates the browser, so this is
+actuation; nothing here needs a CDP port. Without --url the profile's own
+last session is restored: after a browser restart only the last-used
+profile comes back by itself, and `browser open --profile X` is how the
+other profiles' windows are brought back."#,
     },
     VerbSpec {
         name: "page",
