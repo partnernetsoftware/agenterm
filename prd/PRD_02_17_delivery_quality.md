@@ -30,7 +30,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   shareable report to basename, SHA-256, byte count, VERSIONINFO, publisher and
   timestamp-certificate facts without exposing an expanded account path; the
   portable inspector distinguishes unsigned input from present-but-unverified
-  signatures while reserving the final trust verdict for Windows.
+  signatures while reserving the final trust verdict for Windows. The public
+  receipt auditor independently rejects a foreign timestamp policy, non-SHA256
+  digests, nonpositive run/byte identities, unsafe relative paths, signer
+  subjects without the company `O=`, incomplete certificate facts, and nested
+  protected Azure/OIDC coordinate keys before any qualification aggregate can
+  consume the receipt.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
 - [x] size-optimized release profile and enforced 4 MiB GUI plus 2 MiB
