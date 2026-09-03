@@ -851,9 +851,19 @@ pub enum Command {
     /// `max_nodes`, defaults 64 / 6000: deeper and wider than the
     /// platform's own, because a breadth-first walk spends 1000 nodes on
     /// browser chrome before it reaches web content).
+    ///
+    /// Without `window`, the same rows come from CDP instead: `port` /
+    /// `target_id` / `target_url` / `target_title` pick one page target
+    /// (a background tab in a background window included) and the rows
+    /// are shaped from `Accessibility.getFullAXTree` (fallback: a DOM
+    /// `innerText` walk), `backend: "cdp"`, `focus_changed: false`. The
+    /// row `id` is then the backend DOM node id `page click --node` /
+    /// `page fill --node` take. One backend per call: `window` with a
+    /// CDP selector is `invalid_input`.
     PageText {
         target: TargetRef,
-        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<isize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_bytes: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -862,6 +872,135 @@ pub enum Command {
         depth: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+    },
+    /// `page find` over CDP: the nodes of one page target (background
+    /// tabs included) that a CSS `selector`, a `text` substring, or a
+    /// `role` (+ `name` substring) names -- exactly one of the three --
+    /// each with its backend node id, a selector-ish path, role, name,
+    /// text, value and layout box. Zero matches is `cdp_node_not_found`.
+    /// Nothing is activated.
+    PageFind {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
+    /// `page click` over CDP: resolve exactly one node (`selector` /
+    /// `text` / backend `node` id; more than one is `cdp_node_ambiguous`
+    /// with candidates), scroll it into view, and dispatch mouse
+    /// pressed + released at its box centre through
+    /// `Input.dispatchMouseEvent` on that target -- the tab and window
+    /// stay where they are. Verified by reading the document and the
+    /// node back; a receipt is written.
+    PageClick {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<u64>,
+        /// `left` (default) | `right` | `middle`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        button: Option<String>,
+        /// 1 (default) ..= 3.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        clicks: Option<u32>,
+    },
+    /// `page fill` over CDP: focus one editable node (`selector` / backend
+    /// `node` id) with `DOM.focus`, optionally select-all (`clear`),
+    /// `Input.insertText` the text, read `.value` back; `submit` then
+    /// dispatches Enter key events. Verified when the read-back equals
+    /// the text (`clear`) or grew by exactly the text. Focus emulation
+    /// makes the unfocused page accept the write; the tab is never
+    /// brought to the front. A receipt is written.
+    PageFill {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<u64>,
+        text: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        clear: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        submit: bool,
+    },
+    /// `page nav` over CDP: `Page.navigate` on that target (a background
+    /// tab stays background), then wait up to `wait_ms` (default 10 s)
+    /// for `Page.loadEventFired`; verified with the final url / title.
+    /// A receipt is written.
+    PageNav {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wait_ms: Option<u64>,
+    },
+    /// `page screenshot` over CDP: `Page.captureScreenshot` of that
+    /// target written as PNG to `out` (`replace` to overwrite). Chromium
+    /// may refuse a background / occluded tab, which is typed
+    /// `cdp_screenshot_unavailable`; only `activate` (an actuation) runs
+    /// `Page.bringToFront` first and replies `focus_changed: true`.
+    PageScreenshot {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        out: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        replace: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        activate: bool,
     },
     /// The browser tab strip of `window` read through the accessibility
     /// tree: each tab's index, title and selected state. macOS Chromium
@@ -1056,6 +1195,11 @@ impl Command {
             Self::PageJs { .. } => "page-js".into(),
             Self::PageTargets { .. } => "page-targets".into(),
             Self::PageText { .. } => "page-text".into(),
+            Self::PageFind { .. } => "page-find".into(),
+            Self::PageClick { .. } => "page-click".into(),
+            Self::PageFill { .. } => "page-fill".into(),
+            Self::PageNav { .. } => "page-nav".into(),
+            Self::PageScreenshot { .. } => "page-screenshot".into(),
             Self::TabList { .. } => "tab-list".into(),
             Self::TabSelect { .. } => "tab-select".into(),
             Self::TabClose { .. } => "tab-close".into(),
@@ -1111,6 +1255,11 @@ impl Command {
             | Self::PageJs { target, .. }
             | Self::PageTargets { target, .. }
             | Self::PageText { target, .. }
+            | Self::PageFind { target, .. }
+            | Self::PageClick { target, .. }
+            | Self::PageFill { target, .. }
+            | Self::PageNav { target, .. }
+            | Self::PageScreenshot { target, .. }
             | Self::TabList { target, .. }
             | Self::TabSelect { target, .. }
             | Self::TabClose { target, .. }
@@ -1144,6 +1293,10 @@ impl Command {
             | Self::TabSelect { .. }
             | Self::TabClose { .. }
             | Self::BrowserOpen { .. }
+            | Self::PageClick { .. }
+            | Self::PageFill { .. }
+            | Self::PageNav { .. }
+            | Self::PageScreenshot { activate: true, .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }
@@ -1154,6 +1307,116 @@ impl Command {
 mod tests {
     use super::*;
     use crate::auth::Grant;
+
+    #[test]
+    fn cdp_page_verbs_carry_their_grant_and_wire_shape() {
+        let find = Command::PageFind {
+            target: TargetRef::Current,
+            port: None,
+            target_id: Some("B2".into()),
+            target_url: None,
+            target_title: None,
+            selector: None,
+            text: Some("Go".into()),
+            role: None,
+            name: None,
+        };
+        assert_eq!(find.verb(), "page-find");
+        assert_eq!(find.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&find).expect("serialize"),
+            serde_json::json!({ "verb": "page-find", "target": "current", "target_id": "B2", "text": "Go" })
+        );
+        let click: Command = serde_json::from_value(serde_json::json!({
+            "verb": "page-click", "target": "current", "target_title": "B", "node": 17, "button": "right", "clicks": 2
+        }))
+        .expect("deserialize");
+        assert_eq!(click.verb(), "page-click");
+        assert_eq!(click.required_grant(), Grant::Actuate);
+        assert!(matches!(
+            click,
+            Command::PageClick {
+                node: Some(17),
+                clicks: Some(2),
+                ..
+            }
+        ));
+        let fill = Command::PageFill {
+            target: TargetRef::Current,
+            port: Some(9222),
+            target_id: None,
+            target_url: None,
+            target_title: Some("B".into()),
+            selector: Some("#q".into()),
+            node: None,
+            text: "hello".into(),
+            clear: true,
+            submit: false,
+        };
+        assert_eq!(fill.verb(), "page-fill");
+        assert_eq!(fill.required_grant(), Grant::Actuate);
+        let json = serde_json::to_value(&fill).expect("serialize");
+        assert_eq!(json["clear"], true);
+        assert!(
+            json.get("submit").is_none(),
+            "false switches are not echoed"
+        );
+        let nav = Command::PageNav {
+            target: TargetRef::Current,
+            port: None,
+            target_id: None,
+            target_url: None,
+            target_title: Some("B".into()),
+            url: "https://docs.example/".into(),
+            wait_ms: Some(500),
+        };
+        assert_eq!(nav.verb(), "page-nav");
+        assert_eq!(nav.required_grant(), Grant::Actuate);
+        let shot = Command::PageScreenshot {
+            target: TargetRef::Current,
+            port: None,
+            target_id: None,
+            target_url: None,
+            target_title: Some("B".into()),
+            out: "shot.png".into(),
+            replace: false,
+            activate: false,
+        };
+        assert_eq!(shot.verb(), "page-screenshot");
+        assert_eq!(shot.required_grant(), Grant::Observe);
+        let raised = match shot.clone() {
+            Command::PageScreenshot {
+                target,
+                port,
+                target_id,
+                target_url,
+                target_title,
+                out,
+                replace,
+                ..
+            } => Command::PageScreenshot {
+                target,
+                port,
+                target_id,
+                target_url,
+                target_title,
+                out,
+                replace,
+                activate: true,
+            },
+            other => other,
+        };
+        assert_eq!(
+            raised.required_grant(),
+            Grant::Actuate,
+            "--activate changes the front tab, so it is actuation"
+        );
+        let back: Command = serde_json::from_value(serde_json::to_value(&raised).unwrap()).unwrap();
+        assert!(matches!(
+            back,
+            Command::PageScreenshot { activate: true, .. }
+        ));
+    }
 
     #[test]
     fn clipboard_read_is_target_neutral_observation() {
@@ -1550,11 +1813,15 @@ mod tests {
         ));
         let text = Command::PageText {
             target: TargetRef::Current,
-            window: 7,
+            window: Some(7),
             max_bytes: Some(4096),
             within: Some([0, 60, 800, 500]),
             depth: None,
             max_nodes: None,
+            port: None,
+            target_id: None,
+            target_url: None,
+            target_title: None,
         };
         assert_eq!(text.verb(), "page-text");
         assert_eq!(text.required_grant(), Grant::Observe);
@@ -1565,6 +1832,16 @@ mod tests {
                 "max_bytes": 4096, "within": [0, 60, 800, 500]
             })
         );
+        // The CDP spelling of the same verb: no window, a target selector.
+        let cdp_text: Command = serde_json::from_value(serde_json::json!({
+            "verb": "page-text", "target": "current", "target_title": "Inbox", "port": 9223
+        }))
+        .expect("deserialize");
+        assert!(matches!(
+            cdp_text,
+            Command::PageText { window: None, port: Some(9223), target_title: Some(ref title), .. } if title == "Inbox"
+        ));
+        assert_eq!(cdp_text.required_grant(), Grant::Observe);
         let list = Command::TabList {
             target: TargetRef::Current,
             window: 7,

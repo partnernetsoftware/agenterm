@@ -805,7 +805,7 @@ extra binaries, so the modules sit in a directory without `main.rs`):
 | `cli/help.rs` | `--help` (grouped by family, one line per verb), `help <verb>` and `<verb> --help`, the ssh / vnc / rdp topics, `verbs [--json\|--text]`; every line is rendered from the table |
 | `cli/global.rs` | `--target` / `--ssh*` / `--vnc*` / `--rdp` / `--grant*` parsing, env fallbacks, combination refusals, authorization and `Executor` assembly (shared with `exec`) |
 | `cli/exec.rs` | the `exec --json` worker mode |
-| `cli/windows.rs`, `cli/a11y_observe.rs`, `cli/a11y_actuate.rs`, `cli/menu.rs`, `cli/browser.rs`, `cli/clipboard.rs`, `cli/placement.rs` | per-family argv → `Command` parsers; an `Err(String)` becomes the typed `usage` reply in one place |
+| `cli/windows.rs`, `cli/a11y_observe.rs`, `cli/a11y_actuate.rs`, `cli/menu.rs`, `cli/browser.rs`, `cli/clipboard.rs`, `cli/placement.rs` | per-family argv → `Command` parsers; an `Err(String)` becomes the typed `usage` reply in one place. `cli/browser.rs` also owns the `browser` group word (`browser profiles` / `browser open`) and `tab close` |
 
 Rule: a new verb or alias is one row in `cli/verbs.rs` plus one arm in its
 family parser; no other file matches verb strings. Bin tests pin the
@@ -877,8 +877,16 @@ crates/agenterm-cu/src/executor/
   text_input.rs     send-text / copy / paste / send-keys; the focused
                     (--window, no --name) write path with its receipt and
                     the browser-chrome guard
-  browser.rs        unlock, page js / page targets / page text, tab list /
-                    tab select, browser-chrome classification
+  browser.rs        unlock, page js / page targets (+ --browser-profile
+                    title join) / page text (a11y or CDP), the CDP
+                    background-tab verbs page find / click / fill / nav /
+                    screenshot (receipt between plan and perform; the
+                    protocol work is src/cdp/), tab list / tab select /
+                    the gated tab close, browser-chrome classification
+  profiles.rs       browser profiles (Chromium Local State + inventory
+                    join) / browser open (open -na --profile-directory on
+                    the running instance, inventory read-back); the pure
+                    parser / resolver is src/browser_profiles.rs
   invoke.rs         invoke (one node action + read-back receipt)
   menus.rs          menu inspect / menu invoke
   wait.rs           wait: inventory conditions, node name / text, --expect
@@ -889,6 +897,40 @@ crates/agenterm-cu/src/executor/
   test_support.rs   cfg(test) fixtures: scratch audit paths, synthetic nodes,
                     pre-authorized executors
 ```
+
+The CDP client is its own module directory, `crates/agenterm-cu/src/cdp/`
+(2026-09-03; the former `page_js.rs` is gone): `mod.rs` (`CdpError`,
+constants), `http.rs` (the `/json` reader, framed by `Content-Length` /
+chunked because Chromium keeps the socket open), `ws.rs` (one websocket
+to one target: RFC 6455 client framing, `Transport` trait, `Session`
+with numbered methods and buffered events; tests script a
+`FakeTransport`), `targets.rs` (`/json` inventory and the `--target-id |
+--target-url | --target-title` selector), `evaluate.rs` (`page-js`),
+`ax.rs` (pure shaping of `Accessibility.getFullAXTree` into the AX
+`page text` row shape and the `page find --text / --role` matcher) and
+`page.rs` (text / find / click / fill / nav / screenshot over a session,
+each actuator split into `plan_*` and `perform_*`). Nothing in it calls
+`Target.activateTarget` or `Page.bringToFront` except `page screenshot
+--activate`; every reply carries `focus_changed`. Live gates:
+`scripts/cu-cdp-smoke.sh` and `scripts/cu-cdp-actuate-smoke.sh` on a
+throwaway headless instance.
+
+Chromium profiles: one running instance serves every profile of one user
+data directory, a window's profile is the ` - <App> - <profile>` suffix of
+its identity (`browser_profile` on the `windows` row, read from the AX
+root when the inventory title lacks it), and CDP targets carry no profile
+at all. So `browser profiles` reads `Local State` (`profile.info_cache`,
+`profile.last_used`; pure parser `src/browser_profiles.rs`, fixture
+`tests/fixtures/local_state.json`) and joins by that name; `browser open`
+hands `--profile-directory=<dir> [URL]` to the running instance through
+macOS `open -na` and verifies through the inventory (a new window of the
+profile, or an existing one's title change) -- the user's browser is never
+restarted; `windows --browser-profile` filters on the same name; and
+`page targets --browser-profile` is an explicit title-equality heuristic.
+`tab close` presses the tab row's own close button (the `button` child of
+the Chromium tab `radio-button`) behind the `close` gate; no button is
+typed `unsupported`, never a keyboard shortcut. Live gate:
+`scripts/cu-brave-live-smoke.sh` on the real instance.
 
 Focused text writes (`send-text` / `paste` / `send-keys` with `--window` and
 no `--name`) are guarded: when the window is a browser's (its tree carries a

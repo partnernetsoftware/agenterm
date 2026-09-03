@@ -476,9 +476,87 @@ mod tests {
         let no_sub = run(&["--target", "current", "--grant", "observe", "tab"]);
         assert_eq!(no_sub.error.expect("usage").code, "usage");
         let bad_sub = run(&[
-            "--target", "current", "--grant", "observe", "tab", "close", "--window", "7",
+            "--target", "current", "--grant", "observe", "tab", "bogus", "--window", "7",
         ]);
         assert_eq!(bad_sub.error.expect("usage").code, "usage");
+        // `tab close` is live: its shape is closed, and the executor's
+        // destructive gate (not the parser) refuses a bare one.
+        let close_extra = run(&[
+            "--target", "current", "--grant", "actuate", "tab", "close", "--window", "7",
+            "--title", "x", "--exact", "--expect", "gone", "--bogus",
+        ]);
+        assert_eq!(close_extra.error.expect("usage").code, "usage");
+        let close_bare = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "actuate",
+            "tab-close",
+            "--window",
+            "7",
+        ]);
+        assert_eq!(close_bare.command, "tab-close");
+        let err = close_bare.error.expect("refused");
+        assert_eq!(err.code, "refused");
+        assert_eq!(err.detail.expect("detail")["reason"], "destructive_gate");
+        // `browser` group word and its two sub-commands.
+        let no_browser_sub = run(&["--target", "current", "--grant", "observe", "browser"]);
+        assert_eq!(no_browser_sub.error.expect("usage").code, "usage");
+        let open_no_profile = run(&[
+            "--target", "current", "--grant", "actuate", "browser", "open", "--url", "x",
+        ]);
+        assert_eq!(open_no_profile.error.expect("usage").code, "usage");
+        let open_switch_url = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "actuate",
+            "browser-open",
+            "--profile",
+            "p",
+            "--url",
+            "--incognito",
+        ]);
+        assert_eq!(open_switch_url.error.expect("usage").code, "usage");
+        let profiles_extra = run(&[
+            "--target", "current", "--grant", "observe", "browser", "profiles", "--bogus",
+        ]);
+        assert_eq!(profiles_extra.error.expect("usage").code, "usage");
+        let profiles = run(&[
+            "--target", "current", "--grant", "observe", "browser", "profiles", "--app", "Safari",
+        ]);
+        assert_eq!(profiles.command, "browser-profiles");
+        assert_ne!(
+            profiles.error.as_ref().map(|e| e.code.as_str()),
+            Some("usage")
+        );
+        let filtered = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "observe",
+            "windows",
+            "--browser-profile",
+            "",
+        ]);
+        assert_eq!(filtered.error.expect("usage").code, "usage");
+        let targets_join = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "observe",
+            "page",
+            "targets",
+            "--port",
+            "1",
+            "--browser-profile",
+            "zzz-no-such-profile",
+        ]);
+        assert_eq!(targets_join.command, "page-targets");
+        assert_ne!(
+            targets_join.error.as_ref().map(|e| e.code.as_str()),
+            Some("usage")
+        );
         let both = run(&[
             "--target", "current", "--grant", "actuate", "tab", "select", "--window", "7",
             "--title", "Codex", "--index", "1",
@@ -900,7 +978,7 @@ mod tests {
             "--grant".into(),
             "observe".into(),
             "page".into(),
-            "click".into(),
+            "zoom".into(),
         ]);
         assert_eq!(page.command, "page");
         let page_err = page.error.expect("typed page");
@@ -910,6 +988,164 @@ mod tests {
             "{}",
             page_err.message
         );
+        assert!(
+            page_err.message.contains("page-click"),
+            "{}",
+            page_err.message
+        );
+        // `page click` / `page nav` / `page read` are live CDP verbs now: a
+        // missing listener is typed, never `usage` or "unknown".
+        for (argv, command) in [
+            (
+                vec![
+                    "page",
+                    "click",
+                    "--port",
+                    "1",
+                    "--target-title",
+                    "x",
+                    "--text",
+                    "Go",
+                ],
+                "page-click",
+            ),
+            (
+                vec![
+                    "page",
+                    "nav",
+                    "--port",
+                    "1",
+                    "--target-title",
+                    "x",
+                    "--url",
+                    "https://docs.example/",
+                ],
+                "page-nav",
+            ),
+            (
+                vec!["page", "read", "--port", "1", "--target-title", "x"],
+                "page-text",
+            ),
+            (
+                vec!["page", "find", "--port", "1", "--selector", "#q"],
+                "page-find",
+            ),
+            (
+                vec![
+                    "page",
+                    "fill",
+                    "--port",
+                    "1",
+                    "--selector",
+                    "#q",
+                    "--text",
+                    "hi",
+                ],
+                "page-fill",
+            ),
+            (
+                vec![
+                    "page",
+                    "screenshot",
+                    "--port",
+                    "1",
+                    "--out",
+                    "cu-smoke-none.png",
+                ],
+                "page-screenshot",
+            ),
+        ] {
+            let mut full: Vec<String> = ["--target", "current", "--grant", "observe,actuate"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect();
+            full.extend(argv.iter().map(|s| (*s).to_owned()));
+            let reply = dispatch(full);
+            assert_eq!(reply.command, command, "{argv:?}");
+            let err = reply.error.expect("typed");
+            assert_eq!(err.code, "unsupported", "{argv:?}: {}", err.message);
+            assert!(
+                err.message.contains("remote-debugging-port"),
+                "{}",
+                err.message
+            );
+        }
+        // Addressing shape is judged before any socket: usage, by name.
+        let two = dispatch(
+            [
+                "--target",
+                "current",
+                "--grant",
+                "actuate",
+                "page",
+                "click",
+                "--port",
+                "1",
+                "--selector",
+                "#a",
+                "--text",
+                "b",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
+        );
+        let err = two.error.expect("usage");
+        assert_eq!(err.code, "usage");
+        assert!(err.message.contains("exactly one"), "{}", err.message);
+        let name_alone = dispatch(
+            [
+                "--target",
+                "current",
+                "--grant",
+                "observe",
+                "page",
+                "find",
+                "--port",
+                "1",
+                "--selector",
+                "#a",
+                "--name",
+                "b",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
+        );
+        assert_eq!(name_alone.error.expect("usage").code, "usage");
+        let no_text = dispatch(
+            [
+                "--target",
+                "current",
+                "--grant",
+                "actuate",
+                "page",
+                "fill",
+                "--port",
+                "1",
+                "--selector",
+                "#a",
+                "--text",
+                "",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
+        );
+        let err = no_text.error.expect("usage");
+        assert_eq!(err.code, "usage");
+        assert!(err.message.contains("--clear"), "{}", err.message);
+        let both_backends = dispatch(
+            [
+                "--target", "current", "--grant", "observe", "page", "text", "--window", "7",
+                "--port", "1",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
+        );
+        assert_eq!(both_backends.command, "page-text");
+        assert_eq!(both_backends.error.expect("typed").code, "invalid_input");
         let page_js = dispatch(vec![
             "--target".into(),
             "current".into(),

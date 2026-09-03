@@ -9,7 +9,7 @@
 
 **还差什么（2026-09-01，夜）**：~~读富内容仍未做~~ **已做**：`clipboard-read --type`（MCU `clipboard read`）按宿主自己的类型名读有界字节，回复 `sha256` + utf8/base64，可选 `--out`。macOS 只认 `clipboard info` 的 AppleScript class（`«class PNGf»` / `string`），不认 UTI。`clipboard write`/`write-file`/`clear --apply` 已接 ABI 1.24。
 MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js`/`frame`/`movewin`/`resize`/`maximize` 已是 live 别名（几何四词走 `window-place`）；**2026-09-03 又收了一批**：`inspect`/`find`/`read` 是 `query` 的别名，`page targets` → `page-targets`，`page text` → `page-text`（a11y 阅读顺序），`page-js` 有 `--target-id/--target-url/--target-title` 选 tab，`tab list`/`tab select` 走 tab-strip 后台切 tab。其余 MCU 命令名（`drag`/`ps`/`minimize`/`page click|nav`/`browser *`…）typed 拒绝，不再 `unknown command`。
-**CDP 活证据还欠着**：`scripts/cu-cdp-smoke.sh`（一次性 headless Brave Origin + mktemp profile，两个 `data:` tab）能用 `curl` 读到 `/json`，但 cu 每个 CDP 动词都回 `unsupported "CDP HTTP read failed"`——`page_js::http_get_json` 发 `Connection: close` 然后读到 EOF，而 Chrome 的 DevTools HTTP server 不关 socket，reader 得认 `Content-Length`。修好后那条 gate 会 PASS，PRD 29 的 `page-js` 选 tab 叶子从 `[~]` 回 `[x]`。
+**CDP 活证据已到（2026-09-03）**：`/json` reader 认了 `Content-Length` / chunked（`src/cdp/http.rs`），`scripts/cu-cdp-smoke.sh` PASS。**后台 tab 读+写也接上了**：`page text / find / click / fill / nav / screenshot --target-id|--target-url|--target-title` 全走 CDP 目标自己的 websocket（`src/cdp/`：`ws.rs` 一条 session、`Transport` trait 假转录单测；`ax.rs` 把 `Accessibility.getFullAXTree` 整成和 AX `page text` 同形的行；`page.rs` 各动词 plan/perform 中间夹收据），从不调 `Target.activateTarget` / `Page.bringToFront`（只有 `page screenshot --activate` 显式例外，算 actuate），每条回复带 `focus_changed: false` + target 身份。`scripts/cu-cdp-actuate-smoke.sh` PASS：A 活跃、B 后台，每个动词打在 B 上，按钮 onclick / 表单 onsubmit 改 DOM 由 `page-js` 回读，每步之后 `/json` 首页仍是 A、`windows --focused` 不变。真机（用户的 Brave Origin）仍需 `--remote-debugging-port=9222` 重启才能跑同一条。
 **截图三个平台都通了**：macOS 那句「被系统拿走」只对了一半——SDK 里确实没了，但符号还在框架里，
 dlsym 拿到就能抓（和本仓够 SkyLight 是同一套办法），实测 macOS 26.5 抓到真内容；符号哪天真没了
 就是点名 ScreenCaptureKit 的 typed 拒绝，不退化成整屏抓图；
@@ -57,14 +57,19 @@ machine-control
 │   cu  [✓] 自有 WKWebView 固件旅程 cu-macos-web-smoke：WebArea 树 + unlock poke + scroll 正向 + 网页 invoke/verify
 ├── 网页 JS 第二刀
 │   MCU [✓] CDP page read --js / 扩展 browser read --js（Runtime.evaluate）
-│   cu  [~] page-js：CDP Runtime.evaluate（需 --remote-debugging-port；无口 typed）+ --target-id/url/title 选 tab + page targets；
-│        单测齐、活 gate cu-cdp-smoke 卡在 http_get_json 读 EOF（见顶部）
+│   cu  [✓] page-js：CDP Runtime.evaluate（需 --remote-debugging-port；无口 typed）+ --target-id/url/title 选 tab + page targets；
+│        cu-cdp-smoke PASS 2026-09-03（headless 一次性实例）
+├── 后台 tab 读+写（CDP，不抢 tab / 窗口）
+│   MCU [✓] page click / nav / read（CDP）
+│   cu  [✓] page text / find / click / fill / nav / screenshot --target-*：目标 websocket 上 Accessibility.getFullAXTree、
+│        DOM.querySelectorAll、Input.dispatchMouseEvent、Input.insertText、Page.navigate、Page.captureScreenshot；
+│        cu-cdp-actuate-smoke PASS 2026-09-03（每步后活跃 target / 前景窗口不变）；真机待开口
 ├── 网页文字 / 后台 tab（不开 CDP 口）
 │   MCU [✓] page read（CDP）
 │   cu  [✓] page text 阅读顺序 {id, role, text, bounds}；tab list / tab select 走 tab-strip radio-button，后台切、不抢焦点（Brave 真机 2026-09-03）
 ├── 浏览器扩展 / Native Messaging / tab 生命周期
 │   MCU [✓] 实验室
-│   cu  [~] `browser` typed unsupported（日常网页走 AX）
+│   cu  [~] `browser profiles` / `browser open` / `tab close` live（真实实例、按 profile 开窗）；MV3 桥 typed unsupported（日常网页走 AX）
 ├── 窗几何 / 关窗
 │   MCU [✓] frame/orderwin/close/maximize…
 │   cu  [✓] window-place（Spectacle+frame）+ close 三件套（mac 旅程；三平台都有各自的原生关闭控件）
@@ -107,9 +112,10 @@ machine-control
 | 节点文本/几何 | 无独立动词（`query` 里带 rect） | **七个动词三平台都映射**：`get-extents`（mac AX 真机 / Win BoundingRectangle）、`select`/`get-selection`/`set-caret`/`get-caret`（mac+Linux 活，Win TextPattern 新映射）、`scroll`（mac AXScrollToVisible 网页旅程真机 / Win ScrollItem） | **cu 多一层** |
 | 剪贴板 | `clip` + 富 UTI | `clipboard-read` 读纯文本，但**回复带 `types`**：剪贴板上所有表示的原生名字（mac class 名 / X11 TARGETS / Win 格式名，不做归一化），三平台都接。实测剪贴板放一张 PNG：`text` 空、`types` 有 `«class PNGf»` 等 9 项 | **已对齐发现面**；读富内容仍另说 |
 | 截图 | `shot` 可选权限 | `screenshot` Win GDI + **Linux X11 `GetImage`**（只转 24/32 位 TrueColor，别的 visual typed 拒绝而不是乱解释字节）；**macOS 被系统拿走**（`CGWindowListCreateImage` 15.0 从 SDK 移除，ScreenCaptureKit 要另一份 TCC），拒绝理由写明 | **两平台对齐**；mac 是系统限制，不退化成整屏抓图 |
-| 网页 JS | `page read --js` / `page targets` / `browser read --js` | `page-js` CDP Runtime.evaluate（默认 9222）+ **`--target-id` / `--target-url` / `--target-title`** 选 tab（零命中 `cdp_target_not_found`、多命中 `cdp_target_ambiguous`，候选在 `error.detail`；后台 tab 原地求值不切换）；**`page targets`** 列 `/json`（id/url/title/type/attached/websocket）；无 listener typed | **路径与选 tab 已接**（单测）；**活 gate `scripts/cu-cdp-smoke.sh` FAIL：`http_get_json` 读到 EOF**（待 Rust 修）；MAIN Function constructor 拒绝 |
+| 网页 JS | `page read --js` / `page targets` / `browser read --js` | `page-js` CDP Runtime.evaluate（默认 9222）+ **`--target-id` / `--target-url` / `--target-title`** 选 tab（零命中 `cdp_target_not_found`、多命中 `cdp_target_ambiguous`，候选在 `error.detail`；后台 tab 原地求值不切换）；**`page targets`** 列 `/json`（id/url/title/type/attached/websocket）；无 listener typed | **已对齐**（`scripts/cu-cdp-smoke.sh` PASS 2026-09-03，一次性 headless 实例）；MAIN Function constructor 拒绝 |
+| 后台 tab 读+写 | `page read` / `page click` / `page nav`（CDP） | **`page text` / `page find` / `page click` / `page fill` / `page nav` / `page screenshot --target-*`**：同一选 tab 规则，目标自己的 websocket，行形 `{id, role, text}` 与 AX `page text` 同形（`backend: "cdp"`，id = backend DOM node id）；`find` 给 `{node, path, role, name, text, box}`，文字命中提升到外层 button/link；`click` 一个节点（多命中 `cdp_node_ambiguous`）滚入视口后按盒中心派 mouse 事件、文档+节点回读作证；`fill` DOM.focus + insertText + `.value` 回读；`nav` 等 load 事件；`screenshot` 后台可能被拒 `cdp_screenshot_unavailable`，绝不为此激活；三者都写收据；每条回复 `focus_changed: false` | **已对齐**（`scripts/cu-cdp-actuate-smoke.sh` PASS 2026-09-03：A 活跃、全部动词打在后台 B，每步后 `/json` 首页与 `windows --focused` 不变）；真机待 `--remote-debugging-port` |
 | 后台 tab | `browser tabs`（扩展） | **`tab list --window H`**（index/title/selected）/ **`tab select --window H (--title SUB \| --index N)`**：按 tab-strip 的 radio-button 后台切，`selected` 回读作证，不抢焦点；`a11y_tab_not_found` / `a11y_tab_ambiguous` | **已对齐**（mac Brave 真机 2026-09-03，前后焦点窗口不变；无 CDP 口时的 a11y 兜底） |
-| 浏览器桥 | `browser *` MV3 + Native Messaging | `browser` typed unsupported | 日常网页仍 AX（`page text` / `query` / `invoke`）；扩展不迁 |
+| 浏览器桥 | `browser *` MV3 + Native Messaging | `browser profiles` / `browser open --profile` / `windows --browser-profile` / `tab close` live（真实运行实例，`open -na --profile-directory`，不重启）；MV3 桥 typed unsupported | 日常网页仍 AX（`page text` / `query` / `invoke`）；扩展不迁 |
 | 开箱 | `setup`/`doctor`/`caps`/`permissions` | `capabilities` 里有**一级 `permissions` 块**：授权状态 + 修复路径 + **被它卡住的 24 个动词**（含输入类——macOS 同一份 Accessibility 授权也管投事件）；`setup`/`doctor`/`permissions` 仍 typed | **报告面对齐**；向导有意留给 MCU |
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
@@ -138,8 +144,8 @@ machine-control
    `page targets` 列 `/json`；`tab list` / `tab select --window H (--title|--index)` 走 a11y tab-group radio-button 后台切 tab，不抢焦点。
    `page text --window H` 按阅读顺序给 {id, role, text, bounds}（网页文字在 AXValue，不在 name）；`unlock` 同时设 AXManualAccessibility + AXEnhancedUserInterface 并唤醒 renderer，对比读用 depth 64 / 6000 节点（旧 depth 12 看不到 web-area 子树）。
 
-8. **2026-09-03 账本**：关闭 —— `inspect`/`find`/`read` 别名、`page targets`、`page text`、`page-js` 选 tab、`tab list`/`tab select`、`unlock` 的 web-node 字段、`windows[].browser_profile`（从 Chromium 标题尾巴 ` - <App> - <profile>` 解析）。
-   仍开 —— CDP 活证据（`scripts/cu-cdp-smoke.sh` 卡 `http_get_json`）、`page click`/`page nav`（留 CDP，MCU）、`drag`、`minimize`/`restore`、`ps` 等 process 组、`browser *` 扩展桥。
+8. **2026-09-03 账本**：关闭 —— `inspect`/`find`/`read` 别名、`page targets`、`page text`、`page-js` 选 tab、`tab list`/`tab select`、`unlock` 的 web-node 字段、`windows[].browser_profile`（从 Chromium 标题尾巴 ` - <App> - <profile>` 解析）、CDP 活证据（`cu-cdp-smoke` PASS）、**后台 tab 读+写**（`page text/find/click/fill/nav/screenshot --target-*`，`cu-cdp-actuate-smoke` PASS，前景不变）。
+   仍开 —— 真机 Brave Origin 开 `--remote-debugging-port` 后重跑同一条、`drag`、`minimize`/`restore`、`ps` 等 process 组、`browser *` 扩展桥。
 
 **MCU 树应承认 cu 已产品化（勿再写「迁入 [ ]」）**
 
@@ -154,6 +160,7 @@ machine-control
 |---|---|
 | Agent 编排第三方 App（mac 语义树） | 优先 `agenterm-cu`（产品 ABI + grant） |
 | Chromium 网页列节点 | 两边都走 AX `query`；不要先装扩展 |
-| chatgpt.com composer / closed-shadow / tab-id | **MCU** `browser read --js`；cu `page-js` 需 CDP 口 |
+| chatgpt.com composer / closed-shadow / tab-id | **MCU** `browser read --js`；cu `page-js` / `page find|click|fill --target-*` 需 CDP 口 |
+| 后台窗口里的后台 tab（不能抢人的前景） | **cu** `page targets --browser-profile` → `page find` → `page click`/`page fill`（CDP，`focus_changed: false`）；AX 动词得先 `tab select` |
 | 本机 PTY/job/设备/提权/Simulator | **MCU** 或 AgenTerm 本体，不调 cu |
 | 远程桌面 worker | **cu** `--ssh`/`--vnc` |

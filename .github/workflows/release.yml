@@ -149,10 +149,9 @@ jobs:
           [[ "$version" == "$cargo_version" ]]
           "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script run \
             --profile tool scripts/qjs/promotion-identity.qjs -- \
-            "$manifest" "$CANDIDATE_RUN_ID" "$source_sha" \
+          "$manifest" "$CANDIDATE_RUN_ID" "$source_sha" \
             candidate/promotion-identity.json >/dev/null
           identity="candidate/promotion-identity.json"
-          marker="$(jq -r .marker "$identity")"
           release_body="$(jq -r .body "$identity")"
           find_release_by_tag() {
             local wanted="$1"
@@ -371,7 +370,7 @@ jobs:
             # The ref API is read-after-write eventually consistent: the
             # immediate lookup can 404 for a moment after a successful POST.
             actual_tag_sha=""
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
               if actual_tag_sha="$(
                   gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
                     --jq .object.sha 2>/dev/null
@@ -403,7 +402,7 @@ jobs:
             # The releases list is eventually consistent too: a freshly
             # created draft can be missing from the very next read.
             release="null"
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
               release="$(find_release_by_tag "$TAG")"
               [[ "$release" != "null" ]] && break
               sleep 3

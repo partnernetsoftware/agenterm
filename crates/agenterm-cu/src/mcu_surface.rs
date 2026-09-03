@@ -86,7 +86,16 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "page-js",
-        verbs: &["page-js", "page", "page-targets"],
+        verbs: &[
+            "page-js",
+            "page",
+            "page-targets",
+            "page-find",
+            "page-click",
+            "page-fill",
+            "page-nav",
+            "page-screenshot",
+        ],
     },
     Group {
         id: "geometry",
@@ -159,7 +168,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "browser",
-        verbs: &["browser"],
+        verbs: &["browser-profiles", "browser-open", "tab-close"],
     },
 ];
 
@@ -184,7 +193,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "daemon",
     "desktop-helper",
     "simulator",
-    "browser",
     "page",
     // MCU leaf spellings that stay typed (not silent unknown). Live
     // aliases (dclick/rclick/shot/type/key/move/launch/quit/hide/show/
@@ -234,7 +242,7 @@ pub fn is_typed_only_verb(verb: &str) -> bool {
 fn typed_only_reason(verb: &str) -> &'static str {
     match verb {
         "page" => {
-            "MCU page click/nav stay CDP; page read --js maps to page-js --expression (--target-id/--target-url/--target-title pick a tab); page targets is page-targets; page text is page-text (a11y reading order)"
+            "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/fill/nav/screenshot to page-find/page-click/page-fill/page-nav/page-screenshot (CDP, background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
         "drag" => "pixel drag is not mapped; use invoke press or pointer-move --to desktop",
         "ghost" => "MCU ghost cursor overlay stays MCU; this binary will not draw on the desktop",
@@ -325,7 +333,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         }
         "page-js" => (
             "available",
-            "CDP Runtime.evaluate when --remote-debugging-port answers; MAIN-world Function constructor refused",
+            "CDP when --remote-debugging-port answers: Runtime.evaluate (page-js), page text / find / click / fill / nav / screenshot on one page target (background tabs, no focus change); MAIN-world Function constructor refused",
         ),
         "geometry" => {
             if os == "linux" {
@@ -382,10 +390,24 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "unsupported",
             "CoreSimulator guest AX stays MCU; typed refuse",
         ),
-        "browser" => (
-            "unsupported",
-            "MV3/Native Messaging stays MCU; ordinary web is AX query/invoke",
-        ),
+        "browser" => {
+            if os == "macos" {
+                (
+                    "available",
+                    "browser profiles (Local State + window inventory), browser open (open -na --profile-directory on the running instance), tab close (row close button); MV3/Native Messaging stays MCU, ordinary web is AX query/invoke",
+                )
+            } else if tree_live(os) {
+                (
+                    "available",
+                    "browser profiles reads ~/.config Local State; browser open needs macOS open -na (typed unsupported); tab close is the a11y row close button",
+                )
+            } else {
+                (
+                    "unsupported",
+                    "Chromium profile user data is not mapped on this OS; MV3/Native Messaging stays MCU",
+                )
+            }
+        }
         _ => ("unsupported", "unknown MCU group"),
     }
 }
@@ -502,11 +524,47 @@ pub fn verb_declaration(verb: &str) -> Value {
             "verb": verb,
         });
     }
+    if let Some((grant, reason)) = match verb {
+        "page-find" => Some((
+            "observe",
+            "nodes of one CDP page target by --selector CSS (DOM.querySelectorAll) | --text SUB | --role R [--name SUB] (Accessibility.getFullAXTree): backend node id, path, role, name, text, box; zero -> cdp_node_not_found",
+        )),
+        "page-click" => Some((
+            "actuate",
+            "one node (cdp_node_ambiguous with candidates otherwise): DOM.scrollIntoViewIfNeeded, DOM.getBoxModel centre, Input.dispatchMouseEvent pressed + released on that target; verified by document / node read-back; receipt",
+        )),
+        "page-fill" => Some((
+            "actuate",
+            "one editable node: DOM.focus, optional select-all (--clear), Input.insertText, .value read-back (== TEXT), --submit sends Enter; focus emulation on for the write, off after; receipt",
+        )),
+        "page-nav" => Some((
+            "actuate",
+            "Page.navigate on that target (a background tab stays background), wait for Page.loadEventFired or --wait-ms; verified with the final url / title; receipt",
+        )),
+        "page-screenshot" => Some((
+            "observe",
+            "Page.captureScreenshot PNG to --out; a background / occluded tab may be refused as cdp_screenshot_unavailable and is never activated for it (--activate is the explicit actuate opt-in)",
+        )),
+        _ => None,
+    } {
+        return json!({
+            "status": "available",
+            "backend": crate::observe::page_js_backend(),
+            "mode": "cdp",
+            "grant": grant,
+            "reason": reason,
+            "target_selectors": ["--target-id", "--target-url", "--target-title"],
+            "focus_changed": false,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if verb == "page-text" {
         let (status, reason) = if tree_live(os) {
             (
                 "available",
-                "visible text in reading order as {id, role, text, bounds} rows from the a11y tree (web static-text carries its words in AXValue); pick a row then invoke/click --node, never --coords or a screenshot",
+                "visible text in reading order as {id, role, text} rows: --window reads the a11y tree (bounds; the active tab's web-area on macOS Chromium), --target-id/--target-url/--target-title reads the CDP page target (backend cdp, background tabs, no focus change; id = backend DOM node id for page click/fill --node); pick a row then act on the node, never --coords or a screenshot",
             )
         } else {
             ("unsupported", "a11y tree not mapped on this OS")
@@ -538,6 +596,49 @@ pub fn verb_declaration(verb: &str) -> Value {
             "status": status,
             "mode": "a11y-tab-strip",
             "grant": if verb == "tab-select" { "actuate" } else { "observe" },
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
+    if verb == "browser-profiles" || verb == "browser-open" || verb == "tab-close" {
+        let (status, mode, grant, reason) = match verb {
+            "browser-profiles" => (
+                if matches!(os, "macos" | "linux") {
+                    "available"
+                } else {
+                    "unsupported"
+                },
+                "local-state+window-inventory",
+                "observe",
+                "profiles of the running Chromium-family browser (Local State profile.info_cache + last_used) joined to inventory windows by browser_profile; --app Brave Origin | Brave Browser | Google Chrome",
+            ),
+            "browser-open" => (
+                if os == "macos" {
+                    "available"
+                } else {
+                    "unsupported"
+                },
+                "open-na-profile-directory",
+                "actuate",
+                "open -na <app> --args --profile-directory=<dir> [URL] on the running instance (never a restart), verified by a new / retitled window of that browser_profile in the inventory; no CDP port needed",
+            ),
+            _ => (
+                if tree_live(os) {
+                    "available"
+                } else {
+                    "unsupported"
+                },
+                "a11y-tab-strip",
+                "actuate",
+                "press the tab row's own close button (button child of the tab radio-button) after the close gate (--title --exact --expect gone), verified by the strip read-back; no close button -> unsupported, never a keyboard shortcut",
+            ),
+        };
+        return json!({
+            "status": status,
+            "mode": mode,
+            "grant": grant,
             "reason": reason,
             "group": group,
             "os": os,
@@ -664,8 +765,16 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "read",
         "page-targets",
         "page-text",
+        "page-find",
+        "page-click",
+        "page-fill",
+        "page-nav",
+        "page-screenshot",
         "tab-list",
         "tab-select",
+        "tab-close",
+        "browser-profiles",
+        "browser-open",
     ] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
@@ -717,9 +826,43 @@ mod tests {
         assert_eq!(group_id_for_verb("launch"), "discover");
         assert_eq!(group_id_for_verb("page"), "page-js");
         assert_eq!(group_id_for_verb("page-targets"), "page-js");
+        for verb in [
+            "page-find",
+            "page-click",
+            "page-fill",
+            "page-nav",
+            "page-screenshot",
+        ] {
+            assert_eq!(group_id_for_verb(verb), "page-js", "{verb}");
+            assert!(!is_align_verb(verb), "{verb} is live, not typed-only");
+            let declaration = verb_declaration(verb);
+            assert_eq!(declaration["mode"], "cdp", "{verb}");
+            assert_eq!(declaration["status"], "available", "{verb}");
+            assert_eq!(declaration["focus_changed"], false, "{verb}");
+        }
+        assert_eq!(verb_declaration("page-click")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-fill")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-nav")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-find")["grant"], "observe");
+        assert_eq!(verb_declaration("page-screenshot")["grant"], "observe");
+        assert!(typed_reason_for_verb("page").contains("page-click"));
         assert_eq!(group_id_for_verb("tab-select"), "semantic");
         assert_eq!(group_id_for_verb("tab-list"), "semantic");
         assert!(!is_align_verb("page-targets") && !is_align_verb("tab-select"));
+        assert!(!is_align_verb("browser") && !is_align_verb("tab-close"));
+        assert_eq!(group_id_for_verb("browser-profiles"), "browser");
+        assert_eq!(group_id_for_verb("browser-open"), "browser");
+        assert_eq!(group_id_for_verb("tab-close"), "browser");
+        assert_eq!(verb_declaration("browser-profiles")["grant"], "observe");
+        assert_eq!(verb_declaration("browser-open")["grant"], "actuate");
+        assert_eq!(verb_declaration("tab-close")["grant"], "actuate");
+        assert_eq!(verb_declaration("tab-close")["mode"], "a11y-tab-strip");
+        if host_os() == "macos" {
+            assert_eq!(verb_declaration("browser-open")["status"], "available");
+            assert_eq!(group_status("browser", "macos").0, "available");
+        } else {
+            assert_eq!(verb_declaration("browser-open")["status"], "unsupported");
+        }
         assert_eq!(verb_declaration("page-targets")["mode"], "cdp");
         assert_eq!(verb_declaration("page-targets")["status"], "available");
         let select = verb_declaration("tab-select");

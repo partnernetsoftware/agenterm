@@ -9,6 +9,7 @@ pub mod auth_store;
 #[cfg(target_os = "macos")]
 pub mod ax_guide;
 pub mod browser_profiles;
+pub mod cdp;
 pub mod command;
 pub mod dynlib;
 pub mod executor;
@@ -20,7 +21,6 @@ pub mod macos_spaces;
 pub mod mcu_surface;
 pub mod mechanism;
 pub mod observe;
-pub mod page_js;
 pub mod page_text;
 pub mod place;
 pub mod rdp_transport;

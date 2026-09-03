@@ -13,6 +13,7 @@ impl Executor {
                 title,
                 focused,
                 minimized,
+                browser_profile,
                 offset,
                 max,
                 ..
@@ -24,6 +25,7 @@ impl Executor {
                     focused: *focused,
                     minimized: *minimized,
                 },
+                browser_profile.clone(),
                 *offset,
                 *max,
             ),
@@ -175,21 +177,132 @@ impl Executor {
             } => page_js_payload(
                 expression.as_deref(),
                 *port,
-                crate::page_js::TargetSelector {
-                    id: target_id.clone(),
-                    url: target_url.clone(),
-                    title: target_title.clone(),
-                },
+                cdp_selector(target_id, target_url, target_title),
             ),
-            Command::PageTargets { port, .. } => page_targets_payload(*port),
+            Command::PageTargets {
+                port,
+                browser_profile,
+                ..
+            } => page_targets_payload(*port, browser_profile.as_deref()),
             Command::PageText {
                 window,
                 max_bytes,
                 within,
                 depth,
                 max_nodes,
+                port,
+                target_id,
+                target_url,
+                target_title,
                 ..
-            } => page_text_payload(*window, *max_bytes, *within, *depth, *max_nodes),
+            } => page_text_payload(
+                *window,
+                *max_bytes,
+                *within,
+                *depth,
+                *max_nodes,
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+            ),
+            Command::PageFind {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                selector,
+                text,
+                role,
+                name,
+                ..
+            } => page_find_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                selector.as_deref(),
+                text.as_deref(),
+                role.as_deref(),
+                name.as_deref(),
+            ),
+            Command::PageClick {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                selector,
+                text,
+                node,
+                button,
+                clicks,
+                ..
+            } => page_click_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                selector.as_deref(),
+                text.as_deref(),
+                *node,
+                button.as_deref(),
+                *clicks,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::PageFill {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                selector,
+                node,
+                text,
+                clear,
+                submit,
+                ..
+            } => page_fill_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                selector.as_deref(),
+                *node,
+                text,
+                *clear,
+                *submit,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::PageNav {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                url,
+                wait_ms,
+                ..
+            } => page_nav_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                url,
+                *wait_ms,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::PageScreenshot {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                out,
+                replace,
+                activate,
+                ..
+            } => {
+                let mut receipts = if *activate {
+                    Some(self.open_receipts(command.target())?)
+                } else {
+                    None
+                };
+                page_screenshot_payload(
+                    *port,
+                    cdp_selector(target_id, target_url, target_title),
+                    out,
+                    *replace,
+                    *activate,
+                    receipts.as_mut(),
+                )
+            }
             Command::TabList { window, .. } => tab_list_payload(*window),
             Command::TabSelect {
                 window,
@@ -200,6 +313,33 @@ impl Executor {
                 *window,
                 title.as_deref(),
                 *index,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::TabClose {
+                window,
+                title,
+                exact,
+                expect,
+                ..
+            } => tab_close_payload(
+                *window,
+                title.as_deref(),
+                *exact,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::BrowserProfiles { app, .. } => browser_profiles_payload(app.as_deref()),
+            Command::BrowserOpen {
+                profile,
+                url,
+                app,
+                timeout_ms,
+                ..
+            } => browser_open_payload(
+                profile,
+                url.as_deref(),
+                app.as_deref(),
+                *timeout_ms,
                 &mut self.open_receipts(command.target())?,
             ),
             Command::App {

@@ -280,6 +280,36 @@ const PORT: ArgSpec = ArgSpec {
     value: "N",
     help: "CDP listener port on 127.0.0.1 (default 9222)",
 };
+const TARGET_ID: ArgSpec = ArgSpec {
+    flag: "--target-id",
+    value: "ID",
+    help: "exact CDP target id (from page-targets)",
+};
+const TARGET_URL: ArgSpec = ArgSpec {
+    flag: "--target-url",
+    value: "SUB",
+    help: "case-insensitive url substring of the page target",
+};
+const TARGET_TITLE: ArgSpec = ArgSpec {
+    flag: "--target-title",
+    value: "SUB",
+    help: "case-insensitive title substring of the page target",
+};
+const CDP_SELECTOR: ArgSpec = ArgSpec {
+    flag: "--selector",
+    value: "CSS",
+    help: "CSS selector (DOM.querySelectorAll)",
+};
+const CDP_TEXT: ArgSpec = ArgSpec {
+    flag: "--text",
+    value: "SUB",
+    help: "case-insensitive substring of the node's words (AX tree; lifted to the enclosing button / link)",
+};
+const CDP_NODE: ArgSpec = ArgSpec {
+    flag: "--node",
+    value: "ID",
+    help: "backend DOM node id from page-find / page-text rows",
+};
 const SNAPSHOT: ArgSpec = ArgSpec {
     flag: "--snapshot",
     value: "",
@@ -289,6 +319,12 @@ const EXPECT_GONE: ArgSpec = ArgSpec {
     flag: "--expect",
     value: "gone",
     help: "checkable postcondition: the handle reads back as absent",
+};
+
+const BROWSER_PROFILE: ArgSpec = ArgSpec {
+    flag: "--browser-profile",
+    value: "SUB",
+    help: "case-insensitive substring of the window's browser_profile (Chromium profile name)",
 };
 
 const ALLOW_BROWSER_CHROME: ArgSpec = ArgSpec {
@@ -320,7 +356,7 @@ group, with a typed reason for anything this host does not support.
         family: Family::Windows,
         summary: "top-level window inventory, filtered and paged",
         usage: "windows [--pid N] [--app SUB] [--title SUB] [--focused [BOOL]] [--minimized [BOOL]]
-        [--offset N] [--max N]",
+        [--browser-profile SUB] [--offset N] [--max N]",
         args: &[
             ArgSpec {
                 flag: "--pid",
@@ -347,11 +383,17 @@ group, with a typed reason for anything this host does not support.
                 value: "[BOOL]",
                 help: "only minimized (true, default) or shown windows",
             },
+            BROWSER_PROFILE,
             OFFSET,
             MAX,
         ],
         details: r#"Bare: the window array. With any filter or page flag the reply is
-{windows, visited, matched, returned, offset, truncated}."#,
+{windows, visited, matched, returned, offset, truncated}. Browser rows
+carry browser_profile (the Chromium profile name from the window's
+" - <App> - <profile>" identity suffix, read from the AX root when the
+inventory title lacks it); --browser-profile SUB keeps only those rows
+(case-insensitive substring), so an agent can address one profile's
+window of a multi-profile instance."#,
     },
     VerbSpec {
         name: "windows-watch",
@@ -1268,21 +1310,9 @@ page read --js EXPR [...]                           (MCU spelling)",
                 help: "JavaScript expression (MCU: --js)",
             },
             PORT,
-            ArgSpec {
-                flag: "--target-id",
-                value: "ID",
-                help: "exact CDP target id",
-            },
-            ArgSpec {
-                flag: "--target-url",
-                value: "SUB",
-                help: "case-insensitive url substring",
-            },
-            ArgSpec {
-                flag: "--target-title",
-                value: "SUB",
-                help: "case-insensitive title substring",
-            },
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
         ],
         details: r#"Second knife: CDP Runtime.evaluate on 127.0.0.1:N (default 9222).
 MAIN-world Function constructor is refused. No listener -> typed
@@ -1302,14 +1332,24 @@ local process, so open it only while needed."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "the CDP /json target inventory",
-        usage: "page-targets [--port N]
-page targets [--port N]                             (MCU spelling)",
-        args: &[PORT],
+        usage: "page-targets [--port N] [--browser-profile SUB]
+page targets [--port N] [--browser-profile SUB]     (MCU spelling)",
+        args: &[PORT, BROWSER_PROFILE],
         details: r#"The CDP /json inventory: id, url, title, type, attached, websocket
 (offered or not). Pick a --target-id here. No listener -> typed
 unsupported. Chrome / Brave must be started with
 --remote-debugging-port=9222 for every CDP path; that port answers any
-local process, so open it only while needed."#,
+local process, so open it only while needed.
+
+--browser-profile SUB joins the inventory to one profile: only targets
+whose title equals (exactly) a tab title of a window whose
+browser_profile contains SUB are returned, each with profile_match:
+"title", window and browser_profile. This is a heuristic and the reply
+says so: one CDP port serves every profile of an instance and a target
+carries no profile field, so a title shared across profiles matches each
+of them and a differently spelled strip title (memory-saver suffix,
+unset document title) is left out. No such window ->
+browser_window_not_found before any socket is opened."#,
     },
     VerbSpec {
         name: "page-text",
@@ -1317,9 +1357,10 @@ local process, so open it only while needed."#,
         aliases: &["page text"],
         scope: Scope::Observe,
         family: Family::Browser,
-        summary: "visible page text in reading order from the a11y tree",
+        summary: "visible page text in reading order (a11y tree or CDP)",
         usage: "page-text --window HANDLE [--max-bytes N] [--within X,Y,W,H] [--depth N] [--max-nodes N]
-page text ...                                       (MCU spelling)",
+page-text [--port N] (--target-id ID | --target-url SUB | --target-title SUB) [--max-bytes N]
+page text ...  |  page read [...]                   (MCU spellings)",
         args: &[
             WINDOW,
             ArgSpec {
@@ -1330,27 +1371,243 @@ page text ...                                       (MCU spelling)",
             ArgSpec {
                 flag: "--within",
                 value: "X,Y,W,H",
-                help: "screen rectangle the rows must intersect",
+                help: "a11y only: screen rectangle the rows must intersect",
             },
             ArgSpec {
                 flag: "--depth",
                 value: "N",
-                help: "walk depth (default 64)",
+                help: "a11y only: walk depth (default 64)",
             },
             ArgSpec {
                 flag: "--max-nodes",
                 value: "N",
-                help: "walk budget (default 6000)",
+                help: "a11y only: walk budget (default 6000)",
+            },
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+        ],
+        details: r#"The page's visible text in reading order as compact rows {id, role,
+text} (+ name when it differs, focused, editable / actionable) -- never a
+screenshot. Two backends, one row shape, so the caller does not care
+which answered:
+
+--window HANDLE reads the a11y tree of that window (rows carry bounds;
+backend ax / uia / at-spi2). On macOS Chromium only the active tab has a
+web-area there, so a background tab needs `tab select` first. Web
+static-text keeps its words in AXValue; a link / button is one row (its
+inner text merged). Then invoke --node / click --node. Walk budget
+defaults depth 64 / 6000 nodes because the platform's 1000-node
+breadth-first budget is spent on browser chrome before web content.
+
+--target-id | --target-url | --target-title [--port N] reads the CDP page
+target instead (backend "cdp", via Accessibility.getFullAXTree; fallback
+Runtime.evaluate innerText walk when that domain is unavailable). This
+reaches a background tab in a background window and changes nothing
+about which tab or window is active (focus_changed: false). Row `id` /
+`node` is then the backend DOM node id that page click --node / page
+fill --node take; no bounds (page find carries the box). One backend per
+call. Default 16 KiB (max 1 MiB), truncated flag."#,
+    },
+    VerbSpec {
+        name: "page-find",
+        command: "page-find",
+        aliases: &["page find"],
+        scope: Scope::Observe,
+        family: Family::Browser,
+        summary: "nodes of one CDP page target by CSS, text or role",
+        usage: "page-find [--port N] (--target-id ID | --target-url SUB | --target-title SUB)
+        (--selector CSS | --text SUB | --role R [--name SUB])
+page find ...                                       (MCU spelling)",
+        args: &[
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+            CDP_SELECTOR,
+            CDP_TEXT,
+            ArgSpec {
+                flag: "--role",
+                value: "R",
+                help: "AX role (button, link, textbox, StaticText, ...; case-insensitive)",
+            },
+            ArgSpec {
+                flag: "--name",
+                value: "SUB",
+                help: "with --role: case-insensitive substring of the accessible name",
             },
         ],
-        details: r#"The window's visible text in reading order as compact rows {id, role,
-text, bounds} (+ name when it differs, focused, actionable), read from the
-a11y tree -- never a screenshot. Web static-text keeps its words in
-AXValue, so this is where a page's words are; a link / button is one row
-(its inner text is merged). Pick a row, then invoke --node / click --node.
-Default 16 KiB (max 1 MiB), truncated flag; walk budget defaults depth 64
-/ 6000 nodes because the platform's own 1000-node breadth-first budget is
-spent on browser chrome before web content."#,
+        details: r#"The matching nodes of one CDP page target (a background tab in a
+background window included; nothing is activated): {node, path, tag,
+role, name, text, value, editable, ax_id, box}. --selector runs
+DOM.querySelectorAll; --text and --role filter Accessibility.getFullAXTree
+(a text hit inside a button / link is lifted to that control, so the
+click lands on it). `node` is the backend DOM node id the actuators take
+(page click --node / page fill --node); `box` is the layout box in
+viewport CSS px. Zero matches -> cdp_node_not_found; more than 20 are
+counted (total) and cut (truncated). The target selector rules are those
+of page-js (cdp_target_not_found / cdp_target_ambiguous)."#,
+    },
+    VerbSpec {
+        name: "page-click",
+        command: "page-click",
+        aliases: &["page click"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "click one node of a CDP page target in place",
+        usage: "page-click [--port N] (--target-id ID | --target-url SUB | --target-title SUB)
+        (--selector CSS | --text SUB | --node ID) [--button left|right|middle] [--clicks N]
+page click ...                                      (MCU spelling)",
+        args: &[
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+            CDP_SELECTOR,
+            CDP_TEXT,
+            CDP_NODE,
+            ArgSpec {
+                flag: "--button",
+                value: "B",
+                help: "left (default) | right | middle",
+            },
+            ArgSpec {
+                flag: "--clicks",
+                value: "N",
+                help: "1 (default) ..= 3 press / release pairs",
+            },
+        ],
+        details: r#"Resolves exactly one node (zero -> cdp_node_not_found, more ->
+cdp_node_ambiguous with candidates; narrow the selector or pass --node),
+DOM.scrollIntoViewIfNeeded, takes the DOM.getBoxModel content centre, and
+dispatches Input.dispatchMouseEvent mouseMoved + pressed + released on
+that page target. The tab is not selected and the window is not raised
+(focus_changed: false); focus emulation is switched on for the click and
+off after so an unfocused page handles it normally. A node without a
+layout box -> cdp_node_not_visible, nothing dispatched. Verified by
+reading the document (url, title, text length, active element) and the
+node (text, value, checked, attributes) back: performed says the events
+were accepted, verified says something observable changed
+(verification.changed lists what; no_observable_change is honest, not a
+failure). Receipt reserved before the dispatch, completed after."#,
+    },
+    VerbSpec {
+        name: "page-fill",
+        command: "page-fill",
+        aliases: &["page fill"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "type into one field of a CDP page target in place",
+        usage: "page-fill [--port N] (--target-id ID | --target-url SUB | --target-title SUB)
+        (--selector CSS | --node ID) --text TEXT [--clear] [--submit]
+page fill ...                                       (MCU spelling)",
+        args: &[
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+            CDP_SELECTOR,
+            CDP_NODE,
+            ArgSpec {
+                flag: "--text",
+                value: "TEXT",
+                help: "what to insert (<= 64 KiB; empty only with --clear)",
+            },
+            ArgSpec {
+                flag: "--clear",
+                value: "",
+                help: "select everything first so the text replaces the field",
+            },
+            ArgSpec {
+                flag: "--submit",
+                value: "",
+                help: "then dispatch Enter key down / up",
+            },
+        ],
+        details: r#"Resolves exactly one editable node (an enabled input / textarea /
+contenteditable; anything else -> cdp_node_not_editable, nothing
+written), DOM.focus, optional select-all (--clear), Input.insertText,
+then reads .value (or the text content) back; --submit dispatches Enter
+key events afterwards and echoes the document state. Focus emulation is
+switched on for the write and off after, so a background tab accepts it
+without being brought forward (focus_changed: false). Verified when the
+read-back equals TEXT (--clear) or grew by exactly TEXT (append at the
+caret); a mismatch is performed but unverified (value_mismatch), for a
+page that rewrites its own field. Receipt reserved before the write,
+completed after."#,
+    },
+    VerbSpec {
+        name: "page-nav",
+        command: "page-nav",
+        aliases: &["page nav"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "navigate one CDP page target without selecting it",
+        usage: "page-nav [--port N] (--target-id ID | --target-url SUB | --target-title SUB) --url URL [--wait-ms N]
+page nav ...                                        (MCU spelling)",
+        args: &[
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+            ArgSpec {
+                flag: "--url",
+                value: "URL",
+                help: "where to go (needs a scheme: https:, data:, file:, about:)",
+            },
+            ArgSpec {
+                flag: "--wait-ms",
+                value: "N",
+                help: "how long to wait for Page.loadEventFired (default 10000, max 120000)",
+            },
+        ],
+        details: r#"Page.navigate on that page target -- a background tab stays a
+background tab, the window is not raised (focus_changed: false) -- then
+waits up to --wait-ms for Page.loadEventFired. A navigation Chromium
+refuses at once (errorText, e.g. a DNS failure) -> cdp_navigation_failed.
+Verified when the load event fired (or readyState reads complete on the
+new url); a timeout is performed but unverified (load_timeout) with the
+url / title read so far. Reply: final_url, final_title, waited_ms,
+receipt."#,
+    },
+    VerbSpec {
+        name: "page-screenshot",
+        command: "page-screenshot",
+        aliases: &["page screenshot"],
+        scope: Scope::Observe,
+        family: Family::Browser,
+        summary: "PNG of one CDP page target (background may refuse)",
+        usage: "page-screenshot [--port N] (--target-id ID | --target-url SUB | --target-title SUB) --out PATH [--replace] [--activate]
+page screenshot ...                                 (MCU spelling)",
+        args: &[
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+            ArgSpec {
+                flag: "--out",
+                value: "PATH",
+                help: "where the PNG is written (refuses an existing file without --replace)",
+            },
+            ArgSpec {
+                flag: "--replace",
+                value: "",
+                help: "overwrite --out",
+            },
+            ArgSpec {
+                flag: "--activate",
+                value: "",
+                help: "actuate: Page.bringToFront first (the only CDP verb that changes the active tab)",
+            },
+        ],
+        details: r#"Page.captureScreenshot (PNG) of that page target, written to --out with
+its sha256 in the reply. Chromium does not paint a tab that is not
+visible, so a background or occluded tab may answer
+cdp_screenshot_unavailable; this verb never activates the tab to get a
+picture. --activate is the one explicit opt-in: it runs Page.bringToFront
+first, needs the actuate grant, writes a receipt, and replies
+focus_changed: true. Prefer page text / page find, which need no pixels."#,
     },
     VerbSpec {
         name: "tab-list",
@@ -1395,18 +1652,132 @@ reading selected back (already selected = verified no-op). The a11y
 fallback when no CDP port is open."#,
     },
     VerbSpec {
+        name: "tab-close",
+        command: "tab-close",
+        aliases: &["tab close"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "close one tab through its own close button (gated)",
+        usage: "tab-close --window HANDLE --title T --exact --expect gone
+tab close ...                                       (MCU spelling)",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--title",
+                value: "T",
+                help: "the tab's exact title (from tab-list)",
+            },
+            ArgSpec {
+                flag: "--exact",
+                value: "",
+                help: "required: the title is matched exactly, never as a substring",
+            },
+            ArgSpec {
+                flag: "--expect",
+                value: "gone",
+                help: "checkable postcondition: the title reads back as absent from the strip",
+            },
+        ],
+        details: r#"Destructive, so gated like close: --window H --title T --exact names the
+tab (exact, case-sensitive title equality; no match -> a11y_tab_not_found,
+two -> a11y_tab_ambiguous), the strip snapshot is written to the receipt
+before anything is pressed, and --expect gone is the postcondition read
+back from the tab strip (up to 2.5 s). Any missing part -> refused
+(destructive_gate) with nothing performed. The press goes to the tab
+row's own close button (the button child of the Chromium tab
+radio-button); a row that exposes none -> typed unsupported
+(tab_close_button_missing) -- macOS Chromium shows it on the active tab
+only, so `tab select` first. A keyboard shortcut is never substituted.
+Reply: performed, verified, before / after strip rows, receipt."#,
+    },
+    VerbSpec {
+        name: "browser-profiles",
+        command: "browser-profiles",
+        aliases: &["browser profiles"],
+        scope: Scope::Observe,
+        family: Family::Browser,
+        summary: "Chromium profiles of the running browser, with windows",
+        usage: "browser-profiles [--app SUB]
+browser profiles [--app SUB]                        (MCU spelling)",
+        args: &[ArgSpec {
+            flag: "--app",
+            value: "SUB",
+            help: "Brave Origin | Brave Browser | Google Chrome (substring; default: the one running)",
+        }],
+        details: r#"Reads the application's Chromium `Local State` (profile.info_cache:
+directory -> display name; profile.last_used) and joins each profile to
+the inventory windows whose browser_profile equals its name. Rows: {name,
+directory, last_used, windows: [handles]}; browser windows whose profile
+name is not in Local State are listed under unlisted_windows. --app is a
+catalog substring (Brave Origin -> ~/Library/Application
+Support/BraveSoftware/Brave-Origin, Brave Browser -> .../Brave-Browser,
+Google Chrome -> .../Google/Chrome; Linux under ~/.config); omitted, the
+one running catalog application is used (none -> browser_app_not_found,
+several -> browser_app_ambiguous). Any other application -> typed
+unsupported. Never touches the browser."#,
+    },
+    VerbSpec {
+        name: "browser-open",
+        command: "browser-open",
+        aliases: &["browser open"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "open one profile's window / URL in the running browser",
+        usage: "browser-open --profile NAME [--url URL] [--app SUB] [--timeout-ms N]
+browser open ...                                    (MCU spelling)",
+        args: &[
+            ArgSpec {
+                flag: "--profile",
+                value: "NAME",
+                help: "profile name from browser-profiles (exact, else unique case-insensitive substring)",
+            },
+            ArgSpec {
+                flag: "--url",
+                value: "URL",
+                help: "open this URL in the profile (a tab of its window when it has one)",
+            },
+            ArgSpec {
+                flag: "--app",
+                value: "SUB",
+                help: "Brave Origin | Brave Browser | Google Chrome (substring; default: the one running)",
+            },
+            ArgSpec {
+                flag: "--timeout-ms",
+                value: "N",
+                help: "how long to wait for the window (default 8000, max 120000)",
+            },
+        ],
+        details: r#"Resolves NAME to its profile directory (exact name first, then a unique
+case-insensitive substring; browser_profile_not_found /
+browser_profile_ambiguous carry the candidates) and runs macOS `open -na
+<app> --args --profile-directory=<dir> [URL]`: the Chromium process
+singleton hands that command line to the running instance, which opens a
+window of the profile (or, with a URL, a tab in the profile's existing
+window) and the user's browser is never quit or restarted. Then polls the
+window inventory (default 8000 ms) until a window with that
+browser_profile appears that was not in the before snapshot, or -- when
+the profile already had a window and a URL was given -- until that
+window's title changes. Reply: {handle, browser_profile, title, created}
+plus the receipt (reserved before `open`, completed / failed after the
+read-back); timeout -> browser_window_not_found. `open` activates the
+browser, so this is actuation; nothing here needs a CDP port."#,
+    },
+    VerbSpec {
         name: "page",
         command: "page",
         aliases: &[],
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "MCU page group; unmapped page verbs answer typed",
-        usage: "page read --js EXPR | page targets | page text --window HANDLE
+        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page fill | page nav | page screenshot
 page [<other>]                                      (typed unsupported)",
         args: &[],
-        details: r#"MCU page: `page read --js` -> page-js, `page targets` -> page-targets,
-`page text` -> page-text. Other page verbs (click / nav) stay CDP and
-answer typed unsupported here."#,
+        details: r#"MCU page: `page read --js` -> page-js, `page read` (no --js) -> the CDP
+page-text, `page targets` -> page-targets, `page text` -> page-text (a11y
+with --window, CDP with a target selector), and the CDP background-tab
+verbs `page find` / `page click` / `page fill` / `page nav` / `page
+screenshot` -> page-find / page-click / page-fill / page-nav /
+page-screenshot. Any other page sub-verb answers typed unsupported."#,
     },
     // -------------------------------------------------------------- clipboard
     VerbSpec {
@@ -1890,10 +2261,43 @@ mod tests {
             Some("tab-select")
         );
         assert_eq!(
+            resolve("tab", Some("close")).map(|s| s.name),
+            Some("tab-close")
+        );
+        assert_eq!(lookup("browser").map(|s| s.name), Some("browser-profiles"));
+        assert_eq!(
+            resolve("browser", Some("open")).map(|s| s.name),
+            Some("browser-open")
+        );
+        assert_eq!(
+            resolve("browser", Some("profiles")).map(|s| s.name),
+            Some("browser-profiles")
+        );
+        assert_eq!(
             resolve("page", Some("text")).map(|s| s.name),
             Some("page-text")
         );
-        assert_eq!(resolve("page", Some("click")).map(|s| s.name), Some("page"));
+        assert_eq!(
+            resolve("page", Some("click")).map(|s| s.name),
+            Some("page-click")
+        );
+        assert_eq!(
+            resolve("page", Some("fill")).map(|s| s.name),
+            Some("page-fill")
+        );
+        assert_eq!(
+            resolve("page", Some("nav")).map(|s| s.name),
+            Some("page-nav")
+        );
+        assert_eq!(
+            resolve("page", Some("find")).map(|s| s.name),
+            Some("page-find")
+        );
+        assert_eq!(
+            resolve("page", Some("screenshot")).map(|s| s.name),
+            Some("page-screenshot")
+        );
+        assert_eq!(resolve("page", Some("zoom")).map(|s| s.name), Some("page"));
         assert_eq!(
             resolve("clipboard", Some("write")).map(|s| s.name),
             Some("clipboard-write")
@@ -1990,10 +2394,15 @@ mod tests {
             "orderwin",
             "close",
             "tab-select",
+            "tab-close",
+            "browser-open",
+            "page-click",
+            "page-fill",
+            "page-nav",
             "app",
         ] {
             assert!(actuate.contains(expected), "{expected} must be actuate");
         }
-        assert_eq!(actuate.len(), 20, "{actuate:?}");
+        assert_eq!(actuate.len(), 25, "{actuate:?}");
     }
 }

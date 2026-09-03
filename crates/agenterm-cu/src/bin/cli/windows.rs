@@ -74,12 +74,19 @@ fn windows(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
     let title = flag_text(args, "--title")?;
     let focused = flag_tristate(args, "--focused");
     let minimized = flag_tristate(args, "--minimized");
+    let browser_profile = flag_text(args, "--browser-profile")?;
+    if browser_profile
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("windows --browser-profile must not be empty".into());
+    }
     let offset = flag_parsed::<usize>(args, "--offset")?;
     let max = flag_parsed::<usize>(args, "--max")?;
     if !args.is_empty() {
         return Err(format!(
             "windows accepts only --pid N --app SUB --title SUB --focused [BOOL] \
-             --minimized [BOOL] --offset N --max N; unexpected {:?}",
+             --minimized [BOOL] --browser-profile SUB --offset N --max N; unexpected {:?}",
             args[0]
         ));
     }
@@ -90,6 +97,7 @@ fn windows(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
         title,
         focused,
         minimized,
+        browser_profile,
         offset,
         max,
     })

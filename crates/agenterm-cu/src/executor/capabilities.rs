@@ -358,6 +358,17 @@ fn permissions_declaration() -> serde_json::Value {
 /// declaration did not already say.
 fn attach_verb_grants(payload: &mut serde_json::Value) {
     if let Some(verbs) = payload["verbs"].as_object_mut() {
+        // The CDP background-tab verbs: one declaration each, kept out of
+        // the literal above (the json! macro has a recursion budget).
+        for verb in [
+            "page-find",
+            "page-click",
+            "page-fill",
+            "page-nav",
+            "page-screenshot",
+        ] {
+            verbs.insert(verb.to_owned(), crate::mcu_surface::verb_declaration(verb));
+        }
         for (verb, grant) in [
             ("windows", "observe"),
             ("windows-watch", "observe"),
@@ -378,9 +389,17 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("capabilities", "observe"),
             ("page-js", "observe"),
             ("page-targets", "observe"),
+            ("page-find", "observe"),
+            ("page-screenshot", "observe"),
+            ("page-click", "actuate"),
+            ("page-fill", "actuate"),
+            ("page-nav", "actuate"),
             ("tab-list", "observe"),
+            ("browser-profiles", "observe"),
             ("click", "actuate"),
             ("tab-select", "actuate"),
+            ("tab-close", "actuate"),
+            ("browser-open", "actuate"),
             ("dclick", "actuate"),
             ("invoke", "actuate"),
             ("menu-invoke", "actuate"),
@@ -482,6 +501,19 @@ mod tests {
         assert_ne!(data["verbs"]["orderwin"]["status"], "");
         assert_eq!(data["verbs"]["page-js"]["status"], "available");
         assert_eq!(data["verbs"]["page-js"]["mode"], "cdp");
+        for verb in [
+            "page-find",
+            "page-click",
+            "page-fill",
+            "page-nav",
+            "page-screenshot",
+        ] {
+            assert_eq!(data["verbs"][verb]["mode"], "cdp", "{verb}");
+            assert_eq!(data["verbs"][verb]["status"], "available", "{verb}");
+            assert_eq!(data["verbs"][verb]["focus_changed"], false, "{verb}");
+        }
+        assert_eq!(data["verbs"]["page-click"]["grant"], "actuate");
+        assert_eq!(data["verbs"]["page-find"]["grant"], "observe");
         assert_eq!(
             data["verbs"]["invoke"]["actions"]["set-selection"],
             "mapped"

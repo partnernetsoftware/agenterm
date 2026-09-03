@@ -1439,6 +1439,52 @@ The debugging port answers any local process, so documentation must say
 to open it only while needed; do not default a verb to relaunching the
 browser with the flag.
 
+## Acting on a background tab is a CDP session, not a focus change (measured 2026-09-03)
+
+Reading a background tab is `Runtime.evaluate` on its target; acting on
+it is the same target's websocket with a handful more methods, and none
+of them has to bring the tab forward. What the throwaway headless gate
+(`scripts/cu-cdp-actuate-smoke.sh`) settled:
+
+- **One session per verb, ids matched, events buffered.** Keep the
+  socket behind a `Transport` trait (`cdp::ws`) so the message shaping,
+  the ambiguity rules and the verification are unit-tested on scripted
+  transcripts; `Session::call` returns the reply with the matching `id`
+  and parks every `method` event it reads past, so `Page.navigate` +
+  `wait_event("Page.loadEventFired")` works without a second connection.
+  Bound the inbound message at 16 MiB (an AX tree or a PNG is large) and
+  handle the 8-byte length form; the 64 KiB cap stays a `page-js` rule.
+- **Focus emulation, not activation.** `Input.insertText` and click
+  side-effects want a focused page; `Emulation.setFocusEmulationEnabled`
+  gives an unfocused target that without touching the real front tab or
+  window. Switch it on for the action and off after; never call
+  `Target.activateTarget` / `Page.bringToFront` unless a verb's
+  `--activate` says so, and then reply `focus_changed: true` and require
+  the actuate grant.
+- **A text hit inside a control is the control.** `Accessibility.
+  getFullAXTree` lists `button "Go"` *and* its `StaticText "Go"`; keep the
+  innermost match, then lift it to the nearest interactive ancestor whose
+  name carries the same words, so the click lands on the button's box and
+  the row reports `role: button`. Containers (`generic`, `paragraph`,
+  `RootWebArea`) are never rows; a field's words are its `value`, its
+  `name` is the label.
+- **Verification is a read-back, and "nothing changed" is honest.** A
+  click reads the document (url, title, text length, active element) and
+  the node (text, value, checked, attributes) before and after;
+  `performed` says the events were accepted, `verified` says something
+  observable changed, and `no_observable_change` is a reason, not a
+  failure. A fill compares `.value` with the text (`--clear`) or with
+  before + text (insert at the caret); a page that rewrites its own field
+  is `performed` but `value_mismatch`.
+- **Plan, receipt, perform.** Resolve the node, scroll it into view, take
+  the box and the before-state with no side effect; reserve the receipt;
+  only then dispatch. A node without a layout box is
+  `cdp_node_not_visible` before anything is sent.
+- **Prove the invariant in the gate, not in prose.** After every verb the
+  smoke re-reads `/json` (the first `page` entry is the active tab) and
+  `windows --focused` and fails on any change; the fixture page mutates
+  its own DOM in `onclick` / `onsubmit` so the read-back is real.
+
 ## Name addressing is wait-matching then the node path
 
 `agenterm-cu click --name` / `agenterm-cu focus --name` must not grow a second actuation

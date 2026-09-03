@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# cu-cdp-actuate-smoke — proof that agenterm-cu reads AND acts on a
+# BACKGROUND tab over CDP without changing which tab or window is active.
+# Runs against a THROWAWAY Chromium-family browser only: a fresh
+# --user-data-dir under mktemp, a free loopback port, headless, and the
+# process plus the directory are removed on EXIT (also on failure / Ctrl-C).
+# The user's running browser is never touched, quit, or asked for a port.
+#
+# Evidence (one dated line per run; PASS / FAIL(reason) / SKIP(reason);
+# never a host path):
+#   2026-09-03  PASS  Brave Origin headless (macOS): two data: tabs, A active,
+#               every CDP verb run on B (page nav to the fixture page, page
+#               text, page find by text / selector / role, page fill --clear,
+#               page click by text, page fill --node + --submit, page
+#               screenshot); after each verb /json still listed A first and
+#               `windows --focused` was unchanged; the button's onclick
+#               mutated the DOM and was read back through page-js; receipts
+#               listed page-nav / page-fill / page-click completed.
+#
+# What it proves, in order (all on 127.0.0.1:<free port>):
+#   1. Two tabs: A (active, first /json page) and B (background).
+#   2. `page nav --target-id B --url data:...` loads the fixture page in B
+#      (verified by Page.loadEventFired, final_title read back).
+#   3. `page text --target-id B` returns backend "cdp" rows with the page's
+#      words and node ids, focus_changed false.
+#   4. `page find` by --text (lifted to the button), --selector, --role;
+#      cdp_node_not_found on a miss; cdp_node_ambiguous when three nodes
+#      match a click selector (nothing dispatched).
+#   5. `page fill --selector '#q' --text hello --clear` verified by .value
+#      read-back.
+#   6. `page click --text Go` performed + verified: the button's onclick
+#      rewrote #out, which page-js reads back as "clicked:hello".
+#   7. `page fill --node N --text ' world' --submit` appends and submits
+#      (the form's onsubmit rewrites #out -> "submitted:hello world").
+#   8. `page screenshot --target-id B --out` writes a PNG, or answers the
+#      typed cdp_screenshot_unavailable -- either way without activating.
+#   9. After EVERY verb: /json lists A first (B never became active) and
+#      `windows --focused` reports the same front window as before the run
+#      (or "none" both times on an unattended session).
+#  10. `receipts` lists the three actuations as completed lines.
+#
+# Browser: $CU_CDP_BROWSER (an executable), else /Applications/Brave Origin.app,
+# else /Applications/Google Chrome.app; none present is a typed SKIP.
+# Binary: $AGENTERM_CU, else `agenterm-cu` on PATH, else target/debug or
+# target/abi-dev. This script never builds (other lanes may own Cargo).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+skip() { echo "SKIP: cu-cdp-actuate-smoke: $*" >&2; exit 0; }
+fail() { echo "FAIL: cu-cdp-actuate-smoke: $*" >&2; exit 1; }
+
+[[ "$(uname -s)" == "Darwin" ]] || skip "macOS only (browser bundle discovery)"
+command -v python3 >/dev/null 2>&1 || skip "python3 not found"
+command -v curl >/dev/null 2>&1 || skip "curl not found"
+
+CU="${AGENTERM_CU:-}"
+if [[ -z "$CU" ]]; then
+  if command -v agenterm-cu >/dev/null 2>&1; then CU="$(command -v agenterm-cu)"
+  elif [[ -x "$ROOT/target/debug/agenterm-cu" ]]; then CU="$ROOT/target/debug/agenterm-cu"
+  elif [[ -x "$ROOT/target/abi-dev/agenterm-cu" ]]; then CU="$ROOT/target/abi-dev/agenterm-cu"
+  else skip "no agenterm-cu binary (set AGENTERM_CU or build the crate)"; fi
+fi
+
+BROWSER="${CU_CDP_BROWSER:-}"
+if [[ -z "$BROWSER" ]]; then
+  for candidate in \
+    "/Applications/Brave Origin.app/Contents/MacOS/Brave Origin" \
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do
+    if [[ -x "$candidate" ]]; then BROWSER="$candidate"; break; fi
+  done
+fi
+[[ -n "$BROWSER" && -x "$BROWSER" ]] || skip "no Chromium-family browser (Brave Origin / Google Chrome) installed"
+BROWSER_NAME="$(basename "$BROWSER")"
+
+PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+UD="$(mktemp -d "${TMPDIR:-/tmp}/cu-cdp-actuate-smoke.XXXXXX")"
+export AGENTERM_CU_AUDIT_PATH="$UD/audit.jsonl"
+BPID=""
+cleanup() {
+  if [[ -n "$BPID" ]] && kill -0 "$BPID" 2>/dev/null; then
+    kill "$BPID" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$BPID" 2>/dev/null || break; sleep 0.2; done
+    kill -9 "$BPID" 2>/dev/null || true
+    wait "$BPID" 2>/dev/null || true
+  fi
+  rm -rf "$UD"
+}
+trap cleanup EXIT INT TERM
+
+BASE="http://127.0.0.1:$PORT"
+"$BROWSER" \
+  --user-data-dir="$UD/profile" \
+  --remote-debugging-port="$PORT" \
+  --no-first-run --no-default-browser-check --disable-gpu \
+  --headless=new about:blank >"$UD/browser.log" 2>&1 &
+BPID=$!
+
+ready=0
+for _ in $(seq 1 100); do
+  if curl -sf "$BASE/json/version" >/dev/null 2>&1; then ready=1; break; fi
+  kill -0 "$BPID" 2>/dev/null || break
+  sleep 0.2
+done
+[[ "$ready" == 1 ]] || fail "$BROWSER_NAME did not answer /json/version on $PORT ($(head -c 300 "$UD/browser.log" | tr '\n' ' '))"
+echo "STEP 1 browser: $BROWSER_NAME headless, throwaway profile, CDP on 127.0.0.1:$PORT"
+
+# JSON helpers: jf <json> <dotted.path>.
+jf() {
+  python3 -c '
+import json, sys
+cur = json.loads(sys.argv[1])
+for part in sys.argv[2].split("."):
+    cur = cur[int(part)] if isinstance(cur, list) else cur.get(part)
+    if cur is None: break
+print("" if cur is None else (json.dumps(cur) if isinstance(cur, (dict, list)) else cur))' "$1" "$2"
+}
+
+# Two tabs through DevTools (headless refuses more than one argv URL).
+curl -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-A</title>A" >/dev/null
+curl -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-B</title>B" >/dev/null
+ids=""
+for _ in $(seq 1 50); do
+  ids="$(curl -s "$BASE/json" | python3 -c '
+import json, sys
+a = b = None
+for t in json.load(sys.stdin):
+    if t.get("type") != "page": continue
+    if t.get("title") == "cu-smoke-A": a = t["id"]
+    if t.get("title") == "cu-smoke-B": b = t["id"]
+print(f"{a} {b}" if a and b else "")')"
+  [[ -n "$ids" ]] && break
+  sleep 0.2
+done
+[[ -n "$ids" ]] || fail "tabs cu-smoke-A / cu-smoke-B did not appear in /json"
+ID_A="${ids%% *}"; ID_B="${ids##* }"
+curl -s "$BASE/json/activate/$ID_A" >/dev/null
+
+active_title() {
+  curl -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])'
+}
+[[ "$(active_title)" == "cu-smoke-A" ]] || fail "expected cu-smoke-A to be the first /json page after activate, got: $(active_title)"
+
+obs() { "$CU" --target current --grant observe "$@"; }
+act() { "$CU" --target current --grant observe,actuate "$@"; }
+
+# The user's front window, as the inventory sees it (handle + title), or
+# "none" when the session reports no focused window (unattended host).
+front_window() {
+  local out
+  out="$(obs windows --focused 2>/dev/null || true)"
+  python3 -c '
+import json, sys
+try:
+    reply = json.loads(sys.argv[1])
+except Exception:
+    print("unreadable"); sys.exit(0)
+data = reply.get("data") or {}
+rows = data if isinstance(data, list) else data.get("windows") or []
+if not reply.get("ok") or not rows:
+    print("none"); sys.exit(0)
+print(" | ".join("%s:%s" % (r.get("handle"), r.get("app_name", "")) for r in rows))' "$out"
+}
+FRONT0="$(front_window)"
+echo "STEP 2 tabs: A=$ID_A (active) B=$ID_B (background); front window before: $FRONT0"
+
+# After every verb: A is still the active page target, the front window is
+# unchanged, and the reply (when ok) said focus_changed false.
+CHECKS=0
+still_background() {
+  local step="$1" reply="$2" now
+  now="$(active_title)"
+  [[ "$now" == "cu-smoke-A" ]] || fail "$step made another tab active: /json lists $now first"
+  local front; front="$(front_window)"
+  [[ "$front" == "$FRONT0" ]] || fail "$step changed the front window: before [$FRONT0] after [$front]"
+  if [[ "$(jf "$reply" ok)" == "True" ]]; then
+    [[ "$(jf "$reply" data.focus_changed)" == "False" ]] || fail "$step reply lacks focus_changed:false: $reply"
+    [[ "$(jf "$reply" data.target.id)" == "$ID_B" ]] || fail "$step reply names the wrong target: $(jf "$reply" data.target)"
+  fi
+  CHECKS=$((CHECKS + 1))
+}
+
+# 1. page nav loads the fixture page in B: a heading, a form with an input
+#    and a button whose onclick mutates the DOM, and a paragraph to read back.
+FIXTURE="$(python3 -c '
+import urllib.parse
+html = """<!doctype html><title>cu-actuate-B</title><h1>Hello B</h1>
+<form onsubmit="document.getElementById(&quot;out&quot;).textContent=&quot;submitted:&quot;+document.getElementById(&quot;q&quot;).value;return false">
+<input id="q" placeholder="Query"><button id="go" type="button" onclick="document.getElementById(&quot;out&quot;).textContent=&quot;clicked:&quot;+document.getElementById(&quot;q&quot;).value">Go</button>
+</form><p id="out">idle</p>"""
+print("data:text/html," + urllib.parse.quote(html, safe=""))')"
+OUT="$(act page nav --port "$PORT" --target-id "$ID_B" --url "$FIXTURE" --wait-ms 5000)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page nav: $OUT"
+[[ "$(jf "$OUT" data.final_title)" == "cu-actuate-B" ]] || fail "page nav final_title: $(jf "$OUT" data.final_title)"
+still_background "page nav" "$OUT"
+echo "STEP 3 page nav --target-id B -> verified (load event), final_title=cu-actuate-B; A still active"
+
+# 2. page text over CDP: the same row shape, backend cdp, node ids.
+OUT="$(obs page text --port "$PORT" --target-id "$ID_B")"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.backend)" == "cdp" ]] || fail "page text: $OUT"
+texts="$(jf "$OUT" data.rows | python3 -c 'import json,sys; print("|".join(r["text"] for r in json.load(sys.stdin)))')"
+[[ "$texts" == *"Hello B"* && "$texts" == *"Go"* && "$texts" == *"idle"* ]] || fail "page text rows missed the page: $texts"
+still_background "page text" "$OUT"
+echo "STEP 4 page text --target-id B -> backend=cdp via=$(jf "$OUT" data.via) rows=$(jf "$OUT" data.returned) [$texts]"
+
+# 3. page find: by text (lifted to the button), by selector, by role; a
+#    miss and an ambiguity are typed.
+OUT="$(obs page find --port "$PORT" --target-id "$ID_B" --text Go)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.returned)" == "1" ]] || fail "page find --text Go: $OUT"
+[[ "$(jf "$OUT" data.nodes.0.role)" == "button" ]] || fail "page find --text Go should lift to the button: $(jf "$OUT" data.nodes.0)"
+NODE_GO="$(jf "$OUT" data.nodes.0.node)"
+[[ -n "$(jf "$OUT" data.nodes.0.box)" ]] || fail "page find carries no box: $(jf "$OUT" data.nodes.0)"
+still_background "page find --text" "$OUT"
+OUT="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#q')"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.nodes.0.editable)" == "True" ]] || fail "page find --selector #q: $OUT"
+NODE_Q="$(jf "$OUT" data.nodes.0.node)"
+still_background "page find --selector" "$OUT"
+OUT="$(obs page find --port "$PORT" --target-id "$ID_B" --role button)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.nodes.0.node)" == "$NODE_GO" ]] || fail "page find --role button: $OUT"
+still_background "page find --role" "$OUT"
+OUT="$(obs page find --port "$PORT" --target-id "$ID_B" --text nowhere-at-all)" || true
+[[ "$(jf "$OUT" ok)" == "False" && "$(jf "$OUT" error.code)" == "cdp_node_not_found" ]] || fail "expected cdp_node_not_found: $OUT"
+OUT="$(act page click --port "$PORT" --target-id "$ID_B" --selector 'p,button,input')" || true
+[[ "$(jf "$OUT" ok)" == "False" && "$(jf "$OUT" error.code)" == "cdp_node_ambiguous" ]] || fail "expected cdp_node_ambiguous: $OUT"
+[[ "$(jf "$OUT" error.detail.count)" == "3" ]] || fail "cdp_node_ambiguous should count 3: $OUT"
+still_background "page click (ambiguous)" "$OUT"
+echo "STEP 5 page find: --text Go -> button node=$NODE_GO (box), --selector #q -> node=$NODE_Q editable, --role button -> same node; miss -> cdp_node_not_found; 3 hits -> cdp_node_ambiguous"
+
+# 4. page fill --clear, verified by the value read-back.
+OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --selector '#q' --text hello --clear)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill: $OUT"
+[[ "$(jf "$OUT" data.verification.after_value)" == "hello" ]] || fail "page fill read-back: $(jf "$OUT" data.verification)"
+still_background "page fill" "$OUT"
+echo "STEP 6 page fill --selector #q --text hello --clear -> verified (after_value=hello)"
+
+# 5. page click by text: the onclick handler rewrites #out; verified by the
+#    document read-back and independently through page-js.
+OUT="$(act page click --port "$PORT" --target-id "$ID_B" --text Go)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.performed)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page click: $OUT"
+still_background "page click" "$OUT"
+READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
+[[ "$(jf "$READ" data.value)" == "clicked:hello" ]] || fail "the click did not run the page's onclick: $READ"
+echo "STEP 7 page click --text Go -> performed+verified (changed: $(jf "$OUT" data.verification.changed)); page-js reads #out = clicked:hello"
+
+# 6. page fill by node id, appended, then --submit runs the form's onsubmit.
+OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text ' world' --submit)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill --node --submit: $OUT"
+[[ "$(jf "$OUT" data.verification.after_value)" == "hello world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
+[[ "$(jf "$OUT" data.submitted.dispatched)" == "True" ]] || fail "page fill --submit not dispatched: $OUT"
+still_background "page fill --submit" "$OUT"
+READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
+[[ "$(jf "$READ" data.value)" == "submitted:hello world" ]] || fail "Enter did not submit the form: $READ"
+echo "STEP 8 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
+
+# 7. page screenshot: a PNG, or the typed refusal -- never an activation.
+SHOT="$UD/b.png"
+OUT="$(obs page screenshot --port "$PORT" --target-id "$ID_B" --out "$SHOT")" || true
+if [[ "$(jf "$OUT" ok)" == "True" ]]; then
+  [[ -s "$SHOT" ]] || fail "page screenshot wrote nothing: $OUT"
+  magic="$(head -c 4 "$SHOT" | od -An -c | tr -d ' ')"
+  [[ "$magic" == *"PNG"* ]] || fail "page screenshot is not a PNG: $magic"
+  SHOT_NOTE="png bytes=$(jf "$OUT" data.bytes)"
+else
+  [[ "$(jf "$OUT" error.code)" == "cdp_screenshot_unavailable" ]] || fail "page screenshot: $OUT"
+  SHOT_NOTE="typed cdp_screenshot_unavailable (background tab not painted)"
+fi
+still_background "page screenshot" "$OUT"
+echo "STEP 9 page screenshot --target-id B -> $SHOT_NOTE; A still active"
+
+# 8. Receipts: the three actuations were reserved and completed.
+OUT="$(obs receipts --max 20)"
+[[ "$(jf "$OUT" ok)" == "True" ]] || fail "receipts: $OUT"
+verbs="$(jf "$OUT" data.receipts | python3 -c '
+import json,sys
+lines = json.load(sys.stdin)
+print(" ".join(sorted({l["verb"] for l in lines if l.get("phase") == "completed"})))')"
+for verb in page-nav page-fill page-click; do
+  [[ "$verbs" == *"$verb"* ]] || fail "receipts lack a completed $verb line: $verbs"
+done
+echo "STEP 10 receipts: completed [$verbs]"
+
+echo "PASS: cu-cdp-actuate-smoke ($BROWSER_NAME headless, port $PORT, every CDP verb on the background tab; $CHECKS active-target + front-window checks; front window before/after: [$FRONT0])"

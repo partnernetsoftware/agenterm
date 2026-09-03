@@ -4,9 +4,14 @@
 use super::*;
 
 /// Window inventory. The bare verb keeps its array reply; any filter or page
-/// field switches to the inventory object with counts.
+/// field switches to the inventory object with counts. `browser_profile`
+/// is the one filter the plain `WindowFilter` cannot judge from the
+/// inventory row alone (a Chromium window's profile sits in its AX root
+/// name when the title does not carry it), so it is applied here after
+/// the row filter and before paging.
 pub(super) fn windows_payload(
     filter: observe::WindowFilter,
+    browser_profile: Option<String>,
     offset: Option<usize>,
     max: Option<usize>,
 ) -> Result<serde_json::Value, CuError> {
@@ -37,11 +42,23 @@ pub(super) fn windows_payload(
         }
         row
     };
-    let rows = serde_json::Value::Array(windows.iter().map(row_json).collect());
-    if filter.is_empty() && offset.is_none() && max.is_none() {
-        return Ok(rows);
+    if filter.is_empty() && browser_profile.is_none() && offset.is_none() && max.is_none() {
+        return Ok(serde_json::Value::Array(
+            windows.iter().map(row_json).collect(),
+        ));
     }
-    let (hits, counts) = observe::inventory(&windows, &filter, page);
+    let wanted_profile = browser_profile.as_deref().map(str::to_lowercase);
+    let matched: Vec<&WindowInfo> = windows
+        .iter()
+        .filter(|window| filter.matches(window))
+        .filter(|window| {
+            wanted_profile.as_deref().is_none_or(|wanted| {
+                window_browser_profile(window)
+                    .is_some_and(|profile| profile.to_lowercase().contains(wanted))
+            })
+        })
+        .collect();
+    let (hits, page_truncated) = page.apply(&matched);
     let rows = serde_json::Value::Array(hits.iter().copied().map(row_json).collect());
     Ok(serde_json::json!({
         "mechanism": "libagenterm",
@@ -55,14 +72,28 @@ pub(super) fn windows_payload(
             "title": filter.title,
             "focused": filter.focused,
             "minimized": filter.minimized,
+            "browser_profile": browser_profile,
         },
-        "visited": counts.visited,
-        "matched": counts.matched,
-        "returned": counts.returned,
-        "offset": counts.offset,
-        "truncated": counts.truncated,
+        "visited": windows.len(),
+        "matched": matched.len(),
+        "returned": hits.len(),
+        "offset": page.offset,
+        "truncated": page_truncated,
         "windows": rows,
     }))
+}
+
+/// The Chromium profile name a browser window belongs to: parsed from the
+/// inventory title's ` - <App> - <profile>` suffix when it carries one,
+/// otherwise from the AX root name (Brave keeps the suffix there while the
+/// inventory title is the bare tab title). `None` for windows that are
+/// not a browser's or carry no profile.
+pub(super) fn window_browser_profile(window: &WindowInfo) -> Option<String> {
+    observe::browser_profile_from_identity(&window.app_name, &window.title).or_else(|| {
+        observe::looks_like_browser_app(&window.app_name)
+            .then(|| ax_root_browser_profile(window))
+            .flatten()
+    })
 }
 
 pub(super) fn ax_root_browser_profile(window: &WindowInfo) -> Option<String> {

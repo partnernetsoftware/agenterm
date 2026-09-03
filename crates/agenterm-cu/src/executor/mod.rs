@@ -51,6 +51,7 @@ mod node_match;
 mod persisted;
 mod placement;
 mod pointer;
+mod profiles;
 mod receipts;
 #[cfg(test)]
 mod test_support;
@@ -72,6 +73,7 @@ use menus::*;
 use node_match::*;
 use placement::*;
 use pointer::*;
+use profiles::*;
 use receipts::*;
 #[cfg(test)]
 use test_support::*;

@@ -134,6 +134,34 @@ unique-showing-name matcher; the independent read (`get-text`, `wait
 
 ## 4. Browser tabs and pages
 
+**Profiles first.** One running Chromium-family instance (Brave Origin,
+Brave Browser, Google Chrome) serves every profile of its user data
+directory, and each profile's window carries the profile name as
+`browser_profile` in the inventory. The profile workflow on the *real*
+running browser (never a restart, no CDP port needed):
+
+```bash
+cu browser profiles                                         # {name, directory, last_used, windows:[handles]} from Local State
+cu browser profiles --app "Brave Origin"                    # or Brave Browser / Google Chrome; others -> unsupported
+cu --grant actuate browser open --profile X --url "$U"      # open -na <app> --args --profile-directory=<dir> URL on the
+                                                            # running instance; reply {handle, browser_profile, title, created}
+cu windows --browser-profile X                              # only that profile's windows (case-insensitive substring)
+cu page text --window "$H"                                  # read the active tab; pick a row, click --node / invoke --node
+cu --grant actuate tab close --window "$H" --title "$T" --exact --expect gone   # the row's own close button; verified
+# unknown name -> browser_profile_not_found, two hits -> browser_profile_ambiguous (candidates in error.detail)
+# no window within --timeout-ms (default 8000) -> browser_window_not_found
+```
+
+`browser open` with a URL into a profile that already has a window opens
+a tab there (`created: false`, the window's title changes); without a
+URL, or for a profile with no window, a new window appears (`created:
+true`). `tab close` is destructive and gated like `close`: exact title,
+the strip snapshot in the receipt, `--expect gone` read back from the
+strip; a row with no close button (macOS Chromium shows it on the active
+tab only) is typed `unsupported`, never a keyboard shortcut. The
+real-instance gate is `scripts/cu-brave-live-smoke.sh`
+(`AGENTERM_CU_SMOKE_PROFILE=<name>`; it refuses to guess a profile).
+
 macOS Chromium (Chrome, Brave, Edge) publishes only the **active** tab's
 `web-area`; every other tab is a `radio-button` row of the tab-strip
 `tab-group`. Two paths, neither of which raises the window:
@@ -144,6 +172,8 @@ cu --grant actuate tab select --window "$H" --title "Inbox" # or --index 2; veri
 # no such tab -> a11y_tab_not_found, two title hits -> a11y_tab_ambiguous
 
 cu page targets --port 9222                                 # CDP /json: id, url, title, type, attached, websocket
+cu page targets --port 9222 --browser-profile X             # only targets whose title equals a tab title of X's window
+                                                            # (profile_match: "title" -- a heuristic: CDP has no profile field)
 cu page-js --port 9222 --target-title "Inbox" --expression document.title   # runs in the background tab
 cu page-js --port 9222 --target-url "mail.example" --expression 'location.href'
 cu page-js --port 9222 --target-id "A1B2..." --expression document.title
@@ -151,13 +181,41 @@ cu page-js --port 9222 --target-id "A1B2..." --expression document.title
 # (candidates in error.detail); no selector keeps the first page
 ```
 
+**Acting on a background tab (CDP, nothing becomes active).** The AX verbs
+above need the tab to be the window's active tab (`tab select` first) and
+only ever see the active tab's web-area. The CDP verbs do not: they address
+one page target -- a background tab in a background window included -- run
+on that target's own websocket, and never call `Target.activateTarget` /
+`Page.bringToFront`, so the human's front window and active tab stay where
+they are (every reply says `focus_changed: false` and echoes the target).
+Read, locate, then act:
+
+```bash
+cu page targets --port 9222 --browser-profile X                       # pick the tab: id, url, title
+cu page text --port 9222 --target-title "Inbox"                       # same {id, role, text} rows as the AX page text,
+                                                                      # backend "cdp"; id = backend DOM node id
+cu page find --port 9222 --target-title "Inbox" --text "Archive"      # {node, path, tag, role, name, text, box};
+cu page find --port 9222 --target-title "Inbox" --selector "input[name=q]"   #   --text lifts to the button / link
+cu page find --port 9222 --target-title "Inbox" --role button --name "Send"
+cu --grant actuate page fill --port 9222 --target-title "Inbox" --selector "input[name=q]" --text "hello" --clear --submit
+cu --grant actuate page click --port 9222 --target-title "Inbox" --text "Archive"     # or --node N from page find
+cu --grant actuate page nav --port 9222 --target-title "Inbox" --url "https://mail.example/sent" --wait-ms 8000
+cu page screenshot --port 9222 --target-title "Inbox" --out shot.png  # may be typed cdp_screenshot_unavailable in the
+                                                                      # background; --activate is the explicit opt-in
+# zero nodes -> cdp_node_not_found; several for click / fill -> cdp_node_ambiguous (candidates in error.detail)
+# click / fill / nav reply performed + verified (document / node / value read-back) and write a receipt
+```
+
 Every CDP verb needs the browser started with `--remote-debugging-port=9222`
 (or `--port N`); without a listener the reply is typed `unsupported` with
 `backend: debugger-runtime-evaluate`. **That port answers any local process
 and grants full page control** -- open it only while needed and restart the
 browser without the flag afterwards. `page-js` refuses MAIN-world
-`Function` constructors. The throwaway-browser gate is
-`scripts/cu-cdp-smoke.sh` (headless profile under `mktemp`, removed on exit).
+`Function` constructors. The throwaway-browser gates are
+`scripts/cu-cdp-smoke.sh` (targets / page-js selectors) and
+`scripts/cu-cdp-actuate-smoke.sh` (every verb above on a background tab,
+with the active target and the front window checked after each), both on a
+headless profile under `mktemp` that is removed on exit.
 
 ## 5. Receipts and grants
 
@@ -173,14 +231,16 @@ browser without the flag afterwards. `page-js` refuses MAIN-world
   if it cannot be written, nothing executes. Clipboard text never enters it.
 - `cu receipts --window "$H" --max 50` reads the crash-persistent effect
   receipts (`<audit dir>/cu-receipts/<target>.jsonl`): `invoke` / `menu
-  invoke` / `click` / `focus` / `close` / `tab select` write `reserved`
+  invoke` / `click` / `focus` / `close` / `tab select` / `tab close` /
+  `browser open` write `reserved`
   before the mechanism and `completed` / `failed` after the read-back. A
   `reserved` line with no partner is the crash signature -- uncertain, never
   "did not happen".
 - Destructive verbs (`close`, `app quit`) need all three of an exact target
   (`--window` bound to `--pid` / exact `--title`), `--snapshot`, and
   `--expect gone`; anything missing is `refused` (`destructive_gate`) with
-  nothing performed.
+  nothing performed. `tab close` carries the same gate (`--title T --exact`,
+  the strip snapshot in the receipt, `--expect gone`).
 
 ## 6. When a screenshot is genuinely needed
 

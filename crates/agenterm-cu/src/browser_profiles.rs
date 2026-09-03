@@ -230,8 +230,7 @@ pub fn resolve_profile<'a>(
     let hits: Vec<&ProfileEntry> = entries
         .iter()
         .filter(|entry| {
-            entry.name.to_lowercase().contains(&wanted)
-                || entry.directory.to_lowercase() == wanted
+            entry.name.to_lowercase().contains(&wanted) || entry.directory.to_lowercase() == wanted
         })
         .collect();
     match hits.as_slice() {
@@ -314,7 +313,10 @@ mod tests {
         }))
         .expect("parse");
         assert_eq!(bare.len(), 2);
-        assert!(bare.iter().any(|e| e.name == "Profile 9" && e.directory == "Profile 9"));
+        assert!(
+            bare.iter()
+                .any(|e| e.name == "Profile 9" && e.directory == "Profile 9")
+        );
         assert!(bare.iter().all(|e| !e.last_used));
         assert!(parse_local_state(&json!({})).is_err());
         assert!(parse_local_state(&json!({ "profile": { "last_used": "Default" } })).is_err());
@@ -323,7 +325,10 @@ mod tests {
     #[test]
     fn profile_resolves_exact_then_case_insensitive_then_unique_substring() {
         let entries = fixture();
-        assert_eq!(resolve_profile(&entries, "alpha").unwrap().directory, "Default");
+        assert_eq!(
+            resolve_profile(&entries, "alpha").unwrap().directory,
+            "Default"
+        );
         assert_eq!(
             resolve_profile(&entries, "BETA WORK").unwrap().directory,
             "Profile 1"
@@ -359,14 +364,20 @@ mod tests {
             "Brave Origin"
         );
         // A shared substring narrows to the running one.
-        assert_eq!(resolve_app(Some("Brave"), &running).unwrap().name, "Brave Origin");
+        assert_eq!(
+            resolve_app(Some("Brave"), &running).unwrap().name,
+            "Brave Origin"
+        );
         assert_eq!(
             resolve_app(Some("Brave"), &[]),
             Err(AppResolveError::Ambiguous {
                 candidates: vec!["Brave Origin", "Brave Browser"]
             })
         );
-        assert_eq!(resolve_app(Some("chrome"), &[]).unwrap().name, "Google Chrome");
+        assert_eq!(
+            resolve_app(Some("chrome"), &[]).unwrap().name,
+            "Google Chrome"
+        );
         assert_eq!(
             resolve_app(Some("Safari"), &running),
             Err(AppResolveError::Unsupported {

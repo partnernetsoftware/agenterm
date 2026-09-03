@@ -12,9 +12,8 @@ static RELEASE_POLICY: LazyLock<String> =
 static WINDOWS_SIGNING_SCRIPT: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/windows-signing-candidate.ps1").replace("\r\n", "\n")
 });
-static CANDIDATE_AGGREGATE_QJS: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../scripts/qjs/candidate-aggregate.qjs").replace("\r\n", "\n")
-});
+static CANDIDATE_AGGREGATE_QJS: LazyLock<String> =
+    LazyLock::new(|| include_str!("../scripts/qjs/candidate-aggregate.qjs").replace("\r\n", "\n"));
 static RELEASE_CANDIDATE_QJS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/qjs/lib/release_candidate.qjs").replace("\r\n", "\n")
 });

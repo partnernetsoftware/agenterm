@@ -2935,7 +2935,16 @@ mod tests {
         assert!(!include_str!("command.rs").contains("eval("));
         assert!(!include_str!("executor/browser.rs").contains("eval("));
         assert!(!include_str!("executor/dispatch.rs").contains("eval("));
-        assert!(!include_str!("page_js.rs").contains("eval("));
-        assert!(!include_str!("page_js.rs").contains("new Function"));
+        for source in [
+            include_str!("cdp/mod.rs"),
+            include_str!("cdp/ws.rs"),
+            include_str!("cdp/targets.rs"),
+            include_str!("cdp/evaluate.rs"),
+            include_str!("cdp/ax.rs"),
+            include_str!("cdp/page.rs"),
+        ] {
+            assert!(!source.contains("eval("));
+            assert!(!source.contains("new Function"));
+        }
     }
 }

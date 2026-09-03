@@ -1,7 +1,9 @@
 //! Browser-specific verbs and helpers: `unlock` (web-tree poke), `page js`
-//! / `page targets` (CDP), `page text` (visible words), the a11y tab strip
-//! (`tab list` / `tab select`), and the browser-chrome guard the focused
-//! text writers consult.
+//! / `page targets` (CDP, optionally joined to one profile's tab titles),
+//! `page text` (visible words), the a11y tab strip (`tab list` / `tab
+//! select` / the gated `tab close`), and the browser-chrome guard the
+//! focused text writers consult. Profiles (`browser profiles` / `browser
+//! open`) live in `profiles.rs`.
 
 use super::*;
 
@@ -121,20 +123,107 @@ pub(super) fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError
 pub(super) fn page_js_payload(
     expression: Option<&str>,
     port: Option<u16>,
-    selector: crate::page_js::TargetSelector,
+    selector: crate::cdp::TargetSelector,
 ) -> Result<serde_json::Value, CuError> {
     let expression = expression.unwrap_or("");
-    let port = port.unwrap_or(crate::page_js::DEFAULT_PORT);
-    crate::page_js::evaluate(port, expression, &selector)
+    let port = port.unwrap_or(crate::cdp::DEFAULT_PORT);
+    crate::cdp::evaluate(port, expression, &selector)
         .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail))
 }
 
 /// `page targets`: the CDP `/json` inventory, so a caller can pick a
 /// `--target-id` for a background tab without touching the desktop.
-pub(super) fn page_targets_payload(port: Option<u16>) -> Result<serde_json::Value, CuError> {
-    let port = port.unwrap_or(crate::page_js::DEFAULT_PORT);
-    crate::page_js::targets(port)
-        .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail))
+///
+/// With `browser_profile`, the inventory is joined to that profile's
+/// windows: only the targets whose `title` equals (exactly) a tab title
+/// read from the tab strip of a window whose `browser_profile` contains
+/// the substring are kept, each marked `profile_match: "title"`. This is
+/// a heuristic and the reply says so: one CDP port serves every profile
+/// of an instance and a target carries no profile field, so a title
+/// shared by two profiles' tabs is attributed to both, and a target whose
+/// title the strip spells differently (memory-saver suffixes, an unset
+/// document title) is left out.
+pub(super) fn page_targets_payload(
+    port: Option<u16>,
+    browser_profile: Option<&str>,
+) -> Result<serde_json::Value, CuError> {
+    let port = port.unwrap_or(crate::cdp::DEFAULT_PORT);
+    let Some(wanted) = browser_profile.map(str::trim).filter(|s| !s.is_empty()) else {
+        if browser_profile.is_some() {
+            return Err(invalid_input(
+                "page targets --browser-profile must not be empty".into(),
+            ));
+        }
+        return crate::cdp::targets(port)
+            .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail));
+    };
+    // The windows first: a profile with no window is a typed miss before
+    // any socket is opened.
+    let wanted_lower = wanted.to_lowercase();
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let mut strips: Vec<(isize, String, Vec<String>)> = Vec::new();
+    for window in windows
+        .iter()
+        .filter(|window| observe::looks_like_browser_app(&window.app_name))
+    {
+        let Some(profile) = window_browser_profile(window) else {
+            continue;
+        };
+        if !profile.to_lowercase().contains(&wanted_lower) {
+            continue;
+        }
+        let tree = mechanism::tree_for_window(Some(window.handle)).map_err(map_mechanism_err)?;
+        let titles: Vec<String> = crate::tab_strip::tab_strip_entries(&tree)
+            .iter()
+            .map(|entry| entry.title().to_owned())
+            .collect();
+        strips.push((window.handle, profile, titles));
+    }
+    if strips.is_empty() {
+        return Err(CuError::new(
+            "browser_window_not_found",
+            format!(
+                "no browser window whose browser_profile contains {wanted:?} is in the inventory"
+            ),
+        )
+        .with_detail(serde_json::json!({ "browser_profile": wanted })));
+    }
+    let list = crate::cdp::targets(port)
+        .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail))?;
+    let all: Vec<serde_json::Value> = list["targets"].as_array().cloned().unwrap_or_default();
+    let mut matched = Vec::new();
+    for target in &all {
+        let title = target["title"].as_str().unwrap_or_default();
+        for (handle, profile, titles) in &strips {
+            if titles.iter().any(|tab| tab == title) {
+                let mut row = target.clone();
+                if let Some(object) = row.as_object_mut() {
+                    object.insert("profile_match".into(), serde_json::json!("title"));
+                    object.insert("window".into(), serde_json::json!(handle));
+                    object.insert("browser_profile".into(), serde_json::json!(profile));
+                }
+                matched.push(row);
+            }
+        }
+    }
+    let pages = matched.iter().filter(|row| row["type"] == "page").count();
+    Ok(serde_json::json!({
+        "backend": list["backend"],
+        "port": port,
+        "via": "/json + a11y tab strip",
+        "browser_profile": wanted,
+        "profile_match": "title",
+        "heuristic": "CDP targets carry no profile field (one port serves every profile of the instance); a target is attributed to a profile only when its title equals a tab title of that profile's window exactly, so a shared title matches every such window and a differently spelled title is left out",
+        "windows": strips.iter().map(|(handle, profile, titles)| serde_json::json!({
+            "handle": handle,
+            "browser_profile": profile,
+            "tabs": titles.len(),
+        })).collect::<Vec<_>>(),
+        "total": all.len(),
+        "returned": matched.len(),
+        "pages": pages,
+        "targets": matched,
+    }))
 }
 
 /// What a caller should do when the platform walk stopped at its budget.
@@ -159,16 +248,86 @@ pub(super) fn truncation_next_actions(tree: &mechanism::A11yTree, verb: &str) ->
     ]
 }
 
+/// The `--target-id | --target-url | --target-title` triple as one selector.
+pub(super) fn cdp_selector(
+    id: &Option<String>,
+    url: &Option<String>,
+    title: &Option<String>,
+) -> crate::cdp::TargetSelector {
+    crate::cdp::TargetSelector {
+        id: id.clone(),
+        url: url.clone(),
+        title: title.clone(),
+    }
+}
+
+/// Resolve the selector on `port` and open one session to that target.
+/// Nothing here activates a tab or a window.
+fn cdp_connect(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+) -> Result<
+    (
+        crate::cdp::page::Ctx,
+        crate::cdp::Session<crate::cdp::ws::TcpTransport>,
+    ),
+    CuError,
+> {
+    let port = port.unwrap_or(crate::cdp::DEFAULT_PORT);
+    let (target, session) = crate::cdp::targets::connect_target(port, &selector)?;
+    Ok((
+        crate::cdp::page::Ctx {
+            port,
+            target,
+            selector,
+        },
+        session,
+    ))
+}
+
 /// `page text`: visible words in reading order, each with the node that
 /// carries them, so the caller's next step is `invoke --node` /
 /// `click --node`. The walk budget defaults to depth 64 / 6000 nodes.
+///
+/// Two backends, one row shape: with `--window` the a11y tree of that
+/// window (the active tab's web-area on macOS Chromium); with a CDP
+/// selector (`--target-*` / `--port`) the `Accessibility.getFullAXTree`
+/// of that page target, which reaches a background tab in a background
+/// window without touching what is active (`backend: "cdp"`).
 pub(super) fn page_text_payload(
-    window: isize,
+    window: Option<isize>,
     max_bytes: Option<usize>,
     within: Option<[i32; 4]>,
     depth: Option<u32>,
     max_nodes: Option<usize>,
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
 ) -> Result<serde_json::Value, CuError> {
+    let cdp = port.is_some() || !selector.is_empty();
+    let window = match (window, cdp) {
+        (Some(_), true) => {
+            return Err(invalid_input(
+                "page text reads one backend per call: --window HANDLE (a11y tree) or a CDP target (--target-id | --target-url | --target-title [--port N]), not both".into(),
+            ));
+        }
+        (None, false) => {
+            return Err(invalid_input(
+                "page text needs --window HANDLE (a11y tree of the active tab) or a CDP target (--target-id | --target-url | --target-title [--port N]; reaches background tabs)".into(),
+            ));
+        }
+        (None, true) => {
+            if within.is_some() || depth.is_some() || max_nodes.is_some() {
+                return Err(invalid_input(
+                    "page text over CDP takes only --max-bytes; --within / --depth / --max-nodes are a11y-walk budgets".into(),
+                ));
+            }
+            let max_bytes =
+                crate::page_text::validate_max_bytes(max_bytes).map_err(invalid_input)?;
+            let (ctx, mut session) = cdp_connect(port, selector)?;
+            return crate::cdp::page::text(&mut session, &ctx, max_bytes).map_err(CuError::from);
+        }
+        (Some(window), false) => window,
+    };
     if window == 0 {
         return Err(invalid_input(
             "page text requires --window <handle> (a non-zero handle from `windows`)".into(),
@@ -216,6 +375,294 @@ pub(super) fn page_text_payload(
         "next_actions": next_actions,
         "rows": reading.rows.iter().map(crate::page_text::TextRow::json).collect::<Vec<_>>(),
     }))
+}
+
+// ---------------------------------------------------------------------------
+// CDP background-tab verbs (`page find` / `page click` / `page fill` /
+// `page nav` / `page screenshot`). Every one of them addresses a page
+// target through the same selector, runs on that target's own websocket,
+// and never activates a tab or a window; the actuators reserve a receipt
+// between the read-only plan and the dispatch (receipt window 0: a CDP
+// target is not a window handle).
+// ---------------------------------------------------------------------------
+
+/// Exactly one of `--selector` / `--text` / `--role [--name]` / `--node`.
+pub(super) fn cdp_node_query(
+    verb: &str,
+    selector: Option<&str>,
+    text: Option<&str>,
+    role: Option<&str>,
+    name: Option<&str>,
+    node: Option<u64>,
+) -> Result<crate::cdp::page::NodeQuery, CuError> {
+    use crate::cdp::page::NodeQuery;
+    let given = usize::from(selector.is_some())
+        + usize::from(text.is_some())
+        + usize::from(role.is_some())
+        + usize::from(node.is_some());
+    if given != 1 {
+        return Err(invalid_input(format!(
+            "{verb} names one node with exactly one of --selector CSS | --text SUB | --role R [--name SUB] | --node ID (got {given})"
+        )));
+    }
+    if name.is_some() && role.is_none() {
+        return Err(invalid_input(format!(
+            "{verb} --name SUB only narrows --role R"
+        )));
+    }
+    for (flag, value) in [
+        ("--selector", selector),
+        ("--text", text),
+        ("--role", role),
+        ("--name", name),
+    ] {
+        if value.is_some_and(|value| value.trim().is_empty()) {
+            return Err(invalid_input(format!("{verb} {flag} must not be empty")));
+        }
+    }
+    Ok(if let Some(css) = selector {
+        NodeQuery::Css(css.to_owned())
+    } else if let Some(text) = text {
+        NodeQuery::Text(text.to_owned())
+    } else if let Some(role) = role {
+        NodeQuery::Role {
+            role: role.to_owned(),
+            name: name.map(str::to_owned),
+        }
+    } else {
+        NodeQuery::Node(node.unwrap_or_default())
+    })
+}
+
+pub(super) fn page_find_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    css: Option<&str>,
+    text: Option<&str>,
+    role: Option<&str>,
+    name: Option<&str>,
+) -> Result<serde_json::Value, CuError> {
+    let query = cdp_node_query("page find", css, text, role, name, None)?;
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    crate::cdp::page::find(&mut session, &ctx, &query).map_err(CuError::from)
+}
+
+/// Close a CDP actuation receipt from its outcome (or its failure) and
+/// attach the ticket to the reply.
+fn complete_cdp_receipt(
+    receipts: &mut ReceiptLog,
+    ticket: &crate::receipt::ReceiptTicket,
+    verb: &str,
+    outcome: Result<crate::cdp::page::ActuationOutcome, crate::cdp::CdpError>,
+) -> Result<serde_json::Value, CuError> {
+    match outcome {
+        Ok(outcome) => {
+            receipts.complete(
+                ticket,
+                verb,
+                0,
+                outcome.verified,
+                serde_json::json!({
+                    "performed": outcome.performed,
+                    "verification": outcome.payload["verification"],
+                    "after": outcome.payload["after"],
+                }),
+            )?;
+            let mut payload = outcome.payload;
+            payload["receipt"] = ticket.json();
+            Ok(payload)
+        }
+        Err(error) => {
+            let error = CuError::from(error);
+            receipts.complete(
+                ticket,
+                verb,
+                0,
+                false,
+                serde_json::json!({
+                    "performed": false,
+                    "error": error_payload(&error),
+                }),
+            )?;
+            Err(error.with_detail(serde_json::json!({ "receipt": ticket.json() })))
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn page_click_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    css: Option<&str>,
+    text: Option<&str>,
+    node: Option<u64>,
+    button: Option<&str>,
+    clicks: Option<u32>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let query = cdp_node_query("page click", css, text, None, None, node)?;
+    let button = button.unwrap_or("left");
+    let clicks = clicks.unwrap_or(1);
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_click(&mut session, &query, button, clicks)?;
+    let ticket = receipts.reserve(
+        "page-click",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "query": query.json(),
+            "action": "click",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_click(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-click", outcome)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn page_fill_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    css: Option<&str>,
+    node: Option<u64>,
+    text: &str,
+    clear: bool,
+    submit: bool,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let query = cdp_node_query("page fill", css, None, None, None, node)?;
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_fill(&mut session, &query, text, clear, submit)?;
+    let ticket = receipts.reserve(
+        "page-fill",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "query": query.json(),
+            "action": "fill",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_fill(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-fill", outcome)
+}
+
+pub(super) fn page_nav_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    url: &str,
+    wait_ms: Option<u64>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    crate::cdp::page::validate_nav_url(url).map_err(invalid_input)?;
+    crate::cdp::page::validate_nav_wait(wait_ms).map_err(invalid_input)?;
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_nav(&mut session, url, wait_ms)?;
+    let ticket = receipts.reserve(
+        "page-nav",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "action": "nav",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_nav(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-nav", outcome)
+}
+
+pub(super) fn page_screenshot_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    out: &str,
+    replace: bool,
+    activate: bool,
+    receipts: Option<&mut ReceiptLog>,
+) -> Result<serde_json::Value, CuError> {
+    if out.trim().is_empty() || out.contains('\0') {
+        return Err(invalid_input(
+            "page screenshot requires --out PATH (a writable PNG path)".into(),
+        ));
+    }
+    if !replace && std::path::Path::new(out).exists() {
+        return Err(invalid_input(format!(
+            "page screenshot --out {out}: the file exists; pass --replace to overwrite it"
+        )));
+    }
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let ticket = match receipts {
+        Some(receipts) if activate => Some((
+            receipts.reserve(
+                "page-screenshot",
+                0,
+                serde_json::json!({
+                    "cdp_target": ctx.target.identity_json(),
+                    "action": "bring-to-front",
+                    "out": out,
+                }),
+            )?,
+            receipts,
+        )),
+        _ => None,
+    };
+    let captured = crate::cdp::page::screenshot(&mut session, &ctx, activate);
+    let (bytes, mut meta) = match captured {
+        Ok(captured) => captured,
+        Err(error) => {
+            let error = CuError::from(error);
+            if let Some((ticket, receipts)) = ticket {
+                receipts.complete(
+                    &ticket,
+                    "page-screenshot",
+                    0,
+                    false,
+                    serde_json::json!({ "performed": false, "error": error_payload(&error) }),
+                )?;
+            }
+            return Err(error);
+        }
+    };
+    let sha256 = clipboard_sha256_hex(&bytes);
+    let written = write_png(out, &bytes, replace);
+    if let Some((ticket, receipts)) = ticket {
+        receipts.complete(
+            &ticket,
+            "page-screenshot",
+            0,
+            written.is_ok(),
+            serde_json::json!({ "performed": true, "out": out, "bytes": bytes.len(), "sha256": sha256 }),
+        )?;
+        meta["receipt"] = ticket.json();
+    }
+    written?;
+    meta["out"] = serde_json::json!(out);
+    meta["sha256"] = serde_json::json!(sha256);
+    Ok(meta)
+}
+
+fn write_png(path: &str, bytes: &[u8], replace: bool) -> Result<(), CuError> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true);
+    if replace {
+        options.create(true).truncate(true);
+    } else {
+        options.create_new(true);
+    }
+    let mut file = options.open(path).map_err(|error| {
+        CuError::new(
+            "screenshot_write_failed",
+            format!("page screenshot --out {path}: {error}"),
+        )
+    })?;
+    use std::io::Write;
+    file.write_all(bytes)
+        .and_then(|_| file.flush())
+        .map_err(|error| {
+            CuError::new(
+                "screenshot_write_failed",
+                format!("page screenshot --out {path}: {error}"),
+            )
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -415,6 +862,291 @@ pub(super) fn tab_select_payload(
 }
 
 // ---------------------------------------------------------------------------
+// `tab close`: the destructive tab verb. Gated like `close` (exact
+// identity, prior snapshot, checkable postcondition), performed through
+// the tab row's own close button in the tree -- never a keyboard shortcut
+// -- and verified by reading the strip back without that title.
+// ---------------------------------------------------------------------------
+
+/// How long the tab-strip read-back polls after the close press.
+pub(super) const TAB_CLOSE_READBACK: Duration = Duration::from_millis(2_500);
+
+pub(super) const TAB_CLOSE_READBACK_POLL: Duration = Duration::from_millis(50);
+
+/// The three-part gate for `tab close`: `--window H --title T --exact`
+/// (target), the strip snapshot the receipt always carries, and
+/// `--expect gone` (postcondition). Every missing part is named in one
+/// refusal; nothing is read before it passes.
+pub(super) fn tab_close_gate(
+    window: isize,
+    title: Option<&str>,
+    exact: bool,
+    expect: Option<&str>,
+) -> Result<(), CuError> {
+    match expect {
+        Some("gone") | None => {}
+        Some(other) => {
+            return Err(invalid_input(format!(
+                "tab close --expect accepts only 'gone' (the tab title is read back as absent from the strip), got {other:?}"
+            )));
+        }
+    }
+    let mut missing = Vec::new();
+    if window == 0 {
+        missing.push("target");
+    }
+    if title.is_none_or(|title| title.trim().is_empty()) {
+        missing.push("title");
+    }
+    if !exact {
+        missing.push("exact");
+    }
+    if expect.is_none() {
+        missing.push("postcondition");
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(CuError::new(
+        "refused",
+        "tab close is destructive: it needs an exact tab (--window HANDLE --title T --exact) and a \
+         checkable postcondition (--expect gone); the strip snapshot is written to the receipt \
+         before the press; nothing was performed",
+    )
+    .with_detail(serde_json::json!({
+        "reason": "destructive_gate",
+        "missing": missing,
+        "required": {
+            "target": "--window HANDLE --title T --exact",
+            "snapshot": "tab strip rows (always written to the receipt)",
+            "postcondition": "--expect gone",
+        },
+        "effect": "not_performed",
+    })))
+}
+
+/// The close control of one tab row: a `button` child of the row that
+/// offers a click. macOS Chromium exposes it on the active tab (and on a
+/// hovered one); a background tab's row has no such child.
+pub(super) fn tab_close_button<'a>(
+    tree: &'a mechanism::A11yTree,
+    tab_id: &str,
+) -> Option<&'a mechanism::A11yNode> {
+    tree.nodes.iter().find(|node| {
+        node.parent_id.as_deref() == Some(tab_id)
+            && observe::normalize_role(&node.role) == "button"
+            && (tree.backend == "at-spi2"
+                || node
+                    .actions
+                    .iter()
+                    .any(|offered| offered.eq_ignore_ascii_case("click")))
+    })
+}
+
+pub(super) fn tab_close_payload(
+    window: isize,
+    title: Option<&str>,
+    exact: bool,
+    expect: Option<&str>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    tab_close_gate(window, title, exact, expect)?;
+    let title = title.unwrap_or_default();
+    let not_performed = |error: CuError| {
+        let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
+        detail["effect"] = serde_json::json!("not_performed");
+        error.with_detail(detail)
+    };
+    let before = mechanism::tree_for_window(Some(window))
+        .map_err(map_mechanism_err)
+        .map_err(not_performed)?;
+    let entries = crate::tab_strip::tab_strip_entries(&before);
+    let rows_before: Vec<serde_json::Value> = entries
+        .iter()
+        .map(crate::tab_strip::TabEntry::json)
+        .collect();
+    if entries.is_empty() {
+        return Err(not_performed(tab_match_error(
+            crate::tab_strip::TabMatchError::NotFound {
+                reason: "no_tab_strip",
+                message: "the window tree has no tab strip (no tab-group / radio-button rows)"
+                    .into(),
+            },
+            &rows_before,
+        )));
+    }
+    // Exact, case-sensitive title equality: the gate asked for --exact.
+    let hits: Vec<&crate::tab_strip::TabEntry<'_>> = entries
+        .iter()
+        .filter(|entry| entry.title() == title)
+        .collect();
+    let hit = match hits.as_slice() {
+        [one] => *one,
+        [] => {
+            return Err(not_performed(tab_match_error(
+                crate::tab_strip::TabMatchError::NotFound {
+                    reason: "no_match",
+                    message: format!(
+                        "no tab title equals {title:?}; {} tab(s) in the strip",
+                        entries.len()
+                    ),
+                },
+                &rows_before,
+            )));
+        }
+        many => {
+            return Err(not_performed(tab_match_error(
+                crate::tab_strip::TabMatchError::Ambiguous {
+                    count: many.len(),
+                    message: format!(
+                        "{} tab titles equal {title:?}; refusing to guess",
+                        many.len()
+                    ),
+                },
+                &rows_before,
+            )));
+        }
+    };
+    let tab_json = hit.json();
+    let Some(button) = tab_close_button(&before, &hit.node.id) else {
+        return Err(CuError::new(
+            "unsupported",
+            format!(
+                "tab {} ({:?}) exposes no close button in the accessibility tree; a keyboard shortcut is never substituted",
+                hit.index,
+                hit.title()
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "reason": "tab_close_button_missing",
+            "tab": tab_json,
+            "hint": "macOS Chromium exposes the close button on the active tab only: `tab select` it first, then `tab close`",
+            "effect": "not_performed",
+        })));
+    };
+    let button = button.clone();
+    let ticket = receipts.reserve(
+        "tab-close",
+        window,
+        serde_json::json!({
+            "action": "press",
+            "tab": tab_json,
+            "node": observe::node_state_json(&button),
+            "postcondition": "gone",
+            "before": rows_before,
+            "snapshot": { "tabs": rows_before.len(), "nodes": before.returned },
+        }),
+    )?;
+    let started = Instant::now();
+    let mechanism_error =
+        mechanism::perform_node_action(Some(window), &button.id, mechanism::NodeAction::Press)
+            .err()
+            .map(map_mechanism_err);
+    // Postcondition: no strip row carries the title any more. A window
+    // that closed with its last tab is gone too, which the reply says.
+    let mut polls = 0usize;
+    let mut present = true;
+    let mut window_present = true;
+    let mut rows_after: Vec<serde_json::Value> = rows_before.clone();
+    let mut readback_error = None;
+    while started.elapsed() < TAB_CLOSE_READBACK {
+        polls += 1;
+        match mechanism::window_enumerate::enumerate_top_level() {
+            Ok(now) if !now.iter().any(|item| item.handle == window) => {
+                window_present = false;
+                present = false;
+                rows_after = Vec::new();
+            }
+            Ok(_) => match mechanism::tree_for_window(Some(window)) {
+                Ok(after) => {
+                    let after_entries = crate::tab_strip::tab_strip_entries(&after);
+                    present = after_entries.iter().any(|entry| entry.title() == title);
+                    rows_after = after_entries
+                        .iter()
+                        .map(crate::tab_strip::TabEntry::json)
+                        .collect();
+                }
+                Err(error) => {
+                    readback_error = Some(map_mechanism_err(error));
+                    break;
+                }
+            },
+            Err(error) => {
+                readback_error = Some(map_mechanism_err(error));
+                break;
+            }
+        }
+        if !present || mechanism_error.is_some() {
+            break;
+        }
+        thread::sleep(TAB_CLOSE_READBACK_POLL);
+    }
+    let verified = !present && mechanism_error.is_none() && readback_error.is_none();
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if present {
+        Some("tab_still_present")
+    } else {
+        None
+    };
+    let verification = serde_json::json!({
+        "method": "tab-strip-readback",
+        "reason": reason,
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis() as u64,
+    });
+    let after = serde_json::json!({
+        "present": present,
+        "window_present": window_present,
+        "tabs": rows_after,
+    });
+    receipts.complete(
+        &ticket,
+        "tab-close",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": mechanism_error.is_none(),
+            "after": after,
+            "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
+    let payload = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "backend": before.backend,
+        "window": window,
+        "tab": tab_json,
+        "node": observe::node_state_json(&button),
+        "action": "press",
+        "via": "tab-close",
+        "postcondition": "gone",
+        "performed": mechanism_error.is_none(),
+        "verified": verified,
+        "verification": verification,
+        "before": rows_before,
+        "after": after,
+        "receipt": ticket.json(),
+    });
+    if let Some(error) = mechanism_error.or(readback_error) {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if present {
+        return Err(CuError::new(
+            "unverified",
+            format!(
+                "the close button of tab {title:?} was pressed but the strip still lists it after {polls} polls"
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": "tab_still_present", "receipt": payload })));
+    }
+    Ok(payload)
+}
+
+// ---------------------------------------------------------------------------
 // Browser-chrome guard for the focused text writers (`send-text`, `paste`,
 // `send-keys` with `--window` and no `--name`). In a browser the node the
 // toolkit reports focused is the omnibox whenever the address bar holds
@@ -566,35 +1298,183 @@ mod tests {
 
     #[test]
     fn page_text_requires_a_window_and_validates_its_bounds() {
-        let none = observe_executor().execute(&Command::PageText {
-            target: TargetRef::Current,
-            window: 0,
-            max_bytes: None,
-            within: None,
-            depth: None,
-            max_nodes: None,
-        });
+        let page_text = |window: Option<isize>, max_bytes, depth, port, title: Option<&str>| {
+            observe_executor().execute(&Command::PageText {
+                target: TargetRef::Current,
+                window,
+                max_bytes,
+                within: None,
+                depth,
+                max_nodes: None,
+                port,
+                target_id: None,
+                target_url: None,
+                target_title: title.map(str::to_owned),
+            })
+        };
+        let none = page_text(Some(0), None, None, None, None);
         assert!(!none.ok);
         assert_eq!(none.command, "page-text");
         assert_eq!(none.error.as_ref().unwrap().code, "invalid_input");
-        let bytes = observe_executor().execute(&Command::PageText {
-            target: TargetRef::Current,
-            window: 7,
-            max_bytes: Some(0),
-            within: None,
-            depth: None,
-            max_nodes: None,
-        });
+        let bytes = page_text(Some(7), Some(0), None, None, None);
         assert_eq!(bytes.error.as_ref().unwrap().code, "invalid_input");
-        let depth = observe_executor().execute(&Command::PageText {
-            target: TargetRef::Current,
-            window: 7,
-            max_bytes: None,
-            within: None,
-            depth: Some(99),
-            max_nodes: None,
-        });
+        let depth = page_text(Some(7), None, Some(99), None, None);
         assert_eq!(depth.error.as_ref().unwrap().code, "invalid_input");
+        // Neither backend named, or both: invalid before any socket / tree.
+        let neither = page_text(None, None, None, None, None);
+        let err = neither.error.as_ref().unwrap();
+        assert_eq!(err.code, "invalid_input");
+        assert!(err.message.contains("--window") && err.message.contains("--target-"));
+        let both = page_text(Some(7), None, None, Some(1), None);
+        assert_eq!(both.error.as_ref().unwrap().code, "invalid_input");
+        // The CDP backend with no listener is typed like page-js.
+        let cdp = page_text(None, None, None, Some(1), Some("Inbox"));
+        let err = cdp.error.as_ref().unwrap();
+        assert_eq!(err.code, "unsupported");
+        assert!(err.message.contains("remote-debugging-port"));
+        // A CDP read refuses the a11y walk budgets by name.
+        let budget = page_text(None, None, Some(3), Some(1), Some("Inbox"));
+        assert_eq!(budget.error.as_ref().unwrap().code, "invalid_input");
+    }
+
+    #[test]
+    fn cdp_node_query_is_exactly_one_addressing_form() {
+        use crate::cdp::page::NodeQuery;
+        assert_eq!(
+            cdp_node_query("page find", Some("#q"), None, None, None, None).unwrap(),
+            NodeQuery::Css("#q".into())
+        );
+        assert_eq!(
+            cdp_node_query("page find", None, None, Some("button"), Some("Go"), None).unwrap(),
+            NodeQuery::Role {
+                role: "button".into(),
+                name: Some("Go".into())
+            }
+        );
+        assert_eq!(
+            cdp_node_query("page click", None, None, None, None, Some(17)).unwrap(),
+            NodeQuery::Node(17)
+        );
+        let none = cdp_node_query("page find", None, None, None, None, None).unwrap_err();
+        assert_eq!(none.code, "invalid_input");
+        assert!(none.message.contains("exactly one"));
+        let two =
+            cdp_node_query("page click", Some("#q"), Some("Go"), None, None, None).unwrap_err();
+        assert_eq!(two.code, "invalid_input");
+        let name_alone =
+            cdp_node_query("page find", Some("#q"), None, None, Some("x"), None).unwrap_err();
+        assert!(name_alone.message.contains("--name"));
+        let empty = cdp_node_query("page find", Some("  "), None, None, None, None).unwrap_err();
+        assert!(empty.message.contains("must not be empty"));
+    }
+
+    #[test]
+    fn cdp_actuators_are_grant_gated_and_typed_without_a_listener() {
+        let click = Command::PageClick {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: Some("Inbox".into()),
+            selector: Some("#go".into()),
+            text: None,
+            node: None,
+            button: None,
+            clicks: None,
+        };
+        let denied = observe_executor().execute(&click);
+        assert!(!denied.ok);
+        assert_eq!(denied.command, "page-click");
+        assert_eq!(denied.error.as_ref().unwrap().code, "refused");
+        let scratch = audit_scratch("cdp-click");
+        let executor = actuate_executor().with_audit_path(scratch.clone());
+        let reply = executor.execute(&click);
+        assert!(!reply.ok);
+        let err = reply.error.as_ref().unwrap();
+        assert_eq!(err.code, "unsupported", "{}", err.message);
+        assert!(err.message.contains("remote-debugging-port"));
+        // The addressing shape is judged before any socket is opened.
+        let shapeless = executor.execute(&Command::PageClick {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: Some("Inbox".into()),
+            selector: None,
+            text: None,
+            node: None,
+            button: None,
+            clicks: None,
+        });
+        assert_eq!(shapeless.error.as_ref().unwrap().code, "invalid_input");
+        let fill = executor.execute(&Command::PageFill {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: Some("Inbox".into()),
+            selector: Some("#q".into()),
+            node: None,
+            text: "hi".into(),
+            clear: false,
+            submit: false,
+        });
+        assert_eq!(fill.command, "page-fill");
+        assert_eq!(fill.error.as_ref().unwrap().code, "unsupported");
+        let nav = executor.execute(&Command::PageNav {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: Some("Inbox".into()),
+            url: "no-scheme".into(),
+            wait_ms: None,
+        });
+        assert_eq!(nav.command, "page-nav");
+        assert_eq!(nav.error.as_ref().unwrap().code, "invalid_input");
+        let shot_dir = scratch.parent().unwrap().to_path_buf();
+        let existing = shot_dir.join("exists.png");
+        std::fs::write(&existing, b"x").unwrap();
+        let shot = observe_executor().execute(&Command::PageScreenshot {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: None,
+            out: existing.to_string_lossy().into_owned(),
+            replace: false,
+            activate: false,
+        });
+        assert_eq!(shot.command, "page-screenshot");
+        let err = shot.error.as_ref().unwrap();
+        assert_eq!(err.code, "invalid_input");
+        assert!(err.message.contains("--replace"));
+        // --activate is actuation: observe-only is refused before anything.
+        let raised = observe_executor().execute(&Command::PageScreenshot {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: None,
+            out: shot_dir.join("new.png").to_string_lossy().into_owned(),
+            replace: false,
+            activate: true,
+        });
+        assert_eq!(raised.error.as_ref().unwrap().code, "refused");
+        let find = observe_executor().execute(&Command::PageFind {
+            target: TargetRef::Current,
+            port: Some(1),
+            target_id: None,
+            target_url: None,
+            target_title: None,
+            selector: None,
+            text: Some("Go".into()),
+            role: None,
+            name: None,
+        });
+        assert_eq!(find.command, "page-find");
+        assert_eq!(find.error.as_ref().unwrap().code, "unsupported");
+        remove_audit_scratch(&scratch);
     }
 
     #[test]
@@ -765,5 +1645,88 @@ mod tests {
                 .contains("--allow-browser-chrome")
         );
         assert_eq!(detail["effect"], "not_performed");
+    }
+
+    #[test]
+    fn tab_close_gate_names_every_missing_part_and_refuses_before_any_read() {
+        let bare = actuate_executor().execute(&Command::TabClose {
+            target: TargetRef::Current,
+            window: 0,
+            title: None,
+            exact: false,
+            expect: None,
+        });
+        assert!(!bare.ok);
+        assert_eq!(bare.command, "tab-close");
+        let err = bare.error.as_ref().expect("typed");
+        assert_eq!(err.code, "refused");
+        let detail = err.detail.as_ref().expect("detail");
+        assert_eq!(detail["reason"], "destructive_gate");
+        assert_eq!(
+            detail["missing"],
+            serde_json::json!(["target", "title", "exact", "postcondition"])
+        );
+        assert_eq!(detail["effect"], "not_performed");
+        let inexact = tab_close_gate(7, Some("x"), false, Some("gone")).unwrap_err();
+        assert_eq!(
+            inexact.detail.unwrap()["missing"],
+            serde_json::json!(["exact"])
+        );
+        let wrong = tab_close_gate(7, Some("x"), true, Some("closed")).unwrap_err();
+        assert_eq!(wrong.code, "invalid_input");
+        assert!(tab_close_gate(7, Some("x"), true, Some("gone")).is_ok());
+        // Observe-only authorization never reaches the strip.
+        let denied = observe_executor().execute(&Command::TabClose {
+            target: TargetRef::Current,
+            window: 7,
+            title: Some("x".into()),
+            exact: true,
+            expect: Some("gone".into()),
+        });
+        assert!(!denied.ok);
+        // A grant denial is also `refused`, but never the destructive gate.
+        let denied = denied.error.as_ref().unwrap();
+        assert_ne!(
+            denied.detail.as_ref().and_then(|d| d["reason"].as_str()),
+            Some("destructive_gate")
+        );
+    }
+
+    #[test]
+    fn tab_close_button_is_the_clickable_button_child_of_the_row() {
+        let tab = node_at(
+            "/0/1/0/1",
+            "Codex",
+            "AXRadioButton",
+            &["showing", "selected"],
+        );
+        let mut close = node_at("/0/1/0/1/0", "关闭", "AXButton", &["showing"]);
+        close.parent_id = Some("/0/1/0/1".into());
+        close.actions = vec!["click".into()];
+        let mut other = node_at("/0/1/0/0", "Inbox", "AXRadioButton", &["showing"]);
+        other.parent_id = Some("/0/1/0".into());
+        let mut label = node_at("/0/1/0/1/1", "Codex", "AXStaticText", &["showing"]);
+        label.parent_id = Some("/0/1/0/1".into());
+        let tree = tree_of(vec![other, tab, close, label]);
+        assert_eq!(
+            tab_close_button(&tree, "/0/1/0/1").map(|n| n.id.as_str()),
+            Some("/0/1/0/1/0")
+        );
+        assert!(tab_close_button(&tree, "/0/1/0/0").is_none());
+        // A button that offers no click is not a close control on AX.
+        let mut inert = tree.clone();
+        inert.nodes[2].actions.clear();
+        assert!(tab_close_button(&inert, "/0/1/0/1").is_none());
+    }
+
+    #[test]
+    fn page_targets_profile_join_rejects_an_empty_substring() {
+        let reply = observe_executor().execute(&Command::PageTargets {
+            target: TargetRef::Current,
+            port: Some(1),
+            browser_profile: Some("  ".into()),
+        });
+        assert!(!reply.ok);
+        assert_eq!(reply.error.as_ref().unwrap().code, "invalid_input");
     }
 }

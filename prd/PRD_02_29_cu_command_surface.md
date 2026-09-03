@@ -128,7 +128,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `eval` / `new Function` is never the backend (chatgpt.com CSP).
   Evidence: `Command::PageJs`, `capabilities.verbs["page-js"]`,
   `observe::page_js_backend()`.
-- [~] `page-js` addresses one tab: at most one of `--target-id ID` (exact
+- [x] `page-js` addresses one tab: at most one of `--target-id ID` (exact
   CDP id), `--target-url SUB` / `--target-title SUB` (case-insensitive
   substring) filters the `/json` page targets; none keeps the first page.
   No match is typed `cdp_target_not_found`, more than one
@@ -137,14 +137,47 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   runs in a background tab, so no focus changes. `page targets` /
   `page-targets [--port N]` lists the inventory (id, url, title, type,
   attached, websocket); no listener is typed `unsupported` like `page-js`.
-  Evidence: `page_js::select_target` / `targets_payload` unit tests. Live
-  evidence is open: the throwaway-browser gate `scripts/cu-cdp-smoke.sh`
-  (headless Brave Origin, fresh profile, two `data:` tabs, 2026-09-03)
-  reaches `/json` with `curl` but every cu CDP verb answers `unsupported`
-  "CDP HTTP read failed" -- `page_js::http_get_json` sends `Connection:
-  close` and reads to EOF while Chrome's DevTools server keeps the socket
-  open, so the reader must honour `Content-Length`. The leaf returns to
-  `[x]` when that gate prints PASS.
+  Evidence: `cdp::targets` selector unit tests; `scripts/cu-cdp-smoke.sh`
+  PASS 2026-09-03 (headless Brave Origin, fresh profile, two `data:`
+  tabs: `page targets`, `page-js --target-title` on the background tab,
+  not-found, ambiguous) once the `/json` reader honoured
+  `Content-Length` / chunked framing (`src/cdp/http.rs`; Chromium keeps
+  the DevTools socket open, so a read-to-EOF only returned on timeout).
+- [x] a background tab in a background window is read AND acted on over
+  CDP without changing which tab or window is active. The AX tree carries
+  only the active tab's web-area on macOS, so these verbs take the
+  `page-js` target selector, run on that target's own websocket
+  (`src/cdp/ws.rs`: one session, numbered methods, buffered events, a
+  `Transport` trait the tests script with fake transcripts), and never
+  call `Target.activateTarget` / `Page.bringToFront`; every reply carries
+  `focus_changed: false` and the target `{id, url, title}`:
+  `page text --target-*` (observe; the AX-verb row shape `{id, role,
+  text}` from `Accessibility.getFullAXTree`, fallback a DOM `innerText`
+  walk, `backend: "cdp"`, `id` = backend DOM node id), `page find
+  (--selector CSS | --text SUB | --role R [--name SUB])` (observe; `{node,
+  path, tag, role, name, text, value, editable, box}`, a text hit inside a
+  button / link lifted to the control, zero -> `cdp_node_not_found`),
+  `page click (--selector | --text | --node) [--button] [--clicks]`
+  (actuate; one node or `cdp_node_ambiguous` with candidates,
+  `DOM.scrollIntoViewIfNeeded`, box centre, `Input.dispatchMouseEvent`
+  pressed + released, verified by document / node read-back), `page fill
+  (--selector | --node) --text T [--clear] [--submit]` (actuate;
+  `DOM.focus`, select-all, `Input.insertText`, `.value` read back ==
+  text, Enter key events; focus emulation on for the write and off
+  after), `page nav --url U [--wait-ms N]` (actuate; `Page.navigate`,
+  `Page.loadEventFired`, final url / title), `page screenshot --out P`
+  (observe; Chromium may refuse an unpainted background tab ->
+  `cdp_screenshot_unavailable`, never activated; `--activate` is the one
+  explicit actuate opt-in and replies `focus_changed: true`). Actuators
+  reserve a receipt between the read-only plan and the dispatch. Evidence:
+  `cdp::page` / `cdp::ax` unit tests on scripted transcripts (message
+  shaping, ambiguity, verification, no activation method ever sent);
+  `scripts/cu-cdp-actuate-smoke.sh` PASS 2026-09-03 (headless Brave
+  Origin, tab A active, every verb on tab B whose button `onclick` and
+  form `onsubmit` mutate the DOM, read back through `page-js`; after each
+  verb `/json` still listed A first and `windows --focused` was
+  unchanged). Still open: the same run on the owner's real instance needs
+  it relaunched with `--remote-debugging-port=9222`.
 - [x] `page text --window H [--max-bytes N] [--within X,Y,W,H] [--depth N]
   [--max-nodes N]` returns the visible words in reading order (child-index
   path = document order, not the breadth-first walk order) as compact rows
@@ -184,6 +217,42 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   or activates the window. Evidence: `tab_strip` matcher unit tests; live
   Brave background window 2026-09-03 (focused window unchanged before and
   after the switch).
+- [x] Profiles of the **real running** Chromium-family browser (Brave
+  Origin / Brave Browser / Google Chrome; anything else typed
+  `unsupported`), 2026-09-03. `browser profiles [--app SUB]` reads the
+  application's `Local State` (`profile.info_cache` directory -> display
+  name, `profile.last_used`) and joins each profile to the inventory
+  windows whose `browser_profile` equals its name: rows `{name,
+  directory, last_used, windows: [handles]}`; without `--app` the one
+  running catalog application is used (`browser_app_not_found` /
+  `browser_app_ambiguous`). `browser open --profile NAME [--url URL]
+  [--app SUB] [--timeout-ms N]` resolves NAME (exact, then unique
+  case-insensitive substring; `browser_profile_not_found` /
+  `browser_profile_ambiguous` with candidates), runs macOS `open -na
+  <app> --args --profile-directory=<dir> [URL]` -- the process singleton
+  hands it to the running instance, which is never quit or restarted --
+  and polls the inventory (default 8000 ms) until a window of that
+  profile appears that was not in the before snapshot or, with a URL
+  into a profile that already had a window, until that window's title
+  changes; reply `{handle, browser_profile, title, created}` with a
+  receipt, timeout `browser_window_not_found`. `windows
+  --browser-profile SUB` is one more inventory filter row. `page targets
+  --browser-profile SUB` keeps only the targets whose title equals a tab
+  title of that profile's window (`profile_match: "title"`) and says it
+  is a heuristic: one CDP port serves every profile and a target carries
+  no profile field. `tab close --window H --title T --exact --expect
+  gone` is the destructive tab verb behind the `close` gate (exact title,
+  strip snapshot in the receipt, `gone` read back from the strip), pressed
+  through the tab row's own close button; a row without one (macOS
+  Chromium exposes it on the active tab only) is typed `unsupported`
+  (`tab_close_button_missing`), never a keyboard shortcut. Evidence: pure
+  `browser_profiles` tests on `tests/fixtures/local_state.json`
+  (synthetic names), gate / button-matcher tests in `executor/browser.rs`,
+  and `scripts/cu-brave-live-smoke.sh` on the real five-profile Brave
+  Origin instance (dated PASS line in the script header). Still open: CDP
+  verbs (`page-js`, `page targets`, the `page find / click / fill / nav`
+  background-tab verbs) on that instance need it started with
+  `--remote-debugging-port`, which this leaf does not do.
 - [x] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
   [--text T | --text-exact T] [--identifier ID] [--actionable] [--within
   X,Y,W,H] [--offset N] [--max N]` returns a flat, bounded, filtered node list
@@ -390,12 +459,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `query`, `invoke`, `tab list` / `tab select` need no browser extension or
   native-messaging bridge, and `browser *` stays typed `unsupported`. The
   devtools protocol is adopted only as the opt-in second knife (`page-js`,
-  `page targets`, a port the caller opens on purpose), never as the default
-  path. MCU ledger (2026-09-03): `inspect` / `find` / `read` are live
-  aliases of `query`, `page read --js` / `page targets` / `page text` are
-  live under their cu spellings; `page click` / `page nav`, `drag`,
-  `minimize` / `restore`, `ps` and the non-desktop groups remain typed
-  `unsupported` by name (`capabilities.verbs[*].reason` says why).
+  `page targets`, and -- because the AX tree never carries a background
+  tab -- `page text / find / click / fill / nav / screenshot --target-*`, a
+  port the caller opens on purpose), never as the default path. MCU
+  ledger (2026-09-03): `inspect` / `find` / `read` are live aliases of
+  `query`; `page read --js` / `page read` / `page targets` / `page text` /
+  `page find` / `page click` / `page fill` / `page nav` / `page
+  screenshot` are live under their cu spellings; `drag`, `minimize` /
+  `restore`, `ps` and the non-desktop groups remain typed `unsupported`
+  by name (`capabilities.verbs[*].reason` says why).
 - [ ] every command carries an explicit target reference and returns a typed
   result. There is no ambient "current target" that a caller can forget to set.
 - [ ] verb spellings converge with the existing AgenTerm surfaces where the

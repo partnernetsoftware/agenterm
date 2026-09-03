@@ -18,6 +18,9 @@
 #   2026-09-03  PASS  Brave Origin headless (macOS): after page_js.rs read_http_body
 #               honours Content-Length / chunked framing, page targets + page-js
 #               --target-title (background tab, not-found, ambiguous) all answered.
+#   2026-09-03  PASS  same, after the CDP client moved to src/cdp/ (http.rs owns
+#               the framed reader; ws.rs the session). The actuation gate on a
+#               background tab is scripts/cu-cdp-actuate-smoke.sh.
 #
 # What it proves (all on 127.0.0.1:<free port>, browser started with
 # --remote-debugging-port, the only way any cu CDP verb can work):

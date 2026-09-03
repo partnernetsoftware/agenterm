@@ -39,15 +39,19 @@ fn windows_signing_allowlist_is_five_pe_files_on_both_isas() {
 fn root_windows_resources_follow_target_and_keep_forwarder_icon_free() {
     assert!(ROOT_BUILD.contains("CARGO_CFG_TARGET_OS"));
     assert!(ROOT_BUILD.contains("CARGO_CFG_TARGET_ENV"));
-    assert!(!ROOT_BUILD
-        .lines()
-        .any(|line| line.trim_start().starts_with("#[cfg(windows)]")));
+    assert!(
+        !ROOT_BUILD
+            .lines()
+            .any(|line| line.trim_start().starts_with("#[cfg(windows)]"))
+    );
     assert!(ROOT_BUILD.contains("ProductName"));
     assert!(ROOT_BUILD.contains("ProductVersion"));
     assert!(ROOT_BUILD.contains("OriginalFilename\", \"agenterm.com"));
     assert!(ROOT_BUILD.contains("cargo:rustc-link-arg-bin=agenterm-com={forwarder_resource}"));
-    assert!(!ROOT_BUILD
-        .contains("ICON_BINS: &[&str] = &[\"agenterm\", \"agenterm-cc\", \"agenterm-com\"]"));
+    assert!(
+        !ROOT_BUILD
+            .contains("ICON_BINS: &[&str] = &[\"agenterm\", \"agenterm-cc\", \"agenterm-com\"]")
+    );
 }
 
 #[test]
@@ -79,9 +83,11 @@ fn abi_resource_is_cdylib_only_and_cross_build_has_a_pinned_compiler() {
 fn cu_resource_is_target_based_and_owned_by_the_public_binary() {
     assert!(CU_BUILD.contains("CARGO_CFG_TARGET_OS"));
     assert!(CU_BUILD.contains("CARGO_CFG_TARGET_ENV"));
-    assert!(!CU_BUILD
-        .lines()
-        .any(|line| line.trim_start().starts_with("#[cfg(windows)]")));
+    assert!(
+        !CU_BUILD
+            .lines()
+            .any(|line| line.trim_start().starts_with("#[cfg(windows)]"))
+    );
     assert!(CU_BUILD.contains("ProductName"));
     assert!(CU_BUILD.contains("ProductVersion"));
     assert!(CU_BUILD.contains("OriginalFilename\", \"agenterm-cu.exe"));
