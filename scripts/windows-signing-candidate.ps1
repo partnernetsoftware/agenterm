@@ -87,6 +87,7 @@ $platforms = @(
 $noticeFiles = @('LICENSE-APACHE', 'LICENSE-MIT', 'THIRD_PARTY_NOTICES.md', 'artifacts.json')
 $optionalMetadataFiles = @(
     'agenterm.json',
+    'agenterm-sbom.spdx.json',
     'package-manifest.json',
     'qualification-receipt.json',
     "agenterm-$Version-sbom.spdx.json"

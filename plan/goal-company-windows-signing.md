@@ -61,7 +61,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] archive companions are a separate explicit allowlist: both ISAs require
     licenses, notices and `artifacts.json`; the authoritative x86_64 package may
     additionally carry its build metadata, package manifest, qualification
-    receipt and exact-version SBOM. Prepare records the observed allowed set and
+    receipt and its staged or exact-version SBOM. Prepare records the observed allowed set and
     Finalize requires the same set after signing, so metadata is preserved but
     cannot become an unreviewed signing input
 - [~] Candidate transformation, never Promotion mutation
