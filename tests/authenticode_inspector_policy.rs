@@ -54,6 +54,9 @@ fn public_policy_names_the_signed_boundary_and_authority_split() {
         "Promotion publishes those bytes",
         "Linux signing and Apple Developer ID/notarization are separate policy lanes",
         "Windows remains the final trust authority",
+        "check-product-signing-readiness.sh",
+        "Deleting a certificate profile does not revoke signatures",
+        "Certificate revocation is a separate, irreversible owner action",
     ] {
         assert!(POLICY.contains(contract), "missing public signing policy contract: {contract}");
     }

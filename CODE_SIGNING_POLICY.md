@@ -25,6 +25,12 @@ Changing this value to `required` is an explicit owner decision for a future
 version. The workflow never silently falls back from required signing to an
 unsigned release.
 
+Before dispatch, operators use the company signing skill's read-only
+`check-product-signing-readiness.sh` court. It rejects dirty/stale source,
+published version reuse, policy/version drift, missing workflows, and inspector
+drift before provider time or signing quota is spent. `READY` is only source
+eligibility; it is not signature or release evidence.
+
 ## Signed boundary and byte identity
 
 Each Windows architecture archive contains the five entries declared in
@@ -81,6 +87,13 @@ logs, receipts, screenshots or handoff text. A valid signature establishes
 publisher identity and byte integrity; it does not guarantee immediate
 Microsoft SmartScreen reputation. Reputation is measured against the exact
 final Candidate bytes rather than by removing product functionality.
+
+If signing authority is suspected of misuse, maintainers stop new signing
+authority and preserve exact hashes, receipts, and private provider transaction
+records first. Deleting a certificate profile does not revoke signatures
+already issued. Certificate revocation is a separate, irreversible owner action
+that can invalidate affected files from the selected revocation time; it is not
+an automated workflow fallback.
 
 The owning product requirements and evidence DAG are
 `prd/PRD_02_17_delivery_quality.md` and
