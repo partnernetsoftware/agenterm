@@ -138,10 +138,11 @@ flowchart LR
   SIG --> V{"company publisher + timestamp<br/>before/after hashes"}
   V -->|fail| K
   V -->|pass| PACK["repack two final archives<br/>hash + provenance + receipt"]
+  PACK --> AUD["redacted public evidence<br/>basename · SHA · size · certificate"]
   U --> WX["Windows x86_64 court"]
   U --> WA["Windows aarch64 court"]
-  PACK --> WX
-  PACK --> WA
+  AUD --> WX
+  AUD --> WA
   WX --> C{"execute + Defender<br/>same final bytes"}
   WA --> C
   C -->|fail| K
