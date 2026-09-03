@@ -7,6 +7,11 @@ description = "Agenterm computer-use foundation: abstract command surface over t
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/partnernetsoftware/agenterm"
 
+[build-dependencies]
+# build.rs runs on the host. Keep this unconditional so macOS/Linux
+# cross-builds can compile the Windows target's VERSIONINFO.
+winresource = "0.1"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

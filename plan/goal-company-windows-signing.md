@@ -30,7 +30,7 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     `agenterm-cc.exe`, `agenterm-cu.exe`, `agenterm.dll`
   - [x] public v0.1.16 baseline proves all ten are unsigned and the tiny
     `agenterm.com` has ample room below its 64 KiB release budget
-  - [~] every entry has a nonempty `ProductName` and `ProductVersion` and an
+  - [x] every entry has a nonempty `ProductName` and `ProductVersion` and an
     empty Security Directory before signing
     - [x] root package and ABI build scripts now branch on the Cargo target,
       compile VERSIONINFO on non-Windows hosts, and keep icons only on the two
@@ -38,8 +38,9 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
       `agenterm.com`, `agenterm-cc.exe`, and `agenterm.dll` all carry the
       product/version fields with an empty Security Directory; the ARM64
       `agenterm.com` is 5,632 B and x86_64 is 6,144 B, below 64 KiB
-    - [ ] add the same package-owned VERSIONINFO path to `agenterm-cu.exe` once
-      the active CU source increment releases its shared crate files
+    - [x] `agenterm-cu` owns its own target-aware VERSIONINFO build script;
+      two-ISA MSVC inspection proves ProductName/ProductVersion and an empty
+      Security Directory (ARM64 1,640,960 B; x86_64 1,776,128 B)
     - [x] Candidate installs/pins the resource compiler needed by the Linux →
       MSVC ARM64 cross-build instead of trusting runner ambient tools
   - [x] a policy test derives the two-ISA allowlist from

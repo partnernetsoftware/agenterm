@@ -98,12 +98,12 @@ Each of `win-x86_64` and `win-aarch64` contains exactly these five PE files:
 All ten files are signed or the required-mode Candidate fails. The public
 v0.1.16 baseline is unsigned and every Security Directory is empty. The root
 package and ABI now compile target-aware VERSIONINFO on Windows, Linux, or
-macOS build hosts. Two-ISA inspection proves that `agenterm.exe`,
-`agenterm.com`, `agenterm-cc.exe`, and `agenterm.dll` carry nonempty product
-and version fields before signing; `agenterm-cu.exe` remains the only resource
-owner to close on both ISAs. The tiny forwarder keeps a metadata-only resource:
-do not add an icon, CRT startup, or product logic merely to satisfy signing
-metadata.
+macOS build hosts. Two-ISA inspection proves all five files per architecture
+carry nonempty product and version fields before signing and have an empty
+Security Directory. The root package owns `agenterm.exe`, `agenterm.com`, and
+`agenterm-cc.exe`; the ABI and CU crates own their DLL/EXE resources. The tiny
+forwarder keeps a metadata-only resource: do not add an icon, CRT startup, or
+product logic merely to satisfy signing metadata.
 
 Inspect a local or extracted Candidate file with the reusable company tools:
 

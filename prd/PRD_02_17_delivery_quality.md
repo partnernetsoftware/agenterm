@@ -14,9 +14,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   profile is Active; SignPath declined and is no longer a route. AgenTerm's
   empty `release-signing` Environment exists, while its repo-specific OIDC
   identity, Candidate transformation and first signed court remain pending.
-  Eight of ten Windows PE files now have two-ISA VERSIONINFO plus empty
-  Security Directory evidence; `agenterm-cu.exe` is the remaining resource
-  owner. `release-policy.json` therefore keeps Windows signing `off`. The executable DAG is
+  All ten Windows PE files now have two-ISA VERSIONINFO plus empty Security
+  Directory evidence. The repo-specific OIDC identity, Candidate signing
+  transformation and first signed court remain pending, so
+  `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`.
 - [x] fast incremental developer build under ignored local `dist/`

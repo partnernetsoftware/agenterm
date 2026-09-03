@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 const ROOT_BUILD: &str = include_str!("../build.rs");
 const ABI_BUILD: &str = include_str!("../crates/agenterm-abi/build.rs");
+const CU_BUILD: &str = include_str!("../crates/agenterm-cu/build.rs");
 const CANDIDATE: &str = include_str!("../.github/workflows/candidate.yml");
 
 #[test]
@@ -72,4 +73,17 @@ fn abi_resource_is_cdylib_only_and_cross_build_has_a_pinned_compiler() {
         .expect("Windows ARM64 resource-tooling step");
     assert!(arm_tooling.contains("llvm-18"));
     assert!(arm_tooling.contains("RC_PATH=/usr/bin/llvm-rc-18"));
+}
+
+#[test]
+fn cu_resource_is_target_based_and_owned_by_the_public_binary() {
+    assert!(CU_BUILD.contains("CARGO_CFG_TARGET_OS"));
+    assert!(CU_BUILD.contains("CARGO_CFG_TARGET_ENV"));
+    assert!(!CU_BUILD
+        .lines()
+        .any(|line| line.trim_start().starts_with("#[cfg(windows)]")));
+    assert!(CU_BUILD.contains("ProductName"));
+    assert!(CU_BUILD.contains("ProductVersion"));
+    assert!(CU_BUILD.contains("OriginalFilename\", \"agenterm-cu.exe"));
+    assert!(CU_BUILD.contains("cargo:rustc-link-arg-bin=agenterm-cu={resource_path}"));
 }
