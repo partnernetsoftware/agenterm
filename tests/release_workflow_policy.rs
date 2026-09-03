@@ -822,6 +822,8 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(PROMOTION.contains("workflow_dispatch"));
     assert!(PROMOTION.contains("conclusion"));
     assert!(PROMOTION.contains("head_sha"));
+    assert!(PROMOTION.contains("source_sha\" != \"$GITHUB_SHA"));
+    assert!(PROMOTION.contains("cannot create a tag for an older workflow-bearing commit"));
     assert!(PROMOTION.contains("publish-$tag"));
     assert!(PROMOTION.contains("task run candidate-verify"));
     assert!(!PROMOTION.contains("candidate-verify.rh"));

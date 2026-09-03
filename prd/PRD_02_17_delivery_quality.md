@@ -994,6 +994,12 @@ costs a full candidate cycle:
   Repository workflow defaults remain organization-forced read-only, so the organization Actions
   administrator must enable read/write workflow tokens while leaving pull-request approval off.
   Retry resumes the same exact Candidate and must not rebuild or overwrite bytes.
+- [x] Promotion rejects a Candidate older than its workflow controller HEAD before downloading or
+  mutating anything. Even with `Contents: write`, GitHub's ephemeral Actions token cannot create a
+  tag for an older commit containing workflow history because it has no separately grantable
+  `workflows: write` permission. A Promotion-only repair therefore advances `main` and requires one
+  new current-main Candidate; after it seals, Promotion must run before another source commit.
+  The repository does not bypass this boundary with a local tag push or a copied personal token.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

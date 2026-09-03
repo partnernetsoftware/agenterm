@@ -52,6 +52,11 @@ jobs:
           [[ "$(jq -r .conclusion <<<"$run")" == "success" ]]
           source_sha="$(jq -r .head_sha <<<"$run")"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$source_sha" != "$GITHUB_SHA" ]]; then
+            echo "Candidate SHA $source_sha is not Promotion controller HEAD $GITHUB_SHA." >&2
+            echo "GITHUB_TOKEN cannot create a tag for an older workflow-bearing commit; qualify current main again." >&2
+            exit 1
+          fi
           echo "source_sha=$source_sha" >>"$GITHUB_OUTPUT"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \

@@ -1599,3 +1599,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - 仓库 workflow 默认权限由组织强制为 read，仓库管理员 API 不能改写；需要组织 Actions
   管理员把 Workflow permissions 设为 Read and write，同时保持“允许 Actions 批准 PR”关闭。
   权限到位后只重跑同一 Promotion 的 publish，继续提升 Candidate `33702582934` 原字节。
+
+### A.54 Promotion `33710006382`：Actions token 不能给旧 Candidate SHA 建 tag
+
+- 新 run 的日志确认 token 已是 `Contents: write`，但 Candidate `b73922f9…` 已落后于 Promotion
+  controller HEAD，GitHub 仍在 `POST git/refs` 返回 403；没有 tag 或 draft。
+- `GITHUB_TOKEN` 没有可单独授予的 `workflows: write`，不能为较早的 workflow-bearing commit
+  创建 ref。流程新增早期 `source_sha == GITHUB_SHA` 守卫；Promotion-only 修复落入 main 后，
+  合规恢复路径是给当前 main 重做 Candidate，封印后不再移动 main，随即 Promotion。禁止复制
+  个人 token 或用本机 tag push 绕过 exact-SHA 合同。
