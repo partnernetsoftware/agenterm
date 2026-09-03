@@ -227,6 +227,13 @@ fn windows_runtime_court_extracts_zip_with_the_python_it_already_uses() {
 }
 
 #[test]
+fn candidate_seal_copies_only_closed_top_level_payload_files() {
+    assert!(CANDIDATE.contains("find candidate-input -mindepth 1 -maxdepth 1 -type f"));
+    assert!(CANDIDATE.contains("-exec cp -- {} candidate-output/payload/ \\;"));
+    assert!(!CANDIDATE.contains("cp candidate-input/* candidate-output/payload/"));
+}
+
+#[test]
 fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
     assert!(CHECK_QJS.contains("\"--skip\", \"powershell_waits_for_explicit_agenterm_exe\""));
     assert!(CHECK_QJS.contains("function cargo_unit_powershell_compat_spec(environment)"));

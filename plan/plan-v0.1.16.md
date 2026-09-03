@@ -1564,3 +1564,13 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   环境变量本身不区分大小写，但 Git Bash 导出的键名区分。court 现按 `PROGRAMDATA` →
   `ProgramData` → `C:\\ProgramData` 解析，再查 Program Files 与 Defender Platform 两条路径。
   `MpCmdRun.exe` 不存在或扫描非零仍 fail-closed，不把“没扫”伪装成通过。
+
+### A.50 Candidate `33699077423`：封存 payload 不递归携带 chassis compose 输入
+
+- 六 build、Windows x86_64 完整 qualification、六 native runtime 与两格 Defender **全部
+  通过**。最后 aggregate 已用六个 `chassis-l1/<cell>/` 成功合成 chassis product，却在
+  `cp candidate-input/*` 遇到 `chassis-l1/` 目录并因无 `-r` 退出。
+- L1 目录是 compose 输入，不是公开 Release asset；递归复制反而会把内部材料混进封存集合。
+  seal 现只复制 `candidate-input` 顶层 regular files，随后仍由 `candidate-aggregate` 对六 archive、
+  checksum、provenance、SBOM、qualification receipt、chassis product 和 preview README 做严格
+  allowlist/哈希验证，未知或缺失文件继续 fail-closed。

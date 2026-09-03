@@ -970,6 +970,12 @@ costs a full candidate cycle:
   uppercase `PROGRAMDATA` as an unbound variable. Discovery now accepts `PROGRAMDATA` or
   `ProgramData`, with the standard Windows directory as a final path fallback; missing
   `MpCmdRun.exe` and any nonzero scan result still fail closed.
+- [x] Candidate sealing copies only closed top-level payload files. Candidate `33699077423`
+  completed all six builds, Windows full qualification, all six native runtime courts, and both
+  Defender scans. Aggregate then failed because `candidate-input/*` also selected the nested
+  `chassis-l1/` compose inputs. Those directories have already been consumed into the validated
+  chassis-product archive and are not Release assets; sealing now copies only top-level regular
+  files, while candidate-aggregate still validates the exact allowlisted payload and rejects drift.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

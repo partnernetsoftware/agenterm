@@ -957,7 +957,8 @@ jobs:
           version="$(jq -r .version candidate-metadata.json)"
           test -f candidate-input/qualification-receipt.json
           mkdir -p candidate-output/payload
-          cp candidate-input/* candidate-output/payload/
+          find candidate-input -mindepth 1 -maxdepth 1 -type f \
+            -exec cp -- {} candidate-output/payload/ \;
           "$RUNNER_TEMP/agenterm-candidate-tool/agenterm" cli script \
             task run candidate-aggregate --manifest agenterm.tasks.json -- \
             . candidate-metadata.json candidate-output/payload \
