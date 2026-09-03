@@ -104,8 +104,11 @@ For every signed Windows PE/DLL it must prove:
    resource coordinates, and explicitly records release eligibility plus each
    Authenticode status;
 5. Defender scans the final extracted Candidate files;
-6. both Windows ISA courts execute those final bytes; and
-7. Candidate aggregation accepts only the signed allowlist and fails closed on
+6. both Windows ISA courts execute those final bytes and record the archive SHA
+   they actually consumed;
+7. qualification aggregation matches both observed archive hashes to the
+   signing receipt's platform after-hashes; and
+8. Candidate aggregation accepts only the signed allowlist and fails closed on
    an extra, missing or renamed provider output.
 
 Keep signing mode explicit. Missing credentials in `required` mode are a hard

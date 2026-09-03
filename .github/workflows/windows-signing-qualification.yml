@@ -183,7 +183,7 @@ jobs:
             -QualificationOnly
           python scripts/audit-windows-signing-receipt.py `
             final/windows-x86_64/windows-signing-receipt.json `
-            --root signing-input --release-eligible false `
+            --root signing-input --archive-root final --release-eligible false `
             --expected-source $env:SOURCE_SHA --expected-version $env:EXPECTED_VERSION
 
       - name: Upload signed non-promotable qualification bundle
@@ -240,6 +240,7 @@ jobs:
           python -m zipfile -e "$archive" runtime
           output="$(runtime/agenterm.com cli --version)"
           grep -Fq "$EXPECTED_VERSION" <<<"$output"
+          echo "ARCHIVE_SHA256=$actual_hash" >>"$GITHUB_ENV"
           echo "PASS ${{ matrix.platform_id }} $output"
       - name: Verify all five signatures
         shell: pwsh
@@ -294,6 +295,7 @@ jobs:
               "job_status": os.environ["JOB_STATUS"],
               "source_sha": os.environ["SOURCE_SHA"],
               "version": os.environ["EXPECTED_VERSION"],
+              "archive_sha256": os.environ.get("ARCHIVE_SHA256"),
               "run_id": int(os.environ["GITHUB_RUN_ID"]),
               "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
               "release_eligible": False,
@@ -314,6 +316,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: agenterm-windows-signing-qualification
+          path: signed
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: agenterm-signing-runtime-*-attempt-${{ github.run_attempt }}
@@ -343,6 +349,16 @@ jobs:
               raise SystemExit("source SHA mismatch")
           if {row.get("version") for row in rows} != {os.environ["EXPECTED_VERSION"]}:
               raise SystemExit("version mismatch")
+          signing = json.loads(Path("signed/final/windows-x86_64/windows-signing-receipt.json").read_text())
+          if signing.get("release_eligible") is not False:
+              raise SystemExit("signing receipt became promotable")
+          expected_archives = {
+              platform: signing.get("platforms", {}).get(platform, {}).get("after_sha256")
+              for platform in expected
+          }
+          observed_archives = {row["platform_id"]: row.get("archive_sha256") for row in rows}
+          if observed_archives != expected_archives:
+              raise SystemExit("runtime archive SHA does not match signing receipt")
           output = {
               "schema_version": 1,
               "kind": "agenterm-windows-signing-qualification-aggregate",

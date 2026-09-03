@@ -32,6 +32,7 @@ FORBIDDEN_KEYS = {
     "access_token",
 }
 EXPECTED_PLATFORMS = {"windows-x86_64", "windows-aarch64"}
+EXPECTED_ARCHES = {"windows-x86_64": "x86_64", "windows-aarch64": "aarch64"}
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -81,6 +82,7 @@ def safe_file(root: Path, relative: str) -> Path:
 def audit(
     receipt: dict[str, Any],
     root: Path,
+    archive_root: Path,
     release_eligible: bool,
     expected_source: str | None = None,
     expected_version: str | None = None,
@@ -114,6 +116,21 @@ def audit(
     platforms = receipt.get("platforms")
     if not isinstance(platforms, dict) or set(platforms) != EXPECTED_PLATFORMS:
         raise ValueError("signed platform set mismatch")
+    for platform, row in platforms.items():
+        if not isinstance(row, dict) or row.get("arch") != EXPECTED_ARCHES[platform]:
+            raise ValueError(f"{platform}: archive platform mismatch")
+        name = require_text(row, "archive_name")
+        if PurePosixPath(name).name != name:
+            raise ValueError(f"{platform}: unsafe archive name")
+        before = str(row.get("before_sha256", ""))
+        after = str(row.get("after_sha256", ""))
+        if not SHA256_RE.fullmatch(before) or not SHA256_RE.fullmatch(after) or before == after:
+            raise ValueError(f"{platform}: invalid archive before/after SHA-256")
+        archive = safe_file(archive_root, f"{platform}/{name}")
+        if sha256(archive) != after or archive.stat().st_size != row.get("after_bytes"):
+            raise ValueError(f"{platform}: final archive identity mismatch")
+        if not isinstance(row.get("payload_uncompressed_bytes"), int) or row["payload_uncompressed_bytes"] <= 0:
+            raise ValueError(f"{platform}: invalid payload byte count")
     run = receipt.get("run")
     if not isinstance(run, dict) or not isinstance(run.get("id"), int) or not isinstance(run.get("attempt"), int):
         raise ValueError("signing run identity missing")
@@ -144,6 +161,7 @@ def audit(
 def self_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        archive_root = root / "archives"
         assets: dict[str, Any] = {}
         for platform in sorted(EXPECTED_PLATFORMS):
             for index in range(5):
@@ -167,6 +185,20 @@ def self_test() -> None:
                     "timestamp_subject": "CN=Fixture TSA",
                     "timestamp_issuer": "CN=Fixture TSA CA",
                 }
+        platforms: dict[str, Any] = {}
+        for platform in sorted(EXPECTED_PLATFORMS):
+            archive_name = f"agenterm-0.0.0-{platform}.zip"
+            archive = archive_root / platform / archive_name
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            archive.write_bytes(("archive-" + platform).encode())
+            platforms[platform] = {
+                "arch": EXPECTED_ARCHES[platform],
+                "archive_name": archive_name,
+                "before_sha256": hashlib.sha256(("before-" + platform).encode()).hexdigest(),
+                "after_sha256": sha256(archive),
+                "after_bytes": archive.stat().st_size,
+                "payload_uncompressed_bytes": 1,
+            }
         receipt = {
             "schema_version": 1,
             "kind": "agenterm-azure-artifact-signing",
@@ -179,13 +211,13 @@ def self_test() -> None:
             "asset_count": 10,
             "run": {"id": 1, "attempt": 1},
             "upstream": {"run_id": 2, "run_attempt": 1},
-            "platforms": {name: {} for name in EXPECTED_PLATFORMS},
+            "platforms": platforms,
             "assets": assets,
         }
-        audit(receipt, root, False, "a" * 40, "0.0.0")
+        audit(receipt, root, archive_root, False, "a" * 40, "0.0.0")
         receipt["provider_resource"] = {"account": "must-not-ship"}
         try:
-            audit(receipt, root, False)
+            audit(receipt, root, archive_root, False)
         except ValueError as error:
             assert "protected configuration key" in str(error)
         else:
@@ -197,6 +229,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--root", type=Path)
+    parser.add_argument("--archive-root", type=Path)
     parser.add_argument("--release-eligible", choices=("true", "false"), required=False)
     parser.add_argument("--expected-source")
     parser.add_argument("--expected-version")
@@ -205,11 +238,12 @@ def main() -> None:
     if args.self_test:
         self_test()
         return
-    if args.receipt is None or args.root is None or args.release_eligible is None:
-        parser.error("receipt, --root, and --release-eligible are required")
+    if args.receipt is None or args.root is None or args.archive_root is None or args.release_eligible is None:
+        parser.error("receipt, --root, --archive-root, and --release-eligible are required")
     audit(
         load(args.receipt),
         args.root,
+        args.archive_root,
         args.release_eligible == "true",
         args.expected_source,
         args.expected_version,

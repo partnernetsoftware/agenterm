@@ -32,6 +32,7 @@ fn qualification_is_real_signing_but_never_release_eligible() {
         "-QualificationOnly",
         "-UpstreamRunId $env:CANDIDATE_RUN_ID -UpstreamRunAttempt $env:CANDIDATE_RUN_ATTEMPT",
         "--release-eligible false",
+        "--archive-root final",
         "\"release_eligible\": False",
     ] {
         assert!(WORKFLOW.contains(contract), "missing qualification contract: {contract}");
@@ -57,6 +58,8 @@ fn qualification_executes_and_scans_both_windows_isas() {
         "MpCmdRun.exe",
         "DEFENDER PASS",
         "require both signed Windows courts",
+        "runtime archive SHA does not match signing receipt",
+        "os.environ.get(\"ARCHIVE_SHA256\")",
     ] {
         assert!(WORKFLOW.contains(contract), "missing final-byte court: {contract}");
     }

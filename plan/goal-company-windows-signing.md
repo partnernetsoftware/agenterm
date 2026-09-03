@@ -89,7 +89,8 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] `windows-signing-qualification.yml` consumes one successful unsigned
     exact-SHA Candidate, signs the fixed ten-file set, audits a
     `release_eligible=false` receipt, then executes, verifies and Defender-scans
-    the signed archives on both Windows ISAs without rebuilding
+    the signed archives on both Windows ISAs without rebuilding; each runtime
+    receipt's observed archive SHA must equal the signing receipt's after-SHA
   - [x] Candidate receipt validation still requires `release_eligible=true`,
     so qualification artifacts cannot be supplied to Promotion
   - [ ] first run of the qualification workflow needs a successful unsigned

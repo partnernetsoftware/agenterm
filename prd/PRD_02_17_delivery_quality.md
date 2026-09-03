@@ -21,7 +21,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   qualification workflow now consumes an exact successful unsigned Candidate,
   signs the same ten files, requires a redacted `release_eligible=false`
   receipt, then executes, verifies and Defender-scans both signed Windows ISA
-  archives. The first live AgenTerm signed court remains pending, so
+  archives. Its aggregate cross-checks each runtime-observed archive SHA
+  against the signing receipt after-SHA. The first live AgenTerm signed court remains pending, so
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`.
