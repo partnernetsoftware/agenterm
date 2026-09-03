@@ -352,10 +352,11 @@ means no extractable signature, while `3` means a signature exists but portable
 verification failed (which may be a local CA-chain gap). Windows remains
 authoritative. When using an independently verified Microsoft Artifact Signing
 root-plus-timestamp-CA PEM bundle on a host whose CA bundle lacks it, pass
-`--ca-file ./trust.pem`; this does not modify system trust. The public v0.1.16
-files are unsigned; a qualification artifact is not a signed Release unless
-its exact bytes are later sealed and promoted under the checked-in signing
-policy.
+`--ca-file ./trust.pem`; create it with
+`scripts/fetch-microsoft-trust-bundle.sh ./trust.pem`. This does not modify
+system trust. The public v0.1.16 files are unsigned; a qualification artifact
+is not a signed Release unless its exact bytes are later sealed and promoted
+under the checked-in signing policy.
 
 Publisher authority, signed-file scope, receipt privacy and Candidate/Promotion
 boundaries are defined in [Code signing policy](CODE_SIGNING_POLICY.md).
