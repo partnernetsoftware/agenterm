@@ -59,6 +59,8 @@ fn qualification_executes_and_scans_both_windows_isas() {
         "DEFENDER PASS",
         "require both signed Windows courts",
         "runtime archive SHA does not match signing receipt",
+        "actual_hash=\"$(sha256sum \"$archive\" | awk '{print $1}')\"",
+        "[[ \"$actual_hash\" =~ ^[0-9a-f]{64}$ ]]",
         "os.environ.get(\"ARCHIVE_SHA256\")",
     ] {
         assert!(WORKFLOW.contains(contract), "missing final-byte court: {contract}");

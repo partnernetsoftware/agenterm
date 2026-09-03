@@ -91,6 +91,9 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     `release_eligible=false` receipt, then executes, verifies and Defender-scans
     the signed archives on both Windows ISAs without rebuilding; each runtime
     receipt's observed archive SHA must equal the signing receipt's after-SHA
+  - [x] each runtime court computes its observed archive SHA from the downloaded
+    final archive before extraction and exports that exact value to the receipt;
+    an unset placeholder cannot fail late or masquerade as execution evidence
   - [x] Candidate receipt validation still requires `release_eligible=true`,
     so qualification artifacts cannot be supplied to Promotion
   - [ ] first run of the qualification workflow needs a successful unsigned

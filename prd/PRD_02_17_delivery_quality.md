@@ -1007,6 +1007,11 @@ costs a full candidate cycle:
   `stress_included: 1` against its strict `true` schema. The producer now converts the driver's
   integer control flags to booleans only at the receipt publication boundary; the Candidate
   validator remains strict and is not widened to accept malformed historical types.
+- [x] A signed qualification runtime receipt derives its archive identity from the downloaded
+  final ZIP before extraction. The first AgenTerm signing rehearsal audit found an unassigned
+  `actual_hash` shell variable that would have made both Windows courts fail under `set -u` after
+  successful signing; the court now computes and validates the 64-hex SHA-256 before exporting it,
+  and a policy test pins that evidence path so a paid provider run is not wasted on bookkeeping.
 - [x] Promotion orchestration can derive identity from a sealed Candidate even when an older
   Candidate task catalog omitted `promotion-identity`. Promotion `33708964263` verified every
   Candidate byte and then failed closed with `task_not_found` before tag creation. The workflow now
