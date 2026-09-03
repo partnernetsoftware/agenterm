@@ -58,6 +58,12 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] a policy test derives the two-ISA allowlist from
     `scripts/artifacts.json` and rejects missing, renamed, duplicate, or extra
     signing inputs
+  - [x] archive companions are a separate explicit allowlist: both ISAs require
+    licenses, notices and `artifacts.json`; the authoritative x86_64 package may
+    additionally carry its build metadata, package manifest, qualification
+    receipt and exact-version SBOM. Prepare records the observed allowed set and
+    Finalize requires the same set after signing, so metadata is preserved but
+    cannot become an unreviewed signing input
 - [~] Candidate transformation, never Promotion mutation
   - [~] `signing.windows=off`: a credential-free finalizer copies the exact
     unsigned build parts into the canonical runtime/aggregate names; signing

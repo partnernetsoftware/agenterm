@@ -85,6 +85,12 @@ $platforms = @(
     [ordered]@{ id = 'windows-aarch64'; arch = 'aarch64' }
 )
 $noticeFiles = @('LICENSE-APACHE', 'LICENSE-MIT', 'THIRD_PARTY_NOTICES.md', 'artifacts.json')
+$optionalMetadataFiles = @(
+    'agenterm.json',
+    'package-manifest.json',
+    'qualification-receipt.json',
+    "agenterm-$Version-sbom.spdx.json"
+)
 
 if ($Mode -eq 'Prepare') {
     foreach ($owned in @($signingPath, $outputPath)) {
@@ -133,8 +139,15 @@ if ($Mode -eq 'Prepare') {
         $actual = @(Get-ChildItem -LiteralPath $payload -File -Recurse | ForEach-Object {
             [IO.Path]::GetRelativePath($payload, $_.FullName).Replace('\', '/')
         } | Sort-Object)
-        $expected = @($peNames + $noticeFiles | Sort-Object)
-        Require (($actual -join "`n") -eq ($expected -join "`n")) "archive payload set mismatch: $($platform.id)"
+        Require ($actual.Count -eq (@($actual | Sort-Object -Unique)).Count) "duplicate archive payload: $($platform.id)"
+        $required = @($peNames + $noticeFiles | Sort-Object)
+        $allowed = @($required + $optionalMetadataFiles | Sort-Object -Unique)
+        foreach ($name in $required) {
+            Require ($actual -contains $name) "archive required payload missing: $($platform.id)/$name"
+        }
+        foreach ($name in $actual) {
+            Require ($allowed -contains $name) "archive payload is not allowlisted: $($platform.id)/$name"
+        }
 
         $assets = [ordered]@{}
         foreach ($name in $peNames) {
@@ -158,6 +171,7 @@ if ($Mode -eq 'Prepare') {
             arch = $platform.arch
             archive_name = $archiveName
             archive_before_sha256 = $archiveHash
+            payload_files = $actual
             assets = $assets
         }
     }
@@ -206,7 +220,7 @@ foreach ($platform in $platforms) {
     $actual = @(Get-ChildItem -LiteralPath $payload -File -Recurse | ForEach-Object {
         [IO.Path]::GetRelativePath($payload, $_.FullName).Replace('\', '/')
     } | Sort-Object)
-    $expected = @($peNames + $noticeFiles | Sort-Object)
+    $expected = @($statePlatform.payload_files | Sort-Object)
     Require (($actual -join "`n") -eq ($expected -join "`n")) "signed payload set mismatch: $($platform.id)"
 
     foreach ($name in $peNames) {
