@@ -331,6 +331,22 @@ Actions client; public Promotion remains a separate human approval boundary.
 Git/GCM authentication used by `git push` is not GitHub Actions API
 authentication.
 
+Inspect a Windows PE or the Console-subsystem `agenterm.com` with Windows' own
+trust policy and machine-readable output:
+
+```powershell
+.\scripts\inspect-authenticode.ps1 .\agenterm.exe `
+  -ExpectedProductName AgenTerm -ExpectedProductVersion '<VERSION>'
+```
+
+Exit `0` means a valid `PARTNERNET SOFTWARE PTY LTD` signature, trusted
+timestamp, and matching requested VERSIONINFO; `2` means unsigned. On
+macOS/Linux, `scripts/inspect-authenticode.sh ./agenterm.exe` provides a
+portable certificate/timestamp diagnostic through `osslsigncode`, but Windows
+remains authoritative. The public v0.1.16 files are unsigned; a qualification
+artifact is not a signed Release unless its exact bytes are later sealed and
+promoted under the checked-in signing policy.
+
 ## Documentation
 
 - [Product tree and requirements](PRD.md)
