@@ -9,6 +9,54 @@ version gates and milestone acceptance only.
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+## Post-v0.1.16 route
+
+The accepted cross-version dependency and cut order is maintained in
+[`plan/roadmap-0.1x-0.2x.md`](../plan/roadmap-0.1x-0.2x.md). Its compact
+product projection is:
+
+```text
+[x] v0.1.16  reproducible six-cell delivery baseline
+ └─ [~] v0.1.18  one portable .agp → six Native Bases; App-only changes do not rebuild Base
+     └─ [ ] v0.1.19  agenterm-cu current tier + placement parity + first real CC App slice
+         └─ [ ] v0.2.0  Control Center content maturity, Cockpit first
+             └─ [ ] v0.2.x  one distribution/update substrate → one Hub substrate
+```
+
+```mermaid
+flowchart LR
+  V16["v0.1.16<br/>six-cell release truth"] --> APP["v0.1.18<br/>portable App substrate"]
+  Q["qjswasm + tinyvm"] --> APP
+  N["Native Base<br/>platform mechanisms"] --> APP
+  APP --> CU["v0.1.19<br/>agent-operable desktop"]
+  APP --> CCS["first real CC App slice"] --> CC["v0.2.0<br/>Cockpit-first maturity"]
+  CU -. independent capability consumer .-> CC
+  CC --> D["0.2.x distribution/update"] --> H["one Hub substrate"]
+```
+
+Version ownership is deliberately narrow:
+
+- v0.1.18 owns the portable App substrate and only the delivery/base repairs
+  that block it. The former `agenterm-con` track is owned by MiniCon and cannot
+  block this repository's version. Completed `libagenterm` and qjswasm work is
+  a prerequisite, not a reason to reopen its historical research tracks.
+- v0.1.19 owns the first useful local computer-use slice and one Control Center
+  consumer of the App ABI. Complete remote transports, a model/planner, and
+  full Control Center content remain outside it.
+- v0.2.0 owns an operable Cockpit vertical slice before Workflow, Extensions,
+  InfoHub, WebView, marketplace, or decentralized scope can expand. These
+  consumers reuse existing authorities; they do not create another scheduler,
+  package system, PTY, server, or network node.
+- Later 0.1.x numbers are not pre-filled. A new patch version is opened only
+  for a bounded user-visible result discovered by evidence from v0.1.18 or
+  v0.1.19; it is not a dumping ground for unrelated backlog.
+
+The six-cell build matrix, GitHub native execute-only courts, and local UTM
+courts remain separate evidence layers. qjswasm/tinyvm may carry portable
+logic, but native window, PTY, input, IME, clipboard, IPC, signing and packaging
+remain Native Base responsibilities. Release continues as exact-SHA Candidate
+→ no-rebuild Promotion → public integrity audit.
+
 - v0.1.5 Control, Terminal & Bounded Automation
   - Shipped interaction slice
     - [x] offline command help and malformed global options fail locally

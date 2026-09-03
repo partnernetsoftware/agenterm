@@ -7,12 +7,11 @@
 
 | 文件 | 角色 |
 |------|------|
-| [`plan-v0.1.16.md`](plan-v0.1.16.md) | **当前代码线/发布链修复**；是否发布仍服从 exact-SHA 授权 |
-| [`plan-v0.1.18.md`](plan-v0.1.18.md) | **v0.1.16 之后的下一列**（不单开 0.1.17）；五条轨：A App Substrate、B 承接树、C `agenterm-con`、D `agenterm-cu`、E `libagenterm` |
+| [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md) | **当前系列路线**：0.1.18 → 0.1.19 → 0.2.0 的依赖、砍叶和记忆宫殿 |
+| [`plan-v0.1.18.md`](plan-v0.1.18.md) | **唯一在制版本**（不单开 0.1.17）；主结果是 Portable App Substrate，历史承接轨须按系列路线再盘点 |
 | [`plan-v0.1.19.md`](plan-v0.1.19.md) | **预开草案**：CC Phase 1 + cu `window-place` / `cu hotkeys`（PRD 32；macOS 已部分落地） |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 代码分层、热文件与结构禁令 SSOT |
 | [`refactor-chassis-l1-l2-l3.md`](refactor-chassis-l1-l2-l3.md) | **薄 L1 底盘 / 可换 L2 宿主 ABI / L3 应用包** 执行树（chassis，避免和终端 shell 撞名）；L1 面 [`chassis-l1-surface.json`](chassis-l1-surface.json)；goal [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md) |
-| [`plan-rh-3.md`](plan-rh-3.md) | Rh 当前执行与证据轨；已归档 namespace/trace 文档不得替代它 |
 | [`plan-unix-gui-win-parity.md`](plan-unix-gui-win-parity.md) | Win↔Unix 可见行为差距地图 |
 | [`agenterm-dyn-grok-review.md`](agenterm-dyn-grok-review.md) | `agenterm-dyn` Windows 跟评与实机后续（A 证明门 / B 诚实 GCSBI / C 需政委才填 live 探针） |
 | [`platform-ux-parity-evidence-matrix.md`](platform-ux-parity-evidence-matrix.md) | 平台 UX 证据矩阵（含 templates） |
@@ -27,15 +26,18 @@
 | [`plan-cc-automation-cli.md`](plan-cc-automation-cli.md) | CC 自动化 CLI 未实现设计 |
 | [`capability-mcu-cu.md`](capability-mcu-cu.md) | MCU ↔ agenterm-cu 能力对照树（动词级；实验室 vs 产品） |
 | [`design-mcu-absorption.md`](design-mcu-absorption.md) | MCU 教训吸收进 cu 的切片史（片 1–4） |
-| [`design-rh-aot.md`](design-rh-aot.md) | Rh Build/CI AOT 轨；不是 product App Engine |
 | [`design-dynacore-logic-pack.md`](design-dynacore-logic-pack.md) | `agenterm-dynacore` 当前产品方向 |
 | [`design-dynacore-emulated-guest-core.md`](design-dynacore-emulated-guest-core.md) | emulated guest core 待实现设计 |
 | [`reference-cross-target-execution.md`](reference-cross-target-execution.md) | 常驻跨目标执行参考；已完成实验规格在 archive |
 
 ### 过渡保留（不是默认派工入口）
 
+- [`plan-v0.1.16.md`](plan-v0.1.16.md)：已发布 v0.1.16 的 exact-SHA 发布战役与故障证据；不再是当前任务单，待链入 archive 后迁入。
 - [`plan-v0.1.15.md`](plan-v0.1.15.md)：上版证据/推迟表；待 v0.1.16 最终发布审计确认全部叶去向后单独归档。
-- [`ci-green-handoff.md`](ci-green-handoff.md) 与 [`claude-analyze-ci.md`](claude-analyze-ci.md)：当前 v0.1.16 CI 战役输入；只能作为带时点的观察材料，战役收口后同批归档。
+- [`plan-rh-3.md`](plan-rh-3.md) / [`design-rh-aot.md`](design-rh-aot.md)：Rh 时代执行史；
+  Rh 已迁出本仓，活跃 `.qjs` 引擎是 qjswasm/tinyvm，这两份不得再当作当前派工入口。
+- [`ci-green-handoff.md`](ci-green-handoff.md) 与 [`claude-analyze-ci.md`](claude-analyze-ci.md)：
+  v0.1.16 CI 战役的带时点历史输入；发布已收口，不得再当作活任务单，待链入 archive 后同批迁入。
 - `research/dynamic-core/` 是已封闭研究的结果 SSOT；对应 Q0–Q15 实验规格现位于 `archive/`。
 
 ## 已归档（勿当任务单）

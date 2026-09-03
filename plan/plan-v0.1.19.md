@@ -3,6 +3,7 @@
 状态：**预开草案**（不是在制唯一版本计划）。在制仍是
 [`plan-v0.1.18.md`](plan-v0.1.18.md)。本文件冻结「0.1.18 关闭后立刻收口」的
 已接受叶，并记录 window-place / 热键宿主已提前落地的部分，避免合同与代码分叉。
+跨版依赖和砍叶顺序见 [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md)。
 
 不创建 tag / Candidate / Release，除非人工明确授权。
 
@@ -13,10 +14,12 @@
 | 轨 | 范围 | 产品合同 |
 |----|------|----------|
 | **A. App Substrate Phase 1** | 首条真实 CC 静态语义竖线（0.1.18 §1.9 已预订） | [10](../prd/PRD_02_10_rhai_scripting.md) / [21](../prd/PRD_02_21_control_center.md) |
+| **D. cu current tier** | 结构化观察/动作/等待 + 授权/审计在三主机成为一条可用竖线 | [28](../prd/PRD_02_28_agenterm_cu.md) / [29](../prd/PRD_02_29_cu_command_surface.md) / [31](../prd/PRD_02_31_cu_authorization_safety.md) |
 | **D+. cu window-place** | Spectacle 命名摆放收进 `agenterm-cu`；**代码已先于本版关闸落地（macOS）** | [32](../prd/PRD_02_32_cu_window_placement.md) |
 
-轨 A 的展开仍以 0.1.18 §1.9 为准。D+ 的实现进度以仓库代码与 PRD 32 勾选为准，
-不因本文件仍写「草案」而假装未开工。
+轨 A 的展开仍以 0.1.18 §1.9 为准。D/D+ 的实现进度以仓库代码与 PRD
+28–32 勾选为准，不因本文件仍写「草案」而假装未开工。但本版不扩张到
+ssh/rdp/vnc 全量 transport，也不引入模型、planner 或第二套平台机制。
 
 ## D+ 用户问题
 

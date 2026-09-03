@@ -4,26 +4,30 @@
 不创建 tag / Candidate / Release，不触发公开更新，除非人工明确授权。
 本文件是版本执行投影，不替代 PRD、结构 SSOT 或 App Pack 详细设计。
 
-**主题：Portable App Substrate + 四条并行轨。**
+**主题：Portable App Substrate。** 跨版依赖与砍叶真源见
+[`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md)。
 
 v0.1.17 已于 2026-08-12 归档，其全部未完成叶按 `plan/README.md` §归档规则 2
 **upsert 到本文件 §11**；`plan-libagenterm.md` 同日全文合并进 **§14**。
-本版因此同时承载五条轨：
+历史稿曾同时承载五条轨。v0.1.16 发布后重新裁剪为：A 是本版
+唯一发布结果；B 只保留真正阻塞 A 的交付基线；D 可以独立达门搭车，
+但默认去向是 v0.1.19。C 已迁至 MiniCon，E 的 `libagenterm` 已成为已有
+机制基线；两节只作历史来源，不再是 v0.1.18 Gate。
 
 | 轨 | 范围 | 本文位置 | 独立 Gate |
 |----|------|----------|-----------|
 | **A. App Substrate** | 稳定 App Host ABI + 一份 QJS `.agp` 跨六格消费 | §0–§10 | G0–G5（§4） |
 | **B. v0.1.17 承接树** | 多窗、跨主机证据、发布链、安装尾、脚本引擎债、低成本卫生 | §11 | 无，逐叶带证据合同 |
-| **C. agenterm-con** | 第二产品：预算、独立对齐门、巨石切分、可观测稳定性、余量叶 | §12 | GC1–GC4 |
-| **D. agenterm-cu** | 新立项：computer-use 底座设计与 `current` 档原型 | §13 | GD1–GD3 |
-| **E. libagenterm** | 机制层动态库：ABI 设计与 Phase 0 形态判决 | §14 | Phase 0 四判据（§14.6） |
+| **C. agenterm-con** | **已迁 MiniCon**；本仓不再派工或以它阻塞发布 | §12 历史 | 非本版 Gate |
+| **D. agenterm-cu** | `current` 档已在发展；独立达门可搭车，不得阻塞 A | §13 | GD1–GD3（默认 v0.1.19） |
+| **E. libagenterm** | **已落地基线**；历史 Phase 0 仅作来源 | §14 历史 | 非本版 Gate |
 
 轨 A 只证明动态应用底座成立：同一份密封 `.agp` 能被现有六个 OS/ISA Base
 携带、校验、加载和重载；修改 App 内容不要求重新编译六份 Base。首个真实产品语义
 迁移、远程更新、WASM 计算扩展和 APE/多架构 loader 均不在本版实现范围。
 
-**五条轨相互不阻塞**，各自有独立 Gate 与验收条件（§4、§8）。任一轨未达门只影响
-该轨，不得因此把另一轨标为完成，也不得借另一轨的绿状态替代本轨证据。
+各活跃轨证据仍不得互相替代；但 v0.1.18 是否完成只由 A 与它在 B 中的
+真阻塞项决定。D 未达门就不在本版宣称 shipped，不拖住 App Substrate。
 
 **轨 A 与轨 E 是两条不同的 ABI，永不合并**：轨 A 的 Host ABI 是产品语义边界
 （App guest ↔ 产品），轨 E 的 `agt_*` 是机制边界（产品 ↔ OS）。见 §14.4。
@@ -474,10 +478,9 @@ X0  跨六格消费 + App-only 无 Cargo 决定性证据
 `.agp` builder 可并行；公共 schema、根 manifest、workflow 和 Script dispatch 属于集成热区，
 由主线串行修改。最终 lint、Quick、Base matrix 与 App-only lane 在同一集成状态上串行验收。
 
-**上表只管轨 A。** 轨 C 的 GC1–GC4 见 §12，轨 D 的 GD1–GD3 见 §13，
-轨 E 的 Phase 0 四判据见 §14.6；轨 B 无独立
-Gate，其叶各自带证据合同。五条轨的 Gate 互不替代：`G5` 通过不代表 con 预算达标，
-`GC1` 全绿也不代表 App lane 成立，Phase 0 通过更不代表任何产品已迁入动态库。
+**上表是 v0.1.18 发布判定。** 轨 B 没有独立 Gate，只有被 G0–G5
+明确引用的阻塞叶参与本版判定。轨 D 的 GD1–GD3 仍是它自身的证据门，
+但未通过时仅不搭车，不阻塞 G5。§12/§14 为历史来源，不再是执行入口。
 
 ---
 
@@ -548,7 +551,8 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
 
 ## 8. 验收总门
 
-未授权公开发布时，**开发完成** = 四条轨各自成立。轨与轨之间不互相顶替。
+未授权公开发布时，**v0.1.18 开发完成** = 轨 A 与 B 中阻塞 A 的前置成立。
+轨 D 只在自身 Gate 全绿时搭车；C/E 不再参与本版判定。
 
 ### 8.A 轨 A（App Substrate）
 
@@ -574,7 +578,9 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
 6. **QJS-M6 / E1–E4** 有实现证据或明确可追踪的后续版本决定。
 7. **E5** 调用者迁移完成并删除 `agenterm cli script` 的 dispatch/help/catalog。
 
-### 8.C 轨 C（`agenterm-con`）
+### 8.C 轨 C（`agenterm-con`）— 历史，非 v0.1.18 Gate
+
+本节保留迁仓前的判据来源；执行与发布已由 MiniCon 仓所有。
 
 1. con 自有对齐门与完整套件在精确 unwind profile 下全绿（GC1）。
 2. CON-C1 的每一步切分都有"公开合同字节不变"的证据（GC2）；不留半切状态。
@@ -591,9 +597,10 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
 4. 全轨无任何 OS API 直调绕过 `agenterm-platform`，无外部 computer-use 依赖进入
    产品图。
 
-### 8.E 轨 E（`libagenterm`）
+### 8.E 轨 E（`libagenterm`）— 历史，非 v0.1.18 Gate
 
-轨 E 的"完成"只到**形态判决**，不含任何产品迁入：
+本节保留形态判决的历史规格。`libagenterm` 的现状由 owning PRD、ABI 头文件
+和公开黑盒证据拥有，不再由下列旧 Gate 决定。
 
 1. Phase 0 四条判据（独立产物预算 / 共享收益 / 渲染性能 / 行为等价）各自有实测
    数字，**通过与否都记录**——不得因为不利就不记。
@@ -623,28 +630,26 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
 | 2026-08-12 | `agenterm-con` 从"尾账"升为**独立产品轨**（§12），有自己的 GC1–GC3 Gate。其绿状态与工作台互不替代；PE 字节归 PRD 27/24，结构债归 ARCHITECTURE §4 C1–C3。 |
 | 2026-08-13 | **轨 E 规格修订（§14.3.5）**：初版假设 platform 提供拉取式事件与可跨调用存活的帧指针，实测不成立——`window_host` 只暴露阻塞回调循环 `run_pixel_window(Box<dyn PixelWindowApplication>)`，且 `render()` 的 `XrgbPixelFrame<'_>` 借用被回调作用域锁死。在"不改 platform"约束下按初版规格实现**不可能**；两次外部 agent 派单各烧约 5,000 行轨迹零产出，根因是任务不可完成，非执行方能力问题。**采纳方案 (a)**：库内私有线程跑循环 + begin/commit 会合把控制权交回调用方，零拷贝得以保留。**暂不采纳方案 (b)**（platform 长出 pump/step API）——那是机制层新契约，归 `PRD_02_20`，不该由薄导出壳私自决定；留作 Phase 0 后议题。 |
 | 2026-08-12 | **决策项 P4 拍板**：`agenterm-cu` 立项，归 PRD 28–31 专属子树，首发 `current` 档，工作名 `agenterm-remote.exe` 作废。本版只做设计与 `current` 原型（§13），任何 tier 在授权/审计通过前不得标 shipped，含 `current` 档在内不豁免。 |
+| 2026-09-03 | v0.1.16 六格发布后裁剪执行面：A 是 v0.1.18 唯一产品结果；B 只留它的真阻塞；D 独立达门才搭车，否则进 v0.1.19；C 已迁 MiniCon，E 已落为基线，均不再是本版 Gate。系列依赖真源为 `roadmap-0.1x-0.2x.md`。 |
 
 ---
 
 ## 10. 开工检查单
 
-1. 先认自己在哪条轨：**A** App Substrate（§0–§10）、**B** 承接树（§11）、
-   **C** `agenterm-con`（§12）、**D** `agenterm-cu`（§13）、**E** `libagenterm`（§14）。
-   只读本轨叶 + 跨轨非目标（§6），不要把别轨的 Gate 当自己的。
+1. 先认自己在哪条活跃轨：**A** App Substrate（§0–§10）、
+   **B** 只含阻塞 A 的承接叶（§11）、**D** 可独立搭车的 `agenterm-cu`（§13）。
+   §12/§14 只用于历史追溯，不派工。
 2. 归档稿（`archive/plan-v0.1.17.md`、`archive/plan-agenterm-app-pack.md`）只用于
    追溯，不作为执行依据。
 3. 轨 A：先冻结 Host ABI/manifest fixture，再写 loader 或 Engine glue；§0.3 四项
    前置未由轨 B 交付前不开工。
-4. 轨 C：动巨石前先跑 con 自有对齐门（GC1）；每步切分要有"公开合同字节不变"的证据。
-5. 轨 D：CU-D0 设计稿未与 PRD 29–31 对齐前不写产品代码；任何 OS 机制先看
+4. 轨 D：CU-D0 设计稿未与 PRD 29–31 对齐前不写产品代码；任何 OS 机制先看
    `agenterm-platform` 有没有，没有就往那里加，不在 cu 直调。
-6. 轨 E：只做 Phase 0 判决切片（pty/process/window+frame/screenshot 四组），
-   `agenterm-ui-core` 一律不进库；本版不迁入任何产品。
-6. 声明独占 pathspec；根 manifest、公共 schema、workflow 和 Script dispatch 串行修改。
-7. cheap lint/check 先于 Cargo；App-only 变更不得借机触发 Base 全矩阵。
-8. 小步提交；能力状态变化同步 owning PRD/catalog——con 写 PRD 23–27，cu 写 28–31，
+5. 声明独占 pathspec；根 manifest、公共 schema、workflow 和 Script dispatch 串行修改。
+6. cheap lint/check 先于 Cargo；App-only 变更不得借机触发 Base 全矩阵。
+7. 小步提交；能力状态变化同步 owning PRD/catalog。cu 写 PRD 28–32，
    目录/结构债写 `ARCHITECTURE.md`，**同一事实不要写两处**。
-9. 不创建 Candidate/Promotion，除非收到明确 exact-SHA 授权。
+8. 不创建 Candidate/Promotion，除非收到明确 exact-SHA 授权。
 
 ---
 
@@ -723,8 +728,8 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
   显示用户 scope 标签而非误标 main；失败保留原记录并显式报身份不一致。
 - [ ] **DOC-PRD capability 对账** — 把最终 shipped/planned 状态同步到 owning PRD 与
   稳定 catalog；plan/PRD/alignment 三方无漂移，冲突时停在 planned 而不虚报 shipped。
-  **本版新增范围**：`agenterm-con` 子树（PRD 23–27）与 `agenterm-cu` 子树
-  （PRD 28–31）也在对账范围内。
+  **本版新增范围**：`agenterm-cu` 子树（PRD 28–32）也在对账范围内；
+  MiniCon 仓自有对账不是本版 Gate。
 - [ ] **L5 Control Center smoke 进 CI 评估** — 写明进入/不进入哪个 lane、墙钟预算
   与唯一 owner；不把 GUI 工作藏入声称跳过 smoke 的 lane。
 - [ ] **L6 stale 注册记录体验** — `server-list`/cleanup 可识别 stale 但绝不误杀 live
@@ -776,7 +781,7 @@ Rh 负责 Build/CI，Rust/Base 负责权威状态与原生机制。
 
 ---
 
-## 12. 轨 C：`agenterm-con` 第二产品
+## 12. 轨 C 历史快照：`agenterm-con` 已迁 MiniCon
 
 > 产品真理：PRD 子树 [23](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_23_minicon.md) 根 +
 > [24](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_24_con_terminal.md) 终端渲染 /
@@ -989,11 +994,12 @@ con 已是独立 package、有独立 CI 与独立对齐门，不再是"主程序
 
 ---
 
-## 14. 轨 E：`libagenterm.{so,dylib,dll}` 机制库（已接受规划，未开工）
+## 14. 轨 E 历史快照：`libagenterm.{so,dylib,dll}` 形态判决
 
 > 本节自 [`archive/plan-libagenterm.md`](archive/plan-libagenterm.md) 全文合并（2026-08-12），
-> 原文件已按归档规则移入 `archive/` 仅保留追溯价值。本节是该方向的**唯一执行投影**：
-> 已接受规划、未开工；Phase 0 四条判据出结果前，不得把 libagenterm 写成 PRD 已接受范围。
+> 只保留当时形态判决的追溯价值。其「未开工」「候选消费者」和 Phase 0
+> 派工语句均已 superseded；当前 ABI、产物与消费者事实由 owning PRD、
+> `include/agenterm.h`、产物清单和公开黑盒证据拥有。本节不再派工。
 
 目标消费者：`agenterm`、`agenterm-con`、`agenterm-cu`。
 关联：[`ARCHITECTURE.md`](ARCHITECTURE.md) §1.0、本文 §1（轨 A 的 Host ABI，**另一条轴**）、
@@ -1250,17 +1256,17 @@ App guest (QJS .agp) ──Host ABI v1──▶ 产品层 ──libagenterm ABI�
 
 ---
 
-### 14.7 PRD 归属：规划已接受，Phase 0 后进入
+### 14.7 PRD 归属历史提案（superseded）
 
-现在没有 PRD 条目是有意的：共享机制方向和三个目标消费者已经接受，但 ABI、迁移和
-产物尚未实现，不能虚报 shipped。Phase 0 判定具体动态库形态，而不是重新决定是否复用。
+下列文字是实现前的 PRD 晋级方案，只作历史；不得用它覆盖当前
+`libagenterm` ABI、公开产物或 `agenterm-cu` 消费证据。
 
 - 判据通过 → 开第三个 PRD 子树（编号自 32 起），拥有机制边界、ABI 稳定性承诺、
   能力协商模型与密封/SBOM 归属；`PRD_02_02` 登记 `.dll` 交付角色；`PRD_02_20` 记一条
   引用（**机制契约仍归 20，ABI 稳定性归新子树**——两回事）。
 - 判据不过 → 归档。
 
-在此之前任何 PRD 模块都不得把 libagenterm 写成已接受范围。
+上述「在此之前」的时间边界已结束；当前状态只看 owning evidence。
 
 ---
 
