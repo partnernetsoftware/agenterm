@@ -18,8 +18,9 @@ must remain outside the repository.
 - No AgenTerm production byte has been company-signed. The Candidate workflow
   now has fail-closed `off|required` branches, exact ten-file signing input,
   signed repack, receipt and final-byte courts. AgenTerm has its own Entra app
-  registration + federated credential
-  (`repo:partnernetsoftware/agenterm:environment:release-signing`), the
+  registration + federated credential using GitHub's immutable
+  `repo:<ORG>@<OWNER_ID>/<REPO>@<REPO_ID>:environment:release-signing`
+  subject, the
   `Artifact Signing Certificate Profile Signer` role on the shared profile,
   three OIDC Environment secrets, and three shared provider-coordinate
   variables. Real values remain outside git and receipts.
@@ -67,6 +68,10 @@ Artifact Signing account and Public Trust profile, but create one Entra
 application and one federated credential per repository. Scope each service
 principal only to the shared certificate profile. Never copy another product's
 client id, create a client secret, or grant subscription-wide signing access.
+For repositories on GitHub's immutable-subject format, derive both numeric IDs
+from GitHub's organization/repository APIs and compare the resulting subject
+as an opaque exact string. Do not substitute a GraphQL node id, an Entra object
+id, the legacy name-only subject, or an issuer with a trailing slash.
 
 Do not put real coordinates in PRD, workflow logs, screenshots, receipts,
 commit messages or handoff prompts. Receipts may retain provider-neutral request

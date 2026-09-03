@@ -19,8 +19,10 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] its three protected provider-coordinate variables are copied from the
     shared company profile without exposing their values
   - [x] the AgenTerm-only Entra application and service principal exist
-  - [x] the federated credential subject is exactly
-    `repo:partnernetsoftware/agenterm:environment:release-signing`
+  - [x] the federated credential subject uses GitHub's exact immutable form
+    `repo:<ORG>@<OWNER_ID>/<REPO>@<REPO_ID>:environment:release-signing`;
+    owner/repository numeric IDs come from GitHub APIs and never enter git or
+    public receipts
   - [x] its service principal has only `Artifact Signing Certificate Profile
     Signer` at the shared profile scope; no human signer role remains
   - [x] the Environment has three OIDC identifiers as secrets and three
