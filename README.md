@@ -334,6 +334,11 @@ authentication.
 Inspect a Windows PE or the Console-subsystem `agenterm.com` with Windows' own
 trust policy and machine-readable output:
 
+For a quick visual check, right-click the file and open **Properties → Digital
+Signatures → Details → View Certificate**. If the **Digital Signatures** tab is
+absent, the file has no embedded Authenticode signature. Use the command below
+for the machine-readable release verdict:
+
 ```powershell
 .\scripts\inspect-authenticode.ps1 .\agenterm.exe `
   -ExpectedProductName AgenTerm -ExpectedProductVersion '<VERSION>'

@@ -14,7 +14,10 @@ fn qualification_consumes_exact_unsigned_candidate_without_rebuild() {
         "candidate-part-windows-aarch64",
         "signing.windows release-policy.json)\" == off",
     ] {
-        assert!(WORKFLOW.contains(contract), "missing exact-input contract: {contract}");
+        assert!(
+            WORKFLOW.contains(contract),
+            "missing exact-input contract: {contract}"
+        );
     }
     assert!(!WORKFLOW.contains("cargo build"));
     assert!(!WORKFLOW.contains("cargo xwin"));
@@ -35,7 +38,10 @@ fn qualification_is_real_signing_but_never_release_eligible() {
         "--archive-root final",
         "\"release_eligible\": False",
     ] {
-        assert!(WORKFLOW.contains(contract), "missing qualification contract: {contract}");
+        assert!(
+            WORKFLOW.contains(contract),
+            "missing qualification contract: {contract}"
+        );
     }
     assert!(SIGNING_SCRIPT.contains("qualification requires signing.windows=off"));
     assert!(SIGNING_SCRIPT.contains("Candidate signing requires signing.windows=required"));
@@ -63,7 +69,10 @@ fn qualification_executes_and_scans_both_windows_isas() {
         "[[ \"$actual_hash\" =~ ^[0-9a-f]{64}$ ]]",
         "os.environ.get(\"ARCHIVE_SHA256\")",
     ] {
-        assert!(WORKFLOW.contains(contract), "missing final-byte court: {contract}");
+        assert!(
+            WORKFLOW.contains(contract),
+            "missing final-byte court: {contract}"
+        );
     }
 }
 

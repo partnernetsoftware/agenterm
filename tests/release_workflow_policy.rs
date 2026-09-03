@@ -574,7 +574,7 @@ fn candidate_is_manual_exact_sha_and_has_no_publish_authority() {
     assert!(!CANDIDATE.contains("contents: write"));
     assert!(CANDIDATE.contains("[[ \"$SOURCE_SHA\" =~ ^[0-9a-f]{40}$ ]]"));
     assert!(CANDIDATE.contains("[[ \"$GITHUB_SHA\" == \"$SOURCE_SHA\" ]]"));
-    assert!(CANDIDATE.contains("git merge-base --is-ancestor"));
+    assert!(CANDIDATE.contains("[[ \"$(git rev-parse origin/main)\" == \"$SOURCE_SHA\" ]]"));
     assert!(!CANDIDATE.contains("workflows/$workflow/runs?head_sha=$SOURCE_SHA"));
     assert!(!CANDIDATE.contains("for workflow in ci-agenterm.yml"));
     assert!(CANDIDATE.contains("name: Verify exact current main source"));

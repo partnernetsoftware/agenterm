@@ -8,10 +8,8 @@ fn candidate_requires_the_exact_current_main_sha() {
 
 #[test]
 fn candidate_rejects_an_already_published_version_before_building() {
-    assert!(CANDIDATE.contains(
-        "git ls-remote --exit-code --tags origin \"refs/tags/v$version\""
-    ));
-    assert!(CANDIDATE.contains(
-        "already exists; bump and commit the next version before Candidate"
-    ));
+    assert!(CANDIDATE.contains("git ls-remote --exit-code --tags origin \"refs/tags/v$version\""));
+    assert!(
+        CANDIDATE.contains("already exists; bump and commit the next version before Candidate")
+    );
 }

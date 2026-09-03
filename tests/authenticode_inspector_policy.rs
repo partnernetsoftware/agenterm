@@ -22,7 +22,10 @@ fn windows_inspector_reports_trust_timestamp_and_versioninfo() {
         "exit 2",
         "exit 69",
     ] {
-        assert!(POWERSHELL.contains(contract), "missing Windows inspector contract: {contract}");
+        assert!(
+            POWERSHELL.contains(contract),
+            "missing Windows inspector contract: {contract}"
+        );
     }
     assert!(!POWERSHELL.contains("path = $resolved"));
 }
@@ -58,6 +61,9 @@ fn public_policy_names_the_signed_boundary_and_authority_split() {
         "Deleting a certificate profile does not revoke signatures",
         "Certificate revocation is a separate, irreversible owner action",
     ] {
-        assert!(POLICY.contains(contract), "missing public signing policy contract: {contract}");
+        assert!(
+            POLICY.contains(contract),
+            "missing public signing policy contract: {contract}"
+        );
     }
 }

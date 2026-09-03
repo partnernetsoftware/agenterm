@@ -17,7 +17,10 @@ fn public_signing_receipt_has_explicit_trust_and_release_facts() {
         "signing run identity invalid",
         "invalid signed file byte count",
     ] {
-        assert!(PUBLIC_AUDIT.contains(contract), "missing public audit contract: {contract}");
+        assert!(
+            PUBLIC_AUDIT.contains(contract),
+            "missing public audit contract: {contract}"
+        );
     }
 }
 

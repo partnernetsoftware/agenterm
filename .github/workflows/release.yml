@@ -149,7 +149,7 @@ jobs:
           [[ "$version" == "$cargo_version" ]]
           "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script run \
             --profile tool scripts/qjs/promotion-identity.qjs -- \
-          "$manifest" "$CANDIDATE_RUN_ID" "$source_sha" \
+            "$manifest" "$CANDIDATE_RUN_ID" "$source_sha" \
             candidate/promotion-identity.json >/dev/null
           identity="candidate/promotion-identity.json"
           release_body="$(jq -r .body "$identity")"
