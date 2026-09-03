@@ -22,7 +22,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   signs the same ten files, requires a redacted `release_eligible=false`
   receipt, then executes, verifies and Defender-scans both signed Windows ISA
   archives. Its aggregate cross-checks each runtime-observed archive SHA
-  against the signing receipt after-SHA. The first live AgenTerm signed court remains pending, so
+  against the signing receipt after-SHA. The first live AgenTerm signed court
+  remains pending. The qualification controller now accepts either exact
+  current main or an immutable version-tag source; the latter reuses only the
+  original retained Candidate bytes, records the source class, and remains
+  structurally non-promotable. Therefore
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`; the public

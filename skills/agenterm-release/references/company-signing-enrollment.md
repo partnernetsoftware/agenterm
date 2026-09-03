@@ -48,6 +48,12 @@ proves only clean exact-main source, unpublished version identity, policy and
 workflow presence, and canonical inspector copies. It does not prove protected
 Environment configuration, provider access, signed bytes, or Promotion
 authority.
+For a retained successful Candidate whose source is already an immutable
+published tag, use the company skill's
+`check-historical-signing-qualification.sh` instead. It deliberately separates
+the current controller SHA from the historical payload SHA, binds the exact
+tag/run/artifacts, and authorizes only `release_eligible=false` mechanism
+evidence. It is never a way to retrofit or replace Release assets.
 
 ## Activation sequence
 
@@ -96,11 +102,14 @@ workflow redaction review approves it.
 
 The first provider run is qualification, not automatic release eligibility.
 Its implementation owner is
-`.github/workflows/windows-signing-qualification.yml`; it accepts only a
-successful unsigned Candidate at the exact current `main` SHA and performs no
-Cargo build. The same PowerShell transformer serves formal Candidate and
-qualification modes, while the checked-in policy and receipt eligibility keep
-their authority distinct.
+`.github/workflows/windows-signing-qualification.yml`; it accepts a successful
+unsigned Candidate either at exact current `main` or at the exact immutable
+`vX.Y.Z` tag for historical mechanism evidence, and performs no Cargo build.
+Current `main` remains the workflow controller in the historical case; the
+payload source tag, successful Candidate identity, unexpired Windows parts and
+source policy are independently bound. The same PowerShell transformer serves
+formal Candidate and qualification modes, while the checked-in policy and
+receipt eligibility keep their authority distinct.
 For every signed Windows PE/DLL it must prove:
 
 1. the unsigned SHA-256 matches the selected exact-SHA Candidate input;

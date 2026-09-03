@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Exact 40-character current main HEAD
+        description: Exact current main SHA or immutable vX.Y.Z tag SHA
         required: true
         type: string
       candidate_run_id:
@@ -27,12 +27,13 @@ jobs:
     outputs:
       version: ${{ steps.identity.outputs.version }}
       candidate_attempt: ${{ steps.identity.outputs.candidate_attempt }}
+      source_class: ${{ steps.identity.outputs.source_class }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ github.sha }}
       - name: Bind exact unsigned Candidate identity
         id: identity
         env:
@@ -43,21 +44,48 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           git fetch --no-tags origin main
-          [[ "$(git rev-parse origin/main)" == "$SOURCE_SHA" ]]
-          [[ "$(jq -r .signing.windows release-policy.json)" == off ]]
+          controller_sha="$(git rev-parse origin/main)"
+          [[ "$controller_sha" == "$GITHUB_SHA" ]]
+
+          policy="$(git show "$SOURCE_SHA:release-policy.json")"
+          [[ "$(jq -r .signing.windows <<<"$policy")" == off ]]
+          version="$(jq -r .version <<<"$policy")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          cargo_version="$(
+            git show "$SOURCE_SHA:Cargo.toml" |
+              sed -n 's/^version = "\([^"]*\)"/\1/p' | head -n1
+          )"
+          [[ "$cargo_version" == "$version" ]]
+          if [[ "$SOURCE_SHA" == "$controller_sha" ]]; then
+            source_class=current-main
+          else
+            tag="v$version"
+            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+            [[ "$(git rev-parse "refs/tags/$tag^{}")" == "$SOURCE_SHA" ]]
+            source_class=immutable-version-tag
+          fi
+
           run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
           [[ "$(jq -r .path <<<"$run")" == ".github/workflows/candidate.yml" ]]
           [[ "$(jq -r .event <<<"$run")" == workflow_dispatch ]]
           [[ "$(jq -r .status <<<"$run")" == completed ]]
           [[ "$(jq -r .conclusion <<<"$run")" == success ]]
           [[ "$(jq -r .head_sha <<<"$run")" == "$SOURCE_SHA" ]]
-          version="$(jq -r .version release-policy.json)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          artifacts="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100")"
+          for artifact_name in \
+            candidate-part-windows-x86_64 \
+            candidate-part-windows-aarch64
+          do
+            [[ "$(jq --arg name "$artifact_name" \
+              '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
+              <<<"$artifacts")" == 1 ]]
+          done
           {
             echo "version=$version"
             echo "candidate_attempt=$(jq -r .run_attempt <<<"$run")"
+            echo "source_class=$source_class"
           } >>"$GITHUB_OUTPUT"
 
   sign:
@@ -75,7 +103,7 @@ jobs:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           persist-credentials: false
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ github.sha }}
       - name: Download exact unsigned Windows Candidate parts
         shell: pwsh
         env:
@@ -224,6 +252,7 @@ jobs:
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
       EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+      SOURCE_CLASS: ${{ needs.preflight.outputs.source_class }}
     steps:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
@@ -296,6 +325,7 @@ jobs:
               "platform_id": os.environ["PLATFORM_ID"],
               "job_status": os.environ["JOB_STATUS"],
               "source_sha": os.environ["SOURCE_SHA"],
+              "source_class": os.environ["SOURCE_CLASS"],
               "version": os.environ["EXPECTED_VERSION"],
               "archive_sha256": os.environ.get("ARCHIVE_SHA256"),
               "run_id": int(os.environ["GITHUB_RUN_ID"]),
@@ -333,6 +363,7 @@ jobs:
           SIGNED_ARTIFACT_ID: ${{ needs.sign.outputs.artifact_id }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           CANDIDATE_RUN_ATTEMPT: ${{ needs.preflight.outputs.candidate_attempt }}
+          SOURCE_CLASS: ${{ needs.preflight.outputs.source_class }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -349,6 +380,8 @@ jobs:
               raise SystemExit("one or more qualification courts failed or became promotable")
           if {row.get("source_sha") for row in rows} != {os.environ["SOURCE_SHA"]}:
               raise SystemExit("source SHA mismatch")
+          if {row.get("source_class") for row in rows} != {os.environ["SOURCE_CLASS"]}:
+              raise SystemExit("source class mismatch")
           if {row.get("version") for row in rows} != {os.environ["EXPECTED_VERSION"]}:
               raise SystemExit("version mismatch")
           signing = json.loads(Path("signed/final/windows-x86_64/windows-signing-receipt.json").read_text())
@@ -365,6 +398,7 @@ jobs:
               "schema_version": 1,
               "kind": "agenterm-windows-signing-qualification-aggregate",
               "source_sha": os.environ["SOURCE_SHA"],
+              "source_class": os.environ["SOURCE_CLASS"],
               "version": os.environ["EXPECTED_VERSION"],
               "run_id": run_id,
               "run_attempt": attempt,

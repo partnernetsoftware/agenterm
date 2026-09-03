@@ -6,13 +6,19 @@ const CANDIDATE_VALIDATOR: &str = include_str!("../scripts/qjs/lib/release_candi
 fn qualification_consumes_exact_unsigned_candidate_without_rebuild() {
     for contract in [
         "workflow_dispatch:",
-        "Exact 40-character current main HEAD",
+        "Exact current main SHA or immutable vX.Y.Z tag SHA",
         "Successful unsigned Release Candidate run for source_sha",
         "git rev-parse origin/main",
+        "source_class=current-main",
+        "source_class=immutable-version-tag",
+        "refs/tags/$tag^{}",
+        "git show \"$SOURCE_SHA:release-policy.json\"",
+        "git show \"$SOURCE_SHA:Cargo.toml\"",
         ".github/workflows/candidate.yml",
         "candidate-part-windows-x86_64",
         "candidate-part-windows-aarch64",
-        "signing.windows release-policy.json)\" == off",
+        ".signing.windows <<<\"$policy\")\" == off",
+        "select(.name == $name and (.expired | not))",
     ] {
         assert!(
             WORKFLOW.contains(contract),
@@ -21,6 +27,8 @@ fn qualification_consumes_exact_unsigned_candidate_without_rebuild() {
     }
     assert!(!WORKFLOW.contains("cargo build"));
     assert!(!WORKFLOW.contains("cargo xwin"));
+    assert!(WORKFLOW.contains("ref: ${{ github.sha }}"));
+    assert!(!WORKFLOW.contains("ref: ${{ inputs.source_sha }}"));
 }
 
 #[test]
@@ -37,6 +45,7 @@ fn qualification_is_real_signing_but_never_release_eligible() {
         "--release-eligible false",
         "--archive-root final",
         "\"release_eligible\": False",
+        "\"source_class\": os.environ[\"SOURCE_CLASS\"]",
     ] {
         assert!(
             WORKFLOW.contains(contract),

@@ -104,11 +104,16 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     an unset placeholder cannot fail late or masquerade as execution evidence
   - [x] Candidate receipt validation still requires `release_eligible=true`,
     so qualification artifacts cannot be supplied to Promotion
-  - [ ] first run of the qualification workflow needs a successful unsigned
-    Candidate for the same current-main SHA and an unpublished version identity;
-    v0.1.16 already exists, so the next version must be bumped before that
-    Candidate. Creating it remains under the repository's exact-SHA Candidate
-    authorization boundary
+  - [~] first live run may reuse the still-retained successful unsigned
+    v0.1.16 Candidate without rebuilding: the payload source must resolve to
+    the immutable `v0.1.16` tag, while current `main` supplies the reviewed
+    qualification controller and signing transformer. Preflight binds both
+    identities, requires the source policy to be `off`, requires both unexpired
+    Windows Candidate parts, and emits `source_class=immutable-version-tag` in
+    both runtime and aggregate receipts
+  - [x] historical qualification is mechanism evidence only: it cannot replace
+    v0.1.16 assets, cannot enter Candidate verification, and always carries
+    `release_eligible=false`; an arbitrary historical commit is rejected
   - [ ] after qualification passes, the owner may select
     `signing.windows=required` for one future exact SHA; do not retrofit v0.1.16
   - [ ] compare signed `agenterm.com` size against 64 KiB and every other file
@@ -141,7 +146,8 @@ into Candidate verification.
 
 ```mermaid
 flowchart LR
-  SHA["exact current main SHA"] --> P{"signing.windows"}
+  SHA["payload identity<br/>current main or immutable version tag"] --> P{"signing.windows"}
+  CTRL["current main controller<br/>reviewed signing machinery"] -. qualification only .-> P
   P -->|off| U["unsigned Windows parts<br/>no Azure credential path"]
   P -->|required| B["two unsigned Windows archives<br/>hash + empty Security Directory"]
   B --> R{"10-entry resource court<br/>VERSIONINFO + exact paths"}
