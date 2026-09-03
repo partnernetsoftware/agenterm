@@ -13,17 +13,19 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
 
 ## Markdown tree DAG
 
-- [~] one company publisher, one product-specific OIDC identity
+- [x] one company publisher, one product-specific OIDC identity
   - [x] shared Azure Artifact Signing Public Trust profile is Active
   - [x] GitHub Environment `release-signing` exists for AgenTerm
-  - [ ] owner signs in to the company Azure tenant and confirms creation of
-    the AgenTerm-only federated identity
-  - [ ] subject is exactly
+  - [x] its three protected provider-coordinate variables are copied from the
+    shared company profile without exposing their values
+  - [x] the AgenTerm-only Entra application and service principal exist
+  - [x] the federated credential subject is exactly
     `repo:partnernetsoftware/agenterm:environment:release-signing`
-  - [ ] service principal has only `Artifact Signing Certificate Profile
+  - [x] its service principal has only `Artifact Signing Certificate Profile
     Signer` at the shared profile scope; no human signer role remains
-  - [ ] the Environment receives three OIDC identifiers as secrets and three
-    provider coordinates as variables; values never enter git or receipts
+  - [x] the Environment has three OIDC identifiers as secrets and three
+    provider coordinates as variables. Values never enter git, workflow
+    output, receipts, screenshots, or handoff text
 - [~] exact signing allowlist: 10 PE files, no glob-discovered extras
   - [x] each Windows archive declares the same five entries in
     `scripts/artifacts.json`: `agenterm.exe`, `agenterm.com`,
@@ -54,9 +56,9 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     evidence
   - [~] `signing.windows=required`: after both Windows build parts exist, one
     `windows-2025` job downloads and verifies their unsigned archive hashes,
-    extracts exactly ten inputs, and records before hashes. The fail-closed
-    implementation exists but cannot run until the repo-specific OIDC identity
-    and protected Environment values exist
+    extracts exactly ten inputs, and records before hashes. Its repo-specific
+    OIDC identity, profile-scoped role and protected Environment values now
+    exist; the first live signed Candidate court remains the missing evidence
   - [x] `azure/login` exchanges GitHub OIDC into a short-lived Azure CLI
     session; `Azure/artifact-signing-action` consumes only that credential
   - [~] sign with SHA-256 plus Microsoft RFC 3161 SHA-256 timestamp; verify

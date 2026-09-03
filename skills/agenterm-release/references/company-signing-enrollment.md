@@ -17,16 +17,17 @@ must remain outside the repository.
   touching signing configuration.
 - No AgenTerm production byte has been company-signed. The Candidate workflow
   now has fail-closed `off|required` branches, exact ten-file signing input,
-  signed repack, receipt and final-byte courts. AgenTerm still needs
-  its own Entra app registration + federated credential
+  signed repack, receipt and final-byte courts. AgenTerm has its own Entra app
+  registration + federated credential
   (`repo:partnernetsoftware/agenterm:environment:release-signing`), the
   `Artifact Signing Certificate Profile Signer` role on the shared profile,
-  and the six `release-signing` Environment values. `release-policy.json`
-  therefore keeps Windows signing `off`.
-- The empty GitHub Environment now exists. Azure CLI is not authenticated, so
-  no AgenTerm Entra application, federated credential, signer role, secret, or
-  provider variable is claimed. The implementation and evidence DAG is
-  `plan/goal-company-windows-signing.md`.
+  three OIDC Environment secrets, and three shared provider-coordinate
+  variables. Real values remain outside git and receipts.
+- The remaining activation gate is the first live signed Candidate court, not
+  identity provisioning. Until that court proves the ten signed files,
+  timestamp, receipts, Defender scans and two Windows runtime cells,
+  `release-policy.json` keeps Windows signing `off`. The implementation and
+  evidence DAG is `plan/goal-company-windows-signing.md`.
 
 The reusable, redacted procedure (CLI commands, login pitfalls, local jsign
 rehearsal, workflow gates) lives in the company hub:
@@ -60,6 +61,12 @@ coordinates as protected variables or secrets using placeholders in docs:
   `<AZURE_SUBSCRIPTION_ID>`, `<SIGNING_ACCOUNT_URI>`, `<CERTIFICATE_PROFILE>`.
   Prefer GitHub OIDC; managed signing keys remain in Azure and are never
   exported.
+
+The reusable identity shape is deliberately asymmetric: reuse the company
+Artifact Signing account and Public Trust profile, but create one Entra
+application and one federated credential per repository. Scope each service
+principal only to the shared certificate profile. Never copy another product's
+client id, create a client secret, or grant subscription-wide signing access.
 
 Do not put real coordinates in PRD, workflow logs, screenshots, receipts,
 commit messages or handoff prompts. Receipts may retain provider-neutral request

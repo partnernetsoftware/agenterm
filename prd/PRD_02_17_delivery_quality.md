@@ -11,14 +11,14 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   exact-SHA Candidate → no-rebuild Promotion authority remains unchanged.
 - [~] company Windows signing is prepared but not claimed: Azure Artifact
   Signing organization validation is Completed and the shared Public Trust
-  profile is Active; SignPath declined and is no longer a route. AgenTerm's
-  empty `release-signing` Environment exists, while its repo-specific OIDC
-  identity and first signed court remain pending.
+  profile is Active; SignPath declined and is no longer a route. AgenTerm now
+  has its own Entra application, exact GitHub Environment federated identity,
+  profile-scoped signer role, and protected `release-signing` Environment.
   All ten Windows PE files now have two-ISA VERSIONINFO plus empty Security
   Directory evidence. Candidate now contains a checked-in `off|required`
   split, exact ten-file input court, Azure OIDC signing branch, signed repack,
-  receipt binding and final-byte signature checks. The repo-specific OIDC
-  identity and first live signed court remain pending, so
+  receipt binding and final-byte signature checks. The first live signed court
+  remains pending, so
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`.
