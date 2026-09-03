@@ -1,0 +1,1411 @@
+# Archived Script Runtime history through v0.1.16
+
+> Historical narrative only. Current family truth is
+> `prd/PRD_02_10_rhai_scripting.md`.
+
+Parent: [AgenTerm product tree](../../PRD.md#product-tree)
+
+Runtime contract (historical Rhai): [AgenTerm Script Runtime specification](../../docs/agenterm-rh-runtime.md)
+
+Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
+
+> **2026-08-29: rh moved out.** `crates/agenterm-rh`, `scripts/rh/**`,
+> `fixtures/rh/**`, the six `src/script_rh_*.rs` modules and the fourteen
+> rhai-typed host modules (`script_stdlib`, `script_process`, `script_http`,
+> `script_net`, `script_stream`, `script_task`, `script_fleet`,
+> `script_image`, `script_clipboard`, `script_error`, `script_runtime`,
+> `script_api_validate`, and rh's half of `script_project`) left this tree.
+> A verbatim snapshot is `archive/agenterm/` in `partnernetsoftware/rh`
+> (commit `a22d224`); `rhai` is out of `Cargo.lock`. **There is no default
+> script engine any more.** `ScriptBackend::resolve` refuses by name --
+> `no engine for this entry`; `.qjs is the script language now` -- where it
+> used to fall to rh, and `AGENTERM_SCRIPT_BACKEND=rh|rhai` is refused with
+> where the engine went. The engine-neutral worker route moved from
+> `__agenterm-internal-engine rh` to `__agenterm-internal-engine worker`
+> (`src/script_worker_cli.rs`); `agenterm rh …` prints where the verbs went
+> and exits 2. See [§ What went dark on 2026-08-29](#what-went-dark-on-2026-08-29).
+
+> **2026-08-09 decision:** the standalone `agenterm-rh.exe` / `agenterm-lua.exe`
+> / `agenterm-qjs.exe` / `agenterm-sql.exe` binaries described throughout the
+> commit-by-commit history below (including the `[[bin]]`-in-root-package
+> shape) are **retired** (commit `234b2f87`). All four engines now ship as
+> argv-transparent subcommands of the main `agenterm` PE
+> (`agenterm rh|lua|qjs|sql <args>`) — the historical narrative below still
+> correctly records how each engine got there, but no release build produces
+> a separate `agenterm-{rh,lua,qjs,sql}` executable anymore.
+
+## Script engine family
+
+This PRD's scope grew from one embedded language to a **family of script
+engines** sharing one Rust host, one L2 Facade/catalog (`fleet.*`, `std.*`),
+and one product-boundary philosophy (unrestricted local runtime; the future
+Agent harness owns authorization, not the engine — see "v0.1.9 product
+position" below).
+
+### Where each engine is going (2026-08-25)
+
+The family has stopped growing and started consolidating. This table is the
+current **disposition** of every engine; the lineage narrative that follows it
+records how each one got here and is deliberately left as history.
+
+| Engine | Crate / surface | Disposition | Owning document |
+|--------|-----------------|-------------|-----------------|
+| **qjswasm** | `crates/agenterm-qjswasm` — `.qjs` compiled to `.wasm`, tinyvm as the core | **The long-term line.** Self-developed, pure Rust, no JIT, no external language runtime linked in. It is the engine the other two below are being replaced *by*. | [PRD 02.36](../PRD_02_36_agenterm_qjswasm.md) |
+| **rh** | ~~`crates/agenterm-rh`~~ | **Moved out 2026-08-29** to `partnernetsoftware/rh` (`archive/agenterm/`, verbatim, unbuilt). The gate written here -- "leaves only once it has stopped being transpiled by `rustc`" -- was overtaken by the user's direction that rh goes first and `.qjs` replaces it (PRD 02.36, 2026-08-29). It went with the AOT pipeline and the pack ABI still inside it; nothing here depends on it. | [§ What went dark](#what-went-dark-on-2026-08-29) |
+| **lua** | `crates/agenterm-lua` | Shipped sibling, capability-aligned with rh. No disposition change. | this file |
+| **qjs** | `crates/agenterm-qjs` — rquickjs → QuickJS C | **To be archived**, behind three falsifiable gates. None of the three is green today, so the crate stays exactly as it is and is not allowed to rot in the meantime. | gates in [PRD 02.36](../PRD_02_36_agenterm_qjswasm.md) (§ 归档门：`agenterm-qjs` 什么时候能下线) |
+| **wasmcore** | ~~`crates/agenterm-wasmcore` — wasmtime + WASI p1 (**JIT**)~~ | **Archived 2026-08-28.** The crate, the `script-wasmcore` feature, its engine adapter and its `ScriptBackend` variant are all gone, and `wasmtime` left the dependency tree. `.wasm` now routes nowhere rather than being handed to qjswasm — see PRD 02.36 for why that is the safer of the two. | recorded in [PRD 02.36](../PRD_02_36_agenterm_qjswasm.md) |
+| **sql** | `crates/agenterm-sql` | **Under observation; future undecided.** It stays `optional` with `default` off — i.e. deliberately **out of the default build** and not compiled into the shipped PE. No archive gate exists for it because no decision to archive it has been taken; equally, nothing commits to keeping it. | [`plan/design-sql-execution-target.md`](../../plan/design-sql-execution-target.md) |
+
+**The archive gates are not restated here, on purpose.** PRD 02.36 owns them,
+together with their current per-gate verdicts and the measured evidence behind
+each verdict. A second copy in this file would be a second source of truth,
+and it would drift the first time a gate moves. The division of labour: *this*
+file says what each engine's disposition is; *PRD 02.36* says what has to be
+true before `agenterm-qjs` or `agenterm-wasmcore` is touched at all.
+
+> **Where the rh removal lives (2026-08-29, at the time of writing).** The rh
+> repo side is on `partnernetsoftware/rh` main and pushed (`a22d224`). The
+> agenterm side is two commits -- `08c51b2e` (the removal) and `7e2b61dd`
+> (this file's rh row and the "What went dark" section below) -- on the
+> worktree branch `worktree-wf_30ad7fb2-97a-5`, a direct descendant of main's
+> `9aef2995`. Until they are fast-forwarded onto main, `crates/agenterm-rh`
+> is still in main's tree and this file describes the branch. PRD 02.36 A1.7
+> tracks the merge; delete this note when it lands.
+
+Six engines, in lineage order:
+
+- **Rhai — cancelled as the forward engine direction (2026-08-07).** Was the
+  original and, through v0.1.15, default embedded language (tree-walking
+  interpreter, `rhai` crate). The formerly shipped `agenterm-rhai.exe` compatibility
+  shim was **removed** in Phase C Wave 4.5 (2026-08-08); archived `.rhai`
+  sources live under `scripts/archive/rhai/`. No further Rhai-native capability
+  investment continues — every new capability targets rh, and now lua/qjs.
+  This PRD's title and most of its accumulated detail below describe Rhai/rh
+  history; treat "Rhai" content as the wound-down lineage, not the active target.
+- **rh — self-developed, deeper host integration than Rhai
+  (`crates/agenterm-rh`, `agenterm-rh` CLI).** Syntax and object model are
+  informed by Rhai and by Rust's own `std::` shape, but rh is not an
+  interpreter: a checked subset transpiles to native Rust and compiles via
+  `rustc` (AOT), giving generated packs a direct low-level host ABI (native
+  `i64` entry points, no embedded interpreter runtime shipped in the pack)
+  that Rhai's tree-walking design never had. Default execution backend since
+  M22f (`AGENTERM_SCRIPT_BACKEND=rh`); status/detail: "Shipped baseline"
+  below, [`plan/archive/plan-rh-3.md`](../../plan/archive/plan-rh-3.md),
+  [`plan/archive/design-rh-aot.md`](../../plan/archive/design-rh-aot.md).
+- **lua — `agenterm-lua`, capability-aligned with rh (Windows-side, in
+  progress).** New sibling engine; framed-worker integration, `LuaEngine` +
+  host functions, and a growing `std.*` surface (`std.fs.*` etc.) landed
+  2026-08-07 (commit `8b3764f5` and follow-ups). Not built by the same agent
+  driving this PRD file — tracked here for cross-session awareness, see
+  `plan/archive/plan-v0.1.16.md` §1 "Rh. 脚本引擎矩阵".
+- **qjs — `agenterm-qjs`, capability-aligned with rh, QuickJS-based
+  (partial; product App host planned).** QJS-M0–M5d delivered the engine,
+  host bridge, CLI/check-many/pack paths, module work and shared cross-engine
+  support; the old M2-era “backend/task/run/pack all open” description is no
+  longer authoritative. A real memory-safety bug (a GC-uncollectable cycle
+  from capturing `Ctx` in a bound closure) was found and fixed during that
+  work. Remaining App-host work is owned by `plan/plan-v0.1.18.md`: QJS-M6
+  literal operation validation, six-target Base adoption, long-lived
+  Runtime/Context, interrupt/dirty reload and deterministic `.agp` lifecycle.
+  **2026-08-25: superseded.** `agenterm-qjs` is now slated for archive in
+  favour of `agenterm-qjswasm`; the remaining App-host work above is
+  historical scope, not a live commitment. Gates: [PRD 02.36](../PRD_02_36_agenterm_qjswasm.md).
+- **qjswasm — `agenterm-qjswasm`, the forward engine
+  (`crates/agenterm-qjswasm`).** AgenTerm's own script engine: `.qjs` is
+  compiled to standard `.wasm` by a **pure-Rust** compiler (upstream
+  `tinyvm-qjs`) and executed by **tinyvm** — decode/validate/`Limits` at load
+  time, interpreted, **no JIT and no machine code generated**. It links
+  neither QuickJS C nor wasmtime, which is the whole point: it is what lets
+  both `agenterm-qjs` and `agenterm-wasmcore` be retired rather than
+  maintained. It is not a complete JavaScript engine today and PRD 02.36 says
+  so in those words; the JS coverage surface there is a schedule, not a
+  capability ceiling. Product truth and both archive gates:
+  [PRD 02.36](../PRD_02_36_agenterm_qjswasm.md); execution projection:
+  [`plan/design-agenterm-qjswasm.md`](../../plan/design-agenterm-qjswasm.md).
+- **sql — `agenterm-sql`, under observation.** A further execution target
+  that was built far enough to exist and then deliberately not promoted: it is
+  `optional` with `default` off, so it is not in the default build and not in
+  the shipped PE. Its status is *undecided*, which is a different state from
+  both "shipped" and "to be archived" — nothing here commits to keeping it and
+  nothing schedules its removal.
+  See [`plan/design-sql-execution-target.md`](../../plan/design-sql-execution-target.md).
+
+"Capability alignment" between rh/lua/qjs means: same L2 facade/catalog
+surface, same CLI verb contract (check/eval/pack/check-many/task — see rh's
+shipped shape below), same typed JSON/exit-code envelope, same worker/
+framed-worker integration points. It explicitly does **not** mean matching
+rh's AOT/native-codegen execution strategy — that is rh-specific; lua/qjs
+may use their own VM/bytecode execution as long as the L2 contract and CLI
+behavior match. See
+[`plan/design-scripting-boundary-comparison.md`](../../plan/design-scripting-boundary-comparison.md)
+§2.1/§6 for the L1/L2/L3 boundary this rests on.
+
+**Shared engine layer (2026-08-08/09, four rounds, `plan/archive/plan-v0.1.16.md` §1
+Rh Common-M1 through Common-M4/Trait-M3).** "Capability alignment" above was,
+until this work, maintained by hand — three ~300-600 line per-engine
+`check_many.rs` files kept in sync by copy-paste-and-compare (lua's and
+qjs's own doc comments literally said "aligned with agenterm-rh"). That is
+no longer accurate as a description of the current state; it is now
+structural:
+
+- **`crates/agenterm-script-common`** (Common-M1 `ec497449`, Common-M2
+  `01a16414`, Common-M4 `50ab1f7e`) unifies, as one generic implementation
+  each engine plugs a thin adapter into: the `check_many` driver (manifest/
+  report shapes, path-confinement/duplicate/budget guards, exit_class→exit-
+  code mapping), the `corpus_scan` driver (directory walk + extension filter
+  + checker closure), `hex` (sha256_hex/hex_encode/required_json_string
+  manifest helpers), and slice-based CLI argv helpers
+  (`find_flag_value`/`require_flag_value`/`positional`/`has_flag` in
+  `cli.rs`). Deliberately **not** unified — each engine's actual syntax/
+  semantic checker (different signatures, different notions of "project
+  root"), pack/qualify schemas (rh's native-codegen pack has no bytecode-
+  fingerprint analogue to lua/qjs's interpreted bytecode), and rh's own
+  `corpus.rs` (bound to the whole-project transpile pipeline, not a bare
+  check). See the crate's module doc,
+  [`crates/agenterm-script-common/src/lib.rs`](../../crates/agenterm-script-common/src/lib.rs),
+  and [`plan/design-script-engine-trait.md`](../../plan/design-script-engine-trait.md)
+  §0 for the full rationale, including the future `sql` backend this crate
+  boundary is meant to absorb without a fourth hand-copy.
+- **`trait ScriptEngineBackend`** (`src/script_engine.rs`, design doc §2.3)
+  is the next seam down — the root crate's per-invocation (single check /
+  single execute) call layer, not check-many/corpus-scan/pack/qualify. Its
+  minimal 4-method surface, which a future `sql` backend would also
+  implement (design §2.6): `backend_id()`, `entry_extensions()`,
+  `check(source, options) -> Result<(), ScriptEngineError>`, and
+  `execute(source, options, fleet_bridge) -> Result<ScriptInvocationResult, ScriptEngineError>`
+  (`enabled()` has a default implementation and rarely needs overriding).
+  Design phases M1 (trait + shared types, new types coexisting with the old
+  per-engine `*InvocationOptions` structs) and M2 (three thin adapter impls
+  that delegate to, rather than re-derive, the existing
+  `try_execute_{rh,lua,qjs}_invocation` functions) shipped together as
+  Common-M3/Trait-M1+M2 (`9de627f7`). M3 (switching
+  `script_worker.rs::execute_inner`'s call sites to the trait registry via a
+  new `dispatch_via_engine` helper) shipped as Common-M4/Trait-M3
+  (`50ab1f7e`). M4 (deleting the now-superseded `try_execute_*` functions
+  and their six `*InvocationOptions`/`*InvocationResult` structs) is **not**
+  done yet — it waits for M3 to settle in the shared checkout before that
+  cleanup lands.
+
+**Parity test regime** — the contract is now test-enforced, not just
+doc-comment-asserted:
+
+- [`tests/script_engine_parity.rs`](../../tests/script_engine_parity.rs)
+  (Common-M2 `01a16414`): 8 structural `check-many` scenarios (all-green,
+  syntax error, relative-path escape, absolute-path rejection, duplicate
+  path, zero wall-time, single-file budget, kind mismatch plus rh's legacy
+  `rhai` kind compatibility) run through all three engines, asserting exact
+  agreement on the engine-neutral fields the shared driver itself produces
+  (`ok`, `checked_files`, failure counts, `exit_class`, `exit_code()`);
+  per-engine syntax-failure `code` strings are deliberately not compared
+  character-for-character. 8/8 green.
+- [`tests/script_fleet_facade_parity.rs`](../../tests/script_fleet_facade_parity.rs)
+  (Common-M4 `50ab1f7e`): parses the actual `fleet.*` facade source files
+  (regex, no engine execution) and compares extracted catalogs. lua
+  (`scripts/lua/lib/fleet.lua`) and qjs (`scripts/qjs/lib/fleet.js`) are
+  locked as identical, 29/29 entries. rh
+  (`crates/agenterm-rh/src/shipped_surfaces.rs`) is a pinned superset, +47
+  entries over the lua/qjs 29. Its catalog extractor was replaced with a
+  direct link to `agenterm::operations::OPERATION_CATALOG` on 2026-08-25,
+  after a regex extractor that scanned for `id:` lines was found to be blind
+  to every entry built by the `nullary_ui_action()` const constructor. Its
+  undispatchable-surface allowlist is now **empty**, and the assertion pins
+  that emptiness, so a genuinely undispatchable rh surface still goes red.
+
+**The real drift is elsewhere, and it is about parameters, not names.**
+`tests/fleet_catalog_conformance.rs` (2026-08-25) links the catalog and
+checks what this file never did: 47 of the 76 `fleet.*` surfaces have no
+lua or qjs binding at all, and 9 of the 29 that do send a params object
+`validate_fleet_parameters` will reject. See PRD 02.36 and
+`plan/design-fleet-catalog-binding.md`.
+
+**Real bugs the abstraction work surfaced and fixed, not just refactored:**
+
+- lua's old hand-copied `check_many` resolved manifest paths with **no**
+  project-root escape check (rh and qjs both already rejected `../../../`
+  escapes) — a manifest could point outside the project. Routing lua
+  through the shared `agenterm-script-common` driver closed this for free
+  (Common-M1 `ec497449`); no prior lua test asserted the old weak behavior
+  (verified before migrating), and a targeted regression test was added.
+- the qjs argv iterator-exhaustion bug class (the `pack build --dir X
+  --project-root Y` double-flag parsing bug from QJS-M5d) is now
+  structurally prevented rather than one-off patched: the shared `cli.rs`
+  argv helpers are slice-based, not iterator-based, specifically because
+  that bug class came from iterator exhaustion (Common-M4 `50ab1f7e`). 16
+  new unit tests include the original bug's exact repro scenario as a
+  regression case, and an end-to-end smoke re-ran that precise scenario
+  post-merge to confirm no regression.
+
+## What went dark on 2026-08-29
+
+> **2026-08-30 update.** `agenterm.tasks.json` is back to 72 tasks: the 70
+> rh-era tasks whose `.qjs` port exists are registered on it with
+> `profile: tool` (the manifest vocabulary gained that word; nothing reaches
+> the `tool.*` door without it), so `task run check|lint|build|release` and
+> the CI's `candidate-*` / `promotion-identity` / `timing-summary` /
+> `performance-*` steps have targets again. `cu-windows-smoke` has no port
+> and is not registered. What each gate does under `check` on macOS is
+> tracked in PRD 02.36 A1.5. Later the same day the bootstrap lane's `check
+> --quick` passed all eight of its gates on macOS (`script-qjswasm` became a
+> default feature so the flagless bootstrap worker carries the engine; the
+> step contracts scaled x10 for an engine that counts wasm instructions).
+>
+> **2026-08-31 update.** The active repository lint no longer depends on an
+> rh-era exception: `agenterm cli script check-many` is restored on qjswasm
+> with the shared bounded manifest driver, tool-door compilation, confined
+> module resolution and library-entry handling. `scripts/qjs/lint.qjs`
+> validates the tracked `.qjs` corpus in one worker. This is replacement
+> work, not a revival of rh; the rh implementation and `.rh` corpus remain
+> archived.
+
+> **2026-09-02 release-evidence correction.** The first mechanical port of
+> `script-smoke` kept Rhai payload strings and still declared all nineteen
+> Rhai-era evidence IDs. Candidate `33559145060` proved that this was not a
+> behavioral port: the first task-timer payload failed twice before execution.
+> The active task is now `scripts/qjs/script-qjswasm-smoke.qjs`; the old file is
+> syntax-checked migration history only. Current shipped claims are deliberately
+> smaller and executable:
+>
+> - [x] active qjswasm runtime executes `.qjs` check/run and expression eval
+> - [x] qjswasm computation budget fails closed with the public limit exit class
+> - [x] qjswasm tool profile executes bounded child processes with typed failures
+> - [x] qjswasm tool process returns bounded child stdout and stderr
+> - [x] qjswasm tool process reports a missing child as a typed failure
+> - [x] privacy-bounded audit records contain identity without source or argument content
+>
+> Rhai-only task scheduling, high-level HTTP, the deleted project/north-star
+> fixtures, persistent REPL, framed Rhai payloads and Rhai-specific evidence
+> remain dark. They are not silently treated as qjswasm behavior, and the
+> active qualification manifest no longer permits their evidence IDs.
+
+### Active qjswasm release evidence
+
+- [x] active qjswasm runtime executes `.qjs` check/run and expression eval
+- [x] qjswasm computation budget fails closed with the public limit exit class
+- [x] qjswasm tool profile executes bounded child processes with typed failures
+- [x] qjswasm tool process returns bounded child stdout and stderr
+- [x] qjswasm tool process reports a missing child as a typed failure
+- [x] privacy-bounded audit records contain identity without source or argument content
+
+rh ran the whole build/qualify/release pipeline, and nothing else did. Moving
+it out turned every one of those off. This is the list; each item stays dark
+until its `.qjs` port lands (PRD 02.36 A1.2/A1.3: `path.qjs`, then the
+`tool.fs/process/env` door, then the first script).
+
+- **All 39 remaining `scripts/qualification-gates.json` required gates**
+  (`rh-lint` was deleted as the fortieth, being about rh itself). Every gate
+  was executed by `scripts/rh/{id}.rh` through `scripts/rh/lib/qualification.rh`;
+  the driver `check.rh` is gone. The evidence ids inside the 16
+  evidence-carrying gates -- including `script.rh-runtime`, `script.rh-fleet`,
+  `script.rh-robustness-budget`, `script.rh-framed`, which are inherently rh --
+  and the 4 host-native gates in `scripts/host-native-evidence-gates.json`
+  are dark too. `prd/alignment-contract.json`'s `scripting.rhai-*` ids now
+  point at evidence nothing produces. The only automated check that gate
+  evidence matched the suites (`crates/agenterm-rh/tests/evidence_declarations.rs`)
+  left with the crate.
+- **`agenterm.tasks.json`**: 71 of 73 tasks (every `scripts/rh/*.rh` entry)
+  removed; `lua-build-identity` and `lua-check` remain. `provenance.producer`
+  is `agenterm`; the `rh.*` capability ids and `runtime.project.module-import`
+  are out of `requires`.
+- **Bootstrap**: `scripts/bootstrap.sh`/`.cmd` now run
+  `agenterm cli script task run <task>` with no `AGENTERM_SCRIPT_BACKEND`
+  forced; `check.sh`, `lint.sh`, `build.sh`, `release.sh` and the `.cmd`
+  siblings therefore fail at "unknown task" until `check`/`lint`/`build`/
+  `release` are re-registered as `.qjs`. The worker probe is `--version`.
+- **CI**: `candidate.yml`, `release.yml`, `performance-experiment.yml` were
+  re-pointed from `agenterm rh run scripts/rh/X.rh` / `rh task run X` to
+  `agenterm cli script task run X`; those tasks do not exist yet, so the
+  steps fail loudly rather than run a retired engine. Six-cell qualify
+  (`six-cell-qualify.rh` + its tracked dylib, `scripts/six-cell-runners.json`)
+  is dark. `scripts/powershell-migration.json` still names `scripts/rh/*.rh`
+  replacements; its only consumer (`migration-audit`) is dark.
+- **Tests deleted with the engine** (all were rh-only or ran `.rh` scripts):
+  `tests/rh_*.rs` (11 files), `rhai_migration.rs`, `linux_script_cli.rs`,
+  `script_check_many.rs`, `fresh_clone_rehearsal.rs`, `release_candidate.rs`,
+  `promotion_identity.rs`, `performance_summary.rs`, and the prune-task half
+  of `target_incremental_prune.rs`. `tests/script_framed_worker.rs` now
+  covers the engine-neutral worker route without any engine.
+- **Control Center** lost `agenterm-cc rh-pack` and the "rh pack" cc-lines
+  overlay; the observability JSON's `script` key now reports the compiled-in
+  engines instead of an rh pack.
+- **`script check-many`** was dark from 2026-08-29 through 2026-08-31. It is
+  now owned by qjswasm and accepts `agenterm-qjs-check-manifest`; the separate
+  `agenterm lua|sql check-many` development doors are unchanged.
+- **Docs**: `docs/agenterm-rh-runtime.md`, `docs/agenterm-rh-cheatsheet.md`,
+  `PRD.md`'s rh lines, `plan/*` and `skills/*` mentions are history, not
+  retargeted. `examples/script-daily-check/` (the rh "north-star" project)
+  is gone.
+
+What did **not** move: `script_catalog.rs` keeps the `rh.*` stable ids --
+they are the cross-engine capability names lua's stdlib serves by that
+spelling -- and `script_project.rs` keeps the task catalog. `scripts/lua/*`
+are the demonstrations they always were, not ports.
+
+## Shipped baseline
+
+- [x] `agenterm rh` is the sole task and supervised worker front door:
+  one-shot and persistent supervisors resolve it and default the execution
+  backend to `rh`. It directly hosts named tasks plus private
+  `--worker`/`--framed-worker` modes through the shared library.
+  The formerly shipped `agenterm-rhai.exe` compatibility shim, Rhai REPL, and
+  `agenterm cli script repl` forwarding were **removed** in Phase C Wave 4.5;
+  archived `.rhai` sources remain under `scripts/archive/rhai/` only.
+  The existing one-shot supervisor routes retain their single worker topology.
+  All expose the same catalog, parser, supervisor, and runtime.
+  **2026-08-09:** the standalone `agenterm-rh.exe` / `agenterm-lua.exe` /
+  `agenterm-qjs.exe` / `agenterm-sql.exe` binaries (commit `234b2f87`) are
+  retired; all four engines are now argv-transparent subcommands of the main
+  `agenterm` PE (`agenterm rh|lua|qjs|sql <args>`).
+- [x] rh-generated native packs use an AgenTerm-owned `i64` entry ABI and their
+  generated Cargo manifest no longer depends on the Rhai crate. Native subset
+  packs and compatibility-delegating pack stubs therefore contain no embedded
+  Rhai runtime; parsing and explicit host-eval/host-run compatibility remain
+  host responsibilities until their later migration slices.
+- [x] host API v4 executes literal-path `std::fs::exists` calls through a typed
+  Rust filesystem callback rather than constructing a Rhai Engine. Missing or
+  invalid host registration fails closed, callback errors retain the shared
+  typed host-error path, and older v2/v3 packs remain loadable. Dynamic path
+  expressions and other `std::` APIs remain explicit migration work.
+- [x] named-task manifests and corpus checks accept `.rh` entries. The public
+  `agenterm rh task run` path owns a native task probe whose transpiled Rust is
+  qualified to contain neither whole-script `rh_host_run_script` nor localized
+  `rh_host_eval_int`; production task migration must satisfy the same gate
+  before its `.rhai` entry is archived.
+- [x] host API v5 exposes invocation argument count directly to native packs.
+  Both `args.len` and `args.len()` transpile to `rh_args_len()` without a Rhai
+  Engine, the manifest-owned native task proves real appended arguments through
+  the public CLI, and v2-v4 pack registration remains backward compatible.
+- [x] host API v6 exposes bounded UTF-8 `args[index]` reads to native packs.
+  Native string bindings and `.len` use Unicode scalar counts rather than byte
+  counts; missing/non-string arguments and output-limit violations retain typed
+  host failures, while v2-v5 pack registration remains backward compatible.
+- [x] `std::fs::exists` accepts native UTF-8 argument bindings as well as string
+  literals. Dynamic task paths call the typed Rust filesystem callback without
+  host evaluation; the public native task verifies a real repository path and
+  remains covered by the no-interpreter-fallback gate.
+- [x] host API v7 provides 1 MiB-bounded UTF-8 `std::fs::read_to_string` for native
+  argument bindings. Native string values support literal substring checks;
+  missing, invalid UTF-8, or oversized files retain typed host failures, and
+  v2-v6 pack registration remains backward compatible.
+- [x] `std::path::join(base, child).display` lowers to native Rust path
+  composition when both operands are native strings. The result remains a typed
+  string binding consumable by filesystem callbacks without host evaluation.
+- [x] host API v8 provides typed native task failure and case-exact file-name
+  checks. `verify-docs-site` is the first production named task migrated from
+  active `.rhai` to a zero-fallback `.rh` entry; its interpreted implementation
+  is retained only under `scripts/archive/rhai/` for migration archaeology.
+- [x] Candidate and Promotion execute all active scripting steps through the
+  packaged `agenterm rh` front door (formerly the standalone `agenterm-rh`
+  binary, retired 2026-08-09). Workflow policy tests reject any restored legacy
+  `agenterm-rhai` executable reference (removed Wave 4.5); `.rhai` source paths remain explicit
+  interpreter-migration debt rather than executable-entry ownership.
+- [x] host API v9 exposes native bounded `std::process::command_status` without
+  command or path allowlists; timeout, owned process-tree cleanup and typed
+  failures remain robustness controls. `internal-version-policy` uses Git's
+  authoritative `show-ref --verify` path in a zero-fallback `.rh` task and its
+  interpreted implementation is archived.
+- [x] top-level compatibility scripts without an explicit `fn entry()` can no
+  longer qualify as a native zero-return stub. `.rhai` entries execute the
+  complete source through the compatibility boundary; `.rh` named tasks without
+  an entry point fail qualification. The cache revision invalidates affected
+  packs, and public task regression coverage proves invalid arguments no longer
+  succeed silently.
+- [x] native `.rh` packs parse general JSON values and read integer object
+  properties without interpreter evaluation, whole-script delegation,
+  substring validation, or task-specific host utilities. They also read array
+  lengths, iterate JSON arrays, access integer and string element properties,
+  evaluate `type_of`, compare and concatenate strings, run string methods and
+  character loops, emit dynamic `rh::fail`/`require` messages, track
+  bool-keyed MapSet membership (`#{}` / `.contains` / `[key]=true`), resolve
+  `std::path::absolute(...).display`, inspect `symlink_metadata` and
+  `std::fs::metadata` file / dir / len / symlink / reparse flags, resolve
+  `std::env::current_dir().display`, `PathBuf::from` plus `.is_absolute` /
+  `.display`, and `rhai::json::parse_file` as `parse(read_to_string)` sugar,
+  and flatten project-relative `import` graphs into one native pack entirely
+  in generated Rust. Public qualification executes the generated native packs.
+  `validate-artifact-manifest` now ships as
+  native `scripts/rh/validate-artifact-manifest.rh` plus
+  `scripts/rh/lib/artifact_manifest.rh` (import-bundled, no substring or
+  task-specific host validator); remaining Rhai callers still import
+  `scripts/rh/lib/artifact_manifest.rh`; archived Rhai under
+  `scripts/archive/rhai/lib/artifact_manifest.rhai` is migration archaeology only.
+- [x] one-shot `run`, `eval`, `check`, `api`, and task invocations still own
+  native execution through script workers and evidence-first command routing.
+- [x] v0.1.12 formerly retained `agenterm-rhai.exe` / `agenterm-rhai` as the
+  canonical public executable (removed in Phase C Wave 4.5). Although Rhai was
+  the stable runtime contract through v0.1.15, the version had no complete
+  external-usage inventory or migration/removal evidence, and introducing a
+  second name during convergence would expand packaging, bootstrap and
+  Candidate scope without user value. A future rename decision must inventory
+  every CI/package/documentation/external caller and keep any compatibility
+  entry as a thin forwarding surface over the one unrestricted implementation;
+  it must never create a second runtime or reduced API.
+- [x] every ordinary invocation receives the same unrestricted local runtime
+  surface. No invocation mode, task label, profile, catalog capability, caller,
+  or entry point gates API registration or execution; the future Agent harness
+  owns Agent permissions outside this executable.
+- [x] the 2026-07-30 `AGENTS.md` and `PRD*.md` policy audit found no Rhai
+  permission tier or capability denial. Raw sockets, listeners, arbitrary
+  endpoints and local paths, child-process control, destructive filesystem
+  targets, and Fleet mutation are valid runtime surface; an unshipped adapter
+  remains a product gap and must not be replaced by a policy-reduced variant.
+  Allowlist or scoped-capability language retained in MCP, model, gateway, or
+  Agent requirements governs those callers only and cannot alter Script API
+  registration or execution.
+- [x] Script API v2 maps every current typed operation exactly once to `fleet` and verifies mutation receipts, correlated events, and post-state. The v0.1.12
+  frontend additions are callable as `fleet.ui.window.activate()` and
+  `fleet.terminal.paste()` while preserving the existing
+  `fleet.terminal("@ID").capture(...)` overload. Activation waits for native
+  focus truth; paste waits for its asynchronous typed result and correlated
+  `terminal.pasted` event rather than treating request acceptance as completion.
+- [x] task-manifest schema v2 publishes an inclusive required Script API range
+  and stable capability IDs; list/show preserve incompatible projects for
+  inspection while check/run fail closed before source execution.
+- [x] the public `examples/script-daily-check` north-star task combines Unicode
+  configuration, invocation-owned temp, two concurrent argv-safe children,
+  loopback HTTP, JSON aggregation, typed Fleet note mutation, atomic result
+  publication, restoration, and orphan-free cleanup in one invocation.
+- [x] deterministic JSON-compatible values, arguments, bounded computation,
+  and captured stdout are ordinary facilities in the same complete runtime
+  surface.
+- [x] a Rhai-independent supervisor owns a kill-on-close Windows Job Object,
+  parent deadline, cooperative cancellation followed by forced termination,
+  concurrency ceilings, and worker cleanup.
+- [x] a versioned inherited-pipe frame protocol separates invocation, broker
+  request/response, cancellation, and result frames; script stdout cannot
+  corrupt protocol frames.
+- [x] source, value, operation, call/expression depth, collection/string,
+  output, wall-time, broker, capture, event, wait, and concurrency limits have
+  typed failure classes and immutable hard ceilings.
+- [x] public result envelopes expose stable success, configuration, limit,
+  script, child, cancelled, Fleet, protocol, and host classes; the CLI maps
+  them to documented process codes, and `Output.require_success(code)`
+  explicitly propagates a required nonzero child exit.
+- [x] `Output.require_success(code)` emits the same stable `child_nonzero`
+  typed Child envelope and caller label as other unhandled CLI failures.
+- [ ] Script-level catch of that typed object remains planned: the native AOT
+  try/catch ABI currently carries integers only and must not claim map-valued
+  catch support until the typed entry/error channel is wired.
+- [x] privacy-bounded audit records contain identity, source fingerprint and
+  label, API/runtime/budget facts, broker operation IDs, duration, result
+  class, failure, cancellation, timeout, and crash, but never source, argv,
+  output, pane content, environment values, clipboard data, or credentials.
+- [x] normal GUI startup constructs no Rhai engine, scans no script directory,
+  and remains independent of Rhai engine types.
+- [x] Design choice: Rust (`.rs`) implements the host and Rhai (`.rhai`)
+  implements user-authored runtime programs.
+
+## Persistent REPL slice (retired 2026-08-08; historical design 2026-07-31)
+
+- [x] (retired) `agenterm-rhai repl [OPTIONS] [--] [ARGS...]` formerly started a true
+  process-local Rhai session. Variables and script-defined functions survive
+  from one successful cell to the next; it does not loop over the one-shot
+  `eval` command.
+- [x] the reusable `ReplSession` core owns language state but no terminal UI.
+  The CLI adapter, black-box tests, and future Control Center or Agent adapters
+  may drive the same session contract without duplicating Engine construction,
+  API registration, state-commit, value, or failure semantics.
+- [x] ordinary workers and REPL sessions use one shared Engine configuration
+  function, so the unrestricted local `std::`, `rhai::`, and bound `fleet`
+  surface cannot drift between execution modes.
+- [x] each cell evaluates against a visible Scope clone plus a functions-only
+  AST. Success atomically commits the candidate Scope and function table;
+  compile, runtime, timeout, operation, or output-limit failure commits neither
+  language binding. Filesystem, child-process, network, Fleet, and shared
+  handle effects that already reached the outside world are real effects and
+  are never described as rolled back.
+- [x] TTY input has a banner, primary/continuation prompts, multiline
+  structural assembly, EOF handling, and session-local history. Piped input
+  emits no prompt or banner, supports the same multiline cells, and `--json`
+  emits one JSON object per cell or meta result.
+- [x] the stable initial meta surface is `:help`, `:quit`/`:exit`, `:reset`,
+  `:history`, `:vars`, `:functions`, `:limits`, `:api [MODULE]`, `:load FILE`,
+  and `:json on|off`. History is memory-only and `:vars` exposes names and
+  types, not values.
+- [x] failures are recoverable by default and make the final process status
+  nonzero; `--fail-fast` stops after the first failed cell. EOF with an
+  incomplete cell is a typed failure. Unit and public cross-platform
+  pipe/NDJSON tests prove persistence, multiline functions, rollback, reset,
+  failure recovery, fail-fast, no prompts in pipes, and incomplete EOF.
+- [x] the Windows x86_64 size-optimized release built on 2026-07-31 is
+  3,092,480 bytes, within the unchanged 3,145,728-byte Script artifact budget.
+  The remaining 53,248 bytes is narrow headroom and must be remeasured for
+  future editor/history dependencies rather than silently raising the budget.
+- [x] Windows hosted persistent REPL supervision preserves one worker and
+  committed language state across cooperative Ctrl+C, hard-kills and reaps a
+  non-cooperative worker tree within 150 ms plus bounded cleanup, then reports
+  a fresh language/history generation with no side-effect replay before the
+  same outer CLI continues on a new worker. Public direct and Windows-hosted
+  tests separately prove the 32-cell generation limit and cell-33 replacement.
+- [~] Long-lived REPL hardening remains open for arrow-key editing/history;
+  the child-session protocol, bounded generation replacement, and Windows
+  hosted Ctrl+C recovery are shipped. A stable
+  length-prefixed child-session protocol now covers Open, Inspect, Evaluate,
+  Query, Reset, Cancel, and Close with session/generation/sequence identities;
+  constant-space request/response validators reject stale generations,
+  sequences, phases, queries, and cell mismatches without feeding REPL traffic
+  into the legacy HashSet tracker. The framed worker owns `ReplSession` on a
+  dedicated session thread, preserves state across cells, keeps stdin available
+  for pre-start or in-flight Cancel and broker responses, returns typed state,
+  and joins on Close/EOF. Unit evidence proves persistence, reset/query/close,
+  a cancellation race, canonical mismatch failures, and legacy isolation.
+  Commit `e731ee3` connected the public REPL to its dedicated parent-side
+  `PersistentReplClient`: public direct-entry and Windows hosted tests prove one
+  worker PID and language state across 32 cells, replacement before cell 33,
+  a new generation/PID, and an explicit fresh-session receipt that resets
+  language/history state and never replays external side effects. The Windows
+  `script.repl-supervision` ConPTY journey proves that Ctrl+C cooperatively
+  cancels a CPU-bound cell while preserving the worker and committed state,
+  then exercises the 150 ms non-cooperative hard-kill/reap path for a blocking
+  cell and its owned nested process; the same outer CLI continues with a fresh
+  worker, emits `reason=hard_interrupt` and `side_effects_replayed=false`, and
+  leaves no worker or nested-process orphan. Linux/macOS retain the direct
+  `agenterm-rh` protocol and compile/unit coverage, but no Unix hosted-CLI
+  or native interactive Ctrl+C parity is claimed without its own public native
+  journey. Ordinary CI run `30716123255` exposed that a nested Script command
+  can create another Unix process group outside the outer worker's `killpg`.
+  Commit `72eb861` records transitive descendants before termination, verifies
+  start identity before killing cross-group children, classifies Linux zombie/
+  dead proc states correctly, and adds a matching-host process-group contract
+  test. Its REPL fixture gives the nested worker a 10-second deadline but
+  requires cleanup within two seconds, so self-timeout cannot fake orphan-free
+  evidence. A new Linux/macOS CI receipt is still required. Arrow-key editing/
+  history remains open; memory-only `:history` is not presented as that editor
+  behavior.
+
+## v0.1.9 product position (historical Rhai era)
+
+Historical note — formerly, `agenterm-rhai.exe` was AgenTerm's general-purpose local scripting runtime:
+Rhai language plus a Rust-shaped selected `std::` subset, Rhai-native
+extensions, and the AgenTerm-bound Fleet domain. This is a capability overlay,
+not Rust, Node.js, Bun, npm, Cargo, or another Rhai host compatibility layer,
+and it is not positioned as a restricted security plugin.
+
+- the AgenTerm Rhai object/interface tree is the primary stable contract.
+  Rust std is a naming and object-model research reference where an honest
+  analogue exists, but upstream Rust stability or change never drives a Rhai
+  rename or semantic change;
+- Node.js and Bun are coverage and use-case references, not API-shape
+  specifications. AgenTerm does not inherit callback/Promise duality,
+  sync/async duplication, legacy aliases, module-resolution compatibility, or
+  platform history merely because an analogue exists;
+- each domain selects one AgenTerm-native, Rhai-native, typed, Windows-first,
+  bounded, cancellable, and observable contract. Compatibility aliases require
+  a concrete AgenTerm migration need rather than resemblance to another
+  runtime;
+
+- an explicit human invocation of ordinary `script run` or `script eval`
+  receives the same unrestricted local-program capabilities expected by that
+  user; Script Runtime does not make Agent authorization decisions;
+- deterministic computation and read-only Fleet access are libraries and use
+  patterns, never profiles that remove filesystem, process, network, terminal,
+  or mutation APIs;
+- technical budgets, typed errors, cancellation, process isolation, audit
+  privacy, and product data-integrity checks are runtime robustness controls,
+  never permissions;
+- [x] explicit local tasks may raise their invocation wall-time budget to the
+  stable one-hour robustness ceiling so build and qualification orchestration
+  can remain Rhai-owned; the ordinary default remains two seconds,
+  child-process call deadlines may use the same one-hour ceiling, and HTTP
+  retains its stricter 10-second ceiling. The explicit operation ceiling is
+  100,000,000 so the coordinator's bounded process observation and wait loops
+  can cover a complete stress-inclusive release rehearsal;
+- agent-specific tool visibility, approval, path/domain/target policy,
+  credentials, quotas, and natural-language intent belong exclusively to the
+  future Agent harness, which may constrain an Agent before invoking this
+  unrestricted runtime;
+- local scripts do not bypass native product invariants: live close
+  confirmation, remain-on-exit, stable IDs, tree-cycle rejection, replay
+  protection, and truthful typed outcomes continue to apply.
+
+## v0.1.9 runtime architecture
+
+- [x] one-shot `run`, `eval`, `check`, `api`, and task invocations formerly owned
+  one fresh `agenterm-rhai.exe` sidecar (removed Wave 4.5). `repl` formerly owned one explicit,
+  foreground, process-local session; neither form creates a persistent system
+  daemon or mutable state that survives its public process.
+- [x] an invocation may own a bounded task scheduler. Asynchronous APIs return
+  typed task handles consumed through `wait` and bounded `stream` operations.
+- [x] the Rhai engine and its `Scope` remain on one evaluation thread.
+  Background I/O stores Rust-native typed payloads and bytes in an
+  invocation-owned registry; only the evaluation thread converts completion
+  values into Rhai `Dynamic`, so host concurrency does not require sharing
+  script values or the engine across threads.
+- [x] the public Task/Stream contract is executor-neutral. A bounded worker/
+  channel implementation and a small Rust async executor are compared by
+  cancellation correctness, streaming simplicity, dependency/binary cost and
+  throughput before selecting an implementation; Tokio is not an inherited
+  requirement.
+- [x] the sidecar remains alive while reachable tasks, timers, child-process
+  I/O, HTTP bodies, or Fleet waits are active, and exits naturally when no
+  foreground task remains.
+- [~] Ctrl+C, parent exit, timeout, server restart, task cancellation, and
+  worker failure propagate to every owned task and stream without orphaning a
+  child, blocking the GUI, or damaging PTYs or workspace state.
+- [x] task and stream queues have explicit item/byte/concurrency limits and
+  backpressure; truncation, cancellation, and incomplete output cannot be
+  reported as success.
+- [ ] a bounded compiled-AST cache may be keyed by source fingerprint, API
+  version, and runtime version, but is not required for the first
+  usable local-runtime slice.
+
+## Rust-shaped subset and Rhai-native extensions
+
+- [x] namespace ownership is explicit: `std::` contains only selected
+  capabilities with an honest Rust standard-library analogue; `rhai::`
+  contains runtime-native higher-level extensions; `fleet` remains a bound
+  AgenTerm object; Rhai language primitives, project modules, manifests and
+  CLI discovery are not wrapped in artificial namespaces.
+- [~] `std::fs` covers bounded `read`, `read_to_string`, `write`, directory
+  listing/creation, metadata, copy, rename and arbitrary explicit-target
+  deletion.
+  - [x] blocking `read`, `read_to_string`, text/bytes `write`, `exists`,
+    directory creation, copy, rename and explicit-target file/directory/tree
+    removal ship through the public CLI. Script Runtime defines no protected
+    path, root/workspace/ancestor filter, or caller allowlist; destructive
+    target selection is the invoking user's responsibility. Metadata,
+    directory listing and cumulative byte budgets remain open.
+- [~] `std::path` provides a selected `Path`/`PathBuf` object model for Windows
+  normalization, composition, relative paths, working directories, Unicode,
+  long paths and canonical/reparse-point facts without copying Rust borrowing.
+  - [x] first local slice ships typed `PathBuf::from`, join, display, file name,
+    extension and absolute-path facts; canonical, UNC/reparse and long-path
+    policy remains open.
+- [x] `std::env` reads/enumerates worker environment and current-directory
+  facts; worker-local mutation and child environment inheritance/overlay/
+  replace/remove semantics are explicit and never leak values to diagnostics.
+  Process-global mutation remains deferred; child overlay/clear/remove ships.
+- [x] `std::process` uses the Rust-shaped `Command -> Child/Output` model with
+  executable plus argv, cwd, env, stdin, bounded stdout/stderr, timeout,
+  explicit kill and typed exit state; it never substitutes an implicit shell
+  command string or exposes Rust ownership/trait/OS-handle internals. Children
+  are invocation-owned and inherit supervisor process-tree cleanup. v0.1.12
+  also gives each `Child` its own Windows kill-on-close Job Object or Unix
+  process group. Unix cleanup also snapshots transitive descendants with start
+  identities and terminates children that deliberately create nested process
+  groups; `Child.kill_tree()` and deadline/Drop cleanup terminate only that
+  owned tree, are idempotent after disarm, and preserve unrelated processes;
+  `std::process::id()` exposes the current supervised worker PID for
+  owned-resource naming and live-owner protocols without treating it as stable
+  invocation identity.
+  `std::process::list()` exposes an unrestricted PID-sorted typed
+  operating-system process inventory (`ProcessInfo.id`, `.parent_id`, and
+  `.executable_name`) on Windows, Linux, and macOS; parent identity is zero
+  where unavailable, and the inventory is a point-in-time observation rather
+  than an Agent allowlist or authorization surface.
+  `std::process::kill(pid)` forcefully terminates any selected operating-system
+  process without owner, executable, path, ancestry, or Agent-policy filtering;
+  the remote-UI recovery journey uses it for real server-fault injection.
+  `Command.start()` is the script spelling because Rhai reserves `spawn`;
+  catalog metadata retains the Rust `Command::spawn` comparison.
+- [~] `std::time` provides selected `Duration`, `Instant`, and `SystemTime`
+  values while keeping monotonic deadlines and wall time distinct; high-level
+  sleep/timer/task composition is not misrepresented as Rust `std`.
+  - [x] bounded `Duration` constructors and wall-clock `SystemTime` reporting
+    ship; monotonic `Instant` remains open.
+- [~] `rhai::task` owns executor-neutral Task/Stream composition, cancellable
+  sleep/timer, wait-all, race, cancel and bounded backpressure.
+  - [x] the executor-neutral timer slice ships Task identity/state,
+    `after`/`sleep`, wait with optional timeout, idempotent cancellation,
+    deterministic `wait_all`, indexed `race`, and `cancel_all`, without moving
+    Rhai `Dynamic` or `Engine` across threads.
+  - [x] child stdout/stderr expose a bytes-first `Stream` with invocation-local
+    identity, pending/readable/closed/failed/cancelled state, a 64 KiB queue,
+    blocking read and bounded collect with optional timeout, producer
+    backpressure, close, cumulative capture limits and truthful truncation.
+    `Child.wait_with_output` drains live queues while preserving the bounded
+    final capture, so large output cannot deadlock the child and truncation
+    never reports `complete=true`.
+  - [x] HTTP `start` ships a typed `Task<HttpResponse>` payload, `kind=http`,
+    stable failed/cancelled outcomes, and late-completion rejection.
+  - [ ] Fleet Task payloads and prompt in-process transport cancellation remain
+    open; the first HTTP adapter bounds blocking transport work to 10 seconds
+    and relies on supervisor process cleanup after invocation exit.
+- [~] `rhai::json` plus Rhai-native strings and a typed `Bytes` object provide
+  bounded parsing, serialization, Unicode/encoding and explicit conversions
+  without duplicating language primitives as fake Rust collections.
+  - [x] first local slice ships JSON parse/compact/pretty serialization and
+    typed UTF-8 `Bytes` conversion/length.
+- [x] `rhai::http` provides HTTP(S) method, URL, headers, body, timeout,
+  status, bounded response streaming, cancellation, proxy/TLS diagnostics and
+  credential-safe errors. Rust std has no high-level HTTP client, so
+  the AgenTerm-native high-level client lives under `rhai::http`; raw sockets,
+  typed TCP/UDP, listeners, and WebSockets are runtime expansion work rather
+  than forbidden authority and must not acquire address, endpoint, port, path,
+  process, or caller allowlists.
+  - [x] `request` and `start` use Windows native TLS and the system root store;
+    Unix targets retain Rustls/WebPKI. They also provide
+    environment/disabled/explicit proxy selection, bytes-first duplicate
+    headers, 64 KiB default and 256 KiB maximum bodies, a 2-second default and
+    10-second hard deadline, stable privacy-safe error codes, and the shared
+    bounded `Stream`/`Task` contracts.
+  - [x] the historical 2026-07-29 standard Windows release measurement for the
+    retired v0.1.9 `agenterm-rhai.exe` is 2,740,224 bytes with the reviewed
+    native-TLS feature set, 405,504 bytes below the existing 3 MiB artifact
+    gate; the gate was not raised.
+- [x] `std::net::TcpStream` provides unrestricted DNS/IPv4/IPv6 TCP client
+  connections, typed 1..60,000 ms connect/read/write deadlines, typed text or
+  bytes writes, bounded bytes/UTF-8-line reads, address facts, nodelay, flush,
+  and shutdown. Per-call 1 MiB I/O and 32-resolution-result ceilings are
+  robustness bounds, never endpoint permissions; its first repository journey
+  owns raw deadline-expired IPC evidence for the wake-delivery regression.
+- [x] `std::net::TcpListener` provides unrestricted IPv4/IPv6 bind, local
+  address facts, explicit native nonblocking mode, blocking accept, and typed
+  accept deadlines. Accepted streams are restored to blocking I/O on every
+  platform; the first repository journey uses it to replace the loopback HTTP
+  PowerShell fixture with Rhai.
+- [x] typed `Bytes` supports construction from arbitrary integer byte arrays,
+  unsigned byte lookup, owned slicing, and append; `Command.stdin_bytes`
+  transmits those bytes without text recoding, allowing raw protocol fixtures
+  to remain bytes-first without shell or PowerShell escape hatches.
+- [x] invocation-owned `Child` values provide typed native top-level-window
+  key, pointer, raw message, geometry, nonactivating resize, and child-control
+  text/click operations on Windows. The API re-resolves the child's window and
+  control IDs on every call and never turns the opaque observation token into
+  a persisted native handle; theme, selection, workbench, remote-UI, and UX
+  journeys share it.
+- [x] `rhai::clipboard` provides unrestricted operating-system Unicode text
+  get/set operations on Windows. It filters neither content nor caller and is
+  a general local runtime API rather than an Agent permission boundary.
+- [x] `rhai::image::inspect_png` decodes one explicit PNG into typed
+  dimensions, sampled RGB, and luminance facts under a 64 MiB decoded-memory
+  robustness bound, removing `System.Drawing` from visual qualification.
+- [~] `rhai::runtime` exposes stable invocation/API/version/limits facts;
+  unstable implementation handles are not part of the current public object
+  tree, but this is API design rather than a permission boundary.
+  - [x] `temp_dir` exposes only the current invocation-owned directory;
+    `atomic_write` and `atomic_write_bytes` publish a complete same-volume
+    replacement without exposing supervisor or OS handles.
+  - [x] `append_sync` and `append_sync_bytes` append one bounded record without
+    truncation, `sync_all` it, and sync a newly-created parent directory. They
+    provide the durable JSONL journal primitive used by the isolated system-
+    WebView measurement migration; write/open/sync phases remain typed runtime
+    failures rather than an Agent permission boundary.
+- [x] filesystem and temporary-resource helpers have explicit ownership and
+  cleanup behavior. Canonicalization, reparse points, atomic replacement, and
+  failure paths cannot silently target a different path than the result
+  reports. Normal completion removes the invocation root immediately; a later
+  invocation prunes roots abandoned by a dead parent, and atomic staging files
+  are removed on both promotion and ordinary failure.
+- [x] the catalog taxonomy is not copied into the script surface.
+  Resource-bearing values use custom-type methods (`Child.wait`,
+  `Task.cancel`, `Stream.read`, response/output access), while modules,
+  named-task manifests, catalog and diagnostics remain language/CLI mechanisms
+  rather than artificial runtime namespaces.
+- [x] globals remain minimal (`args` and `print` baseline). Native Rhai string
+  and collection operations are reused instead of wrapping every value under
+  `data`; `system`, `network`, `code-and-automation`, and `observability` are
+  catalog/manual groupings, never mandatory call prefixes.
+
+## Local modules, tasks, and named commands
+
+- [x] local modules resolve from an explicit script/project root using
+  deterministic relative paths; missing modules, root escape, cycles, duplicate
+  identities, incompatible versions, and parse failures are typed. The shipped
+  resolver embeds local imports into a self-contained AST and never searches
+  home, PATH, or the network. This defines deterministic `import` identity only:
+  it does not restrict `std::fs`, `std::process`, `std::net`, `rhai::http`,
+  Fleet mutation, or any other runtime API from accessing user-selected paths,
+  processes, endpoints, or targets.
+- [x] project tasks use one versioned declarative manifest that maps stable task
+  IDs to a script/module entry point, arguments, working directory, environment
+  construction, and inert legacy compatibility data. Schema v2 uses a project
+  identity/version, an inclusive Script API range, required stable capability
+  IDs, and an ordered task array with `id`, `description`, `entry`, legacy
+  `profile`, `cwd`, default `args`, and required environment-name `env` fields;
+  it stores no environment values. The legacy `profile` value is ignored for
+  API registration, visibility, arguments, targets, and execution behavior; a
+  later manifest schema may remove the field entirely.
+- [x] v0.1.9 selects versioned JSON at `agenterm.tasks.json`; it is explicitly
+  a local task manifest rather than a package/download/signature manifest.
+- [x] project tasks and user-level named commands are discoverable through one
+  typed catalog. Invalid entries remain visible with a stable degraded reason
+  instead of disappearing.
+- [x] CLI listing, inspection, no-execution compatibility checking, and
+  invocation of named tasks is P0 for v0.1.9.
+  A GUI command palette is a P1 consumer of the same catalog and does not own a
+  second registry.
+
+## AgenTerm Fleet API
+
+- [x] the canonical bound user facade is `fleet`, because it carries selected
+  server and broker identity. It exposes typed workspace, tabs,
+  terminal and events service objects; ordinary calls do not require users to
+  type raw operation IDs even though results and the catalog retain operation,
+  request, receipt, event and post-state identities.
+- [x] v0.1.9 ships Script API v2 and removes the ambiguous v1 `agent`
+  facade rather than retaining a permanent alias that conflicts with the
+  future `agenterm-agent.exe`; `check` emits a targeted migration diagnostic
+  for old `agent.*` source.
+- [x] generate the script-facing Fleet API systematically from the public typed
+  operation catalog rather than maintaining a hand-selected parallel list.
+- [ ] every entry exposes stable operation ID, classification, typed
+  parameters/result/errors, resolved target rules, receipt/wait behavior,
+  side-effect facts, version, and availability.
+- [ ] an operation that is not yet represented faithfully with truthful typed
+  outcomes remains discoverable as unimplemented/degraded with a typed reason;
+  it is never silently omitted, reported as successful, or replaced by a
+  policy-filtered variant.
+- [ ] observation covers workspace, server, tabs/tree, focus, UI, terminal
+  capture/viewport/lifecycle, and Observable Fleet reads and waits.
+- [ ] explicit mutations cover tab/tree metadata, Composer, terminal input and
+  viewport, workspace, and lifecycle operations as their underlying catalog
+  contracts become complete.
+- [ ] destructive calls use explicit names and arguments, require the native
+  confirmation or documented noninteractive operation contract, carry request
+  identity/deadline/receipt, and preserve remain-on-exit, close, tree, replay,
+  and server-lifecycle invariants.
+- [ ] the control-plane catalog, dispatch, receipt, error, event-correlation,
+  replay, and deterministic-wait prerequisites are owned by
+  [Agent control plane](../PRD_02_07_agent_control_plane.md); scripting reuses
+  those typed contracts, while additional low-level runtime adapters may ship
+  independently without turning this catalog into an Agent permission layer.
+
+### One `script_surface` is spelled `Type.method`, deliberately (2026-08-25)
+
+`OPERATION_CATALOG` gives every operation a `script_surface`. 76 of the 77
+entries spell it as a **constant dotted path** under `fleet.*`. Exactly one
+does not: `pane.capture` declares `FleetTerminal.capture`.
+
+Investigated 2026-08-25 and **kept**. It is an exception to document, not a
+typo to fix:
+
+- The operation is bound to one tab, and a script names that tab by
+  **constructing the receiver** rather than by passing a parameter:
+  `fleet.terminal(tab).capture(max_bytes)`. `src/script_fleet.rs` registers
+  `capture` on the `FleetTerminal` type;
+  `src/script_catalog.rs::fleet_operation_entry` carries that exact
+  signature; [`docs/agenterm-rh-runtime.md`](../../docs/agenterm-rh-runtime.md)
+  teaches users to write it. The middle segment is a runtime value, so there
+  is no constant dotted path to record.
+- `fleet.terminal.capture` is not available as a substitute. `fleet.terminal`
+  is a **property getter** returning the tab-less `FleetTerminalService`
+  (which carries `terminal.paste`, `terminal.mouse`,
+  `terminal.copy_selection`); `fleet.terminal(tab)` is a **function call**
+  returning the tab-bound `FleetTerminal`. `capture` exists only on the
+  latter, so renaming would make the catalog declare a path that does not
+  resolve.
+- `Type.method` is not an invented spelling. It is the convention
+  `crates/agenterm-rh/src/shipped_surfaces.rs` already uses for every
+  receiver-bound surface (`Bytes.len`, `Command.output`, `Task.wait`, …), and
+  that file declares this surface verbatim. A rename is script-visible **and**
+  would desynchronise the two crates.
+- The honest cost, stated rather than hidden: a binding generator that works
+  from dotted paths (`plan/design-fleet-catalog-binding.md`) cannot emit a
+  function for this entry, so `pane.capture` has **no lua and no qjs
+  binding**, and neither facade offers a generic escape hatch — their
+  `call()` helper is module-local. Reaching it from lua/qjs needs one
+  hand-written wrapper in the by-hand layer, not a catalog rename.
+
+The rationale is recorded next to the data, in `src/operations.rs`: on the
+`OperationSpec::script_surface` field and on the `pane.capture` entry itself.
+`tests/fleet_catalog_conformance.rs::only_one_script_surface_sits_outside_the_fleet_namespace`
+already pins that there is exactly **one** such exception, so a *new*
+non-`fleet.*` entry still goes red. What that gate should additionally assert,
+so the exception is pinned by its *shape* and not only by its spelling, is
+listed in `plan/design-fleet-catalog-binding.md`'s gate table (owned
+elsewhere): that the outlier matches a `Type.method` form rather than being
+arbitrary text, that `SHIPPED_SURFACE_PATHS` declares the same string, and
+that `script_catalog`'s entry for `pane.capture` still pairs that surface with
+the `fleet.terminal(tab).capture(max_bytes)` signature.
+
+## Discovery and tool schema
+
+- [ ] `script api --json` is the exact versioned runtime catalog and matches
+  the engine, standard library, modules/tasks, Fleet operations,
+  defaults, hard ceilings, and availability.
+  - [x] catalog schema v3 separates its schema version from stable Script API
+    v2 and provides one typed source for every public typed Fleet operation,
+    explicitly planned nodes, and reviewed Node.js/Bun analogue metadata; full
+    engine/module/task conformance remains open.
+  - [x] the local runtime runs without requiring a server; the first useful
+    fs/path/bytes/JSON slice has shipped.
+  - [x] the second local slice ships typed one-directory enumeration,
+    `DirEntry`, metadata, absolute-path resolution, and wall-clock
+    `SystemTime`; the repository Cargo target inventory is its first migrated
+    production consumer.
+- [ ] each callable entry describes stable ID, signature, result/error schema,
+  filesystem/process/network/Fleet access, mutation and destructive facts,
+  expected duration, cancellation and streaming support, and any dry-run or
+  inspect support.
+  - [x] every current entry publishes `stability`, `designed_on`, and `since`
+    facts; the English runtime specification opens with the complete
+    human-readable object/interface tree carrying node descriptions, status,
+    stability, and design dates.
+- [~] the catalog is hierarchical, using stable
+  `domain -> capability group -> callable/type` paths and ordering. Human
+  `script api [MODULE]` output renders that same tree; unavailable, degraded,
+  planned, deferred, and intentionally out-of-scope nodes do not disappear.
+  - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
+  - [ ] deferred and intentionally out-of-scope nodes require catalog status
+    expansion beyond the current shipped/planned schema.
+- [ ] every entry separates `catalog_path` from its shallow `surface_path`, so
+  product taxonomy can evolve without forcing nested namespaces into user
+  source or silently renaming callable contracts.
+  - [x] schema v2 entries carry both paths and a stable ID; Script API v2 maps
+    each typed operation exactly once to `fleet`, and `check` reports a targeted
+    migration diagnostic for removed `agent.*` calls.
+- [ ] every entry also carries nullable `rust_path`, a mapping level
+  (`direct`, `adapted`, `inspired`, or `none`) and machine-readable semantic
+  differences for error, type, blocking, cancellation, platform and limits.
+  An API without an honest Rust std analogue cannot enter `std::`.
+  - [x] schema v2 establishes these fields and publishes semantic differences
+    for shipped and planned entries.
+  - [x] `surface_path` and Rhai object semantics outrank `rust_path`;
+    Rust/Node/Bun comparison metadata may be corrected without changing the
+    Script API major.
+- [x] optional comparison metadata maps every capability to a reviewed Node.js or
+  Bun analogue as `similar`, `agenterm-specific`, `deferred`, or
+  `not-applicable`, with source/version and review date. It supports gap
+  analysis and generated manuals but never claims JavaScript, Node, Bun, npm,
+  module, or binary compatibility.
+- [~] the human API tree and compact Node.js/Bun comparison index are generated
+  from the same catalog entries and `api --json` is the machine matrix;
+  generated long-form reference pages and a no-second-callable-list alignment
+  gate remain open.
+- [ ] these are availability and interface facts for people and future tool
+  consumers, not authorization decisions. A future Agent harness may filter
+  what it offers an Agent without changing or reimplementing Script Runtime.
+- [ ] `script check` validates imports, task entries, API names,
+  signatures, versions, static limits, and unavailable/degraded calls without
+  executing user code or requiring a GUI.
+- [x] runtime, module and task identities expose version, origin/provenance
+  hooks, required AgenTerm API/capabilities and stable entry-point metadata so
+  future local package tooling can inspect them without executing source.
+  This is a package-ready contract, not a registry, downloader, installer,
+  signature policy or second package manifest in v0.1.9.
+  - [x] the module/task slice exposes manifest path, canonical project root,
+    project ID/version, stable task ID, entry, cwd, default argv,
+    required environment names, readiness and degraded reason without running
+    task source.
+  - [x] schema v2 exposes the inclusive required Script API range and stable
+    capability IDs, reports compatibility through list/show, and makes
+    check/run reject unknown, unavailable, or version-incompatible
+    requirements before source execution.
+  - [x] optional bounded `local|repository` origin ID and producer/revision
+    provenance hooks complete the package-ready identity contract without
+    accepting URLs, credentials, hashes, signatures, dependency resolution,
+    installation metadata, or trust claims.
+
+## Repository dogfood and gradual replacement
+
+- [x] start a parallel Rhai script set in v0.1.9 instead of rewriting or
+  deleting the existing PowerShell automation.
+  - [x] `scripts/rh/verify-script-contract.rh` uses the shipped local
+    fs/JSON surface to validate the English runtime specification and the
+    versioned API catalog through the public CLI black-box suite (archived
+    Rhai under `scripts/archive/rhai/verify-script-contract.rhai`).
+  - [x] `scripts/rh/internal-version-policy.rh` is the second migrated
+    production responsibility and exercises argv-safe process execution,
+    bounded capture, typed exit status, cwd, and repository file reads.
+- [x] migrate one independently testable responsibility at a time through
+  `parallel -> parity-proven -> default-rhai -> PowerShell deleted`; obsolete
+  unreachable responsibilities may instead cross a caller-audited functional
+  deletion boundary. All 43 frozen baseline scripts have left the v0.1.10
+  working tree.
+- [x] parity evidence compares the same inputs, structured outputs, exit
+  classification, diagnostics, cancellation, cleanup, encoding, path behavior,
+  and clean-machine recovery; a Rhai failure cannot hide the PowerShell
+  last-known-good result.
+- [x] once one Rhai responsibility reaches parity and all normal callers switch
+  to it, or an obsolete responsibility is proven unreachable and superseded,
+  delete that PowerShell implementation immediately instead of accumulating a
+  release-wide migration backlog; all 43 baseline scripts are deleted.
+- [x] every migrated item records its old path, replacement path, switching
+  commit, parity evidence, and deletion state in this PRD. Git history is the
+  only archive after the explicit rollback window closes.
+- [ ] build, check, qualification, package, release, credential, and GitHub
+  workflow entry points may gain parallel Rhai candidates but do not switch
+  their default implementation in v0.1.9.
+
+Migration ledger:
+
+| Responsibility | Replacement | Removed source | Switching commit | Evidence | v0.1.10 state |
+|---|---|---|---|---|---|
+| Cargo target inventory | `scripts/rh/target-report.rh` | `scripts/archive/powershell/target-report.ps1` | `b9d1906` | public CLI fixture plus live PowerShell/Rhai field parity, reconfirmed on 2026-07-29 against an absent target | deleted; Git history is the rollback source |
+| Internal-only version policy | `scripts/rh/internal-version-policy.rh` | `scripts/archive/powershell/internal-version-policy.ps1` | `b0010f5` | public CLI `check` plus identical live PowerShell/Rhai PASS result, reconfirmed on 2026-07-29 | deleted; Git history is the rollback source |
+| README artifact and command alignment | `scripts/rh/readme-examples.rh` | `tests/readme_examples.ps1` | `667f6d6` | exact live stdout parity against the six-artifact manifest and offline CLI/Mux catalogs on 2026-07-29; native `.rh` cutover on cg22 | deleted; Git history is the rollback source |
+| Locked and obsolete staged-artifact cleanup | `scripts/rh/clean-locked-artifacts.rh` (+ `scripts/rh/lib/artifact_files.rh`) | `scripts/clean-locked-artifacts.ps1` | `be9a538` then native `.rh` cutover | public task black-box tests prove owned-name cleanup, unrelated-file retention, obsolete-name cleanup, and path-escape rejection; native pack uses `read_dir`/`try_remove_file` | PowerShell deleted; task entry is native `.rh`; archived Rhai entry under `scripts/archive/rhai/` |
+| Cargo target cleanup preparation | `scripts/rh/prepare-target-clean.rh` | `scripts/prepare-target-clean.ps1` | `c20acc7` then native `.rh` cutover | public CLI black-box tests prove Git-native exact-root binding (including Windows short/long path aliases), allowed target set, idempotent cache-tag creation, and invalid-path/tag rejection | PowerShell deleted; task entry is native `.rh`; archived Rhai under `scripts/archive/rhai/` |
+| Single executable staging | `scripts/rh/stage-artifact.rh` (+ `scripts/rh/lib/artifact_files.rh` `stage`/`stage_as`) | `scripts/stage-artifact.ps1` | `e087842` then native `.rh` cutover | public CLI black-box tests prove normal replacement, invalid-name rejection, and Windows running-image parking before replacement | PowerShell deleted; task entry is native `.rh`; archived Rhai under `scripts/archive/rhai/`; `stage-build` now reuses the same native INT `stage`/`stage_as` |
+| Local executable manifest validation | `scripts/rh/validate-artifact-manifest.rh` (+ `scripts/rh/lib/artifact_manifest.rh`) | `scripts/artifact-manifest.ps1` | `e2276cc` then native `.rh` cutover | public CLI black-box tests prove the canonical schema and reject duplicate/invalid names, invalid subsystem/probe contracts, empty roles, and missing size budgets; native pack qualifies without host_eval/run_script | PowerShell deleted; task entry is native `.rh`; archived Rhai under `scripts/archive/rhai/` |
+| Source build identity freeze | `scripts/rh/build-identity.rh` (+ `scripts/rh/lib/build_identity.rh`) | `scripts/build-identity.ps1` | `b082c3b` then native `.rh` cutover | public CLI black-box tests prove exact Git-root binding, clean/dirty truth, profile validation, batch-safe fields, and exact SHA-256 build-input identities | PowerShell deleted; task entry is native `.rh`; archived Rhai under `scripts/archive/rhai/` |
+| Staged build provenance | `scripts/rh/write-build-metadata.rh` (+ `scripts/rh/lib/build_metadata.rh`) | `scripts/write-build-metadata.ps1` | current migration change then native `.rh` cutover | public CLI black-box tests prove frozen and live identities, executable size/hash capture, clean-source and frozen-input drift rejection; direct old/new field parity excludes only the generation timestamp | PowerShell deleted; task entry is native `.rh`; archived Rhai under `scripts/archive/rhai/`; shared with `stage-build` |
+| Built artifact orchestration | `scripts/rh/stage-build.rh` (+ native `artifact_files` / `build_metadata`) | `scripts/stage-build.ps1` | current migration change then native `.rh` cutover | public CLI composition fixture proves cleanup, obsolete removal, staging, metadata and pre-mutation Git-root rejection; actual `build.bat` and direct old/new directory parity cover the six-artifact path | PowerShell deleted; task entry is native `.rh`; archived Rhai under `scripts/archive/rhai/`; `stage`/`stage_as` results are INT 0/1 only |
+| Read-only release preflight | `scripts/rh/preflight.rh` | `scripts/preflight.ps1` and `scripts/preflight-selftest.ps1` | current migration change | the qjswasm `preflight` task runs against the real Candidate checkout; the deleted Rhai-era fixture no longer appears as a runnable gate | PowerShell, Rhai task, and `rhai_migration` fixture deleted; `scripts/qjs/preflight.qjs` owns the live read-only release preflight, while a qjswasm-native adversarial fixture remains follow-up work |
+| Preflight latency benchmark | `scripts/rh/preflight-benchmark.rh` | `scripts/preflight-benchmark.ps1` | current migration change | public worker black-box benchmark against a clean Git clone proves five successful preflight subprocesses, p95 target enforcement, durable JSON evidence, and scratch cleanup | deleted; release check invokes the named native `.rh` task directly |
+| Locked dependency and SPDX inventory | `scripts/rh/supply-chain.rh` | `scripts/supply-chain.ps1` | current migration change | public task covers every resolved Cargo.lock package, reviewed licenses, direct-notice alignment, deterministic ordinal ordering, SPDX structure and scratch cleanup; old/new semantic parity differs only in producer identity and ordering | deleted; ordinary and release checks invoke the named native `.rh` task |
+| Obsolete v0.1.8 public-candidate decision and self-test | Current qualification receipt, byte-qualified package, release preflight, and explicit approval boundaries | `scripts/public-candidate-policy.ps1` and `scripts/public-candidate-policy-selftest.ps1` | current migration change | the legacy self-test passed before removal; `git grep` proves no operational caller, while current qualification/package self-tests own the retained fail-closed invariants | deleted as unreachable version-specific duplication; Git history is the rollback source |
+| Unintegrated PowerShell journey-manifest prototype and self-test | Planned shared native smoke harness plus the existing qualification receipt boundary | `tests/JourneyManifest.ps1` and `tests/journey_manifest_selftest.ps1` | current migration change | the prototype self-test passed before removal, but `git grep` proves no smoke, check, CI, qualification, or release caller; delivery PRD already marks the machine-readable step manifest incomplete | deleted rather than preserving a second unused evidence model; Git history is the rollback source |
+| PRD, evidence, CLI/protocol, and Mux catalog alignment | `scripts/rh/prd-alignment.rh` | `tests/prd_alignment.ps1` | current migration change | public task reproduces the exact legacy live-catalog PASS result and isolated black-box coverage rejects an unsupported alignment-contract schema | deleted; both quick and full checks invoke the named native `.rh` task |
+| Owned-child cleanup self-test and first shared native harness foundation | `scripts/rh/harness-cleanup-selftest.rh` plus `scripts/rh/lib/test_harness.rh` (archived Rhai under `scripts/archive/rhai/`) | `tests/harness_cleanup_selftest.ps1` | native `.rh` cutover (codegen rev 40) | public task and Windows integration prove exact registered-child forced cleanup, survival of an unregistered sibling until explicit cleanup, orphan-free persisted proof, and original-failure retention; Native pack he_count=1 | deleted; task entry is native `.rh`; quality gate invokes the named task |
+| Shared black-box process, diagnostics, evidence, and cleanup harness | `scripts/rh/lib/test_harness.rh` | `tests/TestHarness.ps1` | current migration change | every retained smoke journey plus diagnostic and qualification self-tests now use the shared rh module; its dedicated self-test proves exact child ownership, bounded evidence, orphan-free cleanup, and original-failure retention | deleted after the final qualification-selftest caller switched; no operational PowerShell consumer remains |
+| Working-context proxy privacy and restart journey | `scripts/rh/working-context-smoke.rh` plus the shared harness (archived Rhai under `scripts/archive/rhai/`) | `tests/working_context_smoke.ps1` | native `.rh` cutover (codegen rev 82 Native) | named task and Windows public integration prove isolated GUI/server launch, safe proxy facts, archived-control non-mutation, no secret in snapshot/pane/workspace/events/stderr, non-persistence across restart, stable completed-child identity, and orphan-free cleanup; Native pack he_count=1 | deleted; task entry is native `.rh`; qualification discovery and execution use the named journey |
+| Published-byte native IPC migration, upgrade, and rollback journey | `scripts/rh/native-ipc-compat-smoke.rh` plus the shared native harness (archived Rhai under `scripts/archive/rhai/`) | `scripts/archive/rhai/native-ipc-compat-smoke.rhai` | native `.rh` cutover (codegen rev 61) | bundled validation and pack build prove Native execution with he_count=1 while preserving exact v0.1.10/v0.1.11 acquisition, TCP migration, staged-HEAD native upgrade, state continuity, rollback reads, bounded diagnostics, and owned cleanup | task entry is native `.rh`; the old Rhai source is archived |
+| Headless server authority journey | `scripts/rh/server-smoke.rh` (Native pack, codegen rev 68, he_count=1) plus typed owned-child platform facts and the shared harness; archived Rhai under `scripts/archive/rhai/` | `tests/server_smoke.ps1` | native `.rh` cutover (codegen rev 68) | named task and Windows public integration preserve no-top-level-window evidence, exact PID/ownership, lease lifecycle and gated interaction, real PTY, replay/conflict/asynchronous receipts, causal events, workspace persistence, graceful shutdown, and orphan-free cleanup | deleted; task entry is native `.rh`; ordinary qualification invokes the named journey |
+| Same-server real-byte GUI upgrade and rollback journey | `scripts/rh/remote-ui-upgrade-smoke.rh` plus CLI lease probes and the shared harness (archived Rhai under `scripts/archive/rhai/`) | `tests/remote_ui_upgrade_smoke.ps1` | native `.rh` cutover (codegen rev 50) | named task preserves distinct GUI hashes/build identities, competing-lease rejection, one stable server/epoch/PTY/draft state, output streamed across replacement, incompatible-protocol rejection, rollback scrollback continuity, public close/detach behavior, and orphan-free cleanup; Native pack he_count=1 | deleted; task entry is native `.rh`; qualification discovery and execution use the named journey |
+| Coalesced wake, concurrent IPC, PTY output, and expired raw mutation journey | `scripts/rh/wake-smoke.rh` (Native pack, codegen rev 68, he_count=1) plus unrestricted `std::net::TcpStream`, hash helpers, and the shared harness; archived Rhai under `scripts/archive/rhai/` | `tests/wake_smoke.ps1` | native `.rh` cutover (codegen rev 68) | named task and Windows public integration preserve an isolated headless server, 32 concurrent versioned snapshot clients, 80-line PTY progress, raw newline-delimited IPC, typed expired no-op receipt, unchanged tab note, and orphan-free owned-child cleanup | deleted; task entry is native `.rh`; ordinary qualification invokes the named journey |
+| Native first-window and asynchronous terminal startup journey | `scripts/rh/startup-smoke.rh` plus native process inventory, child platform facts/stream bytes, and the shared native harness (archived Rhai under `scripts/archive/rhai/`) | `tests/startup_smoke.ps1` | native `.rh` cutover (codegen rev 60) | bundled validation and pack build prove Native execution with he_count=1 while preserving the one-second native-window budget, public asynchronous terminal-ready wait, inherited-stderr guidance, second-launch handoff, nonblocking CLI-style/invalid GUI arguments, absence of a nested Script worker, graceful shutdown, and orphan-free cleanup | task entry is native `.rh`; ordinary qualification and Windows CI invoke the named journey; the old Rhai source is archived |
+| Public CLI, typed control, UI bridge, and PTY lifecycle journey | `scripts/rh/cli-smoke.rh` (Native pack, codegen rev 68, he_count=1) plus the shared harness; archived Rhai under `scripts/archive/rhai/` | `tests/cli_smoke.ps1` | native `.rh` cutover (codegen rev 68) | named task preserves all ten public evidence IDs across receipt replay/conflict, offline validation, operation/UI-bridge discovery, renderer-neutral bootstrap/delta causality, typed Tabs actions/events, Composer/PTY/Backspace/scroll/screenshots, stable creation IDs, remain-on-exit, and explicit close; command evidence is now bounded per record | deleted; task entry is native `.rh`; ordinary qualification and Windows CI invoke the named journey |
+| Loopback HTTP test fixture | `scripts/rh/script-http-fixture.rh` plus unrestricted `std::net::TcpListener` and raw `Bytes` operations | `tests/script_http_fixture.ps1` | current migration change | full public Script smoke preserves status/echo/large/async/slow/cancel/malformed/disconnect/TLS paths, privacy-bounded audit, typed host failures, cleanup, and a delayed-first-byte Windows accepted-socket regression | deleted; the Script smoke launches only the rh fixture |
+| Theme preview, persistence, PTY continuity, and rendered differentiation | `scripts/rh/theme-smoke.rh` plus native typed child-window input, structured PNG inspection, and the shared native harness (archived Rhai under `scripts/archive/rhai/`) | `tests/theme_smoke.ps1` | native `.rh` cutover (codegen rev 59) | bundled validation and pack build prove Native execution with he_count=1 while preserving Dark/Light preview, Cancel and physical Escape rollback, settings persistence, stable PTY PID/output, native PNG luminance separation, restart state, bounded retained failure diagnostics, and orphan-free cleanup | task entry is native `.rh`; qualification and diagnostic-bundle probes invoke the named task; the old Rhai source is archived |
+| Workbench inline editing, archived Proxy chrome, and compact tree geometry | `scripts/rh/workbench-smoke.rh` plus typed child-window click dispatch and the shared rh harness (archived Rhai under `scripts/archive/rhai/`) | `tests/workbench_smoke.ps1` | native `.rh` cutover | live old/new parity preserves physical Edit/Save/Cancel, independent name/note drafts, Composer isolation, archived Proxy geometry/actions, a four-level CJK hierarchy, 180/250/480 px density, bounded row geometry, and orphan-free cleanup | deleted; qualification discovery and execution invoke the named rh task |
+| Fleet discovery, events, launch context, restart, and Mux safety | `scripts/rh/fleet-smoke.rh` (Native pack, codegen rev 68, he_count=1) plus the shared harness; archived Rhai under `scripts/archive/rhai/` | `tests/fleet_smoke.ps1` | native `.rh` cutover (codegen rev 68) | live old/new ordinary and 16×258 concurrent-load parity preserves all six evidence IDs, dead-record pruning, explicit/implicit/ambiguous instance selection, scoped environment and Codex launch, typed event catalog/causality/wait timeout/cancellation/restart/gap, Mux compatibility/destructive safety, and multi-address cleanup; the stress path remains on the same named task | deleted; task entry is native `.rh`; ordinary qualification skips the explicit load while stress/release appends `--event-load` |
+| Replaceable GUI, physical workbench, and in-place server-fault recovery | `scripts/rh/remote-ui-smoke.rh` plus unrestricted native child-window, operating-system clipboard, arbitrary-process termination, and the shared rh harness (archived Rhai under `scripts/archive/rhai/`) | `tests/remote_ui_smoke.ps1` | native `.rh` cutover | live PowerShell last-known-good and named rh task both pass the complete journey: split GUI/server roles, detach and same-server PTY continuity, replacement UI, physical toolbar/modal/Settings/CWD/tree/scroll/selection/clipboard behavior, real server force-termination, hidden offline input, local disconnected close, same GUI PID/window identity reconnect to a new PID/epoch/lease, screenshots, stale-registration pruning, and zero owned orphans | deleted; qualification discovery and execution invoke the named rh task |
+| Unrestricted Script Runtime public regression | `scripts/rh/script-smoke.rh` plus `scripts/rh/lib/script_smoke_helpers.rh`, arbitrary `Bytes` construction, and binary child stdin (archived Rhai under `scripts/archive/rhai/`) | `tests/script_smoke.ps1` | native `.rh` cutover | the named rh task emits all eighteen registered Script evidence IDs and passes API/comparison discovery, process/stream/task/HTTP/filesystem lifecycles, modules and compatible/degraded tasks, raw line/framed worker protocols, timeout/crash/parent-exit/concurrency supervision, typed Fleet observation/mutation, the direct-entry north-star task, audit privacy, recovery, and retained failure diagnostics in about 24 seconds | deleted; qualification and diagnostic-bundle probes invoke the named rh task |
+| CLI, GUI, and Script retained failure-bundle self-test | `scripts/rh/diagnostic-bundle-selftest.rh` plus the shared rh harness (archived Rhai under `scripts/archive/rhai/`) | `tests/diagnostic_bundle_selftest.ps1` | native `.rh` cutover | the named task creates one intentional CLI bundle and concurrently drives real theme and Script failure probes; it verifies exact identity markers, bounded local diagnostics and command logs, GUI/worker success evidence, privacy metadata and source redaction, orphan-free cleanup, and removal of only newly owned bundles | deleted; the full quality gate invokes the named rh task directly |
+| Qualification fail-closed self-test | `scripts/rh/qualification-selftest.rh` (Native pack, codegen rev 68, he_count=1) plus `scripts/rh/lib/qualification.rh` and the shared harness; archived Rhai under `scripts/archive/rhai/` | `scripts/qualification-selftest.ps1` | native `.rh` cutover (codegen rev 68) | named task and Windows public integration reject a missing manifest, failed/skipped gates, missing stress evidence, mismatched artifact-manifest provenance, and an invalid CLI diagnostics bundle while cleaning only invocation-owned scratch | deleted; task entry is native `.rh`; ordinary qualification invokes the named journey |
+| Byte-qualified offline Windows packaging | `scripts/rh/package-qualified.rh` plus `scripts/rh/lib/package_qualified.rh` | `scripts/package-qualified.ps1` | native `.rh` cutover | named task validates the exact receipt, HEAD, lockfile, manifests, SBOM, metadata, executable hashes, gate set, and static payload before staging a ZIP through `tar.exe`; the module contains no build, tag, push, or release action | deleted; the named task is the production package boundary |
+| Qualified package boundary self-test | `scripts/rh/package-qualified-selftest.rh` plus the shared package module | `scripts/package-qualified-selftest.ps1` | current migration change | old and Rhai self-tests pass; named task and Windows public integration prove exact ZIP members and reject Cargo.lock, artifact-manifest, executable-byte, and Git-HEAD drift with exact owned-fixture cleanup | deleted; ordinary qualification invokes the named rh task |
+| Unintegrated professional terminal-selection prototype | Future public Rhai professional-selection journey after the product slice ships | `tests/terminal_selection_smoke.ps1` | current migration change | caller audit finds no check, CI, qualification, or registered evidence consumer; direct execution fails before interaction at zero terminal columns, while the Windows double-click handler does not implement the claimed word/third-click behavior and the product PRD keeps that slice planned | deleted as misleading dead test code; Git history retains the prototype |
+| Semantic UX geometry, interaction, restart, and no-activate journey | `scripts/rh/remote-ui-smoke.rh`, `scripts/rh/startup-smoke.rh`, and `scripts/rh/working-context-smoke.rh` plus typed foreground-window observation (archived Rhai under `scripts/archive/rhai/`) | `tests/ux_smoke.ps1` | native `.rh` cutover | the three named rh journeys emit all nineteen declared UX/parity evidence IDs and prove semantic minimize/maximize/resize, locale, modal wait, hierarchy cycle rejection and child promotion, adaptive Tabs, physical focus/scroll/selection/clipboard, Settings isolation, safe CWD quoting and OSC 7, close/detach, exact no-activate observation, and persistent tab metadata across restart | deleted; qualification owns the behavior through the three existing journeys without launching a duplicate GUI fleet |
+| Cross-platform UX parity orchestration and evidence matrix | `scripts/rh/platform-ux-parity-smoke.rh` plus the shared native harness (archived Rhai under `scripts/archive/rhai/`) | `scripts/archive/rhai/platform-ux-parity-smoke.rhai` | native `.rh` cutover (codegen rev 58) | bundled validation and pack build prove Native execution with he_count=1 while preserving startup, wake, platform branch execution, partial evidence attribution, failure-root classification, and JSON/CSV matrix production | all three Windows/Linux/macOS task entries are native `.rh` and invoke `agenterm rh`; the old Rhai source is archived |
+| Fast repository lint | `scripts/rh/lint.rh` plus thin `lint.cmd` bootstrap | `lint.ps1` | current migration change | public task and wrapper pass JSON parsing, strict UTF-8/NUL/conflict-marker hygiene, production rh checks, malformed JSON/UTF-8/conflict/rh self-tests, and Rust rustfmt/Clippy mode; the bounded `check-many` manifest path runs each source in a fresh Engine with typed per-file diagnostics while avoiding one Script process per file (67 production files: 5,398 ms to 2,097 ms on the 2026-07-31 Windows baseline); process inspection confirms no PowerShell child | deleted; check calls the same rh task and the batch file owns only Script worker bootstrap and argument forwarding |
+| Integrated quality-gate orchestration | `scripts/rh/check.rh` (Native pack, he_count=1) plus `scripts/rh/artifact-verification.rh` and thin `check.cmd` bootstrap; archived Rhai under `scripts/archive/rhai/` | `check.ps1` | native `.rh` cutover | `check.cmd --quick` and `--skip-smoke` pass through the public named task; the latter completes library tests plus integration groups, staged six-artifact verification, declaration discovery, diagnostics, timing, and fail-closed qualification bookkeeping without PowerShell | deleted; CI and release workflow call the same batch bootstrap and native `.rh` task |
+| Qualification result and receipt production | `scripts/rh/check.rh` plus `scripts/rh/lib/qualification.rh` (Native pack path) | `scripts/qualification.ps1` | native `.rh` cutover | the named check task validates exact required gates and executable evidence declarations, rejects failed/skipped or missing-stress results, binds artifact metadata to source state, and writes the receipt only for a complete stress-inclusive run | deleted; quality orchestration imports the shared native `.rh` module directly |
+| Approved release coordination and rehearsal | `scripts/rh/release.rh` (Native pack, codegen rev 67, he_count=1) plus shared qualified-package module and thin `release.cmd` bootstrap; archived Rhai under `scripts/archive/rhai/` | `release.ps1` | native `.rh` cutover (codegen rev 67) | release requires clean `main`, rejects v0.1.7 and an existing tag, runs stress-inclusive qualification with full stdout/stderr file redirection, creates a byte-qualified package and durable hash-bound rehearsal report, and exposes a no-mutation rehearsal mode; publish creates an annotated tag and atomically pushes `main` plus tag with local-tag rollback on failure | deleted; task entry is native `.rh`; `release.cmd` remains the sole explicit publication boundary |
+| Promotion identity builder | `scripts/rh/promotion-identity.rh` (Native pack, codegen rev 67, he_count=1); archived Rhai under `scripts/archive/rhai/` | n/a (workflow-owned) | native `.rh` cutover (codegen rev 67) | Release workflow builds exact Candidate-bound draft identity JSON with fail-closed run id/source SHA/mac channel checks and body SHA-256 | workflow entry is native `.rh`; archived Rhai is not an operational caller |
+
+### v0.1.10 completion commitment
+
+- [x] v0.1.10 completes the replacement of repository-owned PowerShell
+  automation; this is a release completion gate rather than a best-effort
+  migration track.
+- [x] the dated 2026-07-29 frozen baseline is 43 tracked `.ps1` files: 3 at
+  the repository root, 17 under `scripts/`, 21 under `tests/`, and 2 retained in
+  `scripts/archive/powershell/`.
+- [x] migration progress is 43/43 deleted and 0/43 remaining; progress is
+  counted only after parity evidence plus caller cutover, or caller-audited
+  functional deletion of obsolete behavior, and source deletion.
+- [x] `scripts/powershell-migration.json` freezes all 43 baseline paths under
+  stable migration IDs with responsibility groups, replacement task IDs, and
+  explicit `inventory`/`deleted` state.
+- [x] the public `migration-audit` rh task compares the ledger with
+  `git ls-files '*.ps1'`, rejects an unplanned script, a returned deleted
+  script, an operational reference to a deleted script, an unrecorded removal,
+  duplicate paths, invalid states, and count drift; ordinary and release
+  qualification invoke it as a required gate.
+- [x] the repository-root `agenterm.tasks.json` is now the offline task
+  catalog and ships forty-six ready tasks. The public task catalog is the
+  authoritative live inventory rather than a duplicated PRD command list.
+  Each task now
+  exposes validated same-manifest dependencies, a closed Windows/Linux/macOS
+  platform set, and a closed side-effect classification in both human and JSON
+  offline listings. Unknown, self, duplicate, or cyclic dependencies degrade
+  before execution. The existing
+  two-input Script contract verifier is
+  intentionally not advertised as ready until catalog fixture production is
+  part of its task. Build, lint, test, qualification, package, rehearsal,
+  release, and evidence metadata are declared by schema-v3 contracts.
+- [x] `git ls-files '*.ps1'` returns no files. Tests,
+  helpers, and archived implementations are not exceptions; Git history is the
+  permanent archive after each parity and rollback boundary closes.
+- [x] after rh left the repository, the Windows bootstrap inventory is five
+  files: four thin public aliases plus `scripts/bootstrap.cmd`. The migration
+  audit no longer requires the deleted `rh-check.cmd` pair; retaining those
+  names in the gate would make the qjswasm-era source state impossible to
+  qualify while providing no PowerShell-drift protection.
+- [x] the full qjswasm migration audit scans every tracked automation entry
+  after the cheap inventory checks. Its declared operation budget is 300
+  million steps (still bounded by 120 seconds and 1 MiB output); the inherited
+  100 million-step value expired before a clean tree could publish its report,
+  so it had only ever demonstrated early-failure paths.
+- [x] `agenterm.tasks.json` and shared rh modules under `scripts/rh/` own build,
+  lint, test, qualification, packaging, release rehearsal, and approved release
+  semantics.
+- [x] batch files, Unix shell entry points, and CI YAML may bootstrap a pinned
+  Rust toolchain and forward arguments/exit status to the same native `.rh`
+  task, but must not duplicate task selection, budgets, evidence, packaging, or
+  release policy. The four root Windows aliases are exact one-line task
+  selectors; `scripts/bootstrap.cmd` is the sole generic stage-0 implementation
+  and only discovers the repository, builds/copies the Script worker, forwards
+  one task plus argv/exit status, and cleans its owned copy. `scripts/rh/build.rh`
+  owns build profile selection, frozen identity, Cargo invocation, staging,
+  target reporting and release-target cleanup; check, lint, release mode and
+  nested qualification remain in their named rh tasks. The migration audit
+  freezes all five batch files, exact aliases, the generic bootstrap boundary,
+  and zero known business-rule tokens.
+  Four matching root `.sh` aliases and `scripts/bootstrap.sh` provide the same
+  stage-0 contract on Linux/macOS. Native Unix build compiles the five client
+  roles; default Unix check is the portable Quick lane and default Unix
+  release is validation-only. Full GUI qualification, Windows packaging and
+  publication remain explicitly unavailable rather than silently degraded.
+  Every repository-owned `.cmd` or `.bat` must therefore either be replaced by
+  a named rh task or have an equivalent checked-in `.sh` entry for Linux/macOS.
+  Matching names alone are insufficient: the cross-platform audit and CI must
+  execute the Unix entry through the native `agenterm rh` task host and verify
+  argument, exit-status, side-effect, and evidence parity.
+- [x] the migration proceeds from low-side-effect rules and reports through
+  build/static quality, public black-box tests, and finally qualification and
+  delivery. Each responsibility must prove normalized parity or stronger public
+  evidence before callers switch and its `.ps1` leaves the tree.
+- [x] Script Runtime gaps are filled with stable typed APIs or shared rh modules
+  under `scripts/rh/`. Rh scripts must never invoke PowerShell as an escape hatch.
+- [x] the zero-`.ps1` drift gate prevents the old source layer from returning;
+  clean-checkout qualification and rehearsal process-tree evidence is
+  complete.
+  The same gate also freezes four Windows aliases, four Unix aliases, both
+  generic bootstraps, and zero batch/shell business-rule drift.
+- [x] “PowerShell replacement” applies to repository-owned automation and its
+  delivery process, not to users launching PowerShell as a terminal shell or
+  to terminal-compatibility coverage. Such compatibility tests must be driven
+  by the rh harness and cannot carry repository business rules in PowerShell.
+- [x] completion is measured only after parity evidence, every caller cutover,
+  source `.ps1` deletion, and drift-gate coverage. Static zero-file evidence is
+  paired with clean-checkout process-tree evidence proving that repository
+  automation under build, check, qualification, packaging, and release
+  rehearsal does not spawn `powershell.exe` or `pwsh.exe`. An explicitly
+  declared PowerShell terminal payload inside the remote-UI compatibility
+  journey is recorded separately and carries no repository automation logic.
+  A 2026-07-30 artifact-free clone of commit `7c88ff0` completed all 34
+  stress-inclusive gates, produced a qualified rehearsal package, observed no
+  PowerShell automation or undeclared terminal payload across 728 process-tree
+  scans, left remote refs and local tags unchanged, and removed its owned
+  process tree and clone.
+
+## Public black-box acceptance
+
+- [x] tests invoke only released `agenterm cli script` commands and compare the
+  offline catalog with actual runtime behavior.
+- [ ] isolated temporary roots cover Unicode and long paths, metadata,
+  directory operations, atomic replacement, interruption, access failure, and
+  cleanup without changing files outside the fixture.
+- [ ] process fixtures cover argv boundaries, spaces, Unicode, cwd, env, stdin,
+  separate stdout/stderr, nonzero exit, timeout, cancellation, parent exit,
+  backpressure, and orphan-free cleanup.
+  - [x] the first public CLI process fixture covers executable-plus-argv, cwd,
+    child env overlay, text stdin, separate stdout/stderr, nonzero exit,
+    bounded Duration timeout, explicit Child kill/wait, and recovery on the
+    immediately following invocation.
+  - [x] the public CLI stream fixture covers live child stdout, bounded
+    chunked read and collect, final capture preservation, clean EOF, queue
+    facts, typed read timeout, explicit close/cancellation, and capture
+    truncation that reports `Output.complete=false` without falsely truncating
+    the fully delivered Stream; unit coverage fills the queue, rejects
+    oversized collect, and proves close wakes a backpressured producer.
+- [x] an independent loopback HTTP fixture covers request/response, headers,
+  body, status, bounded streaming, timeout, cancellation, malformed data,
+  connection failure, proxy/TLS-safe diagnostics, and no public-network
+  dependency.
+- [ ] timer and task fixtures prove concurrent progress, deterministic wait and
+  stream results, natural worker exit, cancellation propagation, bounded
+  queues, and recovery on the next invocation.
+  - [x] timer composition, child-process Stream state/backpressure, typed HTTP
+    Task payload, timeout, cancellation with rejected late completion, bounded
+    body Stream and immediate next-invocation recovery have unit and public-CLI
+    evidence; Fleet payload propagation and prompt transport abort remain
+    open.
+- [ ] module/task fixtures cover roots, relative imports, cycles, duplicate and
+  missing modules, manifest version/error handling, named-task discovery,
+  degraded entries, arguments, and working directory.
+  - [x] the first public fixture covers valid relative import, root escape,
+    missing module, cycle, bad manifest version, duplicate identity, unknown
+    field, ready/degraded discovery, list/show/check without code execution,
+    default-plus-caller argv, cwd, required environment-name validation and
+    successful named invocation.
+- [ ] Fleet conformance compares every operation-catalog entry with its script
+  exposure or explicit degraded reason; mutations verify typed receipts,
+  correlated public post-state/events, no duplicate side effect, and honest
+  close/send/restart failures.
+  - [x] Script API v2 maps all 24 current typed operations exactly once; the
+    public isolated-server journey proves observation plus a reversible UI
+    mutation and typed tab-note mutation with native request/operation
+    identity, receipt, correlated event, verified snapshot, restoration, and
+    audit attribution.
+  - [x] `fleet.tabs.set_note` returns a receipt, causal `tab.note` event, and
+    verified tab snapshot for one stable tab ID.
+    Destructive failure/restart and future operation families remain open.
+- [ ] the unrestricted local runtime proves deterministic computation,
+  observation, mutation, filesystem, process, and network paths through one
+  consistent API surface.
+- [ ] script error, worker crash, timeout, cancellation, parent exit, server
+  restart, and unfinished task cleanup leave GUI, PTY, workspace, and the next
+  script invocation healthy.
+- [ ] retained diagnostics and audit fixtures prove that file content,
+  arguments, environment secrets, HTTP credentials/bodies, terminal content,
+  and script stdout do not leak.
+  - [x] the HTTP loopback journey checks URL, path and proxy credential
+    sentinels against returned diagnostics, the reusable audit JSONL and the
+    redacted command record.
+- [ ] every slice records worker/CLI/GUI size, first-window/no-script startup,
+  duration, limits, and orphan cleanup before its status changes to shipped.
+
+## Future (pre-v0.2.0; schedule after v0.1.15)
+
+Parallel **rh** AOT track is shipped on `main` for trial; full Rhai cutover and
+layered deployment productization are **not** in v0.1.15 scope. Design SSOT:
+[`plan/archive/design-rh-aot.md`](../../plan/archive/design-rh-aot.md).
+
+- [~] **rh execution backend** (`crates/agenterm-rh`, `agenterm-rh` CLI):
+  rh-0→rh-2 — subset check, transpile→rustc AOT, pack qualify, fleet native
+  shim, host eval (stdlib parity via `configure_engine`), source-hash AOT cache,
+  default `AGENTERM_SCRIPT_BACKEND=rh`, project/API-aware check-many, native
+  range and break/continue control flow, and dedicated `./rh-check.sh` suite.
+- [~] **Rhai → rh migration** (incremental, compatibility boundary explicit):
+  `agenterm-rh` is the bootstrap task command front door and the sole
+  stage-0 cached worker. It directly hosts the task engine, framed worker and
+  incremental Rust compiler wrapper through the shared library; CI task
+  callers and authoritative worker/check-many black boxes use this entry.
+  Its dedicated gate now includes an isolated single-PE CLI suite, an external
+  public-library contract suite, complete fixture checking, typed budget
+  failures, and native AOT qualification for supported control flow.
+  The task manifest and automation corpus live as native `.rh` under
+  `scripts/rh/` (archived Rhai under `scripts/archive/rhai/`).
+  Worker implementation lives in the shared `script_worker` library; the former
+  `agenterm-rhai` binary was removed in Wave 4.5. Interpreter, host-eval
+  fallback, and AST parsing were retired with the Rhai backend while their
+  typed boundaries migrated to native rh. Release verification requires both
+  manifest roles and validates each role's declared offline version probe.
+- [~] **Layered deployment** (JVM / JAR analogue): the **interpreted** half
+  of this concept is now real, via a separate mechanism from the
+  `script_rh_pack` bullets below — `agenterm-dynacore` (design SSOT
+  [`plan/design-dynacore-logic-pack.md`](../../plan/design-dynacore-logic-pack.md)).
+  It is not a fourth script engine; it is a typed, verified, hot-loadable
+  "logic pack" IR interpreted in-process against the same `fleet_call`
+  bridge shape rh/lua/qjs already use. v1 done so far: `crates/agenterm-dynacore`
+  (neutral IR, a produce-time well-formedness gate that checks each pack's
+  `fleet_call` sites against the real `OPERATION_CATALOG`, an interpreter,
+  and a content-addressed pack store — ported from the dynamic-core research
+  track's Q1/Q3/Q7/Q9/Q18/Q19/Q21/Q22) plus the `src/script_dynacore_host.rs`
+  binding; a step-limit safety hardening (Q15's halting-check mechanism,
+  ported) so a well-formed pack with a real control-flow bug cannot hang the
+  host thread (`RunOutcome::termination`'s `Termination::StepLimitExceeded`,
+  a distinct outcome from a normal `Exited` result — a caller can no longer
+  mistake "forcibly cut off" for "finished and returned N"); and a real
+  (not mocked) round trip proven black-box (`tests/dynacore_live_server.rs`)
+  — a demo pack with a genuine `BrCond` branch calls `fleet.tabs.list`
+  against a separately spawned, live `agenterm` server process over the real
+  external IPC client path and gets real data back, both on its Ok arm (two
+  successful calls) and its Err arm (server unreachable). Still open: a
+  CLI-triggerable load/run entry point (blocked this round by unrelated
+  concurrent work already in flight on `src/client/mod.rs`/`src/commands.rs`/
+  the root `Cargo.toml`; see that test file's header for the specific
+  conflict), and everything in the design doc's §5 unresolved-questions list
+  (who produces a pack, signing/provenance, a pack's full `fleet.*`
+  dependency-declaration schema).
+  - **Base runtime** — stable PE family (`agenterm`, `agenterm-rh`, …):
+    host Facade, broker, supervision, qualification; rebases rarely
+  - **Application layer (planned v0.1.18+)** — one portable QJS source pack
+    (`agenterm.app` / `.agp`) loaded by a narrow, versioned App Host ABI;
+    the same pack bytes are consumed by all six Base targets and App-only
+    delivery does not rebuild the Base. Rh native packs remain Build/CI and
+    general automation artifacts, not the product App portability fallback.
+    Current execution plan: [`plan/plan-v0.1.18.md`](../../plan/plan-v0.1.18.md).
+    Chassis-layer split (thin L1 / Host ABI L2 / app L3) so Base CI stays cold:
+    [`plan/refactor-chassis-l1-l2-l3.md`](../../plan/refactor-chassis-l1-l2-l3.md).
+    The Chassis substrate is partial: the bounded L2 VM, versioned Host ABI,
+    L2 catalog/`active-tab` artifact, workbench fail-closed image validation,
+    and standalone loader validation followed by native presentation are real.
+    The `agenterm` workbench PE is not replaced; PTY/IPC/L2 Host ABI dispatch
+    has not migrated. Portable QJS `.agp` adoption remains planned.
+  - Control Center remains a separate PE and will obtain cacheable static App
+    semantics from the server's single Engine over IPC; PTY/parser/render/Fleet
+    authority remain native. Phase 0 does not yet migrate real CC behavior.
+- [~] **qjs execution backend** (`crates/agenterm-qjs`): QJS-M0–M5d and the
+  shared cross-engine CLI/check-many/pack support are present; the earlier
+  M2-era statement that backend/task/run/pack wiring remained wholly open is
+  obsolete. Remaining product-App work is explicit: QJS-M6 literal operation
+  validation against the versioned App Host ABI/actually exposed operation
+  subset, six-target default-host adoption measurements, a long-lived
+  Runtime/Context, named exports, interrupt/dirty reload, and deterministic
+  `.agp` lifecycle. None of those planned v0.1.18 leaves is shipped merely
+  because one-shot QJS CLI/pack support exists.
+  Open risk
+  questions recorded here so they aren't silently assumed away by "it built
+  and evaluated `1+2`" — none are blocking QJS-M0, all should be resolved
+  (or explicitly accepted) before qjs leaves "planned" for "partial":
+  - **Parallel-spec drift vs lua.** lua is currently the only independent
+    implementation stress-testing "capability parity with rh" in practice;
+    qjs is being built in parallel rather than after it (user-accepted risk,
+    2026-08-07, see `plan/archive/plan-v0.1.16.md` §7). The two engines may resolve
+    the same L2/CLI ambiguity differently; a reconciliation pass against
+    both is likely needed once both have real usage, not assumed away by
+    either engine shipping first.
+  - **Root-workspace C-dependency interaction — resolved (2026-08-07).**
+    rquickjs bundles quickjs-ng C source built via the `cc` crate; qjs is now
+    wired into the root workspace (commit `d5ac9a8a`) alongside lua's own
+    C-bundled binding. `cargo check --workspace` /
+    `cargo build -p agenterm --bin agenterm-qjs` /
+    `cargo test -p agenterm-qjs` are all clean — no MSVC CRT linkage
+    mismatch, no symbol collisions, no `cc`/`bindgen` interaction surprises.
+    Verified, not assumed.
+  - **Thread/concurrency model mismatch — partially validated the hard way
+    (2026-08-08).** Rhai/rh keep "the engine and its Scope … on one
+    evaluation thread" (see "v0.1.9 runtime architecture" above). QuickJS's
+    `Runtime`/`Context` are similarly not freely Send+Sync (single-
+    threaded-VM design, same family as V8 isolates) — this stopped being a
+    theoretical concern when the first `__host` binding attempt
+    (`crates/agenterm-qjs/src/host.rs`) captured a cloned `Ctx<'js>` inside
+    a bound closure's environment. That closure lives inside the JS heap as
+    a Function value *and* holds a Rust-level handle back into the same
+    context — a reference cycle QuickJS-ng's GC can't collect, which
+    crashed the whole process on `Runtime` teardown
+    (`Assertion failed: list_empty(&rt->gc_obj_list)`,
+    `STATUS_STACK_BUFFER_OVERRUN`), not just a failing test. Fixed by
+    taking `Ctx<'_>` as an ordinary *per-call* closure parameter
+    (`rquickjs::FromParam` supplies a fresh one each invocation) instead of
+    capturing it — reproduced with a 15-line minimal case before landing
+    the fix, now locked in by regression tests
+    (`eval::tests::calls_host_args`, `fleet_call_error_surfaces_as_js_exception`).
+    **Still unverified:** whether the existing one-thread-per-engine
+    worker pattern transfers directly to qjs's worker/framed-worker
+    integration (QJS-M2 continuation) — this incident narrows the risk
+    to "know the failure mode and its fix," not "resolved."
+  - **No AOT — different performance character than rh.** qjs has no
+    analogue to rh's T0–T3 layered AOT (`plan/archive/plan-rh-3.md` §1 point 3);
+    QuickJS interprets its own bytecode with no JIT. Capability parity does
+    **not** imply performance parity; any future latency-sensitive
+    consumer must evaluate qjs on its own merits rather than assume rh-like
+    throughput.
+  - **Unrestricted-runtime philosophy must carry over, not just the API
+    shape — partially verified (2026-08-08).** Rhai/rh's product position
+    (see "v0.1.9 product position" above) is a deliberately
+    **unrestricted** local runtime — no sandbox, no capability tiers;
+    authorization is the future Agent harness's job, not the engine's.
+    `rquickjs::Context::full` is likewise unrestricted by default, and the
+    `__host` binding layer built for QJS-M2 doesn't remove or hide any
+    global object, and propagates host-side errors (e.g. a failing
+    `fleet_call`) through to the script as a real, catchable JS exception
+    rather than swallowing or downgrading them
+    (`eval::tests::fleet_call_error_surfaces_as_js_exception`) — no
+    evidence yet of qjs becoming a second, more-restricted security model.
+    Still open: this only covers the host-binding layer built so far
+    (`fleet_call`/`args_len`/`arg`/`print`); the fuller `std.*`/network/
+    filesystem surface rh exposes hasn't been ported to qjs yet, so this
+    can't be called fully resolved.
+  - **Version/hash reproducibility for future receipts.** rh AOT/qualify
+    receipts bind to source hash (`design-rh-aot.md`). If qjs packs ever
+    join the same receipt contract, quickjs-ng's bundled version needs an
+    explicit pinning policy (`Cargo.lock` alone may be insufficient if
+    receipts need to name the exact engine build, not just "some rquickjs
+    0.12.x") — open question, not yet answered.
+  - **CI/build-time cost.** Compiling QuickJS's C source (`quickjs.c` is a
+    large single translation unit) adds non-trivial time to every clean
+    build once wired into the root workspace/CI cache; unmeasured against
+    this repo's existing build-time budget concerns (see `plan-v0.1.16.md`
+    §0.3, R′ group).
+
+Current non-goals: renaming or deleting the compatibility PE before worker and
+REPL ownership moves; npm-style remote rh imports; Cranelift direct codegen
+(transpile→rustc remains the production backend until a later gate).
+
+## Explicitly deferred
+
+- npm compatibility, arbitrary remote imports, third-party package lifecycle,
+  and Node/Bun binary or API compatibility; an AgenTerm-owned signed
+  package/application catalog remains a future optional-component track rather
+  than npm emulation inside the script runtime;
+- a persistent or automatically started script daemon and cross-invocation
+  mutable runtime state;
+- raw sockets, UDP, WebSockets, and higher-level network modules beyond the
+  shipped unrestricted TCP stream/listener primitives remain planned Script
+  Runtime expansion; when shipped, they expose the operating-system authority
+  of the invoking user without Script-owned permission gates or endpoint
+  allowlists;
+- event handlers, watch mode, and durable background scheduling;
+- durable REPL state, implicit REPL daemon startup, on-disk command history,
+  and concurrent evaluation of one REPL Scope;
+- Agent permission, approval, credential, quota, and natural-language policy
+  belong to the separate Agent harness;
+- GUI command palette delivery beyond its P1 consumption of the shared named
+  task catalog.

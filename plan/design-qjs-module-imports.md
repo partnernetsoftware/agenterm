@@ -5,7 +5,7 @@
 | **文档** | `agenterm-qjs` 多文件项目（ES `import`/`export`）支持设计 |
 | 日期 | 2026-08-08 |
 | 状态 | 设计稿 rev1（未实现，仅调研+决策；见 §7 分期） |
-| 关联 | `plan/plan-v0.1.16.md` §1 Rh（QJS-M3/M4 记录了本文起因的实测）、`crates/agenterm-rh/src/project_import.rs`（rh 的对应能力）、`crates/agenterm-qjs/src/check.rs`/`eval.rs`（现状代码）、PRD §「Script engine family」 |
+| 关联 | `plan/archive/plan-v0.1.16.md` §1 Rh（QJS-M3/M4 记录了本文起因的实测）、`crates/agenterm-rh/src/project_import.rs`（rh 的对应能力）、`crates/agenterm-qjs/src/check.rs`/`eval.rs`（现状代码）、PRD §「Script engine family」 |
 
 ---
 
@@ -212,7 +212,7 @@ module 作用域的代码一样能读全局（只是模块顶层的裸 `var`/`fu
 |----|------|
 | **QJS-M5a** | `Cargo.toml` 加 `features = ["loader"]`；新增受限 `Resolver`（§4.2），配套单测（合法相对 import、`..` 逃逸拒绝、绝对路径拒绝、符号链接逃逸拒绝、循环 import 两文件互相 import 应该成功而不是报错——反向验证 §5 的「循环依赖免费支持」结论） |
 | **QJS-M5b** | sniff 函数（§4.1）+ module 执行路径（§4.4：declare→eval→drain→get(entry)→call），先接到 `eval_entry`/`eval.rs`，配套单测（单文件 import 一个依赖跑通、依赖循环跑通、忘记 export entry 报错、依赖里有语法错误时报错定位到正确文件） |
-| **QJS-M5c** | `check()` 接上 §4.2 的 resolver（无 import 脚本行为不变，有 import 脚本递归校验），`pack.rs`/`qualify.rs` 接上 §4.5 | 
+| **QJS-M5c** | `check()` 接上 §4.2 的 resolver（无 import 脚本行为不变，有 import 脚本递归校验），`pack.rs`/`qualify.rs` 接上 §4.5 |
 | **QJS-M5d** | 端到端 CLI smoke（真实多文件目录，`check`/`eval`/`run`/`pack`/`qualify` 全过）+ 更新 `plan-v0.1.16.md`/`lib.rs` 模块注释里「多文件 import 不支持」的记录 |
 
 不在本次设计范围内、留给需要时再议：是否要给 `scripts/qjs/lib/fleet.js`

@@ -7,17 +7,17 @@ record a retraction instead of rewriting a judgement, and treat `[x]` as an
 evidence-backed commitment rather than an opinion.
 
 Status: active development
-Platform: Windows shipped; Linux/macOS GUI and POSIX PTY in active delivery
-  (see [`plan/plan-multiplatform-gui.md`](plan/plan-multiplatform-gui.md)).
+Platform: v0.1.16 publishes the six `{win,lnx,osx} × {x86_64,aarch64}` cells;
+  platform-specific capability depth remains evidence-scoped.
 Current default shell: Windows uses the real system `cmd.exe`; Unix GUI uses
 `$SHELL` with `/bin/sh` fallback.
 Future default-shell candidate: `agenterm-bash.exe`, only after its
 clean-machine gate passes; no release version is committed
 
 AgenTerm is a native terminal and local fleet workspace for people and
-AI agents. The Windows GUI is the shipped human surface; Linux and macOS
-share the same protocol, clients, and terminal kernel while their GUI
-surface is delivered through continuous PTY/render abstraction. Its window is the bridge, the tab tree organizes the fleet, shells
+AI agents across Windows, Linux and macOS. The hosts share product semantics,
+protocol, clients and terminal kernel while native adapters own OS mechanisms.
+Its window is the bridge, the tab tree organizes the fleet, shells
 are crew workspaces, and the local control plane lets people and agents observe
 and steer the same state. Scripting reuses that public contract rather than
 bypassing it. Human interaction and local CLI automation operate on the same
@@ -115,7 +115,7 @@ AgenTerm — local agent & process fleet work OS
 │  └─ 07 Agent control plane    观察、控制、协议、身份、确定性等待
 │
 ├─ 自动化与智能
-│  ├─ 10 Rust host + Rhai       本地无限制运行时、监督、注册、审计；Agent 权限在其上层
+│  ├─ 10 Script runtime family  本地无限制运行时；当前 .qjs 由 qjswasm/tinyvm 执行
 │  ├─ 11 MCP orchestration      agenterm cli mcp（只读 MCP → 受管工具/流/调度）
 │  ├─ 12 Specialized intelligence  agenterm-ai.exe（未指派研究方向的证据门）
 │  └─ 13 Local LLM gateway      agenterm-llm-gateway.exe（受管网关假设门）
@@ -142,7 +142,7 @@ AgenTerm — local agent & process fleet work OS
 │     │     ├─ macOS             AX (NSAccessibility)
 │     │     └─ Linux             AT-SPI2
 │     ├─ 31 Authorization & audit 高危面授权、审计、拒绝语义、交付门
-     └─ 32 Window placement     命名摆放（Spectacle 目录）→ `agenterm-cu window-place` + `agenterm-cu host`
+│     └─ 32 Window placement     命名摆放（Spectacle 目录）→ `agenterm-cu window-place` + `agenterm-cu host`
 │
 ├─ agenterm-mobile（reach · 全部 planned）
 │  └─ 33 Mobile reach           第三 host：连桌面 server，不跑手机 PTY
@@ -164,6 +164,33 @@ AgenTerm — local agent & process fleet work OS
    └─ 22 Decentralized network   agenterm-net（libp2p/IPFS 独立成熟）
 ```
 
+## Mermaid flowchart memory palace
+
+The tree answers “what belongs where”; this graph answers “what depends on
+what”. Detailed version gates live in PRD 18 rather than being duplicated here.
+
+```mermaid
+flowchart LR
+  U["Human + agent<br/>one observable workspace"]
+  TERM["Terminal runtime<br/>PTY · render · input"]
+  FLEET["Fleet authority<br/>tabs · events · waits"]
+  CLI["Public control<br/>CLI · mux · MCP"]
+  SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
+  CU["agenterm-cu<br/>structured desktop control"]
+  PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
+  CC["Control Center<br/>typed consumer"]
+  EVIDENCE["exact-artifact courts<br/>cross-build · native runners · UTM"]
+  RELEASE["Candidate → no-rebuild Promotion<br/>signing selected by policy"]
+  ROAD["PRD 18<br/>0.1.x → 0.2.x"]
+
+  U --> TERM --> FLEET --> CLI
+  PLATFORM --> TERM & CU
+  FLEET --> SCRIPT & CU & CC
+  SCRIPT --> CU & CC
+  TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
+  ROAD -. assigns bounded versions .-> CU & CC & RELEASE
+```
+
 ### Module index
 
 | # | 模块 | 一句话 |
@@ -177,7 +204,7 @@ AgenTerm — local agent & process fleet work OS
 | 07 | [Agent control plane](prd/PRD_02_07_agent_control_plane.md) | 观察、控制、协议、身份、确定性等待 |
 | 08 | [Observable Fleet event core](prd/PRD_02_08_observable_fleet.md) | 纪元/序列日志、读取、等待、缺口、重启、消费者 |
 | 09 | [Self-hosted development loop](prd/PRD_02_09_self_hosted_development.md) | 构建、暂存、更新可见性、安全迭代 |
-| 10 | [Rust host + script engines (Rhai/rh/lua/qjs)](prd/PRD_02_10_rhai_scripting.md) | 本地无限制运行时、监督、注册、审计、providers；多引擎家族见该文档「Script engine family」 |
+| 10 | [Script runtime family and history](prd/PRD_02_10_rhai_scripting.md) | 当前 `.qjs` 由 qjswasm/tinyvm 执行；Rh 已迁出，Lua/SQL 保留各自具名入口 |
 | 11 | [MCP and agentic orchestration (`agenterm cli mcp`)](prd/PRD_02_11_mcp_orchestration.md) | 只读 MCP 先行，再受管工具、流、调度 |
 | 12 | [Lightweight specialized intelligence (`agenterm-ai.exe`)](prd/PRD_02_12_specialized_intelligence.md) | 未指派可选智能研究方向的证据门 |
 | 13 | [Local LLM gateway (`agenterm-llm-gateway.exe`)](prd/PRD_02_13_llm_gateway.md) | 未指派受管网关假设的安全门 |
@@ -210,10 +237,10 @@ AgenTerm — local agent & process fleet work OS
 - Tab IDs remain stable for the lifetime of the tab; indexes may change.
 - Agent-facing state is machine-readable and actions can be verified without
   arbitrary sleeps.
-- `agenterm-rh` exposes one unrestricted local runtime with the invoking
-  user's operating-system authority. Rhai has no permission tier, approval
-  profile, protected-path/process/endpoint list, or restricted substitute for
-  an unshipped API; Agent policy belongs to the separate Agent/harness layer.
+- The Script Runtime is unrestricted local execution with the invoking user's
+  operating-system authority. Engine capability metadata is not permission;
+  Agent policy belongs to the separate Agent/harness layer. Rh has moved to its
+  own repository; current `.qjs` execution is qjswasm/tinyvm.
 - tmux/RMUX names are used only where behavior is compatible. Unsupported
   behavior returns an error rather than pretending to succeed.
 - AgenTerm does not silently download or bundle fonts. `Sarasa Fixed SC`
@@ -248,8 +275,7 @@ immutable tag must not be overwritten; the historical server-loss hotfix uses Se
 `0.1.9+hotfix.1` and tag `v0.1.9+hotfix.1`, with public release title
 “AgenTerm v0.1.9.1 Hotfix”. Versions 0.1.7 and 0.1.8 remain historical
 baselines; v0.1.7 is internal-only and must never produce a tag or public
-GitHub Release. Versions 0.1.12 and 0.1.13 were planned and worked on but
-never publicly released: their candidates were abandoned and superseded, so
-the public sequence runs v0.1.11 → v0.1.14. Their `plan/plan-v0.1.1{2,3}.md`
-records remain authoritative for what was built and why, but neither version
-has a tag or GitHub Release, and neither should be treated as shippable.
+GitHub Release. Versions 0.1.12, 0.1.13 and 0.1.15 were planned but never
+publicly released; their candidates were abandoned or superseded. The public
+sequence runs v0.1.11 → v0.1.14 → v0.1.16. Historical plans explain what was
+attempted but are not shippable evidence.

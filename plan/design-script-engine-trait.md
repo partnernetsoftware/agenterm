@@ -5,7 +5,7 @@
 | **文档** | 根 crate `src/script_backend.rs` 三个 `try_execute_{rh,lua,qjs}_invocation` 的收敛设计 |
 | 日期 | 2026-08-08 |
 | 状态 | 设计稿 rev1（未实现） |
-| 关联 | `plan/plan-v0.1.16.md` §1「Rh. 脚本引擎矩阵」、`plan/design-scripting-boundary-comparison.md`、`crates/agenterm-script-common`（library-level 已统一层） |
+| 关联 | `plan/archive/plan-v0.1.16.md` §1「Rh. 脚本引擎矩阵」、`plan/design-scripting-boundary-comparison.md`、`crates/agenterm-script-common`（library-level 已统一层） |
 | 范围声明 | **只读 + 设计文档任务**；本文档不修改任何 `.rs` 文件，不改 `try_execute_*` 本身 |
 
 ---
@@ -14,7 +14,7 @@
 
 本文档写成时状态是"设计稿 rev1（未实现）"（见上表「状态」行，该行字面保留不改，作为原始记录）。
 截至 2026-08-09，§4 的 M1–M4 四期**全部已落地**，§2.6 描述的第四后端（sql）也已经开工并验证了
-该节的设计承诺。以下按 `plan/plan-v0.1.16.md` 对应行（Common-M3/Trait-M1+M2、Common-M4/Trait-M3、
+该节的设计承诺。以下按 `plan/archive/plan-v0.1.16.md` 对应行（Common-M3/Trait-M1+M2、Common-M4/Trait-M3、
 Common-M5/Trait-M4、SQL-M0）逐项回填**已发生的事**，不改写上面 §1–§5 的设计推理本身——那些是
 "为什么这样设计"的记录，仍然按原样保留。
 

@@ -5,7 +5,7 @@
 （功能与布局设计文档，含 Key Decisions、几何/hit 契约、PR Plan）。
 实现仍归 `prd/PRD_02_21_control_center.md` 与 `src/control_center.rs`。
 
-关联：`plan/plan-v0.1.15.md` §5.3（L-CC 内容成熟）、
+关联：`plan/archive/plan-v0.1.15.md` §5.3（L-CC 内容成熟）、
 `plan/archive/plan-v0.1.11.md` §3.3（首版导航树）、
 `research/agenterm-webview/`（WebView 技术探针，非产品定稿）。
 

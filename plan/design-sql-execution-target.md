@@ -5,7 +5,7 @@
 | **文档** | `crates/agenterm-sql` 第四脚本后端的 `execute` 设计——占位实现之后的决策文档 |
 | 日期 | 2026-08-09 |
 | 状态 | 设计稿 rev1（未实现，仅文档） |
-| 关联 | `crates/agenterm-sql`（scaffold, commit `d50194fa`）、`src/script_engine.rs`（`ScriptEngineBackend` trait + `SqlEngineBackend`）、`plan/design-script-engine-trait.md` §2.6（原始设计预言）、`plan/plan-v0.1.16.md` §1 Rh SQL-M0 行 |
+| 关联 | `crates/agenterm-sql`（scaffold, commit `d50194fa`）、`src/script_engine.rs`（`ScriptEngineBackend` trait + `SqlEngineBackend`）、`plan/design-script-engine-trait.md` §2.6（原始设计预言）、`plan/archive/plan-v0.1.16.md` §1 Rh SQL-M0 行 |
 | 范围声明 | **只读 + 设计文档任务**；本文档不修改任何代码文件 |
 
 ---

@@ -64,7 +64,7 @@ src/bin/agenterm.rs 的 sql 分支、script_engine.rs / script_backend.rs / scri
 落地后进行,避免冲突。
 
 ### P2 引擎门控成为一等机制(策略对齐 roadmap)
-路线图(plan-v0.1.16.md §1)本来就是分平台的:rh(Linux 主力)、lua(Windows)、
+路线图(archive/plan-v0.1.16.md §1)本来就是分平台的:rh(Linux 主力)、lua(Windows)、
 qjs(等 lua 原型验证)。但 root crate 无 feature 门,四引擎无条件全量链入所有平台。
 建议:`engine-lua` / `engine-qjs` / `engine-sql` 三个 feature(rh 承重不设门),
 `ScriptEngineBackend` 注册表按 feature 组装。这使"哪个平台带哪个引擎"从文档约定

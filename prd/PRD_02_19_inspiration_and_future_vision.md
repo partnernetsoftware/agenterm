@@ -12,7 +12,7 @@ workflow below.
 
 Canonical shipped/partial/planned **capability status** remains in owning
 `prd/PRD_*.md` modules and [`PRD_02_18_roadmap.md`](PRD_02_18_roadmap.md).
-[`plan/`](plan/) holds **version execution projections** for the engineering
+[`plan/`](../plan/) holds **version execution projections** for the engineering
 track (for example the active v0.1.10 plan); it is not edited when capturing
 inspiration here.
 

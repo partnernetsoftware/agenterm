@@ -1100,3 +1100,28 @@ costs a full candidate cycle:
 - [ ] GitHub's ref API and releases list are read-after-write eventually
   consistent. Any read immediately following a create must poll rather than
   assume visibility.
+
+### Public-repository hygiene court (2026-09-03)
+
+- [x] A full current-tree and reachable-history secret scan found no embedded
+  live token, private key, signing certificate or cloud credential. Pattern
+  findings were reviewed as fixtures, type names or environment-variable
+  references rather than accepted automatically.
+- [x] Current tracked documentation passes `scripts/doc-redact-check.sh` for
+  home paths and identity-bearing examples. Public examples use repo-relative
+  paths, `~/...`, RFC 2606 addresses and placeholders.
+- [x] Candidate/Release upload review confirms raw Cargo metadata is not a
+  public artifact. It may contain host paths and dependency-author metadata and
+  must remain local; only the projected SBOM/provenance contracts may ship.
+- [~] Historical Git objects can retain contributor email or workstation
+  metadata even after current files are clean. A normal follow-up commit or
+  `.mailmap` does not erase already published objects. Repository-history purge
+  is a separate owner decision; future commits use a public noreply identity.
+- [ ] Before any self-hosted desktop runner is allowed to upload failure PNGs,
+  define an owned capture directory and source allowlist. GitHub-hosted fixture
+  screenshots remain bounded evidence; an unrestricted real desktop capture is
+  not an acceptable artifact.
+- [ ] Extend the redaction court to cover generic email domains, private-key
+  headers and common token formats without turning public hashes, UUID fixtures
+  or standard test domains into permanent false positives. The gate must scan
+  the exact publish/upload set as well as changed documentation.

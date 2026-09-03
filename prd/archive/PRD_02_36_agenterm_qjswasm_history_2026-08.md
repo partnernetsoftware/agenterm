@@ -311,7 +311,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 
 ### 门 3：逐动词判决（2026-08-25，全部跑过，不是读出来的）
 
-判据表在 [`plan/design-qjs-archive-gate.md`](../plan/design-qjs-archive-gate.md)，
+判据表在 [`plan/design-qjs-archive-gate.md`](../../plan/design-qjs-archive-gate.md)，
 每格都有可复现的命令。三类判决：**必须提供**（新引擎上要有等价动词）、
 **形状必然不同**（能力在，但产物或收据不同，须写清差异）、**可以不提供**（附理由）。
 
@@ -442,7 +442,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
    binding 函数**今天不可能成功**。诚实标注：「所以宿主回
    `broker_invalid_arguments`」是读派发路径读出来的，不是端到端跑出来的——那需要一台活
    服务端，结算实验写在
-   [`plan/design-fleet-catalog-binding.md`](../plan/design-fleet-catalog-binding.md)。
+   [`plan/design-fleet-catalog-binding.md`](../../plan/design-fleet-catalog-binding.md)。
 
 **本轮不修，理由写下来。** 47 条缺失的 binding 是**做功能**不是修 bug；那 9 条里有几条
 （`terminal.paste` 收 `text` 而 spec 是无参、`events.wait` 少三个必需参数）不是打错字，
@@ -466,7 +466,7 @@ qjswasm   compiling .qjs: needs an operand here, found a `/` at byte 0
 
 | # | 门 | 状态（2026-08-25） |
 |---|----|------|
-| 1 | 能力差异有诚实清单，每条注明要补 / 有意不补 | **可判绿**——清单在下，交付物是 [`plan/design-wasmcore-archive-gate.md`](../plan/design-wasmcore-archive-gate.md) |
+| 1 | 能力差异有诚实清单，每条注明要补 / 有意不补 | **可判绿**——清单在下，交付物是 [`plan/design-wasmcore-archive-gate.md`](../../plan/design-wasmcore-archive-gate.md) |
 | 2 | `.wasm` 默认路由切到 qjswasm，拒绝形状有测试锁住 | **不能绿**，还差两件，见下 |
 | 3 | 现状实测（零 `.wasm` 语料、optional + default 关） | **已复核**，数字与原文一致，但生产调用点是四处不是一处 |
 
@@ -1417,4 +1417,3 @@ selection.`，而它验的是**纯函数**，不是**任何产品路径会调用
   变量 > 扩展名 > 具名拒绝；`.qjs` 不用告诉就走 qjswasm，`tests/script_entry_extension_routing.rs`
   11 条。留下的坑见下节：环境变量能压过扩展名，测试里谁 `set_var` 谁就改了别人的路由。
 - **验证口径是三条命令不是一条。** 见上文 §这个盲区已经咬过一次。
-

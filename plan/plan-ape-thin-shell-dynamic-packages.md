@@ -293,7 +293,7 @@ v0.1.18 的主题是 Portable App Substrate（QJS App Pack），参见 `plan/pla
 
 ## 8. 与缓存修复的配合
 
-本方案与 `plan/claude-analyze-ci.md` §7 的缓存止血（`if: success()` → `if: !cancelled()`）
+本方案与 `plan/archive/claude-analyze-ci-v0.1.16.md` §7 的缓存止血（`if: success()` → `if: !cancelled()`）
 是互补关系，不是替代关系：
 
 - **缓存修复**：治标，让 CI 不再每轮冷编译，预计 CI 20min→5min

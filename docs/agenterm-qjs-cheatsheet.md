@@ -11,7 +11,7 @@
 
 Practical reference for writing `scripts/qjs/**.js`. Companion to
 [`docs/agenterm-rh-cheatsheet.md`](agenterm-rh-cheatsheet.md). Engine roadmap
-context lives in `plan/plan-v0.1.16.md` §1 Rh.
+context lives in `plan/archive/plan-v0.1.16.md` §1 Rh.
 
 qjs is the QuickJS-ng backend, capability-aligned with rh at the *host boundary*
 but nothing like it in language terms. The two failure modes are opposite:

@@ -3,7 +3,7 @@
 状态：active（O1b 与 con 黑盒闭环已达成，待 G1 新 Candidate 真机安装回执）
 角色：OSX 机跟进 agent（单写 Unix/macOS 泳道）
 编排拍板：2026-08-05 / 续写 2026-08-08
-关联：`plan/plan-v0.1.15.md`（§1 O 组 · §2.2.1 · §6 · §11）、`plan/ARCHITECTURE.md`（§6 禁令 · L2–L4）
+关联：`plan/archive/plan-v0.1.15.md`（§1 O 组 · §2.2.1 · §6 · §11）、`plan/ARCHITECTURE.md`（§6 禁令 · L2–L4）
 **脱敏**：禁止宿主绝对 home 路径与真实凭据；仓内**仓库相对路径**，家目录统一 **`~/...`**（跨 OS/ISA）。铁律：根目录 `Agents.md` → Document redaction。
 
 ---
@@ -11,7 +11,7 @@
 ## 0. 仓库与约束
 
 - **CWD**：agenterm 仓库根（勿在其它 monorepo 树内改本仓）
-- **先读**：`plan/ARCHITECTURE.md`、`plan/plan-v0.1.15.md` 上述章节
+- **先读**：`plan/ARCHITECTURE.md`、`plan/archive/plan-v0.1.15.md` 上述章节
 - **单写者**：`src/platform/adapters/unix/frontend/**`、`adapters/macos/**`；`src/frontend/*` 仅当语义真共享
 - **禁**：Win IME 域；无证据宣称三端齐；worktree 开发；`git add -A`；默认 kill 用户 server
 - **commit**：pathspec 精确提交
@@ -49,7 +49,7 @@
 | **G1-实现补齐** | installed record 新增 distribution 字段 | `install.sh` 已写入 `distribution`（`stable`/`preview`/`local`），`tests/install_local_macos.rs` 校验本地链路记录与日志 |
 | **con-shell** | blackbox 已按平台选择 shell，不再把 `cmd.exe` 作为 Unix/macOS 启动前提 | `tests/agenterm_con_blackbox.rs`：Windows 使用 `cmd.exe`，Unix/macOS 使用有效 `$SHELL`，否则回退 `/bin/sh` |
 | **con-基础** | `agenterm-con` 的 macOS 打开、PTY 存活与基础单测已有历史真机证据 | 既有回执：`cargo test --bin agenterm-con` 为 43 pass；脚本快照曾记录 `child_alive=true`，画面含 `DEF_OK` / `CON_OK` |
-| **O6** | Shift+选区复制已有定因与止血记录 | 证据归属 `plan/plan-v0.1.15.md` §11.8；除非回归复现，不在本 goal 重开实现 |
+| **O6** | Shift+选区复制已有定因与止血记录 | 证据归属 `plan/archive/plan-v0.1.15.md` §11.8；除非回归复现，不在本 goal 重开实现 |
 | **con-blackbox** | **PASS（可验证）**：`nonexistent_program_via_dash_e_exits_cleanly_instead_of_hanging -- --exact` 已全绿 | 证据：`cargo test --test agenterm_con_blackbox nonexistent_program_via_dash_e_exits_cleanly_instead_of_hanging -- --exact --nocapture`；`1 passed; 0 failed`，退出码 `0` |
 
 ### 2.2 未完成

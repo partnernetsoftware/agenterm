@@ -5,7 +5,7 @@
 | **文档** | Lua / Python / Node / Bun 等与 AgenTerm Rhai↔Rust 边界的对照分析 |
 | 日期 | 2026-08-06 |
 | 状态 | 设计稿 rev1 |
-| 关联 | `plan/design-rhai-rust-boundary.md`、`plan/plan-v0.1.18.md`、`prd/PRD_02_10_rhai_scripting.md` |
+| 关联 | `plan/archive/design-rhai-rust-boundary.md`、`plan/plan-v0.1.18.md`、`prd/PRD_02_10_rhai_scripting.md` |
 
 ---
 
@@ -87,8 +87,8 @@ C 扩展 / OS I/O  (numpy, psycopg2, ConPTY 若封装)
 内核
 ```
 
-- **感觉快**：时间花在 **I/O 与 native**，不在 Python 循环。  
-- **数值/网格/解析**：社区共识是 **C/Rust 写内核**，Python 写外圈。  
+- **感觉快**：时间花在 **I/O 与 native**，不在 Python 循环。
+- **数值/网格/解析**：社区共识是 **C/Rust 写内核**，Python 写外圈。
 - **与 AgenTerm 同构**：Rhai pack ≈ Python 业务层；Rust L1 ≈ numpy/ConPTY 层。
 
 **边界是否更贴内核？** 默认 **不**；只有 CPython **实现本身**（opcode、GC）在 C——那是 **语言 VM**，不是用户脚本贴内核。
@@ -104,7 +104,7 @@ C 扩展 / OS I/O  (numpy, psycopg2, ConPTY 若封装)
 
 **终端类产品：**
 
-- VS Code 终端：扩展 TS + **`node-pty`（native）** + **xterm.js（Wasm/JS 渲染已有 grid）** — 仍 **不是** 用 JS 重写 ConPTY。  
+- VS Code 终端：扩展 TS + **`node-pty`（native）** + **xterm.js（Wasm/JS 渲染已有 grid）** — 仍 **不是** 用 JS 重写 ConPTY。
 - 若用 Node 写完整终端 **产品**，严肃方案仍是 **native parser + 可选 JS chrome**，与 AgenTerm 分层一致。
 
 **Bun** 把更多标准库做成 native/Zig，是 **L2 更厚、更快**，不是让用户 JS 替换 PTY 内核。
@@ -139,8 +139,8 @@ Emacs 是 **反例**：Elisp 即产品；维护/性能代价大，**非本产品
 
 ### 5.5 Redis + Lua（最贴内核的一类）
 
-- 脚本与 **数据面同进程**、操作 **内置数据结构**。  
-- 适合：**短、原子、可预测** 的服务端逻辑。  
+- 脚本与 **数据面同进程**、操作 **内置数据结构**。
+- 适合：**短、原子、可预测** 的服务端逻辑。
 - **不适合：** 长生命周期 GUI、复杂 PTY 树、人类交互焦点、4 MiB PE 预算。
 
 AgenTerm **不应** 对标 Redis 脚本模型做默认 pack；Fleet 权威与 GUI 证据门冲突。
@@ -258,16 +258,16 @@ AgenTerm **不应** 对标 Redis 脚本模型做默认 pack；Fleet 权威与 GU
 
 ## 10. 交叉引用
 
-- L1 内核清单：`plan/design-rhai-rust-boundary.md` §2.1  
+- L1 内核清单：`plan/archive/design-rhai-rust-boundary.md` §2.1
 - App Pack / Strangler：`plan/plan-v0.1.18.md`
-- 发布分轨：`plan/design-release-base-vs-apps.md`  
-- Script 契约：`prd/PRD_02_10_rhai_scripting.md`  
-- 架构三层：`plan/ARCHITECTURE.md` §1.0  
+- 发布分轨：`plan/design-release-base-vs-apps.md`
+- Script 契约：`prd/PRD_02_10_rhai_scripting.md`
+- 架构三层：`plan/ARCHITECTURE.md` §1.0
 
 ---
 
 ## 11. 摘要（评审用）
 
-**其他生态并非天然更贴内核**；Redis/Lua、OpenResty **是**，VS Code/Neovim/Chrome **否**。  
-Node/Bun **API 离 OS 近**，但 **V8/libuv 仍是内核**。  
+**其他生态并非天然更贴内核**；Redis/Lua、OpenResty **是**，VS Code/Neovim/Chrome **否**。
+Node/Bun **API 离 OS 近**，但 **V8/libuv 仍是内核**。
 AgenTerm 选择 **外层 pack + Rust L1**，与 **严肃终端/编辑器** 同族，与 **Redis** 不同族——这是 **产品定位**，不是 Rhai 能力上限。

@@ -12,7 +12,7 @@
   功能完整、38 测试全绿，但已归档、不再投入，也不再是"dynacore"这个名字的候选。
   两个 crate 是平行关系，不互相依赖，IR/Op 定义不共享，只共享少量 intent 无关的机制
   （见该文档 §4） |
-| **前置** | [`research/dynamic-core/SYNTHESIS.md`](../research/dynamic-core/SYNTHESIS.md)（Q0–Q23，已归档） |
+| **前置** | [`plan/archive/dynamic-core-results/SYNTHESIS.md`](archive/dynamic-core-results/SYNTHESIS.md)（Q0–Q23，已归档） |
 | **产品归属** | 兑现 [`PRD_02_10_rhai_scripting.md`](../prd/PRD_02_10_rhai_scripting.md) 「Layered deployment」条目 |
 | **决策人** | 本文件是产品范围决策，由本轮对话的负责研究员直接定稿，不是又一轮实验 |
 

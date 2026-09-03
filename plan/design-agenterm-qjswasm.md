@@ -428,7 +428,7 @@ trap。** 状态码要用 `===` 分支，不要拼进字符串。这不是门的
 
 - **ECMA-262 是语义权威**，前端正确性以规范为准。
 - **QuickJS 是重点设计参考。** 逐子系统的挖掘清单见
-  [PRD 36 §从 QuickJS 挖什么](../prd/PRD_02_36_agenterm_qjswasm.md#从-quickjs-挖什么按分期对照)——
+  [archived PRD 36 §从 QuickJS 挖什么](../prd/archive/PRD_02_36_agenterm_qjswasm_history_through_v0.1.16.md#从-quickjs-挖什么按分期对照)——
   作用域/变量解析与闭包装箱是**极高**可移植（wasm locals 本就按索引寻址、帧上变量本就
   无法被捕获，是同一个问题）；值表示、串表示、shape、回收策略是高可移植；真正不通用的
   只有它的字节码指令集与派发循环。

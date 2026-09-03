@@ -12,7 +12,7 @@
 | **回答的问题** | 「一份产物如何跨 ISA / OS / ABI / 布局跑起来」这个空间里，人类试过哪些手段、哪些死了、**为什么死** |
 | **前置** | 上两篇 design 文档的 §0/§1（约束）与已判决结论（2 层、四原语） |
 | **⚠ 可信度** | **本次调研 WebSearch / WebFetch 全程不可用**（`selected model (haiku)` 报错），本机亦无直连出口。**文中除个别标注 ✅查证 的条目外，全部来自模型知识，未经本次联网核对。** 见 §11 |
-| **🔬 实测回灌** | 本文成稿后，`research/dynamic-core/` 的 Q0–Q13（含 Q12/Q13，Q11 未列）判决性实验产出了实测数字。**§12 是一层标注（已实测确认 / 已实测修正 / 仍未验证），不改写原文。** 引用本文任一论断前先查 §12：其中至少一条（§7.1 的 ACG）已被实测证明写错。横向的技术清单见 [`research/dynamic-core/README.md` §技术清单](../research/dynamic-core/README.md) |
+| **🔬 实测回灌** | 本文成稿后，`research/dynamic-core/` 的 Q0–Q13（含 Q12/Q13，Q11 未列）判决性实验产出了实测数字。**§12 是一层标注（已实测确认 / 已实测修正 / 仍未验证），不改写原文。** 引用本文任一论断前先查 §12：其中至少一条（§7.1 的 ACG）已被实测证明写错。横向技术清单已归档在 [`plan/archive/dynamic-core-results/README.md`](archive/dynamic-core-results/README.md) |
 
 ---
 
@@ -1583,7 +1583,7 @@ ISA 与特性位、页尺寸与分配粒度、ABI 变体（SysV vs Win64 vs Appl
 >
 > 全部实测数字的宿主机：Windows Server 2022 Datacenter 10.0.20348（真机）/ x86_64 / `rustc 1.97.0`。
 > **Linux/SysV 与全部 aarch64 产物是字节测量 + 编码器校验，未执行**（无 WSL、无 ARM 机器）。
-> 横向技术清单见 [`research/dynamic-core/README.md` §技术清单](../research/dynamic-core/README.md)。
+> 横向技术清单见 [`plan/archive/dynamic-core-results/README.md`](archive/dynamic-core-results/README.md)。
 
 ### 12.1 已实测修正（正文写错或写窄了）
 

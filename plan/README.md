@@ -1,63 +1,43 @@
-# plan/ — 执行投影索引
+# `plan/` execution index
 
-**产品真理**在 `PRD.md` / `prd/`；**结构 SSOT** 在 [`ARCHITECTURE.md`](ARCHITECTURE.md)。  
-本目录只放**执行投影**（排序、风险、交接、证据）。过期叙事进 [`archive/`](archive/)。
+Product truth lives in `PRD.md` and `prd/`; source-layout truth lives only in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). This directory owns sequencing, risks and
+evidence plans. Completed or superseded material belongs in
+[`plan/archive/`](archive/).
 
-## 现行（agent 默认先读这些）
+## Current execution path
 
-| 文件 | 角色 |
-|------|------|
-| [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md) | **当前系列路线**：0.1.18 → 0.1.19 → 0.2.0 的依赖、砍叶和记忆宫殿 |
-| [`plan-v0.1.18.md`](plan-v0.1.18.md) | **唯一在制版本**（不单开 0.1.17）；主结果是 Portable App Substrate，历史承接轨须按系列路线再盘点 |
-| [`plan-v0.1.19.md`](plan-v0.1.19.md) | **预开草案**：CC Phase 1 + cu `window-place` / `cu hotkeys`（PRD 32；macOS 已部分落地） |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | 代码分层、热文件与结构禁令 SSOT |
-| [`refactor-chassis-l1-l2-l3.md`](refactor-chassis-l1-l2-l3.md) | **薄 L1 底盘 / 可换 L2 宿主 ABI / L3 应用包** 执行树（chassis，避免和终端 shell 撞名）；L1 面 [`chassis-l1-surface.json`](chassis-l1-surface.json)；goal [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md) |
-| [`plan-unix-gui-win-parity.md`](plan-unix-gui-win-parity.md) | Win↔Unix 可见行为差距地图 |
-| [`agenterm-dyn-grok-review.md`](agenterm-dyn-grok-review.md) | `agenterm-dyn` Windows 跟评与实机后续（A 证明门 / B 诚实 GCSBI / C 需政委才填 live 探针） |
-| [`platform-ux-parity-evidence-matrix.md`](platform-ux-parity-evidence-matrix.md) | 平台 UX 证据矩阵（含 templates） |
-| [`precision-audit.md`](precision-audit.md) | 窄域正确性审计与仍开放项 |
-| [`agent-human-parity-audit.md`](agent-human-parity-audit.md) | Agent↔Human 输入/观察 parity 的现行审计与剩余叶 |
-| [`goal-crate-platform.md`](goal-crate-platform.md) / [`plan-platform-encapsulation-gap.md`](plan-platform-encapsulation-gap.md) | platform crate 边界、机制漏点与固定执行句式 |
-| [`goal-agenterm-osx.md`](goal-agenterm-osx.md) | macOS 原生证据与安装尾账 goal |
-| [`goal-local-six-cell.md`](goal-local-six-cell.md) | **本机六格**：单台 Apple Silicon 宿主完成 `{x86_64,aarch64}×{win,lnx,osx}` 构建 + 四格 VM 运行时验证（CI 降为兜底） |
-| [`plan-multiplatform-gui.md`](plan-multiplatform-gui.md) | Linux/macOS GUI 交付里程碑 |
-| [`plan-mobile.md`](plan-mobile.md) | 移动原生壳执行投影；**产品归 PRD 33**（PWA 先行，商店 App 占位） |
-| [`plan-control-center-ux.md`](plan-control-center-ux.md) / [`design-control-center-ux.md`](design-control-center-ux.md) | Control Center 任务书与实现级设计 |
-| [`plan-cc-automation-cli.md`](plan-cc-automation-cli.md) | CC 自动化 CLI 未实现设计 |
-| [`capability-mcu-cu.md`](capability-mcu-cu.md) | MCU ↔ agenterm-cu 能力对照树（动词级；实验室 vs 产品） |
-| [`design-mcu-absorption.md`](design-mcu-absorption.md) | MCU 教训吸收进 cu 的切片史（片 1–4） |
-| [`design-dynacore-logic-pack.md`](design-dynacore-logic-pack.md) | `agenterm-dynacore` 当前产品方向 |
-| [`design-dynacore-emulated-guest-core.md`](design-dynacore-emulated-guest-core.md) | emulated guest core 待实现设计 |
-| [`reference-cross-target-execution.md`](reference-cross-target-execution.md) | 常驻跨目标执行参考；已完成实验规格在 archive |
+| File | Role |
+|---|---|
+| [`roadmap-0.1x-0.2x.md`](roadmap-0.1x-0.2x.md) | series dependency tree and memory palace |
+| [`plan-v0.1.18.md`](plan-v0.1.18.md) | only active version: qualified three-host `agenterm-cu` current tier |
+| [`plan-v0.1.19.md`](plan-v0.1.19.md) | next-version draft: prove the fast-change Chassis boundary |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | sole living source map and boundary catalog |
+| [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md) | Chassis implementation/evidence owner |
+| [`goal-local-six-cell.md`](goal-local-six-cell.md) | local cross-build and runtime-court contract |
+| [`goal-crate-platform.md`](goal-crate-platform.md) | platform encapsulation boundary |
+| [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) | current CU multi-host parity design |
+| [`platform-ux-parity-evidence-matrix.md`](platform-ux-parity-evidence-matrix.md) | cross-host UX evidence matrix |
+| [`goal-company-windows-signing.md`](goal-company-windows-signing.md) | reusable Windows signing qualification and remaining product gate |
 
-### 过渡保留（不是默认派工入口）
+Capability-specific designs remain living only while their owning PRD leaf is
+open. Their presence in this directory does not assign them to a version.
 
-- [`plan-v0.1.16.md`](plan-v0.1.16.md)：已发布 v0.1.16 的 exact-SHA 发布战役与故障证据；不再是当前任务单，待链入 archive 后迁入。
-- [`plan-v0.1.15.md`](plan-v0.1.15.md)：上版证据/推迟表；待 v0.1.16 最终发布审计确认全部叶去向后单独归档。
-- [`plan-rh-3.md`](plan-rh-3.md) / [`design-rh-aot.md`](design-rh-aot.md)：Rh 时代执行史；
-  Rh 已迁出本仓，活跃 `.qjs` 引擎是 qjswasm/tinyvm，这两份不得再当作当前派工入口。
-- [`ci-green-handoff.md`](ci-green-handoff.md) 与 [`claude-analyze-ci.md`](claude-analyze-ci.md)：
-  v0.1.16 CI 战役的带时点历史输入；发布已收口，不得再当作活任务单，待链入 archive 后同批迁入。
-- `research/dynamic-core/` 是已封闭研究的结果 SSOT；对应 Q0–Q15 实验规格现位于 `archive/`。
+## Portfolio horizon, not current dispatch
 
-## 已归档（勿当任务单）
+- `plan-control-center-ux.md` / `design-control-center-ux.md` — 0.2.0 Cockpit
+  input; no current-version authority.
+- `plan-mobile.md` — product scope belongs to PRD 33; no version commitment.
+- `research-decentralized-network.md` — research only.
+- `design-dynacore-*`, `goal-agenterm-dyn-macos.md` — isolated internal
+  mechanism research; not a release theme.
 
-见 [`archive/README.md`](archive/README.md)。含：
+## Archive rule
 
-- 已发版 / 已终止版本 plan：`plan-v0.1.8` … `plan-v0.1.14`、`goal-v0.1.14`
-- 未开工即归档：`plan-v0.1.17`（2026-08-12；未完成叶已 upsert 至 `plan-v0.1.18` §11）
-- 已合并即归档：`plan-libagenterm`（2026-08-12；全文并入 `plan-v0.1.18` §14 轨 E）
-- 已落地专题：`plan-agenterm-server-mode`、`plan-skins-v1`、`plan-platform-facade-v4`、`osx-cpu-improve`
-- 已完成 goal 快照：`goal-v0.1.15-server-instance-s-prime`
-- 历史过程文：`platform-ui-ux-boundary-tree`（superseded by ARCHITECTURE）
-- App Pack 历史讨论：`agenterm-rhai-app`、`plan-agenterm-app-pack`（现行版本投影为 `plan-v0.1.18`）
-- dynamic-core Q0–Q15 已判决实验规格（综合结论在 `research/dynamic-core/SYNTHESIS.md`）
-- Rh namespace/trace 历史三件套与已落地的 Script subcommand 设计
-- 已被现行 parity/CC 文档吸收的旧 goal 与 feeder analysis
-
-## 归档规则（短）
-
-1. 版本已发或专题 **shipped** → 移入 `archive/` + 文件头 ⚠️ 横幅。  
-2. 未完成叶先 **upsert** 到在制 `plan-v0.1.*.md`，再归档。  
-3. **从不删除**；PRD 链到 archive 路径保留历史证据。  
-4. `plan/` 根目录保持「打开就能干活」，禁止堆完工叙事。
+1. Upsert surviving product truth into its owning PRD.
+2. Move a shipped, rejected or superseded execution document into
+   `plan/archive/` and add an archive banner.
+3. Repair active links; archives may link to newer truth but never become it.
+4. Never delete the decision record merely to make the root look clean.
+5. Keep this index small enough that an agent can identify the active version
+   without reading historical campaigns.

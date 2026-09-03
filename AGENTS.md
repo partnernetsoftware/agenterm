@@ -80,6 +80,18 @@ and handoff prompts **never** get that exception.
 
 ## Planning and decomposition method
 
+Every material product plan uses two linked projections:
+
+- a **Markdown tree DAG** for outcome → capability owner → behavior/evidence/
+  delivery/non-goal leaves; dependencies may be referenced rather than copied;
+- a **Mermaid flowchart memory palace** for shared prerequisites, authority
+  boundaries, parallel courts, state transitions, decisions and kill paths.
+
+The tree is the scannable inventory; the flowchart is the relationship map.
+Neither is decorative and neither may create a second product truth. Keep the
+compact index in `PRD.md`, current truth in one owning `prd/PRD_*.md`, execution
+order in `plan/`, and superseded reasoning in the applicable archive.
+
 Use tree thinking, divergent thinking, and dependency-aware parallel thinking
 as the default planning method:
 

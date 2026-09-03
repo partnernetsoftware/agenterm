@@ -1,0 +1,423 @@
+// Prove the agenterm-cu browser verbs against a real Chromium-family
+// browser on Windows, through UI Automation and CDP, without a screenshot.
+//
+// The browser/tab/page-text work landed on macOS on 2026-09-03. The pure
+// matchers in agenterm-cu already accept the UIA role spellings, but until
+// this script runs they have only ever seen synthetic node lists. This is
+// the journey that turns "the matcher accepts `page tab`" into "a real
+// Edge/Chrome/Brave window answered `tab list` with both of its tabs".
+//
+// What it proves, in order:
+//   windows --app <browser>          the window reaches the inventory
+//   unlock  --window H               typed: Windows has no poke to make,
+//                                    so `poked: false` WITH a reason -- a
+//                                    silent success here would be the lie
+//   tab list --window H              both tabs, exactly one `selected: true`
+//   tab select --window H --title B  switches, proven by a `tab list` re-read
+//   page text --window H             the selected tab's words, with node ids
+//   page targets --port N            both tabs over CDP
+//   page-js --port N --target-title B --expression document.title
+//                                    answers B while A is the active tab
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// TYPED SKIP, never a fabricated pass: a host with no Chromium-family
+// browser installed prints `SKIP[no_chromium_browser]` and returns without
+// emitting any evidence id. "We could not run it" must not read as "it
+// works" in the parity ledger.
+//
+// Runs under --profile tool in an *interactive* desktop session: UI
+// Automation in session 0 sees no desktop, so a runner that arrives through
+// a service has to hand off to the logged-on session first.
+//
+// The browser is owned by this run: a fresh --user-data-dir under the run
+// directory, --no-first-run, and only the pid this run spawned is ever
+// signalled. Both the process and the profile directory go away on the way
+// out, success or failure.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.windows-browser-window",
+  "cu.windows-browser-unlock-typed",
+  "cu.windows-browser-tab-list",
+  "cu.windows-browser-tab-select",
+  "cu.windows-browser-page-text",
+  "cu.windows-browser-cdp-targets",
+  "cu.windows-browser-cdp-page-js",
+  "cu.windows-browser-cleanup"
+];
+
+const TAB_A = "AGENTERM-TAB-A";
+const TAB_B = "AGENTERM-TAB-B";
+const MARKER_B = "bravo marker two";
+const URL_A = "data:text/html,<title>" + TAB_A + "</title><h1>alpha marker one</h1>";
+const URL_B = "data:text/html,<title>" + TAB_B + "</title><h1>" + MARKER_B + "</h1>";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+// Where a Chromium-family browser actually lands on Windows. Edge ships
+// with the OS, so the skip below is the rare case rather than the usual
+// one -- but it is still a skip and not a pass.
+function installed_browser() {
+  const program_files = rh.env_or("ProgramFiles", "C:/Program Files");
+  const program_files_x86 = rh.env_or("ProgramFiles(x86)", "C:/Program Files (x86)");
+  const local_app_data = rh.env_or("LOCALAPPDATA", "");
+  const candidates = [
+    { app: "msedge", path: rh.join(program_files_x86, "Microsoft/Edge/Application/msedge.exe") },
+    { app: "msedge", path: rh.join(program_files, "Microsoft/Edge/Application/msedge.exe") },
+    { app: "chrome", path: rh.join(program_files, "Google/Chrome/Application/chrome.exe") },
+    { app: "chrome", path: rh.join(program_files_x86, "Google/Chrome/Application/chrome.exe") },
+    { app: "brave", path: rh.join(program_files, "BraveSoftware/Brave-Browser/Application/brave.exe") },
+    { app: "brave", path: rh.join(program_files_x86, "BraveSoftware/Brave-Browser/Application/brave.exe") }
+  ];
+  if (local_app_data !== "") {
+    candidates.push({ app: "chrome", path: rh.join(local_app_data, "Google/Chrome/Application/chrome.exe") });
+    candidates.push({ app: "brave", path: rh.join(local_app_data, "BraveSoftware/Brave-Browser/Application/brave.exe") });
+  }
+  for (const candidate of candidates) {
+    if (direct_file(candidate.path)) { return candidate; }
+  }
+  return null;
+}
+
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 60000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_windows_browser_cli_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu_json(run_directory, executable, arguments) {
+  const document = run_cu_reply(run_directory, executable, arguments);
+  ensure(flag_at(document, "ok"), "cu_windows_browser_cli_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_rows(reply) {
+  const data = reply.data;
+  if (rh.is_array(data)) { return data; }
+  const rows = rh.field(data, "windows");
+  return rows === undefined || rows === null ? [] : rows;
+}
+
+function tab_rows(reply) {
+  const rows = at(reply, "data.tabs");
+  return rows === undefined || rows === null ? [] : rows;
+}
+
+function selected_tabs(rows) {
+  const selected = [];
+  for (const row of rows) {
+    if (rh.field(row, "selected") === true) { selected.push(row); }
+  }
+  return selected;
+}
+
+function titles_of(rows, key) {
+  const titles = [];
+  for (const row of rows) { titles.push(text_of(rh.field(row, key))); }
+  return titles;
+}
+
+function any_contains(values, needle) {
+  for (const value of values) {
+    if (value.indexOf(needle) >= 0) { return true; }
+  }
+  return false;
+}
+
+// ---- entry ----------------------------------------------------------------
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_windows_browser_executable_missing:" + executable);
+ensure(
+  direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
+  "cu_windows_browser_library_missing:" + rh.parent(executable)
+);
+
+const browser = installed_browser();
+if (browser === null) {
+  // TYPED SKIP. No evidence id is emitted, and the ledger line for this
+  // platform stays unchecked.
+  print("SKIP[no_chromium_browser]: no Microsoft Edge, Google Chrome or Brave under ProgramFiles / ProgramFiles(x86) / LOCALAPPDATA on this host; a Chromium-family browser is what publishes the UIA tab strip and the CDP endpoint this journey reads");
+  return;
+}
+
+const context = harness.new_context(repo, "cu-windows-browser");
+const run_directory = rh.join(repo, "target/cu-windows-browser-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_windows_browser_stale_directory_locked");
+rh.create_dir_all(run_directory);
+const profile_directory = rh.join(run_directory, "user-data");
+rh.create_dir_all(profile_directory);
+
+// A port nobody else on this host is using: derived from this run's own pid
+// so two concurrent runs cannot collide, and refused before use if anything
+// already answers there.
+const cdp_port = 9400 + (rh.pid() % 500);
+
+let succeeded = 0;
+let failure = "";
+let browser_pid = 0;
+let browser_handle_id = -1;
+let browser_reaped = false;
+
+try {
+  print("STEP nothing is already listening on the CDP port this run will own");
+  const stale = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "page", "targets", "--port", "" + cdp_port
+  ]);
+  ensure(
+    !flag_at(stale, "ok"),
+    "cu_windows_browser_port_in_use:" + cdp_port + ":" + JSON.stringify(stale)
+  );
+
+  print("STEP start the owned browser with a throwaway profile and two data: URL tabs");
+  browser_handle_id = harness.start({
+    program: browser.path,
+    args: [
+      "--user-data-dir=" + profile_directory,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--remote-debugging-port=" + cdp_port,
+      URL_A,
+      URL_B
+    ],
+    current_dir: run_directory,
+    timeout_ms: 120000
+  });
+  browser_pid = harness.spawned_pid(browser_handle_id);
+  ensure(browser_pid !== 0, "cu_windows_browser_no_pid");
+
+  print("STEP windows --app " + browser.app + " lists the browser window");
+  let row = null;
+  for (let attempt = 0; attempt < 120; attempt = attempt + 1) {
+    const reply = run_cu_reply(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "windows", "--app", browser.app
+    ]);
+    if (flag_at(reply, "ok")) {
+      for (const candidate of window_rows(reply)) {
+        const title = text_of(rh.field(candidate, "title"));
+        if (title.indexOf(TAB_A) >= 0 || title.indexOf(TAB_B) >= 0) { row = candidate; break; }
+      }
+    }
+    if (row !== null) { break; }
+    harness.sleep_ms(500);
+  }
+  ensure(row !== null, "cu_windows_browser_window_not_in_inventory:" + browser.app);
+  const handle = int_at(row, "handle");
+  ensure(handle > 0, "cu_windows_browser_window_handle:" + JSON.stringify(row));
+  const handle_text = "" + handle;
+  // The inventory's app_name on Windows is the image name (`msedge.exe`),
+  // not the display name the title carries, so `browser_profile` is
+  // expected to be absent here. Recorded rather than asserted away: the
+  // parser gap is written up in prd/PRD_02_30_cu_targets_transports.md.
+  print("NOTE window title=" + text_of(rh.field(row, "title"))
+    + " app_name=" + text_of(rh.field(row, "app_name"))
+    + " browser_profile=" + text_of(rh.field(row, "browser_profile")));
+
+  print("STEP unlock is typed on Windows: poked=false with a reason, never a pretend success");
+  const unlocked = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "unlock", "--window", handle_text
+  ]);
+  ensure(
+    at(unlocked, "data.poked") === false,
+    "cu_windows_browser_unlock_claimed_a_poke:" + JSON.stringify(unlocked.data)
+  );
+  ensure(
+    text_at(unlocked, "data.reason") !== "",
+    "cu_windows_browser_unlock_silent:" + JSON.stringify(unlocked.data)
+  );
+
+  print("STEP tab list returns both tabs with exactly one selected");
+  let tabs = [];
+  for (let attempt = 0; attempt < 60; attempt = attempt + 1) {
+    const reply = run_cu_reply(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "tab", "list", "--window", handle_text
+    ]);
+    if (flag_at(reply, "ok")) { tabs = tab_rows(reply); }
+    if (tabs.length >= 2) { break; }
+    harness.sleep_ms(500);
+  }
+  const tab_titles = titles_of(tabs, "title");
+  ensure(any_contains(tab_titles, TAB_A), "cu_windows_browser_tab_a_missing:" + JSON.stringify(tab_titles));
+  ensure(any_contains(tab_titles, TAB_B), "cu_windows_browser_tab_b_missing:" + JSON.stringify(tab_titles));
+  ensure(
+    selected_tabs(tabs).length === 1,
+    "cu_windows_browser_tab_selected_count:" + JSON.stringify(tabs)
+  );
+  for (const tab of tabs) {
+    const flag = rh.field(tab, "selected");
+    // `unknown` on every row reads as "no tab is active", which is a
+    // different answer from "this one is".
+    ensure(
+      flag === true || flag === false,
+      "cu_windows_browser_tab_selection_unreadable:" + JSON.stringify(tab)
+    );
+  }
+
+  print("STEP tab select --title " + TAB_B + ", proven by a tab list read-back");
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "tab", "select",
+    "--window", handle_text, "--title", TAB_B
+  ]);
+  const after_select = tab_rows(run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "tab", "list", "--window", handle_text
+  ]));
+  const selected_b = selected_tabs(after_select);
+  ensure(
+    selected_b.length === 1 && text_of(rh.field(selected_b[0], "title")).indexOf(TAB_B) >= 0,
+    "cu_windows_browser_tab_select_readback:" + JSON.stringify(after_select)
+  );
+
+  print("STEP page text returns the selected tab's words with the node id that carries them");
+  let page_rows = [];
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const reply = run_cu_reply(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "page", "text", "--window", handle_text
+    ]);
+    if (flag_at(reply, "ok")) {
+      const rows = at(reply, "data.rows");
+      page_rows = rows === undefined || rows === null ? [] : rows;
+    }
+    if (any_contains(titles_of(page_rows, "text"), MARKER_B)) { break; }
+    harness.sleep_ms(500);
+  }
+  ensure(
+    any_contains(titles_of(page_rows, "text"), MARKER_B),
+    "cu_windows_browser_page_text_missing_words:" + JSON.stringify(titles_of(page_rows, "text")).slice(0, 400)
+  );
+  ensure(
+    text_of(rh.field(page_rows[0], "id")) !== "",
+    "cu_windows_browser_page_text_row_has_no_node_id"
+  );
+
+  print("STEP back to " + TAB_A + " so the CDP read below is against a background tab");
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "tab", "select",
+    "--window", handle_text, "--title", TAB_A
+  ]);
+  const back_to_a = selected_tabs(tab_rows(run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "tab", "list", "--window", handle_text
+  ])));
+  ensure(
+    back_to_a.length === 1 && text_of(rh.field(back_to_a[0], "title")).indexOf(TAB_A) >= 0,
+    "cu_windows_browser_tab_select_back:" + JSON.stringify(back_to_a)
+  );
+
+  print("STEP page targets --port " + cdp_port + " lists both tabs");
+  const targets_reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "page", "targets", "--port", "" + cdp_port
+  ]);
+  const target_rows = at(targets_reply, "data.targets");
+  const target_titles = titles_of(target_rows === undefined || target_rows === null ? [] : target_rows, "title");
+  ensure(any_contains(target_titles, TAB_A), "cu_windows_browser_cdp_a_missing:" + JSON.stringify(target_titles));
+  ensure(any_contains(target_titles, TAB_B), "cu_windows_browser_cdp_b_missing:" + JSON.stringify(target_titles));
+
+  print("STEP page-js reaches the background tab " + TAB_B + " while " + TAB_A + " is active");
+  const evaluated = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "page-js", "--port", "" + cdp_port,
+    "--target-title", TAB_B, "--expression", "document.title"
+  ]);
+  let value = at(evaluated, "data.value");
+  if (rh.is_map(value)) { value = rh.field(value, "value"); }
+  ensure(
+    text_of(value) === TAB_B,
+    "cu_windows_browser_page_js_value:" + JSON.stringify(evaluated.data)
+  );
+
+  print("STEP the owned browser ends and no window of it survives");
+  rh.command("taskkill", ["/PID", "" + browser_pid, "/T", "/F"], { timeout_ms: 20000 });
+  let exited = 0;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    if (harness.state(browser_handle_id) === "exited") { exited = 1; break; }
+    harness.sleep_ms(25);
+  }
+  ensure(exited !== 0, "cu_windows_browser_exit_timeout");
+  harness.wait(browser_handle_id, 10000);
+  browser_reaped = true;
+  const gone = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + browser_pid
+  ]);
+  ensure(int_at(gone, "data.matched") === 0, "cu_windows_browser_window_lingers");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (browser_handle_id >= 0 && !browser_reaped) {
+  // Only the pid this run spawned; never a name pattern, so a browser the
+  // person was already using is never touched.
+  if (browser_pid !== 0) {
+    rh.command("taskkill", ["/PID", "" + browser_pid, "/T", "/F"], { timeout_ms: 20000 });
+  }
+  try { harness.wait(browser_handle_id, 10000); } catch (wait_error) { print("cleanup: " + wait_error); }
+}
+
+if (succeeded !== 1) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_windows_browser_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_windows_browser_cleanup_locked");
+for (const id of declared_evidence) {
+  harness.emit_evidence(context, declared_evidence, id);
+}
+harness.remove_run(context);
+print("PASS: agenterm-cu Windows browser journey (window, typed unlock, tab list, tab select, page text, CDP targets, CDP page-js, cleanup)");
+return;

@@ -4,6 +4,10 @@ Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+## Machine-aligned shipped declaration
+
+- [x] typed operation catalog shared by CLI validation, IPC dispatch, capability discovery, stable errors, and event attribution.
+
 - Observation
   - [x] stable active tab `id:name`
   - [x] text capture, raw escaped output, styled cell dumps

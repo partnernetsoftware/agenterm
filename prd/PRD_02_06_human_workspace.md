@@ -4,6 +4,16 @@ Parent: [AgenTerm product tree](../PRD.md#product-tree)
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+## Machine-aligned shipped declarations
+
+- [x] Dark and Light theme settings preview, apply, cancel, and persist without interrupting PTYs.
+- [x] Dark/Light same-window render-cost parity rejects stable 3--5x palette-dependent asymmetry.
+- [x] `agenterm.exe --no-activate` shows or starts the workspace without activation and behind the current foreground window; `--not-foreground` remains an alias.
+- [x] detach-first window close preserves the live server and explicit stop creates a fresh runtime.
+- [x] keyboard-first Ctrl+Arrow surface navigation preserves native Edit word movement and suppresses cross-focus repeat.
+- [x] truthful working-context CWD uses launch and OSC 7 provenance with safe Composer preparation.
+- [x] create-time tab-scoped HTTP(S) proxy context remains ephemeral and redacted across UI, control, persistence, and terminal evidence.
+
 - [x] window title identifies version and live IPC port
 - [~] Linux/macOS human workspace MVP: one window, live POSIX PTY tabs,
   keyboard input, visible VT grid, tab sidebar with New/Tabs/Settings

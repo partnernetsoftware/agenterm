@@ -144,7 +144,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
 - [x] `agenterm-cu` is the accepted product name. It supersedes the
   `agenterm-remote.exe` working name used in
-  [`plan/plan-v0.1.15.md`](../plan/plan-v0.1.15.md) §5.6.1. Remote protocol
+  [`plan/archive/plan-v0.1.15.md`](../plan/archive/plan-v0.1.15.md) §5.6.1. Remote protocol
   support is a transport axis inside this product, not a separate product.
 - [x] `agenterm-cu` is also the only executable name. ABI diagnostics,
   command mode, and the desktop host are modes of that executable; a second
@@ -236,7 +236,7 @@ independent implementation.
 ## Execution projection
 
 Design and sequencing live in
-[`plan/plan-v0.1.15.md`](../plan/plan-v0.1.15.md) §5.6 (mainline L-CU) and the
+[`plan/archive/plan-v0.1.15.md`](../plan/archive/plan-v0.1.15.md) §5.6 (mainline L-CU) and the
 current-tier gap input
 [`plan/agent-human-parity-audit.md`](../plan/agent-human-parity-audit.md).
 Those are execution projections; accepted scope and status belong to this
