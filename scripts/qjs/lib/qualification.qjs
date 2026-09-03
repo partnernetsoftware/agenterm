@@ -545,8 +545,8 @@ export function write_receipt(context, repo, output_path) {
     product: "AgenTerm",
     completed_at_utc: rh.rfc3339_from_ms(rh.now_ms()),
     started_at_utc: context.started_at_utc,
-    release: context.release,
-    stress_included: context.stress_included,
+    release: context.release !== 0,
+    stress_included: context.stress_included !== 0,
     gate_manifest: {
       path: "scripts/qualification-gates.json",
       sha256: context.manifest_sha256

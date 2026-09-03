@@ -80,6 +80,9 @@ completion value 投影全程，任何一段掉链子这里都看得见。`e1122
   `"a" < "b"` 是 `true`、`1 == "1"` 是 `true`。**上一版 README 说这些 trap，已作废。**
 - **`JSON` 是一个真名字**：`JSON.stringify({a:{b:"c"}})` 给 `{"a":{"b":"c"}}`，
   `JSON.parse("{\"a\":3}").a` 给 `3`。**上一版说「`JSON` 今天不是名字」，已作废。**
+- 发布 JSON 时要在 schema 边界显式恢复类型：内部为便于控制流使用的 `0/1` 不能直接
+  泄漏成 JSON number；若字段合同是 boolean，producer 应写 `value !== 0`，reader 继续
+  严格要求 `true` / `false`，不要为历史类型漂移放宽验证。
   **含数组的 JSON 现在也行**（`c0d7ae4`）：`JSON.parse("[1,2,3]")[1]` 是 `2`，
   `JSON.stringify([1,[2,{c:3}]])` 往返一致，`[{"id":"tab1"}]`——也就是 `tabs.list`
   的真实形状——解析出来能索引。两条规范细节容易记反：`[undefined,1]` 是 `[null,1]`

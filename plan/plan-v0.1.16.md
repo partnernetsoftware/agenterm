@@ -1574,3 +1574,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   seal 现只复制 `candidate-input` 顶层 regular files，随后仍由 `candidate-aggregate` 对六 archive、
   checksum、provenance、SBOM、qualification receipt、chassis product 和 preview README 做严格
   allowlist/哈希验证，未知或缺失文件继续 fail-closed。
+
+### A.51 Candidate `33700802135`：控制流整数不泄漏进 JSON boolean schema
+
+- 六 build、Windows 完整 qualification、六 runtime、Defender 再次全绿；aggregate 已越过 A.50
+  的 file-only staging，随后以 `candidate_receipt_profile` 拒绝真实 receipt。
+- receipt 中 `release` / `stress_included` 是 qjs driver 的 `0/1` 控制值，producer 原样写出后成为
+  JSON number；Candidate schema 则严格要求 boolean `true`。修复在 `write_receipt` 发布边界显式
+  写 `context.* !== 0`，不改变内部控制流，也不放宽 validator。这样旧类型漂移仍会 fail-closed，
+  新收据按 schema 产生真正 JSON boolean。

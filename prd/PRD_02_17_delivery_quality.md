@@ -976,6 +976,12 @@ costs a full candidate cycle:
   `chassis-l1/` compose inputs. Those directories have already been consumed into the validated
   chassis-product archive and are not Release assets; sealing now copies only top-level regular
   files, while candidate-aggregate still validates the exact allowlisted payload and rejects drift.
+- [x] Qualification receipt profile flags retain JSON boolean types across qjswasm. Candidate
+  `33700802135` again completed every build, qualification, runtime, and Defender court; aggregate
+  advanced through top-level payload staging and then rejected `release: 1` /
+  `stress_included: 1` against its strict `true` schema. The producer now converts the driver's
+  integer control flags to booleans only at the receipt publication boundary; the Candidate
+  validator remains strict and is not widened to accept malformed historical types.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

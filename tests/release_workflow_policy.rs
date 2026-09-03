@@ -234,6 +234,16 @@ fn candidate_seal_copies_only_closed_top_level_payload_files() {
 }
 
 #[test]
+fn qualification_receipt_serializes_profile_flags_as_json_booleans() {
+    let qualification = include_str!("../scripts/qjs/lib/qualification.qjs");
+    let candidate = include_str!("../scripts/qjs/lib/release_candidate.qjs");
+    assert!(qualification.contains("release: context.release !== 0"));
+    assert!(qualification.contains("stress_included: context.stress_included !== 0"));
+    assert!(candidate.contains("receipt.release === true"));
+    assert!(candidate.contains("receipt.stress_included === true"));
+}
+
+#[test]
 fn powershell_launcher_test_is_an_explicit_terminal_compatibility_subcourt() {
     assert!(CHECK_QJS.contains("\"--skip\", \"powershell_waits_for_explicit_agenterm_exe\""));
     assert!(CHECK_QJS.contains("function cargo_unit_powershell_compat_spec(environment)"));
