@@ -75,6 +75,12 @@ candidate.require_file(artifact_path, "candidate_artifact_manifest_missing");
 const artifact_hash = rh.sha256_file(artifact_path);
 candidate.require_file(release_policy_path, "candidate_release_policy_missing");
 const release_policy_hash = rh.sha256_file(release_policy_path);
+const release_policy = rh.parse_file(release_policy_path);
+const windows_signing_mode = candidate.text(candidate.child(release_policy, "signing").windows);
+rh.require(
+  windows_signing_mode === "off" || windows_signing_mode === "required",
+  "candidate_windows_signing_policy"
+);
 candidate.require_file(sbom_path, "candidate_sbom_missing");
 const sbom_hash = rh.sha256_file(sbom_path);
 
@@ -117,6 +123,12 @@ for (const spec of candidate.platform_specs(metadata_version)) {
     provenance, name, archive_hash, metadata_source_sha, metadata_version,
     metadata_expected_tag, spec_os, spec_arch, cargo_hash, artifact_hash, sbom_hash
   );
+  if (spec_os === "windows") {
+    rh.require(
+      provenance.signed === (windows_signing_mode === "required"),
+      "candidate_windows_signing_provenance:" + spec_arch
+    );
+  }
   const channel_text = candidate.text(provenance.channel);
   if (spec_os === "macos") {
     if (mac_channel === "") {
@@ -149,6 +161,25 @@ if (mac_channel === "macos-unsigned-preview") {
   readme_entries.push(readme_entry(asset_root, candidate.README_NAME_ZH));
 }
 
+const signing_receipt_name = "windows-signing-receipt.json";
+const signing_receipt_path = rh.join(asset_root, signing_receipt_name);
+let windows_signing_receipt = { name: "", size: 0, sha256: "" };
+if (windows_signing_mode === "required") {
+  candidate.require_asset_name(signing_receipt_name);
+  candidate.require_file(signing_receipt_path, "candidate_windows_signing_receipt_missing");
+  candidate.validate_windows_signing_receipt(
+    signing_receipt_path, metadata_source_sha, metadata_version,
+    metadata.run_id, metadata.run_attempt, assets
+  );
+  windows_signing_receipt = {
+    name: signing_receipt_name,
+    size: candidate.file_size(signing_receipt_path, "candidate_windows_signing_receipt_missing"),
+    sha256: rh.sha256_file(signing_receipt_path)
+  };
+} else {
+  rh.require(!rh.exists(signing_receipt_path), "candidate_windows_signing_receipt_unexpected");
+}
+
 candidate.require_file(gate_path, "candidate_gate_manifest_missing");
 const gate_hash = rh.sha256_file(gate_path);
 candidate.require_file(receipt_path, "candidate_receipt_missing");
@@ -175,6 +206,7 @@ const manifest = {
   },
   qualification: { name: receipt_name, size: receipt_size, sha256: receipt_hash },
   sbom: { name: sbom_name, size: sbom_size, sha256: sbom_hash },
+  windows_signing: { mode: windows_signing_mode, receipt: windows_signing_receipt },
   assets: assets,
   unsigned_macos_readmes: readme_entries
 };

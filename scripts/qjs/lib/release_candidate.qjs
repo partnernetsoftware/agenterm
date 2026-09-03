@@ -170,11 +170,94 @@ export function validate_provenance_parsed(
           && provenance.signed === false && provenance.notarized === false),
       "candidate_provenance_macos_channel:", name
     );
+  } else if (os_name === "windows") {
+    check(
+      provenance.channel === "release"
+        && (provenance.signed === true || provenance.signed === false)
+        && provenance.notarized === false,
+      "candidate_provenance_windows_channel:", name
+    );
   } else {
     check(
       provenance.channel === "release" && provenance.signed === false && provenance.notarized === false,
       "candidate_provenance_release_channel:", name
     );
+  }
+}
+
+export function validate_windows_signing_receipt(
+  receipt_path, source_sha, version, run_id, run_attempt, assets
+) {
+  const receipt = rh.parse_file(receipt_path);
+  rh.require(
+    receipt.schema_version === 1
+      && receipt.kind === "agenterm-azure-artifact-signing"
+      && receipt.source_sha === text(source_sha)
+      && receipt.version === text(version)
+      && receipt.signing_provider === "azure-artifact-signing"
+      && receipt.publisher_organization === "PARTNERNET SOFTWARE PTY LTD"
+      && receipt.file_digest === "SHA256"
+      && receipt.timestamp_rfc3161 === "http://timestamp.acs.microsoft.com"
+      && receipt.timestamp_digest === "SHA256"
+      && receipt.asset_count === 10
+      && receipt.platform_count === 2,
+    "candidate_windows_signing_receipt_identity"
+  );
+  const receipt_run = child(receipt, "run");
+  rh.require(
+    receipt_run.id === run_id && receipt_run.attempt === run_attempt,
+    "candidate_windows_signing_receipt_run"
+  );
+  const receipt_platforms = child(receipt, "platforms");
+  const receipt_assets = child(receipt, "assets");
+  const pe_names = ["agenterm.exe", "agenterm.com", "agenterm-cc.exe", "agenterm-cu.exe", "agenterm.dll"];
+  for (const platform of [
+    { id: "windows-x86_64", arch: "x86_64" },
+    { id: "windows-aarch64", arch: "aarch64" }
+  ]) {
+    const archive = child(receipt_platforms, platform.id);
+    rh.require(
+      archive.arch === platform.arch
+        && archive.archive_name === "agenterm-" + version + "-windows-" + platform.arch + ".zip"
+        && valid_sha256(text(archive.before_sha256))
+        && valid_sha256(text(archive.after_sha256))
+        && archive.before_sha256 !== archive.after_sha256
+        && archive.after_bytes > 0
+        && archive.payload_uncompressed_bytes > 0,
+      "candidate_windows_signing_archive:" + platform.id
+    );
+    let matching_archive = false;
+    for (const asset of assets) {
+      if (asset.os === "windows" && asset.arch === platform.arch) {
+        rh.require(!matching_archive, "candidate_windows_signing_archive_duplicate");
+        matching_archive = true;
+        rh.require(
+          asset.name === archive.archive_name
+            && asset.sha256 === archive.after_sha256
+            && asset.size === archive.after_bytes
+            && asset.payload_uncompressed_bytes === archive.payload_uncompressed_bytes
+            && asset.signed === true,
+          "candidate_windows_signing_archive_identity:" + platform.id
+        );
+      }
+    }
+    rh.require(matching_archive, "candidate_windows_signing_archive_missing:" + platform.id);
+    for (const pe_name of pe_names) {
+      const receipt_asset = child(receipt_assets, platform.id + "/" + pe_name);
+      rh.require(
+        receipt_asset.path === platform.id + "/" + pe_name
+          && valid_sha256(text(receipt_asset.before_sha256))
+          && valid_sha256(text(receipt_asset.after_sha256))
+          && receipt_asset.before_sha256 !== receipt_asset.after_sha256
+          && receipt_asset.after_bytes > 0
+          && receipt_asset.product_name === "AgenTerm"
+          && (receipt_asset.product_version === version || receipt_asset.product_version === version + ".0")
+          && text(receipt_asset.signer_subject).includes("O=PARTNERNET SOFTWARE PTY LTD")
+          && text(receipt_asset.signer_thumbprint) !== ""
+          && text(receipt_asset.timestamp_subject) !== "",
+        "candidate_windows_signing_asset:" + platform.id + "/" + pe_name
+      );
+    }
   }
 }
 
@@ -443,6 +526,12 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
   const artifact_hash = rh.sha256_file(artifact_path);
   require_file(release_policy_path, "candidate_release_policy_missing");
   const release_policy_hash = rh.sha256_file(release_policy_path);
+  const release_policy = rh.parse_file(release_policy_path);
+  const windows_signing_mode = text(child(release_policy, "signing").windows);
+  rh.require(
+    windows_signing_mode === "off" || windows_signing_mode === "required",
+    "candidate_windows_signing_policy"
+  );
   require_file(gate_path, "candidate_gate_manifest_missing");
   const gate_hash = rh.sha256_file(gate_path);
   rh.require(
@@ -488,6 +577,15 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
       cargo_hash, artifact_hash, sbom_hash,
       spec.os, spec.arch, spec.release_name, spec.preview_name
     );
+    if (spec.os === "windows") {
+      let signed_matches_policy = false;
+      for (const asset of assets) {
+        if (asset.os === "windows" && asset.arch === spec.arch) {
+          signed_matches_policy = asset.signed === (windows_signing_mode === "required");
+        }
+      }
+      rh.require(signed_matches_policy, "candidate_windows_signing_provenance:" + spec.arch);
+    }
     if (spec.os === "macos") {
       for (const asset of assets) {
         if (asset.os === "macos" && asset.arch === spec.arch) {
@@ -505,6 +603,32 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
     expected_files.push(asset_name);
     expected_files.push(asset_name + ".sha256");
     expected_files.push(asset_name + ".provenance.json");
+  }
+
+  const windows_signing = child(manifest, "windows_signing");
+  const signing_receipt = child(windows_signing, "receipt");
+  rh.require(windows_signing.mode === windows_signing_mode, "candidate_windows_signing_mode");
+  const signing_receipt_name = "windows-signing-receipt.json";
+  const signing_receipt_path = rh.join(asset_root, signing_receipt_name);
+  if (windows_signing_mode === "required") {
+    rh.require(signing_receipt.name === signing_receipt_name, "candidate_windows_signing_receipt_name");
+    require_asset_name(signing_receipt_name);
+    require_file(signing_receipt_path, "candidate_windows_signing_receipt_missing");
+    rh.require(
+      signing_receipt.size === file_size(signing_receipt_path, "candidate_windows_signing_receipt_missing")
+        && signing_receipt.sha256 === rh.sha256_file(signing_receipt_path),
+      "candidate_windows_signing_receipt_identity"
+    );
+    validate_windows_signing_receipt(
+      signing_receipt_path, source_sha, version, run.id, run.attempt, assets
+    );
+    expected_files.push(signing_receipt_name);
+  } else {
+    rh.require(
+      signing_receipt.name === "" && signing_receipt.size === 0 && signing_receipt.sha256 === ""
+        && !rh.exists(signing_receipt_path),
+      "candidate_windows_signing_receipt_unexpected"
+    );
   }
 
   const readmes = list(manifest, "unsigned_macos_readmes");

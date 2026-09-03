@@ -9,6 +9,15 @@ static INTEGRITY: LazyLock<String> = LazyLock::new(|| {
 });
 static RELEASE_POLICY: LazyLock<String> =
     LazyLock::new(|| include_str!("../release-policy.json").replace("\r\n", "\n"));
+static WINDOWS_SIGNING_SCRIPT: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/windows-signing-candidate.ps1").replace("\r\n", "\n")
+});
+static CANDIDATE_AGGREGATE_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/candidate-aggregate.qjs").replace("\r\n", "\n")
+});
+static RELEASE_CANDIDATE_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/lib/release_candidate.qjs").replace("\r\n", "\n")
+});
 static ARTIFACTS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../scripts/artifacts.json"))
         .expect("scripts/artifacts.json must remain valid JSON")
@@ -658,7 +667,9 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         );
     }
     assert!(CANDIDATE.contains("name: Resolve checked-in release policy"));
-    assert!(CANDIDATE.contains("needs: [build, runtime]"));
+    assert!(
+        CANDIDATE.contains("needs: [preflight, build, windows_unsigned, windows_sign, runtime]")
+    );
 
     let runtime = CANDIDATE
         .split_once("\n  runtime:\n")
@@ -685,6 +696,74 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     assert!(runtime.contains("Prove Linux bundle closure in package-free Ubuntu"));
     assert!(!runtime.contains("actions/checkout"));
     assert!(!runtime.contains("cargo "));
+}
+
+#[test]
+fn candidate_windows_signing_is_policy_selected_and_precedes_runtime() {
+    let unsigned = CANDIDATE
+        .split_once("\n  windows_unsigned:\n")
+        .and_then(|(_, tail)| tail.split_once("\n  windows_sign:\n"))
+        .map(|(body, _)| body)
+        .expect("credential-free Windows finalization job");
+    let signing = CANDIDATE
+        .split_once("\n  windows_sign:\n")
+        .and_then(|(_, tail)| tail.split_once("\n  runtime:\n"))
+        .map(|(body, _)| body)
+        .expect("Azure Windows signing job");
+
+    assert!(CANDIDATE.contains("candidate-unsigned-part-${{ matrix.platform_id }}"));
+    assert!(unsigned.contains("signed_windows != 'true'"));
+    assert!(unsigned.contains("candidate-part-windows-x86_64"));
+    assert!(unsigned.contains("candidate-part-windows-aarch64"));
+    assert!(!unsigned.contains("azure/login"));
+    assert!(!unsigned.contains("secrets."));
+    assert!(!unsigned.contains("release-signing"));
+
+    assert!(signing.contains("signed_windows == 'true'"));
+    assert!(signing.contains("environment: release-signing"));
+    assert!(signing.contains("id-token: write"));
+    assert!(signing.contains("azure/login@0949e32778441b2c442592b7a0e6313466dc8f29"));
+    assert!(
+        signing.contains("Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba")
+    );
+    assert!(signing.contains("files-catalog: signing-input/signing-catalog.txt"));
+    assert!(signing.contains("timestamp-rfc3161: http://timestamp.acs.microsoft.com"));
+    assert!(signing.contains("windows-signing-candidate.ps1 -Mode Prepare"));
+    assert!(signing.contains("windows-signing-candidate.ps1 -Mode Finalize"));
+
+    for contract in [
+        "Get-AuthenticodeSignature",
+        "ProductName",
+        "ProductVersion",
+        "expected five PE inputs",
+        "input is already signed",
+        "signing did not change bytes",
+        "windows-signing-receipt.json",
+        "asset_count = 10",
+    ] {
+        assert!(
+            WINDOWS_SIGNING_SCRIPT.contains(contract),
+            "missing Windows signing script guard: {contract}"
+        );
+    }
+    for owner in [
+        CANDIDATE_AGGREGATE_QJS.as_str(),
+        RELEASE_CANDIDATE_QJS.as_str(),
+    ] {
+        for contract in [
+            "windows-signing-receipt.json",
+            "candidate_windows_signing_receipt_missing",
+            "candidate_windows_signing_receipt_unexpected",
+            "candidate_windows_signing_provenance",
+        ] {
+            assert!(
+                owner.contains(contract),
+                "missing Candidate receipt guard: {contract}"
+            );
+        }
+    }
+    assert!(RELEASE_CANDIDATE_QJS.contains("receipt.asset_count === 10"));
+    assert!(RELEASE_CANDIDATE_QJS.contains("receipt.platform_count === 2"));
 }
 
 #[test]

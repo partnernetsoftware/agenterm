@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      signed_windows: ${{ steps.release_policy.outputs.signed_windows }}
       signed_macos: ${{ steps.release_policy.outputs.signed_macos }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -55,7 +56,12 @@ jobs:
           test "$(jq -r .assets.native_six_cell release-policy.json)" = true
           test "$(jq -r .assets.chassis_product release-policy.json)" = true
           test "$(jq -r .assets.experimental_ape release-policy.json)" = false
-          test "$(jq -r .signing.windows release-policy.json)" = off
+          windows_mode="$(jq -r .signing.windows release-policy.json)"
+          case "$windows_mode" in
+            off) signed_windows=false ;;
+            required) signed_windows=true ;;
+            *) echo "Unsupported Windows signing policy: $windows_mode" >&2; exit 1 ;;
+          esac
           test "$(jq -r .signing.linux release-policy.json)" = off
           test "$(jq -r .executable_compression release-policy.json)" = off
           test "$(jq -r .reputation.windows_final_candidate_bytes release-policy.json)" = required
@@ -65,7 +71,10 @@ jobs:
             unsigned-preview) signed_macos=false ;;
             *) echo "Unsupported macOS signing policy: $macos_mode" >&2; exit 1 ;;
           esac
-          echo "signed_macos=$signed_macos" >>"$GITHUB_OUTPUT"
+          {
+            echo "signed_windows=$signed_windows"
+            echo "signed_macos=$signed_macos"
+          } >>"$GITHUB_OUTPUT"
 
   build:
     needs: preflight
@@ -747,7 +756,17 @@ jobs:
             --source-sha "$SOURCE_SHA" \
             --out "$stage"
 
-      - name: Upload flat candidate part
+      - name: Upload unsigned Windows candidate input
+        if: startsWith(matrix.platform_id, 'windows-')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-unsigned-part-${{ matrix.platform_id }}
+          path: candidate-part/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload final non-Windows candidate part
+        if: ${{ !startsWith(matrix.platform_id, 'windows-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: candidate-part-${{ matrix.platform_id }}
@@ -755,8 +774,164 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
+  windows_unsigned:
+    needs: [preflight, build]
+    if: needs.preflight.outputs.signed_windows != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # `off` is a real credential-free path. It copies the exact build parts
+      # into the canonical names consumed by runtime and aggregate.
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: candidate-unsigned-part-windows-x86_64
+          path: final/windows-x86_64
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: candidate-unsigned-part-windows-aarch64
+          path: final/windows-aarch64
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-part-windows-x86_64
+          path: final/windows-x86_64/
+          if-no-files-found: error
+          retention-days: 2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-part-windows-aarch64
+          path: final/windows-aarch64/
+          if-no-files-found: error
+          retention-days: 2
+
+  windows_sign:
+    needs: [preflight, build]
+    if: needs.preflight.outputs.signed_windows == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    environment: release-signing
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: candidate-unsigned-part-windows-x86_64
+          path: unsigned/windows-x86_64
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: candidate-unsigned-part-windows-aarch64
+          path: unsigned/windows-aarch64
+
+      - name: Require protected Azure signing configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          ARTIFACT_SIGNING_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          ARTIFACT_SIGNING_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @(
+            'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID',
+            'ARTIFACT_SIGNING_ENDPOINT', 'ARTIFACT_SIGNING_ACCOUNT',
+            'ARTIFACT_SIGNING_PROFILE'
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "required release-signing value is missing: $name"
+            }
+          }
+
+      - name: Verify exact unsigned inputs and prepare ten-file catalog
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content release-policy.json -Raw | ConvertFrom-Json).version
+          ./scripts/windows-signing-candidate.ps1 -Mode Prepare `
+            -InputRoot unsigned -SigningRoot signing-input -OutputRoot final `
+            -SourceSha $env:SOURCE_SHA -Version $version `
+            -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT
+
+      - name: Upload immutable unsigned signing input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-windows-signing-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            signing-input/
+            windows-signing-state.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Azure login (GitHub OIDC, profile-scoped signer)
+        uses: azure/login@0949e32778441b2c442592b7a0e6313466dc8f29 # v3.0.2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign exact ten Windows files with Azure Artifact Signing
+        uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files-catalog: signing-input/signing-catalog.txt
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: AgenTerm
+          description-url: https://github.com/partnernetsoftware/agenterm
+          exclude-workload-identity-credential: true
+          exclude-environment-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          correlation-id: agenterm-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Verify signatures and rebuild final Windows archives
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content release-policy.json -Raw | ConvertFrom-Json).version
+          ./scripts/windows-signing-candidate.ps1 -Mode Finalize `
+            -InputRoot unsigned -SigningRoot signing-input -OutputRoot final `
+            -SourceSha $env:SOURCE_SHA -Version $version `
+            -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-part-windows-x86_64
+          path: final/windows-x86_64/
+          if-no-files-found: error
+          retention-days: 2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-part-windows-aarch64
+          path: final/windows-aarch64/
+          if-no-files-found: error
+          retention-days: 2
+
   runtime:
-    needs: build
+    needs: [preflight, build, windows_unsigned, windows_sign]
+    if: >-
+      always() && needs.build.result == 'success' &&
+      ((needs.preflight.outputs.signed_windows == 'true' && needs.windows_sign.result == 'success') ||
+       (needs.preflight.outputs.signed_windows != 'true' && needs.windows_unsigned.result == 'success'))
     strategy:
       fail-fast: false
       matrix:
@@ -808,6 +983,36 @@ jobs:
           output="$(runtime/agenterm.com cli --version)"
           grep -Fq "$version" <<<"$output"
           echo "PASS ${{ matrix.platform_id }} $actual_hash $output"
+
+      - name: Verify final Windows signature policy
+        if: matrix.family == 'windows'
+        shell: pwsh
+        env:
+          SIGNED_WINDOWS: ${{ needs.preflight.outputs.signed_windows }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content runtime/artifacts.json -Raw | ConvertFrom-Json
+          $arch = if ('${{ matrix.platform_id }}' -eq 'windows-aarch64') { 'aarch64' } else { 'x86_64' }
+          $platform = @($manifest.platforms | Where-Object { $_.os -eq 'windows' -and $_.arch -eq $arch })
+          if ($platform.Count -ne 1) { throw "Windows artifact manifest cell mismatch: $arch" }
+          $names = @($platform[0].executables.name) + @($platform[0].libraries.name)
+          if ($names.Count -ne 5 -or @($names | Sort-Object -Unique).Count -ne 5) {
+            throw "Windows signature allowlist mismatch: $arch"
+          }
+          foreach ($name in $names) {
+            $path = Join-Path runtime $name
+            $sig = Get-AuthenticodeSignature -LiteralPath $path
+            if ($env:SIGNED_WINDOWS -eq 'true') {
+              if ($sig.Status -ne 'Valid' -or $null -eq $sig.SignerCertificate -or
+                  $null -eq $sig.TimeStamperCertificate -or
+                  $sig.SignerCertificate.Subject -notmatch '(?:^|,\s*)O=PARTNERNET SOFTWARE PTY LTD(?:,|$)') {
+                throw "signed Candidate verification failed: $name ($($sig.Status))"
+              }
+            } elseif ($sig.Status -ne 'NotSigned') {
+              throw "unsigned Candidate unexpectedly carries a signature: $name ($($sig.Status))"
+            }
+          }
+          "AUTHENTICODE PASS ${{ matrix.platform_id }} mode=$env:SIGNED_WINDOWS"
 
       - name: Scan final Windows Candidate bytes with Defender
         if: matrix.family == 'windows'
@@ -888,7 +1093,11 @@ jobs:
           echo "PASS ${{ matrix.platform_id }} $(shasum -a 256 "$archive" | cut -d' ' -f1) $output"
 
   aggregate:
-    needs: [build, runtime]
+    needs: [preflight, build, windows_unsigned, windows_sign, runtime]
+    if: >-
+      always() && needs.build.result == 'success' && needs.runtime.result == 'success' &&
+      ((needs.preflight.outputs.signed_windows == 'true' && needs.windows_sign.result == 'success') ||
+       (needs.preflight.outputs.signed_windows != 'true' && needs.windows_unsigned.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

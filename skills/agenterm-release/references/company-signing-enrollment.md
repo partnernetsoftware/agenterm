@@ -15,7 +15,9 @@ must remain outside the repository.
 - SignPath Foundation declined the open-source application in September 2026.
   There is no SignPath path any more; remove any SignPath placeholder when
   touching signing configuration.
-- No AgenTerm production byte has been company-signed. AgenTerm still needs
+- No AgenTerm production byte has been company-signed. The Candidate workflow
+  now has fail-closed `off|required` branches, exact ten-file signing input,
+  signed repack, receipt and final-byte courts. AgenTerm still needs
   its own Entra app registration + federated credential
   (`repo:partnernetsoftware/agenterm:environment:release-signing`), the
   `Artifact Signing Certificate Profile Signer` role on the shared profile,
@@ -108,7 +110,7 @@ product logic merely to satisfy signing metadata.
 Inspect a local or extracted Candidate file with the reusable company tools:
 
 ```powershell
-& ~/repos/company-dev-hub/skills/sign-windows-artifacts/scripts/inspect-authenticode.ps1 -Path dist/agenterm.exe -ExpectedOrganization "<COMPANY_PUBLISHER>"
+& ~/repos/company-dev-hub/skills/sign-windows-artifacts/scripts/inspect-authenticode.ps1 -Path dist/agenterm.exe -ExpectedOrganization "<COMPANY_PUBLISHER>" -ExpectedProductName "AgenTerm" -ExpectedProductVersion "<VERSION>"
 ```
 
 ```bash

@@ -46,28 +46,35 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] a policy test derives the two-ISA allowlist from
     `scripts/artifacts.json` and rejects missing, renamed, duplicate, or extra
     signing inputs
-- [ ] Candidate transformation, never Promotion mutation
-  - [ ] `signing.windows=off`: retain today's direct build-part → runtime path;
-    signing action, Azure login, and receipt must be absent
-  - [ ] `signing.windows=required`: after both Windows build parts exist, one
+- [~] Candidate transformation, never Promotion mutation
+  - [~] `signing.windows=off`: a credential-free finalizer copies the exact
+    unsigned build parts into the canonical runtime/aggregate names; signing
+    action, Azure login, Environment and receipt are absent. Source policy and
+    actionlint courts pass; the next ordinary Candidate must provide live
+    evidence
+  - [~] `signing.windows=required`: after both Windows build parts exist, one
     `windows-2025` job downloads and verifies their unsigned archive hashes,
-    extracts exactly ten inputs, and records before hashes
-  - [ ] `azure/login` exchanges GitHub OIDC into a short-lived Azure CLI
+    extracts exactly ten inputs, and records before hashes. The fail-closed
+    implementation exists but cannot run until the repo-specific OIDC identity
+    and protected Environment values exist
+  - [x] `azure/login` exchanges GitHub OIDC into a short-lived Azure CLI
     session; `Azure/artifact-signing-action` consumes only that credential
-  - [ ] sign with SHA-256 plus Microsoft RFC 3161 SHA-256 timestamp; verify
+  - [~] sign with SHA-256 plus Microsoft RFC 3161 SHA-256 timestamp; verify
     company `O=`, timestamp certificate, VERSIONINFO, and byte mutation
-  - [ ] rebuild both Windows archives and adjacent hash/provenance from the
+  - [~] rebuild both Windows archives and adjacent hash/provenance from the
     signed bytes; forbid unsigned Windows archives from entering aggregate
-  - [ ] write one redacted `signing-receipt.json` binding source SHA, run
-    identity, before/after hashes, byte counts and certificate facts
-- [ ] final-byte courts
-  - [ ] Windows x86_64 and aarch64 runners download only the signed final part,
-    verify archive and receipt hashes, run `agenterm.com cli --version`, and
-    exercise the archive's owning runtime smoke
-  - [ ] Defender scans the exact extracted signed directory on both ISAs
-  - [ ] Candidate aggregate requires both Windows PASS receipts and exactly one
+  - [~] write one redacted `windows-signing-receipt.json` binding source SHA,
+    run identity, ten before/after hashes, two archive hashes, byte counts and
+    certificate facts; QJS aggregate/verify rejects missing or inconsistent receipts
+- [~] final-byte courts
+  - [~] Windows x86_64 and aarch64 runners download only the canonical final
+    part, verify archive and receipt hashes, run `agenterm.com cli --version`,
+    and inspect all five signatures (or all five `NotSigned` states in `off`
+    mode)
+  - [x] Defender scans the exact extracted final directory on both ISAs
+  - [~] Candidate aggregate requires both Windows PASS jobs and exactly one
     valid signing receipt when policy is `required`
-  - [ ] Promotion downloads the sealed Candidate and performs no build,
+  - [x] Promotion downloads the sealed Candidate and performs no build,
     signing, timestamping, scanning, or repackaging
 - [ ] first-signature qualification
   - [ ] run only after the owner changes one future exact SHA to
@@ -89,6 +96,12 @@ failure, or Defender finding fails closed before Candidate sealing.
 Excluded: Linux signing, Apple Developer ID/notarization, installer/MSIX work,
 certificate export, PFX storage, changing public v0.1.16, and claiming that a
 valid signature immediately eliminates SmartScreen reputation prompts.
+
+Implementation owners: `.github/workflows/candidate.yml` controls the policy
+split and final-byte topology; `scripts/windows-signing-candidate.ps1` owns the
+exact archive/PE set, VERSIONINFO input court, signed repack and receipt;
+`scripts/qjs/lib/release_candidate.qjs` binds the receipt and signed provenance
+into Candidate verification.
 
 ## Mermaid flowchart memory palace
 

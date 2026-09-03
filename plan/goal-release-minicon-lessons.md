@@ -37,8 +37,10 @@ archives, explicit signing policy, and final-byte reputation checks.
       - [x] redacted enrollment state, protected configuration and first-signature
         court are durable in the release skill; no review/intake state is
         misreported as a usable certificate
-    - [ ] Windows signing changes bytes only before Candidate sealing
-    - [ ] Windows receipt binds pre-sign and final SHA-256 plus timestamp evidence
+    - [~] Windows signing branch changes bytes only before runtime courts and
+      Candidate sealing; live provider evidence remains pending
+    - [~] Windows receipt schema binds pre-sign and final SHA-256 plus timestamp
+      evidence; first live receipt remains pending
   - [ ] final-byte reputation court
     - [x] Defender scans the exact extracted Windows Candidate files on both
       native ISA runners, after archive SHA verification and execution
