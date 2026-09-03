@@ -199,6 +199,7 @@ export function validate_windows_signing_receipt(
       && receipt.file_digest === "SHA256"
       && receipt.timestamp_rfc3161 === "http://timestamp.acs.microsoft.com"
       && receipt.timestamp_digest === "SHA256"
+      && receipt.release_eligible === true
       && receipt.asset_count === 10
       && receipt.platform_count === 2,
     "candidate_windows_signing_receipt_identity"
@@ -250,6 +251,7 @@ export function validate_windows_signing_receipt(
           && valid_sha256(text(receipt_asset.after_sha256))
           && receipt_asset.before_sha256 !== receipt_asset.after_sha256
           && receipt_asset.after_bytes > 0
+          && receipt_asset.authenticode_status === "Valid"
           && receipt_asset.product_name === "AgenTerm"
           && (receipt_asset.product_version === version || receipt_asset.product_version === version + ".0")
           && text(receipt_asset.signer_subject).includes("O=PARTNERNET SOFTWARE PTY LTD")

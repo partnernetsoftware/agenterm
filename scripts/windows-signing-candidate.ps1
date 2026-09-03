@@ -201,6 +201,7 @@ foreach ($platform in $platforms) {
             before_sha256 = $before.before_sha256
             after_sha256 = $afterHash
             after_bytes = (Get-Item -LiteralPath $file).Length
+            authenticode_status = "$($signature.Status)"
             product_name = $versionInfo.ProductName
             product_version = $versionInfo.ProductVersion
             signer_subject = $signature.SignerCertificate.Subject
@@ -256,6 +257,7 @@ $receipt = [ordered]@{
     file_digest = 'SHA256'
     timestamp_rfc3161 = 'http://timestamp.acs.microsoft.com'
     timestamp_digest = 'SHA256'
+    release_eligible = $true
     platform_count = 2
     asset_count = 10
     run = [ordered]@{ id = $RunId; attempt = $RunAttempt }

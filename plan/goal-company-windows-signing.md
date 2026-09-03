@@ -67,7 +67,10 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     signed bytes; forbid unsigned Windows archives from entering aggregate
   - [~] write one redacted `windows-signing-receipt.json` binding source SHA,
     run identity, ten before/after hashes, two archive hashes, byte counts and
-    certificate facts; QJS aggregate/verify rejects missing or inconsistent receipts
+    public certificate facts. It contains no Azure/OIDC resource coordinates,
+    explicitly records `release_eligible=true`, and records `Valid` for each
+    Authenticode result; QJS aggregate/verify rejects missing or inconsistent
+    receipts
 - [~] final-byte courts
   - [~] Windows x86_64 and aarch64 runners download only the canonical final
     part, verify archive and receipt hashes, run `agenterm.com cli --version`,

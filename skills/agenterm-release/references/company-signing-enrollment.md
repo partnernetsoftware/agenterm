@@ -83,7 +83,9 @@ For every signed Windows PE/DLL it must prove:
 3. `Get-AuthenticodeSignature` reports `Valid`, the expected publisher and a
    timestamp certificate;
 4. a receipt binds before SHA-256, final SHA-256, final byte count, source SHA,
-   provider and timestamp evidence without private material;
+   provider and timestamp evidence without private material or Azure/OIDC
+   resource coordinates, and explicitly records release eligibility plus each
+   Authenticode status;
 5. Defender scans the final extracted Candidate files;
 6. both Windows ISA courts execute those final bytes; and
 7. Candidate aggregation accepts only the signed allowlist and fails closed on
