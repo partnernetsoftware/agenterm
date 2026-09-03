@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Canonical contract: pns-authenticode-inspector/v2
 set -uo pipefail
 
 if [[ $# -eq 0 ]]; then

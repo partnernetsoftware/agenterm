@@ -1,4 +1,5 @@
 [CmdletBinding()]
+# Canonical contract: pns-authenticode-inspector/v2
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Path,

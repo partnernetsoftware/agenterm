@@ -6,6 +6,7 @@ const POLICY: &str = include_str!("../CODE_SIGNING_POLICY.md");
 #[test]
 fn windows_inspector_reports_trust_timestamp_and_versioninfo() {
     for contract in [
+        "pns-authenticode-inspector/v2",
         "Get-AuthenticodeSignature",
         "PARTNERNET SOFTWARE PTY LTD",
         "TimeStamperCertificate",
@@ -29,6 +30,7 @@ fn windows_inspector_reports_trust_timestamp_and_versioninfo() {
 #[test]
 fn portable_inspector_is_explicitly_diagnostic() {
     let readme_words = README.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(PORTABLE.contains("pns-authenticode-inspector/v2"));
     assert!(PORTABLE.contains("osslsigncode verify"));
     assert!(PORTABLE.contains("osslsigncode extract-signature"));
     assert!(PORTABLE.contains("no extractable embedded Authenticode signature"));
