@@ -11,7 +11,10 @@ must remain outside the repository.
   2026-09-03 and one Public Trust certificate profile is Active with the
   company as subject. MiniCon already has a federated GitHub identity with the
   profile-scoped signer role and a wired signing workflow
-  (`partnernetsoftware/minicon` `.github/workflows/company-signing.yml`).
+  (`partnernetsoftware/minicon` `.github/workflows/company-signing.yml`). Its
+  first non-promotable live qualification signed all three intended inputs and
+  executed the signed APE in all six native cells; this proves the shared
+  provider/profile route without making any MiniCon Release signed.
 - SignPath Foundation declined the open-source application in September 2026.
   There is no SignPath path any more; remove any SignPath placeholder when
   touching signing configuration.

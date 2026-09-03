@@ -84,6 +84,8 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] Promotion downloads the sealed Candidate and performs no build,
     signing, timestamping, scanning, or repackaging
 - [ ] first-signature qualification
+  - [x] shared provider/profile mechanism is proven by MiniCon's independent
+    three-input, six-cell, explicitly non-promotable live court
   - [ ] run only after the owner changes one future exact SHA to
     `signing.windows=required`; do not retrofit v0.1.16
   - [ ] compare signed `agenterm.com` size against 64 KiB and every other file
