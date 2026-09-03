@@ -1591,3 +1591,11 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
 - `scripts/qjs/promotion-identity.qjs` 已存在于 Candidate SHA，但旧 `agenterm.tasks.json` 漏注册。
   按 PRD 的 ref 判定，修改 `release.yml` 编排不要求重建 Candidate：Promotion 改为直接运行
   Candidate SHA 的脚本文件；当前任务清单同时补注册，避免未来 Candidate 再带此缺口。
+
+### A.53 Promotion `33709208475`：组织 Actions 写权限挡住公开发布
+
+- verify 与 sealed handoff reverify 全绿；publish 的第一次变更（创建 `v0.1.16` tag）被 GitHub
+  以 HTTP 403 拒绝，因此没有 tag、draft 或半上传资产。
+- 仓库 workflow 默认权限由组织强制为 read，仓库管理员 API 不能改写；需要组织 Actions
+  管理员把 Workflow permissions 设为 Read and write，同时保持“允许 Actions 批准 PR”关闭。
+  权限到位后只重跑同一 Promotion 的 publish，继续提升 Candidate `33702582934` 原字节。

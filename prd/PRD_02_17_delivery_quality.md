@@ -988,6 +988,12 @@ costs a full candidate cycle:
   invokes the Candidate-SHA `scripts/qjs/promotion-identity.qjs` directly, so this orchestration-only
   repair can reuse the already sealed Candidate; the task is also registered in current source for
   future Candidates.
+- [~] GitHub Actions publication authority is an external, fail-closed prerequisite. Promotion
+  `33709208475` passed verify and reverified the sealed handoff, then GitHub rejected its first
+  `contents: write` operation (tag creation) with HTTP 403; no tag, draft, or asset was created.
+  Repository workflow defaults remain organization-forced read-only, so the organization Actions
+  administrator must enable read/write workflow tokens while leaving pull-request approval off.
+  Retry resumes the same exact Candidate and must not rebuild or overwrite bytes.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is
