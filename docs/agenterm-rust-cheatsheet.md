@@ -227,6 +227,13 @@ execute at least one real default-feature command that crosses the helper.
 Windows checklist:
 
 - Convert paths/text to bounded NUL-terminated UTF-16 at the adapter edge.
+- A Cargo build script is compiled for the host. Never guard Windows resource
+  generation with build-script `#[cfg(windows)]`: Linux/macOS cross-builds then
+  silently emit PE files without VERSIONINFO. Branch on
+  `CARGO_CFG_TARGET_OS` / `CARGO_CFG_TARGET_ENV` at runtime, pin the resource
+  compiler in every owning target lane, and inspect each separately packaged
+  EXE/DLL. A root package resource does not reach a binary or DLL owned by
+  another crate.
 - Read `GetLastError` through `last_os_error()` immediately after the failing
   call; another FFI or allocation can overwrite thread-local error state.
 - Use RAII for GDI objects, handles, clipboard allocations, capture ownership,

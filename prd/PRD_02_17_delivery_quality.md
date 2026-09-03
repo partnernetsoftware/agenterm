@@ -10,9 +10,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   signing policy, and reputation checks over final Candidate bytes. AgenTerm's
   exact-SHA Candidate → no-rebuild Promotion authority remains unchanged.
 - [~] company Windows signing is prepared but not claimed: Azure Artifact
-  Signing organization review and the SignPath Foundation application remain
-  pending, `release-policy.json` keeps Windows signing `off`, and the redacted
-  activation/first-signature court is owned by
+  Signing organization validation is Completed and the shared Public Trust
+  profile is Active; SignPath declined and is no longer a route. AgenTerm's
+  empty `release-signing` Environment exists, while its repo-specific OIDC
+  identity, ten-file PE VERSIONINFO closure, Candidate transformation and first
+  signed court remain pending. `release-policy.json` therefore keeps Windows
+  signing `off`. The executable DAG is
+  `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata

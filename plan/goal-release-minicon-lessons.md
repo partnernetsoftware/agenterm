@@ -28,15 +28,17 @@ archives, explicit signing policy, and final-byte reputation checks.
       not a pre-package binary
     - [x] macOS courts execute the final archives on distinct native arm64 and
       Intel runner labels; Rosetta is not substituted for the Intel court
-  - [ ] provider-neutral signing policy
+  - [~] explicit signing policy
     - [x] checked-in `release-policy.json` explicitly selects unsigned preview
       or required macOS signing; missing credentials never silently choose policy
-    - [~] Windows/Linux modes are explicit `off`; Azure Artifact Signing adapter remains
+    - [~] Windows/Linux modes are explicit `off`; Windows Azure Artifact
+      Signing implementation is owned by
+      `plan/goal-company-windows-signing.md`
       - [x] redacted enrollment state, protected configuration and first-signature
         court are durable in the release skill; no review/intake state is
         misreported as a usable certificate
-    - [ ] signing changes bytes only before Candidate sealing
-    - [ ] receipt binds pre-sign and final SHA-256 plus timestamp evidence
+    - [ ] Windows signing changes bytes only before Candidate sealing
+    - [ ] Windows receipt binds pre-sign and final SHA-256 plus timestamp evidence
   - [ ] final-byte reputation court
     - [x] Defender scans the exact extracted Windows Candidate files on both
       native ISA runners, after archive SHA verification and execution

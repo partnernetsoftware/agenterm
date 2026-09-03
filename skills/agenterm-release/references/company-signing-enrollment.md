@@ -21,6 +21,10 @@ must remain outside the repository.
   `Artifact Signing Certificate Profile Signer` role on the shared profile,
   and the six `release-signing` Environment values. `release-policy.json`
   therefore keeps Windows signing `off`.
+- The empty GitHub Environment now exists. Azure CLI is not authenticated, so
+  no AgenTerm Entra application, federated credential, signer role, secret, or
+  provider variable is claimed. The implementation and evidence DAG is
+  `plan/goal-company-windows-signing.md`.
 
 The reusable, redacted procedure (CLI commands, login pitfalls, local jsign
 rehearsal, workflow gates) lives in the company hub:
@@ -79,3 +83,23 @@ For every signed Windows PE/DLL it must prove:
 Keep signing mode explicit. Missing credentials in `required` mode are a hard
 failure; they must never downgrade the run to unsigned. While mode is `off`, no
 signing action or credential import may execute.
+
+## AgenTerm Windows allowlist
+
+The allowlist is derived from `scripts/artifacts.json`, not handwritten globs.
+Each of `win-x86_64` and `win-aarch64` contains exactly these five PE files:
+
+- `agenterm.exe`
+- `agenterm.com` (a Console-subsystem PE despite its extension)
+- `agenterm-cc.exe`
+- `agenterm-cu.exe`
+- `agenterm.dll`
+
+All ten files are signed or the required-mode Candidate fails. The public
+v0.1.16 baseline is unsigned and every Security Directory is empty. Only the
+x86_64 `agenterm.exe` and `agenterm-cc.exe` have a Resource Directory; the
+other eight files need minimal `ProductName` / `ProductVersion` VERSIONINFO.
+The root build script currently compiles resources only when its host is
+Windows, so the Linux-built ARM64 package loses them; CU and ABI also need
+their own package-owned resource path. Do not add an icon, CRT startup, or
+product logic to the tiny forwarder merely to satisfy signing metadata.

@@ -1,0 +1,130 @@
+# Goal: company-sign AgenTerm Windows Candidate bytes
+
+Outcome: when `release-policy.json` selects `signing.windows=required`, the
+exact Windows bytes inside one exact-SHA Candidate are Authenticode-signed by
+PARTNERNET SOFTWARE PTY LTD through Azure Artifact Signing, timestamped,
+executed on both Windows ISAs, scanned by Defender, and sealed before the
+human Promotion boundary. `off` remains a complete unsigned path and never
+loads signing credentials.
+
+Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
+`skills/agenterm-release/SKILL.md`. Company setup memory:
+`skills/agenterm-release/references/company-signing-enrollment.md`.
+
+## Markdown tree DAG
+
+- [~] one company publisher, one product-specific OIDC identity
+  - [x] shared Azure Artifact Signing Public Trust profile is Active
+  - [x] GitHub Environment `release-signing` exists for AgenTerm
+  - [ ] owner signs in to the company Azure tenant and confirms creation of
+    the AgenTerm-only federated identity
+  - [ ] subject is exactly
+    `repo:partnernetsoftware/agenterm:environment:release-signing`
+  - [ ] service principal has only `Artifact Signing Certificate Profile
+    Signer` at the shared profile scope; no human signer role remains
+  - [ ] the Environment receives three OIDC identifiers as secrets and three
+    provider coordinates as variables; values never enter git or receipts
+- [~] exact signing allowlist: 10 PE files, no glob-discovered extras
+  - [x] each Windows archive declares the same five entries in
+    `scripts/artifacts.json`: `agenterm.exe`, `agenterm.com`,
+    `agenterm-cc.exe`, `agenterm-cu.exe`, `agenterm.dll`
+  - [x] public v0.1.16 baseline proves all ten are unsigned and the tiny
+    `agenterm.com` has ample room below its 64 KiB release budget
+  - [ ] every entry has a nonempty `ProductName` and `ProductVersion` and an
+    empty Security Directory before signing
+    - [ ] current blocker: only win-x86_64 `agenterm.exe` and
+      `agenterm-cc.exe` have a Resource Directory; the other eight files do
+      not. Root `build.rs` gates resource compilation on the build-script host,
+      so the Linux-built ARM64 pair loses it, while the separate CU/ABI crates
+      never receive the root package resource
+    - [ ] compile minimal VERSIONINFO on both Windows targets for all ten files;
+      keep icons only on the two intended GUI binaries and do not add an icon,
+      CRT dependency, or business logic to `agenterm.com`
+    - [ ] Candidate installs/pins the resource compiler needed by the Linux →
+      MSVC ARM64 cross-build instead of trusting runner ambient tools
+  - [ ] a policy test derives the two-ISA allowlist from
+    `scripts/artifacts.json` and rejects missing, renamed, duplicate, or extra
+    signing inputs
+- [ ] Candidate transformation, never Promotion mutation
+  - [ ] `signing.windows=off`: retain today's direct build-part → runtime path;
+    signing action, Azure login, and receipt must be absent
+  - [ ] `signing.windows=required`: after both Windows build parts exist, one
+    `windows-2025` job downloads and verifies their unsigned archive hashes,
+    extracts exactly ten inputs, and records before hashes
+  - [ ] `azure/login` exchanges GitHub OIDC into a short-lived Azure CLI
+    session; `Azure/artifact-signing-action` consumes only that credential
+  - [ ] sign with SHA-256 plus Microsoft RFC 3161 SHA-256 timestamp; verify
+    company `O=`, timestamp certificate, VERSIONINFO, and byte mutation
+  - [ ] rebuild both Windows archives and adjacent hash/provenance from the
+    signed bytes; forbid unsigned Windows archives from entering aggregate
+  - [ ] write one redacted `signing-receipt.json` binding source SHA, run
+    identity, before/after hashes, byte counts and certificate facts
+- [ ] final-byte courts
+  - [ ] Windows x86_64 and aarch64 runners download only the signed final part,
+    verify archive and receipt hashes, run `agenterm.com cli --version`, and
+    exercise the archive's owning runtime smoke
+  - [ ] Defender scans the exact extracted signed directory on both ISAs
+  - [ ] Candidate aggregate requires both Windows PASS receipts and exactly one
+    valid signing receipt when policy is `required`
+  - [ ] Promotion downloads the sealed Candidate and performs no build,
+    signing, timestamping, scanning, or repackaging
+- [ ] first-signature qualification
+  - [ ] run only after the owner changes one future exact SHA to
+    `signing.windows=required`; do not retrofit v0.1.16
+  - [ ] compare signed `agenterm.com` size against 64 KiB and every other file
+    against `scripts/artifacts.json`; a budget failure blocks the Candidate
+  - [ ] preserve the first run id/attempt and receipt as evidence; a successful
+    signature alone is not a release approval
+
+## Observable success and safe failure
+
+Success is one sealed Candidate manifest whose Windows archives contain the
+ten allowlisted signed PEs, whose receipt agrees with the final archive bytes,
+and whose two native Windows courts both execute and scan those bytes. Any
+missing Environment value, wrong publisher, absent timestamp, unchanged file,
+foreign endpoint, resource/version gap, hash mismatch, unexpected path, runtime
+failure, or Defender finding fails closed before Candidate sealing.
+
+Excluded: Linux signing, Apple Developer ID/notarization, installer/MSIX work,
+certificate export, PFX storage, changing public v0.1.16, and claiming that a
+valid signature immediately eliminates SmartScreen reputation prompts.
+
+## Mermaid flowchart memory palace
+
+```mermaid
+flowchart LR
+  SHA["exact current main SHA"] --> P{"signing.windows"}
+  P -->|off| U["unsigned Windows parts<br/>no Azure credential path"]
+  P -->|required| B["two unsigned Windows archives<br/>hash + empty Security Directory"]
+  B --> R{"10-entry resource court<br/>VERSIONINFO + exact paths"}
+  R -->|fail| K["kill Candidate"]
+  R -->|pass| OIDC["GitHub OIDC → Azure CLI<br/>profile-scoped signer"]
+  OIDC --> SIG["Azure Artifact Signing<br/>SHA-256 + RFC 3161"]
+  SIG --> V{"company publisher + timestamp<br/>before/after hashes"}
+  V -->|fail| K
+  V -->|pass| PACK["repack two final archives<br/>hash + provenance + receipt"]
+  U --> WX["Windows x86_64 court"]
+  U --> WA["Windows aarch64 court"]
+  PACK --> WX
+  PACK --> WA
+  WX --> C{"execute + Defender<br/>same final bytes"}
+  WA --> C
+  C -->|fail| K
+  C -->|pass| SEAL["sealed six-cell Candidate"]
+  SEAL --> H{"explicit human Promotion"}
+  H -->|yes| REL["publish exact bytes; no rebuild/sign"]
+  H -->|no| HOLD["retain bounded Candidate"]
+```
+
+## Measured unsigned baseline
+
+Public v0.1.16 archives were inspected on 2026-09-03. These values are
+diagnostic baselines, not future budgets:
+
+| File | win-x86_64 | win-aarch64 | v0.1.16 signature |
+|---|---:|---:|---|
+| `agenterm.com` | 3,584 B · no resource | 4,608 B · no resource | absent |
+| `agenterm.exe` | 3,678,720 B · resource | 3,250,176 B · no resource | absent |
+| `agenterm-cc.exe` | 681,984 B · resource | 562,176 B · no resource | absent |
+| `agenterm-cu.exe` | 1,420,800 B · no resource | 1,304,064 B · no resource | absent |
+| `agenterm.dll` | 663,552 B · no resource | 620,544 B · no resource | absent |
