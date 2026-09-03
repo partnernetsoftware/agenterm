@@ -180,6 +180,12 @@ unsafe extern "C" {
     fn _AXUIElementGetWindow(element: AxUiElementRef, out: *mut CgWindowId) -> i32;
 
     fn AXUIElementPerformAction(element: AxUiElementRef, action: CfStringRef) -> i32;
+    fn AXUIElementCopyElementAtPosition(
+        application: AxUiElementRef,
+        x: f32,
+        y: f32,
+        element: *mut AxUiElementRef,
+    ) -> i32;
     fn AXUIElementSetAttributeValue(
         element: AxUiElementRef,
         attribute: CfStringRef,
@@ -813,7 +819,7 @@ pub(crate) fn poke_manual_accessibility(
     window_handle: Option<isize>,
 ) -> Result<(), AccessibilityTreeError> {
     require_trusted()?;
-    let budget = Budget::new(ACTION_TIMEOUT);
+    let mut budget = Budget::new(ACTION_TIMEOUT);
     let handle = require_handle(window_handle, "the AXManualAccessibility poke")?;
     let pid = owner_pid(handle)?;
     let application =
@@ -825,16 +831,72 @@ pub(crate) fn poke_manual_accessibility(
                 )
             })?;
     budget.check()?;
+    // Chromium listens for two spellings of "an assistive client is here":
+    // `AXManualAccessibility` (Electron / Chromium's own) and
+    // `AXEnhancedUserInterface` (what VoiceOver sets). Brave Origin 151
+    // ignored the first alone (measured 2026-09-01: 55 chrome-only nodes
+    // before and after) and built the renderer tree once both were set;
+    // the window element gets the first as well, because some Chromium
+    // builds honor it only there.
+    for key_name in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
+        let status = unsafe {
+            let key = cfstr(key_name);
+            let status = AXUIElementSetAttributeValue(application.as_ax(), key, kCFBooleanTrue);
+            CFRelease(key as CfTypeRef);
+            status
+        };
+        if status == AX_ERROR_API_DISABLED {
+            return Err(permission_denied());
+        }
+    }
+    let Ok(window) = ax_element_for_handle(handle, &mut budget) else {
+        // No AX window for the handle: the application-level request was
+        // still delivered, and the caller's re-read is the verdict.
+        return Ok(());
+    };
     let status = unsafe {
         let key = cfstr("AXManualAccessibility");
-        let status = AXUIElementSetAttributeValue(application.as_ax(), key, kCFBooleanTrue);
+        let status = AXUIElementSetAttributeValue(window.as_ax(), key, kCFBooleanTrue);
         CFRelease(key as CfTypeRef);
         status
     };
     if status == AX_ERROR_API_DISABLED {
         return Err(permission_denied());
     }
+    wake_renderer_accessibility(application.as_ax(), window.as_ax(), &mut budget);
+    // The renderer bridges its tree asynchronously; give it one beat so the
+    // caller's immediate re-read has a chance to see it (the caller polls
+    // further, bounded, if it does not).
+    std::thread::sleep(Duration::from_millis(120));
     Ok(())
+}
+
+/// Touch the web contents the way an assistive client would, which is
+/// what makes Chromium create the browser-side accessibility manager for
+/// that view: hit-test the window centre through the application, read
+/// that element's role and children, read the window's children and the
+/// focused element's children. Every read is best-effort; a failure here
+/// is not the poke failing, so nothing is returned.
+fn wake_renderer_accessibility(app: AxUiElementRef, window: AxUiElementRef, budget: &mut Budget) {
+    if let Ok(bounds) = read_bounds(window, budget)
+        && bounds.width > 2
+        && bounds.height > 2
+    {
+        let x = bounds.x as f32 + bounds.width as f32 / 2.0;
+        let y = bounds.y as f32 + bounds.height as f32 / 2.0;
+        let mut hit: AxUiElementRef = std::ptr::null();
+        let status = unsafe { AXUIElementCopyElementAtPosition(app, x, y, &mut hit) };
+        if status == AX_SUCCESS
+            && let Some(hit) = CfOwned::from_create(hit as CfTypeRef)
+        {
+            let _ = attribute_string(hit.as_ax(), "AXRole", budget);
+            let _ = copy_children(hit.as_ax(), budget);
+        }
+    }
+    let _ = copy_children(window, budget);
+    if let Ok(Some(focused)) = copy_attribute(app, "AXFocusedUIElement", budget) {
+        let _ = copy_children(focused.as_ax(), budget);
+    }
 }
 
 pub(crate) fn drain_bus() {}

@@ -47,6 +47,7 @@ pub const GROUPS: &[Group] = &[
             "zoom",
             "find",
             "read",
+            "page-text",
         ],
     },
     Group {
@@ -58,6 +59,8 @@ pub const GROUPS: &[Group] = &[
             "menu-inspect",
             "menu-invoke",
             "unlock",
+            "tab-list",
+            "tab-select",
         ],
     },
     Group {
@@ -83,7 +86,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "page-js",
-        verbs: &["page-js", "page"],
+        verbs: &["page-js", "page", "page-targets"],
     },
     Group {
         id: "geometry",
@@ -231,7 +234,7 @@ pub fn is_typed_only_verb(verb: &str) -> bool {
 fn typed_only_reason(verb: &str) -> &'static str {
     match verb {
         "page" => {
-            "MCU page click/nav/targets stay CDP; page read --js maps to page-js --expression"
+            "MCU page click/nav stay CDP; page read --js maps to page-js --expression (--target-id/--target-url/--target-title pick a tab); page targets is page-targets; page text is page-text (a11y reading order)"
         }
         "drag" => "pixel drag is not mapped; use invoke press or pointer-move --to desktop",
         "ghost" => "MCU ghost cursor overlay stays MCU; this binary will not draw on the desktop",
@@ -488,6 +491,59 @@ pub fn verb_declaration(verb: &str) -> Value {
             "verb": verb,
         });
     }
+    if verb == "page-targets" {
+        return json!({
+            "status": "available",
+            "backend": crate::observe::page_js_backend(),
+            "mode": "cdp",
+            "reason": "CDP /json target inventory (id, url, title, type, attached, websocket) when --remote-debugging-port answers; no listener is typed unsupported",
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
+    if verb == "page-text" {
+        let (status, reason) = if tree_live(os) {
+            (
+                "available",
+                "visible text in reading order as {id, role, text, bounds} rows from the a11y tree (web static-text carries its words in AXValue); pick a row then invoke/click --node, never --coords or a screenshot",
+            )
+        } else {
+            ("unsupported", "a11y tree not mapped on this OS")
+        };
+        return json!({
+            "status": status,
+            "mode": "a11y-reading-order",
+            "grant": "observe",
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
+    if verb == "tab-list" || verb == "tab-select" {
+        let (status, reason) = if tree_live(os) {
+            (
+                "available",
+                if verb == "tab-list" {
+                    "browser tab strip rows (tab-group radio-buttons / page-tab / tab-item) with index, title, selected; background tabs carry no web-area"
+                } else {
+                    "press one tab-strip row in the background (--title SUB | --index N) and read selected back; never raises the window; the a11y fallback when no CDP port is open"
+                },
+            )
+        } else {
+            ("unsupported", "a11y tree not mapped on this OS")
+        };
+        return json!({
+            "status": status,
+            "mode": "a11y-tab-strip",
+            "grant": if verb == "tab-select" { "actuate" } else { "observe" },
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if verb == "displays" {
         let (status, reason) = if tree_live(os) {
             (
@@ -606,6 +662,10 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "inspect",
         "find",
         "read",
+        "page-targets",
+        "page-text",
+        "tab-list",
+        "tab-select",
     ] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
@@ -656,6 +716,23 @@ mod tests {
         assert_eq!(group_id_for_verb("dclick"), "input-local");
         assert_eq!(group_id_for_verb("launch"), "discover");
         assert_eq!(group_id_for_verb("page"), "page-js");
+        assert_eq!(group_id_for_verb("page-targets"), "page-js");
+        assert_eq!(group_id_for_verb("tab-select"), "semantic");
+        assert_eq!(group_id_for_verb("tab-list"), "semantic");
+        assert!(!is_align_verb("page-targets") && !is_align_verb("tab-select"));
+        assert_eq!(verb_declaration("page-targets")["mode"], "cdp");
+        assert_eq!(verb_declaration("page-targets")["status"], "available");
+        let select = verb_declaration("tab-select");
+        assert_eq!(select["mode"], "a11y-tab-strip");
+        assert_eq!(select["grant"], "actuate");
+        assert_eq!(select["status"], "available");
+        assert_eq!(verb_declaration("tab-list")["grant"], "observe");
+        assert_eq!(group_id_for_verb("page-text"), "snapshot");
+        assert_eq!(verb_declaration("page-text")["mode"], "a11y-reading-order");
+        assert_eq!(verb_declaration("page-text")["grant"], "observe");
+        let merged = merge_verbs(json!({}));
+        assert_eq!(merged["tab-select"]["group"], "semantic");
+        assert_eq!(merged["page-targets"]["group"], "page-js");
         assert_eq!(group_id_for_verb("drag"), "input-local");
         assert!(is_align_verb("drag") && is_align_verb("page"));
         assert!(!is_align_verb("dclick") && !is_align_verb("launch"));

@@ -1,0 +1,35 @@
+{
+  "profile": {
+    "info_cache": {
+      "Default": {
+        "active_time": 1700000000.0,
+        "avatar_icon": "chrome://theme/IDR_PROFILE_AVATAR_26",
+        "is_using_default_name": false,
+        "name": "alpha",
+        "user_name": ""
+      },
+      "Profile 1": {
+        "active_time": 1700000100.0,
+        "is_using_default_name": false,
+        "name": "Beta Work",
+        "user_name": ""
+      },
+      "Profile 2": {
+        "active_time": 1700000200.0,
+        "is_using_default_name": false,
+        "name": "beta-home",
+        "user_name": ""
+      },
+      "Profile 3": {
+        "active_time": 1700000300.0,
+        "is_using_default_name": true,
+        "name": "Person 4",
+        "user_name": ""
+      }
+    },
+    "last_active_profiles": ["Profile 1", "Default"],
+    "last_used": "Profile 1",
+    "profiles_created": 4,
+    "profiles_order": ["Default", "Profile 1", "Profile 2", "Profile 3"]
+  }
+}

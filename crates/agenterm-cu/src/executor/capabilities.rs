@@ -1,0 +1,517 @@
+//! `capabilities`: the current target's truthful verb / mechanism /
+//! permission declaration.
+
+use super::*;
+
+pub(super) fn capabilities_payload() -> serde_json::Value {
+    let status = |capability: mechanism::Capability| {
+        format!("{:?}", mechanism::capability_status(capability))
+    };
+    // The *verb* status is one stable word. `status()` above is the
+    // capability's Debug form, which for `Available` happens to lowercase
+    // into "available" and for anything else lowercases into the whole
+    // struct -- `unsupported { reason: "host adapter unavailable" }` was
+    // being published as a status value. Nothing on macOS could show that,
+    // because every capability there is Available; running on Linux did.
+    let verb_status = |capability: mechanism::Capability| -> &'static str {
+        match mechanism::capability_status(capability) {
+            mechanism::CapabilityStatus::Available => "available",
+            mechanism::CapabilityStatus::Unsupported { .. } => "unsupported",
+            mechanism::CapabilityStatus::Failed { .. } => "failed",
+        }
+    };
+    // The reason, when there is one, belongs in its own field rather than
+    // smuggled into the word a caller matches on.
+    let verb_reason = |capability: mechanism::Capability| -> Option<String> {
+        match mechanism::capability_status(capability) {
+            mechanism::CapabilityStatus::Available => None,
+            mechanism::CapabilityStatus::Unsupported { reason } => Some(reason),
+            mechanism::CapabilityStatus::Failed { code, message } => {
+                Some(format!("{code}: {message}"))
+            }
+        }
+    };
+    let capability_verb = |capability: mechanism::Capability, extra: serde_json::Value| {
+        let mut declaration = serde_json::json!({ "status": verb_status(capability) });
+        if let (Some(object), Some(reason)) = (declaration.as_object_mut(), verb_reason(capability))
+        {
+            object.insert("reason".into(), serde_json::json!(reason));
+        }
+        if let (Some(object), Some(extra)) = (declaration.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        declaration
+    };
+    // ABI 1.12: the a11y capability answers three ways. `Denied` is an OS
+    // permission the caller can repair (macOS Accessibility); it is neither
+    // "unsupported" (no adapter) nor an empty tree.
+    let (tree_status, tree_verb) =
+        match mechanism::capability_status(mechanism::Capability::AccessibilityTree) {
+            mechanism::CapabilityStatus::Available => {
+                ("Available", serde_json::json!({ "status": "available" }))
+            }
+            mechanism::CapabilityStatus::Failed { code, message }
+                if code == "a11y_permission_denied" =>
+            {
+                (
+                    "Denied",
+                    serde_json::json!({
+                        "status": "denied",
+                        "reason": code,
+                        "message": message,
+                        "permission": "accessibility",
+                        "repair": ACCESSIBILITY_REPAIR_PATH,
+                    }),
+                )
+            }
+            mechanism::CapabilityStatus::Failed { code, message } => (
+                "Failed",
+                serde_json::json!({ "status": "failed", "reason": code, "message": message }),
+            ),
+            mechanism::CapabilityStatus::Unsupported { reason } => (
+                "Unsupported",
+                serde_json::json!({ "status": "unsupported", "reason": reason }),
+            ),
+        };
+    // The background menu bar is mapped on all three backends now, by two
+    // different routes: macOS asks the application for its `AXMenuBar`,
+    // while Linux and Windows find the menu-bar node in the window's own
+    // bounded tree. The search route is a weaker claim -- a toolkit that
+    // populates a closed menu lazily publishes nothing to find -- so those
+    // two say which route they took rather than copying the tree status
+    // unqualified.
+    let menu_verb = if cfg!(target_os = "macos") {
+        tree_verb.clone()
+    } else {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("mode".into(), serde_json::json!("tree-search"));
+        }
+        declaration
+    };
+    // The App-local focused control is read three ways: macOS asks the
+    // application for its `AXFocusedUIElement`, while Linux and Windows
+    // search the window's own bounded tree for the node the backend marks
+    // focused (`STATE_FOCUSED` / `HasKeyboardFocus`). A search is a weaker
+    // claim than a toolkit naming its own focus, so those two say which
+    // route they took instead of copying the tree status unqualified.
+    let focused_verb = if cfg!(target_os = "macos") {
+        tree_verb.clone()
+    } else {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("mode".into(), serde_json::json!("state-search"));
+        }
+        declaration
+    };
+    // The destructive verb rides the platform's own close control on all
+    // three hosts now: macOS AX `AXCloseButton`, Windows `WM_CLOSE`, and
+    // Linux the EWMH `_NET_CLOSE_WINDOW` request. All three are requests,
+    // not kills -- which is exactly why the gate reads the handle back
+    // instead of trusting the call.
+    let close_verb = capability_verb(mechanism::Capability::WindowOp, serde_json::json!({}));
+    // Reading the pointer is an observation on every host, and it stays
+    // available even where injection is not: the read never posts an event,
+    // so it must not be gated behind the injection capability.
+    let pointer_position_verb = serde_json::json!({
+        "status": "available",
+        "mode": "read-only",
+        "group": "pointer",
+    });
+    // Injection is the opposite: it moves the *user's* real cursor or types
+    // into whatever is frontmost, so the declaration says `desktop` scope
+    // out loud. macOS has no window-local pointer route at all -- events
+    // posted to a pid arrive without a window and no view ever sees them --
+    // which is why `pointer-move --to <handle>` is refused rather than
+    // approximated.
+    // Both observation modes are declared, because they are not
+    // interchangeable: polling carries `before` / `after` on every event,
+    // notifications carry the order and arrival time of changes polling
+    // never sees. `default` names the one a caller gets without asking.
+    let observe_verb = {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("default_mode".into(), serde_json::json!("poll-diff"));
+            object.insert(
+                "modes".into(),
+                serde_json::json!({
+                    "poll-diff": "available",
+                    "notifications": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                }),
+            );
+        }
+        declaration
+    };
+    // The Screenshot capability covers the PNG *writer*, which every host
+    // has. Capturing a window's pixels is a separate mechanism, and every
+    // host now has one: Linux X11 GetImage, Windows GDI, and macOS
+    // `CGWindowListCreateImage` resolved by dlsym -- removed from the SDK
+    // in 15.0 but still in the framework and still capturing, measured.
+    // The verb's status therefore comes from the mechanism like every
+    // other verb, instead of a hardcoded refusal that outlived its reason.
+    let screenshot_verb = capability_verb(
+        mechanism::Capability::Screenshot,
+        serde_json::json!({ "group": "capture" }),
+    );
+    let pointer_inject_verb = capability_verb(
+        mechanism::Capability::InputInject,
+        serde_json::json!({ "scope": "desktop", "group": "pointer" }),
+    );
+    let permissions = permissions_declaration();
+    // Host-specific tree mapping only. Do not list unproven peers (live
+    // RDP/UIA-over-RDP) as if this host ships them.
+    let tree_mapping = current_tree_mapping();
+    let mut payload = serde_json::json!({
+        "target": "current",
+        "transport": {
+            "status": "in_process",
+            "available": true,
+        },
+        "mechanism": "libagenterm",
+        "mechanism_target": "current",
+        "capabilities": {
+            "windows": status(mechanism::Capability::WindowEnumerate),
+            "tree": tree_status,
+            "screenshot": status(mechanism::Capability::Screenshot),
+            "input": status(mechanism::Capability::InputInject),
+            "window_place": status(mechanism::Capability::WindowOp),
+            "window_placement_inspect": status(mechanism::Capability::WindowPlacementInspect),
+            "desktop_host": status(mechanism::Capability::DesktopHost),
+        },
+        "verbs": {
+            "capabilities": { "status": "available" },
+            "windows": capability_verb(mechanism::Capability::WindowEnumerate, serde_json::json!({})),
+            "windows-watch": capability_verb(
+                mechanism::Capability::WindowEnumerate,
+                serde_json::json!({ "mode": "poll-diff", "group": "discover" }),
+            ),
+            "apps": {
+                "status": verb_status(mechanism::Capability::WindowEnumerate),
+                // `running_only` describes the *default*, not a limit:
+                // `--all` adds the installed-but-not-running half where the
+                // host can enumerate it.
+                "running_only": true,
+                "installed": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "discover",
+            },
+            "tree": tree_verb,
+            "query": tree_verb,
+            "inspect": crate::mcu_surface::verb_declaration("inspect"),
+            "find": crate::mcu_surface::verb_declaration("find"),
+            "read": crate::mcu_surface::verb_declaration("read"),
+            "invoke": tree_verb,
+            "verify": tree_verb,
+            "menu-inspect": menu_verb,
+            "menu-invoke": menu_verb,
+            "focused": focused_verb,
+            "observe": observe_verb,
+            "close": close_verb,
+            "orderwin": capability_verb(
+                mechanism::Capability::WindowOp,
+                serde_json::json!({ "group": "geometry", "mode": "raise" }),
+            ),
+            "screenshot": screenshot_verb,
+            "click": {
+                "status": tree_verb.get("status").cloned().unwrap_or(serde_json::json!("unsupported")),
+                "grant": "actuate",
+                "backend": "agt_a11y_node_perform",
+                "group": "input-local",
+            },
+            "dclick": {
+                "status": tree_verb.get("status").cloned().unwrap_or(serde_json::json!("unsupported")),
+                "grant": "actuate",
+                "alias_of": "click",
+                "group": "input-local",
+            },
+            "receipts": { "status": "available" },
+            // `hide` / `show` need an application-level hidden state, which
+            // only macOS has; `quit` needs the application's own Quit menu
+            // item, so it rides the menu verb's own status.
+            "app": {
+                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "app",
+                "actions": {
+                    "hide": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                    "show": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                    "quit": if cfg!(target_os = "macos") { "available" } else { "mapped" },
+                    "launch": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                },
+                // `launch` cannot report a pid: the launcher service owns
+                // the process it starts. Watch for the window instead.
+                "launch_returns_pid": false,
+                "quit_mechanism": "the application's own Quit menu item, pressed in the background; never a signal",
+                "destructive": ["quit"],
+            },
+            "page-js": {
+                "status": "available",
+                "backend": observe::page_js_backend(),
+                "mode": "cdp",
+                "reason": observe::page_js_unsupported_reason(),
+                "target_selectors": ["--target-id", "--target-url", "--target-title"],
+                "background_tabs": "Runtime.evaluate reaches a background tab by target; no focus change",
+            },
+            "spaces": crate::mcu_surface::verb_declaration("spaces"),
+            "displays": crate::mcu_surface::verb_declaration("displays"),
+            "pointer-position": pointer_position_verb,
+            "pointer-move": pointer_inject_verb,
+            "send-keys": capability_verb(
+                mechanism::Capability::InputInject,
+                serde_json::json!({ "scope": "desktop", "group": "input" }),
+            ),
+            "send-text": capability_verb(
+                mechanism::Capability::InputInject,
+                serde_json::json!({ "scope": "desktop", "group": "input", "alias_of": "type" }),
+            ),
+        },
+        "permissions": permissions,
+        "mcu_groups": crate::mcu_surface::GROUPS.iter().map(|g| g.id).collect::<Vec<_>>(),
+        "alignment_tsv": crate::mcu_surface::alignment_matrix_text(),
+        "mapping": {
+            "windows": "libagenterm agt_window_enumerate",
+            "tree": tree_mapping,
+            "window_place": "Spectacle catalog via libagenterm agt_native_window_*",
+        },
+        "gaps": {
+            "windows": "none — shared agenterm.dll (milestone 46)",
+            "screenshot": "none — shared agenterm.dll (milestone 46)",
+            "input_degraded": "none — shared agenterm.dll (milestone 46)",
+            "rdp_live": "rdp tier is placeholder; never declared available on current",
+            "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify / click / focus), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused), the poll-diff observation stream (observe), the destructive close (gate: exact target + snapshot + postcondition) with crash-persistent receipts (receipts), the read-only pointer position and the window-place frame transaction are proven by scripts/qjs/cu-macos-smoke.qjs; invoke offers no quit / delete action; AX notifications are not subscribed (observe is poll-diff)",
+        }
+    });
+    if let Some(verbs) = payload.get("verbs").cloned() {
+        payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
+    }
+    attach_verb_grants(&mut payload);
+    attach_invoke_actions(&mut payload);
+    payload
+}
+
+/// One place to look for "what am I not allowed to do, and how is that
+/// fixed". `setup` / `doctor` / `permissions` stay typed -- the wizard
+/// is MCU's -- but the *reporting* has to be complete, and until now the
+/// repair path was buried inside the `tree` verb while input injection
+/// depends on the very same grant. A caller should not have to know
+/// that to find it.
+fn permissions_declaration() -> serde_json::Value {
+    if cfg!(target_os = "macos") {
+        let accessibility =
+            match mechanism::capability_status(mechanism::Capability::AccessibilityTree) {
+                mechanism::CapabilityStatus::Available => serde_json::json!({
+                    "status": "granted",
+                }),
+                mechanism::CapabilityStatus::Failed { code, message }
+                    if code == "a11y_permission_denied" =>
+                {
+                    serde_json::json!({
+                        "status": "denied",
+                        "reason": code,
+                        "message": message,
+                        "repair": ACCESSIBILITY_REPAIR_PATH,
+                    })
+                }
+                other => serde_json::json!({
+                    "status": "unknown",
+                    "detail": format!("{other:?}"),
+                }),
+            };
+        serde_json::json!({
+            "accessibility": {
+                "grant": accessibility,
+                // Every verb that stops working when this grant is missing,
+                // including the input verbs: on macOS the same Accessibility
+                // entry gates posting events.
+                "gates": [
+                    "tree", "query", "invoke", "verify", "wait", "focused",
+                    "observe", "menu-inspect", "menu-invoke", "click", "focus",
+                    "send-text", "send-keys", "scroll", "get-extents", "select",
+                    "get-selection", "set-caret", "get-caret", "get-text",
+                    "close", "unlock", "pointer-move", "pointer-position",
+                ],
+            },
+            // Screen Recording really is required now that window capture
+            // works, and this does not claim to know whether it is held:
+            // the capture API reports "no permission" and "the window is
+            // gone" the same way, so the honest report is that the grant
+            // gates the verb, with where to fix it -- not a guess at its
+            // state dressed as a reading.
+            "screen_recording": {
+                "grant": {
+                    "status": "required",
+                    "reason": "window capture reads the window's pixels; macOS gates that on Screen Recording",
+                    "repair": SCREEN_RECORDING_REPAIR_PATH,
+                },
+                "gates": ["screenshot"],
+            },
+        })
+    } else {
+        serde_json::json!({
+            "model": "none",
+            "reason": "this host has no per-application permission gate; a mechanism is available or it is not",
+        })
+    }
+}
+
+/// Every verb's `grant` (`observe` / `actuate`), filled in only where the
+/// declaration did not already say.
+fn attach_verb_grants(payload: &mut serde_json::Value) {
+    if let Some(verbs) = payload["verbs"].as_object_mut() {
+        for (verb, grant) in [
+            ("windows", "observe"),
+            ("windows-watch", "observe"),
+            ("apps", "observe"),
+            ("tree", "observe"),
+            ("query", "observe"),
+            ("inspect", "observe"),
+            ("find", "observe"),
+            ("read", "observe"),
+            ("verify", "observe"),
+            ("wait", "observe"),
+            ("focused", "observe"),
+            ("observe", "observe"),
+            ("screenshot", "observe"),
+            ("pointer-position", "observe"),
+            ("clipboard-read", "observe"),
+            ("get-text", "observe"),
+            ("capabilities", "observe"),
+            ("page-js", "observe"),
+            ("page-targets", "observe"),
+            ("tab-list", "observe"),
+            ("click", "actuate"),
+            ("tab-select", "actuate"),
+            ("dclick", "actuate"),
+            ("invoke", "actuate"),
+            ("menu-invoke", "actuate"),
+            ("send-keys", "actuate"),
+            ("send-text", "actuate"),
+            ("pointer-move", "actuate"),
+            ("unlock", "actuate"),
+            ("close", "actuate"),
+            ("orderwin", "actuate"),
+            ("app", "actuate"),
+        ] {
+            if let Some(object) = verbs.get_mut(verb).and_then(|value| value.as_object_mut()) {
+                object
+                    .entry("grant")
+                    .or_insert_with(|| serde_json::json!(grant));
+            }
+        }
+    }
+}
+
+/// The `invoke` action vocabulary: `mapped` says the ABI carries the
+/// action; whether a node offers it is the backend's answer at call time.
+fn attach_invoke_actions(payload: &mut serde_json::Value) {
+    if let Some(invoke) = payload["verbs"]["invoke"].as_object_mut() {
+        invoke.insert(
+            "actions".into(),
+            serde_json::json!({
+                "press": "mapped",
+                "set-value": "mapped",
+                "select-option": "mapped",
+                "set-checked": "mapped",
+                "set-expanded": "mapped",
+                "increment": "mapped",
+                "decrement": "mapped",
+                "scroll-to": "mapped",
+                "set-selection": "mapped",
+                "set-selected": "mapped",
+                "cancel": "mapped",
+                "show-default-ui": "mapped",
+            }),
+        );
+    }
+}
+
+pub(super) fn current_tree_mapping() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "libagenterm agt_a11y_* → Linux AT-SPI2"
+    }
+    #[cfg(windows)]
+    {
+        "libagenterm agt_a11y_* → Windows UIA"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "libagenterm agt_a11y_* → macOS AX (observe + invoke live: cu-macos-smoke)"
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    {
+        "libagenterm agt_a11y_*"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_capabilities_names_current_target() {
+        let reply = observe_executor().execute(&Command::Capabilities {
+            target: TargetRef::Current,
+        });
+        assert!(reply.ok);
+        assert_eq!(reply.target, "current");
+        assert_eq!(reply.command, "capabilities");
+        let data = reply.data.as_ref().expect("data");
+        assert_eq!(data["target"], "current");
+        assert_eq!(data["transport"]["status"], "in_process");
+        assert_eq!(data["transport"]["available"], true);
+        assert_eq!(data["verbs"]["capabilities"]["status"], "available");
+        assert_eq!(data["verbs"]["pty"]["status"], "unsupported");
+        assert_eq!(
+            data["verbs"]["page-js"]["backend"],
+            "debugger-runtime-evaluate"
+        );
+        assert!(
+            data["mcu_groups"].as_array().map(|g| g.len()).unwrap_or(0)
+                >= crate::mcu_surface::GROUPS.len()
+        );
+        let tsv = data["alignment_tsv"].as_str().unwrap_or("");
+        assert!(tsv.contains("shell-pty-job\tlinux\tunsupported\t"));
+        assert!(!tsv.contains("still-gap"));
+        assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
+        assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");
+        assert_eq!(data["verbs"]["apps"]["running_only"], true);
+        assert_eq!(data["verbs"]["apps"]["group"], "discover");
+        assert_eq!(data["verbs"]["orderwin"]["mode"], "raise");
+        assert_eq!(data["verbs"]["orderwin"]["group"], "geometry");
+        assert_ne!(data["verbs"]["orderwin"]["status"], "");
+        assert_eq!(data["verbs"]["page-js"]["status"], "available");
+        assert_eq!(data["verbs"]["page-js"]["mode"], "cdp");
+        assert_eq!(
+            data["verbs"]["invoke"]["actions"]["set-selection"],
+            "mapped"
+        );
+        // `mapped`, not `available`: the ABI carries these three now, but
+        // whether a given node offers AXCancel / AXSelected / AXShowDefaultUI
+        // is the backend's answer at call time, not a promise made here.
+        assert_eq!(data["verbs"]["invoke"]["actions"]["cancel"], "mapped");
+        assert_eq!(data["verbs"]["invoke"]["actions"]["set-selected"], "mapped");
+        assert_eq!(
+            data["verbs"]["invoke"]["actions"]["show-default-ui"],
+            "mapped"
+        );
+        assert_eq!(data["verbs"]["displays"]["group"], "geometry");
+        assert_eq!(data["verbs"]["displays"]["status"], "available");
+        assert_eq!(data["verbs"]["spaces"]["group"], "geometry");
+        if cfg!(target_os = "macos") {
+            assert_eq!(data["verbs"]["spaces"]["status"], "available");
+        } else {
+            assert_eq!(data["verbs"]["spaces"]["status"], "unsupported");
+        }
+        assert_ne!(data["verbs"]["windows-watch"]["status"], "");
+        assert_ne!(data["verbs"]["apps"]["status"], "");
+        // Must not declare live RDP or unproven Mac AX as available.
+        assert!(data["gaps"]["rdp_live"].as_str().is_some());
+        assert!(data["gaps"]["macos_ax_live"].as_str().is_some());
+        let mapping = data["mapping"]["tree"].as_str().unwrap_or("");
+        assert!(
+            !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
+            "current mapping must not claim live RDP: {mapping}"
+        );
+    }
+}

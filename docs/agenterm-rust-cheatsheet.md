@@ -1374,6 +1374,64 @@ path. When `GetInterfaces` times out, still try `DoAction(0)` first (WebKit
 `GetActions` hangs; `DoAction` often works), then Component only if the
 Action interface is missing.
 
+## A "missing" web page is a walk budget, a value field, or an AX mode -- not a screenshot
+
+Three measured reasons the macOS AX tree "has no page" on Chromium, each
+with a typed answer instead of a PNG:
+
+- **Breadth-first walk, 1000-node / 32-level default.** The platform
+  adapter walks level by level; on a browser window the budget is spent on
+  the tab strip, toolbar and bookmarks before web content (which nests past
+  depth 40) is reached. `truncated: true` on a browser window means "the
+  page is not in this reply". Say so in `next_actions` with the exact
+  rerun (`--max-nodes 6000 --depth 64`; 774 nodes read in 0.26 s), and
+  give reading verbs (`page text`, `unlock`) those larger defaults. Never
+  compare "before" and "after" trees under a budget that cannot see the
+  part you are comparing: `unlock` at depth 12 reported `grew: false` on a
+  window whose page was fully readable one level deeper.
+- **Words are `AXValue`.** A web `static-text` has an empty `AXTitle`
+  (`name`) and its string in `AXValue` (`text`); a heading's `AXValue` is
+  its level. Shape reading verbs from `text` first, `name` for
+  non-container roles, and never from a container's concatenated name.
+  Reading order is the child-index path, not the walk order.
+- **The renderer tree is opt-in.** Chromium builds it when an assistive
+  client is detected: set `AXManualAccessibility` *and*
+  `AXEnhancedUserInterface` on the application, `AXManualAccessibility` on
+  the window, then read like a client would (hit-test the window centre,
+  its children, the window's children, the focused element's children) and
+  re-read bounded. Do not treat the set-attribute status as the outcome.
+
+A verb that answers `a11y_node_not_found` must reach no mechanism. Prove
+it with the thread-local `mechanism::write_ledger` (attempt count noted
+before every text / key / node-action FFI call) rather than with a receipt
+file, which a refusal never writes.
+
+## A background browser tab is a target id (CDP) or a tab-strip row (AX), never a web-area
+
+macOS Chromium (Chrome, Brave, Edge) publishes only the active tab's
+`web-area` in the AX tree; every other tab is a `radio-button` row of the
+tab-strip `tab-group` (name = title, state `selected` / `unselected`).
+`agenterm-cu tree` / `query` / `invoke` therefore cannot read or press a
+background tab's content, and no `unlock` poke changes that. Two honest
+paths, neither of which raises or activates the window:
+
+- CDP `/json` lists every tab as a `page` target and `Runtime.evaluate`
+  over that target's websocket runs in a background tab. Address the tab
+  (`page-js --target-id | --target-url | --target-title`, inventory via
+  `page targets`), filter to `type == "page"`, and fail typed on zero
+  (`cdp_target_not_found`) or many (`cdp_target_ambiguous`) with the
+  candidates in `error.detail` — never take the first hit of a substring.
+- Without a CDP port, switch the window's active tab through the strip:
+  `tab select` presses the matching `radio-button` whose direct parent is
+  the `tab-group` (a form's radio buttons are not tabs) and verifies by
+  reading `selected` back. Keep the matcher pure (`tab_strip.rs`) and test
+  it with fake node lists; the mechanism stays the same `AXPress` path as
+  `invoke press`.
+
+The debugging port answers any local process, so documentation must say
+to open it only while needed; do not default a verb to relaunching the
+browser with the flag.
+
 ## Name addressing is wait-matching then the node path
 
 `agenterm-cu click --name` / `agenterm-cu focus --name` must not grow a second actuation
@@ -3051,3 +3109,14 @@ For a long-lived coordinator, price the task's host-operation budget from its
 worst-case bounded sampling cadence and wall deadline. Keep that override in
 the owning task contract; do not raise the engine default or remove evidence
 collection when the old generic allowance is exhausted.
+
+Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
+private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
+never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second
+binary. A `r"…"` raw string cannot contain `"`; widen the delimiter
+(`r#"…"#`) instead of escaping, which a raw string does not do.
+
+An HTTP client that reads a response with `read_to_end` only works when the
+server closes the socket. Chromium's DevTools HTTP server ignores
+`Connection: close`, so frame the body from `Content-Length` or chunked
+encoding and bound it; otherwise every call costs the read timeout and fails.

@@ -2933,7 +2933,8 @@ mod tests {
         assert!(page_js_unsupported_reason().contains("no browser extension"));
         assert!(!page_js_unsupported_reason().contains("eval("));
         assert!(!include_str!("command.rs").contains("eval("));
-        assert!(!include_str!("executor.rs").contains("eval("));
+        assert!(!include_str!("executor/browser.rs").contains("eval("));
+        assert!(!include_str!("executor/dispatch.rs").contains("eval("));
         assert!(!include_str!("page_js.rs").contains("eval("));
         assert!(!include_str!("page_js.rs").contains("new Function"));
     }

@@ -40,6 +40,23 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
 ## Abstract command set
 
+- [x] the concrete verb surface is one static table,
+  `crates/agenterm-cu/src/bin/cli/verbs.rs` (name, aliases, scope, family,
+  usage, reference). `agenterm-cu --help` renders it grouped by family;
+  `agenterm-cu help <verb>` / `<verb> --help` carry the reference prose;
+  `agenterm-cu verbs --json` emits the table; `scripts/gen-cu-verbs-doc.sh`
+  regenerates `docs/agenterm-cu-verbs.md` from it. That generated file, not
+  this PRD, is the exhaustive per-verb reference; this PRD lists the abstract
+  set and layering. Verbs the table carries beyond the abstract set below:
+  `windows-watch`, `exec --json`, `receipts`, `verbs`, `help`, and the MCU
+  aliases (`shot`, `type`, `key`, `move`, `dclick`, `rclick`, `frame`,
+  `movewin`, `resize`, `maximize`, `cursor`, `clip`, `caps`, `elements`,
+  `inspect`, `find`, `read`).
+- [x] focused-node text writers (`send-text`, `paste`, `send-keys` with
+  `--window` and no `--name`) refuse `focused_node_is_browser_chrome` when the
+  window is a browser and focus sits in its chrome (omnibox, toolbar, tab
+  strip); `--allow-browser-chrome` is the explicit override. A `--name` miss
+  performs no write (write-ledger tests).
 - [ ] the initial set covers observation and actuation:
   screenshot; window enumeration; control-tree enumeration; pointer
   press/release/move/click/drag; wheel; keyboard text and named keys; clipboard
@@ -103,12 +120,70 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   returns the classification. Live evidence: `cu-macos-web-smoke` STEP
   "unlock asks the engine to build the web tree and reports what the
   re-read found, not what the call returned" (2026-08-31).
-- [x] `page-js` is a second knife after AX: the shipped verb is typed
+- [x] `page-js` is a second knife after AX: `Runtime.evaluate` over CDP on
+  `127.0.0.1:<--port>` (default 9222) when the browser was started with
+  `--remote-debugging-port`; with no listener the verb is typed
   `unsupported` with `detail.backend = debugger-runtime-evaluate`.
   Ordinary AX web control needs no browser extension. MAIN-world
   `eval` / `new Function` is never the backend (chatgpt.com CSP).
   Evidence: `Command::PageJs`, `capabilities.verbs["page-js"]`,
   `observe::page_js_backend()`.
+- [~] `page-js` addresses one tab: at most one of `--target-id ID` (exact
+  CDP id), `--target-url SUB` / `--target-title SUB` (case-insensitive
+  substring) filters the `/json` page targets; none keeps the first page.
+  No match is typed `cdp_target_not_found`, more than one
+  `cdp_target_ambiguous`, both with the candidates (id, url, title) in
+  `error.detail`; the reply echoes the chosen `target`. `Runtime.evaluate`
+  runs in a background tab, so no focus changes. `page targets` /
+  `page-targets [--port N]` lists the inventory (id, url, title, type,
+  attached, websocket); no listener is typed `unsupported` like `page-js`.
+  Evidence: `page_js::select_target` / `targets_payload` unit tests. Live
+  evidence is open: the throwaway-browser gate `scripts/cu-cdp-smoke.sh`
+  (headless Brave Origin, fresh profile, two `data:` tabs, 2026-09-03)
+  reaches `/json` with `curl` but every cu CDP verb answers `unsupported`
+  "CDP HTTP read failed" -- `page_js::http_get_json` sends `Connection:
+  close` and reads to EOF while Chrome's DevTools server keeps the socket
+  open, so the reader must honour `Content-Length`. The leaf returns to
+  `[x]` when that gate prints PASS.
+- [x] `page text --window H [--max-bytes N] [--within X,Y,W,H] [--depth N]
+  [--max-nodes N]` returns the visible words in reading order (child-index
+  path = document order, not the breadth-first walk order) as compact rows
+  `{id, role, text, bounds}` (+ `name` when it differs, `focused`,
+  `actionable`), merging a link's / button's inner text into one row, so
+  the next step is `invoke --node` / `click --node` and never a screenshot.
+  Chromium keeps a web node's words in `AXValue` (`text`), which is why a
+  `name`-only reading shows an empty page. Bounded by bytes (default 16 KiB,
+  max 1 MiB, `truncated`) and by the walk budget, which defaults to depth
+  64 / 6000 nodes: the platform's 1000-node breadth-first default is spent
+  on browser chrome before deep web content. `query` / `tree` report the
+  same fact in `next_actions` when their walk truncates. Evidence:
+  `page_text` unit tests on a fake Chromium-shaped tree; live Brave (94
+  rows, 472 nodes, 2026-09-03).
+- [x] `unlock` sets `AXManualAccessibility` and `AXEnhancedUserInterface`
+  on the application plus `AXManualAccessibility` on the window, wakes the
+  renderer as an assistive client would, re-reads bounded (5 x 200 ms) and
+  reports `web_nodes_before` / `web_nodes_after`, `rereads` and the
+  `poke` description (plus `reason` when the poke was refused) with a
+  depth-64 / 6000-node comparison read; `grew` is true when either the
+  returned count or the web-node count rose. The previous depth-12
+  comparison could not see a web-area's children, so `grew` was false
+  regardless of the poke.
+- [x] A typed miss performs no write: `send-text` / `send-keys` /
+  `paste --name` on a missing node leave the mechanism write ledger
+  (`mechanism::write_ledger`) untouched. Evidence:
+  `name_and_role_send_text_miss_performs_no_write_on_any_path`; live
+  reproduction of the reported omnibox write did not reproduce (omnibox
+  unchanged after `a11y_node_not_found`).
+- [x] `tab list --window H` / `tab select --window H (--title SUB |
+  --index N)` are the a11y fallback for the same problem: macOS Chromium
+  lists background tabs only as `radio-button` rows of the tab-strip
+  `tab-group` (no `web-area`), so `tab select` presses that row in the
+  background and verifies by `selected` read-back (already selected is a
+  verified no-op; receipts `reserved` / `completed`). No such tab is
+  `a11y_tab_not_found`, two title hits `a11y_tab_ambiguous`. Never raises
+  or activates the window. Evidence: `tab_strip` matcher unit tests; live
+  Brave background window 2026-09-03 (focused window unchanged before and
+  after the switch).
 - [x] `query --window HANDLE [--depth N] [--max-nodes N] [--role R,R]
   [--text T | --text-exact T] [--identifier ID] [--actionable] [--within
   X,Y,W,H] [--offset N] [--max N]` returns a flat, bounded, filtered node list
@@ -310,9 +385,17 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   focus / click / close lines listed in order, reserved before and
   completed after each, the close snapshot inside its reserved line;
   `--max 2` truncates with `truncated: true`, `--max 0` is `invalid_input`).
-- [ ] browser pages are reached through the platform's own web accessibility
-  area (`role` WebArea and its descendants) on the same loop; no browser
-  extension, native-messaging bridge or devtools protocol is adopted.
+- [~] browser pages are reached through the platform's own web accessibility
+  area (`role` WebArea and its descendants) on the same loop: `page text`,
+  `query`, `invoke`, `tab list` / `tab select` need no browser extension or
+  native-messaging bridge, and `browser *` stays typed `unsupported`. The
+  devtools protocol is adopted only as the opt-in second knife (`page-js`,
+  `page targets`, a port the caller opens on purpose), never as the default
+  path. MCU ledger (2026-09-03): `inspect` / `find` / `read` are live
+  aliases of `query`, `page read --js` / `page targets` / `page text` are
+  live under their cu spellings; `page click` / `page nav`, `drag`,
+  `minimize` / `restore`, `ps` and the non-desktop groups remain typed
+  `unsupported` by name (`capabilities.verbs[*].reason` says why).
 - [ ] every command carries an explicit target reference and returns a typed
   result. There is no ambient "current target" that a caller can forget to set.
 - [ ] verb spellings converge with the existing AgenTerm surfaces where the

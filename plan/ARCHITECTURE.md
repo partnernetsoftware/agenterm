@@ -792,6 +792,27 @@ same `host_actions::execute` → `Command` → `Executor` chain used by real men
 and shortcut events. Candidate qualification remains incomplete, so
 architecture status is partial.
 
+### CLI surface layout (`crates/agenterm-cu/src/bin/`)
+
+`src/bin/agenterm_cu.rs` only routes: the entry modes (`host`, `verbs`,
+`exec`, `help`), the global flags, then one verb-table lookup. Everything else
+lives in `src/bin/cli/`, bin-private (Cargo auto-discovers `src/bin/*.rs` as
+extra binaries, so the modules sit in a directory without `main.rs`):
+
+| File | Owns |
+|------|------|
+| `cli/verbs.rs` | the single static verb table `VERBS`: canonical name, reply command, aliases (including two-token forms such as `menu inspect`), scope, family, summary, usage, args, reference prose; `lookup` / `resolve` / `near_matches`; the `verbs --json` row type |
+| `cli/help.rs` | `--help` (grouped by family, one line per verb), `help <verb>` and `<verb> --help`, the ssh / vnc / rdp topics, `verbs [--json\|--text]`; every line is rendered from the table |
+| `cli/global.rs` | `--target` / `--ssh*` / `--vnc*` / `--rdp` / `--grant*` parsing, env fallbacks, combination refusals, authorization and `Executor` assembly (shared with `exec`) |
+| `cli/exec.rs` | the `exec --json` worker mode |
+| `cli/windows.rs`, `cli/a11y_observe.rs`, `cli/a11y_actuate.rs`, `cli/menu.rs`, `cli/browser.rs`, `cli/clipboard.rs`, `cli/placement.rs` | per-family argv → `Command` parsers; an `Err(String)` becomes the typed `usage` reply in one place |
+
+Rule: a new verb or alias is one row in `cli/verbs.rs` plus one arm in its
+family parser; no other file matches verb strings. Bin tests pin the
+surface: every alias resolves to its canonical verb, every verb has a usage
+line and `help <verb>`, `verbs --json` round-trips, and `--help` stays at or
+under 150 lines.
+
 The Windows accessibility call chain follows the same boundary:
 
 ```text
@@ -822,3 +843,60 @@ The staged public `cu-windows-smoke` also passes its seven declared receipts:
 host self-test, DLL load cleanup, exact window identity, UIA tree,
 name-addressed actuation, Value/GetText wait and owned UIA fixture cleanup.
 Candidate qualification and release are not claimed.
+
+### `agenterm-cu` executor source layout (SSOT)
+
+`crates/agenterm-cu/src/executor/` is one module directory split by verb
+family (2026-09-03; the former 9.5k-line `executor.rs` is gone). The public
+surface is unchanged: `Executor` (`new`, `with_ssh/vnc/rdp`,
+`with_persisted_grant`, `execute`) plus the two repair-path constants
+re-exported from `errors`. Every other item is `pub(super)`; children reach
+each other through `mod.rs` (`use <child>::*`) and never import a sibling
+directly. Each module carries the tests for the code it holds, and
+`test_support.rs` (`cfg(test)`) holds the shared fixtures.
+
+```text
+crates/agenterm-cu/src/executor/
+  mod.rs            Executor struct, grant check, transport dispatch (current /
+                    ssh / vnc / rdp), audit open + outcome, execute_current
+  dispatch.rs       run_current: the one exhaustive Command -> payload match
+                    (a new Command variant must fail to compile here) and the
+                    allow_browser_chrome seam
+  persisted.rs      persisted-grant reserve / audit / revalidate / dispatch
+  receipts.rs       ReceiptLog open beside the audit log; `receipts` verb
+  errors.rs         map_mechanism_err, invalid_input, error_payload, repair
+                    paths; snapshot gate over tests/fixtures/mechanism_error_map.json
+  capabilities.rs   `capabilities` declaration (verbs, permissions, grants)
+  windows.rs        windows / windows-watch / apps / orderwin / displays /
+                    spaces / screenshot
+  app_lifecycle.rs  app launch|hide|show|quit, close, destructive gate
+  a11y_observe.rs   tree / query / focused / observe / verify + tree budgets
+  a11y_actuate.rs   click / focus / scroll / get-extents / select /
+                    get-selection / set-caret / get-caret / get-text, the
+                    --node / --name / focused-node resolver (ResolvedNode)
+  text_input.rs     send-text / copy / paste / send-keys; the focused
+                    (--window, no --name) write path with its receipt and
+                    the browser-chrome guard
+  browser.rs        unlock, page js / page targets / page text, tab list /
+                    tab select, browser-chrome classification
+  invoke.rs         invoke (one node action + read-back receipt)
+  menus.rs          menu inspect / menu invoke
+  wait.rs           wait: inventory conditions, node name / text, --expect
+  node_match.rs     unique-showing-node matcher shared by wait / --name / invoke
+  placement.rs      window-place transaction (catalog + frame), rollback
+  pointer.rs        pointer-move / pointer-position
+  clipboard.rs      clipboard read / write / write-file / clear
+  test_support.rs   cfg(test) fixtures: scratch audit paths, synthetic nodes,
+                    pre-authorized executors
+```
+
+Focused text writes (`send-text` / `paste` / `send-keys` with `--window` and
+no `--name`) are guarded: when the window is a browser's (its tree carries a
+web-area, or the owning app name is Brave / Chrome / Chromium / Edge /
+Safari / Firefox / Arc) and the focused node is not inside a web-area, the
+verb refuses `focused_node_is_browser_chrome` (detail: node, role, name,
+hint) and writes nothing. The receipt file records the refusal as a `failed`
+line with `performed: false`, exactly like a mechanism refusal. The
+override is the `Command` field `allow_browser_chrome` (CLI
+`--allow-browser-chrome`); an allowed chrome write replies
+`browser_chrome: "allowed"`.

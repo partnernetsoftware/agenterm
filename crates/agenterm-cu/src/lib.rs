@@ -6,6 +6,7 @@
 pub mod audit;
 pub mod auth;
 pub mod auth_store;
+pub mod browser_profiles;
 #[cfg(target_os = "macos")]
 pub mod ax_guide;
 pub mod command;
@@ -20,6 +21,7 @@ pub mod mcu_surface;
 pub mod mechanism;
 pub mod observe;
 pub mod page_js;
+pub mod page_text;
 pub mod place;
 pub mod rdp_transport;
 pub mod receipt;
@@ -27,6 +29,7 @@ pub mod reply;
 pub mod ssh_transport;
 #[cfg(target_os = "macos")]
 pub mod status_menu;
+pub mod tab_strip;
 pub mod target;
 pub mod target_binding;
 pub mod vnc_transport;

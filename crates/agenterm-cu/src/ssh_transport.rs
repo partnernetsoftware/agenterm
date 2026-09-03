@@ -629,6 +629,7 @@ mod tests {
             window: Some(42),
             name: Some("Command".into()),
             role: None,
+            allow_browser_chrome: false,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "send-text");
@@ -661,6 +662,7 @@ mod tests {
             window: Some(42),
             name: Some("Command".into()),
             role: None,
+            allow_browser_chrome: false,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "paste");
@@ -725,6 +727,7 @@ mod tests {
             window: Some(42),
             name: None,
             role: None,
+            allow_browser_chrome: false,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "send-keys");

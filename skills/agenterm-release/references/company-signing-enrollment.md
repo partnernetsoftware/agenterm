@@ -7,19 +7,25 @@ must remain outside the repository.
 ## Current state
 
 - The company Azure Artifact Signing account exists on the Basic tier in East
-  US. Public Organization identity validation was submitted and the human
-  Verified ID step completed. Microsoft review is still pending.
-- A SignPath Foundation application was also submitted and acknowledged, but
-  approval, project/artifact configuration and the first signature remain
-  pending.
-- No AgenTerm production byte has been company-signed. `release-policy.json`
-  therefore keeps Windows signing `off`; an intake confirmation or completed
-  identity capture is not signing authority.
+  US. Public Organization identity validation reached **Completed** on
+  2026-09-03 and one Public Trust certificate profile is Active with the
+  company as subject. MiniCon already has a federated GitHub identity with the
+  profile-scoped signer role and a wired signing workflow
+  (`partnernetsoftware/minicon` `.github/workflows/company-signing.yml`).
+- SignPath Foundation declined the open-source application in September 2026.
+  There is no SignPath path any more; remove any SignPath placeholder when
+  touching signing configuration.
+- No AgenTerm production byte has been company-signed. AgenTerm still needs
+  its own Entra app registration + federated credential
+  (`repo:partnernetsoftware/agenterm:environment:release-signing`), the
+  `Artifact Signing Certificate Profile Signer` role on the shared profile,
+  and the six `release-signing` Environment values. `release-policy.json`
+  therefore keeps Windows signing `off`.
 
-Azure Artifact Signing is the intended company-publisher path shared with
-MiniCon. SignPath Foundation is an optional OSS transition whose certificate
-names SignPath Foundation rather than the company. Never describe the two
-publisher identities as equivalent.
+The reusable, redacted procedure (CLI commands, login pitfalls, local jsign
+rehearsal, workflow gates) lives in the company hub:
+`company-dev-hub/skills/sign-windows-artifacts/`. Read it before creating
+Azure or GitHub signing configuration for AgenTerm.
 
 ## Activation sequence
 
@@ -48,9 +54,6 @@ coordinates as protected variables or secrets using placeholders in docs:
   `<AZURE_SUBSCRIPTION_ID>`, `<SIGNING_ACCOUNT_URI>`, `<CERTIFICATE_PROFILE>`.
   Prefer GitHub OIDC; managed signing keys remain in Azure and are never
   exported.
-- SignPath: `<SIGNPATH_API_TOKEN>` as an Environment secret; organization,
-  project, signing-policy and artifact-configuration slugs as protected
-  Environment variables. SignPath retains its signing key.
 
 Do not put real coordinates in PRD, workflow logs, screenshots, receipts,
 commit messages or handoff prompts. Receipts may retain provider-neutral request

@@ -511,6 +511,11 @@ pub enum Command {
         name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         role: Option<String>,
+        /// `--allow-browser-chrome`: with `window` and no `name`, write the
+        /// focused control even when it is browser chrome (omnibox, toolbar,
+        /// tab strip) instead of refusing `focused_node_is_browser_chrome`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_browser_chrome: bool,
     },
     /// Read the target session's clipboard. Without `type_name` this is
     /// Unicode text plus the host type list. With `type_name` it is one
@@ -578,6 +583,11 @@ pub enum Command {
         name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         role: Option<String>,
+        /// `--allow-browser-chrome`: with `window` and no `name`, write the
+        /// focused control even when it is browser chrome (omnibox, toolbar,
+        /// tab strip) instead of refusing `focused_node_is_browser_chrome`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_browser_chrome: bool,
     },
     SendKeys {
         target: TargetRef,
@@ -593,6 +603,11 @@ pub enum Command {
         name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         role: Option<String>,
+        /// `--allow-browser-chrome`: with `window` and no `name`, write the
+        /// focused control even when it is browser chrome (omnibox, toolbar,
+        /// tab strip) instead of refusing `focused_node_is_browser_chrome`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_browser_chrome: bool,
     },
     /// One-shot AT-SPI `Component.ScrollTo(TopEdge)` on the unique showing
     /// named node. Success is `via=scroll-to`. Missing / false /
@@ -790,7 +805,10 @@ pub enum Command {
     },
     /// Page JavaScript second knife: CDP `Runtime.evaluate` on
     /// `--remote-debugging-port` (default 9222). MAIN-world Function
-    /// constructor is never used.
+    /// constructor is never used. At most one of `target_id` (exact CDP
+    /// id), `target_url` / `target_title` (case-insensitive substring)
+    /// picks the page target; none keeps the first page. Evaluation
+    /// reaches background tabs without selecting or raising anything.
     PageJs {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -799,6 +817,62 @@ pub enum Command {
         expression: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+    },
+    /// The CDP target inventory (`/json`) on `port`: id, url, title, type,
+    /// attached, and whether a websocket is offered. No listener is typed
+    /// `unsupported`, the same as `page-js`.
+    PageTargets {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+    },
+    /// The visible text of `window` in reading order, shaped from the
+    /// accessibility tree: compact rows of `id`, `role`, `text`, `bounds`
+    /// so the next step is `invoke --node` / `click --node`, never a
+    /// screenshot. Bounded by `max_bytes` (default 16 KiB), optionally by
+    /// a screen rectangle (`within`), and by the walk budget (`depth` /
+    /// `max_nodes`, defaults 64 / 6000: deeper and wider than the
+    /// platform's own, because a breadth-first walk spends 1000 nodes on
+    /// browser chrome before it reaches web content).
+    PageText {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_bytes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        within: Option<[i32; 4]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+    },
+    /// The browser tab strip of `window` read through the accessibility
+    /// tree: each tab's index, title and selected state. macOS Chromium
+    /// lists background tabs only here (as `radio-button` rows of the
+    /// `tab-group`); their content is not in the tree.
+    TabList {
+        target: TargetRef,
+        window: isize,
+    },
+    /// Make one tab of `window` the active one by pressing its tab-strip
+    /// row in the background (never raises or activates the window).
+    /// Exactly one of `title` (case-insensitive substring) / `index`
+    /// (0-based strip order, as `tab list` numbers it). No such tab is
+    /// `a11y_tab_not_found`, two title hits `a11y_tab_ambiguous`; verified
+    /// by reading the `selected` state back.
+    TabSelect {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
     },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
@@ -925,6 +999,10 @@ impl Command {
             Self::Close { .. } => "close".into(),
             Self::Receipts { .. } => "receipts".into(),
             Self::PageJs { .. } => "page-js".into(),
+            Self::PageTargets { .. } => "page-targets".into(),
+            Self::PageText { .. } => "page-text".into(),
+            Self::TabList { .. } => "tab-list".into(),
+            Self::TabSelect { .. } => "tab-select".into(),
             Self::Unlock { .. } => "unlock".into(),
             Self::Align { group, .. } => group.clone(),
         }
@@ -973,6 +1051,10 @@ impl Command {
             | Self::Close { target, .. }
             | Self::Receipts { target, .. }
             | Self::PageJs { target, .. }
+            | Self::PageTargets { target, .. }
+            | Self::PageText { target, .. }
+            | Self::TabList { target, .. }
+            | Self::TabSelect { target, .. }
             | Self::Unlock { target, .. }
             | Self::Align { target, .. } => *target,
         }
@@ -998,6 +1080,7 @@ impl Command {
             | Self::WindowPlace { .. }
             | Self::OrderWin { .. }
             | Self::Close { .. }
+            | Self::TabSelect { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }
@@ -1355,9 +1438,76 @@ mod tests {
             window: Some(14278),
             expression: Some("document.title".into()),
             port: None,
+            target_id: None,
+            target_url: None,
+            target_title: Some("Nepal".into()),
         };
         assert_eq!(page_js.verb(), "page-js");
         assert_eq!(page_js.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&page_js).expect("serialize"),
+            serde_json::json!({
+                "verb": "page-js", "target": "current", "window": 14278,
+                "expression": "document.title", "target_title": "Nepal"
+            })
+        );
+        // A pre-selector wire form still decodes with no selector.
+        let older: Command = serde_json::from_value(serde_json::json!({
+            "verb": "page-js", "target": "current", "expression": "1+1"
+        }))
+        .expect("deserialize");
+        assert!(matches!(
+            older,
+            Command::PageJs {
+                target_id: None,
+                target_url: None,
+                target_title: None,
+                ..
+            }
+        ));
+        let targets = Command::PageTargets {
+            target: TargetRef::Current,
+            port: Some(9223),
+        };
+        assert_eq!(targets.verb(), "page-targets");
+        assert_eq!(targets.required_grant(), Grant::Observe);
+        let text = Command::PageText {
+            target: TargetRef::Current,
+            window: 7,
+            max_bytes: Some(4096),
+            within: Some([0, 60, 800, 500]),
+            depth: None,
+            max_nodes: None,
+        };
+        assert_eq!(text.verb(), "page-text");
+        assert_eq!(text.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&text).expect("serialize"),
+            serde_json::json!({
+                "verb": "page-text", "target": "current", "window": 7,
+                "max_bytes": 4096, "within": [0, 60, 800, 500]
+            })
+        );
+        let list = Command::TabList {
+            target: TargetRef::Current,
+            window: 7,
+        };
+        assert_eq!(list.verb(), "tab-list");
+        assert_eq!(list.required_grant(), Grant::Observe);
+        let select = Command::TabSelect {
+            target: TargetRef::Current,
+            window: 7,
+            title: Some("Codex".into()),
+            index: None,
+        };
+        assert_eq!(select.verb(), "tab-select");
+        assert_eq!(select.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&select).expect("serialize"),
+            serde_json::json!({
+                "verb": "tab-select", "target": "current", "window": 7, "title": "Codex"
+            })
+        );
         let wait = Command::Wait {
             target: TargetRef::Current,
             timeout_ms: 500,

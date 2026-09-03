@@ -772,6 +772,29 @@ pub mod window_op {
 // Input injection.
 // ---------------------------------------------------------------------------
 
+/// Thread-local count of every actuation attempt this thread handed to
+/// libagenterm (text writes, node actions, key / text injection). It is a
+/// test seam and a diagnostic, not a receipt: it proves that a verb which
+/// answered typed *did not reach the mechanism*, which a receipt file
+/// cannot (a refusal writes none).
+pub mod write_ledger {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Record one attempt; called immediately before the FFI call.
+    pub(crate) fn note() {
+        ATTEMPTS.with(|count| count.set(count.get() + 1));
+    }
+
+    /// Attempts so far on this thread.
+    pub fn attempts() -> usize {
+        ATTEMPTS.with(Cell::get)
+    }
+}
+
 pub mod input_inject {
     use super::{MechanismError, last_mechanism_error, map_status};
     use crate::dynlib;
@@ -857,6 +880,7 @@ pub mod input_inject {
 
     /// Type UTF-8 text into the focused control.
     pub fn type_text(text: &str) -> Result<(), MechanismError> {
+        super::write_ledger::note();
         let f = super::call_sym::<super::InputTypeText>(b"agt_input_type_text")?;
         let status = unsafe { f(text.as_ptr(), text.len()) };
         map_status("agt_input_type_text", status)
@@ -864,6 +888,7 @@ pub mod input_inject {
 
     /// Send a hotkey chord such as `ctrl+s`, `alt+f4` or `enter`.
     pub fn send_keys(keys: &str) -> Result<(), MechanismError> {
+        super::write_ledger::note();
         let f = super::call_sym::<super::InputSendKeys>(b"agt_input_send_keys")?;
         let status = unsafe { f(keys.as_ptr(), keys.len()) };
         map_status("agt_input_send_keys", status)
@@ -1385,6 +1410,7 @@ pub fn perform_node_action(
     let handle = window.unwrap_or(0);
     let node_c = CStringOrStack::new(node_id)?;
     let (kind, value) = action.abi_parts();
+    write_ledger::note();
     if matches!(action, NodeAction::Click | NodeAction::Focus) {
         let f = call_sym::<NodePerform>(b"agt_a11y_node_perform")?;
         let status = unsafe { f(handle, node_c.as_ptr(), kind) };
@@ -1423,6 +1449,7 @@ pub fn set_node_text(
 ) -> Result<(), MechanismError> {
     let handle = window.unwrap_or(0);
     let node_c = CStringOrStack::new(node_id)?;
+    write_ledger::note();
     let f = call_sym::<NodeSetText>(b"agt_a11y_node_set_text")?;
     let status = unsafe { f(handle, node_c.as_ptr(), text.as_ptr(), text.len()) };
     map_status("agt_a11y_node_set_text", status)?;

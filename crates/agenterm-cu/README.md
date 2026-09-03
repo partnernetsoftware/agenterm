@@ -1,686 +1,247 @@
 # agenterm-cu
 
-`agenterm-cu` is AgenTerm's computer-use foundation: a target-agnostic command
-surface for orchestrator agents to observe and actuate a desktop through
-structured data instead of screenshot/OCR coordinate guessing.
+`agenterm-cu` is AgenTerm's computer-use foundation: one binary that lets an
+orchestrator agent observe and actuate a desktop through **structured data**
+(window inventory, accessibility tree, typed replies), not screenshot / OCR
+coordinate guessing. Every reply is one JSON line on stdout:
+`{"ok":bool,"target":..,"command":..,"data":..,"error":{"code","message","detail"}}`.
+
+This file is the task-oriented quick guide. The exhaustive per-verb reference
+is generated from the binary: [`docs/agenterm-cu-verbs.md`](../../docs/agenterm-cu-verbs.md)
+(`scripts/gen-cu-verbs-doc.sh`; `agenterm-cu --help` is always the truth).
+Product contract: [PRD 29](../../prd/PRD_02_29_cu_command_surface.md)
+(verbs), [30](../../prd/PRD_02_30_cu_targets_transports.md) (targets),
+[31](../../prd/PRD_02_31_cu_authorization_safety.md) (grants / audit),
+[32](../../prd/PRD_02_32_cu_window_placement.md) (`window-place`).
+
+Every call names a target and a grant. Below, `cu` stands for
+`agenterm-cu --target current --grant observe` (add `actuate` for writes).
 
 ## Living skill source (`moltbaby/skills/mcu`)
 
-The living desktop-bridge lab is sibling-repo `moltbaby/skills/mcu` (`bin/mcu`).
-This crate is the **product destination**: align that skill's surface
-(discover windows, a11y tree, local input, CDP page, verify, window geometry)
-onto AgenTerm's command / grant / `libagenterm` ABI. Do not transplant the
-TypeScript. Clean-room / provenance: [PRD 14](../../prd/PRD_02_14_research_provenance.md).
-Verb-level tree: [`plan/capability-mcu-cu.md`](../../plan/capability-mcu-cu.md).
+The living desktop-bridge lab is sibling-repo `moltbaby/skills/mcu`
+(`bin/mcu`). This crate is the **product destination**: absorb that skill's
+command set and layering lessons onto AgenTerm's command / grant /
+`libagenterm` ABI; never transplant the TypeScript (clean-room:
+[PRD 14](../../prd/PRD_02_14_research_provenance.md)). Verb-level status is
+[`plan/capability-mcu-cu.md`](../../plan/capability-mcu-cu.md). MCU
+spellings that cu honours are aliases (`inspect` / `find` / `read` ->
+`query`, `elements` -> `tree --flat`, `shot`, `type`, `frame`, ...); the
+rest are typed `unsupported` by name, never silently missing.
 
-Named window placement (`window-place`, Spectacle catalog, [PRD 32](../../prd/PRD_02_32_cu_window_placement.md))
-is one already-landed slice, not the whole goal. When this product and AgenTerm
-are mature enough to replace the skill, `skills/mcu` archives and agents depend
-on `agenterm-cu`. Until then, do not treat window-place as computer-use done.
-
-## Intended agent loop
-
-Orchestrator agents (not humans staring at pixels) should run:
+## The loop
 
 ```text
 loop until goal:
-  observe structured state (windows, windows-watch, running apps, control tree, typed capabilities)
-  act by structured identity (window + node path, or window + accessible name)
-    click / focus / send-text / paste / send-keys all take --name, so no step parses node ids
-  wait on observable conditions with bounded timeouts — never sleep
+  find the window            windows / apps          (section 1)
+  read structured state      page text / query / tree (section 2)
+  act by identity            invoke / click / send-text --node|--name (section 3)
+  close the loop             verify / wait --expect  -- bounded timeouts, never sleep
 ```
 
-Chromium idle chrome is not an empty page: `tree`/`query` replies include
-`ax` and `next_actions` pointing at a deeper `query --role WebArea`, never
-screenshot or “install extension first”. `verify`/`wait --expect` accept
-identity-only `name`/`titleIncludes` (Heading↔WebArea when a title
-predicate is present). `page-js` is a second knife: typed `unsupported`
-with backend `debugger-runtime-evaluate`; AX web control does not require
-an extension. Tests: `observe.rs`
-`empty_chrome_next_action_is_deeper_query_not_screenshot_or_extension`,
-`heading_title_includes_matches_webarea_title`.
+Nothing here activates or raises a window: semantic verbs go through the
+a11y tree in the background; the focused window is the same before and after.
 
-`agenterm-cu` is capability, not judgment: no planner, model, or agent loop ships here.
+## 1. Find the window
 
-Named window placement (`window-place`) is in the command enum. Geometry
-follows the Spectacle catalog
-([PRD 32](../../prd/PRD_02_32_cu_window_placement.md)). Apply uses
-`libagenterm` `agt_native_window_*` (runtime dynamic library). Requires `--grant actuate`.
+```bash
+cu windows                                    # bare: the window array
+cu windows --app Brave --title Inbox --max 5  # any filter/page flag: {windows, visited, matched, returned, offset, truncated}
+cu apps --running                             # pids + window counts; --all adds installed-but-not-running
+cu windows-watch --app Brave --duration-ms 3000   # appeared / disappeared / changed (poll-diff)
+```
 
-`clipboard-read` is the standalone observe command for the target session's
-native Unicode-text clipboard. It returns bounded UTF-8 `text`, `bytes`,
-`format`, and `mechanism` fields through the command's JSON stdout only; it is
-independent of accessible-node `copy` / `paste`. The Windows public smoke is
-non-mutating: it compares an in-memory native text snapshot with the command
-reply and never prints or persists the clipboard content.
+Each row carries `handle`, `ref` (`"App#handle"`, accepted by every
+`--window`), `process_id`, `title`, `focused`, `minimized`, `z_index`,
+`occluded_percent`, `spaces`, and for Chromium windows `browser_profile`
+(parsed from the window title's ` - <App> - <profile>` suffix) so the right
+profile's window can be picked without a screenshot.
 
-`pointer-move --x X --y Y` is standalone target-neutral actuation. It uses
-absolute target-session screen coordinates, requires `--grant actuate`, and
-returns a fixed-shape typed result with `button_effect:"none"`. It does not
-press, release, click, drag, or scroll; those standalone verbs remain open.
-Coordinates are signed 32-bit ABI values; missing, duplicate, extra, or
-overflowing CLI values fail before native dispatch.
+## 2. Read without screenshots
 
-`pointer-position` is the matching Observe command. ABI 1.11 reads absolute
-screen coordinates without injecting an event; older libraries fail typed
-unsupported rather than probing a missing symbol. macOS is read-only live
-(`cu-macos-smoke`); Windows and X11 follow the input-inject mapping. A
-move/readback/restore receipt for injected `pointer-move` remains open.
+```bash
+cu page text --window "$H" [--max-bytes N] [--within X,Y,W,H]   # visible words in reading order
+cu query --window "$H" --role AXButton,AXLink --actionable --within 0,0,900,700 --max 50
+cu query --window "$H" --text "Sign in"          # substring of name or text; --text-exact / --identifier are exact
+cu query --window "$H" --selector 'AXButton@Save' # MCU Role[idx] / Role@title / *@title / #desc
+cu tree --window "$H" --depth 3 --flat            # numbered walk order; invoke --index addresses it
+cu focused --window "$H" --role AXTextField       # the app's own focused control, without foreground
+```
+
+`page text` rows are `{id, role, text, bounds}` (+ `name` when it differs,
+`focused`, `actionable`); a link / button is one row. Chromium keeps a web
+node's words in `AXValue` (`text`), so a `name`-only reading looks empty.
+Default 16 KiB (`--max-bytes`, max 1 MiB) with a `truncated` flag.
+
+**Truncation is a budget, not an empty page.** The platform walk is
+breadth-first under a default 1000-node / depth-32 budget; on a browser
+window that is spent on the tab strip and toolbar before web content (which
+nests past depth 40). `query` / `tree` say so in `next_actions`; pass
+`--max-nodes 6000 --depth 64` (the defaults `page text` and `unlock` use).
+An idle Chromium window is not blank either: replies carry `ax` plus
+`next_actions` naming a deeper `query --role WebArea`, never "screenshot" or
+"install an extension".
+
+**`unlock`** (actuate) asks the application to build its full a11y tree:
+`AXManualAccessibility` + `AXEnhancedUserInterface` on the app,
+`AXManualAccessibility` on the window, a renderer wake, then bounded
+re-reads. It reports `poked`, `grew`, `returned_before`, `web_nodes_before`
+/ `web_nodes_after`, `rereads` and `poke` separately because the poke's own
+status is not the outcome (AppKit calls the attribute unsupported even when
+it lands; only the re-read can claim anything).
+
+## 3. Locate a node and act
+
+```bash
+cu --grant actuate invoke --window "$H" --node "$ID" press           # id from page text / query
+cu --grant actuate invoke --window "$H" --identifier field-id set-value "text"
+cu --grant actuate invoke --window "$H" --name "Remember me" --role AXCheckBox set-checked true
+cu --grant actuate invoke --window "$H" --focused --role AXTextField set-value "typed into focus"
+cu --grant actuate click --window "$H" --node "$ID"                  # a11y press; --name PAT [--role R] also works
+cu --grant actuate send-text --window "$H" --name "Search" -- hello  # writes the named field; `--` ends flags
+cu --grant actuate send-text --window "$H" -- hello                  # no --name: the window's focused node
+cu menu inspect --window "$H" --depth 2 --title "Save" --exact       # the menu bar, read without opening it
+cu --grant actuate menu invoke --window "$H" --path 'File/Save'      # or '["File","More","Deeper"]'
+cu verify --window "$H" --expect '[{"identifier":"field-id","value":"text"},{"name":"Remember me","checked":true}]'
+cu wait --timeout-ms 3000 --window "$H" --expect '[{"name":"Saved","role":"AXStaticText"}]'
+```
+
+Actions: `press`, `set-value`, `select-option`, `set-checked` /
+`set-expanded` (desired states: already there is `performed:false,
+verified:true`), `increment`, `decrement`, `scroll-to`, `set-selection`,
+plus MCU `set-selected` / `cancel` / `show-default-ui` on macOS. Every write
+is read back: the reply carries `verified` with `verification.method` /
+`reason` and a receipt (`before` / `after`); `press` is verified by a
+whole-tree diff (`no_observable_change` otherwise).
+
+Refusals are typed and perform nothing: two showing matches -> `ambiguous`,
+none -> `a11y_node_not_found` (the mechanism write ledger is untouched, so a
+miss never types into the omnibox), an action the node does not offer ->
+`unsupported` (`node_action_missing`, offered actions in `detail`), an
+unreadable state -> `unsupported` (`state_unobservable`), observe-only
+grant -> `refused`, unknown flag -> `usage` before any tree is read. `verify`
+fails closed the same way: mismatch -> `unverified`, unexposed state ->
+`unsupported`; `wait --expect` polls the same matcher and a timeout carries
+the last observation. Menu paths must resolve to exactly one enabled leaf
+per segment (`a11y_menu_item_not_found` / `_ambiguous` / `_disabled` /
+`_not_leaf`). Plain `send-text TEXT` / `send-keys` without `--window` is the
+keyboard inject into whatever has focus; with `--window` it never is.
+
+Text verbs by name (`copy`, `paste`, `select` / `get-selection`,
+`set-caret` / `get-caret`, `get-text`, `scroll`, `get-extents`) share the
+unique-showing-name matcher; the independent read (`get-text`, `wait
+--text-equals`) is the proof, never the setter's echo.
+
+## 4. Browser tabs and pages
+
+macOS Chromium (Chrome, Brave, Edge) publishes only the **active** tab's
+`web-area`; every other tab is a `radio-button` row of the tab-strip
+`tab-group`. Two paths, neither of which raises the window:
+
+```bash
+cu tab list --window "$H"                                   # index, title, selected
+cu --grant actuate tab select --window "$H" --title "Inbox" # or --index 2; verified by selected read-back
+# no such tab -> a11y_tab_not_found, two title hits -> a11y_tab_ambiguous
+
+cu page targets --port 9222                                 # CDP /json: id, url, title, type, attached, websocket
+cu page-js --port 9222 --target-title "Inbox" --expression document.title   # runs in the background tab
+cu page-js --port 9222 --target-url "mail.example" --expression 'location.href'
+cu page-js --port 9222 --target-id "A1B2..." --expression document.title
+# one selector; no match -> cdp_target_not_found, more than one -> cdp_target_ambiguous
+# (candidates in error.detail); no selector keeps the first page
+```
+
+Every CDP verb needs the browser started with `--remote-debugging-port=9222`
+(or `--port N`); without a listener the reply is typed `unsupported` with
+`backend: debugger-runtime-evaluate`. **That port answers any local process
+and grants full page control** -- open it only while needed and restart the
+browser without the flag afterwards. `page-js` refuses MAIN-world
+`Function` constructors. The throwaway-browser gate is
+`scripts/cu-cdp-smoke.sh` (headless profile under `mktemp`, removed on exit).
+
+## 5. Receipts and grants
+
+- Observation needs `observe`, actuation `actuate`: `--grant` beats
+  `AGENTERM_CU_GRANT`, sources never union, `current` is not exempt. Missing
+  grant -> `refused` (distinct from `unsupported` and mechanism failures).
+- Bounded persisted grants: `agenterm-cu grant create --target current
+  --scopes S --ttl-ms N (--one-shot|--max-uses N)`, `grant list`,
+  `grant revoke --grant-id ID`; run with `--grant-id ID` (exclusive with every
+  other auth source). Local / `current` only; SSH / VNC do not forward it.
+- Every authorized actuation appends to the JSONL audit log
+  (`AGENTERM_CU_AUDIT_PATH`, default `~/.local/share/agenterm/cu-audit.jsonl`);
+  if it cannot be written, nothing executes. Clipboard text never enters it.
+- `cu receipts --window "$H" --max 50` reads the crash-persistent effect
+  receipts (`<audit dir>/cu-receipts/<target>.jsonl`): `invoke` / `menu
+  invoke` / `click` / `focus` / `close` / `tab select` write `reserved`
+  before the mechanism and `completed` / `failed` after the read-back. A
+  `reserved` line with no partner is the crash signature -- uncertain, never
+  "did not happen".
+- Destructive verbs (`close`, `app quit`) need all three of an exact target
+  (`--window` bound to `--pid` / exact `--title`), `--snapshot`, and
+  `--expect gone`; anything missing is `refused` (`destructive_gate`) with
+  nothing performed.
+
+## 6. When a screenshot is genuinely needed
+
+Pixels are the last resort, needed only for canvas / WebGL content, images
+without alt text, and a page whose own accessibility is switched off by the
+site (QQ Mail offers `Ctrl+~` to toggle its accessible mode; until then its
+rows are empty groups). Everything else is a budget or a mode (section 2).
+
+```bash
+cu query --window "$H" --within 120,300,640,480 --max 20   # first: is the region really node-less?
+cu screenshot --out shot.png --window "$H"                 # then: one window, not the whole screen
+cu pointer-position                                         # read-only; prove the pointer did not move
+```
+
+Keep it cheap: `--window` crops capture to one window; `--within X,Y,W,H`
+on `query` / `page text` narrows the a11y read to the region, so only the
+part that truly lacks nodes costs pixels. macOS gates window capture on
+Screen Recording (`capabilities.permissions.screen_recording` carries the
+repair path). Coordinate clicks exist only as `click --coords X,Y
+--degraded` and are audited apart from a11y actuation; global pointer verbs
+(`pointer-move`) are separate from the semantic knife. Read the whole
+permission picture with `cu capabilities` (`permissions` lists every gated
+verb; `verbs` lists status / alias / reason per verb).
 
 ## Native accessibility mapping (按图索骥)
 
-| Concern | Windows | Linux (`current` slice) | macOS |
-|---------|---------|------------------------|-------|
-| Window list | Win32 `EnumWindows` | X11 `_NET_CLIENT_LIST` | `AXUIElement` application windows |
-| Control tree | **UIA** (`IUIAutomation`) | **AT-SPI2** (`org.a11y.atspi.*` on D-Bus) | **AX** (`NSAccessibility`) — `windows` / `tree` / `query` **live** (`cu-macos-smoke`); bounded walk, `AXActionNames`, `AXIdentifier` |
-| Node identity | automation id + runtime id + bounds | path id (`/0/2/5`) + role + name + bounds | child-index path + role + title + bounds + identifier (`backend:"ax"`) |
-| Node click/focus | `InvokePattern` / `LegacyIAccessible` | AT-SPI `Action` (`click`/`press`, else default `DoAction(0)`); no Action → Component `GetExtents` + `GenerateMouseEvent`; focus is `focus` / `Component::grab_focus` | `AXPress` (mapped; not journey-proven) / `AXFocused` (**live**, `cu-macos-smoke` slice 3) — `AXRaise` is never sent |
-| Background menus (`menu inspect` / `menu invoke`) | typed `unsupported` (UIA menu bar not mapped) | typed `unsupported` (AT-SPI menu bar not mapped) | **live** (`cu-macos-smoke`): `AXMenuBar` walk, title path resolved per segment, `AXPress` on the leaf, mark read-back — ABI 1.14 `agt_a11y_menu_snapshot` / `agt_a11y_menu_invoke`; never opens a menu, never activates |
-| App-local focused control (`focused` / `invoke --focused`) | typed `unsupported` | typed `unsupported` | **live** (`cu-macos-smoke`): `AXFocusedUIElement` as a window-tree node — ABI 1.14 `agt_a11y_focused_snapshot` |
-| Event stream (`observe`) | poll-diff over the UIA tree (not live-proven) | poll-diff over the AT-SPI tree (not live-proven) | **live** (`cu-macos-smoke`): poll-diff over the bounded AX tree (no AXObserver) |
-| `invoke` (press / set-value / select-option / set-checked / set-expanded / increment / decrement) | `Invoke` / `Value.SetValue` / `Toggle` (desired state); others typed `unsupported` | `Action` press / `EditableText` set-value; others typed `unsupported` | **live** (`cu-macos-smoke`): `AXPress`, `AXValue` write + read-back, pop-up option `AXPress`, desired-state `AXValue` 0/1 / `AXExpanded`, `AXIncrement` / `AXDecrement` — ABI 1.13 `agt_a11y_node_invoke` |
-| Text entry | `ValuePattern` / `SendInput` | AT-SPI `EditableText` (`SetTextContents` / `InsertText`) for `--name`; `Text` + toolkit set-value when EditableText is absent (Chrome AX, WebKitGTK eval helper); `input-inject` only without `--name` | `AXValue` write with read-back (`invoke set-value`, `send-text --name`) |
-| Screenshot | GDI native capture | typed `unsupported` (no OCR substitute) | typed `unsupported` (planned) |
+| Concern | macOS (`current`, live) | Linux (`current`) | Windows |
+|---------|-------------------------|-------------------|---------|
+| Window list | `AXUIElement` app windows + SkyLight z-order / Spaces | X11 `_NET_CLIENT_LIST` | Win32 `EnumWindows` |
+| Control tree | **AX** (`NSAccessibility`), bounded walk, `AXActionNames`, `AXIdentifier` | **AT-SPI2** on D-Bus | **UIA** |
+| Node identity | child-index path + role + title + bounds + identifier (`backend:"ax"`) | path id (`/0/2/5`) + role + name | automation id + runtime id |
+| Semantic write | `AXPress`, `AXValue` write + read-back, `AXExpanded`, `AXIncrement` / `AXDecrement` | `Action` press / `EditableText` (`Text` + toolkit set-value for Chrome / WebKitGTK) | `Invoke` / `Value` / `Toggle` |
+| Background menus / focused control | `AXMenuBar` walk + `AXPress`; `AXFocusedUIElement` | tree search (`mode: tree-search` / `state-search`, mapped) | same, mapped |
+| Event stream | poll-diff (default) or `--mode notifications` (AXObserver) | poll-diff | poll-diff |
+| Screenshot | window capture (Screen Recording TCC) | X11 `GetImage` (TrueColor only) | GDI |
 
-macOS `tree` / `query` use **AX only** (`agenterm-platform` macOS adapter).
 Missing Accessibility permission is typed `denied` with the repair path in
-`error.detail.repair` (System Settings > Privacy & Security > Accessibility)
-and `capabilities` reports `tree: "Denied"` — never an empty tree; timeout
-and the adapter's own limits fail typed. Never screenshot, `--coords`,
-CGEvent, or silent AT-SPI/UIA reuse. The live gate is
-`scripts/qjs/cu-macos-smoke.qjs` (task `cu-macos-smoke`, Darwin only) against
-the owned Cocoa fixture `examples/objc/agenterm_ax_fixture.m`. The observe
-loop it proves:
-
-```bash
-# inventory filters: with any filter/page flag the reply is
-# {windows, visited, matched, returned, offset, truncated}; bare `windows` stays an array
-agenterm-cu --target current --grant observe windows --pid "$PID"
-# each row has handle (integer) and MCU-style ref ("App#handle")
-# later verbs accept either: --window "$HANDLE" or --window "TextEdit#123"
-agenterm-cu --target current --grant observe windows --app TextEdit --title Untitled --max 5
-
-# bounded tree: depth (root=0, <=64) and node budget (1..20000) apply while the
-# platform walks; the reply reports truncated / visited / returned. --flat numbers
-# nodes (index, depth) in walk order — the identity query reports too.
-agenterm-cu --target current --grant observe tree --window "$HANDLE" --max-nodes 5
-agenterm-cu --target current --grant observe tree --window "$HANDLE" --depth 3 --flat
-
-# bounded, filtered flat node list (same ids / indices as tree). Roles accept
-# AXTextArea or text-area; --text is a substring of name/text, --text-exact and
-# --identifier are exact, --within X,Y,W,H intersects bounds. An unknown flag
-# fails typed `usage` before any tree is read.
-agenterm-cu --target current --grant observe query --window "$HANDLE" --role AXTextArea
-agenterm-cu --target current --grant observe query --window "$HANDLE" \
-  --role AXButton,AXCheckBox --actionable --within 0,0,900,700 --offset 0 --max 50
-# fixture seed text 345AXTREE + button "Fixture Press"; reply backend must be "ax"
-```
-
-Every node carries the backend's action names (macOS `AXActionNames`,
-normalized: `AXPress` → `click`, `AXRaise` → `focus`, `AXShowMenu` →
-`show-menu`, others kebab-cased). An empty list means the backend reported
-none. macOS also reports two-way control states (`checked` / `unchecked` /
-`mixed`, `expanded` / `collapsed`) and a numeric `AXValue` as `text`, so
-`verify` can tell "off" from "not observable".
-
-The actuation half of the loop (slice 2 of `plan/design-mcu-absorption.md`,
-same journey, same fixture) is `invoke` read back by `verify` / `wait
---expect`. Nothing activates or raises the window; every write is read
-back; refusals are typed:
-
-```bash
-# one semantic action; the reply carries verified true|false (+ reason) and a
-# receipt {target, node, action, value, performed, before, after}
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-field set-value "written by cu"
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --name "Fixture Check" --role AXCheckBox set-checked true
-#   ^ desired state: repeating it is performed:false, verified:true (no second press)
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-press press
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-stepper increment
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --identifier fixture-popup select-option Beta
-
-# read the same fields query reports; a mismatch is "unverified", a state the
-# node does not expose is "unsupported" (state_unobservable), an unknown key is
-# "usage" — never "probably fine"
-agenterm-cu --target current --grant observe verify --window "$HANDLE" \
-  --expect '[{"identifier":"fixture-field","value":"written by cu"},{"name":"Fixture Check","checked":true}]'
-agenterm-cu --target current --grant observe wait --timeout-ms 3000 --window "$HANDLE" \
-  --expect '[{"identifier":"fixture-press-count","value":"pressed 1"}]'
-
-# typed refusals: two showing matches -> ambiguous (count), an action the node
-# does not list -> unsupported (node_action_missing), no readable checked state
-# -> unsupported (state_unobservable), no match -> a11y_node_not_found,
-# observe-only grant -> refused
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --name "Fixture Twin" press
-```
-
-Verification per action: `set-value` / `select-option` compare the node's
-value; `set-checked` / `set-expanded` compare the state; `increment` /
-`decrement` require the numeric value to change; `press` is verified by a
-whole-tree diff (the count label changed) and is `verified: false` with
-`no_observable_change` when nothing did.
-
-The background half (slice 3, same journey, same fixture extended with a
-never-shown main menu) never activates the application either:
-
-```bash
-# the application's menu bar, read without opening a menu: exact title paths,
-# enabled / checked / has_submenu, menu-level depth (0 = bar items, <= 8) and a
-# node budget (<= 5000) applied during the walk, counts + truncated
-agenterm-cu --target current --grant observe menu inspect --window "$HANDLE" --depth 2 --title "Do Thing" --exact
-# press one item by exact path; every segment must be exactly one enabled item
-# before anything is pressed (a11y_menu_item_not_found / _ambiguous /
-# _disabled), the last must be a leaf (_not_leaf), a bare menu is usage
-agenterm-cu --target current --grant actuate menu invoke --window "$HANDLE" --path 'File/Do Thing'
-agenterm-cu --target current --grant actuate menu invoke --window "$HANDLE" --path '["File","More","Deeper Thing"]'
-
-# the application's own focused control (AXFocusedUIElement) as a node of the
-# same window tree, with a bounded value preview; --role binds the expected
-# role ("unverified" on mismatch)
-agenterm-cu --target current --grant observe focused --window "$HANDLE" --role AXTextField --max-value-bytes 2
-# write to it only after binding PID + window + focused identity in one read
-agenterm-cu --target current --grant actuate invoke --window "$HANDLE" --focused --role AXTextField set-value "typed into focus"
-
-# a bounded, filtered event stream by poll-diff over the bounded tree
-# (ValueChanged / TitleChanged / StateChanged / FocusChanged / Created /
-# Destroyed, monotonic seq + t_ms, stops at --max-events with truncated:true)
-agenterm-cu --target current --grant observe observe --window "$HANDLE" --duration 1.5 --notification ValueChanged --max-events 50
-```
-
-`observe` is a poll-diff (default 50 ms interval), not an AXObserver
-subscription; the reply says `mode: "poll-diff"` and counts `polls` /
-`poll_errors` / `emitted` / `filtered`. In the journey the observer is a
-second `agenterm-cu` spawned through the qjs door while the script issues
-the `set-value` it must capture. Linux maps `press` / `set-value`
-and Windows `press` / `set-value` / `set-checked` through the same verb; the
-rest answer typed `unsupported` there (compile-checked, no live evidence).
-
-Linux `tree` and structured `click` / `focus` use **AT-SPI2 only**. If the
-accessibility bus is unavailable (no session bus, headless without a11y), commands
-return typed `unsupported` / `failed` — never a silent coordinate fallback.
-
-On this Linux box, start Chrome with `scripts/box-chrome-a11y.sh` so
-`--force-renderer-accessibility` is always on (AT-SPI renderer subtree).
-Start Reasonix with `scripts/reasonix-desktop-a11y.sh` so WebKit keeps an
-AT-SPI subtree (`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`) and the eval
-helper can implement the missing `EditableText` set-value; otherwise the
-web process aborts and `agenterm-cu tree` is only unnamed GTK fillers.
-`agenterm-con` registers as an AT-SPI toolkit and publishes inner chrome
-(`Command`, `SEND`, `Tabs`, `Session`); do not treat the one-node X11 title
-frame as its success path.
-
-Coordinate clicks remain available only with explicit `--degraded` and are
-audited separately from AT-SPI actuation.
-
-## Linux `current` slice
-
-| Command | Backend |
-|---------|---------|
-| `windows` | X11 window enumeration (`libagenterm agt_window_enumerate`) |
-| `tree` | AT-SPI2 flattened control tree with role, name, states, bounds, actions |
-| `click --node <path>` | AT-SPI2 `Action` (`click` / `press`, else default `DoAction(0)` when the node exposes Action); no Action → Component `GetExtents` + AT-SPI mouse (`addressing` stays `accessibility-tree`) |
-| `click --window --name PAT [--role ROLE]` | same showing/visible name matcher as `wait --node-name-contains` (exactly one hit), then the `--node` AT-SPI path (never silent `--coords`) |
-| `focus --node <path>` | AT-SPI2 `focus` action or `Component::grab_focus` |
-| `focus --window --name PAT [--role ROLE]` | same unique-name matcher, then the `--node` AT-SPI focus path |
-| `click --coords X,Y --degraded` | XTest (explicit degraded mode only) |
-| `pointer-move --x X --y Y` | absolute pointer movement through `agt_input_pointer_move`; no button/wheel event |
-| `pointer-position` | independent absolute pointer observation through `agt_input_pointer_position`; no injected event |
-| `send-text` / `send-keys` without `--window` | XTest keyboard injection into whatever is focused |
-| `send-text --window --name PAT [--role ROLE]` | same unique-name matcher, then native AT-SPI `EditableText` (`SetTextContents` / `InsertText`); Chrome/WebKitGTK named fields expose `Text` but not `EditableText` — those write through AT-SPI `Text` + toolkit set-value and are confirmed by `GetText`; no writeable text interface → typed `a11y_text_unavailable` (never XTest) |
-| `send-text --window HANDLE` (no `--name`) | same innermost focused Text node `get-text --window` reads, then `agt_a11y_node_set_text`; never XTest when `--window` is set. con `Command` after `focus --name` (`via=editable-text`); Chrome `GetTextField` after `focus --name`; Reasonix composer `Message Reasonix…` after `focus --name` / `click --name` (eval-helper set-value). Proof is independent `get-text --window` (no `--name`) |
-| `clipboard-read` | standalone native Unicode-text clipboard observation through bounded `agt_clipboard_get_text`; empty text is success. Reply text is emitted only on command stdout, never in audit or evidence receipts |
-| `copy --window --name PAT [--role ROLE]` | same unique-name matcher, then AT-SPI `Text.GetText` published onto the native clipboard (`agt_clipboard_set_text`; Linux X11 `SetSelectionOwner`, not xclip); no Text interface → typed `a11y_text_unavailable` (never XTest / `--coords`) |
-| `copy --window HANDLE` (no `--name`) | same innermost focused Text node `get-text --window` reads, then GetText published onto native CLIPBOARD (`agt_clipboard_set_text`, `via=gettext`); never XTest when `--window` is set. con `Command` after `focus --name` (`via=gettext`, second con only — never steal the resident control socket); Chrome `GetTextField` after `focus --name`; Reasonix composer `Message Reasonix…` after `focus --name` under `scripts/reasonix-desktop-a11y.sh` (`via=gettext`). Proof is independent seed → focused copy → clear → focused paste → `get-text --window` (no `--name`) equal to the seeded string |
-| `paste --window --name PAT [--role ROLE] [--text TEXT]` | same unique-name matcher, then clipboard (`agt_clipboard_get_text`, optional `--text` seed) written through that same AT-SPI `EditableText` / `Text` path; no writeable text interface → typed `a11y_text_unavailable` (never XTest / `--coords`) |
-| `paste --window HANDLE` (no `--name`) | same innermost focused Text node `get-text --window` reads, then clipboard write via `agt_a11y_node_set_text`; never XTest when `--window` is set. con `Command` after `focus --name` (`via=editable-text`, second con only — never steal the resident control socket); Chrome `GetTextField` after `focus --name`; Reasonix composer `Message Reasonix…` after `focus --name` under `scripts/reasonix-desktop-a11y.sh` (eval-helper set-value, `via=text`). Proof is independent `get-text --window` (no `--name`) equal to the clipboard string |
-| `send-keys --window --name PAT [--role ROLE]` | same unique-name matcher, then native AT-SPI Device/key events (`DeviceEventListener.NotifyEvent`); no key interface → typed `a11y_key_unavailable` (never XTest) |
-| `send-keys --window HANDLE` (no `--name`) | same innermost focused Text node `get-text --window` reads; prefer `DeviceEventListener.NotifyEvent` (`via=device-event`); plain typeable text falls back to AT-SPI `EditableText` / `Text` write when that interface is absent (con `Command` after `focus --name`, `via=editable-text`; Chrome `GetTextField` after `focus --name`, `via=text`; Reasonix composer `Message Reasonix…` after `focus --name`, eval-helper set-value, `via=text`). Never XTest when `--window` is set. Proof is independent `get-text --window` (no `--name`) |
-| `scroll --window --name PAT [--role ROLE]` | same unique-name matcher, then one-shot AT-SPI `Component.ScrollTo(TopEdge)`; missing/false/`UnknownMethod` → typed `a11y_scroll_unavailable`; never Action `scroll*` / XTest wheel / `--coords` |
-| `get-extents --window --name PAT [--role ROLE]` | same unique-name matcher, then independent AT-SPI `Component.GetExtents(Screen)`; snapshot `node.bounds` do not count; empty extents → typed `a11y_extents_unavailable` |
-| `select --window --name PAT --start N --end M [--role ROLE]` | same unique-name matcher, then one-shot AT-SPI `Text.SetSelection`; missing Text/`UnknownMethod` → typed `a11y_selection_unavailable`; SetSelection false → typed `a11y_selection_no_effect`; never XTest / mouse-drag / `--coords` |
-| `get-selection --window --name PAT [--role ROLE]` | same unique-name matcher, then independent AT-SPI `GetNSelections` + `GetSelection(0)`; `select` reply does not count; missing Text → typed `a11y_selection_unavailable`; `n==0` is empty success |
-| `set-caret --window --name PAT --offset N [--role ROLE]` | same unique-name matcher, then one-shot AT-SPI `Text.SetCaretOffset`; missing Text/`UnknownMethod` → typed `a11y_caret_unavailable`; SetCaretOffset false → typed `a11y_caret_no_effect`; never XTest / `--coords` |
-| `get-caret --window --name PAT [--role ROLE]` | same unique-name matcher, then independent AT-SPI `CaretOffset` / `GetCaretOffset`; `set-caret` reply does not count; missing Text → typed `a11y_caret_unavailable` |
-| `get-text --window --name PAT [--role ROLE]` | same unique-name matcher, then one-shot independent AT-SPI `Text.GetText` — the same authority `wait --text-equals` polls, without a timeout; `send-text` / `paste` / `copy` `matched.text`, `last_text_write_via`, the WebKit eval helper queued-job `OK`, and tree snapshot `text` do not count; missing Text → typed `a11y_text_unavailable` (never XTest / `--coords` / screenshot) |
-| `get-text --window HANDLE` (no `--name`) | innermost showing `focused` node that exposes `Text.GetText`; `via=gettext`. After focused `send-text --window`, this must equal the typed string |
-| `screenshot` | typed `unsupported` on Linux native capture |
-| `wait` | polls window state, or the AT-SPI tree for `--node-name-contains` (2+ showing hits → `a11y_node_ambiguous`), or AT-SPI `Text.GetText` for `--text-equals` / `--node-text-equals` / `--text-contains` / `--node-text-contains` with `--name` (not `send-text` / `paste` / `copy` `matched.text`, not a sidecar tree `text`, not the WebKit eval helper `OK`) |
-
-### Tree JSON shape (UIA-like)
-
-```json
-{
-  "degraded": false,
-  "backend": "at-spi2",
-  "addressing": "accessibility-tree",
-  "root_id": "/0",
-  "nodes": [
-    {
-      "id": "/3/0/0/1/0",
-      "parent_id": "/3/0/0/1",
-      "role": "toggle button",
-      "name": "Applications",
-      "states": ["enabled", "visible"],
-      "bounds": {"x": 8, "y": 0, "width": 26, "height": 28},
-      "actions": ["Click"],
-      "text": null
-    }
-  ]
-}
-```
-
-Node ids are **child-index paths** from each application root (`/0`, `/1`, …).
-Re-query `tree` after navigation if the UI mutates; actuation resolves the path
-at call time and returns `a11y_node_not_found` when the path is stale.
-
-## Authorization and audit
-
-Every command requires an explicit `--target current`, `--ssh <user@host>`
-(which implies `--target ssh`), `--vnc <host[:port]>` (which implies
-`--target vnc`), or `--rdp <host[:port]>` (which implies `--target rdp`).
-Observation commands need the `observe` grant; actuation commands need
-`actuate`. Grants come from `--grant` or `AGENTERM_CU_GRANT`
-(comma-separated). Local `current` is not exempt. The local management surface
-can create, list, and revoke bounded current-session grants with `grant
-create|list|revoke`; it stores them in protected machine-local product data and
-never prints the session binding. `--grant-id ID` executes current-target
-commands through a durable one-attempt reservation, audit attempt flush,
-immediate binding revalidation, dispatch, and linked audit outcome. Persisted
-SSH/VNC delegation remains unsupported rather than forwarding the selector.
-
-The `ssh` tier reuses the same verbs (observe and actuate). Host
-`agenterm-cu --ssh` rewrites the command to `target=current` and runs a remote
-`agenterm-cu exec --json -` worker over OpenSSH stdio. Get-selection evidence
-is loopback `sshd` plus a second `agenterm-con`: host
-`send-text --window HANDLE --name Command -- SEED` (payload after `--`; not
-`--text`) plants the seed, host `select --window HANDLE --name Command
---start N --end M` runs remote AT-SPI `Text.SetSelection`, then host
-independent `get-selection --window HANDLE --name Command` returns that range
-(`via=get-selection`; start/end equal the selected slice of the seed, or the
-seed when the range is the whole field). Native AT-SPI `GetNSelections` +
-`GetSelection`. Never screenshot / `--coords` / mouse-drag / XTest. Missing
-Text typed-fails `a11y_selection_unavailable` on the remote worker the same
-as local `current`. `get-extents` / `get-caret` / `tree` / `focus` /
-`scroll` / `click` / `set-caret` / `select` / `send-keys` / `copy` /
-`paste --text` / `send-text` over ssh and observe-only `wait` / `get-text`
-remain valid too.
-
-The `vnc` tier reuses the same verbs (observe and actuate). Host
-`agenterm-cu --vnc` handshakes RFB (security type None / `x11vnc -nopw`),
-rewrites the command to `target=current`, and runs a local session worker
-against the desktop that x11vnc shares (`DISPLAY` / `AT_SPI_BUS` via host
-env or `--vnc-env`). Get-selection evidence is a **gate-owned** loopback
-`x11vnc` plus a second `agenterm-con` with a unique title (never steal
-`unix:/tmp/run-box/agenterm-con.sock`, never treat the resident `:2` x11vnc
-as the only proof): `Command` holds a known ASCII seed and a known
-non-empty selection `START..END` (gate precondition via already-landed
-`send-text` + `select`; not this cut's verb), then host independent
-`get-selection --window HANDLE --name Command` returns that range
-(`via=get-selection`; native AT-SPI `GetNSelections` + `GetSelection(0)`;
-`n == 1` and integer `start` / `end` equal the precondition range so
-`seed[start:end] == expected`). Never screenshot / `--coords` / mouse-drag
-/ RFB framebuffer OCR / cached setter reply. Missing Text typed-fails
-`a11y_selection_unavailable` on the session worker the same as local
-`current`. `get-extents` / `get-caret` / `tree` / `focus` / `scroll` /
-`click` / `set-caret` / `select` / `send-keys` / `copy` / `paste --text` /
-`send-text` over vnc and observe-only `windows` / `get-text` / `wait`
-remain valid too. Connect / protocol failures are typed (`vnc_unavailable` /
-`vnc_transport_failed` / `vnc_auth_failed`).
-
-The `rdp` tier is a **PLACEHOLDER** (cut 3.46 / 3.47), not an operational
-transport. `--rdp HOST[:PORT]` and `--target rdp` parse and select
-`target:"rdp"`. The observe verb `capabilities` (cut 3.47) succeeds with a
-static declaration: transport is placeholder/unavailable
-(`reason:"rdp_unavailable"`), `capabilities` itself is available locally,
-and `tree` is **not** declared supported. That path performs **zero** DNS,
-TCP, TLS/CredSSP, UIA, screenshot, or coordinate work. Every other
-authorized RDP command still fails closed with
-`error.code:"rdp_unavailable"` before any socket connect, credential
-lookup, screenshot, `--coords`, or silent `ssh`/`vnc`/`current` reuse.
-Default port 3389 is syntax-only. Reserved first *live* observe shape for a
-later Windows agent (live RDP + UIA-over-RDP evidence is **not** claimed
-here):
-
-```bash
-# Per-tier declaration (no connect; tree not claimed available)
-agenterm-cu --rdp "WINDOWS_HOST:3389" --grant observe capabilities
-
-# Still fail-closed until a later Windows agent owns live RDP
-agenterm-cu --rdp "WINDOWS_HOST:3389" \
-  --grant observe tree --window "$HANDLE"
-```
-
-Canonical RDP `capabilities` declaration (endpoint field is diagnostic only):
-
-```json
-{
-  "ok": true,
-  "target": "rdp",
-  "command": "capabilities",
-  "data": {
-    "target": "rdp",
-    "transport": {
-      "status": "placeholder",
-      "available": false,
-      "reason": "rdp_unavailable"
-    },
-    "verbs": {
-      "capabilities": { "status": "available" },
-      "tree": { "status": "unsupported", "reason": "rdp_unavailable" }
-    }
-  }
-}
-```
-
-Canonical placeholder reply for non-capabilities verbs (message may include
-the non-secret endpoint):
-
-```json
-{
-  "ok": false,
-  "target": "rdp",
-  "command": "tree",
-  "error": {
-    "code": "rdp_unavailable",
-    "message": "RDP transport is reserved but not implemented"
-  }
-}
-```
-
-`--target rdp` without `--rdp`: `capabilities` still declares the
-placeholder tier; other verbs return the same `rdp_unavailable` family
-with a missing-endpoint message. No password/username/domain flags in this
-cut. Windows UIA on `current` is a separate evidence line. A later Windows
-agent owns real session design and live gates (see
-`prd/PRD_02_30_cu_targets_transports.md` Evidence handoff).
-
-### `capabilities` per target (cut 3.47)
-
-`capabilities` is discovery, not authorization: it still requires
-`--grant observe` (missing grant → `refused`) and grants no right to
-actuate. Every successful reply keeps `ok:true`, `command:"capabilities"`,
-and the **requested public target** on both `reply.target` and
-`data.target`.
-
-| Tier | What is declared |
-|------|------------------|
-| `current` | `transport.status=in_process` + live libagenterm mechanism status |
-| `ssh` | public target `ssh` (not a leaked `current`); OpenSSH exec transport + remote worker mechanism facts |
-| `vnc` | public target `vnc`; RFB session-worker transport + session mechanism facts |
-| `rdp` | static placeholder: transport unavailable; `tree` unsupported |
-
-SSH/VNC may retain `worker_target:"current"` for the mechanism path. No tier
-declares live RDP or unproven macOS AX as available. Target enumeration is
-**not** a verb in this cut.
-
-### Cross-tier `tree` equivalence (cut 3.48)
-
-Linux `tree` is the same abstract observe command on every tier that declares
-it. Host argv always builds `Command::Tree` with the same window handle;
-`current` runs the local libagenterm AT-SPI path, while `ssh` / `vnc` rewrite
-only the worker target to `current` and restore the public reply target to
-`ssh` / `vnc`. All three workers observe the same AT-SPI application hierarchy —
-no screenshots, OCR, cached JSON, resident con socket, or synthetic one-node
-frame may substitute.
-
-Conformance is **semantic**, not byte-for-byte. After removing only
-tier-specific envelope fields (`target`) and explicitly volatile focus-related
-node states (`focused`, `active`, `armed`, `selected`), each successful reply
-must share:
-
-| Field | Requirement |
-|-------|-------------|
-| envelope | `ok:true`, `command:"tree"`, public `target` equal to the requested tier |
-| data | `backend:"at-spi2"`, same requested `window`, same `root_id` / node count |
-| named chrome | exactly one showing `Command`, one showing `SEND`, one showing `OffscreenField` |
-| per named node | same role, name, text, action list, parent_id, stable node path (`id`) |
-| bounds | equal when sampled without window movement (gate retries the full three-observation set on churn) |
-
-Harness: `scripts/cu-linux-cross-tier-tree.sh` (one cut-owned second
-`agenterm-con`, loopback sshd, dedicated loopback x11vnc; evidence
-`live/348-cross-tier-tree.json`). RDP `tree` remains unsupported; macOS AX and
-Windows UIA cross-tier proof are separate cuts. A mismatch is
-`cross_tier_conformance_failed`; transport failures retain typed SSH/VNC errors
-and do not count as a semantic mismatch.
-
-Unauthorized actuation returns `refused`, distinct from `unsupported` and
-mechanism failures. Authorized actuation is appended to a JSONL audit log
-(`AGENTERM_CU_AUDIT_PATH`, default `~/.local/share/agenterm/cu-audit.jsonl`).
-If the audit path cannot be written, actuation does not execute.
-
-## Examples
-
-```bash
-# Declare capabilities (observe grant). data.target matches the requested tier.
-agenterm-cu --target current --grant observe capabilities
-agenterm-cu --ssh user@127.0.0.1 --ssh-port 2222 --grant observe capabilities
-agenterm-cu --vnc 127.0.0.1:5947 --grant observe capabilities
-agenterm-cu --rdp "WINDOWS_HOST:3389" --grant observe capabilities
-
-# Same abstract tree on one window across Linux current / SSH / VNC (cut 3.48).
-# See scripts/cu-linux-cross-tier-tree.sh for the full endpoint lifecycle.
-agenterm-cu --target current --grant observe tree --window "$HANDLE"
-agenterm-cu --ssh "$SSH_DEST" --ssh-port "$SSH_PORT" --ssh-identity "$SSH_KEY" \
-  --ssh-cu "$REMOTE_CU" --grant observe tree --window "$HANDLE"
-agenterm-cu --vnc "127.0.0.1:$VNC_PORT" --grant observe tree --window "$HANDLE"
-
-# Same verbs over VNC/RFB (session agenterm-cu --target current worker).
-# Get-selection observe path: seed+range are gate preconditions (send-text +
-# select); host independent get-selection start/end equals that range
-# (via=get-selection; GetNSelections+GetSelection(0); not cached setter reply).
-agenterm-cu --vnc 127.0.0.1:5944 --grant observe \
-  get-selection --window HANDLE --name Command
-
-# Same verbs over OpenSSH (remote agenterm-cu --target current worker).
-# Get-selection observe path: send-text SEED → select N..M → get-selection
-# start/end equals selected slice (via=get-selection; GetNSelections+GetSelection).
-agenterm-cu --ssh user@127.0.0.1 --ssh-port 2222 --ssh-identity ~/.ssh/id_ed25519 \
-  --grant observe,actuate send-text --window HANDLE --name Command -- SEED
-agenterm-cu --ssh user@127.0.0.1 --ssh-port 2222 --ssh-identity ~/.ssh/id_ed25519 \
-  --grant observe,actuate select --window HANDLE --name Command --start 0 --end 11
-agenterm-cu --ssh user@127.0.0.1 --ssh-port 2222 --grant observe \
-  get-selection --window HANDLE --name Command
-
-# RDP PLACEHOLDER: capabilities declares unavailable; other verbs rdp_unavailable.
-# Live RDP + UIA tree is a later Windows-agent cut.
-agenterm-cu --rdp "WINDOWS_HOST:3389" --grant observe capabilities
-agenterm-cu --rdp "WINDOWS_HOST:3389" --grant observe tree --window HANDLE
-
-# List top-level windows
-agenterm-cu --target current --grant observe windows
-
-# AT-SPI control tree (all application roots)
-agenterm-cu --target current --grant observe tree
-
-# Scoped tree for one X11 window handle
-agenterm-cu --target current --grant observe tree --window 0x3c00007
-
-# Structured click by node path (AT-SPI)
-agenterm-cu --target current --grant actuate click --node /3/0/0/1/0
-
-# Structured click / focus by accessible name — no tree-dump parsing, no --coords.
-# Two or more showing hits fail typed (`a11y_node_ambiguous`) instead of picking the first.
-agenterm-cu --target current --grant observe,act click --window 25165828 --name Reload
-agenterm-cu --target current --grant observe,act focus --window 25165828 --name Reload --role button
-
-# Structured focus
-agenterm-cu --target current --grant actuate focus --node /3/0/0/1/0
-
-# Type into a control by accessible name — focuses that node first, then types.
-# `--` ends flag parsing so the text may start with a dash.
-agenterm-cu --target current --grant observe,act send-text --window 25165828 \
-  --name "Address and search bar" -- hello
-
-# Send a chord to a control by accessible name — same matcher, focus, then keys.
-agenterm-cu --target current --grant observe,act send-keys --window 25165828 \
-  --name "Address and search bar" -- enter
-
-# Wait for at least one window, 3s max
-agenterm-cu --target current --grant observe wait --timeout-ms 3000 --window-count-gte 1
-
-# Wait for a control to appear in one window's accessibility tree (no screenshot).
-# The handle is the decimal `handle` from `agenterm-cu windows`; a match needs a showing
-# (or visible) node, and a timeout is a typed `ok:false` / `error.code=timeout`.
-agenterm-cu --target current --grant observe wait --timeout-ms 4000 --window 25165828 \
-  --node-name-contains Reload --node-role button
-
-# Copy a named field's AT-SPI GetText onto the native clipboard.
-# Linux X11 uses SetSelectionOwner (not xclip). Never XTest / --coords.
-# Close the circuit with paste --name (no --text) then wait --text-equals.
-# Chrome fixture and Reasonix composer (name contains "Message Reasonix")
-# both use the same GetText → CLIPBOARD path.
-agenterm-cu --target current --grant observe,act copy --window 25165828 \
-  --name FixtureSource
-agenterm-cu --target current --grant observe,act copy --window 4194318 \
-  --name "Message Reasonix"
-
-# Paste clipboard text into a named field via AT-SPI EditableText / Text.
-# --text seeds the clipboard (Linux X11: native CLIPBOARD owner, not xclip);
-# the field write always reads the clipboard. Never XTest / --coords.
-# Close the circuit with wait --text-equals GetText; paste matched.text
-# does not count. Reasonix composer name contains "Message Reasonix"
-# (WebKit Text-without-EditableText uses the eval-helper set-value path).
-# After a prior copy --name, omit --text so ConvertSelection supplies SRC.
-agenterm-cu --target current --grant observe,act paste --window 25165828 \
-  --name FixtureField --text hello
-agenterm-cu --target current --grant observe,act paste --window 4194318 \
-  --name "Message Reasonix"
-
-# After send-text / paste / copy --name, wait until AT-SPI GetText equals the source
-# or contains a substring. Independent of send-text / paste / copy matched.text, of
-# a sidecar tree walk, and of the WebKit eval helper's queued-job OK
-# (Reasonix composer: Message Reasonix…).
-agenterm-cu --target current --grant observe wait --timeout-ms 4000 --window 25165828 \
-  --name FixtureField --text-equals hello
-agenterm-cu --target current --grant observe wait --timeout-ms 4000 --window 25165828 \
-  --name FixtureField --text-contains GATE
-agenterm-cu --target current --grant observe wait --timeout-ms 4000 --window 4194318 \
-  --name "Message Reasonix" --text-equals hello
-
-# Select a range on a named Text node (AT-SPI SetSelection). Observe with
-# independent get-selection (GetNSelections + GetSelection), not the
-# select reply. Chrome fixture and Reasonix composer both use native
-# Text methods — no eval-helper select path, never mouse-drag / --coords.
-cu --target current --grant actuate select --window 25165828 \
-  --name SelectField --start 0 --end 4
-cu --target current --grant observe get-selection --window 25165828 \
-  --name SelectField
-cu --target current --grant actuate select --window 4194318 \
-  --name "Message Reasonix" --start 0 --end 4
-cu --target current --grant observe get-selection --window 4194318 \
-  --name "Message Reasonix"
-
-# Place the caret on a named Text node (AT-SPI SetCaretOffset). Observe
-# with independent get-caret (CaretOffset / GetCaretOffset), not the
-# set-caret reply. Chrome fixture and Reasonix composer both use native
-# Text methods — no eval-helper caret path, never --coords / XTest.
-cu --target current --grant actuate set-caret --window 25165828 \
-  --name CaretField --offset 2
-cu --target current --grant observe get-caret --window 25165828 \
-  --name CaretField
-cu --target current --grant actuate set-caret --window 4194318 \
-  --name "Message Reasonix" --offset 2
-cu --target current --grant observe get-caret --window 4194318 \
-  --name "Message Reasonix"
-
-# One-shot independent readback of a named Text node (AT-SPI GetText) —
-# the same authority wait --text-equals polls, without a timeout.
-# send-text / paste / copy matched.text and tree snapshot text do not
-# count. Chrome fixture and Reasonix composer both use native Text
-# GetText — no eval-helper get-text path, never XTest / --coords.
-cu --target current --grant observe get-text --window 25165828 \
-  --name GetTextField
-cu --target current --grant observe get-text --window 4194318 \
-  --name "Message Reasonix"
-
-# Place the focused window (Spectacle catalog)
-agenterm-cu --target current --grant actuate window-place --action left-half
-
-# Refused without actuate grant
-agenterm-cu --target current --grant observe send-text hello
-
-# Audited coordinate click (explicit degraded mode only)
-agenterm-cu --target current --grant actuate click --coords 100,200 --degraded
-
-# JSON command envelope
-agenterm-cu exec --grant observe,actuate --json '{"verb":"windows","target":"current"}'
-```
-
-## macOS hotkeys host (`AgentermCu`)
-
-Replace Spectacle with `./scripts/install-cu-hotkeys.sh` (macOS). That installs
-`~/Applications/AgentermCu.app`, a LaunchAgent (`com.agenterm.cu.hotkeys`), a
-menu-bar extra, and Spectacle-default global shortcuts. Geometry still goes
-through `window-place` + platform AX set-rect.
-
-### Accessibility is signature + process
-
-- System Settings showing **AgentermCu** ON is not enough. Runtime trust is
-  `AXIsProcessTrusted()` for the **launchd** process against the **current**
-  code signature (ad-hoc installs use a cdhash requirement).
-- Reinstall re-signs. `install-cu-hotkeys.sh` runs
-  `tccutil reset Accessibility com.agenterm.cu` so a stale ON cannot outlive
-  a new signature. Enable **AgentermCu** once after each reinstall. Prefer that
-  row over a legacy path entry named `agenterm-cu`.
-- A successful `agenterm-cu window-place` from Terminal does **not** prove hotkeys work:
-  the CLI may borrow Terminal’s Accessibility grant. Check the host:
-
-```bash
-cat ~/.local/share/agenterm/ax-status   # expect trusted=1 after grant
-grep ax_trusted ~/.local/share/agenterm/cu-hotkeys.log
-# optional: codesign -d -r- ~/Applications/AgentermCu.app
-```
-
-### UX rules
-
-- No popup card and no background TCC poll.
-- Menu first item is Accessibility status; it is refreshed when the menu opens
-  and opens Settings when clicked.
-
-```bash
-./scripts/install-cu-hotkeys.sh
-# then enable AgentermCu in Accessibility once; try ⌥⌘←
-```
-
-Engineering detail:
-[`docs/agenterm-rust-cheatsheet.md`](../../docs/agenterm-rust-cheatsheet.md)
-(section *macOS Accessibility trust is signature + process*).
-
-## Black-box evidence
-
-From the repository root on a host with `DISPLAY` set (X11 or Xvfb) and a
-running AT-SPI registry (`at-spi2-registryd`):
-
-```bash
-./scripts/cu-linux-smoke.sh
-```
-
-## Layering
-
-```text
-native primitive     libagenterm dynamic library (agenterm.dll — `agt_*` exports)
-    ↑
-abstract command     agenterm-cu library (`Command`, typed `CuReply`)
-    ↑
-current transport    in-process `Executor` for target `current`
-    ↑
-shell + host         single `agenterm-cu` binary
-```
-
-`agenterm-cu` never opens raw OS APIs. Every call goes through the shared
-libagenterm dynamic library; mechanisms report typed `Available` /
-`Unsupported` / `Failed`.
-
-## Executable and desktop host
-
-`agenterm-cu` is the only executable. CLI commands and `agenterm-cu host` are
-modes of that binary; there is no separate `cu` product surface. CU is the first
-runtime consumer of the `libagenterm` dynamic library.
-
-macOS hosts the placement catalog in `AgentermCu.app`. Windows desktop-host ABI
-1.7 now implements a notification-area menu, `RegisterHotKey`, event polling
-and cleanup for 18 placement actions plus Quit. Native `target/abi-dev`
-`host --self-test --json` reports `actions=19`, proves shared
-`Command`/`Executor` dispatch through an expected authorization refusal, and
-reports `cleaned_up=true`. Formal
-`dist` staging and Candidate qualification are still in progress, so Windows
-delivery remains partial.
+`error.detail.repair`; never an empty tree, never a silent coordinate
+fallback. Linux Chrome needs `scripts/box-chrome-a11y.sh`
+(`--force-renderer-accessibility`) and Reasonix `scripts/reasonix-desktop-a11y.sh`.
+Actions are normalized (`AXPress` -> `click`, `AXRaise` -> `focus`,
+`AXShowMenu` -> `show-menu`); macOS reports two-way states (`checked` /
+`unchecked` / `mixed`, `expanded` / `collapsed`) so `verify` can tell "off"
+from "not observable".
+
+## Targets, host and evidence
+
+- `--target current` runs in-process. `--ssh user@host` and `--vnc host:port`
+  run the same verbs on a remote / session `agenterm-cu --target current`
+  worker (OpenSSH stdio; RFB then a local worker). `--rdp` is a placeholder:
+  parses, authorizes, fails closed `rdp_unavailable`. `capabilities` declares
+  each tier and keeps the public target on the reply.
+- `agenterm-cu host` is the macOS / Windows desktop host (menu-bar extra,
+  Spectacle-default shortcuts over `window-place`). Install with
+  `./scripts/install-cu-hotkeys.sh`; Accessibility trust is per signature and
+  process (`~/.local/share/agenterm/ax-status`, see the rust cheatsheet).
+- Gates: `scripts/qjs/cu-macos-smoke.qjs` (AX loop against
+  `examples/objc/agenterm_ax_fixture.m`), `cu-macos-web-smoke` (WKWebView),
+  `cu-macos-pointer-smoke`, `scripts/cu-linux-smoke.sh`,
+  `scripts/cu-linux-cross-tier-tree.sh` (current / ssh / vnc same tree),
+  `cu-windows-smoke`, `scripts/cu-cdp-smoke.sh` (CDP tab addressing).
+- Layering: `libagenterm` (`agt_*` exports) <- `Command` / typed `CuReply`
+  <- `Executor` <- the single `agenterm-cu` binary. Product code never opens
+  raw OS APIs; mechanisms report typed `Available` / `Unsupported` / `Failed`.

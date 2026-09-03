@@ -1,0 +1,1777 @@
+[
+  {
+    "input": {
+      "reason": "host adapter unavailable",
+      "variant": "Unsupported"
+    },
+    "mapped": {
+      "code": "unsupported",
+      "message": "host adapter unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_access_denied",
+      "message": "message for a11y_access_denied",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_access_denied",
+      "message": "message for a11y_access_denied"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_action_no_effect",
+      "message": "message for a11y_action_no_effect",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_action_no_effect",
+      "message": "message for a11y_action_no_effect"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_action_timeout",
+      "message": "message for a11y_action_timeout",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_action_timeout",
+      "message": "message for a11y_action_timeout"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_action_unavailable",
+      "message": "message for a11y_action_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_action_unavailable",
+      "message": "message for a11y_action_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_allocation_failed",
+      "message": "message for a11y_allocation_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_allocation_failed",
+      "message": "message for a11y_allocation_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_app_not_found",
+      "message": "message for a11y_app_not_found",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_app_not_found",
+      "message": "message for a11y_app_not_found"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_app_visibility_not_applied",
+      "message": "message for a11y_app_visibility_not_applied",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_app_visibility_not_applied",
+      "message": "message for a11y_app_visibility_not_applied"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_backend_failed",
+      "message": "message for a11y_backend_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_backend_failed",
+      "message": "message for a11y_backend_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_caret_no_effect",
+      "message": "message for a11y_caret_no_effect",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_caret_no_effect",
+      "message": "message for a11y_caret_no_effect"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_caret_unavailable",
+      "message": "message for a11y_caret_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_caret_unavailable",
+      "message": "message for a11y_caret_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_connect_failed",
+      "message": "message for a11y_connect_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_connect_failed",
+      "message": "message for a11y_connect_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_depth_limit",
+      "message": "message for a11y_depth_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_depth_limit",
+      "message": "message for a11y_depth_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_extents_unavailable",
+      "message": "message for a11y_extents_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_extents_unavailable",
+      "message": "message for a11y_extents_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_focus_outside_window",
+      "message": "message for a11y_focus_outside_window",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_focus_outside_window",
+      "message": "message for a11y_focus_outside_window"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_focus_unavailable",
+      "message": "message for a11y_focus_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_focus_unavailable",
+      "message": "message for a11y_focus_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_invalid_node_id",
+      "message": "message for a11y_invalid_node_id",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_invalid_node_id",
+      "message": "message for a11y_invalid_node_id"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_invalid_operation",
+      "message": "message for a11y_invalid_operation",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_invalid_operation",
+      "message": "message for a11y_invalid_operation"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_invalid_safearray",
+      "message": "message for a11y_invalid_safearray",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_invalid_safearray",
+      "message": "message for a11y_invalid_safearray"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_key_injection_failed",
+      "message": "message for a11y_key_injection_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_key_injection_failed",
+      "message": "message for a11y_key_injection_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_key_limit",
+      "message": "message for a11y_key_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_key_limit",
+      "message": "message for a11y_key_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_key_timeout",
+      "message": "message for a11y_key_timeout",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_key_timeout",
+      "message": "message for a11y_key_timeout"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_key_unavailable",
+      "message": "message for a11y_key_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_key_unavailable",
+      "message": "message for a11y_key_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_menu_item_ambiguous",
+      "message": "message for a11y_menu_item_ambiguous",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_menu_item_ambiguous",
+      "message": "message for a11y_menu_item_ambiguous"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_menu_item_disabled",
+      "message": "message for a11y_menu_item_disabled",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_menu_item_disabled",
+      "message": "message for a11y_menu_item_disabled"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_menu_item_not_found",
+      "message": "message for a11y_menu_item_not_found",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_menu_item_not_found",
+      "message": "message for a11y_menu_item_not_found"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_menu_item_not_leaf",
+      "message": "message for a11y_menu_item_not_leaf",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_menu_item_not_leaf",
+      "message": "message for a11y_menu_item_not_leaf"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_menu_unavailable",
+      "message": "message for a11y_menu_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_menu_unavailable",
+      "message": "message for a11y_menu_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_node_disabled",
+      "message": "message for a11y_node_disabled",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_node_disabled",
+      "message": "message for a11y_node_disabled"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_node_id_limit",
+      "message": "message for a11y_node_id_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_node_id_limit",
+      "message": "message for a11y_node_id_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_node_id_truncated",
+      "message": "message for a11y_node_id_truncated",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_node_id_truncated",
+      "message": "message for a11y_node_id_truncated"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_node_limit",
+      "message": "message for a11y_node_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_node_limit",
+      "message": "message for a11y_node_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_node_not_found",
+      "message": "message for a11y_node_not_found",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_node_not_found",
+      "message": "message for a11y_node_not_found"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_node_recycled",
+      "message": "message for a11y_node_recycled",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_node_recycled",
+      "message": "message for a11y_node_recycled"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_null_interface",
+      "message": "message for a11y_null_interface",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_null_interface",
+      "message": "message for a11y_null_interface"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_observe_unavailable",
+      "message": "message for a11y_observe_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_observe_unavailable",
+      "message": "message for a11y_observe_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_option_ambiguous",
+      "message": "message for a11y_option_ambiguous",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_option_ambiguous",
+      "message": "message for a11y_option_ambiguous"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_option_not_found",
+      "message": "message for a11y_option_not_found",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_option_not_found",
+      "message": "message for a11y_option_not_found"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_pattern_unsupported",
+      "message": "message for a11y_pattern_unsupported",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_pattern_unsupported",
+      "message": "message for a11y_pattern_unsupported"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_permission_denied",
+      "message": "message for a11y_permission_denied",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "denied",
+      "detail": {
+        "permission": "accessibility",
+        "reason": "a11y_permission_denied",
+        "repair": "System Settings > Privacy & Security > Accessibility: enable the process that runs agenterm-cu (or its parent terminal / launcher), then rerun"
+      },
+      "message": "message for a11y_permission_denied"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_property_invalid",
+      "message": "message for a11y_property_invalid",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_property_invalid",
+      "message": "message for a11y_property_invalid"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_publish_connect",
+      "message": "message for a11y_publish_connect",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_publish_connect",
+      "message": "message for a11y_publish_connect"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_publish_embed",
+      "message": "message for a11y_publish_embed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_publish_embed",
+      "message": "message for a11y_publish_embed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_publish_export",
+      "message": "message for a11y_publish_export",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_publish_export",
+      "message": "message for a11y_publish_export"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_publish_thread",
+      "message": "message for a11y_publish_thread",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_publish_thread",
+      "message": "message for a11y_publish_thread"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_registry_read_failed",
+      "message": "message for a11y_registry_read_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_registry_read_failed",
+      "message": "message for a11y_registry_read_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_runtime_id_duplicate",
+      "message": "message for a11y_runtime_id_duplicate",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_runtime_id_duplicate",
+      "message": "message for a11y_runtime_id_duplicate"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_runtime_id_invalid",
+      "message": "message for a11y_runtime_id_invalid",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_runtime_id_invalid",
+      "message": "message for a11y_runtime_id_invalid"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_safearray_limit",
+      "message": "message for a11y_safearray_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_safearray_limit",
+      "message": "message for a11y_safearray_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_scroll_no_effect",
+      "message": "message for a11y_scroll_no_effect",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_scroll_no_effect",
+      "message": "message for a11y_scroll_no_effect"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_scroll_unavailable",
+      "message": "message for a11y_scroll_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_scroll_unavailable",
+      "message": "message for a11y_scroll_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_selection_no_effect",
+      "message": "message for a11y_selection_no_effect",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_selection_no_effect",
+      "message": "message for a11y_selection_no_effect"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_selection_unavailable",
+      "message": "message for a11y_selection_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_selection_unavailable",
+      "message": "message for a11y_selection_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_string_limit",
+      "message": "message for a11y_string_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_string_limit",
+      "message": "message for a11y_string_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_text_limit",
+      "message": "message for a11y_text_limit",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_text_limit",
+      "message": "message for a11y_text_limit"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_text_read_only",
+      "message": "message for a11y_text_read_only",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_text_read_only",
+      "message": "message for a11y_text_read_only"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_text_timeout",
+      "message": "message for a11y_text_timeout",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_text_timeout",
+      "message": "message for a11y_text_timeout"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_text_unavailable",
+      "message": "message for a11y_text_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_text_unavailable",
+      "message": "message for a11y_text_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_timeout",
+      "message": "message for a11y_timeout",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_timeout",
+      "message": "message for a11y_timeout"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_tree_empty",
+      "message": "message for a11y_tree_empty",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_tree_empty",
+      "message": "message for a11y_tree_empty"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_tree_timeout",
+      "message": "message for a11y_tree_timeout",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_tree_timeout",
+      "message": "message for a11y_tree_timeout"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_uia_failed",
+      "message": "message for a11y_uia_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_uia_failed",
+      "message": "message for a11y_uia_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "a11y_window_gone",
+      "message": "message for a11y_window_gone",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "a11y_window_gone",
+      "message": "message for a11y_window_gone"
+    }
+  },
+  {
+    "input": {
+      "code": "app_inventory_failed",
+      "message": "message for app_inventory_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "app_inventory_failed",
+      "message": "message for app_inventory_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "app_launch_failed",
+      "message": "message for app_launch_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "app_launch_failed",
+      "message": "message for app_launch_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "app_launch_needs_terminal",
+      "message": "message for app_launch_needs_terminal",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "app_launch_needs_terminal",
+      "message": "message for app_launch_needs_terminal"
+    }
+  },
+  {
+    "input": {
+      "code": "app_list_failed",
+      "message": "message for app_list_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "app_list_failed",
+      "message": "message for app_list_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "app_not_found",
+      "message": "message for app_not_found",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "app_not_found",
+      "message": "message for app_not_found"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_action",
+      "message": "message for bad_action",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_action",
+      "message": "message for bad_action"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_area",
+      "message": "message for bad_area",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_area",
+      "message": "message for bad_area"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_button",
+      "message": "message for bad_button",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_button",
+      "message": "message for bad_button"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_dimensions",
+      "message": "message for bad_dimensions",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_dimensions",
+      "message": "message for bad_dimensions"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_encoding",
+      "message": "message for bad_encoding",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_encoding",
+      "message": "message for bad_encoding"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_env",
+      "message": "message for bad_env",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_env",
+      "message": "message for bad_env"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_field",
+      "message": "message for bad_field",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_field",
+      "message": "message for bad_field"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_handle",
+      "message": "message for bad_handle",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_handle",
+      "message": "message for bad_handle"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_index",
+      "message": "message for bad_index",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_index",
+      "message": "message for bad_index"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_path",
+      "message": "message for bad_path",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_path",
+      "message": "message for bad_path"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_pid",
+      "message": "message for bad_pid",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_pid",
+      "message": "message for bad_pid"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_pointer",
+      "message": "message for bad_pointer",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_pointer",
+      "message": "message for bad_pointer"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_program",
+      "message": "message for bad_program",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_program",
+      "message": "message for bad_program"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_shortcut",
+      "message": "message for bad_shortcut",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_shortcut",
+      "message": "message for bad_shortcut"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_size",
+      "message": "message for bad_size",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_size",
+      "message": "message for bad_size"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_state",
+      "message": "message for bad_state",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_state",
+      "message": "message for bad_state"
+    }
+  },
+  {
+    "input": {
+      "code": "bad_text",
+      "message": "message for bad_text",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_text",
+      "message": "message for bad_text"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_backend_error",
+      "message": "message for clipboard_backend_error",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_backend_error",
+      "message": "message for clipboard_backend_error"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_busy",
+      "message": "message for clipboard_busy",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_busy",
+      "message": "message for clipboard_busy"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_failed",
+      "message": "message for clipboard_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_failed",
+      "message": "message for clipboard_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_timeout",
+      "message": "message for clipboard_timeout",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_timeout",
+      "message": "message for clipboard_timeout"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_too_large",
+      "message": "message for clipboard_too_large",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_too_large",
+      "message": "message for clipboard_too_large"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_unavailable",
+      "message": "message for clipboard_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_unavailable",
+      "message": "message for clipboard_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_worker_disconnected",
+      "message": "message for clipboard_worker_disconnected",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_worker_disconnected",
+      "message": "message for clipboard_worker_disconnected"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_worker_panicked",
+      "message": "message for clipboard_worker_panicked",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_worker_panicked",
+      "message": "message for clipboard_worker_panicked"
+    }
+  },
+  {
+    "input": {
+      "code": "clipboard_worker_start",
+      "message": "message for clipboard_worker_start",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "clipboard_worker_start",
+      "message": "message for clipboard_worker_start"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_add_icon",
+      "message": "message for desktop_host_add_icon",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_add_icon",
+      "message": "message for desktop_host_add_icon"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_append_menu",
+      "message": "message for desktop_host_append_menu",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_append_menu",
+      "message": "message for desktop_host_append_menu"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_bad_action_count",
+      "message": "message for desktop_host_bad_action_count",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_bad_action_count",
+      "message": "message for desktop_host_bad_action_count"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_bad_action_id",
+      "message": "message for desktop_host_bad_action_id",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_bad_action_id",
+      "message": "message for desktop_host_bad_action_id"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_bad_label",
+      "message": "message for desktop_host_bad_label",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_bad_label",
+      "message": "message for desktop_host_bad_label"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_bad_native_action",
+      "message": "message for desktop_host_bad_native_action",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_bad_native_action",
+      "message": "message for desktop_host_bad_native_action"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_bad_shortcut",
+      "message": "message for desktop_host_bad_shortcut",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_bad_shortcut",
+      "message": "message for desktop_host_bad_shortcut"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_closed",
+      "message": "message for desktop_host_closed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_closed",
+      "message": "message for desktop_host_closed"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_create_menu",
+      "message": "message for desktop_host_create_menu",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_create_menu",
+      "message": "message for desktop_host_create_menu"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_create_window",
+      "message": "message for desktop_host_create_window",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_create_window",
+      "message": "message for desktop_host_create_window"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_cursor_position",
+      "message": "message for desktop_host_cursor_position",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_cursor_position",
+      "message": "message for desktop_host_cursor_position"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_duplicate_action_id",
+      "message": "message for desktop_host_duplicate_action_id",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_duplicate_action_id",
+      "message": "message for desktop_host_duplicate_action_id"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_duplicate_hotkey",
+      "message": "message for desktop_host_duplicate_hotkey",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_duplicate_hotkey",
+      "message": "message for desktop_host_duplicate_hotkey"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_failed",
+      "message": "message for desktop_host_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_failed",
+      "message": "message for desktop_host_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_get_message",
+      "message": "message for desktop_host_get_message",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_get_message",
+      "message": "message for desktop_host_get_message"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_get_module",
+      "message": "message for desktop_host_get_module",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_get_module",
+      "message": "message for desktop_host_get_module"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_hotkey_unavailable",
+      "message": "message for desktop_host_hotkey_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_hotkey_unavailable",
+      "message": "message for desktop_host_hotkey_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_null",
+      "message": "message for desktop_host_null",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_null",
+      "message": "message for desktop_host_null"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_register_class",
+      "message": "message for desktop_host_register_class",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_register_class",
+      "message": "message for desktop_host_register_class"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_register_taskbar_created",
+      "message": "message for desktop_host_register_taskbar_created",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_register_taskbar_created",
+      "message": "message for desktop_host_register_taskbar_created"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_set_timer",
+      "message": "message for desktop_host_set_timer",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_set_timer",
+      "message": "message for desktop_host_set_timer"
+    }
+  },
+  {
+    "input": {
+      "code": "desktop_host_wrong_thread",
+      "message": "message for desktop_host_wrong_thread",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "desktop_host_wrong_thread",
+      "message": "message for desktop_host_wrong_thread"
+    }
+  },
+  {
+    "input": {
+      "code": "dylib_load",
+      "message": "message for dylib_load",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "dylib_load",
+      "message": "message for dylib_load"
+    }
+  },
+  {
+    "input": {
+      "code": "dylib_symbol",
+      "message": "message for dylib_symbol",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "dylib_symbol",
+      "message": "message for dylib_symbol"
+    }
+  },
+  {
+    "input": {
+      "code": "input_failed",
+      "message": "message for input_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "input_failed",
+      "message": "message for input_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "input_inject_failed",
+      "message": "message for input_inject_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "input_inject_failed",
+      "message": "message for input_inject_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "invalid_input",
+      "message": "message for invalid_input",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "invalid_input",
+      "message": "message for invalid_input"
+    }
+  },
+  {
+    "input": {
+      "code": "invalid_logical_extent",
+      "message": "message for invalid_logical_extent",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "invalid_logical_extent",
+      "message": "message for invalid_logical_extent"
+    }
+  },
+  {
+    "input": {
+      "code": "invalid_physical_extent",
+      "message": "message for invalid_physical_extent",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "invalid_physical_extent",
+      "message": "message for invalid_physical_extent"
+    }
+  },
+  {
+    "input": {
+      "code": "invalid_scale_factor",
+      "message": "message for invalid_scale_factor",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "invalid_scale_factor",
+      "message": "message for invalid_scale_factor"
+    }
+  },
+  {
+    "input": {
+      "code": "invalid_state",
+      "message": "message for invalid_state",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "invalid_state",
+      "message": "message for invalid_state"
+    }
+  },
+  {
+    "input": {
+      "code": "mechanism_failed",
+      "message": "message for mechanism_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "mechanism_failed",
+      "message": "message for mechanism_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "pointer_position_failed",
+      "message": "message for pointer_position_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "pointer_position_failed",
+      "message": "message for pointer_position_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "screen_churn",
+      "message": "message for screen_churn",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screen_churn",
+      "message": "message for screen_churn"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_allocation_failed",
+      "message": "message for screenshot_allocation_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_allocation_failed",
+      "message": "message for screenshot_allocation_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_bitmap_create",
+      "message": "message for screenshot_bitmap_create",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_bitmap_create",
+      "message": "message for screenshot_bitmap_create"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_buffer_too_small",
+      "message": "message for screenshot_buffer_too_small",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_buffer_too_small",
+      "message": "message for screenshot_buffer_too_small"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_capture_failed",
+      "message": "message for screenshot_capture_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_capture_failed",
+      "message": "message for screenshot_capture_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_dc_unavailable",
+      "message": "message for screenshot_dc_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_dc_unavailable",
+      "message": "message for screenshot_dc_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_empty_path",
+      "message": "message for screenshot_empty_path",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_empty_path",
+      "message": "message for screenshot_empty_path"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_encode_error",
+      "message": "message for screenshot_encode_error",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_encode_error",
+      "message": "message for screenshot_encode_error"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_failed",
+      "message": "message for screenshot_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_failed",
+      "message": "message for screenshot_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_file_error",
+      "message": "message for screenshot_file_error",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_file_error",
+      "message": "message for screenshot_file_error"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_format_unsupported",
+      "message": "message for screenshot_format_unsupported",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_format_unsupported",
+      "message": "message for screenshot_format_unsupported"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_gdiplus_startup",
+      "message": "message for screenshot_gdiplus_startup",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_gdiplus_startup",
+      "message": "message for screenshot_gdiplus_startup"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_invalid_bounds",
+      "message": "message for screenshot_invalid_bounds",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_invalid_bounds",
+      "message": "message for screenshot_invalid_bounds"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_invalid_clip",
+      "message": "message for screenshot_invalid_clip",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_invalid_clip",
+      "message": "message for screenshot_invalid_clip"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_invalid_dimensions",
+      "message": "message for screenshot_invalid_dimensions",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_invalid_dimensions",
+      "message": "message for screenshot_invalid_dimensions"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_io_error",
+      "message": "message for screenshot_io_error",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_io_error",
+      "message": "message for screenshot_io_error"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_too_large",
+      "message": "message for screenshot_too_large",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_too_large",
+      "message": "message for screenshot_too_large"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_unsupported",
+      "message": "message for screenshot_unsupported",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_unsupported",
+      "message": "message for screenshot_unsupported"
+    }
+  },
+  {
+    "input": {
+      "code": "screenshot_window_unavailable",
+      "message": "message for screenshot_window_unavailable",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "screenshot_window_unavailable",
+      "message": "message for screenshot_window_unavailable"
+    }
+  },
+  {
+    "input": {
+      "code": "unexpected_status",
+      "message": "message for unexpected_status",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "unexpected_status",
+      "message": "message for unexpected_status"
+    }
+  },
+  {
+    "input": {
+      "code": "window_churn",
+      "message": "message for window_churn",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_churn",
+      "message": "message for window_churn"
+    }
+  },
+  {
+    "input": {
+      "code": "window_constraints_invalid",
+      "message": "message for window_constraints_invalid",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_constraints_invalid",
+      "message": "message for window_constraints_invalid"
+    }
+  },
+  {
+    "input": {
+      "code": "window_enum_failed",
+      "message": "message for window_enum_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_enum_failed",
+      "message": "message for window_enum_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "window_failed",
+      "message": "message for window_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_failed",
+      "message": "message for window_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "window_identity_invalid",
+      "message": "message for window_identity_invalid",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_identity_invalid",
+      "message": "message for window_identity_invalid"
+    }
+  },
+  {
+    "input": {
+      "code": "window_identity_unknown",
+      "message": "message for window_identity_unknown",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_identity_unknown",
+      "message": "message for window_identity_unknown"
+    }
+  },
+  {
+    "input": {
+      "code": "window_inspect_access_denied",
+      "message": "message for window_inspect_access_denied",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_inspect_access_denied",
+      "message": "message for window_inspect_access_denied"
+    }
+  },
+  {
+    "input": {
+      "code": "window_inspect_failed",
+      "message": "message for window_inspect_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_inspect_failed",
+      "message": "message for window_inspect_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "window_metadata_invalid",
+      "message": "message for window_metadata_invalid",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_metadata_invalid",
+      "message": "message for window_metadata_invalid"
+    }
+  },
+  {
+    "input": {
+      "code": "window_not_found",
+      "message": "message for window_not_found",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_not_found",
+      "message": "message for window_not_found"
+    }
+  },
+  {
+    "input": {
+      "code": "window_op_failed",
+      "message": "message for window_op_failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_op_failed",
+      "message": "message for window_op_failed"
+    }
+  },
+  {
+    "input": {
+      "code": "window_stale",
+      "message": "message for window_stale",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "window_stale",
+      "message": "message for window_stale"
+    }
+  },
+  {
+    "input": {
+      "code": "failed",
+      "message": "message for failed",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "failed",
+      "message": "message for failed"
+    }
+  },
+  {
+    "input": {
+      "code": "unknown_future_code",
+      "message": "message for unknown_future_code",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "unknown_future_code",
+      "message": "message for unknown_future_code"
+    }
+  }
+]
