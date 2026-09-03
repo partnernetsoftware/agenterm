@@ -20,6 +20,13 @@
 #               strip read-back in one poll, tab count back to 6, other
 #               titles identical. Note: `open` activates the profile's
 #               window, so the front window differs from the run's start.
+#   2026-09-03  PASS  same instance, second run after the tab-close /
+#               focused-window fixes: tabs 6 -> 7 -> 6, front window
+#               identical across the click and at the end (the window was
+#               already the profile's focused one). The page text step now
+#               pokes `unlock` and re-reads: a freshly opened tab's web-area
+#               reached the AX tree only after the poke (the first run of
+#               the day saw 25 chrome rows and no h1 until then).
 #
 # What it proves, in order:
 #   1. `browser profiles` lists the profile and its window(s).
@@ -139,8 +146,17 @@ fi
 echo "tabs-after-open=$TABS_OPEN selected=$TITLE"
 
 echo "== 5. page text =="
-OUT="$(obs page text --window "$H")"; ok_or_fail "$OUT" "page text"
-[[ "$(py "$OUT" 'any("cu live smoke" in (row.get("text") or "") for row in r["data"]["rows"])')" == "true" ]] || fail "page text has no 'cu live smoke' row"
+# A freshly opened tab's renderer publishes its web-area to the AX tree a
+# moment after the title lands (and only once the engine has been asked
+# for it): poke with `unlock` and re-read, bounded.
+HAS_H1=false
+for _ in 1 2 3 4 5 6 7 8; do
+  OUT="$(obs page text --window "$H")"; ok_or_fail "$OUT" "page text"
+  if [[ "$(py "$OUT" 'any("cu live smoke" in (row.get("text") or "") for row in r["data"]["rows"])')" == "true" ]]; then HAS_H1=true; break; fi
+  obs unlock --window "$H" >/dev/null 2>&1 || true
+  sleep 0.5
+done
+[[ "$HAS_H1" == true ]] || fail "page text has no 'cu live smoke' row after unlock re-reads (rows=$(py "$OUT" 'r["data"]["returned"]'))"
 BTN="$(py "$OUT" '[row["id"] for row in r["data"]["rows"] if "button" in row["role"].lower() and "Press me" in ((row.get("text") or "") + (row.get("name") or ""))]')"
 [[ "$BTN" != "[]" ]] || fail "page text has no 'Press me' button row"
 NODE="$(py "$BTN" 'r[0]')"

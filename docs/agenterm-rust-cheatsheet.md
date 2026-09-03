@@ -2306,6 +2306,38 @@ Candidate and release status remain separate and are not implied.
   semantics in pure tests and prove native success with an owned fixture or
   public smoke journey.
 
+## macOS focus is NSWorkspace + the app element, not the system-wide AX read (measured 2026-09-03)
+
+Proven on `agenterm-cu windows --focused` (`crates/agenterm-cu/src/macos_focus.rs`,
+`observe::resolve_focus`).
+
+- The platform adapter marks a window focused only through the *system-wide*
+  accessibility element: `AXFocusedApplication` -> `AXFrontmost` ->
+  `AXFocusedWindow` -> `_AXUIElementGetWindow`. From a process that is not a
+  descendant of the GUI session's front process (a tmux server, an SSH
+  login, a remote agent bridge) the first read answers
+  `kAXErrorCannotComplete` (-25204) while `AXIsProcessTrusted` is true and
+  every per-window tree read works. The chain then marks nothing and
+  `--focused true` was an empty list that read as "nothing is focused".
+- `NSWorkspace.frontmostApplication` does not use accessibility messaging,
+  and `AXUIElementCreateApplication(pid)` + `AXFocusedWindow` on *that*
+  element answers from the same process (measured: Brave frontmost per
+  NSWorkspace, system-wide read -25204, app element -> the window id). Read
+  focus in that order, fall back to the frontmost app's topmost window in
+  the stacking order, and answer an explicit `{focused_app, window: null}`
+  with a reason when the frontmost app has no inventory window (a
+  menu-bar-only app, another Space); never an empty list.
+- Keep the decision pure (`resolve_focus(windows, stacking, app, ax_window)`)
+  so the precedence -- mechanism mark, AX window, front window, none -- is
+  unit-tested on fake inventories; the native reads are two thin functions.
+- Same shape for a tab strip: macOS Chromium exposes the tab row's close
+  button on the selected tab only, so a destructive `tab close` on a
+  background tab must select the row in its window (never raising it),
+  close, and press the previously selected row again -- and say
+  `selection_restored` -- or, with a CDP port, close by
+  `Target.closeTarget` only when the title names exactly one page target of
+  the whole instance (one port serves every profile).
+
 ## macOS Accessibility trust is signature + process, not the Settings label
 
 Proven on the `agenterm-cu host` / `AgentermCu.app` host (`scripts/install-cu-hotkeys.sh`,
