@@ -77,6 +77,10 @@ SHA-256, byte count and portable `osslsigncode` report. Exit `2` means no
 extractable embedded signature; `3` means a signature exists but portable
 verification failed, which may be a local CA-chain gap or a real integrity
 failure. Windows remains the final trust authority.
+An independently verified PEM bundle containing Microsoft's Artifact Signing
+root plus timestamp CA may be supplied as `--ca-file ./trust.pem` when the
+portable host's CA bundle lacks them; the option does not modify system trust
+and never supersedes the Windows verdict.
 
 ## Evidence, privacy and reputation
 

@@ -1,14 +1,49 @@
 #!/usr/bin/env bash
-# Canonical contract: pns-authenticode-inspector/v2
+# Canonical contract: pns-authenticode-inspector/v3
 set -uo pipefail
 
+usage() {
+  echo "usage: inspect-authenticode.sh [--ca-file FILE] [--] FILE [FILE ...]" >&2
+}
+
+ca_file=
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ca-file)
+      if [[ $# -lt 2 || -n "$ca_file" ]]; then
+        usage
+        exit 64
+      fi
+      ca_file=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage
+      exit 64
+      ;;
+    *) break ;;
+  esac
+done
 if [[ $# -eq 0 ]]; then
-  echo "usage: inspect-authenticode.sh FILE [FILE ...]" >&2
+  usage
   exit 64
 fi
 if ! command -v osslsigncode >/dev/null 2>&1; then
   echo "inspect-authenticode: osslsigncode is required" >&2
   exit 69
+fi
+verify_args=()
+if [[ -n "$ca_file" ]]; then
+  if [[ ! -f "$ca_file" ]]; then
+    echo "inspect-authenticode: CA bundle is not a file" >&2
+    exit 66
+  fi
+  verify_args=(-CAfile "$ca_file" -TSA-CAfile "$ca_file")
+  echo "inspect-authenticode: using caller-supplied CA bundle for portable verification"
 fi
 
 failed=0
@@ -29,7 +64,7 @@ for file in "$@"; do
     sha256sum "$file"
   fi
   wc -c "$file"
-  if ! osslsigncode verify -in "$file"; then
+  if ! osslsigncode verify "${verify_args[@]}" -in "$file"; then
     if osslsigncode extract-signature -in "$file" \
       -out "$probe_root/signature-$index.p7b" >/dev/null 2>&1; then
       echo "inspect-authenticode: embedded signature exists, but portable verification failed: $file" >&2
