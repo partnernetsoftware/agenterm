@@ -22,6 +22,11 @@ FORBIDDEN_KEYS = {
     "signing_account",
     "certificate_profile",
     "profile_name",
+    "resource_group",
+    "validation_id",
+    "application_id",
+    "object_id",
+    "federated_credential",
     "azure_client_id",
     "client_id",
     "azure_tenant_id",
@@ -71,7 +76,13 @@ def reject_protected_keys(value: Any, path: str = "$") -> None:
 
 def safe_file(root: Path, relative: str) -> Path:
     parsed = PurePosixPath(relative)
-    if parsed.is_absolute() or not parsed.parts or ".." in parsed.parts:
+    if (
+        parsed.is_absolute()
+        or not parsed.parts
+        or ".." in parsed.parts
+        or "\\" in relative
+        or re.match(r"^[A-Za-z]:", relative)
+    ):
         raise ValueError(f"unsafe signed asset path: {relative}")
     path = root.joinpath(*parsed.parts)
     if not path.is_file():
@@ -101,11 +112,21 @@ def audit(
     publisher = require_text(receipt, "publisher_organization")
     if publisher != "PARTNERNET SOFTWARE PTY LTD":
         raise ValueError("publisher organization mismatch")
+    if receipt.get("file_digest") != "SHA256":
+        raise ValueError("file digest policy mismatch")
+    if receipt.get("timestamp_rfc3161") != "http://timestamp.acs.microsoft.com":
+        raise ValueError("RFC 3161 timestamp policy mismatch")
+    if receipt.get("timestamp_digest") != "SHA256":
+        raise ValueError("timestamp digest policy mismatch")
     if receipt.get("release_eligible") is not release_eligible:
         raise ValueError("release eligibility mismatch")
     upstream = receipt.get("upstream")
     if not release_eligible:
-        if not isinstance(upstream, dict) or not isinstance(upstream.get("run_id"), int) or not isinstance(upstream.get("run_attempt"), int):
+        if (
+            not isinstance(upstream, dict)
+            or type(upstream.get("run_id")) is not int
+            or type(upstream.get("run_attempt")) is not int
+        ):
             raise ValueError("qualification upstream Candidate identity missing")
         if upstream["run_id"] <= 0 or upstream["run_attempt"] <= 0:
             raise ValueError("qualification upstream Candidate identity invalid")
@@ -127,13 +148,17 @@ def audit(
         if not SHA256_RE.fullmatch(before) or not SHA256_RE.fullmatch(after) or before == after:
             raise ValueError(f"{platform}: invalid archive before/after SHA-256")
         archive = safe_file(archive_root, f"{platform}/{name}")
-        if sha256(archive) != after or archive.stat().st_size != row.get("after_bytes"):
+        if type(row.get("after_bytes")) is not int or row["after_bytes"] <= 0:
+            raise ValueError(f"{platform}: invalid archive byte count")
+        if sha256(archive) != after or archive.stat().st_size != row["after_bytes"]:
             raise ValueError(f"{platform}: final archive identity mismatch")
-        if not isinstance(row.get("payload_uncompressed_bytes"), int) or row["payload_uncompressed_bytes"] <= 0:
+        if type(row.get("payload_uncompressed_bytes")) is not int or row["payload_uncompressed_bytes"] <= 0:
             raise ValueError(f"{platform}: invalid payload byte count")
     run = receipt.get("run")
-    if not isinstance(run, dict) or not isinstance(run.get("id"), int) or not isinstance(run.get("attempt"), int):
+    if not isinstance(run, dict) or type(run.get("id")) is not int or type(run.get("attempt")) is not int:
         raise ValueError("signing run identity missing")
+    if run["id"] <= 0 or run["attempt"] <= 0:
+        raise ValueError("signing run identity invalid")
     assets = receipt.get("assets")
     if not isinstance(assets, dict) or len(assets) != 10:
         raise ValueError("signed asset set mismatch")
@@ -145,7 +170,9 @@ def audit(
         if not SHA256_RE.fullmatch(before) or not SHA256_RE.fullmatch(after) or before == after:
             raise ValueError(f"{name}: invalid before/after SHA-256")
         path = safe_file(root, name)
-        if sha256(path) != after or path.stat().st_size != row.get("after_bytes"):
+        if type(row.get("after_bytes")) is not int or row["after_bytes"] <= 0:
+            raise ValueError(f"{name}: invalid signed file byte count")
+        if sha256(path) != after or path.stat().st_size != row["after_bytes"]:
             raise ValueError(f"{name}: signed file identity mismatch")
         if row.get("authenticode_status") != "Valid":
             raise ValueError(f"{name}: Authenticode is not Valid")
@@ -206,6 +233,9 @@ def self_test() -> None:
             "version": "0.0.0",
             "signing_provider": "azure-artifact-signing",
             "publisher_organization": "PARTNERNET SOFTWARE PTY LTD",
+            "file_digest": "SHA256",
+            "timestamp_rfc3161": "http://timestamp.acs.microsoft.com",
+            "timestamp_digest": "SHA256",
             "release_eligible": False,
             "platform_count": 2,
             "asset_count": 10,
@@ -215,13 +245,22 @@ def self_test() -> None:
             "assets": assets,
         }
         audit(receipt, root, archive_root, False, "a" * 40, "0.0.0")
+        invalid_cases = []
         receipt["provider_resource"] = {"account": "must-not-ship"}
-        try:
-            audit(receipt, root, archive_root, False)
-        except ValueError as error:
-            assert "protected configuration key" in str(error)
-        else:
-            raise AssertionError("protected provider coordinates were accepted")
+        invalid_cases.append(("protected configuration key", dict(receipt)))
+        receipt.pop("provider_resource")
+        receipt["timestamp_rfc3161"] = "http://example.invalid/timestamp"
+        invalid_cases.append(("RFC 3161 timestamp policy mismatch", dict(receipt)))
+        receipt["timestamp_rfc3161"] = "http://timestamp.acs.microsoft.com"
+        receipt["run"] = {"id": 0, "attempt": 1}
+        invalid_cases.append(("signing run identity invalid", dict(receipt)))
+        for expected, invalid in invalid_cases:
+            try:
+                audit(invalid, root, archive_root, False)
+            except ValueError as error:
+                assert expected in str(error), (expected, str(error))
+            else:
+                raise AssertionError(f"invalid signing receipt accepted: {expected}")
     print("PASS AgenTerm signing receipt, exact files, and privacy court")
 
 
