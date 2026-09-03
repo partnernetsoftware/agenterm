@@ -54,6 +54,11 @@ published tag, use the company skill's
 the current controller SHA from the historical payload SHA, binds the exact
 tag/run/artifacts, and authorizes only `release_eligible=false` mechanism
 evidence. It is never a way to retrofit or replace Release assets.
+It also does not grandfather legacy inputs: every historical PE must already
+meet the current fixed allowlist and VERSIONINFO contract. The v0.1.16 court
+proved identity and artifact reuse, then correctly stopped before Azure login
+because its legacy `agenterm.com` lacks `ProductName`; the first complete live
+court therefore needs a future conforming Candidate.
 
 ## Activation sequence
 

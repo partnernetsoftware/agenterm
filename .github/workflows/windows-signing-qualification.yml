@@ -343,7 +343,7 @@ jobs:
 
   aggregate:
     name: require both signed Windows courts
-    if: always()
+    if: always() && needs.sign.result == 'success'
     needs: [preflight, sign, runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 5

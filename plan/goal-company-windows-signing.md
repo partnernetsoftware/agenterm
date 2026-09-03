@@ -110,16 +110,26 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     an unset placeholder cannot fail late or masquerade as execution evidence
   - [x] Candidate receipt validation still requires `release_eligible=true`,
     so qualification artifacts cannot be supplied to Promotion
-  - [~] first live run may reuse the still-retained successful unsigned
-    v0.1.16 Candidate without rebuilding: the payload source must resolve to
-    the immutable `v0.1.16` tag, while current `main` supplies the reviewed
-    qualification controller and signing transformer. Preflight binds both
-    identities, requires the source policy to be `off`, requires both unexpired
-    Windows Candidate parts, and emits `source_class=immutable-version-tag` in
-    both runtime and aggregate receipts
+  - [x] the retained v0.1.16 Candidate was exercised as a historical input
+    without rebuilding: the payload source resolved to immutable `v0.1.16`,
+    while current `main` supplied the reviewed controller and transformer.
+    Preflight bound both identities, source policy, successful upstream run and
+    both unexpired Windows parts; qualification run `33746059771` then rejected
+    the old archive companion set before Azure login, leading to the explicit
+    metadata-preservation repair
+  - [x] replacement run `33746284127` proved the repaired allowlist rejected a
+    previously undocumented staged SBOM name; after adding that exact name,
+    run `33746394464` advanced to the PE metadata court and correctly rejected
+    v0.1.16 `agenterm.com` because that legacy byte lacks `ProductName`.
+    All three failures occurred before Azure login/signing, so no provider
+    transaction was consumed
   - [x] historical qualification is mechanism evidence only: it cannot replace
     v0.1.16 assets, cannot enter Candidate verification, and always carries
     `release_eligible=false`; an arbitrary historical commit is rejected
+  - [ ] the first complete live qualification therefore requires a future
+    successful unsigned Candidate whose ten original PE bytes already satisfy
+    VERSIONINFO. Do not weaken the metadata court or retrofit v0.1.16 merely to
+    obtain a green provider run
   - [ ] after qualification passes, the owner may select
     `signing.windows=required` for one future exact SHA; do not retrofit v0.1.16
   - [ ] compare signed `agenterm.com` size against 64 KiB and every other file

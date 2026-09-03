@@ -26,7 +26,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   remains pending. The qualification controller now accepts either exact
   current main or an immutable version-tag source; the latter reuses only the
   original retained Candidate bytes, records the source class, and remains
-  structurally non-promotable. Therefore
+  structurally non-promotable. Historical v0.1.16 qualification reached this
+  court: two runs exposed and repaired its previously incomplete package
+  companion allowlist, while the next run correctly stopped before Azure login
+  because legacy `agenterm.com` lacks required `ProductName` VERSIONINFO. This
+  is a source-byte incompatibility, not a signing-provider failure; the first
+  complete live court waits for a future Candidate whose ten original PE bytes
+  meet the metadata contract. Therefore
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`; the public

@@ -83,6 +83,7 @@ fn qualification_executes_and_scans_both_windows_isas() {
             "missing final-byte court: {contract}"
         );
     }
+    assert!(WORKFLOW.contains("if: always() && needs.sign.result == 'success'"));
 }
 
 #[test]
