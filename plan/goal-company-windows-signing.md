@@ -33,6 +33,9 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     refusal, non-promotable qualification, dirty-tree refusal, inspector drift,
     Environment name-set drift, and public-receipt redaction without Azure
     login or a signing transaction
+  - [x] portable trust bootstrap downloads and pins the Microsoft signing root
+    plus timestamp CA, publishes one PEM bundle atomically, and verifies the
+    exact signed MiniCon qualification artifact without installing trust
 - [~] exact signing allowlist: 10 PE files, no glob-discovered extras
   - [x] each Windows archive declares the same five entries in
     `scripts/artifacts.json`: `agenterm.exe`, `agenterm.com`,

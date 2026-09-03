@@ -30,7 +30,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   shareable report to basename, SHA-256, byte count, VERSIONINFO, publisher and
   timestamp-certificate facts without exposing an expanded account path; the
   portable inspector distinguishes unsigned input from present-but-unverified
-  signatures while reserving the final trust verdict for Windows. The public
+  signatures while reserving the final trust verdict for Windows. Its v3
+  contract can consume a caller-supplied PEM trust bundle; the company helper
+  downloads the Microsoft signing root plus timestamp CA from the official PKI
+  repository, pins both SHA-256 digests, and never modifies system trust. The
+  exact signed MiniCon qualification artifact passes this portable court with
+  that bundle. The public
   receipt auditor independently rejects a foreign timestamp policy, non-SHA256
   digests, nonpositive run/byte identities, unsafe relative paths, signer
   subjects without the company `O=`, incomplete certificate facts, and nested
