@@ -6,9 +6,9 @@
 pub mod audit;
 pub mod auth;
 pub mod auth_store;
-pub mod browser_profiles;
 #[cfg(target_os = "macos")]
 pub mod ax_guide;
+pub mod browser_profiles;
 pub mod command;
 pub mod dynlib;
 pub mod executor;

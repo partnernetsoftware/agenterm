@@ -536,6 +536,7 @@ mod tests {
         let targets = observe_executor().execute(&Command::PageTargets {
             target: TargetRef::Current,
             port: Some(1),
+            browser_profile: None,
         });
         assert!(!targets.ok);
         assert_eq!(targets.command, "page-targets");

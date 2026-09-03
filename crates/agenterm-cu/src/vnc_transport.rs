@@ -782,6 +782,7 @@ mod tests {
             title: None,
             focused: None,
             minimized: None,
+            browser_profile: None,
             offset: None,
             max: None,
         };

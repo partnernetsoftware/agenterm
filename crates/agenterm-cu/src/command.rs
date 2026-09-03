@@ -244,6 +244,11 @@ pub enum Command {
         focused: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         minimized: Option<bool>,
+        /// Case-insensitive substring of the row's `browser_profile` (the
+        /// Chromium profile name a browser window's identity carries);
+        /// windows without one never match.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        browser_profile: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         offset: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -831,6 +836,12 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        /// When set, only the targets whose title equals (exactly) a tab
+        /// title of a window whose `browser_profile` contains this
+        /// substring are returned, each marked `profile_match: "title"`.
+        /// A heuristic: CDP targets carry no profile field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        browser_profile: Option<String>,
     },
     /// The visible text of `window` in reading order, shaped from the
     /// accessibility tree: compact rows of `id`, `role`, `text`, `bounds`
@@ -873,6 +884,50 @@ pub enum Command {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<usize>,
+    },
+    /// Close one tab of `window` through the tab-strip row's own close
+    /// button (the child `button` of the Chromium tab `radio-button`).
+    /// Destructive, so gated like `close`: an exact tab identity (`title`
+    /// with `exact`), the strip snapshot the receipt carries, and the
+    /// postcondition `expect == "gone"` (the title is read back as absent
+    /// from the strip). A tab whose row offers no close button is typed
+    /// `unsupported`; a keyboard shortcut is never substituted.
+    TabClose {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        exact: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
+    /// The profiles of one Chromium-family application's user data
+    /// directory (`Local State` -> `profile.info_cache`), each joined to
+    /// the windows of the inventory whose `browser_profile` is that name.
+    /// `app` is a catalog substring (Brave Origin / Brave Browser / Google
+    /// Chrome); absent, the one running catalog application.
+    BrowserProfiles {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+    },
+    /// Open a window (or, with `url`, a tab) of the profile named
+    /// `profile` in the running instance: `open -na <app> --args
+    /// --profile-directory=<dir> [url]`, then poll the window inventory
+    /// (bounded by `timeout_ms`, default 8000) until a window of that
+    /// profile appears that was not there before, or -- when the profile
+    /// already had a window and a URL was given -- until that window's
+    /// title changes. The browser is never quit or restarted.
+    BrowserOpen {
+        target: TargetRef,
+        profile: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
     },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
@@ -1003,6 +1058,9 @@ impl Command {
             Self::PageText { .. } => "page-text".into(),
             Self::TabList { .. } => "tab-list".into(),
             Self::TabSelect { .. } => "tab-select".into(),
+            Self::TabClose { .. } => "tab-close".into(),
+            Self::BrowserProfiles { .. } => "browser-profiles".into(),
+            Self::BrowserOpen { .. } => "browser-open".into(),
             Self::Unlock { .. } => "unlock".into(),
             Self::Align { group, .. } => group.clone(),
         }
@@ -1055,6 +1113,9 @@ impl Command {
             | Self::PageText { target, .. }
             | Self::TabList { target, .. }
             | Self::TabSelect { target, .. }
+            | Self::TabClose { target, .. }
+            | Self::BrowserProfiles { target, .. }
+            | Self::BrowserOpen { target, .. }
             | Self::Unlock { target, .. }
             | Self::Align { target, .. } => *target,
         }
@@ -1081,6 +1142,8 @@ impl Command {
             | Self::OrderWin { .. }
             | Self::Close { .. }
             | Self::TabSelect { .. }
+            | Self::TabClose { .. }
+            | Self::BrowserOpen { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }
@@ -1267,6 +1330,7 @@ mod tests {
             title: None,
             focused: Some(true),
             minimized: Some(false),
+            browser_profile: None,
             offset: None,
             max: Some(1),
         };
@@ -1468,9 +1532,22 @@ mod tests {
         let targets = Command::PageTargets {
             target: TargetRef::Current,
             port: Some(9223),
+            browser_profile: None,
         };
         assert_eq!(targets.verb(), "page-targets");
         assert_eq!(targets.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&targets).expect("serialize"),
+            serde_json::json!({ "verb": "page-targets", "target": "current", "port": 9223 })
+        );
+        let joined: Command = serde_json::from_value(serde_json::json!({
+            "verb": "page-targets", "target": "current", "browser_profile": "work"
+        }))
+        .expect("deserialize");
+        assert!(matches!(
+            joined,
+            Command::PageTargets { browser_profile: Some(ref profile), port: None, .. } if profile == "work"
+        ));
         let text = Command::PageText {
             target: TargetRef::Current,
             window: 7,
@@ -1527,6 +1604,84 @@ mod tests {
                 "verb": "wait", "target": "current", "timeout_ms": 500,
                 "wait": "expect", "window": 3,
                 "expect": [{ "node": "/0/1", "value": "pressed 1" }]
+            })
+        );
+    }
+
+    #[test]
+    fn browser_profile_verbs_and_tab_close_carry_their_grants_and_shapes() {
+        let profiles = Command::BrowserProfiles {
+            target: TargetRef::Current,
+            app: None,
+        };
+        assert_eq!(profiles.verb(), "browser-profiles");
+        assert_eq!(profiles.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&profiles).expect("serialize"),
+            serde_json::json!({ "verb": "browser-profiles", "target": "current" })
+        );
+        let open = Command::BrowserOpen {
+            target: TargetRef::Current,
+            profile: "work".into(),
+            url: Some("https://example.com/".into()),
+            app: Some("Brave Origin".into()),
+            timeout_ms: None,
+        };
+        assert_eq!(open.verb(), "browser-open");
+        assert_eq!(open.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&open).expect("serialize"),
+            serde_json::json!({
+                "verb": "browser-open", "target": "current", "profile": "work",
+                "url": "https://example.com/", "app": "Brave Origin"
+            })
+        );
+        let close = Command::TabClose {
+            target: TargetRef::Current,
+            window: 7,
+            title: Some("cu-live".into()),
+            exact: true,
+            expect: Some("gone".into()),
+        };
+        assert_eq!(close.verb(), "tab-close");
+        assert_eq!(close.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&close).expect("serialize"),
+            serde_json::json!({
+                "verb": "tab-close", "target": "current", "window": 7,
+                "title": "cu-live", "exact": true, "expect": "gone"
+            })
+        );
+        // The bare wire form decodes; the executor's gate refuses it.
+        let bare: Command = serde_json::from_value(
+            serde_json::json!({ "verb": "tab-close", "target": "current", "window": 7 }),
+        )
+        .expect("deserialize");
+        assert!(matches!(
+            bare,
+            Command::TabClose {
+                window: 7,
+                title: None,
+                exact: false,
+                expect: None,
+                ..
+            }
+        ));
+        let filtered = Command::Windows {
+            target: TargetRef::Current,
+            pid: None,
+            app: Some("Brave".into()),
+            title: None,
+            focused: None,
+            minimized: None,
+            browser_profile: Some("work".into()),
+            offset: None,
+            max: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&filtered).expect("serialize"),
+            serde_json::json!({
+                "verb": "windows", "target": "current", "app": "Brave", "browser_profile": "work"
             })
         );
     }
