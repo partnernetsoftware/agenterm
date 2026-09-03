@@ -48,9 +48,44 @@
 use std::path::PathBuf;
 
 fn main() {
+    if std::env::var_os("AGENTERM_ABI_RESOURCE_CHILD").is_some() {
+        let out_dir =
+            PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo must provide OUT_DIR"))
+                .join("windows-resource");
+        std::fs::create_dir_all(&out_dir).expect("create ABI resource directory");
+        winresource::WindowsResource::new()
+            .set("ProductName", "AgenTerm")
+            .set("ProductVersion", env!("CARGO_PKG_VERSION"))
+            .set("FileDescription", "AgenTerm native mechanism ABI")
+            .set("OriginalFilename", "agenterm.dll")
+            .set_output_directory(out_dir.to_str().expect("resource path must be UTF-8"))
+            .compile()
+            .expect("failed to compile agenterm.dll VERSIONINFO");
+        return;
+    }
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     match target_os.as_str() {
+        "windows" => {
+            println!("cargo:rerun-if-env-changed=RC_PATH");
+            let output =
+                std::process::Command::new(std::env::current_exe().expect("ABI build script path"))
+                    .env("AGENTERM_ABI_RESOURCE_CHILD", "1")
+                    .output()
+                    .expect("ABI resource child failed to run");
+            if !output.status.success() {
+                eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                panic!("failed to compile agenterm.dll resource child");
+            }
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let resource_path = stdout
+                .lines()
+                .find_map(|line| line.strip_prefix("cargo:rustc-link-arg="))
+                .map(str::trim)
+                .expect("winresource emitted no agenterm.dll resource link arg");
+            println!("cargo:rustc-cdylib-link-arg={resource_path}");
+        }
         "macos" => {
             // Conventional rpath-relative install name. Consumers must set
             // their own rpath (e.g. `-Wl,-rpath,@loader_path` or the install
@@ -96,8 +131,7 @@ fn main() {
             std::fs::write(out_dir.join("soname.txt"), SONAME)
                 .expect("record the soname for tests/common::toolchain::ensure_soname_alias");
         }
-        // Windows (and any other target): PE has no SONAME / LC_ID_DYLIB
-        // concept — deliberately NOTHING, no link-arg, no file.
+        // Other targets have no SONAME / LC_ID_DYLIB or PE resource contract.
         _ => {}
     }
 }

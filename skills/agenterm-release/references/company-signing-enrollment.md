@@ -28,7 +28,7 @@ must remain outside the repository.
 
 The reusable, redacted procedure (CLI commands, login pitfalls, local jsign
 rehearsal, workflow gates) lives in the company hub:
-`company-dev-hub/skills/sign-windows-artifacts/`. Read it before creating
+`~/repos/company-dev-hub/skills/sign-windows-artifacts/`. Read it before creating
 Azure or GitHub signing configuration for AgenTerm.
 
 ## Activation sequence
@@ -96,10 +96,30 @@ Each of `win-x86_64` and `win-aarch64` contains exactly these five PE files:
 - `agenterm.dll`
 
 All ten files are signed or the required-mode Candidate fails. The public
-v0.1.16 baseline is unsigned and every Security Directory is empty. Only the
-x86_64 `agenterm.exe` and `agenterm-cc.exe` have a Resource Directory; the
-other eight files need minimal `ProductName` / `ProductVersion` VERSIONINFO.
-The root build script currently compiles resources only when its host is
-Windows, so the Linux-built ARM64 package loses them; CU and ABI also need
-their own package-owned resource path. Do not add an icon, CRT startup, or
-product logic to the tiny forwarder merely to satisfy signing metadata.
+v0.1.16 baseline is unsigned and every Security Directory is empty. The root
+package and ABI now compile target-aware VERSIONINFO on Windows, Linux, or
+macOS build hosts. Two-ISA inspection proves that `agenterm.exe`,
+`agenterm.com`, `agenterm-cc.exe`, and `agenterm.dll` carry nonempty product
+and version fields before signing; `agenterm-cu.exe` remains the only resource
+owner to close on both ISAs. The tiny forwarder keeps a metadata-only resource:
+do not add an icon, CRT startup, or product logic merely to satisfy signing
+metadata.
+
+Inspect a local or extracted Candidate file with the reusable company tools:
+
+```powershell
+& ~/repos/company-dev-hub/skills/sign-windows-artifacts/scripts/inspect-authenticode.ps1 -Path dist/agenterm.exe -ExpectedOrganization "<COMPANY_PUBLISHER>"
+```
+
+```bash
+~/repos/company-dev-hub/skills/sign-windows-artifacts/scripts/inspect-authenticode.sh \
+  dist/agenterm.exe
+```
+
+The Windows tool is authoritative: exit `0` means signature, expected
+organization, and timestamp passed; `2` means unsigned, `3` invalid or
+incomplete, `4` publisher mismatch, `5` timestamp absent, and `69` means the
+Windows trust API is unavailable. The portable shell tool checks structural
+verification but does not replace the Windows publisher court. File properties
+in Explorer are a useful human view, but the Candidate gate and receipt must
+use machine-readable checks over every allowlisted file.

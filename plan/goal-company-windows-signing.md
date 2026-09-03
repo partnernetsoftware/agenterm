@@ -30,19 +30,19 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
     `agenterm-cc.exe`, `agenterm-cu.exe`, `agenterm.dll`
   - [x] public v0.1.16 baseline proves all ten are unsigned and the tiny
     `agenterm.com` has ample room below its 64 KiB release budget
-  - [ ] every entry has a nonempty `ProductName` and `ProductVersion` and an
+  - [~] every entry has a nonempty `ProductName` and `ProductVersion` and an
     empty Security Directory before signing
-    - [ ] current blocker: only win-x86_64 `agenterm.exe` and
-      `agenterm-cc.exe` have a Resource Directory; the other eight files do
-      not. Root `build.rs` gates resource compilation on the build-script host,
-      so the Linux-built ARM64 pair loses it, while the separate CU/ABI crates
-      never receive the root package resource
-    - [ ] compile minimal VERSIONINFO on both Windows targets for all ten files;
-      keep icons only on the two intended GUI binaries and do not add an icon,
-      CRT dependency, or business logic to `agenterm.com`
-    - [ ] Candidate installs/pins the resource compiler needed by the Linux →
+    - [x] root package and ABI build scripts now branch on the Cargo target,
+      compile VERSIONINFO on non-Windows hosts, and keep icons only on the two
+      intended GUI binaries. Two-ISA MSVC inspection proves `agenterm.exe`,
+      `agenterm.com`, `agenterm-cc.exe`, and `agenterm.dll` all carry the
+      product/version fields with an empty Security Directory; the ARM64
+      `agenterm.com` is 5,632 B and x86_64 is 6,144 B, below 64 KiB
+    - [ ] add the same package-owned VERSIONINFO path to `agenterm-cu.exe` once
+      the active CU source increment releases its shared crate files
+    - [x] Candidate installs/pins the resource compiler needed by the Linux →
       MSVC ARM64 cross-build instead of trusting runner ambient tools
-  - [ ] a policy test derives the two-ISA allowlist from
+  - [x] a policy test derives the two-ISA allowlist from
     `scripts/artifacts.json` and rejects missing, renamed, duplicate, or extra
     signing inputs
 - [ ] Candidate transformation, never Promotion mutation

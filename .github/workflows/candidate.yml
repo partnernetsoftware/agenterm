@@ -86,7 +86,7 @@ jobs:
             # other five legs had already succeeded.
             timeout_minutes: 90
           - platform_id: windows-aarch64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             timeout_minutes: 45
           - platform_id: linux-x86_64
             runner: ubuntu-latest
@@ -284,6 +284,10 @@ jobs:
       - name: Install Windows ARM64 cross-build tooling
         if: matrix.platform_id == 'windows-aarch64'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18
+          test -x /usr/bin/llvm-rc-18
+          echo "RC_PATH=/usr/bin/llvm-rc-18" >> "$GITHUB_ENV"
           rustup target add aarch64-pc-windows-msvc
           if [ ! -x "$HOME/.cargo/bin/cargo-xwin" ]; then
             cargo install cargo-xwin --locked
@@ -481,10 +485,12 @@ jobs:
             echo "Imported certificate is not a Developer ID Application identity." >&2
             exit 1
           fi
-          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          echo "APPLE_NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
-          echo "APPLE_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID" >> "$GITHUB_ENV"
-          echo "APPLE_NOTARY_ISSUER_ID=$APPLE_NOTARY_ISSUER_ID" >> "$GITHUB_ENV"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
+            echo "APPLE_NOTARY_KEY_PATH=$NOTARY_KEY_PATH"
+            echo "APPLE_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
+            echo "APPLE_NOTARY_ISSUER_ID=$APPLE_NOTARY_ISSUER_ID"
+          } >> "$GITHUB_ENV"
 
       - name: Report macOS unsigned preview channel
         if: >-

@@ -69,7 +69,9 @@ ureq = { version = "3.3", default-features = false, features = ["rustls"] }
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"
 
-[target.'cfg(windows)'.build-dependencies]
+[build-dependencies]
+# build.rs runs on the host. Keep this dependency available on Linux/macOS so
+# cross-built MSVC artifacts receive the same VERSIONINFO as native builds.
 winresource = "0.1"
 
 [target.'cfg(windows)'.dev-dependencies]

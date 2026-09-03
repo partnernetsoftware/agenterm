@@ -1,19 +1,42 @@
 fn main() {
-    // Child mode (see below): only produce the icon resource, letting
+    // Child mode (see below): produce one per-bin resource, letting
     // winresource print its normal `cargo:rustc-link-arg=<resource.res>`
     // line to OUR captured stdout, then exit.
-    if std::env::var_os("AGENTERM_BUILDRS_RESOURCE_CHILD").is_some() {
-        #[cfg(windows)]
-        winresource::WindowsResource::new()
-            .set_icon("assets/agenterm.ico")
+    if let Some(kind) = std::env::var_os("AGENTERM_BUILDRS_RESOURCE_CHILD") {
+        let kind = kind.to_string_lossy();
+        let out_dir = std::path::PathBuf::from(
+            std::env::var_os("OUT_DIR").expect("Cargo must provide OUT_DIR"),
+        )
+        .join(format!("windows-resource-{kind}"));
+        std::fs::create_dir_all(&out_dir).expect("create per-bin resource directory");
+        let mut resource = winresource::WindowsResource::new();
+        resource
+            .set("ProductName", "AgenTerm")
+            .set("ProductVersion", env!("CARGO_PKG_VERSION"))
+            .set_output_directory(out_dir.to_str().expect("resource path must be UTF-8"));
+        match kind.as_ref() {
+            "icon" => {
+                resource
+                    .set("FileDescription", "AgenTerm desktop application")
+                    .set_icon("assets/agenterm.ico");
+            }
+            "forwarder" => {
+                resource
+                    .set("FileDescription", "AgenTerm console forwarder")
+                    .set("OriginalFilename", "agenterm.com");
+            }
+            _ => panic!("unknown AgenTerm resource child kind: {kind}"),
+        }
+        resource
             .compile()
-            .expect("failed to embed AgenTerm icon");
+            .expect("failed to compile AgenTerm resource");
         return;
     }
 
     println!("cargo:rerun-if-changed=assets/agenterm.ico");
     println!("cargo:rerun-if-changed=assets/skins/fancy/icon.png");
     println!("cargo:rerun-if-changed=assets/skins/fancy/icon.ico");
+    println!("cargo:rerun-if-env-changed=RC_PATH");
     // agenterm-com is a no_std/no_main trampoline exporting a custom
     // `mainCRTStartup`. link.exe infers the subsystem from a standard
     // `main`/`WinMain` symbol; with neither present it stops at LNK1561
@@ -37,46 +60,39 @@ fn main() {
         // defined in the bin's object file.
         println!("cargo:rustc-link-arg-bin=agenterm-com=/DEFAULTLIB:vcruntime");
         println!("cargo:rustc-link-arg-bin=agenterm-com=/DEFAULTLIB:ucrt");
-    }
 
-    // Embed the icon into every bin EXCEPT agenterm-com. The icon .rsrc is
-    // ~59KiB and the trampoline's staged-size budget is 64KiB total
-    // (scripts/artifacts.json, enforced by the stage-build task in every profile);
-    // its code is ~15KiB, so the icon alone is what would blow the budget.
-    //
-    // winresource only offers compile(), which emits a GLOBAL
-    // `cargo:rustc-link-arg=` (applies to all bins, no exclusion). So: rerun
-    // this build script as a child process in resource-only mode, capture
-    // that line from its stdout, and re-emit it as per-bin
-    // `cargo:rustc-link-arg-bin=` for exactly the icon-carrying bins. A new
-    // [[bin]] that should carry the icon must be added to this list (missing
-    // it costs the icon, nothing else).
-    #[cfg(windows)]
-    {
+        // The icon .rsrc is ~59 KiB and the forwarder's complete staged budget
+        // is 64 KiB. Compile a small VERSIONINFO-only resource for agenterm.com
+        // and retain the icon resource only on the two GUI bins.
+        //
+        // winresource emits a global link arg, so run this build script as a
+        // child, capture the resource path, and re-emit a per-bin link arg.
+        // This runtime TARGET branch works on Windows, Linux and macOS hosts.
         const ICON_BINS: &[&str] = &["agenterm", "agenterm-cc"];
         let me = std::env::current_exe().expect("build script path");
-        let output = std::process::Command::new(me)
-            .env("AGENTERM_BUILDRS_RESOURCE_CHILD", "1")
-            .output()
-            .expect("resource child failed to run");
-        if !output.status.success() {
-            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-            panic!("failed to embed AgenTerm icon (resource child)");
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut resource_path = None;
-        for line in stdout.lines() {
-            if let Some(path) = line.strip_prefix("cargo:rustc-link-arg=") {
-                resource_path = Some(path.trim().to_owned());
+        let compile_resource = |kind: &str| {
+            let output = std::process::Command::new(&me)
+                .env("AGENTERM_BUILDRS_RESOURCE_CHILD", kind)
+                .output()
+                .expect("resource child failed to run");
+            if !output.status.success() {
+                eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                panic!("failed to compile AgenTerm {kind} resource child");
             }
-            // Every other line is winresource's informational output (RC
-            // selection, rc.exe stdout/stderr) — deliberately dropped so no
-            // stray global cargo directive reaches cargo.
-        }
-        let resource_path = resource_path.expect("winresource did not emit a resource link-arg");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout
+                .lines()
+                .find_map(|line| line.strip_prefix("cargo:rustc-link-arg="))
+                .map(str::trim)
+                .map(str::to_owned)
+                .unwrap_or_else(|| panic!("winresource emitted no {kind} resource link arg"))
+        };
+        let icon_resource = compile_resource("icon");
+        let forwarder_resource = compile_resource("forwarder");
         for bin in ICON_BINS {
-            println!("cargo:rustc-link-arg-bin={bin}={resource_path}");
+            println!("cargo:rustc-link-arg-bin={bin}={icon_resource}");
         }
+        println!("cargo:rustc-link-arg-bin=agenterm-com={forwarder_resource}");
     }
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
