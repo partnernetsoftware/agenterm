@@ -13,11 +13,17 @@ fn windows_inspector_reports_trust_timestamp_and_versioninfo() {
         "product_version",
         "file_description",
         "original_filename",
+        "schema_version = 2",
+        "file_name",
+        "sha256",
+        "size_bytes",
+        "timestamp_certificate",
         "exit 2",
         "exit 69",
     ] {
         assert!(POWERSHELL.contains(contract), "missing Windows inspector contract: {contract}");
     }
+    assert!(!POWERSHELL.contains("path = $resolved"));
 }
 
 #[test]

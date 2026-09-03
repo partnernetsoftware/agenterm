@@ -21,11 +21,15 @@ $resolved = (Resolve-Path -LiteralPath $Path).Path
 $signature = Get-AuthenticodeSignature -LiteralPath $resolved
 $signer = $signature.SignerCertificate
 $timestamp = $signature.TimeStamperCertificate
-$versionInfo = (Get-Item -LiteralPath $resolved).VersionInfo
+$item = Get-Item -LiteralPath $resolved
+$versionInfo = $item.VersionInfo
+$sha256 = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
 
 $result = [ordered]@{
-    schema_version = 1
-    path = $resolved
+    schema_version = 2
+    file_name = $item.Name
+    sha256 = $sha256
+    size_bytes = [int64]$item.Length
     status = [string]$signature.Status
     status_message = $signature.StatusMessage
     product_name = $versionInfo.ProductName
@@ -39,7 +43,7 @@ $result = [ordered]@{
         not_before = $signer.NotBefore.ToUniversalTime().ToString('o')
         not_after = $signer.NotAfter.ToUniversalTime().ToString('o')
     } }
-    timestamp = if ($null -eq $timestamp) { $null } else { [ordered]@{
+    timestamp_certificate = if ($null -eq $timestamp) { $null } else { [ordered]@{
         subject = $timestamp.Subject
         issuer = $timestamp.Issuer
         thumbprint = $timestamp.Thumbprint

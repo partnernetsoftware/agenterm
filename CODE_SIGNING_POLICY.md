@@ -62,6 +62,9 @@ Exit `0` requires Windows trust status `Valid`, the expected company publisher,
 a timestamp certificate, and matching requested VERSIONINFO. Exit `2` means
 unsigned; `3` invalid/incomplete; `4` another publisher; `5` no timestamp; `6`
 product/version mismatch; and `69` that the Windows trust API is unavailable.
+The JSON report contains only the basename, SHA-256, byte count, VERSIONINFO,
+signer facts and timestamp-certificate facts; it does not expose the expanded
+local path.
 
 On macOS/Linux, `scripts/inspect-authenticode.sh ./agenterm.exe` prints the
 SHA-256, byte count and portable `osslsigncode` report. Exit `2` means no
