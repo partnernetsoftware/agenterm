@@ -38,7 +38,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   consume the receipt. Candidate preflight requires the requested SHA to remain
   the exact current `main` and rejects an already existing `v<version>` tag
   before expensive compilation or signing, preventing post-release source from
-  manufacturing different bytes under an old public version identity.
+  manufacturing different bytes under an old public version identity. The
+  shared company skill has a synthetic, provider-free self-test for these
+  readiness, drift and receipt courts, so a new product can verify the tooling
+  without Azure login or consuming a signing transaction.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
 - [x] size-optimized release profile and enforced 4 MiB GUI plus 2 MiB

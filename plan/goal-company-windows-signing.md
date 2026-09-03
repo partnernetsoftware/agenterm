@@ -28,6 +28,11 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] the Environment has three OIDC identifiers as secrets and three
     provider coordinates as variables. Values never enter git, workflow
     output, receipts, screenshots, or handoff text
+- [x] reusable company tooling is independently self-tested
+  - [x] one synthetic local court proves unpublished readiness, published-tag
+    refusal, non-promotable qualification, dirty-tree refusal, inspector drift,
+    Environment name-set drift, and public-receipt redaction without Azure
+    login or a signing transaction
 - [~] exact signing allowlist: 10 PE files, no glob-discovered extras
   - [x] each Windows archive declares the same five entries in
     `scripts/artifacts.json`: `agenterm.exe`, `agenterm.com`,
