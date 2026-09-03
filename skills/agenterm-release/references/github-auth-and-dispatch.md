@@ -46,6 +46,44 @@ Never query, decode, print, copy, or repurpose GCM secrets as `GH_TOKEN`.
 Never embed PATs in remotes. If the selected mutation channel is unavailable,
 request a precise human action.
 
+## Desktop-app publication authority lessons
+
+The reusable release shape for AgenTerm, MiniCon, and later desktop products is
+one local/cross build followed by native execute-only courts, a sealed exact-SHA
+Candidate, and a no-rebuild Promotion. The following GitHub controls are part of
+that delivery system, not one-time account setup:
+
+- At organization **Actions → General → Workflow permissions**, publishing
+  repositories need **Read and write permissions**. Keep **Allow GitHub Actions
+  to create and approve pull requests** off unless a separate reviewed workflow
+  genuinely owns that authority. Repository settings can be locked by the
+  organization; a repository-level update may return success yet remain read.
+- A run's `GITHUB_TOKEN` permissions are fixed when that workflow run is
+  created. Changing organization/repository settings and then choosing “re-run
+  failed jobs” preserves the old run's read-only token. Start a new Promotion
+  run and inspect its `Set up job → GITHUB_TOKEN Permissions` evidence.
+- `contents: write` is sufficient to tag the Promotion controller's own HEAD,
+  but the ephemeral Actions token cannot tag an older workflow-bearing commit:
+  that path also requires a `workflows: write` authority that `GITHUB_TOKEN`
+  cannot request. Keep `main` frozen after Candidate seals, require Candidate
+  SHA = Promotion controller SHA, and promote immediately. If an orchestration
+  repair advances `main`, qualify that new HEAD again.
+- Do not work around these boundaries by copying a developer token into CI or
+  by publishing a local tag. A purpose-built GitHub App/PAT is a future design
+  choice with explicit secret ownership and revocation, not an emergency fix.
+- Post-publication integrity compares each document's declared schema, not
+  whole nested objects from a richer source. Project `name` and `sha256` from
+  checksum/provenance references, then separately verify downloaded file size,
+  digest, source SHA/tag, channel, signing, and notarization fields.
+
+Safe failure is observable: before the final publish switch, a rejected write
+may leave no tag, an exact tag only, or an unpublished matching draft. Recovery
+must first resolve that state and verify Candidate marker, body, allowlisted
+asset names, sizes, and SHA-256 values. It uploads only missing assets and never
+overwrites. A read-only integrity workflow also exposes manual
+`promotion_run_id` dispatch so an audit-script repair can recheck already
+published bytes without rebuilding or republishing them.
+
 ## Dispatch fallback order
 
 1. Connected GitHub dispatch operation, if actually exposed.

@@ -1608,3 +1608,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   创建 ref。流程新增早期 `source_sha == GITHUB_SHA` 守卫；Promotion-only 修复落入 main 后，
   合规恢复路径是给当前 main 重做 Candidate，封印后不再移动 main，随即 Promotion。禁止复制
   个人 token 或用本机 tag push 绕过 exact-SHA 合同。
+
+### A.55 v0.1.16 已发布；integrity 比较必须按 schema 投影
+
+- Candidate `33710269181` @ `f4374ea9…` 全绿；Promotion `33711274722` 同 SHA 成功发布
+  `v0.1.16`，公开集合为 27 个文件，tag 精确指向 Candidate。
+- 首次自动 integrity 已确认文件集合与 manifest 本体哈希一致，随后把 Candidate manifest
+  中 checksum/provenance 的 `size` 扩展字段与精简 `releases.json` 整对象比较而误拒绝。
+  修复为两侧显式投影 `name + sha256`，其余 size/hash/source/channel/signing/notarization 仍由
+  后续独立断言验证；新增只读 `promotion_run_id` 手动入口，允许对已发布原字节重审。

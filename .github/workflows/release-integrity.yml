@@ -4,6 +4,12 @@ on:
   workflow_run:
     workflows: ["Release"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      promotion_run_id:
+        description: Successful Promotion run ID whose published bytes should be re-audited
+        required: true
+        type: string
 
 concurrency:
   group: release-asset-integrity
@@ -15,7 +21,7 @@ permissions:
 
 jobs:
   audit:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,7 +29,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PROMOTION_RUN_ID: ${{ github.event.workflow_run.id }}
+          PROMOTION_RUN_ID: ${{ inputs.promotion_run_id || github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           promotion="$RUNNER_TEMP/agenterm-promotion"
@@ -102,8 +108,14 @@ jobs:
                     sha256,
                     source_commit,
                     source_tag,
-                    checksum,
-                    provenance
+                    checksum: {
+                      name: .checksum.name,
+                      sha256: .checksum.sha256
+                    },
+                    provenance: {
+                      name: .provenance.name,
+                      sha256: .provenance.sha256
+                    }
                   }
                 ] | sort_by(.name)
               ) == (
@@ -115,8 +127,14 @@ jobs:
                     sha256,
                     source_commit: $source_sha,
                     source_tag: $tag,
-                    checksum,
-                    provenance
+                    checksum: {
+                      name: .checksum.name,
+                      sha256: .checksum.sha256
+                    },
+                    provenance: {
+                      name: .provenance.name,
+                      sha256: .provenance.sha256
+                    }
                   }
                 ] | sort_by(.name)
               )

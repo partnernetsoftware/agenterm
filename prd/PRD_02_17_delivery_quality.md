@@ -1000,6 +1000,13 @@ costs a full candidate cycle:
   `workflows: write` permission. A Promotion-only repair therefore advances `main` and requires one
   new current-main Candidate; after it seals, Promotion must run before another source commit.
   The repository does not bypass this boundary with a local tag push or a copied personal token.
+- [x] Published Release integrity compares the public index at its own schema boundary. The
+  v0.1.16 Release published all 27 expected files and the manifest digest matched the sealed
+  handoff, but the first audit compared rich Candidate checksum/provenance references (including
+  `size`) against the intentionally compact `releases.json` references (`name` + `sha256`). The
+  audit now projects those contracted fields explicitly, then retains the separate byte, size,
+  checksum, provenance, source, channel, signing, and notarization checks. A read-only manual
+  `promotion_run_id` trigger can re-audit published bytes after an audit-only repair.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

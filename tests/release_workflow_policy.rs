@@ -838,6 +838,13 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(INTEGRITY.contains(".source.manifest_sha256 == $manifest_sha"));
     assert!(PROMOTION.contains("(.releases[0].artifacts | length) == 7"));
     assert!(INTEGRITY.contains("(.releases[0].artifacts | length) == 7"));
+    assert!(INTEGRITY.contains("workflow_dispatch:"));
+    assert!(INTEGRITY.contains("promotion_run_id:"));
+    assert!(INTEGRITY.contains("inputs.promotion_run_id || github.event.workflow_run.id"));
+    assert!(INTEGRITY.matches("name: .checksum.name").count() == 2);
+    assert!(INTEGRITY.matches("sha256: .checksum.sha256").count() == 2);
+    assert!(INTEGRITY.matches("name: .provenance.name").count() == 2);
+    assert!(INTEGRITY.matches("sha256: .provenance.sha256").count() == 2);
     assert!(PROMOTION.contains("environment: release"));
     assert!(PROMOTION.contains("contents: write"));
     assert!(PROMOTION.contains("repos/$GITHUB_REPOSITORY/git/refs"));
