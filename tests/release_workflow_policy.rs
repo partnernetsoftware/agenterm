@@ -842,7 +842,8 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
     assert!(PROMOTION.contains("--verify-tag"));
     assert!(PROMOTION.contains("Recovering exact unpublished draft"));
     assert!(PROMOTION.contains("agenterm-promotion-identity"));
-    assert!(PROMOTION.contains("task run promotion-identity"));
+    assert!(PROMOTION.contains("cli script run \\"));
+    assert!(PROMOTION.contains("--profile tool scripts/qjs/promotion-identity.qjs -- \\"));
     assert!(!PROMOTION.contains("scripts/rh/promotion-identity.rh"));
     assert!(PROMOTION.contains("agenterm-promotion:v1 candidate_run_id="));
     assert!(PROMOTION.contains("body_sha256"));
@@ -887,6 +888,14 @@ fn promotion_is_manual_candidate_bound_and_performs_no_build_or_overwrite() {
             );
         }
     }
+}
+
+#[test]
+fn promotion_identity_is_registered_for_future_candidates() {
+    let tasks = include_str!("../agenterm.tasks.json");
+    assert!(tasks.contains("\"promotion-identity\": {"));
+    assert!(tasks.contains("\"id\": \"promotion-identity\""));
+    assert!(tasks.contains("\"entry\": \"scripts/qjs/promotion-identity.qjs\""));
 }
 
 #[test]

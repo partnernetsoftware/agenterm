@@ -242,6 +242,24 @@
         "task.candidate-verify"
       ]
     },
+    "promotion-identity": {
+      "inputs": [
+        "candidate-manifest",
+        "candidate-run-identity"
+      ],
+      "outputs": [
+        "promotion-identity"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.promotion-identity"
+      ]
+    },
     "build-releases-index": {
       "inputs": [
         "candidate-manifest",
@@ -1769,6 +1787,22 @@
         "macos"
       ],
       "side_effects": []
+    },
+    {
+      "id": "promotion-identity",
+      "description": "Derive the exact recoverable GitHub Release identity from one sealed Candidate",
+      "entry": "scripts/qjs/promotion-identity.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
     },
     {
       "id": "build-releases-index",

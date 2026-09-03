@@ -982,6 +982,12 @@ costs a full candidate cycle:
   `stress_included: 1` against its strict `true` schema. The producer now converts the driver's
   integer control flags to booleans only at the receipt publication boundary; the Candidate
   validator remains strict and is not widened to accept malformed historical types.
+- [x] Promotion orchestration can derive identity from a sealed Candidate even when an older
+  Candidate task catalog omitted `promotion-identity`. Promotion `33708964263` verified every
+  Candidate byte and then failed closed with `task_not_found` before tag creation. The workflow now
+  invokes the Candidate-SHA `scripts/qjs/promotion-identity.qjs` directly, so this orchestration-only
+  repair can reuse the already sealed Candidate; the task is also registered in current source for
+  future Candidates.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

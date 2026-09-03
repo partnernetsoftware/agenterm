@@ -142,8 +142,8 @@ jobs:
             sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1
           )"
           [[ "$version" == "$cargo_version" ]]
-          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script \
-            task run promotion-identity --manifest agenterm.tasks.json -- \
+          "$RUNNER_TEMP/agenterm-promotion-tool/agenterm" cli script run \
+            --profile tool scripts/qjs/promotion-identity.qjs -- \
             "$manifest" "$CANDIDATE_RUN_ID" "$source_sha" \
             candidate/promotion-identity.json >/dev/null
           identity="candidate/promotion-identity.json"

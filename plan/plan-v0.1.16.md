@@ -1583,3 +1583,11 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   JSON number；Candidate schema 则严格要求 boolean `true`。修复在 `write_receipt` 发布边界显式
   写 `context.* !== 0`，不改变内部控制流，也不放宽 validator。这样旧类型漂移仍会 fail-closed，
   新收据按 schema 产生真正 JSON boolean。
+
+### A.52 Promotion `33708964263`：已有脚本未注册为任务
+
+- Candidate `33702582934` 六格、Defender 与 aggregate 全绿并封印；Promotion 已验证 Candidate
+  身份和全部字节，随后在创建 tag 之前以 `task_not_found: promotion-identity` fail-closed。
+- `scripts/qjs/promotion-identity.qjs` 已存在于 Candidate SHA，但旧 `agenterm.tasks.json` 漏注册。
+  按 PRD 的 ref 判定，修改 `release.yml` 编排不要求重建 Candidate：Promotion 改为直接运行
+  Candidate SHA 的脚本文件；当前任务清单同时补注册，避免未来 Candidate 再带此缺口。
