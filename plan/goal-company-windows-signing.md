@@ -94,8 +94,10 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
   - [x] Candidate receipt validation still requires `release_eligible=true`,
     so qualification artifacts cannot be supplied to Promotion
   - [ ] first run of the qualification workflow needs a successful unsigned
-    Candidate for the same current-main SHA; creating that Candidate remains
-    under the repository's exact-SHA Candidate authorization boundary
+    Candidate for the same current-main SHA and an unpublished version identity;
+    v0.1.16 already exists, so the next version must be bumped before that
+    Candidate. Creating it remains under the repository's exact-SHA Candidate
+    authorization boundary
   - [ ] after qualification passes, the owner may select
     `signing.windows=required` for one future exact SHA; do not retrofit v0.1.16
   - [ ] compare signed `agenterm.com` size against 64 KiB and every other file

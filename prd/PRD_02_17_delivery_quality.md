@@ -35,7 +35,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   digests, nonpositive run/byte identities, unsafe relative paths, signer
   subjects without the company `O=`, incomplete certificate facts, and nested
   protected Azure/OIDC coordinate keys before any qualification aggregate can
-  consume the receipt.
+  consume the receipt. Candidate preflight requires the requested SHA to remain
+  the exact current `main` and rejects an already existing `v<version>` tag
+  before expensive compilation or signing, preventing post-release source from
+  manufacturing different bytes under an old public version identity.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
 - [x] size-optimized release profile and enforced 4 MiB GUI plus 2 MiB

@@ -39,7 +39,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
           [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
           git fetch --no-tags origin main
-          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          [[ "$(git rev-parse origin/main)" == "$SOURCE_SHA" ]]
 
       - name: Scan tracked public text for disclosures
         shell: bash
@@ -51,6 +51,10 @@ jobs:
         run: |
           set -euo pipefail
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
+            echo "v$version already exists; bump and commit the next version before Candidate" >&2
+            exit 1
+          fi
           test "$(jq -r .schema_version release-policy.json)" = 1
           test "$(jq -r .version release-policy.json)" = "$version"
           test "$(jq -r .assets.native_six_cell release-policy.json)" = true
