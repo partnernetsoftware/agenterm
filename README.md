@@ -342,10 +342,12 @@ trust policy and machine-readable output:
 Exit `0` means a valid `PARTNERNET SOFTWARE PTY LTD` signature, trusted
 timestamp, and matching requested VERSIONINFO; `2` means unsigned. On
 macOS/Linux, `scripts/inspect-authenticode.sh ./agenterm.exe` provides a
-portable certificate/timestamp diagnostic through `osslsigncode`, but Windows
-remains authoritative. The public v0.1.16 files are unsigned; a qualification
-artifact is not a signed Release unless its exact bytes are later sealed and
-promoted under the checked-in signing policy.
+portable certificate/timestamp diagnostic through `osslsigncode`: exit `2`
+means no extractable signature, while `3` means a signature exists but portable
+verification failed (which may be a local CA-chain gap). Windows remains
+authoritative. The public v0.1.16 files are unsigned; a qualification artifact
+is not a signed Release unless its exact bytes are later sealed and promoted
+under the checked-in signing policy.
 
 ## Documentation
 

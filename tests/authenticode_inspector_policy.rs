@@ -23,6 +23,9 @@ fn windows_inspector_reports_trust_timestamp_and_versioninfo() {
 fn portable_inspector_is_explicitly_diagnostic() {
     let readme_words = README.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(PORTABLE.contains("osslsigncode verify"));
+    assert!(PORTABLE.contains("osslsigncode extract-signature"));
+    assert!(PORTABLE.contains("no extractable embedded Authenticode signature"));
+    assert!(PORTABLE.contains("embedded signature exists, but portable verification failed"));
     assert!(PORTABLE.contains("Windows Get-AuthenticodeSignature is authoritative"));
     assert!(readme_words.contains("The public v0.1.16 files are unsigned"));
     assert!(readme_words.contains("a qualification artifact is not a signed Release"));
