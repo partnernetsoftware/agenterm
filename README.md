@@ -349,9 +349,13 @@ authoritative. The public v0.1.16 files are unsigned; a qualification artifact
 is not a signed Release unless its exact bytes are later sealed and promoted
 under the checked-in signing policy.
 
+Publisher authority, signed-file scope, receipt privacy and Candidate/Promotion
+boundaries are defined in [Code signing policy](CODE_SIGNING_POLICY.md).
+
 ## Documentation
 
 - [Product tree and requirements](PRD.md)
+- [Code signing policy](CODE_SIGNING_POLICY.md)
 - [Coding-agent guide](AGENTS.md)
 - [Build and install a local macOS app](docs/macos-local-build.md)
 

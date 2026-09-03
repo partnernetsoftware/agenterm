@@ -25,7 +25,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   against the signing receipt after-SHA. The first live AgenTerm signed court remains pending, so
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
-  `skills/agenterm-release/references/company-signing-enrollment.md`.
+  `skills/agenterm-release/references/company-signing-enrollment.md`; the public
+  user-facing contract is `CODE_SIGNING_POLICY.md`.
 - [x] fast incremental developer build under ignored local `dist/`
 - [x] release mode and `agenterm.json` build metadata
 - [x] size-optimized release profile and enforced 4 MiB GUI plus 2 MiB

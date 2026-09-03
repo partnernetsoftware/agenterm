@@ -1,6 +1,7 @@
 const POWERSHELL: &str = include_str!("../scripts/inspect-authenticode.ps1");
 const PORTABLE: &str = include_str!("../scripts/inspect-authenticode.sh");
 const README: &str = include_str!("../README.md");
+const POLICY: &str = include_str!("../CODE_SIGNING_POLICY.md");
 
 #[test]
 fn windows_inspector_reports_trust_timestamp_and_versioninfo() {
@@ -29,4 +30,23 @@ fn portable_inspector_is_explicitly_diagnostic() {
     assert!(PORTABLE.contains("Windows Get-AuthenticodeSignature is authoritative"));
     assert!(readme_words.contains("The public v0.1.16 files are unsigned"));
     assert!(readme_words.contains("a qualification artifact is not a signed Release"));
+}
+
+#[test]
+fn public_policy_names_the_signed_boundary_and_authority_split() {
+    for contract in [
+        "The public v0.1.16 assets are unsigned",
+        "release_eligible=false",
+        "signing.windows",
+        "agenterm.exe",
+        "agenterm.com",
+        "agenterm-cc.exe",
+        "agenterm-cu.exe",
+        "agenterm.dll",
+        "Promotion publishes those bytes",
+        "Linux signing and Apple Developer ID/notarization are separate policy lanes",
+        "Windows remains the final trust authority",
+    ] {
+        assert!(POLICY.contains(contract), "missing public signing policy contract: {contract}");
+    }
 }
