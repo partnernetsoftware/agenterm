@@ -63,6 +63,19 @@ const REGISTRY_DEST: &str = "org.a11y.atspi.Registry";
 const A11Y_BUS_DEST: &str = "org.a11y.Bus";
 const A11Y_BUS_PATH: &str = "/org/a11y/bus";
 const A11Y_BUS_IFACE: &str = "org.a11y.Bus";
+/// The desktop-wide "an assistive client is here" switch a Chromium-family
+/// browser watches before it builds a renderer accessibility tree. Lives on
+/// the same `org.a11y.Bus` object as `GetAddress`, on the session bus.
+const A11Y_STATUS_IFACE: &str = "org.a11y.Status";
+const DBUS_PROPERTIES_IFACE: &str = "org.freedesktop.DBus.Properties";
+/// The two `org.a11y.Status` flags Chromium reads. `IsEnabled` turns the
+/// platform bridge on; `ScreenReaderEnabled` is what makes it publish the
+/// *web* tree rather than browser chrome alone.
+const A11Y_STATUS_FLAGS: [&str; 2] = ["IsEnabled", "ScreenReaderEnabled"];
+/// One beat for the renderer to bridge its tree after the status flips, so
+/// the caller's immediate re-read has a chance to see it. Same 120 ms the
+/// macOS AX poke waits.
+const UNLOCK_SETTLE: Duration = Duration::from_millis(120);
 
 /// AT-SPI object on the a11y bus. Destination may be a unique name (`:1.47`)
 /// or a well-known name (WebKit's `org.webkit.app-*.Sandboxed.WebProcess-*`).
@@ -650,12 +663,93 @@ fn window_is_iconified(window: u32) -> bool {
         .is_some_and(|mut states| states.any(|item| item == hidden.atom))
 }
 
+/// The AT-SPI analogue of macOS `AXManualAccessibility`: flip the
+/// desktop-wide `org.a11y.Status` switch a Chromium-family browser watches
+/// before it builds a renderer accessibility tree at all.
+///
+/// Chromium on Linux ships accessibility off and does not turn it on
+/// because someone walked its window; it watches `IsEnabled` /
+/// `ScreenReaderEnabled` on the session-bus name `org.a11y.Bus` and only
+/// then asks its renderers to publish a web tree. That is the same "an
+/// assistive client is here" signal `AXManualAccessibility` carries on
+/// macOS, which is why the old typed `Unsupported` here ("no analogue to
+/// map") was wrong: the analogue exists, it is just a bus property rather
+/// than an element attribute.
+///
+/// The switch is per-session, not per-window, so `window_handle` is not
+/// needed and a `None` handle is accepted. GTK / Qt toolkits publish their
+/// tree regardless, so a non-browser window is unaffected by the write.
+///
+/// Like the macOS poke, **the call's own status is not the verdict**: the
+/// flags may already be true while the renderer has not bridged its tree
+/// yet. The caller proves the poke by re-reading the tree, which is what
+/// `agenterm-cu unlock` does.
 pub(crate) fn poke_manual_accessibility(
     _window_handle: Option<isize>,
 ) -> Result<(), AccessibilityTreeError> {
-    Err(AccessibilityTreeError::Unsupported {
-        reason: "Linux toolkits build their AT-SPI tree without a client poke; there is no AXManualAccessibility analogue to map".into(),
+    runtime().block_on(async {
+        timeout(SNAPSHOT_TIMEOUT, poke_manual_accessibility_async())
+            .await
+            .map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "a11y_action_timeout",
+                    "the org.a11y.Status accessibility toggle exceeded its deadline",
+                )
+            })?
     })
+}
+
+async fn poke_manual_accessibility_async() -> Result<(), AccessibilityTreeError> {
+    hydrate_session_bus_env();
+    let session = zbus::Connection::session().await.map_err(|error| {
+        AccessibilityTreeError::Unsupported {
+            reason: format!(
+                "no D-Bus session bus to carry the {A11Y_STATUS_IFACE} accessibility toggle: {error}"
+            )
+            .into(),
+        }
+    })?;
+    let properties = zbus::Proxy::new(
+        &session,
+        A11Y_BUS_DEST,
+        A11Y_BUS_PATH,
+        DBUS_PROPERTIES_IFACE,
+    )
+    .await
+    .map_err(|error| AccessibilityTreeError::Unsupported {
+        reason: format!(
+            "no {A11Y_BUS_DEST} {A11Y_BUS_PATH} object on the session bus to carry {A11Y_STATUS_IFACE}: {error}"
+        )
+        .into(),
+    })?;
+
+    let mut written = 0usize;
+    let mut refusals: Vec<String> = Vec::new();
+    for flag in A11Y_STATUS_FLAGS {
+        match properties
+            .call::<_, _, ()>(
+                "Set",
+                &(A11Y_STATUS_IFACE, flag, zbus::zvariant::Value::from(true)),
+            )
+            .await
+        {
+            Ok(()) => written += 1,
+            Err(error) => refusals.push(format!("{flag}: {error}")),
+        }
+    }
+    if written == 0 {
+        // Never a silent success: a host whose bus refuses both flags has
+        // no poke, and the caller must be able to read why off the reply.
+        return Err(AccessibilityTreeError::Unsupported {
+            reason: format!(
+                "{A11Y_STATUS_IFACE} refused every accessibility flag on this host ({})",
+                refusals.join("; ")
+            )
+            .into(),
+        });
+    }
+    tokio::time::sleep(UNLOCK_SETTLE).await;
+    Ok(())
 }
 
 pub(crate) fn drain_bus() {
@@ -2287,7 +2381,7 @@ async fn read_node(
     // below build their interface proxy straight off the connection
     // instead, and both are bounded by ACTION_TIMEOUT, so a node that will
     // not answer costs one timeout rather than the walk.
-    let text = if node_looks_like_text_field(&role, &states) {
+    let text = if node_text_is_readable(&role, &states) {
         timeout(ACTION_TIMEOUT, text_from_text_proxy(proxy))
             .await
             .ok()
@@ -2324,11 +2418,44 @@ async fn read_node(
     }
 }
 
-fn node_looks_like_text_field(role: &str, states: &[String]) -> bool {
+/// Whether this node's visible string lives in the AT-SPI `Text` interface
+/// rather than in `Accessible.Name`.
+///
+/// Two families, and the second is what makes `page text` work on Linux at
+/// all. Editable controls (`entry`, `edit`, anything `editable`) carry the
+/// user's own string. Web content carries the *page's* string: Chromium's
+/// AuraLinux bridge and WebKitGTK both publish a rendered text run as a
+/// `static` / `text` node whose `Name` is **empty** and whose words exist
+/// only behind `Text.GetText`. That is the same split macOS has between
+/// `AXTitle` and `AXValue`, and the macOS adapter fills `text` from
+/// `AXValue` for every node -- so reading `name` alone here showed an
+/// empty page while macOS showed the words.
+///
+/// Container roles are deliberately absent. An AT-SPI `paragraph`,
+/// `section`, `list item`, `table cell` or `document web` answers
+/// `Text.GetText` with the concatenation of its descendants, and those
+/// descendants are rows of their own, so including them would print every
+/// word of the page twice.
+fn node_text_is_readable(role: &str, states: &[String]) -> bool {
     let role = role.to_ascii_lowercase();
     matches!(
         role.as_str(),
-        "entry" | "text" | "password text" | "passwordtext" | "edit" | "edit box"
+        // Editable controls: the user's own string.
+        "entry"
+            | "text"
+            | "password text"
+            | "passwordtext"
+            | "edit"
+            | "edit box"
+            | "terminal"
+            // Web text runs: the page's string, with an empty `Name`.
+            | "static"
+            | "static text"
+            | "statictext"
+            | "label"
+            | "heading"
+            | "link"
+            | "caption"
     ) || states.iter().any(|state| state == "editable")
 }
 
@@ -2455,6 +2582,18 @@ fn role_is_expandable(role: &str) -> bool {
     matches!(role, "combo box" | "tree item" | "list item" | "menu")
 }
 
+/// Roles whose selection *is* their state: a browser tab is either the
+/// active one or it is not, and there is no third reading.
+///
+/// Chromium's AuraLinux bridge does publish `STATE_SELECTABLE` on a tab,
+/// but keying the two-way completion on that state alone repeats the GTK
+/// checkbox mistake above: a toolkit that omits it leaves `tab list`
+/// reporting `selected: unknown` for every entry, which a caller reads as
+/// "no tab is active" rather than "not observable".
+fn role_is_selectable(role: &str) -> bool {
+    matches!(role, "page tab")
+}
+
 /// AT-SPI publishes only the states that are *set*, so a checkbox that is
 /// off carries `checkable` and nothing else -- indistinguishable from a
 /// control with no readable check state at all. The contract asks an
@@ -2478,7 +2617,7 @@ fn complete_two_way_states(labels: &mut Vec<String>, role: &str) {
     {
         labels.push("collapsed".to_owned());
     }
-    if has(labels, "selectable") && !has(labels, "selected") {
+    if (has(labels, "selectable") || role_is_selectable(role)) && !has(labels, "selected") {
         labels.push("unselected".to_owned());
     }
 }
@@ -4249,17 +4388,60 @@ mod tests {
 
     #[test]
     fn text_like_roles_are_read_during_snapshot() {
-        assert!(node_looks_like_text_field("entry", &[]));
-        assert!(node_looks_like_text_field("text", &[]));
-        assert!(node_looks_like_text_field(
-            "button",
-            &["editable".to_owned()]
-        ));
-        assert!(!node_looks_like_text_field(
-            "button",
-            &["showing".to_owned()]
-        ));
-        assert!(!node_looks_like_text_field("document web", &[]));
+        assert!(node_text_is_readable("entry", &[]));
+        assert!(node_text_is_readable("text", &[]));
+        assert!(node_text_is_readable("button", &["editable".to_owned()]));
+        assert!(!node_text_is_readable("button", &["showing".to_owned()]));
+        assert!(!node_text_is_readable("document web", &[]));
+    }
+
+    #[test]
+    fn web_text_runs_are_read_during_snapshot_but_containers_are_not() {
+        // Chromium AuraLinux / WebKitGTK put a rendered text run's words in
+        // `Text.GetText` and leave `Name` empty; macOS puts them in
+        // `AXValue`. Without these roles `page text` is blank on Linux.
+        for role in [
+            "static",
+            "static text",
+            "heading",
+            "link",
+            "label",
+            "caption",
+        ] {
+            assert!(node_text_is_readable(role, &[]), "{role} carries page text");
+        }
+        // A container's `Text.GetText` is the concatenation of rows that
+        // are already reported on their own.
+        for role in [
+            "paragraph",
+            "section",
+            "list item",
+            "table cell",
+            "document web",
+        ] {
+            assert!(
+                !node_text_is_readable(role, &[]),
+                "{role} would duplicate its descendants"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_tab_always_reports_a_readable_selection_state() {
+        // `tab list` needs "selected" vs "unselected", never "unknown":
+        // unknown on every entry reads as "no tab is active".
+        let mut labels = vec!["showing".to_owned(), "visible".to_owned()];
+        complete_two_way_states(&mut labels, "page tab");
+        assert!(labels.iter().any(|label| label == "unselected"));
+
+        let mut selected = vec!["selected".to_owned()];
+        complete_two_way_states(&mut selected, "page tab");
+        assert!(!selected.iter().any(|label| label == "unselected"));
+
+        // A role with no selection meaning is left alone.
+        let mut plain = vec!["showing".to_owned()];
+        complete_two_way_states(&mut plain, "panel");
+        assert!(!plain.iter().any(|label| label == "unselected"));
     }
 
     #[test]

@@ -183,11 +183,11 @@ fn reexec_with_library_path(directory: &Path) -> Result<(), String> {
         .canonicalize()
         .map_err(|error| format!("could not resolve bundled library directory: {error}"))?;
     let mut library_path = directory.to_string_lossy().into_owned();
-    if let Ok(existing) = std::env::var("LD_LIBRARY_PATH") {
-        if !existing.is_empty() {
-            library_path.push(':');
-            library_path.push_str(&existing);
-        }
+    if let Ok(existing) = std::env::var("LD_LIBRARY_PATH")
+        && !existing.is_empty()
+    {
+        library_path.push(':');
+        library_path.push_str(&existing);
     }
     let executable = std::env::current_exe()
         .map_err(|error| format!("could not resolve current executable: {error}"))?;

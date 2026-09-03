@@ -64,12 +64,24 @@ use crate::CapabilityStatus;
 use crate::contract::accessibility_tree::{
     AccessibilityBounds, AccessibilityEvent, AccessibilityMenuReceipt, AccessibilityNode,
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
-    AccessibilityTreeError, ApplicationVisibility,
+    AccessibilityTreeError, ApplicationVisibility, MAX_TREE_DEPTH_BUDGET, MAX_TREE_NODE_BUDGET,
 };
 use crate::contract::input_inject::InputInjectError;
 
-const MAX_NODES: usize = 1_000;
-const MAX_DEPTH: usize = 32;
+/// The walk bounds a caller gets without asking, identical to the macOS AX
+/// and Linux AT-SPI adapters: a default-budget snapshot of a big window
+/// stops here and says `truncated`, it does not fail.
+const DEFAULT_MAX_NODES: usize = 1_000;
+const DEFAULT_MAX_DEPTH: usize = 32;
+/// The ceilings a *requested* budget may not pass. They are the contract's
+/// own maxima, which `AccessibilityTreeBudget::validate` already refuses
+/// past, so for a valid budget these are a defensive backstop rather than
+/// a policy of their own -- the parity bug they replace was a hard
+/// `a11y_node_limit` at 1 000 nodes, which failed every `page text`
+/// (6 000 nodes) and every `unlock` (depth 64) that macOS and Linux
+/// answered.
+const MAX_NODES: usize = MAX_TREE_NODE_BUDGET;
+const MAX_DEPTH: usize = MAX_TREE_DEPTH_BUDGET as usize;
 const MAX_SIBLINGS_PER_LEVEL: usize = 1_000;
 const MAX_RUNTIME_ID_PARTS: usize = 32;
 const MAX_NODE_ID_BYTES: usize = 4_096;
@@ -127,16 +139,24 @@ pub(crate) fn capability_status() -> CapabilityStatus {
 /// machine-wide crawl. It has the same node, depth, string, per-COM-call, and
 /// wall-clock limits as a window-scoped snapshot.
 ///
-/// An explicit `budget` is a soft bound applied while walking: reaching it
-/// ends the walk with `truncated: true`. Without one the adapter's hard
-/// limits keep their typed-failure semantics (`a11y_node_limit` /
-/// `a11y_depth_limit`), unchanged.
+/// `budget` is a soft bound applied while walking: reaching it ends the
+/// walk with `truncated: true`. A caller that names none gets
+/// `DEFAULT_MAX_NODES` / `DEFAULT_MAX_DEPTH` as that same soft bound --
+/// the macOS AX and Linux AT-SPI adapters have always behaved this way,
+/// and this adapter used to turn its default into a hard
+/// `a11y_node_limit` instead, so a browser window (well past 1 000 nodes)
+/// failed here while the other two answered `truncated`. The hard
+/// `a11y_node_limit` / `a11y_depth_limit` remain as ceilings on a walk
+/// that somehow runs past the contract maxima.
 pub(crate) fn tree_for_window(
     window_handle: Option<isize>,
     budget_request: AccessibilityTreeBudget,
 ) -> Result<AccessibilityTree, AccessibilityTreeError> {
-    let soft_nodes = budget_request.max_nodes;
-    let soft_depth = budget_request.max_depth.map(|depth| depth as usize);
+    let soft_nodes = budget_request.max_nodes.unwrap_or(DEFAULT_MAX_NODES);
+    let soft_depth = budget_request
+        .max_depth
+        .map(|depth| depth as usize)
+        .unwrap_or(DEFAULT_MAX_DEPTH);
     let mut truncated = false;
     let mut budget = Budget::new(
         SNAPSHOT_TIMEOUT,
@@ -157,7 +177,7 @@ pub(crate) fn tree_for_window(
 
     while let Some((element, id, parent_id, depth)) = queue.pop_front() {
         budget.check()?;
-        if soft_nodes.is_some_and(|limit| nodes.len() >= limit) {
+        if nodes.len() >= soft_nodes {
             truncated = true;
             break;
         }
@@ -177,7 +197,7 @@ pub(crate) fn tree_for_window(
         nodes.push(node);
 
         let first_child = session.first_child(&element, &budget)?;
-        if soft_depth.is_some_and(|limit| depth >= limit) {
+        if depth >= soft_depth {
             if first_child.is_some() {
                 truncated = true;
             }
@@ -197,7 +217,7 @@ pub(crate) fn tree_for_window(
         let mut sibling_count = 0usize;
         while let Some(child) = current {
             budget.check()?;
-            if soft_nodes.is_some_and(|limit| nodes.len().saturating_add(queue.len()) >= limit) {
+            if nodes.len().saturating_add(queue.len()) >= soft_nodes {
                 truncated = true;
                 break;
             }
@@ -511,11 +531,24 @@ pub(crate) fn set_application_visibility(
     })
 }
 
+/// Typed `Unsupported`, and it stays that way on purpose.
+///
+/// macOS needs `AXManualAccessibility` and Linux needs the
+/// `org.a11y.Status` bus flags because on both a Chromium-family process
+/// waits for a separate "an assistive client is here" signal before it
+/// builds a web tree. Windows has no such second channel: the process
+/// turns accessibility on when it answers `WM_GETOBJECT` for its window,
+/// and the UIA walk this crate already performs is what sends it -- the
+/// read *is* the poke. There is nothing left for a caller to set, so
+/// answering `Ok(())` would report a poke that never happened. The caller
+/// (`agenterm-cu unlock`) renders this as `poked: false` with the reason
+/// attached, then re-reads the tree, which is the same verdict every host
+/// gets.
 pub(crate) fn poke_manual_accessibility(
     _window_handle: Option<isize>,
 ) -> Result<(), AccessibilityTreeError> {
     Err(AccessibilityTreeError::Unsupported {
-        reason: "Windows UIA providers build their tree on demand; there is no AXManualAccessibility analogue to map".into(),
+        reason: "no separate web-tree poke on Windows: a Chromium-family process enables accessibility when it answers WM_GETOBJECT for its window, which the UIA tree walk itself sends, so the walk is the poke; there is no AXManualAccessibility attribute and no org.a11y.Status flag to set here".into(),
     })
 }
 
