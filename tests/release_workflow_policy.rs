@@ -660,6 +660,11 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     }
     assert!(runtime.contains("candidate-part-${{ matrix.platform_id }}"));
     assert!(runtime.contains("Scan final Windows Candidate bytes with Defender"));
+    assert!(
+        runtime
+            .contains("program_data_windows=\"${PROGRAMDATA:-${ProgramData:-C:\\\\ProgramData}}\"")
+    );
+    assert!(runtime.contains("test -n \"$mpcmd\" && test -f \"$mpcmd\""));
     assert!(runtime.contains("Prove Linux bundle closure in package-free Ubuntu"));
     assert!(!runtime.contains("actions/checkout"));
     assert!(!runtime.contains("cargo "));

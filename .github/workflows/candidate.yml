@@ -809,7 +809,8 @@ jobs:
         run: |
           set -euo pipefail
           program_files="$(cygpath -u "$PROGRAMFILES")"
-          program_data="$(cygpath -u "$PROGRAMDATA")"
+          program_data_windows="${PROGRAMDATA:-${ProgramData:-C:\\ProgramData}}"
+          program_data="$(cygpath -u "$program_data_windows")"
           mpcmd="$program_files/Windows Defender/MpCmdRun.exe"
           if [[ ! -f "$mpcmd" ]]; then
             mpcmd="$(find "$program_data/Microsoft/Windows Defender/Platform" \

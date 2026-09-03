@@ -964,6 +964,12 @@ costs a full candidate cycle:
   runtime 中 macOS/Linux 四格通过，两个 Windows 格均在 SHA-256 `OK` 后被 Git Bash
   `tar -xf` 拒绝，尚未执行产品。court 现复用其下一行已依赖的 Python 标准库 `zipfile` 解包，
   不 checkout、不 Cargo、不重建 Candidate 字节；随后继续执行版本和 Defender 门。
+- [x] Defender discovery tolerates Windows environment-key casing at the Git Bash boundary.
+  Candidate `33697415515` proved both Windows archives passed SHA-256, ZIP extraction, and native
+  `agenterm.com cli --version`; both then stopped before scanning because Git Bash treated missing
+  uppercase `PROGRAMDATA` as an unbound variable. Discovery now accepts `PROGRAMDATA` or
+  `ProgramData`, with the standard Windows directory as a final path fallback; missing
+  `MpCmdRun.exe` and any nonzero scan result still fail closed.
 - [ ] Download the failure artifacts before changing anything. The
   `candidate-quality-timing-<run>` artifact names the first failing gate
   directly; a null first-failure means every gate passed and the fault is

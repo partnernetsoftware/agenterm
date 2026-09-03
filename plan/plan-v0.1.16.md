@@ -1555,3 +1555,12 @@ O-evidence（macOS 真机 session，1–2h）≈ 8–12 小时**。
   `This does not look like a tar archive`，因此失败发生在解包器选择，产品尚未执行。Windows
   court 改用下一行本已依赖的 `python -m zipfile -e`；仍只消费 matching Candidate part，
   不 checkout、不 Cargo、不重建，解包后继续 `agenterm.com cli --version` 与 Defender 扫描。
+
+### A.49 Candidate `33697415515`：Git Bash 环境键大小写不能冒充 Windows 语义
+
+- Windows x86_64 完整 release-quality 再次全绿；两个 Windows runtime 的 archive SHA-256、
+  Python ZIP 解包、原生 `agenterm.com cli --version` 全部通过，A.48 成立。
+- 下一步尚未调用 Defender 就因 `set -u` 读取缺失的 uppercase `PROGRAMDATA` 退出；Windows
+  环境变量本身不区分大小写，但 Git Bash 导出的键名区分。court 现按 `PROGRAMDATA` →
+  `ProgramData` → `C:\\ProgramData` 解析，再查 Program Files 与 Defender Platform 两条路径。
+  `MpCmdRun.exe` 不存在或扫描非零仍 fail-closed，不把“没扫”伪装成通过。
