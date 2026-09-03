@@ -86,8 +86,17 @@ Owner module: `prd/PRD_02_17_delivery_quality.md`. Operational authority:
 - [ ] first-signature qualification
   - [x] shared provider/profile mechanism is proven by MiniCon's independent
     three-input, six-cell, explicitly non-promotable live court
-  - [ ] run only after the owner changes one future exact SHA to
-    `signing.windows=required`; do not retrofit v0.1.16
+  - [x] `windows-signing-qualification.yml` consumes one successful unsigned
+    exact-SHA Candidate, signs the fixed ten-file set, audits a
+    `release_eligible=false` receipt, then executes, verifies and Defender-scans
+    the signed archives on both Windows ISAs without rebuilding
+  - [x] Candidate receipt validation still requires `release_eligible=true`,
+    so qualification artifacts cannot be supplied to Promotion
+  - [ ] first run of the qualification workflow needs a successful unsigned
+    Candidate for the same current-main SHA; creating that Candidate remains
+    under the repository's exact-SHA Candidate authorization boundary
+  - [ ] after qualification passes, the owner may select
+    `signing.windows=required` for one future exact SHA; do not retrofit v0.1.16
   - [ ] compare signed `agenterm.com` size against 64 KiB and every other file
     against `scripts/artifacts.json`; a budget failure blocks the Candidate
   - [ ] preserve the first run id/attempt and receipt as evidence; a successful
@@ -109,6 +118,8 @@ valid signature immediately eliminates SmartScreen reputation prompts.
 Implementation owners: `.github/workflows/candidate.yml` controls the policy
 split and final-byte topology; `scripts/windows-signing-candidate.ps1` owns the
 exact archive/PE set, VERSIONINFO input court, signed repack and receipt;
+`.github/workflows/windows-signing-qualification.yml` reuses that transformer
+only in explicitly non-promotable mode;
 `scripts/qjs/lib/release_candidate.qjs` binds the receipt and signed provenance
 into Candidate verification.
 

@@ -1,0 +1,368 @@
+name: Windows Signing Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character current main HEAD
+        required: true
+        type: string
+      candidate_run_id:
+        description: Successful unsigned Release Candidate run for source_sha
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: agenterm-windows-signing-qualification-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      candidate_attempt: ${{ steps.identity.outputs.candidate_attempt }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - name: Bind exact unsigned Candidate identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          git fetch --no-tags origin main
+          [[ "$(git rev-parse origin/main)" == "$SOURCE_SHA" ]]
+          [[ "$(jq -r .signing.windows release-policy.json)" == off ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          [[ "$(jq -r .path <<<"$run")" == ".github/workflows/candidate.yml" ]]
+          [[ "$(jq -r .event <<<"$run")" == workflow_dispatch ]]
+          [[ "$(jq -r .status <<<"$run")" == completed ]]
+          [[ "$(jq -r .conclusion <<<"$run")" == success ]]
+          [[ "$(jq -r .head_sha <<<"$run")" == "$SOURCE_SHA" ]]
+          version="$(jq -r .version release-policy.json)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          {
+            echo "version=$version"
+            echo "candidate_attempt=$(jq -r .run_attempt <<<"$run")"
+          } >>"$GITHUB_OUTPUT"
+
+  sign:
+    needs: preflight
+    runs-on: windows-2025
+    timeout-minutes: 30
+    environment: release-signing
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - name: Download exact unsigned Windows Candidate parts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh run download $env:CANDIDATE_RUN_ID --repo $env:GITHUB_REPOSITORY `
+            --name candidate-part-windows-x86_64 --dir unsigned/windows-x86_64
+          gh run download $env:CANDIDATE_RUN_ID --repo $env:GITHUB_REPOSITORY `
+            --name candidate-part-windows-aarch64 --dir unsigned/windows-aarch64
+
+      - name: Require protected Azure signing configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          ARTIFACT_SIGNING_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          ARTIFACT_SIGNING_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @(
+            'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID',
+            'ARTIFACT_SIGNING_ENDPOINT', 'ARTIFACT_SIGNING_ACCOUNT',
+            'ARTIFACT_SIGNING_PROFILE'
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "required release-signing value is missing: $name"
+            }
+          }
+
+      - name: Verify exact unsigned inputs and prepare ten-file catalog
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ needs.preflight.outputs.candidate_attempt }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/windows-signing-candidate.ps1 -Mode Prepare `
+            -InputRoot unsigned -SigningRoot signing-input -OutputRoot final `
+            -SourceSha $env:SOURCE_SHA -Version $env:EXPECTED_VERSION `
+            -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT `
+            -UpstreamRunId $env:CANDIDATE_RUN_ID -UpstreamRunAttempt $env:CANDIDATE_RUN_ATTEMPT `
+            -QualificationOnly
+
+      - name: Upload immutable unsigned qualification input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agenterm-windows-signing-unsigned-input
+          path: |
+            signing-input/
+            windows-signing-state.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Azure login (GitHub OIDC, profile-scoped signer)
+        uses: azure/login@0949e32778441b2c442592b7a0e6313466dc8f29 # v3.0.2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign exact ten Windows files with Azure Artifact Signing
+        uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files-catalog: signing-input/signing-catalog.txt
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: AgenTerm
+          description-url: https://github.com/partnernetsoftware/agenterm
+          exclude-workload-identity-credential: true
+          exclude-environment-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          correlation-id: agenterm-qualification-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Verify signatures, rebuild archives, and audit public receipt
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ needs.preflight.outputs.candidate_attempt }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/windows-signing-candidate.ps1 -Mode Finalize `
+            -InputRoot unsigned -SigningRoot signing-input -OutputRoot final `
+            -SourceSha $env:SOURCE_SHA -Version $env:EXPECTED_VERSION `
+            -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT `
+            -UpstreamRunId $env:CANDIDATE_RUN_ID -UpstreamRunAttempt $env:CANDIDATE_RUN_ATTEMPT `
+            -QualificationOnly
+          python scripts/audit-windows-signing-receipt.py `
+            final/windows-x86_64/windows-signing-receipt.json `
+            --root signing-input --release-eligible false `
+            --expected-source $env:SOURCE_SHA --expected-version $env:EXPECTED_VERSION
+
+      - name: Upload signed non-promotable qualification bundle
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agenterm-windows-signing-qualification
+          path: |
+            final/
+            signing-input/
+            windows-signing-state.json
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-part-windows-x86_64
+          path: final/windows-x86_64/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-part-windows-aarch64
+          path: final/windows-aarch64/
+          if-no-files-found: error
+          retention-days: 14
+
+  runtime:
+    name: signed qualification ${{ matrix.platform_id }}
+    needs: [preflight, sign]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform_id: windows-x86_64, runner: windows-2025}
+          - {platform_id: windows-aarch64, runner: windows-11-arm}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: qualification-part-${{ matrix.platform_id }}
+          path: part
+      - name: Execute exact signed archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find part -maxdepth 1 -type f -name 'agenterm-*-windows-*.zip' -print -quit)"
+          test -n "$archive"
+          (cd part && sha256sum -c "$(basename "$archive").sha256")
+          mkdir runtime
+          python -m zipfile -e "$archive" runtime
+          output="$(runtime/agenterm.com cli --version)"
+          grep -Fq "$EXPECTED_VERSION" <<<"$output"
+          echo "PASS ${{ matrix.platform_id }} $output"
+      - name: Verify all five signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content runtime/artifacts.json -Raw | ConvertFrom-Json
+          $arch = if ('${{ matrix.platform_id }}' -eq 'windows-aarch64') { 'aarch64' } else { 'x86_64' }
+          $platform = @($manifest.platforms | Where-Object { $_.os -eq 'windows' -and $_.arch -eq $arch })
+          if ($platform.Count -ne 1) { throw "Windows artifact manifest cell mismatch: $arch" }
+          $names = @($platform[0].executables.name) + @($platform[0].libraries.name)
+          if ($names.Count -ne 5 -or @($names | Sort-Object -Unique).Count -ne 5) {
+            throw "Windows signature allowlist mismatch: $arch"
+          }
+          foreach ($name in $names) {
+            $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path runtime $name)
+            if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
+                $null -eq $signature.TimeStamperCertificate -or
+                $signature.SignerCertificate.Subject -notmatch '(?:^|,\s*)O=PARTNERNET SOFTWARE PTY LTD(?:,|$)') {
+              throw "signed qualification verification failed: $name ($($signature.Status))"
+            }
+          }
+          "AUTHENTICODE PASS ${{ matrix.platform_id }}"
+      - name: Scan exact signed bytes with Defender
+        shell: bash
+        run: |
+          set -euo pipefail
+          program_files="$(cygpath -u "$PROGRAMFILES")"
+          program_data_windows="${PROGRAMDATA:-${ProgramData:-C:\\ProgramData}}"
+          program_data="$(cygpath -u "$program_data_windows")"
+          mpcmd="$program_files/Windows Defender/MpCmdRun.exe"
+          if [[ ! -f "$mpcmd" ]]; then
+            mpcmd="$(find "$program_data/Microsoft/Windows Defender/Platform" \
+              -type f -name MpCmdRun.exe -print 2>/dev/null | sort -r | head -n 1)"
+          fi
+          test -n "$mpcmd" && test -f "$mpcmd"
+          "$mpcmd" -Scan -ScanType 3 -File "$(cygpath -w "$PWD/runtime")" -DisableRemediation
+          echo "DEFENDER PASS ${{ matrix.platform_id }}"
+      - name: Write runtime receipt
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PLATFORM_ID: ${{ matrix.platform_id }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path("runtime-receipt.json").write_text(json.dumps({
+              "schema_version": 1,
+              "kind": "agenterm-windows-signing-qualification-runtime",
+              "platform_id": os.environ["PLATFORM_ID"],
+              "job_status": os.environ["JOB_STATUS"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "version": os.environ["EXPECTED_VERSION"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "release_eligible": False,
+          }, indent=2) + "\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: agenterm-signing-runtime-${{ matrix.platform_id }}-attempt-${{ github.run_attempt }}
+          path: runtime-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+  aggregate:
+    name: require both signed Windows courts
+    if: always()
+    needs: [preflight, sign, runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: agenterm-signing-runtime-*-attempt-${{ github.run_attempt }}
+          path: receipts
+      - name: Seal non-promotable qualification aggregate
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          SIGNED_ARTIFACT_ID: ${{ needs.sign.outputs.artifact_id }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ needs.preflight.outputs.candidate_attempt }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          expected = {"windows-x86_64", "windows-aarch64"}
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+          rows = [json.loads(path.read_text()) for path in Path("receipts").rglob("runtime-receipt.json")]
+          rows = [row for row in rows if row.get("run_id") == run_id and row.get("run_attempt") == attempt]
+          cells = [row.get("platform_id") for row in rows]
+          if len(rows) != 2 or set(cells) != expected or len(set(cells)) != 2:
+              raise SystemExit(f"Windows court set mismatch: {cells}")
+          if any(row.get("job_status") != "success" or row.get("release_eligible") is not False for row in rows):
+              raise SystemExit("one or more qualification courts failed or became promotable")
+          if {row.get("source_sha") for row in rows} != {os.environ["SOURCE_SHA"]}:
+              raise SystemExit("source SHA mismatch")
+          if {row.get("version") for row in rows} != {os.environ["EXPECTED_VERSION"]}:
+              raise SystemExit("version mismatch")
+          output = {
+              "schema_version": 1,
+              "kind": "agenterm-windows-signing-qualification-aggregate",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "version": os.environ["EXPECTED_VERSION"],
+              "run_id": run_id,
+              "run_attempt": attempt,
+              "signed_artifact_id": int(os.environ["SIGNED_ARTIFACT_ID"]),
+              "upstream": {
+                  "run_id": int(os.environ["CANDIDATE_RUN_ID"]),
+                  "run_attempt": int(os.environ["CANDIDATE_RUN_ATTEMPT"]),
+              },
+              "platforms": sorted(cells),
+              "release_eligible": False,
+          }
+          Path("windows-signing-qualification-aggregate.json").write_text(json.dumps(output, indent=2) + "\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agenterm-windows-signing-qualification-aggregate-attempt-${{ github.run_attempt }}
+          path: windows-signing-qualification-aggregate.json
+          if-no-files-found: error
+          retention-days: 14

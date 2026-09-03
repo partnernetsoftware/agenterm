@@ -31,7 +31,13 @@ param(
 
     [string]$ReleasePolicy = 'release-policy.json',
 
-    [string]$StatePath = 'windows-signing-state.json'
+    [string]$StatePath = 'windows-signing-state.json',
+
+    [switch]$QualificationOnly,
+
+    [long]$UpstreamRunId = 0,
+
+    [int]$UpstreamRunAttempt = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,7 +71,13 @@ $policy = Get-Content -LiteralPath $ReleasePolicy -Raw | ConvertFrom-Json
 
 Require ($SourceSha -match '^[0-9a-f]{40}$') 'source SHA must be lowercase 40-hex'
 Require ($policy.version -eq $Version) 'release policy version mismatch'
-Require ($policy.signing.windows -eq 'required') 'Prepare/Finalize require signing.windows=required'
+if ($QualificationOnly) {
+    Require ($policy.signing.windows -eq 'off') 'qualification requires signing.windows=off'
+    Require ($UpstreamRunId -gt 0 -and $UpstreamRunAttempt -gt 0) 'qualification requires upstream Candidate identity'
+} else {
+    Require ($policy.signing.windows -eq 'required') 'Candidate signing requires signing.windows=required'
+    Require ($UpstreamRunId -eq 0 -and $UpstreamRunAttempt -eq 0) 'Candidate signing must not claim an upstream run'
+}
 Require ($manifest.schema_version -eq 2) 'unsupported artifacts manifest schema'
 
 $platforms = @(
@@ -150,14 +162,19 @@ if ($Mode -eq 'Prepare') {
         }
     }
     $catalog | Sort-Object | Set-Content -LiteralPath (Join-Path $signingPath 'signing-catalog.txt') -Encoding ascii
-    Write-Json ([ordered]@{
+    $stateValue = [ordered]@{
         schema_version = 1
         kind = 'agenterm-windows-signing-state'
         source_sha = $SourceSha
         version = $Version
         run = [ordered]@{ id = $RunId; attempt = $RunAttempt }
+        release_eligible = -not $QualificationOnly
         platforms = $statePlatforms
-    }) $stateFile
+    }
+    if ($QualificationOnly) {
+        $stateValue.upstream = [ordered]@{ run_id = $UpstreamRunId; run_attempt = $UpstreamRunAttempt }
+    }
+    Write-Json $stateValue $stateFile
     return
 }
 
@@ -166,6 +183,15 @@ $state = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
 Require ($state.schema_version -eq 1 -and $state.kind -eq 'agenterm-windows-signing-state') 'signing state schema mismatch'
 Require ($state.source_sha -eq $SourceSha -and $state.version -eq $Version) 'signing state source mismatch'
 Require ($state.run.id -eq $RunId -and $state.run.attempt -eq $RunAttempt) 'signing state run mismatch'
+Require ($state.release_eligible -eq (-not $QualificationOnly)) 'signing state eligibility mismatch'
+$hasUpstream = $state.PSObject.Properties.Name -contains 'upstream'
+if ($QualificationOnly) {
+    Require $hasUpstream 'signing state upstream missing'
+    Require ($state.upstream.run_id -eq $UpstreamRunId -and
+        $state.upstream.run_attempt -eq $UpstreamRunAttempt) 'signing state upstream mismatch'
+} else {
+    Require (-not $hasUpstream) 'Candidate signing state claims an upstream run'
+}
 
 $receiptPlatforms = [ordered]@{}
 $receiptAssets = [ordered]@{}
@@ -257,11 +283,14 @@ $receipt = [ordered]@{
     file_digest = 'SHA256'
     timestamp_rfc3161 = 'http://timestamp.acs.microsoft.com'
     timestamp_digest = 'SHA256'
-    release_eligible = $true
+    release_eligible = -not $QualificationOnly
     platform_count = 2
     asset_count = 10
     run = [ordered]@{ id = $RunId; attempt = $RunAttempt }
     platforms = $receiptPlatforms
     assets = $receiptAssets
+}
+if ($QualificationOnly) {
+    $receipt.upstream = [ordered]@{ run_id = $UpstreamRunId; run_attempt = $UpstreamRunAttempt }
 }
 Write-Json $receipt (Join-Path (Join-Path $outputPath 'windows-x86_64') $receiptName)

@@ -17,8 +17,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   All ten Windows PE files now have two-ISA VERSIONINFO plus empty Security
   Directory evidence. Candidate now contains a checked-in `off|required`
   split, exact ten-file input court, Azure OIDC signing branch, signed repack,
-  receipt binding and final-byte signature checks. The first live signed court
-  remains pending, so
+  receipt binding and final-byte signature checks. A non-promotable
+  qualification workflow now consumes an exact successful unsigned Candidate,
+  signs the same ten files, requires a redacted `release_eligible=false`
+  receipt, then executes, verifies and Defender-scans both signed Windows ISA
+  archives. The first live AgenTerm signed court remains pending, so
   `release-policy.json` keeps Windows signing `off`. The executable DAG is
   `plan/goal-company-windows-signing.md`; redacted operations live in
   `skills/agenterm-release/references/company-signing-enrollment.md`.

@@ -28,7 +28,10 @@ must remain outside the repository.
   three OIDC Environment secrets, and three shared provider-coordinate
   variables. Real values remain outside git and receipts.
 - The remaining activation gate is the first live signed Candidate court, not
-  identity provisioning. Until that court proves the ten signed files,
+  identity provisioning. A dedicated `Windows Signing Qualification` workflow
+  can first consume an exact successful unsigned Candidate and exercise the
+  same ten-file transformer with `release_eligible=false`; its output is
+  structurally rejected by Candidate/Promotion. Until AgenTerm proves the ten signed files,
   timestamp, receipts, Defender scans and two Windows runtime cells,
   `release-policy.json` keeps Windows signing `off`. The implementation and
   evidence DAG is `plan/goal-company-windows-signing.md`.
@@ -84,6 +87,12 @@ workflow redaction review approves it.
 ## First-signature court
 
 The first provider run is qualification, not automatic release eligibility.
+Its implementation owner is
+`.github/workflows/windows-signing-qualification.yml`; it accepts only a
+successful unsigned Candidate at the exact current `main` SHA and performs no
+Cargo build. The same PowerShell transformer serves formal Candidate and
+qualification modes, while the checked-in policy and receipt eligibility keep
+their authority distinct.
 For every signed Windows PE/DLL it must prove:
 
 1. the unsigned SHA-256 matches the selected exact-SHA Candidate input;

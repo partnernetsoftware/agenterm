@@ -4,7 +4,8 @@ const RECEIPT_VALIDATOR: &str = include_str!("../scripts/qjs/lib/release_candida
 #[test]
 fn public_signing_receipt_has_explicit_trust_and_release_facts() {
     assert!(SIGNING_SCRIPT.contains("authenticode_status = \"$($signature.Status)\""));
-    assert!(SIGNING_SCRIPT.contains("release_eligible = $true"));
+    assert!(SIGNING_SCRIPT.contains("release_eligible = -not $QualificationOnly"));
+    assert!(SIGNING_SCRIPT.contains("signing state eligibility mismatch"));
     assert!(RECEIPT_VALIDATOR.contains("receipt.release_eligible === true"));
     assert!(RECEIPT_VALIDATOR.contains("receipt_asset.authenticode_status === \"Valid\""));
 }
