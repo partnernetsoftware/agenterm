@@ -37,9 +37,17 @@ must remain outside the repository.
   evidence DAG is `plan/goal-company-windows-signing.md`.
 
 The reusable, redacted procedure (CLI commands, login pitfalls, local jsign
-rehearsal, workflow gates) lives in the company hub:
+rehearsal, workflow gates, cost/transaction operations, and irreversible
+revocation boundary) lives in the company hub:
 `~/repos/company-dev-hub/skills/sign-windows-artifacts/`. Read it before creating
 Azure or GitHub signing configuration for AgenTerm.
+
+Before Candidate or qualification dispatch, run the company skill's
+`scripts/check-product-signing-readiness.sh` against the repository. `READY`
+proves only clean exact-main source, unpublished version identity, policy and
+workflow presence, and canonical inspector copies. It does not prove protected
+Environment configuration, provider access, signed bytes, or Promotion
+authority.
 
 ## Activation sequence
 
@@ -114,6 +122,13 @@ For every signed Windows PE/DLL it must prove:
 Keep signing mode explicit. Missing credentials in `required` mode are a hard
 failure; they must never downgrade the run to unsigned. While mode is `off`, no
 signing action or credential import may execute.
+
+Artifact Signing manages short-lived signing certificates; the RFC 3161
+timestamp is therefore a required long-term validation input, not decoration.
+For routine cost/transaction review or suspected misuse, follow the company
+skill's operations branch. Stop new repository signing authority and preserve
+evidence before considering certificate revocation. Deleting a profile is not
+revocation; revocation is a separate irreversible owner decision.
 
 ## AgenTerm Windows allowlist
 

@@ -24,6 +24,12 @@ Read `references/github-auth-and-dispatch.md` when authentication, workflow
 dispatch, monitoring, rate limits, or human approval is involved.
 Read `references/company-signing-enrollment.md` before changing signing policy,
 provider configuration, signature receipts, or final-byte reputation courts.
+That product reference records AgenTerm-specific state; the canonical reusable
+implementation and operations procedure is
+`~/repos/company-dev-hub/skills/sign-windows-artifacts/SKILL.md`. Before a
+Candidate or signing dispatch, run its read-only
+`scripts/check-product-signing-readiness.sh` against this repository and require
+`READY`; this does not replace exact-SHA authorization or live provider courts.
 
 Treat the current files and remote run state as authoritative. Do not infer the
 delivery topology from an older release or from Git push behavior.
@@ -39,6 +45,9 @@ delivery topology from an older release or from Git push behavior.
    controller identity, provenance, and Promotion must remain one unambiguous
    commit.
 3. Run local lint and only the owning policy/fixture tests before dispatch.
+   When Windows signing or qualification is in scope, also require the company
+   signing readiness court; do not spend a provider operation on a dirty tree,
+   stale main, or published version identity.
 4. Dispatch `candidate.yml` for that exact SHA through an actually available,
    authenticated Actions capability.
 5. If dispatch is unavailable, stop and give the human the exact workflow
