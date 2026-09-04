@@ -486,8 +486,17 @@
           "acu_shape": "terminal-snapshot returns one bounded structured screen plus server_scope_id + epoch + sequence; terminal-events continues the loss-aware ui-deltas journal for one stable @tab",
           "state": "native",
           "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
-          "next": "run the registered cursor assertions on Linux and Windows courts; keep raw retained PTY bytes and wait-on-event as separate gaps",
+          "next": "run the registered cursor assertions on Linux and Windows courts; keep wait-on-event as a separate gap",
           "note": "The cursor is an AgenTerm event-journal position, never a claimed raw PTY byte offset. terminal-events filters returned events and screen updates to the requested tab but advances through every scanned event, including other tabs, so a filtered reader cannot replay forever. Product-enforced 64-event and 1 MiB delta ceilings expose complete/truncated; restart, overwritten history and future cursors remain typed failures."
+        },
+        {
+          "id": "terminal.agenterm.raw-output",
+          "mcu_shape": "pty read with an incremental raw-output cursor",
+          "acu_shape": "terminal-output reads the retained redacted PTY ring from earliest, current or an absolute next_cursor; base64 is lossless and valid UTF-8 is optional",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "next": "run the registered continuation assertions on Linux and Windows courts",
+          "note": "The product retention ring remains capped at 1 MiB and a page at 1 MiB. Overwritten and future cursors fail typed; continuation never silently skips bytes or decodes arbitrary bytes lossily. The macOS journey proves current bootstrap, output advance, exact continuation and an empty completed tail."
         },
         {
           "id": "terminal.agenterm.viewport-image",

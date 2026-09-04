@@ -663,6 +663,34 @@
       ]
     },
     {
+      "name": "terminal-output",
+      "command": "terminal-output",
+      "aliases": [
+        "terminal output"
+      ],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "read retained raw bytes through a loss-aware cursor",
+      "usage": "terminal-output --tab @N [--cursor earliest|current|N] [--max-bytes N]\nterminal output --tab @N ...",
+      "args": [
+        {
+          "flag": "--tab",
+          "value": "@N",
+          "help": "stable tab id from terminal-list"
+        },
+        {
+          "flag": "--cursor",
+          "value": "CURSOR",
+          "help": "earliest/current bootstrap or prior next_cursor (default earliest)"
+        },
+        {
+          "flag": "--max-bytes",
+          "value": "N",
+          "help": "bounded page size, 1..=1048576 (default 65536)"
+        }
+      ]
+    },
+    {
       "name": "terminal-wait",
       "command": "terminal-wait",
       "aliases": [
@@ -3454,6 +3482,10 @@
     {
       "name": "terminal-events",
       "text": "agenterm-cu terminal-events    (also: terminal events)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-events --tab @N --epoch EPOCH --after SEQUENCE [--limit N]\n  terminal events --tab @N --epoch EPOCH --after SEQUENCE [--limit N]\n\narguments:\n  --tab @N                      stable tab id from terminal-snapshot\n  --epoch EPOCH                 exact server epoch from terminal-snapshot\n  --after SEQUENCE              last consumed event sequence\n  --limit N                     events scanned per page, 1..=64 (default 64)\n\nReads AgenTerm's bounded ordered UI delta journal. Restart, overwritten history\nand a future sequence fail typed. The reply filters published events and screen\nupdates to the requested tab, but advances its cursor across every scanned\nevent so unrelated tabs cannot trap a reader in an infinite replay loop.\ncomplete/truncated say whether the cursor reached the current server position.\n"
+    },
+    {
+      "name": "terminal-output",
+      "text": "agenterm-cu terminal-output    (also: terminal output)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-output --tab @N [--cursor earliest|current|N] [--max-bytes N]\n  terminal output --tab @N ...\n\narguments:\n  --tab @N                      stable tab id from terminal-list\n  --cursor CURSOR               earliest/current bootstrap or prior next_cursor (default earliest)\n  --max-bytes N                 bounded page size, 1..=1048576 (default 65536)\n\nReads the retained redacted raw PTY byte stream without UTF-8 loss. The reply\nalways carries base64 plus cursor bounds; valid UTF-8 pages also carry utf8.\nContinue from next_cursor. A cursor older than earliest_cursor fails typed as\nterminal_output_gap, and a cursor beyond current_cursor fails typed as\nterminal_output_future_cursor. This cursor is independent of terminal-events.\n"
     },
     {
       "name": "terminal-wait",

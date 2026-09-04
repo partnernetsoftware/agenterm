@@ -109,6 +109,27 @@ pub fn parse(
                 limit,
             })
         }
+        "terminal-output" => {
+            let tab = required_tab(args)?;
+            let cursor = flag_text(args, "--cursor")?.unwrap_or_else(|| "earliest".to_owned());
+            if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
+                return Err(
+                    "terminal-output --cursor must be earliest, current, or a non-negative integer"
+                        .into(),
+                );
+            }
+            let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?.unwrap_or(65_536);
+            if !(1..=1_048_576).contains(&max_bytes) {
+                return Err("terminal-output --max-bytes must be in 1..=1048576".into());
+            }
+            empty(args, "terminal-output")?;
+            Ok(Command::TerminalOutput {
+                target,
+                tab,
+                cursor,
+                max_bytes,
+            })
+        }
         "terminal-send" => {
             let tab = required_tab(args)?;
             if args.first().map(String::as_str) == Some("--") {
@@ -268,6 +289,22 @@ mod tests {
             )
             .is_err()
         );
+        assert!(matches!(
+            parse(
+                "terminal-output",
+                &["--tab", "@7", "--cursor", "12", "--max-bytes", "8"]
+            )
+            .unwrap(),
+            Command::TerminalOutput { tab, cursor, max_bytes: 8, .. }
+                if tab == "@7" && cursor == "12"
+        ));
+        assert!(matches!(
+            parse("terminal-output", &["--tab", "@7"]).unwrap(),
+            Command::TerminalOutput { cursor, max_bytes: 65_536, .. }
+                if cursor == "earliest"
+        ));
+        assert!(parse("terminal-output", &["--tab", "@7", "--cursor", "old"]).is_err());
+        assert!(parse("terminal-output", &["--tab", "@7", "--max-bytes", "0"]).is_err());
         assert!(parse("terminal-wait", &["--tab", "@7", "--exited", "--finalized"]).is_err());
     }
 }

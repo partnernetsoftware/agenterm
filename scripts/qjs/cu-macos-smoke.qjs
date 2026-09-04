@@ -2807,6 +2807,25 @@ try {
       && text_at(terminal_snapshot, "data.cursor_kind") === "loss-aware-event-position",
     "cu_macos_smoke_terminal_snapshot:" + JSON.stringify(terminal_snapshot.data)
   );
+  const terminal_output_origin = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-output",
+      "--tab", terminal_tab, "--cursor", "current", "--max-bytes", "4096"
+    ]
+  );
+  const terminal_output_cursor = int_at(terminal_output_origin, "data.next_cursor");
+  ensure(
+    text_at(terminal_output_origin, "data.server_scope_id") === text_at(terminal_protocol, "server_scope_id")
+      && text_at(terminal_output_origin, "data.tab_id") === terminal_tab
+      && text_at(terminal_output_origin, "data.encoding") === "base64"
+      && text_at(terminal_output_origin, "data.cursor_kind") === "loss-aware-raw-output-byte-position"
+      && terminal_output_cursor === int_at(terminal_output_origin, "data.current_cursor")
+      && int_at(terminal_output_origin, "data.bytes") === 0
+      && flag_at(terminal_output_origin, "data.complete"),
+    "cu_macos_smoke_terminal_output_origin:" + JSON.stringify(terminal_output_origin.data)
+  );
 
   const sent = run_cu_json(
     run_directory,
@@ -2861,6 +2880,38 @@ try {
       && text_at(terminal_events, "data.cursor_advance") === "all-scanned-events-including-other-tabs"
       && saw_terminal_output,
     "cu_macos_smoke_terminal_events:" + JSON.stringify(terminal_events.data)
+  );
+  const terminal_output_page = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-output",
+      "--tab", terminal_tab, "--cursor", "" + terminal_output_cursor,
+      "--max-bytes", "4096"
+    ]
+  );
+  ensure(
+    int_at(terminal_output_page, "data.start_cursor") === terminal_output_cursor
+      && int_at(terminal_output_page, "data.next_cursor") > terminal_output_cursor
+      && int_at(terminal_output_page, "data.next_cursor") === int_at(terminal_output_page, "data.current_cursor")
+      && text_at(terminal_output_page, "data.utf8").includes("ACU_REPLY:" + terminal_token)
+      && flag_at(terminal_output_page, "data.complete")
+      && !flag_at(terminal_output_page, "data.truncated"),
+    "cu_macos_smoke_terminal_output_continue:" + JSON.stringify(terminal_output_page.data)
+  );
+  const terminal_output_tail = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-output",
+      "--tab", terminal_tab, "--cursor", "" + int_at(terminal_output_page, "data.next_cursor")
+    ]
+  );
+  ensure(
+    int_at(terminal_output_tail, "data.bytes") === 0
+      && int_at(terminal_output_tail, "data.start_cursor") === int_at(terminal_output_page, "data.next_cursor")
+      && flag_at(terminal_output_tail, "data.complete"),
+    "cu_macos_smoke_terminal_output_tail:" + JSON.stringify(terminal_output_tail.data)
   );
   const terminal_capture = run_cu_json(
     run_directory,

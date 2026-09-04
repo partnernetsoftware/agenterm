@@ -24,6 +24,7 @@ pub(crate) const COMMAND_CATALOG: &[CommandIdentity] = &[
     command("attach-session", &["attach"]),
     command("active-window", &["active-tab"]),
     command("capture-pane", &["capturep"]),
+    command("capture-output", &[]),
     command("control-center", &[]),
     command("display-message", &["display"]),
     command("dump-cells", &[]),
@@ -470,6 +471,12 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
              [--max-bytes N --json]",
             &["-t", "--max-bytes"][..],
             &["-p", "--raw-escaped", "--json"][..],
+            false,
+        ),
+        "capture-output" => (
+            "agenterm cli capture-output [-t target] [--cursor earliest|current|N] [--max-bytes N]",
+            &["-t", "--cursor", "--max-bytes"][..],
+            &[][..],
             false,
         ),
         "control-center" => (

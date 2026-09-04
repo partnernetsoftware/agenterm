@@ -499,6 +499,14 @@ pub enum Command {
         after: u64,
         limit: usize,
     },
+    /// Read retained raw terminal bytes from an explicit absolute stream
+    /// cursor, or bootstrap at the earliest/current retained position.
+    TerminalOutput {
+        target: TargetRef,
+        tab: String,
+        cursor: String,
+        max_bytes: usize,
+    },
     /// Send exact UTF-8 bytes to one AgenTerm-owned tab.
     TerminalSend {
         target: TargetRef,
@@ -1747,6 +1755,7 @@ impl Command {
             Self::TerminalRead { .. } => "terminal-read".into(),
             Self::TerminalSnapshot { .. } => "terminal-snapshot".into(),
             Self::TerminalEvents { .. } => "terminal-events".into(),
+            Self::TerminalOutput { .. } => "terminal-output".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
             Self::TerminalWait { .. } => "terminal-wait".into(),
             Self::Tree { .. } => "tree".into(),
@@ -1844,6 +1853,7 @@ impl Command {
             | Self::TerminalRead { target, .. }
             | Self::TerminalSnapshot { target, .. }
             | Self::TerminalEvents { target, .. }
+            | Self::TerminalOutput { target, .. }
             | Self::TerminalSend { target, .. }
             | Self::TerminalWait { target, .. }
             | Self::Tree { target, .. }
@@ -3149,6 +3159,14 @@ mod tests {
         assert_eq!(events.required_grant(), Grant::Observe);
         assert_eq!(events.verb(), "terminal-events");
         assert_eq!(events.target(), TargetRef::Ssh);
+        let output = Command::TerminalOutput {
+            target: TargetRef::Current,
+            tab: "@9".into(),
+            cursor: "earliest".into(),
+            max_bytes: 65_536,
+        };
+        assert_eq!(output.required_grant(), Grant::Observe);
+        assert_eq!(output.verb(), "terminal-output");
     }
 
     #[test]

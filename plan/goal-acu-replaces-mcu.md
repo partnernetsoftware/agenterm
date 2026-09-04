@@ -329,6 +329,8 @@ Q3 owned runtime facades
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
 │  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor
 │  ├─ [~] terminal cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
+│  ├─ [x] terminal-output: retained raw bytes + absolute cursor + typed gap/future failures
+│  ├─ [~] raw-output cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
 │  ├─ [ ] portable owned headless PTY (POSIX PTY + Windows ConPTY)
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege

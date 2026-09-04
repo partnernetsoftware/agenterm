@@ -168,6 +168,12 @@ impl Executor {
                 limit,
                 ..
             } => terminal_events_payload(tab, epoch, *after, *limit),
+            Command::TerminalOutput {
+                tab,
+                cursor,
+                max_bytes,
+                ..
+            } => terminal_output_payload(tab, cursor, *max_bytes),
             Command::TerminalSend { tab, text, .. } => {
                 terminal_send_payload(tab, text, &mut self.open_receipts(command.target())?)
             }

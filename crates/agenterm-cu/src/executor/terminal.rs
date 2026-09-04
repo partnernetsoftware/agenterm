@@ -471,6 +471,61 @@ pub(super) fn terminal_events_payload(
     terminal_events_from_delta(client.server_scope_id(), tab, epoch, after, &batch)
 }
 
+pub(super) fn terminal_output_payload(
+    tab: &str,
+    cursor: &str,
+    max_bytes: usize,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
+        return Err(CuError::new(
+            "terminal_output_cursor_invalid",
+            "terminal-output --cursor must be earliest, current, or a non-negative integer",
+        ));
+    }
+    if !(1..=CAPTURE_MAX_BYTES).contains(&max_bytes) {
+        return Err(CuError::new(
+            "terminal_output_limit_invalid",
+            "terminal-output --max-bytes must be in 1..=1048576",
+        ));
+    }
+    let client = client()?;
+    let response = request(
+        &client,
+        vec![
+            "capture-output".to_owned(),
+            "-t".to_owned(),
+            tab.to_owned(),
+            "--cursor".to_owned(),
+            cursor.to_owned(),
+            "--max-bytes".to_owned(),
+            max_bytes.to_string(),
+        ],
+        "command.capture.output",
+        Intent::Query,
+        Duration::from_secs(5),
+    )?;
+    let mut output = parse_output(response, "terminal_output_invalid")?;
+    if output["tab_id"].as_str() != Some(tab)
+        || output["encoding"].as_str() != Some("base64")
+        || output["data_base64"].as_str().is_none()
+        || output["start_cursor"].as_u64().is_none()
+        || output["next_cursor"].as_u64().is_none()
+        || output["earliest_cursor"].as_u64().is_none()
+        || output["current_cursor"].as_u64().is_none()
+    {
+        return Err(CuError::new(
+            "terminal_output_invalid",
+            "capture-output returned an inconsistent raw-output cursor",
+        ));
+    }
+    output["server_scope_id"] = json!(client.server_scope_id());
+    output["cursor_kind"] = json!("loss-aware-raw-output-byte-position");
+    output["identity"] = json!("server-scope+tab-id+raw-output-cursor");
+    output["content_read"] = json!(true);
+    Ok(output)
+}
+
 fn validate_event_request(epoch: &str, limit: usize) -> Result<(), CuError> {
     if epoch.is_empty() || epoch.len() > 128 || epoch.chars().any(char::is_control) {
         return Err(CuError::new(

@@ -446,7 +446,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   gap.
 
   `terminal-snapshot` and `terminal-events` close the structured terminal
-  observation gap without claiming an output primitive AgenTerm does not own.
+  observation gap.
   Snapshot returns the product's bounded screen cell runs, styles, cursor,
   terminal modes and completeness flags with the exact
   `(server_scope_id, server_epoch, sequence, @tab_id)` identity. Events
@@ -458,6 +458,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   qjswasm journey proves snapshot → terminal output → delta continuation plus
   the existing lifecycle assertions. Linux and Windows courts remain pending.
   This is a loss-aware event cursor, not a raw retained-PTY byte offset.
+
+  `terminal-output` closes that separate raw-output gap against the existing
+  1 MiB redacted retention ring. A caller bootstraps at `earliest` or `current`,
+  then continues from the exact absolute `next_cursor`; pages are capped at
+  1 MiB. Bytes are always base64 and an `utf8` projection appears only when the
+  complete page is valid UTF-8. An overwritten cursor fails typed as
+  `terminal_output_gap` and names earliest/current; a future cursor fails as
+  `terminal_output_future_cursor`. No lossy conversion, fixed sleep, second
+  cache or second PTY owner is introduced. The registered macOS qjswasm journey
+  proves current → literal send → incremental reply → empty tail. Linux and
+  Windows courts remain pending.
 
   The same macOS journey's opt-in qjswasm attribution receipt reported
   135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
@@ -476,11 +487,13 @@ flowchart LR
   K --> S["bounded screen snapshot"]
   K --> E["structured snapshot<br/>epoch + sequence cursor"]
   E --> D["bounded ui-deltas<br/>loss-aware continuation"]
+  K --> R["retained redacted raw bytes<br/>absolute byte cursor"]
+  R --> B["base64 page + optional UTF-8<br/>typed gap / future"]
   K --> W["literal input + deterministic wait"]
-  S -. "no raw PTY byte cursor" .-> G["retained byte offset<br/>separate future leaf"]
   W --> Q{"macOS + Linux + Windows<br/>public journey"}
   L --> Q
   D --> Q
+  B --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
   Q -->|Windows transport blocked| W1["repair court; zero product claim"]

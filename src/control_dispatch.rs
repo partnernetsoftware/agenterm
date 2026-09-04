@@ -39,6 +39,104 @@ use crate::{
 };
 
 pub(crate) const CAPTURE_PUBLIC_MAX_BYTES: usize = 1024 * 1024;
+const TERMINAL_OUTPUT_DEFAULT_MAX_BYTES: usize = 64 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalOutputCursor {
+    Earliest,
+    Current,
+    Absolute(usize),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TerminalOutputRead {
+    Data {
+        earliest: usize,
+        current: usize,
+        start: usize,
+        next: usize,
+        bytes: Vec<u8>,
+    },
+    Gap {
+        requested: usize,
+        earliest: usize,
+        current: usize,
+    },
+    Future {
+        requested: usize,
+        current: usize,
+    },
+}
+
+fn parse_terminal_output_cursor(value: &str) -> Result<TerminalOutputCursor, String> {
+    match value {
+        "earliest" => Ok(TerminalOutputCursor::Earliest),
+        "current" => Ok(TerminalOutputCursor::Current),
+        value => value
+            .parse::<usize>()
+            .map(TerminalOutputCursor::Absolute)
+            .map_err(|_| {
+                "capture-output --cursor must be earliest, current, or a non-negative integer"
+                    .to_owned()
+            }),
+    }
+}
+
+fn read_terminal_output(
+    retained: &crate::terminal_lifecycle::BoundedByteRing,
+    current: usize,
+    cursor: TerminalOutputCursor,
+    maximum: usize,
+) -> TerminalOutputRead {
+    let earliest = current.saturating_sub(retained.len());
+    let requested = match cursor {
+        TerminalOutputCursor::Earliest => earliest,
+        TerminalOutputCursor::Current => current,
+        TerminalOutputCursor::Absolute(value) => value,
+    };
+    if requested < earliest {
+        return TerminalOutputRead::Gap {
+            requested,
+            earliest,
+            current,
+        };
+    }
+    if requested > current {
+        return TerminalOutputRead::Future { requested, current };
+    }
+    let bytes = retained.copy_from(requested - earliest, maximum);
+    let next = requested.saturating_add(bytes.len());
+    TerminalOutputRead::Data {
+        earliest,
+        current,
+        start: requested,
+        next,
+        bytes,
+    }
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or(0);
+        let third = chunk.get(2).copied().unwrap_or(0);
+        encoded.push(TABLE[(first >> 2) as usize] as char);
+        encoded.push(TABLE[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            TABLE[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            TABLE[(third & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    encoded
+}
 
 /// Prepare named-buffer bytes for PTY inject: empty fails; UTF-8 uses the
 /// shared terminal paste normalizer + optional bracketed-paste framing; binary
@@ -1874,6 +1972,98 @@ pub(crate) fn dispatch_shared_command(
                 Some(IpcResponse::success(text.to_owned()))
             }
         }
+        "capture-output" => {
+            let Some(position) =
+                resolve_target_position(host.tabs(), host.active_id(), option_value(args, "-t"))
+            else {
+                return Some(IpcResponse::typed_failure(
+                    "can't find terminal tab",
+                    "operation_target_not_found",
+                    "not_found",
+                    false,
+                ));
+            };
+            let cursor = match option_value(args, "--cursor") {
+                Some(value) => match parse_terminal_output_cursor(value) {
+                    Ok(cursor) => cursor,
+                    Err(error) => {
+                        return Some(IpcResponse::typed_failure(
+                            error,
+                            "terminal_output_cursor_invalid",
+                            "usage",
+                            false,
+                        ));
+                    }
+                },
+                None => TerminalOutputCursor::Earliest,
+            };
+            let maximum = match option_value(args, "--max-bytes") {
+                Some(value) => match value.parse::<usize>() {
+                    Ok(value) if (1..=CAPTURE_PUBLIC_MAX_BYTES).contains(&value) => value,
+                    _ => {
+                        return Some(IpcResponse::typed_failure(
+                            format!(
+                                "capture-output --max-bytes must be from 1 to {CAPTURE_PUBLIC_MAX_BYTES}"
+                            ),
+                            "terminal_output_limit_invalid",
+                            "usage",
+                            false,
+                        ));
+                    }
+                },
+                None => TERMINAL_OUTPUT_DEFAULT_MAX_BYTES,
+            };
+            let tab = &host.tabs()[position];
+            match read_terminal_output(&tab.raw_output, tab.output_bytes, cursor, maximum) {
+                TerminalOutputRead::Gap {
+                    requested,
+                    earliest,
+                    current,
+                } => Some(IpcResponse::typed_failure(
+                    format!(
+                        "terminal output cursor {requested} was overwritten; earliest={earliest} current={current}"
+                    ),
+                    "terminal_output_gap",
+                    "state",
+                    true,
+                )),
+                TerminalOutputRead::Future { requested, current } => {
+                    Some(IpcResponse::typed_failure(
+                        format!("terminal output cursor {requested} is ahead of current={current}"),
+                        "terminal_output_future_cursor",
+                        "state",
+                        false,
+                    ))
+                }
+                TerminalOutputRead::Data {
+                    earliest,
+                    current,
+                    start,
+                    next,
+                    bytes,
+                } => {
+                    let utf8 = std::str::from_utf8(&bytes).ok();
+                    Some(IpcResponse::success(
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "schema_version": 1,
+                            "tab_id": format!("@{}", tab.id),
+                            "encoding": "base64",
+                            "data_base64": encode_base64(&bytes),
+                            "utf8": utf8,
+                            "bytes": bytes.len(),
+                            "earliest_cursor": earliest,
+                            "current_cursor": current,
+                            "start_cursor": start,
+                            "next_cursor": next,
+                            "max_bytes": maximum,
+                            "complete": next == current,
+                            "truncated": next < current,
+                        }))
+                        .unwrap_or_else(|_| "{}".to_owned()),
+                    ))
+                }
+            }
+        }
         "inspect" | "pane-snapshot" => {
             host.sync_composer_from_ui();
             let selected: Vec<&TerminalTab> = match option_value(args, "-t") {
@@ -2738,6 +2928,55 @@ mod tests {
         assert_eq!(bounded_utf8_prefix(text, 4), "ab");
         assert_eq!(bounded_utf8_prefix(text, 5), "ab终");
         assert_eq!(bounded_utf8_prefix(text, 0), "");
+    }
+
+    #[test]
+    fn terminal_output_read_reports_retention_gap_and_bounded_continuation() {
+        let mut retained = crate::terminal_lifecycle::BoundedByteRing::new(5);
+        retained.extend(b"abcdef");
+        assert_eq!(
+            read_terminal_output(&retained, 6, TerminalOutputCursor::Absolute(0), 2),
+            TerminalOutputRead::Gap {
+                requested: 0,
+                earliest: 1,
+                current: 6,
+            }
+        );
+        assert_eq!(
+            read_terminal_output(&retained, 6, TerminalOutputCursor::Earliest, 2),
+            TerminalOutputRead::Data {
+                earliest: 1,
+                current: 6,
+                start: 1,
+                next: 3,
+                bytes: b"bc".to_vec(),
+            }
+        );
+        assert_eq!(
+            read_terminal_output(&retained, 6, TerminalOutputCursor::Current, 2),
+            TerminalOutputRead::Data {
+                earliest: 1,
+                current: 6,
+                start: 6,
+                next: 6,
+                bytes: Vec::new(),
+            }
+        );
+        assert_eq!(
+            read_terminal_output(&retained, 6, TerminalOutputCursor::Absolute(7), 2),
+            TerminalOutputRead::Future {
+                requested: 7,
+                current: 6,
+            }
+        );
+    }
+
+    #[test]
+    fn terminal_output_base64_is_binary_safe() {
+        assert_eq!(encode_base64(b""), "");
+        assert_eq!(encode_base64(b"f"), "Zg==");
+        assert_eq!(encode_base64(b"fo"), "Zm8=");
+        assert_eq!(encode_base64(&[0x00, 0xff, 0x10]), "AP8Q");
     }
 
     #[test]

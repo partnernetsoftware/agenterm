@@ -54,6 +54,9 @@ cu --grant actuate terminal-new --title build --parent @1 --detached -- sh -lc '
 cu terminal-read --tab @2 --max-bytes 262144
 cu terminal-snapshot --tab @2
 cu terminal-events --tab @2 --epoch EPOCH --after SEQUENCE --limit 64
+cu terminal-output --tab @2 --cursor current
+# after work: continue with the returned next_cursor
+cu terminal-output --tab @2 --cursor 12345 --max-bytes 65536
 cu --grant actuate terminal-send --tab @2 -- 'printf "ready\n"\r'
 cu terminal-wait --tab @2 --contains ready --timeout-ms 5000
 cu terminal-wait --tab @2 --finalized --timeout-ms 5000
@@ -67,7 +70,10 @@ the bounded structured screen (cell runs, style, terminal cursor and modes)
 plus the exact event position. `terminal-events` continues that position with
 typed restart/history-gap failures; its cursor advances across all scanned
 events while the published event rows remain filtered to the requested tab.
-Neither command claims a raw PTY byte cursor. Text for `terminal-send` is
+`terminal-output` is the separate raw-byte stream: start at `earliest` or
+`current`, then continue from `next_cursor`. It always returns base64, adds an
+`utf8` view only when the entire page is valid UTF-8, and fails typed when a
+cursor was overwritten or points beyond current output. Text for `terminal-send` is
 one argument so quoting preserves its exact UTF-8 bytes. Creation verifies the
 returned stable id and optional parent in the same server epoch; close requires
 an explicit postcondition and verifies exact disappearance. Their persistent

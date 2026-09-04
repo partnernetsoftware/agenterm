@@ -569,6 +569,7 @@ pub(crate) fn control_request_identity(args: &[String]) -> Result<(OperationId, 
     let intent = if matches!(
         canonical_control_command(command),
         "active-window"
+            | "capture-output"
             | "capture-pane"
             | "display-message"
             | "dump-cells"
@@ -4559,6 +4560,7 @@ Usage:
   agenterm cli wait-events --epoch EPOCH --after SEQUENCE --kind KIND [--tab @ID] [--timeout-ms MS]
   agenterm cli capture-pane -p [-t target]
   agenterm cli capture-pane --raw-escaped [-t target]
+  agenterm cli capture-output [-t target] [--cursor earliest|current|N] [--max-bytes N]
   agenterm cli dump-cells [-t target] [-r row]
   agenterm cli active-window [-F format]
   agenterm cli inspect [-t target]

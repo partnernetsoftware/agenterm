@@ -29,12 +29,16 @@ parent 关系、detached 子进程输出、精确关闭和最后 tab 后空 serv
 已以 44 STEP / 45 evidence 全绿。Linux 新 STEP
 全过，但同套件后续旧 observe 段红而没有签出整套 evidence；Windows court
 在投送产品前被 interactive nonce 阻断。任意 headless PTY/job、进程树管理与
-raw retained-output byte cursor 仍是下一层 gap。`terminal-snapshot` 已返回有界的
+任意 headless PTY/job 仍是下一层 gap。`terminal-snapshot` 已返回有界的
 cell runs / style / terminal cursor / modes，并附 `(server_scope_id, epoch, sequence)`；
 `terminal-events` 以同一 epoch/sequence 继续有界 delta journal。它对外只返回目标
 tab 的事件和 screen update，但 cursor 会跨过所有已扫描事件，避免其它 tab 令过滤
 读者无限重放。restart / journal gap / future sequence 都由产品控制面 typed fail；
 macOS 注册 qjswasm 旅程已真跑绿，Linux/Windows 仍待 court。
+原始输出另由 `terminal-output` 承接：它从 `earliest`/`current` 或上次
+`next_cursor` 读取保留环中的精确字节，始终发布 base64，只在整页有效 UTF-8 时附
+`utf8`，并对 overwritten/future cursor 分别 typed fail。macOS 旅程已证明
+current → send → incremental page → empty tail；Linux/Windows 仍待 court。
 
 **CDP 活证据已到（2026-09-03）**：`/json` reader 认了 `Content-Length` / chunked（`src/cdp/http.rs`），`scripts/cu-cdp-smoke.sh` PASS。**后台 tab 读+写也接上了**：`page text / find / click / fill / type / nav / screenshot --target-id|--target-url|--target-title|--match` 全走 CDP 目标自己的 websocket；MCU-compatible `--match` 搜 title+URL+description，但 ACU 要求恰好一项，拒绝 MCU 的 first-hit 猜测。`page type` 冻结已有 editable focus，以同元素 value-growth 验证且不记录明文。`src/cdp/` 以 `ws.rs` 一条 session、`Transport` 假转录单测、`ax.rs` 同形阅读行和 `page.rs` plan/perform 收据实现，从不调 `Target.activateTarget` / `Page.bringToFront`（只有 `page screenshot --activate` 显式例外，算 actuate），每条回复带 `focus_changed: false` + target 身份。`scripts/cu-cdp-actuate-smoke.sh` PASS：A 活跃、B 后台，唯一 `--match` 打在 B，宽匹配 typed ambiguous；各动词执行后 `/json` 首页仍是 A、`windows --focused` 不变。真机（用户的 Brave Origin）仍需 `--remote-debugging-port=9222` 重启才能跑同一条。
 **截图三个平台都通了**：macOS 那句「被系统拿走」只对了一半——SDK 里确实没了，但符号还在框架里，

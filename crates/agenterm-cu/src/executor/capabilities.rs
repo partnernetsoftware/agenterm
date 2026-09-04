@@ -512,6 +512,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "observe",
                 "loss-aware-ordered-event-cursor",
             ),
+            (
+                "terminal-output",
+                "observe",
+                "loss-aware-retained-raw-byte-cursor",
+            ),
             ("terminal-send", "actuate", "literal-owned-pty-input"),
             (
                 "terminal-wait",

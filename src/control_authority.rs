@@ -238,7 +238,8 @@ pub(crate) fn resolved_control_target(host: &impl ControlHost, args: &[String]) 
     let tab_scoped = option_value(args, "-t").is_some()
         || matches!(
             command,
-            "capture-pane"
+            "capture-output"
+                | "capture-pane"
                 | "display-message"
                 | "dump-cells"
                 | "focus"

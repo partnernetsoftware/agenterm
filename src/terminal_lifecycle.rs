@@ -99,9 +99,20 @@ impl BoundedByteRing {
         self.bytes.iter().copied().collect()
     }
 
-    #[cfg(test)]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.bytes.len()
+    }
+
+    /// Copy at most `maximum` retained bytes after a ring-relative offset.
+    /// The caller owns the absolute stream cursor and first proves that the
+    /// requested cursor is inside the retained window.
+    pub(crate) fn copy_from(&self, offset: usize, maximum: usize) -> Vec<u8> {
+        self.bytes
+            .iter()
+            .skip(offset.min(self.bytes.len()))
+            .take(maximum)
+            .copied()
+            .collect()
     }
 }
 
@@ -153,5 +164,15 @@ mod tests {
         ring.extend(b"secret");
         assert_eq!(ring.len(), 0);
         assert!(ring.to_vec().is_empty());
+    }
+
+    #[test]
+    fn byte_ring_copies_a_bounded_logical_suffix() {
+        let mut ring = BoundedByteRing::new(5);
+        ring.extend(b"abcdef");
+        assert_eq!(ring.to_vec(), b"bcdef");
+        assert_eq!(ring.copy_from(1, 2), b"cd");
+        assert_eq!(ring.copy_from(4, 8), b"f");
+        assert!(ring.copy_from(5, 8).is_empty());
     }
 }

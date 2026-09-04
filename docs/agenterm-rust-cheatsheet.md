@@ -3604,3 +3604,15 @@ mechanism: on Windows it requires an opened handle through the platform
 accessors are unstable. Never substitute a canonical path for object identity.
 When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
 and native ids as decimal strings so binary64 cannot round them.
+
+## Keep screen, event, and raw terminal cursors distinct
+
+A terminal screen snapshot, a UI event-journal cursor, and a raw PTY byte
+cursor answer different questions. Do not label rendered text or an event
+sequence as incremental process output. For raw continuation, pair a cumulative
+byte count with one bounded retention ring: `earliest = current - retained_len`.
+A cursor below earliest is a typed retention gap; one above current is a typed
+future cursor. Return exact bytes (base64 at JSON boundaries), add UTF-8 only
+when the whole page validates, and advance `next_cursor` by bytes actually
+returned. Reuse the terminal owner's redacted ring instead of adding a second
+cache with a different lifetime or secrecy contract.

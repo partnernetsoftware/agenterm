@@ -173,6 +173,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "terminal-close",
         "terminal-snapshot",
         "terminal-events",
+        "terminal-output",
     ];
     let mut missing = verbs::VERBS
         .iter()
@@ -207,7 +208,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  terminal-new  terminal-close (actuate);  terminal-snapshot  terminal-events (observe)"
+            "  terminal-new  terminal-close (actuate);  terminal-snapshot  terminal-events  terminal-output (observe)"
                 .to_owned(),
         );
     }
