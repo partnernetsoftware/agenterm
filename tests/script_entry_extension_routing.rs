@@ -102,6 +102,34 @@ fn a_qjs_entry_runs_on_qjswasm_without_being_told_to() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Source defects have one public failure class whether the compiler rejects
+/// syntax or the running engine rejects a method outside its subset. Calling
+/// either `configuration` sends the author to repair the invocation instead
+/// of the script and disagrees with the bounded check-many route.
+#[cfg(feature = "script-qjswasm")]
+#[test]
+fn qjs_source_failures_are_script_failures_through_the_public_cli() {
+    let _slot = cli_slot();
+    let dir =
+        std::env::temp_dir().join(format!("agenterm-qjs-failure-class-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    for (name, source) in [
+        ("syntax.qjs", "return @;"),
+        ("method.qjs", "return \"x\".trimStart();"),
+    ] {
+        let path = write(&dir, name, source);
+        let (stdout, stderr, code) = run_script(&path, None);
+        assert_eq!(code, 1, "{name}: stdout={stdout} stderr={stderr}");
+        assert!(
+            stderr.contains("\"exit_class\":\"script\""),
+            "{name}: stdout={stdout} stderr={stderr}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// An explicit backend beats the extension, in the direction that matters.
 ///
 /// This is the half that keeps the repair from being the same defect pointed

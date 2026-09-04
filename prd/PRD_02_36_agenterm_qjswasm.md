@@ -184,6 +184,9 @@ second route around ACU/AgenTerm product contracts.
 - [x] active qjswasm runtime executes `.qjs` check/run and expression eval.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
+- [x] syntax/compiler refusals and unsupported source methods use the same
+  public `script` failure class through direct run, task run, and check-many;
+  loader, signature, and host-door setup failures remain `configuration`.
 - [x] qjswasm tool profile executes bounded child processes with typed failures.
 - [x] child-process wait and incremental-read limits reject negative values
   before consuming or mutating the owned handle. A negative timeout is not an

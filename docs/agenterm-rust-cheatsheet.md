@@ -3349,6 +3349,14 @@ all tests and secondary binaries for string-only operations (`contains`,
 --all-features -- -D warnings`. A normal library build can miss those consumers
 because feature-gated integration tests are separate compilation targets.
 
+Classify a Script failure by who can repair it, and keep that class identical
+across single-file run, task run, and check-many. Syntax/compiler errors and
+unsupported source-language methods are `script`: the author changes source.
+Artifact load, signature, ABI, or host-door setup errors are `configuration`:
+the caller changes the invocation or installation. Test both a compiler refusal
+and a post-compile unsupported method through the public CLI; an engine-only
+unit test cannot prove the worker preserved the category.
+
 ## Keep native window facts separate from screenshot documents
 
 Cross-platform GUI tests must not infer native window identity, title, presence,

@@ -311,9 +311,10 @@ fn _assert_object_safe(_backend: &dyn ScriptEngineBackend) {}
 /// The one seam where a qjswasm failure keeps its class. `Budget` is the
 /// engine refusing to spend more (steps, pages, depth): a `Limit`, and the
 /// fix is a `--max-*` flag. An uncaught `throw` or a guest trap is the
-/// script's own doing: a `Script`. Everything else (compile, load, door,
-/// signature) is the invocation being set up wrong: `Configuration`, which is
-/// what every one of these used to say.
+/// script's own doing: a `Script`. Source compilation and unsupported source
+/// methods are also `Script`: the author must change the program, and
+/// `check-many` already reports that same class. Load, door, and signature
+/// failures remain invocation `Configuration` errors.
 fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError {
     use agenterm_qjswasm::QjswasmError as E;
     let category = match &error {
@@ -321,6 +322,8 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
         E::Cancelled => ScriptFailureCategory::Cancelled,
         E::UncaughtThrow(_)
         | E::Trap(_)
+        | E::Compile(_)
+        | E::UnsupportedMethod(_)
         | E::HostArgument(_)
         | E::PropertyOfNonObject(_)
         | E::NotAFunction(_)
@@ -335,6 +338,16 @@ fn qjs_engine_error(error: agenterm_qjswasm::QjswasmError) -> ScriptEngineError 
     ScriptEngineError {
         message: error.to_string(),
         category,
+        stdout: String::new(),
+        cost: None,
+    }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_compile_error(error: agenterm_qjswasm::CompileError) -> ScriptEngineError {
+    ScriptEngineError {
+        message: error.to_string(),
+        category: ScriptFailureCategory::Script,
         stdout: String::new(),
         cost: None,
     }
@@ -944,7 +957,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `import` would refuse working scripts, which is the failure the door
         // declaration comment above this impl already records for host names.
         let resolve = qjs_module_resolver(&qjs_roots(_options));
-        let wasm = compile_qjs_for(_options, source, &resolve).map_err(|e| e.to_string())?;
+        let wasm = compile_qjs_for(_options, source, &resolve).map_err(qjs_compile_error)?;
         // The validator has to know the door too, or `check` refuses bytes
         // `execute` would run: a tool script's `tool.*` imports are exactly
         // what a sandbox validator exists to reject.
@@ -993,7 +1006,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // engine's. A script with no `import` never calls it and compiles to
         // the same bytes either way.
         let resolve = qjs_module_resolver(&qjs_roots(options));
-        let wasm = compile_qjs_for(options, source, &resolve).map_err(|e| e.to_string())?;
+        let wasm = compile_qjs_for(options, source, &resolve).map_err(qjs_compile_error)?;
         // Built after the door is known: a sandbox engine refuses tool bytes
         // at load time, so this is the one place the two have to agree.
         let mut engine = if options.tool_door {
@@ -1695,6 +1708,23 @@ mod tests {
             engine.execute(source, &options, None).is_err(),
             "execute must refuse what check refused"
         );
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn qjswasm_source_failures_have_the_script_category_at_both_public_engine_paths() {
+        let engine = QjswasmEngineBackend;
+        let options = ScriptInvocationOptions::default();
+
+        let syntax = engine
+            .check("return @;", &options)
+            .expect_err("invalid source must fail check");
+        assert_eq!(syntax.category, ScriptFailureCategory::Script);
+
+        let unsupported = engine
+            .execute("return \"x\".trimStart();", &options, None)
+            .expect_err("an unsupported source method must fail execution");
+        assert_eq!(unsupported.category, ScriptFailureCategory::Script);
     }
 
     // ── the retired adapter's tests ──────────────────────────────────
