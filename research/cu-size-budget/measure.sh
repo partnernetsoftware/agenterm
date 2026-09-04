@@ -5,8 +5,8 @@ set -euo pipefail
 
 variant="${1:-}"
 case "$variant" in
-  thin|fat) ;;
-  *) echo "usage: research/cu-size-budget/measure.sh thin|fat" >&2; exit 2 ;;
+  thin|fat|cold0|cold16|cold32) ;;
+  *) echo "usage: research/cu-size-budget/measure.sh thin|fat|cold0|cold16|cold32" >&2; exit 2 ;;
 esac
 
 repo="$(git rev-parse --show-toplevel)"
@@ -19,9 +19,14 @@ fi
 target="x86_64-pc-windows-msvc"
 binary="target/$target/release/agenterm-cu.exe"
 build=(cargo xwin build --locked -p agenterm-cu --bin agenterm-cu --release --target "$target")
-if [ "$variant" = fat ]; then
+if [ "$variant" != thin ]; then
   build+=(--config 'profile.release.lto="fat"')
 fi
+case "$variant" in
+  cold0) export AGENTERM_CU_SIZE_COURT=1 AGENTERM_CU_SIZE_COLD_ROWS=0 ;;
+  cold16) export AGENTERM_CU_SIZE_COURT=1 AGENTERM_CU_SIZE_COLD_ROWS=16 ;;
+  cold32) export AGENTERM_CU_SIZE_COURT=1 AGENTERM_CU_SIZE_COLD_ROWS=32 ;;
+esac
 
 # Keep dependency caches but force the owning package through codegen/link so
 # elapsed time is not Cargo's no-op freshness check.
@@ -51,6 +56,7 @@ print(json.dumps({
     "build": "release opt-level=z codegen-units=1 panic=abort strip=true",
     "target": "x86_64-pc-windows-msvc",
     "execution": "byte-measurement-only",
+    "synthetic_cold_rows": int(sys.argv[1][4:]) if sys.argv[1].startswith("cold") else None,
     "bytes": int(sys.argv[3]),
     "budget_bytes": 2_097_152,
     "budget_delta_bytes": int(sys.argv[3]) - 2_097_152,

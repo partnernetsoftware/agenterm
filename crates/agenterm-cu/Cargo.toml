@@ -11,11 +11,14 @@ repository = "https://github.com/partnernetsoftware/agenterm"
 # build.rs runs on the host. Keep this unconditional so macOS/Linux
 # cross-builds can compile the Windows target's VERSIONINFO.
 winresource = "0.1"
+miniz_oxide = "0.8"
+serde_json = "1"
 
 [dependencies]
 agenterm-control-client = { path = "../agenterm-control-client" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+miniz_oxide = "0.8"
 # `agenterm-cu` loads desktop mechanisms from libagenterm at run time
 # (dlopen / LoadLibrary) through the shared `crate::dynlib` boundary. The
 # narrow static platform dependency below owns the cross-process grant-store

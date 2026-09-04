@@ -2,57 +2,12 @@
 //! verb table, so the scannable list, the per-verb reference and the JSON
 //! surface cannot drift apart.
 
-use std::fmt::Write as _;
 use std::io::IsTerminal;
 
 use agenterm_cu::CuReply;
 
-use super::verbs::{self, Family, Scope, VerbSpec};
+use super::verbs::{self, VerbSpec};
 use super::{help_reply, usage_err};
-
-const USAGE_HEAD: &str = r"usage: agenterm-cu --target <current|ssh|vnc|rdp> [--grant observe,actuate] <command> [args...]
-       agenterm-cu --ssh <user@host> [--ssh-port N] [--ssh-identity PATH] [--ssh-cu PATH]
-                   [--ssh-env KEY=VAL]... [--grant observe,actuate] <command> [args...]
-       agenterm-cu --vnc <host[:port]> [--vnc-port N] [--vnc-cu PATH]
-                   [--vnc-env KEY=VAL]... [--grant observe,actuate] <command> [args...]
-       agenterm-cu --rdp <host[:port]> [--grant observe,actuate] <command> [args...]
-       agenterm-cu exec [--grant observe,actuate] --json '<command-json>' | --json -
-       agenterm-cu grant create|list|revoke ...     bounded persisted grants (help grant)
-       agenterm-cu host | hotkeys                   desktop menu and global shortcuts
-       agenterm-cu help <verb> | <verb> --help      one verb's full reference
-       agenterm-cu verbs [--json]                   the verb table (JSON when piped)
-
-Global flags:
-  --target current|ssh|vnc|rdp  explicit target reference (required unless --ssh/--vnc/--rdp)
-  --ssh <user@host>         ssh target destination (implies --target ssh; or AGENTERM_CU_SSH)
-  --ssh-port N              OpenSSH -p (or AGENTERM_CU_SSH_PORT)
-  --ssh-identity PATH       OpenSSH -i (or AGENTERM_CU_SSH_IDENTITY)
-  --ssh-cu PATH             remote agenterm-cu path (or AGENTERM_CU_SSH_CU; default: this exe)
-  --ssh-env KEY=VAL         remote env for the worker (repeatable; also AGENTERM_CU_SSH_ENV)
-  --vnc <host[:port]>       vnc/RFB endpoint (implies --target vnc; or AGENTERM_CU_VNC)
-  --vnc-port N              RFB TCP port when --vnc omits :port (or AGENTERM_CU_VNC_PORT; default 5900)
-  --vnc-cu PATH             session worker agenterm-cu path (or AGENTERM_CU_VNC_CU; default: this exe)
-  --vnc-env KEY=VAL         session env for the worker (repeatable; also AGENTERM_CU_VNC_ENV)
-  --rdp <host[:port]>       rdp endpoint syntax only (implies --target rdp; PLACEHOLDER --
-                            no connect / TLS / CredSSP; always rdp_unavailable)
-  --grant observe,actuate   strict authorization scopes; CLI wins over
-                            AGENTERM_CU_GRANT and sources never union
-  --grant-id ID             bounded persisted current-target grant selector;
-                            mutually exclusive with every other auth source
-  --grant-store PATH        explicit store override; valid only with --grant-id
-
-Transports: ssh and vnc run the same verbs on an agenterm-cu --target current
-  worker (OpenSSH stdio / the shared RFB session); rdp parses, authorizes and
-  fails closed with rdp_unavailable. `help ssh|vnc|rdp` carry the evidence notes.
-
-Commands  (scope = required --grant; `help <verb>` prints arguments and behaviour)
-";
-
-const FOOTER: &str = r#"
-MCU-aligned verbs with no mechanism here (pty, simulator, drag, ...) answer typed
-unsupported, never unknown; `capabilities` lists them per target.
-All replies are JSON on stdout: {"ok":bool,"target":..,"command":..,"data":..,"error":..}
-"#;
 
 /// Topics that are not verbs but deserve the long transport prose.
 const TOPICS: &[(&str, &str)] = &[
@@ -98,47 +53,9 @@ Live RDP session + UIA-over-RDP evidence is not claimed on this cut.
     ),
 ];
 
-const NAME_COLUMN: usize = 36;
-
-fn spelled_with_aliases(spec: &VerbSpec) -> String {
-    if spec.aliases.is_empty() {
-        spec.name.to_owned()
-    } else {
-        format!("{} ({})", spec.name, spec.aliases.join(", "))
-    }
-}
-
 /// The grouped, one-line-per-verb list behind `--help`.
 pub fn top_level_text() -> String {
-    let mut out = String::from(USAGE_HEAD);
-    for family in Family::ALL {
-        let _ = writeln!(out, "\n{}", family.header());
-        for spec in verbs::by_family(family) {
-            let spelled = spelled_with_aliases(spec);
-            if spelled.len() + 2 >= NAME_COLUMN {
-                let _ = writeln!(out, "  {spelled}");
-                let _ = writeln!(
-                    out,
-                    "{:width$}{:<9}{}",
-                    "",
-                    spec.scope.as_str(),
-                    spec.summary,
-                    width = NAME_COLUMN
-                );
-            } else {
-                let _ = writeln!(
-                    out,
-                    "  {:<width$}{:<9}{}",
-                    spelled,
-                    spec.scope.as_str(),
-                    spec.summary,
-                    width = NAME_COLUMN - 2
-                );
-            }
-        }
-    }
-    out.push_str(FOOTER);
-    out
+    verbs::cold_text("top_level_text").to_owned()
 }
 
 pub fn eprint_top_level() {
@@ -147,57 +64,7 @@ pub fn eprint_top_level() {
 
 /// One verb's full reference: spellings, scope, usage, arguments, prose.
 pub fn verb_text(spec: &VerbSpec) -> String {
-    let mut out = String::new();
-    let _ = write!(out, "agenterm-cu {}", spec.name);
-    if !spec.aliases.is_empty() {
-        let _ = write!(out, "    (also: {})", spec.aliases.join(", "));
-    }
-    out.push('\n');
-    let _ = write!(
-        out,
-        "  scope: {:<10} family: {}",
-        spec.scope.as_str(),
-        spec.family.header()
-    );
-    if spec.command != spec.name {
-        let _ = write!(out, "    reply.command: {}", spec.command);
-    }
-    out.push_str("\n\n");
-    match spec.scope {
-        Scope::Unscoped => {
-            out.push_str("usage:\n");
-            for line in spec.usage.lines() {
-                let _ = writeln!(out, "  agenterm-cu {line}");
-            }
-        }
-        Scope::Observe | Scope::Actuate => {
-            let _ = writeln!(
-                out,
-                "usage (after the global flags, e.g. agenterm-cu --target current --grant {}):",
-                spec.scope.as_str()
-            );
-            for line in spec.usage.lines() {
-                let _ = writeln!(out, "  {line}");
-            }
-        }
-    }
-    if !spec.args.is_empty() {
-        out.push_str("\narguments:\n");
-        for arg in spec.args {
-            let head = if arg.value.is_empty() {
-                arg.flag.to_owned()
-            } else {
-                format!("{} {}", arg.flag, arg.value)
-            };
-            let _ = writeln!(out, "  {head:<30}{}", arg.help);
-        }
-    }
-    if !spec.details.is_empty() {
-        out.push('\n');
-        out.push_str(spec.details.trim_end());
-        out.push('\n');
-    }
-    out
+    verbs::cold_help(spec.name).to_owned()
 }
 
 /// `help [name…]`: the grouped list, one verb, one transport topic, or a
@@ -265,26 +132,11 @@ pub fn run_verbs(args: &[String]) -> Result<String, Box<CuReply>> {
 }
 
 pub fn verbs_json() -> String {
-    serde_json::to_string_pretty(&verbs::table_json()).unwrap_or_else(|_| "[]".into())
+    verbs::cold_verbs_json()
 }
 
 pub fn verbs_text() -> String {
-    let mut out = format!(
-        "{:<22}{:<32}{:<9}{:<14}{}\n",
-        "NAME", "ALIASES", "SCOPE", "FAMILY", "SUMMARY"
-    );
-    for spec in verbs::VERBS {
-        let _ = writeln!(
-            out,
-            "{:<22}{:<32}{:<9}{:<14}{}",
-            spec.name,
-            spec.aliases.join(", "),
-            spec.scope.as_str(),
-            spec.family.id(),
-            spec.summary
-        );
-    }
-    out
+    verbs::cold_text("verbs_text").to_owned()
 }
 
 #[cfg(test)]
@@ -296,8 +148,21 @@ mod tests {
         let text = top_level_text();
         let lines = text.lines().count();
         assert!(lines <= 160, "--help is {lines} lines; keep it under 160");
-        for family in Family::ALL {
-            assert!(text.contains(family.header()), "{family:?} header missing");
+        for header in [
+            "System & permissions",
+            "Windows & apps",
+            "Processes",
+            "Network",
+            "AgenTerm terminals",
+            "Accessibility: observe",
+            "Accessibility: actuate",
+            "Browser page & tabs",
+            "Clipboard",
+            "Window placement",
+            "Transports",
+            "Grants, host & help",
+        ] {
+            assert!(text.contains(header), "{header:?} missing");
         }
         for spec in verbs::VERBS {
             assert!(
@@ -317,8 +182,12 @@ mod tests {
             let text = verb_text(spec);
             assert!(text.starts_with(&format!("agenterm-cu {}", spec.name)));
             assert!(text.contains("usage"), "{}", spec.name);
-            for arg in spec.args {
-                assert!(text.contains(arg.flag), "{}: {}", spec.name, arg.flag);
+            for arg in verbs::cold_verb(spec.name)["args"]
+                .as_array()
+                .expect("args")
+            {
+                let flag = arg["flag"].as_str().expect("flag");
+                assert!(text.contains(flag), "{}: {}", spec.name, flag);
             }
         }
     }
@@ -373,8 +242,8 @@ mod tests {
     #[test]
     fn verbs_json_round_trips_and_text_lists_every_verb() {
         let json = verbs_json();
-        let rows: Vec<verbs::VerbJson> = serde_json::from_str(&json).expect("parse");
-        assert_eq!(rows, verbs::table_json());
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&json).expect("parse");
+        assert_eq!(rows.as_slice(), verbs::cold_verbs());
         let text = verbs_text();
         for spec in verbs::VERBS {
             assert!(text.lines().any(|line| line.starts_with(spec.name)));

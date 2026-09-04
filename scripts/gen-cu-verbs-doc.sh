@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Generate docs/agenterm-cu-verbs.md from the binary's own verb table.
-# Source of truth: `agenterm-cu verbs --json` (name, aliases, scope, family,
-# summary, usage) plus `agenterm-cu help <verb>` for the reference prose.
+# Generate docs/agenterm-cu-verbs.md from the binary's validated projection of
+# `crates/agenterm-cu/src/bin/cli/verbs-catalog.json`.
 # Run from the repository root after `cargo build -p agenterm-cu --bin agenterm-cu`.
 set -euo pipefail
 CU=${AGENTERM_CU:-agenterm-cu}

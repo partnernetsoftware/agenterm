@@ -1663,7 +1663,12 @@ mod surface_tests {
                     argv.extend(argv_for(spec.name));
                 }
                 let reply = run(&argv);
-                assert_eq!(reply.command, spec.command, "{alias} -> {}", spec.name);
+                assert_eq!(
+                    reply.command,
+                    verbs::cold_verb(spec.name)["command"],
+                    "{alias} -> {}",
+                    spec.name
+                );
                 assert_ne!(
                     reply.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
                     "usage",
@@ -1677,7 +1682,7 @@ mod surface_tests {
     #[test]
     fn placement_shorthands_answer_as_window_place() {
         for spec in verbs::by_family(verbs::Family::Placement) {
-            if spec.command == spec.name {
+            if verbs::cold_verb(spec.name)["command"] == spec.name {
                 continue;
             }
             let mut argv = vec!["--target", "current", "--grant", "actuate", spec.name, "1"];
@@ -1702,8 +1707,8 @@ mod surface_tests {
     #[test]
     fn verbs_json_round_trips_through_the_cli_surface() {
         let text = cli::help::run_verbs(&["--json".to_owned()]).expect("json");
-        let rows: Vec<verbs::VerbJson> = serde_json::from_str(&text).expect("parse");
-        assert_eq!(rows, verbs::table_json());
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&text).expect("parse");
+        assert_eq!(rows.as_slice(), verbs::cold_verbs());
         assert_eq!(rows.len(), verbs::VERBS.len());
     }
 
