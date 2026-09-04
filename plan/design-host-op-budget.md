@@ -258,7 +258,13 @@ wake-smoke 的 1.8M 全在 `array_has(client_waited, client)`——它在轮询�
    于是 `while (i < s.length) { … s.charCodeAt(i) … }` 是**二次**的——这正是 `only_chars` 用
    `replaceAll` 删字符比按位置走便宜 2–9× 的原因（§8）。
 
-**下一刀（已交下一轮）**：把字符串的形状记进记录——首次计算后缓存码元长度，并记一位「全 ASCII」；
-之后 `.length` 是 O(1)、全 ASCII 串的 `charCodeAt(i)`/`s[i]` 是 O(1)。记录布局改一次，
-`repr`/`runtime` 内部，门控之外的程序不受影响。
+**实验判决（2026-09-04）**：缓存码元长度 + 全 ASCII 位确实把斜率压平：
+`charCodeAt(999)` 5,560→82，`s[999]` 5,625→164，全 1,000 位遍历
+3,009,139→228,053；但重复 `.length` 的常数成本是 166 steps/call，超过
+事前冻结的 160 硬门。按决策树判 **reject**，实现已完整回滚，不能因为只差
+6 steps 就事后改门。完整表在 tinyvm `plan/design-string-record-metadata-experiment.md`
+（evidence commit `0a43271`）；本仓 engine pin 仍为 `028a914`。
 
+**下一刀**：另立实验，专门分解并削掉 generic member-access/lowering 的至少
+6 steps 固定成本，再重新评估记录布局。新实验仍须事前冻结兼容、steps、wasm
+体积和峰值页门，不从这次未通过的 candidate 直接挑选提交。

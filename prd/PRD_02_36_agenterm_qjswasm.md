@@ -42,8 +42,9 @@ agenterm-qjswasm
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  └─ [x] invocation-owned cleanup; no cross-run global backend state
 ├─ upstream performance frontier
-│  ├─ [~] measure host-op and string/JSON cost before changing limits
-│  ├─ [ ] cached code-unit length + all-ASCII bit if decisive evidence wins
+│  ├─ [x] host-op and string/JSON cost measured before changing limits
+│  ├─ [x] cached-length/all-ASCII experiment rejected: 166 > 160-step hard gate
+│  ├─ [ ] isolate and remove the remaining generic member-dispatch overhead
 │  └─ [-] never raise a product gate merely to hide engine cost
 └─ non-goals
    ├─ no Node.js / browser-global compatibility promise
@@ -66,12 +67,18 @@ flowchart LR
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
   UP["tinyvm repository<br/>generic engine write knife"]
   REJECT["reject load/call<br/>host survives"]
+  PERF["precommitted performance court"]
+  ROLLBACK["gate miss → rollback<br/>retain evidence only"]
+  NEXT["new hypothesis:<br/>member-dispatch overhead"]
 
   SRC --> COMP --> WASM --> LOAD
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
   LOAD -->|no| REJECT
   SLOT -. budget / throw / host error .-> REJECT
+  COMP -. measured candidate .-> PERF
+  PERF -->|all frozen gates pass| UP
+  PERF -->|166 > 160| ROLLBACK --> NEXT
 ```
 
 ## Invariants
@@ -85,6 +92,8 @@ flowchart LR
   only its pin and product integration.
 - Both upstream crates use the same exact revision and are never vendored.
 - A pin bump, PRD pin line and lockfile identity change in one coherent commit.
+- Performance gates are precommitted. A near miss is recorded and rolled back,
+  not converted into a pass by moving its threshold after measurement.
 
 ## Current acceptance
 
