@@ -306,6 +306,11 @@ pub enum Command {
         target: TargetRef,
         pid: u32,
     },
+    /// One cumulative resource sample for an exact, identity-bound process.
+    ProcessUsage {
+        target: TargetRef,
+        pid: u32,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -1314,6 +1319,7 @@ impl Command {
             Self::Apps { .. } => "apps".into(),
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
+            Self::ProcessUsage { .. } => "process-usage".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -1384,6 +1390,7 @@ impl Command {
             | Self::Apps { target, .. }
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
+            | Self::ProcessUsage { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -1527,6 +1534,24 @@ mod tests {
             serde_json::json!({
                 "verb": "process-state",
                 "target": "vnc",
+                "pid": 42,
+            })
+        );
+    }
+
+    #[test]
+    fn process_usage_is_observe_only_and_has_a_closed_remote_wire_shape() {
+        let command = Command::ProcessUsage {
+            target: TargetRef::Ssh,
+            pid: 42,
+        };
+        assert_eq!(command.verb(), "process-usage");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-usage",
+                "target": "ssh",
                 "pid": 42,
             })
         );

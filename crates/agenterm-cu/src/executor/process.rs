@@ -40,6 +40,64 @@ pub(super) fn process_state_payload(pid: u32) -> Result<Value, CuError> {
     }))
 }
 
+fn live_start_identity(pid: u32) -> Result<String, CuError> {
+    match agenterm_platform::process_observation::observe(pid) {
+        agenterm_platform::process_observation::ProcessObservation::Live {
+            start_identity: Some(identity),
+        } => Ok(identity),
+        agenterm_platform::process_observation::ProcessObservation::Live {
+            start_identity: None,
+        } => Err(CuError::new(
+            "process_identity_unavailable",
+            "process is live but its start identity is unavailable",
+        )),
+        agenterm_platform::process_observation::ProcessObservation::Dead { reason } => {
+            Err(CuError::new("process_not_found", reason))
+        }
+        agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+            Err(CuError::new("process_identity_unknown", reason))
+        }
+        _ => Err(CuError::new(
+            "process_identity_unknown",
+            "process observation variant is unsupported",
+        )),
+    }
+}
+
+pub(super) fn process_usage_payload(pid: u32) -> Result<Value, CuError> {
+    if pid == 0 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-usage --pid must be greater than zero",
+        ));
+    }
+    let identity = live_start_identity(pid)?;
+    let sample = agenterm_platform::process_metrics::metrics(pid).map_err(|error| {
+        CuError::new("process_metrics_failed", error.to_string()).with_detail(json!({
+            "kind": format!("{:?}", error.kind()),
+        }))
+    })?;
+    let after_identity = live_start_identity(pid)?;
+    if after_identity != identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed while metrics were sampled",
+        ));
+    }
+    Ok(json!({
+        "pid": pid,
+        "start_identity": identity,
+        "cpu_time_ns": sample.cpu_time.as_nanos().to_string(),
+        "resident_bytes": sample.resident_bytes.to_string(),
+        "page_faults": {
+            "total": sample.page_faults.total.to_string(),
+            "soft": sample.page_faults.soft.map(|value| value.to_string()),
+            "hard": sample.page_faults.hard.map(|value| value.to_string()),
+        },
+        "verified": true,
+    }))
+}
+
 pub(super) fn process_list_payload(
     pid: Option<u32>,
     parent: Option<u32>,
@@ -127,6 +185,18 @@ mod tests {
     fn process_state_rejects_pid_zero() {
         let error = process_state_payload(0).expect_err("zero");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn current_process_usage_is_identity_bound_and_uses_lossless_counters() {
+        let pid = std::process::id();
+        let value = process_usage_payload(pid).expect("usage");
+        assert_eq!(value["pid"], pid);
+        assert_eq!(value["verified"], true);
+        for path in ["cpu_time_ns", "resident_bytes"] {
+            assert!(value[path].as_str().is_some_and(|value| !value.is_empty()));
+        }
+        assert!(value["page_faults"]["total"].as_str().is_some());
     }
 
     #[test]

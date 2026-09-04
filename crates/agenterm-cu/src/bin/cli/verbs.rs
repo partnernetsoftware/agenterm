@@ -521,6 +521,24 @@ Unknown is fail-closed and never means dead. Future mutation commands must bind
 their target to this identity rather than trusting a reusable pid alone."#,
     },
     VerbSpec {
+        name: "process-usage",
+        command: "process-usage",
+        aliases: &["process usage"],
+        scope: Scope::Observe,
+        family: Family::Process,
+        summary: "sample identity-bound cumulative CPU, memory and page faults",
+        usage: "process-usage --pid N\nprocess usage --pid N",
+        args: &[ArgSpec {
+            flag: "--pid",
+            value: "N",
+            help: "positive process id to sample",
+        }],
+        details: r#"Reads one cumulative resource sample between two matching process-start
+identity observations. CPU nanoseconds, resident bytes and page-fault counters
+are decimal strings so JSON/JavaScript consumers cannot lose u64 precision.
+Streaming rates and richer I/O counters remain explicit migration gaps."#,
+    },
+    VerbSpec {
         name: "app",
         command: "app",
         aliases: &["launch", "quit", "hide", "show"],

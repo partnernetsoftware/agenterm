@@ -95,8 +95,8 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
 - The transitional `acu.ts` adapter now keeps **32 top-level spellings** on
-  MCU. Its 94-name pass-through set is not a parity count: it mixes MCU
-  spellings, ACU-native spellings and group aliases. The adapter's 44 green
+  MCU. Its 95-name pass-through set is not a parity count: it mixes MCU
+  spellings, ACU-native spellings and group aliases. The adapter's 45 green
   tests prove lossless argv routing and honest refusal only; they do not prove
   native post-state or platform parity.
 - The 32 current stays split into four implementation queues:
@@ -141,6 +141,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   `verified=false` for unknown evidence. The compatibility router maps MCU
   `process state N` to this facade. This identity is a prerequisite for later
   signal/kill operations; a reusable PID alone is never sufficient.
+- `process-usage --pid N` adds a one-shot cumulative CPU, resident-memory and
+  page-fault sample. It reads the start identity before and after the sample,
+  fails if they differ, and encodes wide counters as decimal strings so a
+  JavaScript/qjswasm consumer cannot silently round them. MCU `process usage N`
+  now routes here when no richer watch/privilege shape was requested.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -180,6 +185,7 @@ Q2 fast delegated facades
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only
+   ├─ [x] process-usage: identity-bound CPU/memory/fault sample, lossless counters
    └─ [ ] rich filters, process detail, exec, identity-bound signal and lifecycle
 Q3 owned runtime facades
 ├─ [ ] PTY/job/daemon/session/lock/audit/service

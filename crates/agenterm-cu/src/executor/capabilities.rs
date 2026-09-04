@@ -213,6 +213,23 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         declaration
     };
     let permissions = permissions_declaration();
+    let process_state_verb = serde_json::json!({
+        "status": "available",
+        "group": "process",
+        "mode": "agenterm-platform-process-observation",
+        "grant": "observe",
+        "fields": ["pid", "state", "start_identity", "reason", "verified"],
+        "states": ["live", "dead", "unknown"],
+    });
+    let process_usage_verb = serde_json::json!({
+        "status": "available",
+        "group": "process",
+        "mode": "agenterm-platform-process-metrics",
+        "grant": "observe",
+        "identity_bound": true,
+        "counter_encoding": "decimal-string",
+        "fields": ["cpu_time_ns", "resident_bytes", "page_faults"],
+    });
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -257,14 +274,6 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "fields": ["pid", "parent_pid", "executable_name"],
                 "filters": ["pid", "parent", "name", "offset", "max"],
                 "migration_gaps": ["app", "command", "cpu", "memory", "files", "ports"],
-            },
-            "process-state": {
-                "status": "available",
-                "group": "process",
-                "mode": "agenterm-platform-process-observation",
-                "grant": "observe",
-                "fields": ["pid", "state", "start_identity", "reason", "verified"],
-                "states": ["live", "dead", "unknown"],
             },
             "tree": tree_verb,
             "query": tree_verb,
@@ -355,6 +364,8 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     // literal above: `serde_json::json!` is one recursive macro expansion
     // and the literal is already at the expander's depth limit.
     if let Some(verbs) = payload["verbs"].as_object_mut() {
+        verbs.insert("process-state".into(), process_state_verb);
+        verbs.insert("process-usage".into(), process_usage_verb);
         // `raise` is the window-op mechanism the same way `orderwin` is.
         verbs.insert(
             "raise".into(),

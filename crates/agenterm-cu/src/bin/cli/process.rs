@@ -13,22 +13,33 @@ pub fn parse(
     match spec.name {
         "ps" => ps(target, args),
         "process-state" => process_state(target, args),
+        "process-usage" => process_usage(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
 }
 
-fn process_state(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let pid = flag_parsed::<u32>(args, "--pid")?
-        .ok_or_else(|| "process-state requires --pid N".to_owned())?;
+fn process_usage(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = required_positive_pid(args, "process-usage")?;
+    Ok(Command::ProcessUsage { target, pid })
+}
+
+fn required_positive_pid(args: &mut Vec<String>, command: &str) -> Result<u32, String> {
+    let pid =
+        flag_parsed::<u32>(args, "--pid")?.ok_or_else(|| format!("{command} requires --pid N"))?;
     if pid == 0 {
-        return Err("process-state --pid must be greater than zero".into());
+        return Err(format!("{command} --pid must be greater than zero"));
     }
     if !args.is_empty() {
         return Err(format!(
-            "process-state accepts only --pid N; unexpected {:?}",
+            "{command} accepts only --pid N; unexpected {:?}",
             args[0]
         ));
     }
+    Ok(pid)
+}
+
+fn process_state(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = required_positive_pid(args, "process-state")?;
     Ok(Command::ProcessState { target, pid })
 }
 
@@ -114,5 +125,18 @@ mod tests {
                 .expect_err("missing")
                 .contains("requires --pid")
         );
+    }
+
+    #[test]
+    fn process_usage_parses_the_same_closed_pid_shape() {
+        let spec = verbs::lookup("process-usage").expect("process-usage verb");
+        let mut args = vec!["--pid".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, TargetRef::Ssh, &mut args).expect("parse"),
+            Command::ProcessUsage {
+                target: TargetRef::Ssh,
+                pid: 42,
+            }
+        ));
     }
 }

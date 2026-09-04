@@ -59,6 +59,7 @@ impl Executor {
                 ..
             } => process_list_payload(*pid, *parent, name.as_deref(), *offset, *max),
             Command::ProcessState { pid, .. } => process_state_payload(*pid),
+            Command::ProcessUsage { pid, .. } => process_usage_payload(*pid),
             Command::Tree {
                 window,
                 depth,
