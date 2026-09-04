@@ -131,6 +131,11 @@ impl Slot {
         let peak_call_depth = self.instance.last_peak_call_depth();
         let peak_activation_slots = self.instance.last_peak_activation_slots();
         let heap_pages = self.instance.memory_pages();
+        let heap_bytes = if result.is_ok() {
+            self.allocation_waterline()?
+        } else {
+            None
+        };
 
         // Drain stdout unconditionally, including on the error paths below.
         //
@@ -168,6 +173,7 @@ impl Slot {
                     host_bytes,
                     waited_ms,
                     heap_pages,
+                    heap_bytes: None,
                 });
                 return Err(self.explain(fault));
             }
@@ -196,6 +202,7 @@ impl Slot {
             host_bytes,
             waited_ms,
             heap_pages,
+            heap_bytes,
         })
     }
 

@@ -199,6 +199,10 @@ pub struct ScriptCost {
     /// `AGENTERM_QJS_MAX_MEMORY_PAGES` bounds.
     #[serde(default)]
     pub heap_pages: usize,
+    /// Exact qjs bump waterline in bytes when allocation attribution was
+    /// explicitly enabled; omitted for ordinary runs and other engines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heap_bytes: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1200,6 +1204,27 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+
+    fn cost(heap_bytes: Option<usize>) -> ScriptCost {
+        ScriptCost {
+            steps: 1,
+            peak_call_depth: 2,
+            peak_activation_slots: 3,
+            host_ops: 4,
+            host_bytes: 5,
+            waited_ms: 6,
+            heap_pages: 7,
+            heap_bytes,
+        }
+    }
+
+    #[test]
+    fn allocation_waterline_is_absent_unless_the_probe_ran() {
+        let ordinary = serde_json::to_value(cost(None)).expect("serializes");
+        assert!(ordinary.get("heap_bytes").is_none());
+        let diagnostic = serde_json::to_value(cost(Some(680))).expect("serializes");
+        assert_eq!(diagnostic.get("heap_bytes"), Some(&Value::from(680)));
+    }
 
     fn cancel_frame(frame_id: &str, invocation_id: &str) -> ScriptFrame {
         ScriptFrame {

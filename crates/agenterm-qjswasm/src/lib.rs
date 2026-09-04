@@ -620,6 +620,9 @@ pub struct Cost {
     pub host_bytes: u64,
     pub waited_ms: u64,
     pub heap_pages: usize,
+    /// Exact qjs bump waterline in bytes when the module was compiled through
+    /// the opt-in allocation probe; absent for ordinary qjs and raw Wasm.
+    pub heap_bytes: Option<usize>,
 }
 
 /// One call's result plus its deterministic cost, so "is this script
@@ -660,6 +663,8 @@ pub struct Outcome {
     /// `Budget::limits.max_memory_pages` it is the fourth number a budget is
     /// made of.
     pub heap_pages: usize,
+    /// Exact qjs bump waterline in bytes for diagnostic modules only.
+    pub heap_bytes: Option<usize>,
 }
 
 /// The repository-wide fleet bridge shape, reused verbatim. This crate exposes

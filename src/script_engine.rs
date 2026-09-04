@@ -350,6 +350,7 @@ fn script_cost(cost: agenterm_qjswasm::Cost) -> ScriptCost {
         host_bytes: cost.host_bytes,
         waited_ms: cost.waited_ms,
         heap_pages: cost.heap_pages,
+        heap_bytes: cost.heap_bytes,
     }
 }
 
@@ -401,8 +402,13 @@ fn compile_qjs_for(
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, agenterm_qjswasm::CompileError> {
-    if options.tool_door {
+    let allocation_probe = std::env::var_os("AGENTERM_QJS_ALLOCATION_PROBE").is_some();
+    if options.tool_door && allocation_probe {
+        agenterm_qjswasm::compile_qjs_tool_with_modules_and_allocation_probe(source, resolve)
+    } else if options.tool_door {
         agenterm_qjswasm::compile_qjs_tool_with_modules(source, resolve)
+    } else if allocation_probe {
+        agenterm_qjswasm::compile_qjs_with_modules_and_allocation_probe(source, resolve)
     } else {
         agenterm_qjswasm::compile_qjs_with_modules(source, resolve)
     }
@@ -856,6 +862,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                         host_bytes: outcome.host_bytes,
                         waited_ms: outcome.waited_ms,
                         heap_pages: outcome.heap_pages,
+                        heap_bytes: outcome.heap_bytes,
                     }),
                 })
                 .map_err(|e| ScriptEngineError::from(e.to_string())),
@@ -1024,6 +1031,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 host_bytes: outcome.host_bytes,
                 waited_ms: outcome.waited_ms,
                 heap_pages: outcome.heap_pages,
+                heap_bytes: outcome.heap_bytes,
             }),
         })
     }
