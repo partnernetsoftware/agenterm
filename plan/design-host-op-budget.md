@@ -279,3 +279,17 @@ steps/property**（门 `<1,500`），并带坏 `includes` / `indexOf` / `split` 
 eager general post-construction scan。实验必须先列全生产者、定义未覆盖生产者的
 正确 fallback，并冻结既有 join / JSON / journal / Object / search / split courts；
 不能重开已判退候选，也不能放宽旧门。
+
+**第三次实验判决（tinyvm evidence `69a3e3b`）**：各生产者直接发布元数据的
+Variant D 避开了上一刀的统一构造后扫描，`join` 回到 **212.0
+steps/element**（门 `<260`），`split` 回到 **34.5 steps/character**（门
+`<35`）；但 `includes` 与 `indexOf` 都是 **10.5 steps/character**，没有满足
+冻结的严格门 `<10`。按首个硬门失败即停止的规则，D5 JSON 与其后法院未运行，
+实验实现全部回滚，生产 pin 仍为 `028a914`。这不是四舍五入问题：10.5 不能
+解释成 `<10`。完整判决在 tinyvm
+`plan/design-direct-string-metadata-publication-experiment.md`。
+
+**新的性能 frontier**：暂停继续改 String record。先用不改变表示的诊断刀把
+search court 的固定派发、循环控制、码元读取、比较和 miss-return 分项计数，判断
+剩余 0.5 steps/character 属于哪一层；只有某个正交改动同时能解释该成本、且不会
+重新引入 eager scan，才为它另写冻结实验。不得把 near miss 当作调低门槛的理由。
