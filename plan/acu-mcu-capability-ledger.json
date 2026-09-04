@@ -792,8 +792,8 @@
           "mcu_shape": "doctor verifies runtime, helper, desktop bridges, permissions and repair actions",
           "acu_shape": "doctor returns one bounded read-only health receipt over live window/display probes plus the canonical permissions and capabilities declarations",
           "state": "native",
-          "qualification": "unit-and-local-cli-present-three-host-journey-pending",
-          "evidence": ["agenterm-cu doctor unit and local public CLI"],
+          "qualification": "unit-local-cli-and-mcu-adapter-present-three-host-journey-pending",
+          "evidence": ["agenterm-cu doctor unit and local public CLI", "MCU-shaped acu doctor routing tests and live adapter invocation"],
           "next": "add runtime/service/ABI/target-binding checks and prove the same typed ready/degraded contract in Linux and Windows courts"
         },
         {

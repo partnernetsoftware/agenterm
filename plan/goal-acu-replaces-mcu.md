@@ -108,17 +108,17 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   accounting dimension: `page`, `browser`, `process`, `resource`, `file` and
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
-- The transitional `acu.ts` adapter now keeps **32 top-level spellings** on
-  MCU. Its 96-name pass-through set is not a parity count: it mixes MCU
+- The transitional `acu.ts` adapter now keeps **31 top-level spellings** on
+  MCU. Its 97-name pass-through set is not a parity count: it mixes MCU
   spellings, ACU-native spellings and group aliases. The adapter's 45 green
   tests prove lossless argv routing and honest refusal only; they do not prove
   native post-state or platform parity.
-- The 32 current stays split into four implementation queues:
+- The 31 current stays split into four implementation queues:
   - desktop closure: window activation (`focus`) and the diagnostic `ghost`
     overlay;
   - process/runtime: `exec`, `process`, `job`, `pty`, `term`, `signal`,
     `kill`, `service`, `daemon`, `session`, `lock` and `audit`;
-  - machine/system: `setup`, `doctor`, `permissions`, `caps`, `state`, `open`,
+  - machine/system: `setup`, `permissions`, `caps`, `state`, `open`,
     `notify`, `resource`, `power`, `login-session`, `storage`, `file`,
     `network`, `device`, `audio`, `privilege` and `desktop-helper`;
   - platform product: `simulator`.
@@ -174,7 +174,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   all passed in 54.106 s. This proves the integrated source state, not a final
   explanation for the previous mixed-time AT-SPI snapshot; complete poll/error
   accounting remains in the failure bundle so a recurrence is diagnosable.
-  Windows 16 / 16 still awaits its exact-SHA court.
+  Windows 16 / 16 still awaits its exact-SHA court. The latest attempt never
+  launched product bytes: the VM and QGA were ready, but the interactive
+  `job.ready` agent did not claim a nonce job after one bounded restart. That
+  result is `infrastructure_blocked` with zero product evidence, not a product
+  red; the court was stopped and its host lanes reclaimed.
 - `process-watch` closes MCU's lifecycle-observation shape with a stronger
   identity contract: composable PID/parent/name filters or explicit all, an immediate
   bounded baseline, and started/exited events keyed by PID plus start identity.
@@ -220,6 +224,10 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
+- `doctor` is the first setup-family spelling to leave `STAY`: MCU-shaped
+  `acu doctor` now routes to the ACU-native bounded diagnostic. Adapter tests
+  and a live macOS invocation are green; this does not promote `setup` or
+  permission-opening mutations.
 - Existing adapter tests prove only honest argv rewriting. They do not prove
   the target ACU mechanism, post-state, cleanup, platform parity or MCU
   independence; those belong to R1-R6.

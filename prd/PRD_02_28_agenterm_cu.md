@@ -171,6 +171,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   settings, installing helpers or claiming consent. Unit and local public-CLI
   evidence are green; Linux/Windows native-court parity plus runtime/service/
   ABI/target-binding checks remain open.
+  The compatibility adapter now routes MCU-shaped `acu doctor` directly to
+  this native command, reducing the MCU `STAY` inventory from 32 to 31; routing
+  tests and a live macOS adapter invocation are green.
 - [~] Process identity observation is live as `process-state --pid N` on
   current/ssh/vnc. It returns `live|dead|unknown`, preserves fail-closed unknown
   evidence, and publishes the platform start identity when available. MCU
@@ -216,6 +219,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   the same no-console public `.com` court must turn green before this is called
   fixed. Direct `agenterm.exe __agenterm-internal-cli` runs are diagnostic and
   can never substitute for that public evidence.
+  The latest bounded court attempt is infrastructure-blocked rather than red:
+  UTM and QGA became ready, but the interactive job agent did not claim the
+  nonce request, so neither the public version probe nor the 16-step journey
+  started. Zero evidence is attributed to the product, and the VM was stopped.
 - [~] The MCU PTY/job/terminal surface is now exhaustively classified in
   `plan/acu-mcu-capability-ledger.json`. AgenTerm's existing session/tab
   control plane remains the owning kernel for its own terminal inventory,
