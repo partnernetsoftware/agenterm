@@ -1,6 +1,6 @@
 # qjswasm temporary-region lifetime experiment
 
-Status: **precommitted · attribution probe landed · real-journey attribution next · no allocator change yet**.
+Status: **decided · L0 failed · scoped operation-boundary rewind killed · diagnostic attribution retained**.
 
 | field | value |
 |---|---|
@@ -35,17 +35,14 @@ persistent qjswasm slot
    first call retained a 52-byte namespace object; after warm-up, a no-binding
    primitive-result parse added a stable 256 dead bytes per call. This proves
    the ruler, not L0 for the three product journeys.
-6. AgenTerm's engine now has an explicit diagnostic compile +
-   `Engine::allocation_waterline` path. Ordinary qjs and hand-written Wasm
-   answer `None`; only an opt-in module can expose bytes. The remaining Phase B
-   work is to drive the three product journeys and write their attribution
-   table, not to add another allocator mechanism.
+6. AgenTerm's engine has explicit diagnostic waterline and gross JSON-family
+   counters. Ordinary qjs and hand-written Wasm expose none of them.
 7. Product-path proof: `AGENTERM_QJS_ALLOCATION_PROBE=1` makes the existing
-   Script cost envelope add `heap_start_bytes` and `heap_bytes`; their
-   difference excludes the literal pool. The same qjs eval measured 2,009
-   steps with and without the probe, and the ordinary envelope omitted both
-   optional fields. This switch is diagnostic instrumentation, not a budget or
-   permission profile.
+   Script cost envelope add `heap_start_bytes`, `heap_bytes`,
+   `json_parse_bytes`, and `json_stringify_bytes`; the waterline difference
+   excludes the literal pool while the JSON fields are gross allocation. The
+   ordinary envelope omits all four. This switch is diagnostic instrumentation,
+   not a budget or permission profile.
 
 ## 1. Hard constraints
 
@@ -144,8 +141,12 @@ commands and exact AgenTerm pin are required in `RESULTS.md`.
 
 ## 8. Result
 
-Phase B is partial at
-`research/qjswasm-region-lifetime/RESULTS.md`: exact server and wake byte
-waterlines are measured; the Windows workbench court and in-call
-operation/lifetime classes remain. L0 is **not decided**. No allocator recovery
-is authorized until the frozen lifetime table and L0 verdict exist.
+Phase B is closed at `research/qjswasm-region-lifetime/RESULTS.md`. Server and
+wake attribute 56.69% and 59.20% of run allocation to JSON operations, but
+static allocation order proves their operation-return dead suffix is zero:
+both families allocate live return records after their temporary state. With
+two of three real journeys already unable to pass L0, one remaining workbench
+result cannot satisfy the required “two journeys” threshold. Variant C was not
+implemented. The diagnostic counters remain useful; this rewind hypothesis is
+killed rather than expanded into a collector or silently moved to a different
+lifetime boundary.

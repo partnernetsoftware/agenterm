@@ -1,43 +1,50 @@
 {
   "schema_version": 1,
   "experiment": "qjswasm-region-lifetime",
-  "agenterm_source_sha": "fa9455c0000ff75d364bae0074b647a53abfb450",
-  "tinyvm_source_sha": "78442d966fe42e7c97e42b616359f31b1a7bea06",
+  "agenterm_source_sha": "7860e04da0b9397e4d4fedb5abfaa66154c07bce",
+  "tinyvm_source_sha": "1bf632bc423dd8d31469bbedc29928647af94295",
   "probe": "AGENTERM_QJS_ALLOCATION_PROBE=1",
-  "state": "partial-attribution",
+  "state": "l0-failed-operation-boundary-rewind-killed",
   "workloads": [
     {
       "id": "server-smoke",
       "platform": "macos-aarch64",
       "result": "passed",
-      "steps": 19526070,
+      "steps": 19524216,
       "host_ops": 395,
-      "host_bytes": 348557,
+      "host_bytes": 348492,
       "heap_pages": 19,
       "heap_start_bytes": 27020,
-      "heap_bytes": 1196608,
-      "run_allocated_bytes": 1169588,
-      "proven_dead_suffix_bytes": null
+      "heap_bytes": 1196476,
+      "run_allocated_bytes": 1169456,
+      "json_parse_bytes": 452020,
+      "json_stringify_bytes": 210984,
+      "json_gross_share_percent": 56.69,
+      "proven_dead_suffix_bytes": 0
     },
     {
       "id": "wake-smoke",
       "platform": "macos-aarch64",
       "result": "passed",
-      "steps": 31023304,
+      "steps": 31024700,
       "host_ops": 370,
       "host_bytes": 460564,
       "heap_pages": 26,
       "heap_start_bytes": 26196,
       "heap_bytes": 1693544,
       "run_allocated_bytes": 1667348,
-      "proven_dead_suffix_bytes": null
+      "json_parse_bytes": 714704,
+      "json_stringify_bytes": 272364,
+      "json_gross_share_percent": 59.20,
+      "proven_dead_suffix_bytes": 0
     },
     {
       "id": "workbench-smoke",
       "platform": "windows-court",
-      "result": "pending",
-      "reason": "The owning journey is Windows-only; no same-source diagnostic court has run yet."
+      "result": "not-required-after-l0-impossible",
+      "reason": "L0 requires two passing journeys; server and wake both have a zero-byte safe suffix, so workbench alone cannot pass it."
     }
   ],
-  "l0": "not-decided"
+  "l0": "failed",
+  "decision": "kill-operation-boundary-rewind-before-variant-c"
 }

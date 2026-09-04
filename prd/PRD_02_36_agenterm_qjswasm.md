@@ -50,7 +50,7 @@ agenterm-qjswasm
 │  ├─ [x] corrected attribution: compare/branch owned 6.5 of 10.5 steps/byte
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
-│  ├─ [~] temporary-region lifetime court: server/wake waterlines + JSON-family gross bytes measured; dead-suffix proof + Windows workbench before L0
+│  ├─ [x] temporary-region lifetime court rejected: JSON is 56.69%/59.20% gross allocation, but live return records leave zero operation-return suffix
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -90,9 +90,9 @@ flowchart LR
   LAYERS["attribution decided<br/>compare/branch owns 6.5 of 10.5 steps/byte"]
   XOR["direct i32.xor accepted<br/>9.5 steps/byte · module −6 B"]
   JOURNAL["harness journal append<br/>33 rows · steps −26.6%<br/>host bytes −84.4%"]
-  REGION["temporary-region lifetime court<br/>opt-in waterline probe · attribute dead suffix"]
+  REGION["temporary-region lifetime court<br/>gross JSON attribution measured"]
   REGION_GATE{"L0 >=25% proven-dead<br/>in >=2 real journeys?"}
-  REGION_KILL["kill hypothesis<br/>no tracing-GC expansion"]
+  REGION_KILL["L0 failed: live return at heap tail<br/>kill rewind · retain diagnostics"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
