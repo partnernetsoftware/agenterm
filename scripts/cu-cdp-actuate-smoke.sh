@@ -23,7 +23,8 @@
 #               page-drag trusted held-sequence/business read-back and
 #               page-dialog closed-event/redaction and page-files exact
 #               FileList read-back; `--match` unique selection plus typed
-#               ambiguity; node and viewport-point click; 17 active-target + front-window
+#               ambiguity; node and viewport-point click; current-focus type;
+#               18 active-target + front-window
 #               invariants stayed green; eight
 #               actuator receipt kinds completed.
 #
@@ -259,14 +260,23 @@ OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --selector '#q' --text h
 still_background "page fill" "$OUT"
 echo "STEP 6 page fill --selector #q --text hello --clear -> verified (after_value=hello)"
 
+TYPE_SECRET="typed-$PORT"
+OUT="$(act page type --port "$PORT" --match cu-actuate-B "$TYPE_SECRET")"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page type: $OUT"
+[[ "$OUT" != *"$TYPE_SECRET"* ]] || fail "page type leaked inserted text"
+still_background "page type" "$OUT"
+READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('q').value")"
+[[ "$(jf "$READ" data.value)" == "hello$TYPE_SECRET" ]] || fail "page type value read-back: $READ"
+echo "STEP 6b page type at existing focus -> same-focus/value-growth verified; plaintext redacted"
+
 # 5. page click by text: the onclick handler rewrites #out; verified by the
 #    document read-back and independently through page-js.
 OUT="$(act page click --port "$PORT" --target-id "$ID_B" --text Go)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.performed)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page click: $OUT"
 still_background "page click" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
-[[ "$(jf "$READ" data.value)" == "clicked:hello" ]] || fail "the click did not run the page's onclick: $READ"
-echo "STEP 7 page click --text Go -> performed+verified (changed: $(jf "$OUT" data.verification.changed)); page-js reads #out = clicked:hello"
+[[ "$(jf "$READ" data.value)" == "clicked:hello$TYPE_SECRET" ]] || fail "the click did not run the page's onclick: $READ"
+echo "STEP 7 page click --text Go -> performed+verified (changed: $(jf "$OUT" data.verification.changed)); page-js confirms the typed value"
 
 # 6. Pointer verbs use the live boxes, never guessed fixture pixels.
 BOX_GO="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#go')"
@@ -327,12 +337,12 @@ echo "STEP 11 page dialog prompt -> closed event verified; response redacted; bu
 # 10. page fill by node id, appended, then --submit runs the form's onsubmit.
 OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text ' world' --submit)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill --node --submit: $OUT"
-[[ "$(jf "$OUT" data.verification.after_value)" == "hello world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
+[[ "$(jf "$OUT" data.verification.after_value)" == "hello$TYPE_SECRET world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
 [[ "$(jf "$OUT" data.submitted.dispatched)" == "True" ]] || fail "page fill --submit not dispatched: $OUT"
 still_background "page fill --submit" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
-[[ "$(jf "$READ" data.value)" == "submitted:hello world" ]] || fail "Enter did not submit the form: $READ"
-echo "STEP 12 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
+[[ "$(jf "$READ" data.value)" == "submitted:hello$TYPE_SECRET world" ]] || fail "Enter did not submit the form: $READ"
+echo "STEP 12 page fill --node $NODE_Q --text ' world' --submit -> verified; page-js confirms form submission"
 
 # 9. page screenshot: a PNG, or the typed refusal -- never an activation.
 SHOT="$UD/b.png"
@@ -350,13 +360,13 @@ still_background "page screenshot" "$OUT"
 echo "STEP 13 page screenshot --target-id B -> $SHOT_NOTE; A still active"
 
 # 10. Receipts: every actuation was reserved and completed.
-OUT="$(obs receipts --max 20)"
+OUT="$(obs receipts --max 40)"
 [[ "$(jf "$OUT" ok)" == "True" ]] || fail "receipts: $OUT"
 verbs="$(jf "$OUT" data.receipts | python3 -c '
 import json,sys
 lines = json.load(sys.stdin)
 print(" ".join(sorted({l["verb"] for l in lines if l.get("phase") == "completed"})))')"
-for verb in page-nav page-fill page-click page-hover page-scroll page-drag page-dialog page-files; do
+for verb in page-nav page-fill page-type page-click page-hover page-scroll page-drag page-dialog page-files; do
   [[ "$verbs" == *"$verb"* ]] || fail "receipts lack a completed $verb line: $verbs"
 done
 echo "STEP 14 receipts: completed [$verbs]"

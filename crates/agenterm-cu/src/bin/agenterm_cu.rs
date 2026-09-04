@@ -466,6 +466,30 @@ mod tests {
     }
 
     #[test]
+    fn page_type_accepts_positional_or_flag_text_without_echoing_it() {
+        let run = |tail: &[&str]| {
+            let mut argv: Vec<String> =
+                ["--target", "current", "--grant", "actuate", "page", "type"]
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect();
+            argv.extend(tail.iter().map(|s| (*s).to_owned()));
+            dispatch(argv)
+        };
+        for tail in [
+            vec!["secret-value", "--port", "1"],
+            vec!["--text", "secret-value", "--port", "1"],
+        ] {
+            let reply = run(&tail);
+            assert_eq!(reply.command, "page-type");
+            let error = reply.error.expect("no listener");
+            assert_eq!(error.code, "unsupported");
+            assert!(!error.message.contains("secret-value"));
+        }
+        assert_eq!(run(&[]).error.expect("missing text").code, "usage");
+    }
+
+    #[test]
     fn page_targets_is_a_typed_cdp_observe_verb() {
         for argv in [
             vec!["page", "targets", "--port", "1"],

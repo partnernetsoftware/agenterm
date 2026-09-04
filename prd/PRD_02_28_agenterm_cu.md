@@ -190,6 +190,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   MCU's viewport `page click X Y` is also native: the point is frozen before the
   receipt, trusted page down/up events are read back, and a failed release gets
   a cleanup attempt without converting the failed effect into success.
+  MCU `page type TEXT` now freezes the existing editable focus and verifies
+  same-element value growth; plaintext input and field values never enter its
+  public reply or persistent receipt.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
   real-profile and three-host journeys remain promotion evidence.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded

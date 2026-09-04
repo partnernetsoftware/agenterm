@@ -1786,6 +1786,152 @@ pub fn perform_files<T: Transport>(
 
 // ------------------------------------------------------------------- fill
 
+const ACTIVE_EDITABLE_EXPR: &str = r#"(function() {
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement)
+    return { present: false, editable: false };
+  const parts = [];
+  let cur = el;
+  while (cur && cur.nodeType === 1 && parts.length < 12) {
+    let s = cur.tagName.toLowerCase();
+    if (cur.id) { s += '#' + CSS.escape(cur.id); parts.unshift(s); break; }
+    const p = cur.parentElement;
+    if (p) {
+      const same = Array.from(p.children).filter(c => c.tagName === cur.tagName);
+      if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(cur) + 1) + ')';
+    }
+    parts.unshift(s); cur = p;
+  }
+  const editable = !!(el.isContentEditable ||
+    ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.disabled && !el.readOnly));
+  const value = el.value !== undefined ? String(el.value) : String(el.innerText || el.textContent || '');
+  return { present: true, editable, path: parts.join(' > '),
+    tag: el.tagName.toLowerCase(), value };
+})()"#;
+
+#[derive(Debug)]
+pub struct ActiveTextPlan {
+    pub path: String,
+    pub tag: String,
+    pub before_value: String,
+    pub text: String,
+}
+
+impl ActiveTextPlan {
+    pub fn json(&self) -> Value {
+        json!({
+            "focused": { "path": self.path, "tag": self.tag },
+            "before_value_bytes": self.before_value.len(),
+            "text_bytes": self.text.len(),
+        })
+    }
+}
+
+/// Freeze the already-focused editable element. This does not focus a node or
+/// select text: it preserves MCU `page type` semantics without guessing.
+pub fn plan_active_text<T: Transport>(
+    session: &mut Session<T>,
+    text: &str,
+) -> Result<ActiveTextPlan, CdpError> {
+    if text.is_empty() || text.len() > MAX_FILL_BYTES {
+        return Err(CdpError::typed(
+            "invalid_input",
+            format!("page type TEXT must be 1..={MAX_FILL_BYTES} UTF-8 bytes"),
+        ));
+    }
+    let state = evaluate_on(session, ACTIVE_EDITABLE_EXPR)?;
+    if state["present"] != true {
+        return Err(CdpError::typed(
+            "cdp_focus_not_found",
+            "the page target has no focused element; nothing was written",
+        )
+        .with_detail(json!({ "effect": "not_performed" })));
+    }
+    if state["editable"] != true {
+        return Err(CdpError::typed(
+            "cdp_focus_not_editable",
+            "the page target's focused element is not editable; nothing was written",
+        )
+        .with_detail(json!({
+            "focused": { "path": state["path"], "tag": state["tag"] },
+            "effect": "not_performed",
+        })));
+    }
+    let path = state["path"].as_str().unwrap_or_default();
+    let tag = state["tag"].as_str().unwrap_or_default();
+    if path.is_empty() || tag.is_empty() {
+        return Err(CdpError::typed(
+            "cdp_focus_identity_unavailable",
+            "the focused editable element has no stable document identity; nothing was written",
+        )
+        .with_detail(json!({ "effect": "not_performed" })));
+    }
+    Ok(ActiveTextPlan {
+        path: path.to_owned(),
+        tag: tag.to_owned(),
+        before_value: state["value"].as_str().unwrap_or_default().to_owned(),
+        text: text.to_owned(),
+    })
+}
+
+pub fn perform_active_text<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &ActiveTextPlan,
+) -> Result<ActuationOutcome, CdpError> {
+    let emulated = focus_emulation(session, true);
+    let inserted = session.call("Input.insertText", json!({ "text": plan.text }));
+    let after = evaluate_on(session, ACTIVE_EDITABLE_EXPR);
+    if emulated {
+        focus_emulation(session, false);
+    }
+    let after = after?;
+    let same_focus = after["present"] == true
+        && after["editable"] == true
+        && after["path"].as_str() == Some(plan.path.as_str())
+        && after["tag"].as_str() == Some(plan.tag.as_str());
+    let after_value = after["value"].as_str();
+    let value_verified = after_value
+        .is_some_and(|value| fill_verified(&plan.before_value, &plan.text, false, value));
+    let performed = inserted.is_ok();
+    let verified = performed && same_focus && value_verified;
+    let reason = if inserted.is_err() {
+        json!("insert_failed")
+    } else if !same_focus {
+        json!("focused_element_changed")
+    } else if !value_verified {
+        json!("value_mismatch")
+    } else {
+        Value::Null
+    };
+    let payload = with(
+        ctx.envelope("Input.insertText"),
+        json!({
+            "action": "type",
+            "focused": { "path": plan.path, "tag": plan.tag },
+            "text_bytes": plan.text.len(),
+            "performed": performed,
+            "verified": verified,
+            "focus_emulation": if emulated { "enabled during write, disabled after" } else { "unavailable" },
+            "verification": {
+                "method": "same-focused-element-value-growth",
+                "same_focus": same_focus,
+                "before_value_bytes": plan.before_value.len(),
+                "after_value_bytes": after_value.map(str::len),
+                "reason": reason,
+            },
+        }),
+    );
+    if let Err(error) = inserted {
+        return Err(error.with_detail(json!({ "receipt": payload })));
+    }
+    Ok(ActuationOutcome {
+        performed,
+        verified,
+        payload,
+    })
+}
+
 #[derive(Debug)]
 pub struct FillPlan {
     pub node: FoundNode,
@@ -2626,6 +2772,50 @@ mod tests {
         assert_eq!(error.detail["receipt"]["cleanup_release_attempted"], true);
         assert_eq!(error.detail["receipt"]["performed"], false);
         assert_eq!(error.detail["receipt"]["verified"], false);
+    }
+
+    #[test]
+    fn active_text_requires_editable_focus_and_redacts_values() {
+        let value = std::rc::Rc::new(std::cell::RefCell::new("old".to_owned()));
+        let shared = value.clone();
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate" => Ok(json!({ "result": { "value": {
+                "present": true, "editable": true, "path": "input#q",
+                "tag": "input", "value": shared.borrow().clone()
+            } } })),
+            "Input.insertText" => {
+                shared
+                    .borrow_mut()
+                    .push_str(params["text"].as_str().unwrap());
+                Ok(json!({}))
+            }
+            "Emulation.setFocusEmulationEnabled" => Ok(json!({})),
+            other => Err(format!("unexpected method {other}")),
+        });
+        let plan = plan_active_text(&mut session, "secret").expect("focused plan");
+        assert!(!plan.json().to_string().contains("old"));
+        assert!(!plan.json().to_string().contains("secret"));
+        let outcome = perform_active_text(&mut session, &ctx(), &plan).expect("type");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        let public = outcome.payload.to_string();
+        assert!(!public.contains("old"));
+        assert!(!public.contains("secret"));
+        assert_eq!(outcome.payload["verification"]["before_value_bytes"], 3);
+        assert_eq!(outcome.payload["verification"]["after_value_bytes"], 9);
+
+        let mut missing = fake::session(|method, _| match method {
+            "Runtime.evaluate" => Ok(json!({ "result": { "value": {
+                "present": false, "editable": false
+            } } })),
+            other => Err(format!("unexpected method {other}")),
+        });
+        assert_eq!(
+            plan_active_text(&mut missing, "x")
+                .expect_err("no focus")
+                .code,
+            "cdp_focus_not_found"
+        );
     }
 
     #[test]

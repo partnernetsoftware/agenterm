@@ -317,7 +317,7 @@
         {
           "id": "browser.cdp.actuate",
           "mcu_shape": "page click/type/nav and browser click/type/nav",
-          "acu_shape": "page-click/page-fill/page-nav with exact or --match-selected target and node/selector plus receipts",
+          "acu_shape": "page-click/page-fill/page-type/page-nav with exact or --match-selected target; page-type preserves existing focus and redacts text/value",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
           "note": "Background-tab focus preservation and post-state readback are proved on the throwaway macOS court; Windows journey is declared but not yet promoted to evidence."

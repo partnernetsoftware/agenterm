@@ -416,6 +416,20 @@ impl Executor {
                 *submit,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PageType {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                target_match,
+                text,
+                ..
+            } => page_type_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title, target_match),
+                text,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PageNav {
                 port,
                 target_id,

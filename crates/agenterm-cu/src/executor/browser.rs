@@ -759,6 +759,33 @@ pub(super) fn page_fill_payload(
     complete_cdp_receipt(receipts, &ticket, "page-fill", outcome)
 }
 
+pub(super) fn page_type_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    text: &str,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    if text.is_empty() || text.len() > crate::cdp::page::MAX_FILL_BYTES {
+        return Err(invalid_input(format!(
+            "page type TEXT must be 1..={} UTF-8 bytes",
+            crate::cdp::page::MAX_FILL_BYTES
+        )));
+    }
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_active_text(&mut session, text)?;
+    let ticket = receipts.reserve(
+        "page-type",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "action": "type",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_active_text(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-type", outcome)
+}
+
 pub(super) fn page_nav_payload(
     port: Option<u16>,
     selector: crate::cdp::TargetSelector,

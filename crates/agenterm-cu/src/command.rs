@@ -1163,6 +1163,23 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         submit: bool,
     },
+    /// Insert text at the page target's already-focused editable element.
+    /// The element identity and old value are frozen before the receipt;
+    /// plaintext values and inserted text are never persisted.
+    PageType {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
+        text: String,
+    },
     /// `page nav` over CDP: `Page.navigate` on that target (a background
     /// tab stays background), then wait up to `wait_ms` (default 10 s)
     /// for `Page.loadEventFired`; verified with the final url / title.
@@ -1556,6 +1573,7 @@ impl Command {
             Self::PageDialog { .. } => "page-dialog".into(),
             Self::PageFiles { .. } => "page-files".into(),
             Self::PageFill { .. } => "page-fill".into(),
+            Self::PageType { .. } => "page-type".into(),
             Self::PageNav { .. } => "page-nav".into(),
             Self::PageScreenshot { .. } => "page-screenshot".into(),
             Self::TabList { .. } => "tab-list".into(),
@@ -1637,6 +1655,7 @@ impl Command {
             | Self::PageDialog { target, .. }
             | Self::PageFiles { target, .. }
             | Self::PageFill { target, .. }
+            | Self::PageType { target, .. }
             | Self::PageNav { target, .. }
             | Self::PageScreenshot { target, .. }
             | Self::TabList { target, .. }
@@ -1688,6 +1707,7 @@ impl Command {
             | Self::PageDialog { .. }
             | Self::PageFiles { .. }
             | Self::PageFill { .. }
+            | Self::PageType { .. }
             | Self::PageNav { .. }
             | Self::PageScreenshot { activate: true, .. }
             | Self::Activate { .. }

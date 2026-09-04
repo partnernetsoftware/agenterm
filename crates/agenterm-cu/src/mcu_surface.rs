@@ -98,6 +98,7 @@ pub const GROUPS: &[Group] = &[
             "page-dialog",
             "page-files",
             "page-fill",
+            "page-type",
             "page-nav",
             "page-screenshot",
         ],
@@ -577,6 +578,10 @@ pub fn verb_declaration(verb: &str) -> Value {
         "page-fill" => Some((
             "actuate",
             "one editable node: DOM.focus, optional select-all (--clear), Input.insertText, .value read-back (== TEXT), --submit sends Enter; focus emulation on for the write, off after; receipt",
+        )),
+        "page-type" => Some((
+            "actuate",
+            "the already-focused editable page element: Input.insertText, same-focus/value-growth read-back, plaintext redacted from replies and receipts; background target remains background; receipt",
         )),
         "page-nav" => Some((
             "actuate",

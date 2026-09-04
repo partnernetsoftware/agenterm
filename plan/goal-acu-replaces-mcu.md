@@ -306,6 +306,7 @@ Q4 browser and platform depth
 │  ├─ [x] page dialog: opening/closed event proof; prompt contents redacted; MCU shape routed
 │  ├─ [x] page files: exact FileList read-back; bounded regular non-symlink inputs; paths redacted
 │  ├─ [x] page pixel click: frozen viewport hit + trusted down/up read-back + release cleanup
+│  ├─ [x] page current-focus type: editable preflight + same-focus/value-growth proof; plaintext redacted
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [ ] MV3/Native Messaging + managed-profile ownership
 ├─ [ ] Simulator facade

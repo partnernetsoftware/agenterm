@@ -185,7 +185,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   (--selector | --node) --text T [--clear] [--submit]` (actuate;
   `DOM.focus`, select-all, `Input.insertText`, `.value` read back ==
   text, Enter key events; focus emulation on for the write and off
-  after), `page nav --url U [--wait-ms N]` (actuate; `Page.navigate`,
+  after), `page type TEXT` (actuate; freezes the already-focused editable
+  element, inserts without changing focus, then requires the same element and
+  exact value growth; text and field values are absent from public/persistent
+  evidence), `page nav --url U [--wait-ms N]` (actuate; `Page.navigate`,
   `Page.loadEventFired`, final url / title), `page screenshot --out P`
   (observe; Chromium may refuse an unpainted background tab ->
   `cdp_screenshot_unavailable`, never activated; `--activate` is the one
@@ -203,6 +206,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   basename/size while its absolute fixture path was absent from public output;
   The same court then verified `page-drag` from two live element boxes by both
   the trusted held-event sequence and a page-owned business state change, and
+  verified `page-type` against the existing input focus while proving the
+  inserted text was absent from its reply and receipt,
   accepted a real prompt through `page-dialog`, reading its page-owned result
   back while proving the response was absent from reply/receipt. All retained
   `focus_changed: false`. MCU-shaped positional read/nav/hover/scroll/drag/dialog/files

@@ -603,6 +603,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             "page-dialog",
             "page-files",
             "page-fill",
+            "page-type",
             "page-nav",
             "page-screenshot",
         ] {

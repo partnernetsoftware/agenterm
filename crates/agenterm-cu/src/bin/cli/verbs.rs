@@ -2163,7 +2163,35 @@ without being brought forward (focus_changed: false). Verified when the
 read-back equals TEXT (--clear) or grew by exactly TEXT (append at the
 caret); a mismatch is performed but unverified (value_mismatch), for a
 page that rewrites its own field. Receipt reserved before the write,
-completed after."#,
+        completed after."#,
+    },
+    VerbSpec {
+        name: "page-type",
+        command: "page-type",
+        aliases: &["page type"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "insert text at a CDP page target's current focus",
+        usage: "page-type [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
+page type TEXT ...                                  (MCU spelling)",
+        args: &[
+            PORT,
+            TARGET_ID,
+            TARGET_URL,
+            TARGET_TITLE,
+            TARGET_MATCH,
+            ArgSpec {
+                flag: "--text",
+                value: "TEXT",
+                help: "1..=64 KiB inserted at the page's existing editable focus",
+            },
+        ],
+        details: r#"Freezes the page's already-focused input, textarea or
+contenteditable before reserving a receipt; missing or non-editable focus performs
+nothing. Input.insertText then writes without selecting the tab or raising its window.
+Verification requires the same focused-element path and exact value-length growth
+containing the inserted text. Text and field values never enter public or persistent
+evidence; only byte counts, element identity and the typed verdict do."#,
     },
     VerbSpec {
         name: "page-nav",
@@ -3085,6 +3113,7 @@ mod tests {
             "page-dialog",
             "page-files",
             "page-fill",
+            "page-type",
             "page-nav",
             "app",
             "activate",
@@ -3100,6 +3129,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 35, "{actuate:?}");
+        assert_eq!(actuate.len(), 36, "{actuate:?}");
     }
 }

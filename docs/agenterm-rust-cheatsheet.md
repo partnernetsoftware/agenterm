@@ -1468,6 +1468,11 @@ paths, neither of which raises or activates the window:
   one-shot page event probe, require trusted down/up at that exact point, and
   always attempt release after an accepted press. A cleanup release never turns
   an uncertain mechanism failure into success.
+- Current-focus text insertion must freeze an editable element identity before
+  reserving its receipt, then require the same element plus exact value-length
+  growth after `Input.insertText`. Keep inserted text and before/after values
+  internal to verification; public and persistent evidence carries only byte
+  counts and the typed verdict.
 - Without a CDP port, switch the window's active tab through the strip:
   `tab select` presses the matching `radio-button` whose direct parent is
   the `tab-group` (a form's radio buttons are not tabs) and verifies by

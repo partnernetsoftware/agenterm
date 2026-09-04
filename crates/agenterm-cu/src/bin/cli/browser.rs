@@ -1,5 +1,5 @@
 //! Browser page & tabs: the CDP verbs (`page-js`, `page-targets`, and the
-//! background-tab verbs `page find|click|hover|scroll|drag|dialog|files|fill|nav|screenshot`), the page
+//! background-tab verbs `page find|click|hover|scroll|drag|dialog|files|fill|type|nav|screenshot`), the page
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
 //! profiles|open`), and the MCU `page` group word.
@@ -31,6 +31,7 @@ pub fn parse(
             "page-dialog" => page_dialog(target, args),
             "page-files" => page_files(target, args),
             "page-fill" => page_fill(target, args),
+            "page-type" => page_type(target, args),
             "page-nav" => page_nav(target, args),
             "page-screenshot" => page_screenshot(target, args),
             "tab-list" => tab(target, Some("list"), args),
@@ -90,6 +91,10 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         Some("fill") => {
             args.remove(0);
             return page_fill(target, args);
+        }
+        Some("type") => {
+            args.remove(0);
+            return page_type(target, args);
         }
         Some("nav") => {
             args.remove(0);
@@ -631,6 +636,39 @@ fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         text,
         clear,
         submit,
+    })
+}
+
+fn page_type(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page type", args)?;
+    let text = flag_text(args, "--text")?.or_else(|| {
+        if args.len() == 1 {
+            Some(args.remove(0))
+        } else {
+            None
+        }
+    });
+    let Some(text) = text else {
+        return Err("page type needs exactly TEXT or --text TEXT".into());
+    };
+    if text.is_empty() {
+        return Err("page type TEXT must not be empty".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "page type accepts only TEXT|--text TEXT [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageType {
+        target,
+        port,
+        target_id,
+        target_url,
+        target_title,
+        target_match,
+        text,
     })
 }
 
