@@ -1,0 +1,223 @@
+// Platform-neutral public black-box journey for `agenterm-cu network-probe`.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// The only listener is an invocation-owned, env-gated mode of the supplied
+// agenterm-cu binary. It binds loopback on an ephemeral port, publishes that
+// port to a redirected stdout file, accepts exactly three connections, and
+// exits. Readiness is the published port, never a fixed sleep. Every probe
+// itself goes through the public CLI; the hidden mode is fixture mechanism,
+// not a second product command. No Internet endpoint or external network tool
+// participates.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.network-probe"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  ensure(
+    output.success === true,
+    "cu_network_probe_cli_exit:" + output.exit_code + ":" + output.stderr
+  );
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_network_probe_cli_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(flag_at(reply, "ok"), "cu_network_probe_reply:" + stdout);
+  return reply;
+}
+
+function assert_identity_and_counts(reply, port, attempts, connected) {
+  ensure(
+    text_at(reply, "command") === "network-probe"
+      && text_at(reply, "target") === "current"
+      && text_at(reply, "data.provider") === "system-resolver-owned-worker"
+      && text_at(reply, "data.host") === "127.0.0.1"
+      && int_at(reply, "data.port") === port
+      && flag_at(reply, "data.address_set_frozen")
+      && int_at(reply, "data.address_count") === 1
+      && reply.data.resolved_addresses.length === 1
+      && text_of(reply.data.resolved_addresses[0].address) === "127.0.0.1"
+      && text_of(reply.data.resolved_addresses[0].family) === "ipv4"
+      && int_at(reply, "data.attempt_count") === attempts
+      && reply.data.attempts.length === attempts
+      && int_at(reply, "data.connected_count") === connected
+      && int_at(reply, "data.unreachable_count") === attempts - connected,
+    "cu_network_probe_contract:" + JSON.stringify(reply.data)
+  );
+}
+
+function assert_attempts(reply, attempts, reachable) {
+  for (let index = 0; index < attempts; index = index + 1) {
+    const row = reply.data.attempts[index];
+    const outcome = text_of(row.outcome);
+    ensure(
+      int_at(row, "attempt") === index + 1
+        && text_at(row, "address") === "127.0.0.1"
+        && text_at(row, "family") === "ipv4"
+        && (reachable ? outcome === "connected" : outcome !== "connected"),
+      "cu_network_probe_attempt:" + JSON.stringify(row)
+    );
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) {
+  executable = executable + ".exe";
+}
+ensure(direct_file(executable), "cu_network_probe_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-network-probe");
+const run_directory = context.run_directory;
+const owned_children = [];
+let fixture = null;
+let fixture_reaped = false;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start the env-gated invocation-owned loopback listener and poll its redirected stdout for readiness");
+  const stdout_path = rh.join(run_directory, "listener.stdout");
+  const stderr_path = rh.join(run_directory, "listener.stderr");
+  const reachable_attempts = 3;
+  fixture = harness.start_child(context, {
+    program: executable,
+    args: [
+      "--agenterm-cu-internal-network-probe-fixture",
+      "" + reachable_attempts,
+      "10000"
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    stdout_path: stdout_path,
+    stderr_path: stderr_path,
+    timeout_ms: 15000
+  }, "network-probe-listener");
+  owned_children.push(fixture);
+
+  let ready = null;
+  for (let poll = 0; poll < 400; poll = poll + 1) {
+    if (direct_file(stdout_path)) {
+      const text = rh.read_text(stdout_path).trim();
+      if (text.startsWith("{") && text.endsWith("}")) {
+        const candidate = JSON.parse(text);
+        if (int_at(candidate, "port") > 0) { ready = candidate; break; }
+      }
+    }
+    ensure(
+      harness.child_state(fixture) !== "exited",
+      "cu_network_probe_fixture_early_exit"
+    );
+    harness.sleep_ms(10);
+  }
+  ensure(ready !== null, "cu_network_probe_fixture_not_ready");
+  const port = int_at(ready, "port");
+  ensure(port > 0 && port <= 65535, "cu_network_probe_fixture_port");
+
+  print("STEP public network-probe reaches the frozen deduplicated loopback address exactly three times");
+  const reachable = run_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "network-probe", "127.0.0.1",
+    "--port", "" + port,
+    "--attempts", "" + reachable_attempts,
+    "--timeout-ms", "500"
+  ]);
+  assert_identity_and_counts(reachable, port, reachable_attempts, reachable_attempts);
+  ensure(text_at(reachable, "data.status") === "reachable", "cu_network_probe_reachable_status");
+  assert_attempts(reachable, reachable_attempts, true);
+
+  const fixture_output = harness.child_wait(fixture, 5000);
+  fixture_reaped = true;
+  ensure(
+    fixture_output.success === true && fixture_output.exit_code === 0,
+    "cu_network_probe_fixture_exit:" + JSON.stringify(fixture_output)
+  );
+  ensure(harness.process_present(fixture.pid) === 0, "cu_network_probe_fixture_orphan");
+
+  print("STEP after the exact listener is reaped, the same port returns an ok unreachable observation for exactly two attempts");
+  const unreachable_attempts = 2;
+  const unreachable = run_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "network", "probe", "127.0.0.1",
+    "--port", "" + port,
+    "--attempts", "" + unreachable_attempts,
+    "--timeout-ms", "500"
+  ]);
+  assert_identity_and_counts(unreachable, port, unreachable_attempts, 0);
+  ensure(
+    text_at(unreachable, "data.status") === "unreachable",
+    "cu_network_probe_unreachable_status"
+  );
+  assert_attempts(unreachable, unreachable_attempts, false);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+// Cleanup names one door handle and therefore one exact child. Never use a
+// process-name pattern: even a failed readiness assertion must not touch an
+// unrelated agenterm-cu invocation.
+if (fixture !== null && !fixture_reaped) {
+  if (harness.child_state(fixture) === "running") {
+    try { harness.child_kill(fixture); }
+    catch (kill_error) { print("cleanup kill: " + kill_error); }
+  }
+  try {
+    harness.child_wait(fixture, 3000);
+    fixture_reaped = true;
+  } catch (wait_error) {
+    print("cleanup wait: " + wait_error);
+  }
+}
+
+let completion_failure = "";
+try {
+  harness.complete_children(context, owned_children, succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.network-probe");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu platform-neutral network probe journey (reachable, closed-port unreachable, orphan-free cleanup)");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
