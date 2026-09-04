@@ -475,6 +475,9 @@ flowchart LR
   expose MCU's physical-device inventory or recoverable copy/move transaction.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
+  The MCU-shaped compatibility entry now routes exactly `acu file inspect PATH`
+  to `file-inspect`; mutation, xattr and transaction subcommands remain explicit
+  MCU fallbacks until equivalent typed facades exist.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
   sockets and DNS+TCP probes. `network-probe` is now implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,
