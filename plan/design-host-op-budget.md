@@ -306,12 +306,15 @@ search court 的绝对成本、固定派发、循环控制、码元读取、比�
 校正（`cf70589`）：双 control、四个以上长度点、两层斜率闭合、固定/线性成本分账；只出归因和下一
 实验的 owner，不在同一轮偷做优化，也不改变当前 tinyvm pin。
 
-**Phase A 实测（tinyvm `8c946ff`，引擎零改动）**：四个长度点从 2,048 到
-131,072 字符，`includes` / `indexOf` 两条都得到绝对 **10.5000**、历史
-**7.2500**、独立 `.length` **3.2500 steps/character**，闭合式精确成立。
-全 `tinyvm-qjs` suite 与原 `index_of_cost` 门保持绿色。这里只通过 measuring
-ruler；dispatch/loop/read/compare/miss 与 Unicode probes 尚未运行，因此不能选下一
-优化 owner，也不能据此改 pin。
+**归因与判决已收口（tinyvm `af47e4d`）**：四个长度点从 2,048 到
+131,072 字符，`includes` / `indexOf` 两条先量得绝对 **10.5000**、历史
+**7.2500**、独立 `.length` **3.2500 steps/character**，闭合式精确成立；后续
+分账把最大线性 owner 定位到四字节窗口的 compare+branch。那条路径还在用
+`(w | p) - (w & p)` 模拟已存在的 `i32.xor`，于是独立冻结实验只替换这一处。
+ASCII 与有效 UTF-8 的两种 search 都降到 **9.5000 steps/byte**（每字节少 1，
+严格过 `<10` 门），模块各缩 6 B，语义与完整 `tinyvm-qjs` suite 全绿，因此
+direct XOR 已接受并进入本仓当前 pin。String record 仍关闭，没有借此重开元数据
+或放宽任何旧门。
 
 ## 10. Product harness journal: remove the quadratic rewrite (2026-09-04)
 
