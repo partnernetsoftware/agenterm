@@ -2541,6 +2541,12 @@ under `cfg(test)` of that crate. Examples, doctests and other packages cannot
 `unwrap()`, `assert_eq!` or `{:?}` them. Match the `Ok` payload, and print
 `WasmError::message()`.
 
+A tinyvm pin is a four-surface identity, not only a Cargo edit: update both git
+dependencies, `Cargo.lock`, the owning PRD's first bold current-pin revision,
+and `agenterm_qjswasm::UPSTREAM_TINYVM_REV` together. The last value is public
+runtime provenance; leaving it stale makes a correctly linked engine report
+the wrong source revision. The qjswasm crate tests compare all four surfaces.
+
 ## Versioned media needs one discriminated SDK boundary
 
 When one guest output channel accepts multiple versioned media schemas, do not

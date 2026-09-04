@@ -490,9 +490,8 @@ cargo test  -p agenterm-qjswasm
 cargo clippy -p agenterm-qjswasm --all-targets -- -D warnings
 ```
 
-依赖 `tinyvm` 与 `tinyvm-qjs` 都是**同一个私有仓的 git 依赖**，钉同一个 rev。仓根 `.cargo/config.toml` 里的
-`[net] git-fetch-with-cli = true` 是**必需**的：cargo 内置的 libgit2 客户端拿不到
-GitHub 私有仓凭据，实测报 `failed to receive HTTP 200 response: got 401`。
+依赖 `tinyvm` 与 `tinyvm-qjs` 都是**同一个公开上游仓的 git 依赖**，钉同一个 rev。仓根
+`.cargo/config.toml` 统一让开发机和临时 runner 通过系统 Git 拉取；这个公开依赖不需要仓库凭据。
 
 `wat` 只是 **dev-dependency**，用来把对抗性客人写成可读的 `.wat` 文本。产品自己的
 wasm 编码器在上游 `tinyvm-qjs/src/encode.rs`——刻意不引 `wasm-encoder`，因为产物必须过

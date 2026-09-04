@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`028a914`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`af47e4d`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
@@ -47,7 +47,8 @@ agenterm-qjswasm
 │  ├─ [x] static-length dispatch experiment rejected: 160-step gate met, existing workloads regressed
 │  ├─ [x] direct producer metadata experiment rejected: its frozen search court reported 10.5 steps/character against <10
 │  ├─ [x] ruler audit: old 7.2 subtracted O(n) `.length`; 10.5 was absolute search cost, not a slower loop
-│  ├─ [~] corrected search attribution: dual-control ruler closed; layer probes pending, no engine change
+│  ├─ [x] corrected attribution: compare/branch owned 6.5 of 10.5 steps/byte
+│  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -84,7 +85,9 @@ flowchart LR
   REJECT3["reject + rollback<br/>preserve evidence, not engine diff"]
   RULER["ruler audit<br/>old 7.2 = absolute search − O(n) length"]
   NEXT["corrected attribution phase A<br/>10.50 absolute − 7.25 historical = 3.25 length"]
-  LAYERS["pending layer probes<br/>dispatch · loop · read · compare · miss"]
+  LAYERS["attribution decided<br/>compare/branch owns 6.5 of 10.5 steps/byte"]
+  XOR["direct i32.xor accepted<br/>9.5 steps/byte · module −6 B"]
+  PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
@@ -99,7 +102,7 @@ flowchart LR
   PERF -->|all frozen gates pass| UP
   PERF -->|166 > 160| ROLLBACK --> STATIC
   STATIC -->|C2 workload regression| REJECT2 --> DIRECT
-  DIRECT -->|frozen D4 miss| REJECT3 --> RULER --> NEXT --> LAYERS
+  DIRECT -->|frozen D4 miss| REJECT3 --> RULER --> NEXT --> LAYERS --> XOR --> PIN
   UP -. accumulated generic runtime .-> CORE --> COURT
   STANDARD --> COURT
   COURT -->|selected workload wins| NORTH
@@ -116,7 +119,8 @@ flowchart LR
 - Generic compiler/VM fixes land upstream with upstream tests; AgenTerm changes
   only its pin and product integration.
 - Both upstream crates use the same exact revision and are never vendored.
-- A pin bump, PRD pin line and lockfile identity change in one coherent commit.
+- A pin bump updates both Cargo dependencies, `Cargo.lock`, the PRD's first
+  bold current-pin revision and `UPSTREAM_TINYVM_REV` in one coherent commit.
 - Performance gates are precommitted. A near miss is recorded and rolled back,
   not converted into a pass by moving its threshold after measurement.
 - A cost subtraction is part of the measuring instrument. When an experiment
