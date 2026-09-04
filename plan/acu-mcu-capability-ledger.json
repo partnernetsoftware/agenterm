@@ -275,9 +275,9 @@
         {
           "id": "desktop.setup-doctor-caps",
           "mcu_shape": "setup/doctor/caps with active dependency and permission probes",
-          "acu_shape": "capabilities reports typed status and permission blockers; setup/doctor are absent",
+          "acu_shape": "capabilities reports typed status and permission blockers; doctor composes bounded live probes with the same declarations; setup remains absent",
           "state": "gap",
-          "next": "ship a read-only doctor first, then explicit setup plans whose mutations remain outside capability discovery"
+          "next": "prove doctor on three hosts, then add explicit setup plans whose mutations remain outside capability discovery"
         },
         {
           "id": "desktop.session-lock-audit",
@@ -790,9 +790,11 @@
         {
           "id": "doctor.health",
           "mcu_shape": "doctor verifies runtime, helper, desktop bridges, permissions and repair actions",
-          "acu_shape": "capabilities reports mechanism status and repair paths",
-          "state": "gap",
-          "next": "compose existing capabilities with runtime/service/ABI/target-binding checks into one bounded diagnostic receipt"
+          "acu_shape": "doctor returns one bounded read-only health receipt over live window/display probes plus the canonical permissions and capabilities declarations",
+          "state": "native",
+          "qualification": "unit-and-local-cli-present-three-host-journey-pending",
+          "evidence": ["agenterm-cu doctor unit and local public CLI"],
+          "next": "add runtime/service/ABI/target-binding checks and prove the same typed ready/degraded contract in Linux and Windows courts"
         },
         {
           "id": "permissions.status-guidance",

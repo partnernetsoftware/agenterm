@@ -3265,6 +3265,13 @@ status facade remains read-only: reporting an OS consent requirement is not
 authority to open settings, synthesize a grant, or claim a state the native API
 cannot inspect.
 
+A composed `doctor` follows the same rule: reuse canonical declarations, add
+only bounded live probes, and keep each probe failure as a typed row inside a
+successful diagnostic document. The document may become `degraded`; one
+missing optional mechanism must not turn diagnostics themselves into an opaque
+command failure. Diagnosis is never authority to install, repair, open consent
+surfaces or mutate helper lifecycle.
+
 ## Windows console trampolines must forward stdio explicitly
 
 `bInheritHandles=TRUE` does not by itself define a GUI-subsystem child's

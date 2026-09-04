@@ -165,6 +165,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   inspect. Unit and local public-CLI evidence are green on macOS; required vs
   optional classification and native Linux/Windows journey evidence remain
   open, as does the separate consent-preserving `open-next` action.
+- [~] `doctor` is now a first-class observe-only command. It performs bounded
+  live window and display probes, embeds the exact canonical `permissions` and
+  `capabilities` declarations, and reports `ready|degraded` without opening
+  settings, installing helpers or claiming consent. Unit and local public-CLI
+  evidence are green; Linux/Windows native-court parity plus runtime/service/
+  ABI/target-binding checks remain open.
 - [~] Process identity observation is live as `process-state --pid N` on
   current/ssh/vnc. It returns `live|dead|unknown`, preserves fail-closed unknown
   evidence, and publishes the platform start identity when available. MCU
@@ -194,17 +200,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   oversized inventory fail typed; broad watches omit unidentified rows only
   with `coverage_complete=false` and an explicit count. A real owned-child exit is green through the macOS public CLI;
   macOS/Linux/Windows qjswasm journey leaves are declared for native reruns.
-- [~] Linux x86_64 native execution proved the new process leaves through the
-  real owned-child exit, then failed closed later in `observe`. The exact-SHA
-  rerun proved `--ready-path` itself: the marker contained the expected backend
-  and window, and the button mutation appeared only after that edge. It also
-  disproved the earlier baseline-race diagnosis. The first recorded post-ready
-  event arrived at 2.074 s and contained the new button but not the later entry
-  value, consistent with a slow AT-SPI walk producing a mixed-time snapshot;
-  the old failure bundle discarded poll counts and errors, so this is not yet
-  a final root cause. The journey now retains the complete poll account on
-  failure. Fixed sleeps and weakened event assertions remain excluded; rerun
-  evidence decides whether the owner is scan cost, a poll error, or text state.
+- [x] Linux x86_64 exact-SHA native execution is green at 24 / 24 STEP and
+  25 / 25 evidence ids in 54.106 s, including the atomic `--ready-path` edge,
+  real owned-child exit, accessibility observation and owned cleanup. This
+  proves the integrated journey but does not retroactively invent a cause for
+  the previous mixed-time AT-SPI snapshot. The complete poll/error account now
+  survives in every failure bundle; fixed sleeps and weakened assertions stay
+  excluded.
 - [~] The Windows x86_64 Scheduled Task court exposed a distinct public-entry
   defect before the journey's first STEP: `agenterm.com` started the GUI PE
   with handle inheritance but without `STARTF_USESTDHANDLES`, so a no-console
@@ -319,11 +321,12 @@ independent implementation.
   proves the command set end to end on one platform with public black-box
   evidence. Individual child leaves may record `[~]` / `[x]` when their own
   evidence arrives; a partial platform slice does not promote the subtree root.
-- [~] Linux `current` has black-box AT-SPI2 `tree` and structured actuation
-  evidence. Windows `current` has staged public UIA tree, stable window/node
+- [~] Linux `current` has an exact-SHA 24-step public AT-SPI2 journey with
+  structured observation, actuation and cleanup. Windows `current` has staged
+  public UIA tree, stable window/node
   identity, name-addressed Value/GetText/Invoke actuation, desktop-host cleanup,
   and shared host `Command`/`Executor` dispatch evidence in
-  `scripts/rh/cu-windows-smoke.rh`. macOS AX remains a separate placement slice;
+  `scripts/qjs/cu-windows-smoke.qjs`. macOS AX remains a separate placement slice;
   Candidate qualification is still required before root promotion.
 - [ ] the subtree root still has no shipped version. Roadmap ownership is
   [18 Focused product roadmap](PRD_02_18_roadmap.md). Window placement

@@ -14,6 +14,7 @@ pub fn parse(spec: &VerbSpec, target: TargetRef, args: &mut [String]) -> Result<
     match spec.name {
         "capabilities" => Ok(Command::Capabilities { target }),
         "permissions" => Ok(Command::Permissions { target }),
+        "doctor" => Ok(Command::Doctor { target }),
         other => Err(format!("unknown command '{other}'")),
     }
 }

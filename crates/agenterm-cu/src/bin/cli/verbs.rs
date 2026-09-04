@@ -371,6 +371,19 @@ the exact repair surface when one exists. This is a read-only status facade; sys
 with the user and `permissions` never attempts to bypass it."#,
     },
     VerbSpec {
+        name: "doctor",
+        command: "doctor",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::System,
+        summary: "bounded host, permission and desktop-bridge health report",
+        usage: "doctor",
+        args: &[],
+        details: r#"Reuses the canonical capabilities and permissions declarations, then
+runs bounded window and display inventory probes. A failed probe remains a typed check in the
+successful diagnostic document; `doctor` never mutates setup, consent, helpers or foreground state."#,
+    },
+    VerbSpec {
         name: "windows",
         command: "windows",
         aliases: &["focused-window"],

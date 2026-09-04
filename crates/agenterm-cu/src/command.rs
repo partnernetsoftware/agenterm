@@ -232,6 +232,11 @@ pub enum Command {
     Permissions {
         target: TargetRef,
     },
+    /// Bounded read-only health report composed from the canonical
+    /// capability/permission declarations plus live inventory probes.
+    Doctor {
+        target: TargetRef,
+    },
     /// Top-level window inventory. Without any filter or page field the
     /// reply `data` is the plain window array (unchanged shape); with one,
     /// `data` is the inventory object `{windows, visited, matched, returned,
@@ -1364,6 +1369,7 @@ impl Command {
         match self {
             Self::Capabilities { .. } => "capabilities".into(),
             Self::Permissions { .. } => "permissions".into(),
+            Self::Doctor { .. } => "doctor".into(),
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
@@ -1438,6 +1444,7 @@ impl Command {
         match self {
             Self::Capabilities { target, .. }
             | Self::Permissions { target, .. }
+            | Self::Doctor { target, .. }
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
@@ -1565,6 +1572,25 @@ mod tests {
             back,
             Command::Permissions {
                 target: TargetRef::Ssh
+            }
+        ));
+    }
+
+    #[test]
+    fn doctor_is_a_first_class_observe_wire_command() {
+        let command = Command::Doctor {
+            target: TargetRef::Vnc,
+        };
+        assert_eq!(command.verb(), "doctor");
+        assert_eq!(command.target(), TargetRef::Vnc);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let value = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(value["verb"], "doctor");
+        let back: Command = serde_json::from_value(value).expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::Doctor {
+                target: TargetRef::Vnc
             }
         ));
     }

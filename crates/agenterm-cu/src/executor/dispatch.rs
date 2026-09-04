@@ -8,6 +8,7 @@ impl Executor {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
             Command::Permissions { .. } => Ok(permissions_payload()),
+            Command::Doctor { .. } => Ok(doctor_payload()),
             Command::Windows {
                 pid,
                 app,

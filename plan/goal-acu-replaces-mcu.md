@@ -168,17 +168,13 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   verified result. This is intentionally stronger than MCU's repeated PID
   inventory polling; the native ACU spelling is reachable through the shim.
 - The three public native journeys now bind those commands to each owned GUI
-  fixture. macOS is live green at 37 STEP / 38 evidence ids. The exact-SHA
-  Linux x86_64 court passed the process leaves through STEP 13, including a
-  real owned child exit, then correctly emitted 0 / 25 evidence because the
-  later accessibility observer missed an editable-text event. The exact-SHA
-  rerun proved the atomic `--ready-path` edge and disproved the original
-  baseline-race diagnosis: its first post-ready change arrived at 2.074 s as a
-  mixed-time tree snapshot (new button, old entry). The prior failure bundle
-  retained events but not poll/error accounting, so the journey now keeps the
-  complete observe reply before the next diagnosis. Linux remains unproven
-  until the integrated journey reruns green;
-  Windows 16 / 16 also awaits its exact-SHA court.
+  fixture. macOS is live green at 37 STEP / 38 evidence ids. Linux x86_64 is
+  also exact-SHA green at 24 / 24 STEP and 25 / 25 evidence ids: the atomic
+  ready marker, real owned-child exit, accessibility observation and cleanup
+  all passed in 54.106 s. This proves the integrated source state, not a final
+  explanation for the previous mixed-time AT-SPI snapshot; complete poll/error
+  accounting remains in the failure bundle so a recurrence is diagnosable.
+  Windows 16 / 16 still awaits its exact-SHA court.
 - `process-watch` closes MCU's lifecycle-observation shape with a stronger
   identity contract: composable PID/parent/name filters or explicit all, an immediate
   bounded baseline, and started/exited events keyed by PID plus start identity.
@@ -264,14 +260,14 @@ Q0 truthful boundary
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
 ├─ [~] Linux and Windows journeys for the same verbs
-│  ├─ [~] Linux exact-98cf rerun: built/byte-pinned; native court in progress
+│  ├─ [x] Linux exact-3390 rerun: 24/24 STEP · 25/25 evidence · cleanup green
 │  └─ [~] Windows no-console public `.com` entry: explicit stdio fix awaits court
 └─ [ ] explicit pointer court for drag/wheel/global input; never hide degradation
 Q2 fast delegated facades
 ├─ [~] caps/doctor/permissions/setup and app inventory
 │  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
 │  ├─ [ ] permissions: required/optional three-host evidence + open-next action
-│  ├─ [ ] doctor: bounded composed health receipt
+│  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
 │  └─ [ ] setup: idempotent launcher/runtime repair
 ├─ [ ] open/notify/state and terminal adoption
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts

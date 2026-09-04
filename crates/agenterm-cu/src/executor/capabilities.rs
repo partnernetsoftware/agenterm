@@ -429,6 +429,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("diff".into(), tree_verb.clone());
         verbs.insert("zoom".into(), zoom_verb);
         verbs.insert("drag".into(), drag_verb);
+        verbs.insert(
+            "doctor".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "setup",
+                "grant": "observe",
+                "mode": "bounded-read-only-health-receipt",
+                "reason": "live window/display probes plus canonical permissions and capabilities declarations; no setup mutation",
+            }),
+        );
     }
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
@@ -439,8 +449,8 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
 }
 
 /// One place to look for "what am I not allowed to do, and how is that
-/// fixed". `setup` / `doctor` / `permissions` stay typed -- the wizard
-/// is MCU's -- but the *reporting* has to be complete, and until now the
+/// fixed". `setup` stays a typed gap; `doctor` and `permissions` provide
+/// read-only reporting. The reporting has to be complete, and until now the
 /// repair path was buried inside the `tree` verb while input injection
 /// depends on the very same grant. A caller should not have to know
 /// that to find it.
@@ -510,6 +520,57 @@ pub(super) fn permissions_payload() -> serde_json::Value {
         "action": {
             "performed": false,
             "reason": "status-only; operating-system consent remains user controlled",
+        },
+    })
+}
+
+fn doctor_check(result: Result<serde_json::Value, CuError>, count: &str) -> serde_json::Value {
+    match result {
+        Ok(value) => serde_json::json!({
+            "status": "available",
+            "count": value.get(count).and_then(serde_json::Value::as_u64),
+        }),
+        Err(error) => serde_json::json!({
+            "status": "failed",
+            "error": error_payload(&error),
+        }),
+    }
+}
+
+/// One bounded, read-only answer for an agent deciding whether this host is
+/// ready for desktop work. The declarations are embedded rather than
+/// reconstructed so `doctor`, `permissions` and `capabilities` cannot drift.
+pub(super) fn doctor_payload() -> serde_json::Value {
+    let permissions = permissions_declaration();
+    let windows = doctor_check(
+        windows_payload(observe::WindowFilter::default(), None, Some(0), Some(1)),
+        "returned",
+    );
+    let displays = doctor_check(displays_payload(), "returned");
+    let mechanism_degraded = [&windows, &displays]
+        .iter()
+        .any(|check| check["status"] != "available");
+    // Only macOS currently exposes an inspectable desktop-consent state. A
+    // missing or unknown required grant is actionable diagnosis, so `doctor`
+    // must not call the host ready merely because the underlying API loaded.
+    let permission_degraded = permissions
+        .pointer("/accessibility/grant/status")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|status| status != "granted");
+    let degraded = mechanism_degraded || permission_degraded;
+    serde_json::json!({
+        "schema": 1,
+        "platform": crate::mcu_surface::host_os(),
+        "status": if degraded { "degraded" } else { "ready" },
+        "checks": {
+            "windows": windows,
+            "displays": displays,
+        },
+        "permissions": permissions,
+        "capabilities": capabilities_payload(),
+        "action": {
+            "performed": false,
+            "reason": "diagnosis-only; setup, consent and helper lifecycle are separate operations",
         },
     })
 }
@@ -718,5 +779,45 @@ mod tests {
         assert_eq!(data["platform"], crate::mcu_surface::host_os());
         assert_eq!(data["action"]["performed"], false);
         assert_eq!(data["permissions"], permissions_declaration());
+    }
+
+    #[test]
+    fn doctor_reuses_declarations_and_keeps_probe_failures_in_the_report() {
+        let reply = observe_executor().execute(&Command::Doctor {
+            target: TargetRef::Current,
+        });
+        assert!(reply.ok, "{reply:?}");
+        assert_eq!(reply.command, "doctor");
+        let data = reply.data.expect("doctor data");
+        assert_eq!(data["schema"], 1);
+        assert_eq!(data["platform"], crate::mcu_surface::host_os());
+        assert!(matches!(
+            data["status"].as_str(),
+            Some("ready" | "degraded")
+        ));
+        assert!(data["checks"]["windows"]["status"].is_string());
+        assert!(data["checks"]["displays"]["status"].is_string());
+        assert_eq!(data["permissions"], permissions_declaration());
+        assert_eq!(data["capabilities"], capabilities_payload());
+        assert_eq!(
+            data["capabilities"]["verbs"]["doctor"]["status"],
+            "available"
+        );
+        assert_eq!(data["action"]["performed"], false);
+        let checks_failed = ["windows", "displays"]
+            .iter()
+            .any(|check| data["checks"][check]["status"] != "available");
+        let permission_failed = data["permissions"]
+            .pointer("/accessibility/grant/status")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|status| status != "granted");
+        assert_eq!(
+            data["status"],
+            if checks_failed || permission_failed {
+                "degraded"
+            } else {
+                "ready"
+            }
+        );
     }
 }
