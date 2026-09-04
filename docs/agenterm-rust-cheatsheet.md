@@ -3442,3 +3442,15 @@ return value last, dead bytes are a prefix below a live heap tail and the safe
 rewind suffix is zero. Keep these counters opt-in and absent from ordinary
 Script receipts; use a separate experiment for a larger last-use region rather
 than silently relabeling gross bytes as recovered bytes.
+
+## Keep filesystem metadata and object identity separate
+
+Use `symlink_metadata` when an observation promises to describe the final
+directory entry itself; ordinary `metadata` follows a link and can silently
+change the authority target. Classification, size, permissions and timestamps
+may come from that one metadata snapshot. Stable object identity is a different
+mechanism: on Windows it requires an opened handle through the platform
+`file-identity` facade, because the corresponding standard-library metadata
+accessors are unstable. Never substitute a canonical path for object identity.
+When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
+and native ids as decimal strings so binary64 cannot round them.
