@@ -548,9 +548,9 @@
           "mcu_shape": "file inspect PATH with object identity, type, mode, owner, size and timestamps",
           "acu_shape": "file-inspect PATH (alias: file inspect PATH) with final-link no-follow, bracketed stable-object identity and lossless metadata strings",
           "state": "native",
-          "platforms": {"macos": "live", "linux": "compiled-pending-native-journey", "windows": "compiled-pending-native-journey"},
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "compiled-qjswasm-leaf-pending-native-journey", "windows": "compiled-qjswasm-leaf-pending-native-journey"},
           "next": "add the same public command to Linux and Windows native journeys; preserve typed unavailable for Windows link-object identity",
-          "note": "Ordinary files and directories bracket the metadata read with two opened-object identities and fail file_identity_changed on replacement. Final links are never followed. Unix can identify the link object from metadata; Windows reports that narrow identity field unavailable rather than following the link. macOS public CLI, regular-file/directory/link tests, strict Clippy and x86_64 Windows cargo-xwin check are green."
+          "note": "Ordinary files and directories bracket the metadata read with two opened-object identities and fail file_identity_changed on replacement. Final links are never followed. Unix can identify the link object from metadata; Windows reports that narrow identity field unavailable rather than following the link. At 286a0514 the full macOS qjswasm journey is green at 41 STEP / 42 evidence with cleanup; the same Linux/Windows leaves compile but still require native execution. Package tests, strict Clippy and x86_64 Windows cargo-xwin check are green."
         },
         {
           "id": "file.xattr.inspect",
