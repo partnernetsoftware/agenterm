@@ -21,8 +21,9 @@
 #               court plus page-hover trusted-event target read-back and
 #               page-scroll exact-container event/offset read-back and
 #               page-drag trusted held-sequence/business read-back and
-#               page-files exact FileList read-back; 14 active-target +
-#               front-window invariants stayed green; seven
+#               page-dialog closed-event/redaction and page-files exact
+#               FileList read-back; 15 active-target + front-window
+#               invariants stayed green; eight
 #               actuator receipt kinds completed.
 #
 # What it proves, in order (all on 127.0.0.1:<free port>):
@@ -44,14 +45,16 @@
 #      basename/size without persisting the path.
 #   9. `page drag` holds left from one rendered element to another, verifies
 #      the trusted event sequence and reads the fixture's business result.
-#  10. `page fill --node N --text ' world' --submit` appends and submits
+#  10. `page dialog --text` waits for and accepts a real prompt, verifies its
+#      close event and persists byte counts rather than the response.
+#  11. `page fill --node N --text ' world' --submit` appends and submits
 #      (the form's onsubmit rewrites #out -> "submitted:hello world").
-#  11. `page screenshot --target-id B --out` writes a PNG, or answers the
+#  12. `page screenshot --target-id B --out` writes a PNG, or answers the
 #      typed cdp_screenshot_unavailable -- either way without activating.
-#  12. After EVERY verb: /json lists A first (B never became active) and
+#  13. After EVERY verb: /json lists A first (B never became active) and
 #      `windows --focused` reports the same front window as before the run
 #      (or "none" both times on an unattended session).
-#  13. `receipts` lists every actuation as completed lines.
+#  14. `receipts` lists every actuation as completed lines.
 #
 # Browser: $CU_CDP_BROWSER (an executable), else /Applications/Brave Origin.app,
 # else /Applications/Google Chrome.app; none present is a typed SKIP.
@@ -299,7 +302,21 @@ READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.bo
 [[ "$(jf "$READ" data.value)" == "done" ]] || fail "page drag business read-back: $READ"
 echo "STEP 10 page drag #drag-from -> #drag-to: trusted held sequence + business result verified"
 
-# 9. page fill by node id, appended, then --submit runs the form's onsubmit.
+# 9. Arm a real prompt asynchronously, then handle it through a fresh CDP
+#    session. The supplied response is business-readable but absent from the
+#    public reply and persistent receipt.
+DIALOG_SECRET="dialog-answer-$PORT"
+OUT="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "setTimeout(()=>{document.body.dataset.dialog=prompt(String.fromCharCode(81,117,101,115,116,105,111,110),'')||'dismissed'},100);'armed'")"
+[[ "$(jf "$OUT" data.value)" == "armed" ]] || fail "page dialog arm: $OUT"
+OUT="$(act page dialog --port "$PORT" --target-id "$ID_B" --text "$DIALOG_SECRET" --wait-ms 3000)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.performed)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page dialog: $OUT"
+[[ "$OUT" != *"$DIALOG_SECRET"* ]] || fail "page dialog leaked prompt response"
+still_background "page dialog" "$OUT"
+READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.body.dataset.dialog")"
+[[ "$(jf "$READ" data.value)" == "$DIALOG_SECRET" ]] || fail "page dialog business read-back: $READ"
+echo "STEP 11 page dialog prompt -> closed event verified; response redacted; business result exact"
+
+# 10. page fill by node id, appended, then --submit runs the form's onsubmit.
 OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text ' world' --submit)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill --node --submit: $OUT"
 [[ "$(jf "$OUT" data.verification.after_value)" == "hello world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
@@ -307,7 +324,7 @@ OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text 
 still_background "page fill --submit" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
 [[ "$(jf "$READ" data.value)" == "submitted:hello world" ]] || fail "Enter did not submit the form: $READ"
-echo "STEP 11 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
+echo "STEP 12 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
 
 # 9. page screenshot: a PNG, or the typed refusal -- never an activation.
 SHOT="$UD/b.png"
@@ -322,7 +339,7 @@ else
   SHOT_NOTE="typed cdp_screenshot_unavailable (background tab not painted)"
 fi
 still_background "page screenshot" "$OUT"
-echo "STEP 12 page screenshot --target-id B -> $SHOT_NOTE; A still active"
+echo "STEP 13 page screenshot --target-id B -> $SHOT_NOTE; A still active"
 
 # 10. Receipts: every actuation was reserved and completed.
 OUT="$(obs receipts --max 20)"
@@ -331,9 +348,9 @@ verbs="$(jf "$OUT" data.receipts | python3 -c '
 import json,sys
 lines = json.load(sys.stdin)
 print(" ".join(sorted({l["verb"] for l in lines if l.get("phase") == "completed"})))')"
-for verb in page-nav page-fill page-click page-hover page-scroll page-drag page-files; do
+for verb in page-nav page-fill page-click page-hover page-scroll page-drag page-dialog page-files; do
   [[ "$verbs" == *"$verb"* ]] || fail "receipts lack a completed $verb line: $verbs"
 done
-echo "STEP 13 receipts: completed [$verbs]"
+echo "STEP 14 receipts: completed [$verbs]"
 
 echo "PASS: cu-cdp-actuate-smoke ($BROWSER_NAME headless, port $PORT, every CDP verb on the background tab; $CHECKS active-target + front-window checks; front window before/after: [$FRONT0])"

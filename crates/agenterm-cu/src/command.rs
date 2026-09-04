@@ -1073,6 +1073,26 @@ pub enum Command {
         x2: f64,
         y2: f64,
     },
+    /// `page dialog` waits for one real JavaScript dialog on an exact CDP
+    /// target, accepts/dismisses it, and verifies the close event. Message and
+    /// prompt contents are redacted from receipts.
+    PageDialog {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default)]
+        dismiss: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wait_ms: Option<u64>,
+    },
     /// `page files` over CDP: bind one or more browser-host local regular
     /// files to an exact input[type=file] and verify the resulting FileList.
     /// Receipts retain basename/size only, never local paths.
@@ -1505,6 +1525,7 @@ impl Command {
             Self::PageHover { .. } => "page-hover".into(),
             Self::PageScroll { .. } => "page-scroll".into(),
             Self::PageDrag { .. } => "page-drag".into(),
+            Self::PageDialog { .. } => "page-dialog".into(),
             Self::PageFiles { .. } => "page-files".into(),
             Self::PageFill { .. } => "page-fill".into(),
             Self::PageNav { .. } => "page-nav".into(),
@@ -1585,6 +1606,7 @@ impl Command {
             | Self::PageHover { target, .. }
             | Self::PageScroll { target, .. }
             | Self::PageDrag { target, .. }
+            | Self::PageDialog { target, .. }
             | Self::PageFiles { target, .. }
             | Self::PageFill { target, .. }
             | Self::PageNav { target, .. }
@@ -1635,6 +1657,7 @@ impl Command {
             | Self::PageHover { .. }
             | Self::PageScroll { .. }
             | Self::PageDrag { .. }
+            | Self::PageDialog { .. }
             | Self::PageFiles { .. }
             | Self::PageFill { .. }
             | Self::PageNav { .. }

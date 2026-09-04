@@ -2081,6 +2081,27 @@ the target page to observe a trusted mousedown, held mousemove and mouseup at
 the frozen endpoints. A zero-distance drag is rejected before any effect."#,
     },
     VerbSpec {
+        name: "page-dialog",
+        command: "page-dialog",
+        aliases: &["page dialog"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "accept or dismiss one real JavaScript dialog on a CDP target",
+        usage: "page-dialog [--port N] (--target-id ID | --target-url SUB | --target-title SUB) [--dismiss] [--text TEXT] [--wait-ms N]
+page dialog ...                                     (MCU spelling)",
+        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE,
+            ArgSpec { flag: "--dismiss", value: "", help: "dismiss instead of accept" },
+            ArgSpec { flag: "--text", value: "TEXT", help: "prompt response (accept only; redacted from receipt)" },
+            ArgSpec { flag: "--wait-ms", value: "N", help: "dialog-opening deadline, 1..=30000 (default 3000)" },
+        ],
+        details: r#"Enables Page events, waits for a real
+Page.javascriptDialogOpening, reserves the receipt, then calls
+Page.handleJavaScriptDialog and verifies Page.javascriptDialogClosed. A missing
+dialog is cdp_dialog_not_open and performs nothing. Dialog message, default
+prompt, supplied response and returned userInput are represented only by byte
+counts in persistent/public evidence."#,
+    },
+    VerbSpec {
         name: "page-fill",
         command: "page-fill",
         aliases: &["page fill"],
@@ -2389,14 +2410,14 @@ other profiles' windows are brought back."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "MCU page group; unmapped page verbs answer typed",
-        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page hover | page scroll | page drag | page files | page fill | page nav | page screenshot
+        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page hover | page scroll | page drag | page dialog | page files | page fill | page nav | page screenshot
 page [<other>]                                      (typed unsupported)",
         args: &[],
         details: r#"MCU page: `page read --js` -> page-js, `page read` (no --js) -> the CDP
 page-text, `page targets` -> page-targets, `page text` -> page-text (a11y
 with --window, CDP with a target selector), and the CDP background-tab
 verbs `page find` / `page click` / `page hover` / `page scroll` / `page
-drag` / `page files` / `page fill` / `page nav` / `page screenshot` map to their typed CDP verbs. Any
+drag` / `page dialog` / `page files` / `page fill` / `page nav` / `page screenshot` map to their typed CDP verbs. Any
 other page sub-verb answers typed unsupported."#,
     },
     // -------------------------------------------------------------- clipboard
@@ -2914,6 +2935,10 @@ mod tests {
             Some("page-drag")
         );
         assert_eq!(
+            resolve("page", Some("dialog")).map(|s| s.name),
+            Some("page-dialog")
+        );
+        assert_eq!(
             resolve("page", Some("files")).map(|s| s.name),
             Some("page-files")
         );
@@ -3036,6 +3061,7 @@ mod tests {
             "page-hover",
             "page-scroll",
             "page-drag",
+            "page-dialog",
             "page-files",
             "page-fill",
             "page-nav",
@@ -3053,6 +3079,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 34, "{actuate:?}");
+        assert_eq!(actuate.len(), 35, "{actuate:?}");
     }
 }

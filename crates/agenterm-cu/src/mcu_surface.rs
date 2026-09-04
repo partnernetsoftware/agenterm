@@ -95,6 +95,7 @@ pub const GROUPS: &[Group] = &[
             "page-hover",
             "page-scroll",
             "page-drag",
+            "page-dialog",
             "page-files",
             "page-fill",
             "page-nav",
@@ -241,7 +242,7 @@ pub fn is_typed_only_verb(verb: &str) -> bool {
 fn typed_only_reason(verb: &str) -> &'static str {
     match verb {
         "page" => {
-            "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/hover/scroll/fill/nav/screenshot map to typed CDP verbs (background tabs, no focus change); any other page sub-verb is typed unsupported"
+            "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/hover/scroll/drag/dialog/files/fill/nav/screenshot map to typed CDP verbs (background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
         "ghost" => "ACU migration gap: the ghost cursor overlay has no typed facade yet",
         "ps" | "kill" | "signal" | "exec" | "state" => {
@@ -565,6 +566,10 @@ pub fn verb_declaration(verb: &str) -> Value {
             "actuate",
             "Input.dispatchMouseEvent left-button down/held-move/up between two bounded viewport points; trusted target-page event sequence read-back; release always attempted after press; receipt",
         )),
+        "page-dialog" => Some((
+            "actuate",
+            "wait for Page.javascriptDialogOpening, accept/dismiss with Page.handleJavaScriptDialog, verify Page.javascriptDialogClosed; message and prompt contents redacted; receipt",
+        )),
         "page-files" => Some((
             "actuate",
             "DOM.setFileInputFiles on one enabled input[type=file]; bounded regular local files, exact FileList basename/size read-back, no persisted local paths; receipt",
@@ -814,6 +819,7 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "page-hover",
         "page-scroll",
         "page-drag",
+        "page-dialog",
         "page-files",
         "page-fill",
         "page-nav",
@@ -904,6 +910,7 @@ mod tests {
             "page-hover",
             "page-scroll",
             "page-drag",
+            "page-dialog",
             "page-files",
             "page-fill",
             "page-nav",
@@ -920,12 +927,16 @@ mod tests {
         assert_eq!(verb_declaration("page-hover")["grant"], "actuate");
         assert_eq!(verb_declaration("page-scroll")["grant"], "actuate");
         assert_eq!(verb_declaration("page-drag")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-dialog")["grant"], "actuate");
         assert_eq!(verb_declaration("page-files")["grant"], "actuate");
         assert_eq!(verb_declaration("page-fill")["grant"], "actuate");
         assert_eq!(verb_declaration("page-nav")["grant"], "actuate");
         assert_eq!(verb_declaration("page-find")["grant"], "observe");
         assert_eq!(verb_declaration("page-screenshot")["grant"], "observe");
-        assert!(typed_reason_for_verb("page").contains("page find/click/hover/scroll"));
+        assert!(
+            typed_reason_for_verb("page")
+                .contains("page find/click/hover/scroll/drag/dialog/files")
+        );
         assert_eq!(group_id_for_verb("tab-select"), "semantic");
         assert_eq!(group_id_for_verb("tab-list"), "semantic");
         assert!(!is_align_verb("page-targets") && !is_align_verb("tab-select"));

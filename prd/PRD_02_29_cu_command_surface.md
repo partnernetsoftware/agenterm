@@ -174,7 +174,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   FILE...` (actuate; 1..16 absolute browser-host paths, regular non-symlink
   files only, exact enabled `input[type=file]`, `multiple` preflight,
   `DOM.setFileInputFiles`, then exact FileList basename/size read-back; public
-  results and receipts never retain the local paths), `page fill
+  results and receipts never retain the local paths), `page dialog [--dismiss]
+  [--text T] [--wait-ms N]` (actuate; waits for
+  `Page.javascriptDialogOpening`, then accepts/dismisses and verifies
+  `Page.javascriptDialogClosed`; message/default/response/userInput contents
+  are represented only by byte counts), `page fill
   (--selector | --node) --text T [--clear] [--submit]` (actuate;
   `DOM.focus`, select-all, `Input.insertText`, `.value` read back ==
   text, Enter key events; focus emulation on for the write and off
@@ -195,8 +199,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `scrollTop` change from 360 to 480, and `page-files` by exact FileList
   basename/size while its absolute fixture path was absent from public output;
   The same court then verified `page-drag` from two live element boxes by both
-  the trusted held-event sequence and a page-owned business state change. All
-  retained `focus_changed: false`. MCU-shaped positional hover/scroll/drag/files
+  the trusted held-event sequence and a page-owned business state change, and
+  accepted a real prompt through `page-dialog`, reading its page-owned result
+  back while proving the response was absent from reply/receipt. All retained
+  `focus_changed: false`. MCU-shaped positional hover/scroll/drag/dialog/files
   now route through the sibling compatibility shim instead of staying on MCU;
   `--match` remains typed because its
   title+url+description search is not the same selector contract. Still open:

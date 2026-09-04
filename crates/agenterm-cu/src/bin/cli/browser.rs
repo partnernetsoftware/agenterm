@@ -1,5 +1,5 @@
 //! Browser page & tabs: the CDP verbs (`page-js`, `page-targets`, and the
-//! background-tab verbs `page find|click|hover|scroll|drag|fill|nav|screenshot`), the page
+//! background-tab verbs `page find|click|hover|scroll|drag|dialog|files|fill|nav|screenshot`), the page
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
 //! profiles|open`), and the MCU `page` group word.
@@ -28,6 +28,7 @@ pub fn parse(
             "page-hover" => page_hover(target, args),
             "page-scroll" => page_scroll(target, args),
             "page-drag" => page_drag(target, args),
+            "page-dialog" => page_dialog(target, args),
             "page-files" => page_files(target, args),
             "page-fill" => page_fill(target, args),
             "page-nav" => page_nav(target, args),
@@ -77,6 +78,10 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         Some("drag") => {
             args.remove(0);
             return page_drag(target, args);
+        }
+        Some("dialog") => {
+            args.remove(0);
+            return page_dialog(target, args);
         }
         Some("files") => {
             args.remove(0);
@@ -439,6 +444,48 @@ fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         y1: *y1,
         x2: *x2,
         y2: *y2,
+    })
+}
+
+fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, target_id, target_url, target_title) = cdp_target_flags("page dialog", args)?;
+    let dismiss = take_switch(args, "--dismiss");
+    let text = flag_text(args, "--text")?;
+    let wait_ms = flag_parsed::<u64>(args, "--wait-ms")?;
+    if dismiss && text.is_some() {
+        return Err("page dialog --text cannot be combined with --dismiss".into());
+    }
+    if text
+        .as_ref()
+        .is_some_and(|value| value.len() > agenterm_cu::cdp::page::MAX_FILL_BYTES)
+    {
+        return Err(format!(
+            "page dialog --text exceeds {} UTF-8 bytes",
+            agenterm_cu::cdp::page::MAX_FILL_BYTES
+        ));
+    }
+    if wait_ms.is_some_and(|value| value == 0 || value > agenterm_cu::cdp::page::MAX_DIALOG_WAIT_MS)
+    {
+        return Err(format!(
+            "page dialog --wait-ms must be within 1..={}",
+            agenterm_cu::cdp::page::MAX_DIALOG_WAIT_MS
+        ));
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "page dialog accepts only target flags plus [--dismiss] [--text TEXT] [--wait-ms N]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageDialog {
+        target,
+        port,
+        target_id,
+        target_url,
+        target_title,
+        dismiss,
+        text,
+        wait_ms,
     })
 }
 

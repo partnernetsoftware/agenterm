@@ -1535,6 +1535,13 @@ of them has to bring the tab forward. What the throwaway headless gate
   Verification requires the page to read back a trusted down, a move with the
   left-button bit held, and an up at the frozen endpoints. Four CDP ACKs alone
   are only `performed`, never `verified`.
+- **A JavaScript dialog is an event lifecycle, not one method ACK.** Enable
+  Page events and observe `javascriptDialogOpening` before reserving an effect;
+  no event by the bounded deadline is typed `cdp_dialog_not_open`. After
+  `handleJavaScriptDialog`, verify `javascriptDialogClosed.result` against the
+  requested accept/dismiss value. Dialog messages, defaults, supplied prompt
+  text and returned user input may contain secrets: persist only type, booleans
+  and byte counts, never those strings.
 
 ## Name addressing is wait-matching then the node path
 

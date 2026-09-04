@@ -303,8 +303,9 @@ Q4 browser and platform depth
 │  ├─ [x] page hover: trusted mousemove target read-back; MCU positional shape routed
 │  ├─ [x] page scroll: owned-container scroll event + offset read-back; MCU positional shape routed
 │  ├─ [x] page drag: trusted down/held-move/up read-back; release cleanup; MCU positional shape routed
+│  ├─ [x] page dialog: opening/closed event proof; prompt contents redacted; MCU shape routed
 │  ├─ [x] page files: exact FileList read-back; bounded regular non-symlink inputs; paths redacted
-│  └─ [ ] page dialog and MCU auto-pick/--match shapes remain
+│  └─ [ ] MCU auto-pick/--match shapes remain
 ├─ [ ] MV3/Native Messaging + managed-profile ownership
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity

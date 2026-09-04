@@ -1,5 +1,6 @@
 //! The background-tab verbs over one CDP session: `page text`, `page
-//! find`, `page click`, `page hover`, `page scroll`, `page drag`, `page fill`, `page
+//! find`, `page click`, `page hover`, `page scroll`, `page drag`, `page dialog`,
+//! `page files`, `page fill`, `page
 //! nav`, `page screenshot`.
 //!
 //! Every function here is generic over `Transport` so the message shaping
@@ -36,6 +37,8 @@ pub const MAX_POINTER_COORD: f64 = 1_000_000.0;
 pub const MAX_SCROLL_DELTA: f64 = 1_000_000.0;
 pub const MAX_FILES: usize = 16;
 pub const MAX_FILE_PATH_BYTES: usize = 4096;
+pub const DEFAULT_DIALOG_WAIT_MS: u64 = 3_000;
+pub const MAX_DIALOG_WAIT_MS: u64 = 30_000;
 static HOVER_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SCROLL_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DRAG_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -1338,6 +1341,148 @@ pub fn perform_drag<T: Transport>(
     })
 }
 
+// ---------------------------------------------------------------- dialog
+
+#[derive(Debug)]
+pub struct DialogPlan {
+    pub accept: bool,
+    pub prompt_text: Option<String>,
+    pub dialog_type: String,
+    pub message_bytes: usize,
+    pub default_prompt_bytes: usize,
+    pub wait_ms: u64,
+}
+
+impl DialogPlan {
+    pub fn json(&self) -> Value {
+        json!({
+            "accept": self.accept,
+            "prompt_text_supplied": self.prompt_text.is_some(),
+            "prompt_text_bytes": self.prompt_text.as_deref().map(str::len).unwrap_or(0),
+            "dialog_type": self.dialog_type,
+            "message_bytes": self.message_bytes,
+            "default_prompt_bytes": self.default_prompt_bytes,
+            "wait_ms": self.wait_ms,
+        })
+    }
+}
+
+/// Enable Page events and wait for one real JavaScript dialog before an effect
+/// receipt is reserved. Message/default/prompt contents never enter the plan.
+pub fn plan_dialog<T: Transport>(
+    session: &mut Session<T>,
+    accept: bool,
+    prompt_text: Option<&str>,
+    wait_ms: Option<u64>,
+) -> Result<DialogPlan, CdpError> {
+    let wait_ms = wait_ms.unwrap_or(DEFAULT_DIALOG_WAIT_MS);
+    if wait_ms == 0 || wait_ms > MAX_DIALOG_WAIT_MS {
+        return Err(CdpError::typed(
+            "invalid_input",
+            format!("page dialog --wait-ms must be within 1..={MAX_DIALOG_WAIT_MS}"),
+        ));
+    }
+    if prompt_text.is_some_and(|text| text.len() > MAX_FILL_BYTES) {
+        return Err(CdpError::typed(
+            "invalid_input",
+            format!("page dialog --text exceeds {MAX_FILL_BYTES} UTF-8 bytes"),
+        ));
+    }
+    if !accept && prompt_text.is_some() {
+        return Err(CdpError::typed(
+            "invalid_input",
+            "page dialog --text cannot be combined with --dismiss",
+        ));
+    }
+    session.call("Page.enable", json!({}))?;
+    let opening = session
+        .wait_event(
+            "Page.javascriptDialogOpening",
+            std::time::Duration::from_millis(wait_ms),
+        )?
+        .ok_or_else(|| {
+            CdpError::typed(
+                "cdp_dialog_not_open",
+                format!("no JavaScript dialog appeared within {wait_ms} ms; nothing was handled"),
+            )
+            .with_detail(json!({ "effect": "not_performed", "wait_ms": wait_ms }))
+        })?;
+    let params = &opening["params"];
+    Ok(DialogPlan {
+        accept,
+        prompt_text: prompt_text.map(str::to_owned),
+        dialog_type: params["type"].as_str().unwrap_or("unknown").to_owned(),
+        message_bytes: params["message"].as_str().map(str::len).unwrap_or(0),
+        default_prompt_bytes: params["defaultPrompt"].as_str().map(str::len).unwrap_or(0),
+        wait_ms,
+    })
+}
+
+pub fn perform_dialog<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &DialogPlan,
+) -> Result<ActuationOutcome, CdpError> {
+    let mut params = json!({ "accept": plan.accept });
+    if let Some(text) = &plan.prompt_text {
+        params["promptText"] = json!(text);
+    }
+    let handled = session.call("Page.handleJavaScriptDialog", params);
+    if let Err(error) = handled {
+        let payload = with(
+            ctx.envelope("Page.handleJavaScriptDialog"),
+            json!({
+                "action": if plan.accept { "accept" } else { "dismiss" },
+                "performed": false,
+                "verified": false,
+                "dialog": plan.json(),
+                "verification": { "method": "Page.javascriptDialogClosed", "reason": error.message },
+            }),
+        );
+        return Err(error.with_detail(json!({ "receipt": payload })));
+    }
+    let closed = session.wait_event(
+        "Page.javascriptDialogClosed",
+        std::time::Duration::from_millis(plan.wait_ms.min(3_000)),
+    )?;
+    let observed_accept = closed
+        .as_ref()
+        .and_then(|event| event["params"]["result"].as_bool());
+    let verified = observed_accept == Some(plan.accept);
+    let reason = if verified {
+        Value::Null
+    } else if observed_accept.is_some() {
+        json!("dialog_result_mismatch")
+    } else {
+        json!("dialog_close_not_observed")
+    };
+    let user_input_bytes = closed
+        .as_ref()
+        .and_then(|event| event["params"]["userInput"].as_str())
+        .map(str::len)
+        .unwrap_or(0);
+    let payload = with(
+        ctx.envelope("Page.handleJavaScriptDialog"),
+        json!({
+            "action": if plan.accept { "accept" } else { "dismiss" },
+            "performed": true,
+            "verified": verified,
+            "dialog": plan.json(),
+            "verification": {
+                "method": "Page.javascriptDialogClosed",
+                "observed_accept": observed_accept,
+                "user_input_bytes": user_input_bytes,
+                "reason": reason,
+            },
+        }),
+    );
+    Ok(ActuationOutcome {
+        performed: true,
+        verified,
+        payload,
+    })
+}
+
 // ------------------------------------------------------------------ files
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2398,6 +2543,71 @@ mod tests {
             .map(|call| call["params"]["type"].as_str().unwrap())
             .collect();
         assert_eq!(kinds.last(), Some(&"mouseReleased"));
+    }
+
+    #[test]
+    fn dialog_waits_for_opening_verifies_close_and_redacts_contents() {
+        let mut session = Session::new(fake::FakeTransport::new(
+            |id, method, params| match method {
+                "Page.enable" => vec![
+                    fake::result(id, json!({})),
+                    fake::event(
+                        "Page.javascriptDialogOpening",
+                        json!({
+                            "type": "prompt", "message": "private question",
+                            "defaultPrompt": "private default", "hasBrowserHandler": true
+                        }),
+                    ),
+                ],
+                "Page.handleJavaScriptDialog" => {
+                    assert_eq!(params["accept"], true);
+                    assert_eq!(params["promptText"], "private answer");
+                    vec![
+                        fake::event(
+                            "Page.javascriptDialogClosed",
+                            json!({
+                                "result": true, "userInput": "private answer"
+                            }),
+                        ),
+                        fake::result(id, json!({})),
+                    ]
+                }
+                other => vec![fake::error(id, -32601, &format!("unexpected {other}"))],
+            },
+        ));
+        let plan = plan_dialog(&mut session, true, Some("private answer"), Some(10)).expect("plan");
+        let plan_json = plan.json().to_string();
+        assert_eq!(plan.dialog_type, "prompt");
+        assert_eq!(plan.message_bytes, 16);
+        assert!(!plan_json.contains("private"));
+        let outcome = perform_dialog(&mut session, &ctx(), &plan).expect("dialog");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        let public = outcome.payload.to_string();
+        assert!(
+            !public.contains("private"),
+            "dialog contents leaked: {public}"
+        );
+        assert_eq!(outcome.payload["verification"]["user_input_bytes"], 14);
+        assert_eq!(outcome.payload["focus_changed"], false);
+    }
+
+    #[test]
+    fn dialog_missing_and_dismiss_with_text_fail_before_effect() {
+        let mut session = fake::session(|method, _| match method {
+            "Page.enable" => Ok(json!({})),
+            other => Err(format!("unexpected {other}")),
+        });
+        let missing = plan_dialog(&mut session, true, None, Some(1)).expect_err("missing");
+        assert_eq!(missing.code, "cdp_dialog_not_open");
+        assert_eq!(missing.detail["effect"], "not_performed");
+        let invalid = plan_dialog(&mut session, false, Some("no"), Some(1)).expect_err("invalid");
+        assert_eq!(invalid.code, "invalid_input");
+        assert_eq!(
+            session.calls_made(),
+            1,
+            "invalid shape performs no CDP call"
+        );
     }
 
     #[test]

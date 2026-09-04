@@ -347,6 +347,23 @@ impl Executor {
                 *y2,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PageDialog {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                dismiss,
+                text,
+                wait_ms,
+                ..
+            } => page_dialog_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                *dismiss,
+                text.as_deref(),
+                *wait_ms,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PageFiles {
                 port,
                 target_id,

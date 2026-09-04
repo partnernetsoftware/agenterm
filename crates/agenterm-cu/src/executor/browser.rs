@@ -637,6 +637,29 @@ pub(super) fn page_drag_payload(
     complete_cdp_receipt(receipts, &ticket, "page-drag", outcome)
 }
 
+pub(super) fn page_dialog_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    dismiss: bool,
+    text: Option<&str>,
+    wait_ms: Option<u64>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_dialog(&mut session, !dismiss, text, wait_ms)?;
+    let ticket = receipts.reserve(
+        "page-dialog",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "action": "dialog",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_dialog(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-dialog", outcome)
+}
+
 pub(super) fn page_files_payload(
     port: Option<u16>,
     selector: crate::cdp::TargetSelector,
