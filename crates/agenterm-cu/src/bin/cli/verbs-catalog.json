@@ -498,6 +498,71 @@
       ]
     },
     {
+      "name": "pty-start",
+      "command": "pty-start",
+      "aliases": ["pty start"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "start one durable headless PTY job",
+      "usage": "pty-start NAME [--cwd DIR] -- PROGRAM ARG...\npty start NAME [--cwd DIR] -- PROGRAM ARG...",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name: 1..=64 ASCII letters, digits, dot, underscore or hyphen"},
+        {"flag": "--cwd", "value": "DIR", "help": "existing child working directory; default is the caller directory"},
+        {"flag": "--", "value": "PROGRAM ARG...", "help": "typed argv, 1..=256 arguments / at most 1048576 bytes"}
+      ]
+    },
+    {
+      "name": "pty-status",
+      "command": "pty-status",
+      "aliases": ["pty status"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "inspect one durable headless PTY job",
+      "usage": "pty-status NAME\npty status NAME",
+      "args": [{"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"}]
+    },
+    {
+      "name": "pty-read",
+      "command": "pty-read",
+      "aliases": ["pty read"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "read a loss-aware raw-output page from a PTY job",
+      "usage": "pty-read NAME [--cursor earliest|current|N] [--max-bytes N]\npty read NAME ...",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name"},
+        {"flag": "--cursor", "value": "CURSOR", "help": "earliest/current bootstrap or prior next_cursor"},
+        {"flag": "--max-bytes", "value": "N", "help": "page size, 1..=1048576 (default 65536)"}
+      ]
+    },
+    {
+      "name": "pty-wait-exit",
+      "command": "pty-wait-exit",
+      "aliases": ["pty wait-exit"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "wait for a PTY job's drained exit receipt",
+      "usage": "pty-wait-exit NAME [--timeout-ms N] [--expect-status N]\npty wait-exit NAME ...",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name"},
+        {"flag": "--timeout-ms", "value": "N", "help": "monotonic deadline, 1..=86400000 (default 300000)"},
+        {"flag": "--expect-status", "value": "N", "help": "optional exact exit status, 0..=255"}
+      ]
+    },
+    {
+      "name": "pty-stop",
+      "command": "pty-stop",
+      "aliases": ["pty stop"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "close one PTY job and its headless authority",
+      "usage": "pty-stop NAME --expect stopped\npty stop NAME --expect stopped",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name"},
+        {"flag": "--expect", "value": "stopped", "help": "required destructive postcondition"}
+      ]
+    },
+    {
       "name": "terminal-list",
       "command": "terminal-list",
       "aliases": [
@@ -3454,6 +3519,26 @@
     {
       "name": "process-watch",
       "text": "agenterm-cu process-watch    (also: process watch)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-watch [--pid N] [--parent N] [--name SUB] [--all] [--duration-ms N --interval-ms N --max-events N --max-processes N]\n  process watch [selectors] [limits]\n\narguments:\n  --pid N                       watch one process id\n  --parent N                    watch direct children of one parent\n  --name SUB                    watch executable-name substring\n  --all                         watch the whole bounded inventory\n  --duration-ms N               monotonic duration, 1..=86400000 (default 30000)\n  --interval-ms N               poll interval, 1..=60000 (default 1000)\n  --max-events N                event ceiling, 1..=4096 (default 256)\n  --max-processes N             matched inventory ceiling, 1..=5000 (default 1000)\n\nTakes an immediate baseline, then emits started/exited diffs until the\nmonotonic duration or event ceiling is reached. Every row carries a native\nstart identity; pid reuse therefore appears as an exit plus a start. An\nunverifiable identity on an exact PID fails closed. A broad selector excludes\nunidentified processes and reports `coverage_complete: false` plus the count;\nit never degrades those rows to pid-only polling. Oversized inventory fails\nclosed.\n"
+    },
+    {
+      "name": "pty-start",
+      "text": "agenterm-cu pty-start    (also: pty start)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-start NAME [--cwd DIR] -- PROGRAM ARG...\n  pty start NAME [--cwd DIR] -- PROGRAM ARG...\n\nStarts one invisible, cross-process PTY job under a deterministic isolated AgenTerm logical instance. AgenTerm server remains the sole POSIX PTY/ConPTY, terminal-tree, retention and process-lifecycle owner. NAME is 1..=64 ASCII letters, digits, dot, underscore or hyphen. The command is typed argv, never a shell string; its values are not copied into receipts. A same-name concurrent or existing job fails typed.\n"
+    },
+    {
+      "name": "pty-status",
+      "text": "agenterm-cu pty-status    (also: pty status)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-status NAME\n  pty status NAME\n\nReturns the durable job identity (name + server scope + epoch + stable @tab), process id, terminal dimensions, dead/finalized state and exit code. A missing authority or an authority that does not contain exactly one job tab fails typed.\n"
+    },
+    {
+      "name": "pty-read",
+      "text": "agenterm-cu pty-read    (also: pty read)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-read NAME [--cursor earliest|current|N] [--max-bytes N]\n  pty read NAME ...\n\nReads the same retained redacted raw PTY byte ring as terminal-output. Base64 is lossless; valid UTF-8 is auxiliary. Continue from next_cursor. Overwritten and future cursors fail typed rather than silently skipping bytes.\n"
+    },
+    {
+      "name": "pty-wait-exit",
+      "text": "agenterm-cu pty-wait-exit    (also: pty wait-exit)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-wait-exit NAME [--timeout-ms N] [--expect-status N]\n  pty wait-exit NAME ...\n\nWaits with a monotonic deadline until both the child and the terminal reader are finalized, then reads the exact exit status. An optional 0..=255 expected status is verified; timeout or mismatch is a typed nonzero failure.\n"
+    },
+    {
+      "name": "pty-stop",
+      "text": "agenterm-cu pty-stop    (also: pty stop)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-stop NAME --expect stopped\n  pty stop NAME --expect stopped\n\nRequires the explicit destructive postcondition, closes the exact epoch-scoped job tab through AgenTerm's own lifecycle, asks the now-empty authority to shut down, and verifies that its IPC endpoint disappears.\n"
     },
     {
       "name": "terminal-list",

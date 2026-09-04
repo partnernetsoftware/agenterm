@@ -101,6 +101,18 @@ impl ControlClient {
         })
     }
 
+    /// Resolve one logical instance directly, without mutating process-wide
+    /// environment. Supervisors use this to address a durable headless job
+    /// from independently spawned CLI processes.
+    pub fn for_instance(instance: &str) -> Result<Self, ClientError> {
+        validate_instance(instance)?;
+        let server_scope_id = server_scope_id(instance)?;
+        Ok(Self {
+            endpoint: default_native_endpoint(&server_scope_id),
+            server_scope_id,
+        })
+    }
+
     pub fn server_scope_id(&self) -> &str {
         &self.server_scope_id
     }
@@ -387,6 +399,11 @@ mod tests {
         assert_eq!(canonical_instance("main"), "main");
         assert_eq!(canonical_instance("work"), "custom:work");
         assert!(validate_instance("unknown:work").is_err());
+        let direct = ControlClient::for_instance("ephemeral:job-a").unwrap();
+        assert_eq!(
+            direct.server_scope_id(),
+            server_scope_id("ephemeral:job-a").unwrap()
+        );
     }
 
     #[test]

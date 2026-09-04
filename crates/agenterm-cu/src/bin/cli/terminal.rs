@@ -10,18 +10,94 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
-    if spelled == "terminal" {
+    if spelled == "terminal" || spelled == "pty" {
+        let group = spelled;
         let expected = spec
             .aliases
             .iter()
-            .find_map(|alias| alias.strip_prefix("terminal "))
-            .ok_or_else(|| "terminal requires a subcommand".to_owned())?;
+            .find_map(|alias| alias.strip_prefix(&format!("{group} ")))
+            .ok_or_else(|| format!("{group} requires a subcommand"))?;
         if args.first().map(String::as_str) != Some(expected) {
-            return Err(format!("terminal requires subcommand {expected}"));
+            return Err(format!("{group} requires subcommand {expected}"));
         }
         args.remove(0);
     }
     match spec.name {
+        "pty-start" => {
+            let command = command_tail(args);
+            let name = required_name(args, "pty-start")?;
+            let cwd = flag_text(args, "--cwd")?;
+            if command.is_empty() {
+                return Err("pty-start requires PROGRAM ARG... after --".into());
+            }
+            if command.len() > 256 || command.iter().map(String::len).sum::<usize>() > 1_048_576 {
+                return Err("pty-start command exceeds 256 arguments or 1048576 bytes".into());
+            }
+            empty(args, "pty-start")?;
+            Ok(Command::PtyStart {
+                target,
+                name,
+                cwd,
+                command,
+            })
+        }
+        "pty-status" => {
+            let name = required_name(args, "pty-status")?;
+            empty(args, "pty-status")?;
+            Ok(Command::PtyStatus { target, name })
+        }
+        "pty-read" => {
+            let name = required_name(args, "pty-read")?;
+            let cursor = flag_text(args, "--cursor")?.unwrap_or_else(|| "earliest".to_owned());
+            if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
+                return Err(
+                    "pty-read --cursor must be earliest, current, or a non-negative integer".into(),
+                );
+            }
+            let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?.unwrap_or(65_536);
+            if !(1..=1_048_576).contains(&max_bytes) {
+                return Err("pty-read --max-bytes must be in 1..=1048576".into());
+            }
+            empty(args, "pty-read")?;
+            Ok(Command::PtyRead {
+                target,
+                name,
+                cursor,
+                max_bytes,
+            })
+        }
+        "pty-wait-exit" => {
+            let name = required_name(args, "pty-wait-exit")?;
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(300_000);
+            if !(1..=86_400_000).contains(&timeout_ms) {
+                return Err("pty-wait-exit --timeout-ms must be in 1..=86400000".into());
+            }
+            let expect_status = flag_parsed::<i32>(args, "--expect-status")?;
+            if expect_status.is_some_and(|status| !(0..=255).contains(&status)) {
+                return Err("pty-wait-exit --expect-status must be in 0..=255".into());
+            }
+            empty(args, "pty-wait-exit")?;
+            Ok(Command::PtyWaitExit {
+                target,
+                name,
+                timeout_ms,
+                expect_status,
+            })
+        }
+        "pty-stop" => {
+            let name = required_name(args, "pty-stop")?;
+            let expect = flag_text(args, "--expect")?
+                .ok_or_else(|| "pty-stop requires --expect stopped".to_owned())?;
+            if expect != "stopped" {
+                return Err("pty-stop --expect must be stopped".into());
+            }
+            empty(args, "pty-stop")?;
+            Ok(Command::PtyStop {
+                target,
+                name,
+                expect_stopped: true,
+            })
+        }
         "terminal-list" => {
             empty(args, "terminal-list")?;
             Ok(Command::TerminalList { target })
@@ -183,6 +259,33 @@ pub fn parse(
     }
 }
 
+fn command_tail(args: &mut Vec<String>) -> Vec<String> {
+    let Some(separator) = args.iter().position(|arg| arg == "--") else {
+        return Vec::new();
+    };
+    let command = args.drain(separator + 1..).collect::<Vec<_>>();
+    args.pop();
+    command
+}
+
+fn required_name(args: &mut Vec<String>, verb: &str) -> Result<String, String> {
+    let Some(first) = args.first() else {
+        return Err(format!("{verb} requires NAME"));
+    };
+    if first.starts_with('-') {
+        return Err(format!("{verb} requires NAME before options"));
+    }
+    let name = args.remove(0);
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
+    valid
+        .then_some(name)
+        .ok_or_else(|| format!("{verb} NAME must be 1..=64 ASCII letters, digits, '.', '_' or '-'"))
+}
+
 fn required_tab(args: &mut Vec<String>) -> Result<String, String> {
     let tab =
         flag_text(args, "--tab")?.ok_or_else(|| "terminal command requires --tab @N".to_owned())?;
@@ -224,6 +327,32 @@ mod tests {
 
     #[test]
     fn terminal_shapes_are_closed_and_bounded() {
+        assert!(matches!(
+            parse("pty-start", &["build", "--cwd", ".", "--", "sh", "-lc", "printf ok"]).unwrap(),
+            Command::PtyStart { name, cwd: Some(cwd), command, .. }
+                if name == "build" && cwd == "." && command == ["sh", "-lc", "printf ok"]
+        ));
+        assert!(matches!(
+            parse("pty-status", &["build"]).unwrap(),
+            Command::PtyStatus { name, .. } if name == "build"
+        ));
+        assert!(matches!(
+            parse("pty-read", &["build", "--cursor", "12", "--max-bytes", "8"]).unwrap(),
+            Command::PtyRead { name, cursor, max_bytes: 8, .. }
+                if name == "build" && cursor == "12"
+        ));
+        assert!(matches!(
+            parse("pty-wait-exit", &["build", "--timeout-ms", "9", "--expect-status", "0"]).unwrap(),
+            Command::PtyWaitExit { name, timeout_ms: 9, expect_status: Some(0), .. }
+                if name == "build"
+        ));
+        assert!(matches!(
+            parse("pty-stop", &["build", "--expect", "stopped"]).unwrap(),
+            Command::PtyStop { name, expect_stopped: true, .. } if name == "build"
+        ));
+        assert!(parse("pty-start", &["bad/name", "--", "true"]).is_err());
+        assert!(parse("pty-start", &["build"]).is_err());
+        assert!(parse("pty-stop", &["build"]).is_err());
         assert!(matches!(
             parse("terminal-list", &[]).unwrap(),
             Command::TerminalList { .. }

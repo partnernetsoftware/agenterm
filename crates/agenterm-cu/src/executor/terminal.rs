@@ -17,7 +17,7 @@ fn client() -> Result<ControlClient, CuError> {
     ControlClient::from_environment().map_err(|error| CuError::new(error.code, error.message))
 }
 
-fn request(
+pub(super) fn request(
     client: &ControlClient,
     args: Vec<String>,
     operation: &str,
@@ -43,7 +43,10 @@ fn request(
     }
 }
 
-fn parse_output(response: ControlResponse, code: &'static str) -> Result<Value, CuError> {
+pub(super) fn parse_output(
+    response: ControlResponse,
+    code: &'static str,
+) -> Result<Value, CuError> {
     serde_json::from_str(&response.output)
         .map_err(|error| CuError::new(code, format!("invalid AgenTerm control JSON: {error}")))
 }
@@ -69,7 +72,7 @@ pub(super) fn terminal_list_payload() -> Result<Value, CuError> {
     terminal_inventory_with_client(&client)
 }
 
-fn terminal_inventory_with_client(client: &ControlClient) -> Result<Value, CuError> {
+pub(super) fn terminal_inventory_with_client(client: &ControlClient) -> Result<Value, CuError> {
     let response = request(
         client,
         vec!["ui-bootstrap".to_owned()],
@@ -135,7 +138,18 @@ pub(super) fn terminal_new_payload(
     }
 
     let client = client()?;
-    let before = terminal_inventory_with_client(&client)?;
+    terminal_new_with_client(&client, title, parent, detached, child_command, receipts)
+}
+
+pub(super) fn terminal_new_with_client(
+    client: &ControlClient,
+    title: Option<&str>,
+    parent: Option<&str>,
+    detached: bool,
+    child_command: &[String],
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    let before = terminal_inventory_with_client(client)?;
     if let Some(parent) = parent
         && !inventory_contains(&before, parent)
     {
@@ -177,7 +191,7 @@ pub(super) fn terminal_new_payload(
         args.extend(child_command.iter().cloned());
     }
     let response = request(
-        &client,
+        client,
         args,
         "command.new.window",
         Intent::Mutation,
@@ -186,7 +200,7 @@ pub(super) fn terminal_new_payload(
     match response {
         Ok(response) => {
             let tab = response.output.trim().to_owned();
-            let post = match terminal_inventory_with_client(&client) {
+            let post = match terminal_inventory_with_client(client) {
                 Ok(post) => post,
                 Err(error) => {
                     let evidence = json!({
@@ -262,7 +276,23 @@ pub(super) fn terminal_close_payload(
         ));
     }
     let client = client()?;
-    let before = terminal_inventory_with_client(&client)?;
+    terminal_close_with_client(&client, tab, expect_closed, receipts)
+}
+
+pub(super) fn terminal_close_with_client(
+    client: &ControlClient,
+    tab: &str,
+    expect_closed: bool,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if !expect_closed {
+        return Err(CuError::new(
+            "terminal_close_intent_required",
+            "terminal-close requires explicit --expect closed",
+        ));
+    }
+    let before = terminal_inventory_with_client(client)?;
     if !inventory_contains(&before, tab) {
         return Err(CuError::new(
             "terminal_tab_not_found",
@@ -281,13 +311,13 @@ pub(super) fn terminal_close_payload(
         }),
     )?;
     let result = request(
-        &client,
+        client,
         vec!["kill-window".to_owned(), "-t".to_owned(), tab.to_owned()],
         "command.kill.window",
         Intent::Mutation,
         Duration::from_secs(10),
     );
-    let post = terminal_inventory_with_client(&client);
+    let post = terminal_inventory_with_client(client);
     let post_verified = post.as_ref().is_ok_and(|snapshot| {
         snapshot["server_scope_id"] == before["server_scope_id"]
             && snapshot["server_epoch"] == before["server_epoch"]
@@ -324,6 +354,22 @@ pub(super) fn terminal_close_payload(
                 "AgenTerm accepted terminal close but exact tab disappearance was not verified",
             )
             .with_detail(evidence))
+        }
+        Err(error) if post_verified => {
+            let post = post.expect("verified post-state is readable");
+            let evidence = json!({
+                "tab_id": tab,
+                "performed": true,
+                "verified": true,
+                "verification": "same-scope-epoch-inventory-absence",
+                "server_scope_id": post["server_scope_id"],
+                "server_epoch": post["server_epoch"],
+                "control_acknowledged": false,
+                "control_error": { "code": error.code, "message": error.message },
+                "receipt": ticket.json(),
+            });
+            receipts.complete(&ticket, "terminal-close", 0, true, evidence.clone())?;
+            Ok(evidence)
         }
         Err(error) => {
             let evidence = json!({
@@ -490,8 +536,30 @@ pub(super) fn terminal_output_payload(
         ));
     }
     let client = client()?;
+    terminal_output_with_client(&client, tab, cursor, max_bytes)
+}
+
+pub(super) fn terminal_output_with_client(
+    client: &ControlClient,
+    tab: &str,
+    cursor: &str,
+    max_bytes: usize,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
+        return Err(CuError::new(
+            "terminal_output_cursor_invalid",
+            "terminal-output --cursor must be earliest, current, or a non-negative integer",
+        ));
+    }
+    if !(1..=CAPTURE_MAX_BYTES).contains(&max_bytes) {
+        return Err(CuError::new(
+            "terminal_output_limit_invalid",
+            "terminal-output --max-bytes must be in 1..=1048576",
+        ));
+    }
     let response = request(
-        &client,
+        client,
         vec![
             "capture-output".to_owned(),
             "-t".to_owned(),
@@ -717,6 +785,28 @@ pub(super) fn terminal_wait_payload(
         ));
     }
     let client = client()?;
+    terminal_wait_with_client(&client, tab, condition, timeout_ms)
+}
+
+pub(super) fn terminal_wait_with_client(
+    client: &ControlClient,
+    tab: &str,
+    condition: &TerminalWaitCondition,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if matches!(condition, TerminalWaitCondition::Contains(text) if text.is_empty()) {
+        return Err(CuError::new(
+            "terminal_wait_condition_invalid",
+            "terminal-wait --contains must not be empty",
+        ));
+    }
+    if !(1..=MAX_WAIT_MS).contains(&timeout_ms) {
+        return Err(CuError::new(
+            "terminal_wait_limit_invalid",
+            "terminal-wait --timeout-ms must be in 1..=86400000",
+        ));
+    }
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
     loop {
@@ -734,14 +824,14 @@ pub(super) fn terminal_wait_payload(
         let matched = match condition {
             TerminalWaitCondition::Contains(needle) => {
                 let value =
-                    terminal_read_with_client(&client, tab, CAPTURE_MAX_BYTES, request_timeout)?;
+                    terminal_read_with_client(client, tab, CAPTURE_MAX_BYTES, request_timeout)?;
                 value["text"]
                     .as_str()
                     .is_some_and(|text| text.contains(needle))
             }
             TerminalWaitCondition::Exited | TerminalWaitCondition::Finalized => {
                 let response = request(
-                    &client,
+                    client,
                     vec!["inspect".to_owned(), "-t".to_owned(), tab.to_owned()],
                     "command.inspect",
                     Intent::Query,

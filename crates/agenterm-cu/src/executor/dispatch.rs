@@ -138,6 +138,39 @@ impl Executor {
                 ..
             } => network_probe::payload(host, *port, *attempts, *timeout_ms),
             Command::FileInspect { path, .. } => file_inspect_payload(path),
+            Command::PtyStart {
+                name,
+                cwd,
+                command: child_command,
+                ..
+            } => pty_start_payload(
+                name,
+                cwd.as_deref(),
+                child_command,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::PtyStatus { name, .. } => pty_status_payload(name),
+            Command::PtyRead {
+                name,
+                cursor,
+                max_bytes,
+                ..
+            } => pty_read_payload(name, cursor, *max_bytes),
+            Command::PtyWaitExit {
+                name,
+                timeout_ms,
+                expect_status,
+                ..
+            } => pty_wait_exit_payload(name, *timeout_ms, *expect_status),
+            Command::PtyStop {
+                name,
+                expect_stopped,
+                ..
+            } => pty_stop_payload(
+                name,
+                *expect_stopped,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::TerminalList { .. } => terminal_list_payload(),
             Command::TerminalNew {
                 title,

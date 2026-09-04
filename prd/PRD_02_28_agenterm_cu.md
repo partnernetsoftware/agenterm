@@ -476,8 +476,18 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   initial-tab close → zero-tab survival → detached job creation → two exact raw
   cursor reads → finalized → exact close → zero-tab survival → explicit server
   shutdown. The discarded first run exposed and led to the separate CLI exit
-  truth fix in `5446f2c7`; it contributes no server evidence. Durable job ids,
-  concurrent start, stale reclamation and process-tree cleanup remain open.
+  truth fix in `5446f2c7`; it contributes no server evidence. The first durable
+  facade is now public as `pty-start/status/read/wait-exit/stop`: a validated
+  job name selects one private zero-tab server instance, then binds the owned
+  process to its exact scope, epoch and stable `@tab`. Start/stop are serialized
+  by a cross-process lock; read reuses the raw retention cursor; wait can
+  require an exact exit status; stop requires `--expect stopped`. A macOS
+  public-process court proved one winner under two concurrent starts, typed
+  duplicate and exit-mismatch failures, output continuation, finalization and
+  endpoint disappearance after shutdown. Both Windows targets pass
+  `cargo-xwin` checks and both Linux targets pass `cargo-zigbuild`.
+  Reuse/list/prune, stale reclamation, process-tree control and native
+  Linux/Windows lifecycle courts remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 
@@ -506,8 +516,9 @@ flowchart LR
   D --> Q
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
-  H --> J["future job id + supervisor<br/>stale/process-tree cleanup"]
-  J --> Q
+  H --> J["pty start/status/read/wait/stop ✓<br/>exact job + epoch + @tab"]
+  J --> J2["reuse/list/prune + stale/process-tree cleanup"]
+  J2 --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
   Q -->|Windows transport blocked| W1["repair court; zero product claim"]

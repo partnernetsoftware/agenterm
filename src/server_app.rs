@@ -175,11 +175,14 @@ pub fn run_server_entry() -> i32 {
 /// selector flags only (`--address` / `--endpoint` / `--instance`); a leading
 /// `server` / `--server` token is tolerated for wrappers.
 pub fn run_server_entry_with_args(arguments: Vec<String>) -> i32 {
-    if let Err(error) = configure_server_launch(&arguments) {
-        eprintln!("AgenTerm server argument error: {error:#}");
-        return 2;
-    }
-    match run_server() {
+    let start_empty = match configure_server_launch(&arguments) {
+        Ok(start_empty) => start_empty,
+        Err(error) => {
+            eprintln!("AgenTerm server argument error: {error:#}");
+            return 2;
+        }
+    };
+    match run_server(start_empty) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("AgenTerm server failed: {error:#}");
@@ -188,8 +191,9 @@ pub fn run_server_entry_with_args(arguments: Vec<String>) -> i32 {
     }
 }
 
-fn configure_server_launch(arguments: &[String]) -> Result<()> {
+fn configure_server_launch(arguments: &[String]) -> Result<bool> {
     let mut selectors = EndpointSelectorArgs::default();
+    let mut start_empty = false;
     let mut position = 0;
     while position < arguments.len() {
         match arguments[position].as_str() {
@@ -232,15 +236,22 @@ fn configure_server_launch(arguments: &[String]) -> Result<()> {
                 );
                 position += 2;
             }
+            "--empty" => {
+                if start_empty {
+                    anyhow::bail!("agenterm server --empty may be specified only once");
+                }
+                start_empty = true;
+                position += 1;
+            }
             argument => anyhow::bail!("unsupported AgenTerm server argument: {argument}"),
         }
     }
     crate::client::set_ipc_selectors(selectors)?;
-    Ok(())
+    Ok(start_empty)
 }
 
-fn run_server() -> Result<()> {
-    let mut server = ServerState::new()?;
+fn run_server(start_empty: bool) -> Result<()> {
+    let mut server = ServerState::new(start_empty)?;
     while !server.shutdown_requested {
         server.drain();
         thread::sleep(SERVER_TICK);
@@ -270,10 +281,18 @@ struct ServerState {
 }
 
 impl ServerState {
-    fn new() -> Result<Self> {
+    fn new(start_empty: bool) -> Result<Self> {
         let wake_signal = Arc::new(WakeSignal::new());
         let ipc_server = start_ipc_server(0, Arc::clone(&wake_signal))?;
-        let restored = load_workspace().unwrap_or_else(default_workspace);
+        let restored = if start_empty {
+            SavedWorkspace {
+                version: 1,
+                session_name: "agenterm".to_owned(),
+                ..SavedWorkspace::default()
+            }
+        } else {
+            load_workspace().unwrap_or_else(default_workspace)
+        };
         let session_name = if restored.session_name.is_empty() {
             "agenterm".to_owned()
         } else {
@@ -320,7 +339,7 @@ impl ServerState {
         for saved in restored.tabs {
             state.restore_tab(saved)?;
         }
-        if state.tabs.is_empty() {
+        if state.tabs.is_empty() && !start_empty {
             state
                 .create_tab(None, Vec::new(), Vec::new(), true, None)
                 .map_err(anyhow::Error::msg)?;
@@ -2170,7 +2189,12 @@ mod tests {
 
     #[test]
     fn server_arguments_are_internal_bounded_and_loopback_only() {
-        assert!(configure_server_launch(&[]).is_ok());
+        assert_eq!(configure_server_launch(&[]).unwrap(), false);
+        assert_eq!(
+            configure_server_launch(&["--empty".to_owned()]).unwrap(),
+            true
+        );
+        assert!(configure_server_launch(&["--empty".to_owned(), "--empty".to_owned()]).is_err());
         assert!(
             configure_server_launch(&["--address".to_owned(), "127.0.0.1:48815".to_owned()])
                 .is_ok()

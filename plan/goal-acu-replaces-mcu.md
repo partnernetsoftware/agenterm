@@ -228,9 +228,13 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   ACU facade now reaches all six through one scope+epoch+`@tab` identity and
   verifies lifecycle effects by inventory read-back; the registered qjswasm
   journey owns the public assertion and awaits the next three-host run.
-  Arbitrary background PTYs and lease-owned process groups remain separate
-  gaps: a visible AgenTerm tab is not silently treated as a native/tmux PTY,
-  and single-process metrics are not presented as job-group coverage.
+  The first headless layer is also live: `pty-start/status/read/wait-exit/stop`
+  map one validated job name to one isolated zero-UI server instance and exact
+  epoch+`@tab` identity. A macOS race court proved one owner under concurrent
+  start, loss-aware output continuation, exact exit mismatch, and verified
+  shutdown. Reuse/list/prune, input/events/screen projection, stale registry
+  reclamation and process-group control remain open; one process is not claimed
+  as job-group coverage.
 - MCU `exec <command...>` and ACU `exec --json` currently mean different
   things. The router must keep refusing that collision until an explicit
   argv-based shell/job command is named; compatibility never justifies a
@@ -333,7 +337,9 @@ Q3 owned runtime facades
 │  ├─ [~] raw-output cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
 │  ├─ [~] portable owned headless PTY: existing agenterm server selected as sole owner
 │  │  ├─ [x] decision court: cross-process, zero-tab, cursor continuation, shutdown green
-│  │  └─ [ ] public pty job identity + supervisor + stale/process-tree cleanup
+│  │  ├─ [x] public pty-start/status/read/wait-exit/stop + exact identity
+│  │  ├─ [x] concurrent-start single-owner + typed exit mismatch + verified shutdown court
+│  │  └─ [ ] reuse/list/prune + stale registry + process-tree cleanup
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe

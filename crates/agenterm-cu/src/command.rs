@@ -454,6 +454,42 @@ pub enum Command {
         target: TargetRef,
         path: String,
     },
+    /// Start one durable, headless AgenTerm-owned PTY job. The human name
+    /// deterministically selects an isolated logical server instance.
+    PtyStart {
+        target: TargetRef,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        command: Vec<String>,
+    },
+    /// Observe one named headless PTY job and its exact epoch-scoped tab.
+    PtyStatus {
+        target: TargetRef,
+        name: String,
+    },
+    /// Read one loss-aware raw-output page from a named headless PTY job.
+    PtyRead {
+        target: TargetRef,
+        name: String,
+        cursor: String,
+        max_bytes: usize,
+    },
+    /// Wait for one named job's terminal reader to finalize and optionally
+    /// require an exact process exit status.
+    PtyWaitExit {
+        target: TargetRef,
+        name: String,
+        timeout_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect_status: Option<i32>,
+    },
+    /// Close the exact job tab and shut down its otherwise-empty authority.
+    PtyStop {
+        target: TargetRef,
+        name: String,
+        expect_stopped: bool,
+    },
     /// Inventory AgenTerm-owned tabs using stable epoch-scoped `@N` ids.
     TerminalList {
         target: TargetRef,
@@ -1749,6 +1785,11 @@ impl Command {
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
+            Self::PtyStart { .. } => "pty-start".into(),
+            Self::PtyStatus { .. } => "pty-status".into(),
+            Self::PtyRead { .. } => "pty-read".into(),
+            Self::PtyWaitExit { .. } => "pty-wait-exit".into(),
+            Self::PtyStop { .. } => "pty-stop".into(),
             Self::TerminalList { .. } => "terminal-list".into(),
             Self::TerminalNew { .. } => "terminal-new".into(),
             Self::TerminalClose { .. } => "terminal-close".into(),
@@ -1847,6 +1888,11 @@ impl Command {
             | Self::ProcessWatch { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
+            | Self::PtyStart { target, .. }
+            | Self::PtyStatus { target, .. }
+            | Self::PtyRead { target, .. }
+            | Self::PtyWaitExit { target, .. }
+            | Self::PtyStop { target, .. }
             | Self::TerminalList { target, .. }
             | Self::TerminalNew { target, .. }
             | Self::TerminalClose { target, .. }
@@ -1930,6 +1976,8 @@ impl Command {
         match self {
             Self::PointerMove { .. }
             | Self::ProcessKill { .. }
+            | Self::PtyStart { .. }
+            | Self::PtyStop { .. }
             | Self::TerminalSend { .. }
             | Self::TerminalNew { .. }
             | Self::TerminalClose { .. }

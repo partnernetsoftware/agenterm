@@ -86,12 +86,12 @@ product or user data was read.
 [x] owner decision: existing headless agenterm server
 ├─ [x] raw byte continuation: terminal-output
 ├─ [x] cross-process server persistence and zero-tab survival court
-├─ [ ] owned job identity: job id → logical instance + server epoch + @tab
-├─ [ ] supervisor: start/reuse/status/list/stop/prune
-│  ├─ [ ] no false-green readiness; typed deadline
-│  ├─ [ ] one authority per job id; concurrent-start court
+├─ [x] owned job identity: job id → logical instance + server epoch + @tab
+├─ [~] supervisor: start/status/read/wait-exit/stop are live; reuse/list/prune remain
+│  ├─ [x] no false-green readiness; typed deadline
+│  ├─ [x] one authority per job id; concurrent-start court
 │  └─ [ ] stale owner and registry reclamation
-├─ [ ] process-tree lifecycle and explicit destructive postconditions
+├─ [~] process lifecycle: exact exit + explicit stop postconditions; tree/signal remain
 ├─ [ ] bounded events/snapshot/diff projection compatible with MCU callers
 └─ [ ] macOS + Linux + Windows public qjswasm courts
 ```
@@ -104,8 +104,8 @@ flowchart LR
   A --> C{"isolated cross-process court"}
   C -->|"zero tabs + two cursor reads + cleanup"| D["ACCEPT reuse server"]
   C -->|"any hard invariant fails"| B
-  D --> I["job id = instance + epoch + @tab"]
-  D --> S["bounded supervisor lifecycle"]
+  D --> I["job id = instance + epoch + @tab ✓"]
+  D --> S["start/status/read/wait-exit/stop ✓<br/>reuse/list/prune pending"]
   D --> R["existing retention / redaction / ConPTY / POSIX PTY"]
   I --> G{"three-host public qjswasm court"}
   S --> G
@@ -121,3 +121,22 @@ cannot satisfy a required job invariant even after a bounded supervisor layer:
 detached lifetime, exact process-tree cleanup, single-owner identity, or stale
 reclamation. GUI inconvenience, the initial automatic tab, or missing public
 verbs are productization gaps, not evidence for a second kernel.
+
+## First product slice · 2026-09-05
+
+The public ACU facade now exposes `pty-start`, `pty-status`, `pty-read`,
+`pty-wait-exit` and `pty-stop`. One validated job name deterministically maps to
+one private `ephemeral:acu-pty-*` server instance; the server starts with zero
+tabs, then owns exactly one typed-argv job tab. Start and stop serialize through
+a cross-process path lock. Read reuses the terminal owner's loss-aware raw byte
+cursor, wait requires `finalized` and can require an exact exit status, and stop
+requires `--expect stopped`.
+
+The macOS public-process court proved all of these together: two concurrent
+starts yield exactly one owner and one typed `pty_job_busy`; a later duplicate
+is `pty_job_exists`; output continues across bounded cursors; a wrong expected
+exit status fails typed; and stop removes the exact tab and then proves the
+dedicated control endpoint disappeared. A shutdown ACK is auxiliary because a
+successful destructive operation may remove the response authority itself.
+Both Windows ISA cells pass `cargo-xwin` checking and both Linux ISA cells pass
+`cargo-zigbuild`; native Linux and Windows lifecycle courts remain open.

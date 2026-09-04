@@ -1109,7 +1109,7 @@ mod tests {
     }
 
     #[test]
-    fn mcu_align_verbs_are_typed_not_unknown() {
+    fn promoted_pty_group_requires_a_subcommand_and_remaining_groups_are_typed() {
         let reply = dispatch(vec![
             "--target".into(),
             "current".into(),
@@ -1117,19 +1117,10 @@ mod tests {
             "observe".into(),
             "pty".into(),
         ]);
-        assert_eq!(reply.command, "pty");
+        assert_eq!(reply.command, "usage");
         let err = reply.error.expect("typed");
-        assert_eq!(err.code, "unsupported");
-        assert!(
-            !err.message.contains("unknown MCU group"),
-            "{}",
-            err.message
-        );
-        assert!(
-            err.message.contains("PTY") || err.message.contains("job"),
-            "{}",
-            err.message
-        );
+        assert_eq!(err.code, "usage");
+        assert!(err.message.contains("pty") && err.message.contains("subcommand"));
         let sim = dispatch(vec![
             "--target".into(),
             "current".into(),

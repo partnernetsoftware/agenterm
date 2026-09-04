@@ -81,6 +81,25 @@ receipts retain command/title byte counts, never those user-controlled values.
 AgenTerm itself remains responsible for parent promotion, remain-on-exit and
 keeping an empty application alive after the final tab closes.
 
+For a durable headless job, use the higher-level facade. It starts one isolated
+headless AgenTerm authority and accepts a typed argv after `--`—there is no
+shell unless the caller explicitly names one:
+
+```bash
+cu --grant actuate pty-start build-1 -- /usr/bin/make test
+cu pty-status build-1
+cu pty-read build-1 --cursor earliest --max-bytes 65536
+cu pty-wait-exit build-1 --timeout-ms 60000 --expect-status 0
+cu --grant actuate pty-stop build-1 --expect stopped
+```
+
+Job names are 1–64 ASCII letters, digits, `.`, `_` or `-`. Identity is the job
+name plus its private server scope, epoch and stable tab id. Concurrent starts
+have one winner; duplicate jobs and exit mismatches fail typed. `pty-stop`
+proves the dedicated endpoint disappeared, so a lost shutdown response cannot
+turn a completed destructive action into a false failure. Reuse, list/prune,
+input/events/screen projection and process-group control remain explicit gaps.
+
 Every ordinary invocation writes exactly one `CuReply` JSON object to stdout.
 The process status agrees with it: `ok:true` exits 0, a typed runtime failure
 exits 1, and a typed `usage` refusal exits 2. Shell readiness checks must still

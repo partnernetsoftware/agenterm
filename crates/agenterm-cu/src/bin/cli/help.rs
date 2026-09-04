@@ -56,6 +56,11 @@ Live RDP session + UIA-over-RDP evidence is not claimed on this cut.
 /// The grouped, one-line-per-verb list behind `--help`.
 pub fn top_level_text() -> String {
     let mut text = verbs::cold_text("top_level_text").to_owned();
+    text = text.replace(
+        "MCU-aligned verbs with no mechanism here (pty, simulator, drag, ...) answer typed\nunsupported, never unknown; `capabilities` lists them per target.\n",
+        "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
+    );
+    text = text.replace("\n\nUnmapped MCU groups", "\nUnmapped MCU groups");
     append_missing_top_level_rows(&mut text);
     text
 }
@@ -169,6 +174,11 @@ pub fn verbs_text() -> String {
 fn append_missing_top_level_rows(text: &mut String) {
     let compact_process = ["process-argv", "process-cwd", "process-environment"];
     let compact_terminal = [
+        "pty-start",
+        "pty-status",
+        "pty-read",
+        "pty-wait-exit",
+        "pty-stop",
         "terminal-new",
         "terminal-close",
         "terminal-snapshot",
@@ -208,7 +218,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  terminal-new  terminal-close (actuate);  terminal-snapshot  terminal-events  terminal-output (observe)"
+            "  pty-start  pty-status  pty-read  pty-wait-exit  pty-stop\n  terminal-new  terminal-close  terminal-snapshot  terminal-events  terminal-output"
                 .to_owned(),
         );
     }

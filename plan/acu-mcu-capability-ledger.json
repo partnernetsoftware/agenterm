@@ -507,16 +507,26 @@
         },
         {
           "id": "pty.background.lifecycle",
-          "mcu_shape": "pty --provider native|tmux list|prune|start|status|wait-exit|stop",
-          "acu_shape": "planned public pty supervisor over one isolated headless agenterm server; job identity binds logical instance + server epoch + stable @tab",
+          "mcu_shape": "pty --provider native|tmux start|status|wait-exit|stop",
+          "acu_shape": "pty-start/status/wait-exit/stop over one isolated headless agenterm server; job identity binds validated name + logical instance + server epoch + stable @tab",
+          "state": "native",
+          "qualification": "macos-public-process-green-windows-and-linux-both-isa-build-green-native-courts-pending",
+          "evidence": ["plan/experiment-headless-pty-owner.md"],
+          "next": "run the exact lifecycle on native Linux and Windows courts; add process-group signal and forced-tree cleanup separately",
+          "note": "Two concurrent macOS starts produced exactly one owner and one typed pty_job_busy. Duplicate, exact exit mismatch and explicit --expect stopped are typed; successful shutdown is verified by endpoint disappearance even when the disappearing authority cannot return an ACK. The existing AgenTerm server remains the sole POSIX PTY/ConPTY owner."
+        },
+        {
+          "id": "pty.background.registry",
+          "mcu_shape": "pty --provider native|tmux list|prune plus reuse and stale-owner reclamation",
+          "acu_shape": null,
           "state": "gap",
-          "next": "add start/reuse/status/list/stop/prune supervision, concurrent-start and stale/process-tree cleanup courts without creating another PTY daemon",
-          "note": "The 2026-09-05 decision court selected the existing headless agenterm server as sole PTY owner: isolated cross-process calls, zero-tab survival, raw cursor continuation and explicit shutdown passed. A visible tab is still not the public background-job shape; the missing layer is durable job supervision, not a second POSIX PTY/ConPTY implementation."
+          "next": "add bounded list/reuse/prune with stale scope+epoch detection and private-state reclamation",
+          "note": "The first lifecycle slice intentionally maps one caller-supplied name to one authority. It does not yet enumerate or reclaim inactive job directories."
         },
         {
           "id": "pty.background.io",
           "mcu_shape": "pty --provider native|tmux read|send|wait|events with cursors and byte/event limits",
-          "acu_shape": null,
+          "acu_shape": "pty-read exposes the retained raw-output cursor; send, general waits and event projection remain open",
           "state": "gap",
           "next": "bounded binary-safe read/write/event stream with monotonic cursors, typed truncation, deadline and owner cleanup"
         },

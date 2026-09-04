@@ -3626,3 +3626,19 @@ closed mapping at the outermost executable boundary: success is 0, typed
 runtime failure is 1, and typed usage refusal is 2. Remote transports may parse
 the same JSON after a nonzero worker exit; only `ok:true` paired with nonzero is
 a transport contradiction.
+
+## Verify destructive effects after their authority disappears
+
+A successful close, cancel, shutdown, or delete can remove the very object or
+transport that would carry its success reply. Treat the operation ACK as
+auxiliary when an independent, identity-bound postcondition exists. Continue a
+bounded observation loop through transitional typed transport errors, then
+report success only when the exact object, window, tab, process, or endpoint is
+absent. Fail if the postcondition is still false at the deadline. This avoids
+both false negatives after a real effect and false positives from an
+unverified input injection.
+
+When a service promises an empty start, bypass restoration and the default
+state constructor at creation time. Clearing state afterward is too late if
+the default constructor itself allocates a tab, process, handle, or other
+owned resource.
