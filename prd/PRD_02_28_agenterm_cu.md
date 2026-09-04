@@ -86,7 +86,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   green. The MCU adapter now rewrites its whole-window `focus H` to this verb,
   so that compatibility fallback inventory falls from 31 to 30. Windows and
   Linux native desktop journeys remain the promotion evidence; the source and
-  local macOS result alone do not promote the leaf.
+  local macOS result alone do not promote the leaf. The first updated Windows
+  x86_64 attempt reached a ready QEMU Guest Agent twice but the interactive
+  desktop task produced no registration nonce, so the product journey never
+  started; that attempt is recorded as court infrastructure blocked, the VM
+  was stopped, and zero product evidence is inferred from it.
 - [x] Windows runtime window enumeration follows a two-stage
   required-size/fill ABI. If desktop churn makes the fill call report
   `required > capacity`, the caller retries with a fresh capacity under a hard
