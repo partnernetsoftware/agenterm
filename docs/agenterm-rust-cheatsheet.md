@@ -1511,6 +1511,16 @@ of them has to bring the tab forward. What the throwaway headless gate
   smoke re-reads `/json` (the first `page` entry is the active tab) and
   `windows --focused` and fails on any change; the fixture page mutates
   its own DOM in `onclick` / `onsubmit` so the read-back is real.
+- **CDP input acknowledgement can precede DOM/compositor state.** A
+  headless Chromium court accepted `mouseWheel`, while immediate evaluate
+  round trips still saw the old `scrollTop`; the offset changed only after
+  the command returned. Install a one-shot listener on the exact planned
+  scroll container before dispatch, then use an awaited, deadline-bounded
+  event read-back and remove the listener on every exit. For hover, CSS
+  `:hover` may remain absent in a headless/background target even though a
+  trusted `mousemove` arrived; verify the event's `target` against
+  `elementFromPoint`, and report CSS hover only as auxiliary evidence.
+  Never turn CDP ACK alone into `verified: true`.
 
 ## Name addressing is wait-matching then the node path
 

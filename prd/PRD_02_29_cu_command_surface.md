@@ -160,7 +160,14 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `page click (--selector | --text | --node) [--button] [--clicks]`
   (actuate; one node or `cdp_node_ambiguous` with candidates,
   `DOM.scrollIntoViewIfNeeded`, box centre, `Input.dispatchMouseEvent`
-  pressed + released, verified by document / node read-back), `page fill
+  pressed + released, verified by document / node read-back), `page hover
+  --x X --y Y` (actuate; bounded viewport CSS coordinates, one trusted
+  `mousemove` probe installed before dispatch and removed after read-back;
+  headless Chromium may truthfully deliver the event without maintaining CSS
+  `:hover`), `page scroll --x X --y Y [--dx DX] [--dy DY]` (actuate; nearest
+  scrollable container frozen during planning, wheel dispatched there, then an
+  event-driven bounded wait reads its exact offsets; a boundary is performed
+  but `no_observable_scroll_change`), `page fill
   (--selector | --node) --text T [--clear] [--submit]` (actuate;
   `DOM.focus`, select-all, `Input.insertText`, `.value` read back ==
   text, Enter key events; focus emulation on for the write and off
@@ -176,7 +183,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   Origin, tab A active, every verb on tab B whose button `onclick` and
   form `onsubmit` mutate the DOM, read back through `page-js`; after each
   verb `/json` still listed A first and `windows --focused` was
-  unchanged). Still open: the same run on the owner's real instance needs
+  unchanged). The expanded 2026-09-04 throwaway headless Google Chrome court
+  verified `page-hover` by the received event target and `page-scroll` by a
+  `scrollTop` change from 360 to 480; both retained `focus_changed: false`.
+  MCU-shaped positional hover/scroll now route through the sibling compatibility
+  shim instead of staying on MCU; `--match` remains typed because its
+  title+url+description search is not the same selector contract. Still open:
+  the same run on the owner's real instance needs
   it relaunched with `--remote-debugging-port=9222`.
 - [x] `page text --window H [--max-bytes N] [--within X,Y,W,H] [--depth N]
   [--max-nodes N]` returns the visible words in reading order (child-index

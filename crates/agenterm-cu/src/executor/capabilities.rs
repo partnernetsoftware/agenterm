@@ -597,6 +597,8 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
         for verb in [
             "page-find",
             "page-click",
+            "page-hover",
+            "page-scroll",
             "page-fill",
             "page-nav",
             "page-screenshot",
@@ -626,6 +628,8 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("page-find", "observe"),
             ("page-screenshot", "observe"),
             ("page-click", "actuate"),
+            ("page-hover", "actuate"),
+            ("page-scroll", "actuate"),
             ("page-fill", "actuate"),
             ("page-nav", "actuate"),
             ("tab-list", "observe"),
@@ -740,6 +744,8 @@ mod tests {
         for verb in [
             "page-find",
             "page-click",
+            "page-hover",
+            "page-scroll",
             "page-fill",
             "page-nav",
             "page-screenshot",
@@ -749,6 +755,8 @@ mod tests {
             assert_eq!(data["verbs"][verb]["focus_changed"], false, "{verb}");
         }
         assert_eq!(data["verbs"]["page-click"]["grant"], "actuate");
+        assert_eq!(data["verbs"]["page-hover"]["grant"], "actuate");
+        assert_eq!(data["verbs"]["page-scroll"]["grant"], "actuate");
         assert_eq!(data["verbs"]["page-find"]["grant"], "observe");
         assert_eq!(
             data["verbs"]["invoke"]["actions"]["set-selection"],

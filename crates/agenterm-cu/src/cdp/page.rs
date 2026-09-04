@@ -1,5 +1,6 @@
 //! The background-tab verbs over one CDP session: `page text`, `page
-//! find`, `page click`, `page fill`, `page nav`, `page screenshot`.
+//! find`, `page click`, `page hover`, `page scroll`, `page fill`, `page
+//! nav`, `page screenshot`.
 //!
 //! Every function here is generic over `Transport` so the message shaping
 //! and the verification logic run against fake transcripts in tests. The
@@ -11,11 +12,15 @@
 //! again afterwards.
 
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::ax::{self, AxQuery};
 use super::targets::{PageTarget, TargetSelector};
 use super::ws::{Session, Transport};
-use super::{CdpError, evaluate::evaluate_on};
+use super::{
+    CdpError,
+    evaluate::{evaluate_on, evaluate_on_await},
+};
 
 /// How many matches `page find` describes (boxes, paths) per call.
 pub const MAX_FIND: usize = 20;
@@ -24,6 +29,13 @@ pub const MAX_CANDIDATES: usize = 10;
 pub const DEFAULT_NAV_WAIT_MS: u64 = 10_000;
 pub const MAX_NAV_WAIT_MS: u64 = 120_000;
 pub const MAX_FILL_BYTES: usize = 64 * 1024;
+/// Viewport coordinates are CSS pixels. This rejects infinities and
+/// obviously accidental magnitudes before serde/CDP ever sees them.
+pub const MAX_POINTER_COORD: f64 = 1_000_000.0;
+/// Bound one CDP wheel request while retaining high-resolution deltas.
+pub const MAX_SCROLL_DELTA: f64 = 1_000_000.0;
+static HOVER_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static SCROLL_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// The identity fields every reply of these verbs carries.
 pub struct Ctx {
@@ -109,6 +121,121 @@ const DOC_STATE_EXPR: &str = r#"(function() {
     has_focus: document.hasFocus()
   };
 })()"#;
+
+fn point_state_expr(x: f64, y: f64) -> String {
+    format!(
+        r#"(function() {{
+  const at = document.elementFromPoint({x}, {y});
+  const path = (el) => {{
+    if (!el || el.nodeType !== 1) return null;
+    const parts = [];
+    let cur = el;
+    while (cur && cur.nodeType === 1 && parts.length < 12) {{
+      let s = cur.tagName.toLowerCase();
+      if (cur.id) {{ s += '#' + CSS.escape(cur.id); parts.unshift(s); break; }}
+      const p = cur.parentElement;
+      if (p) {{
+        const same = Array.from(p.children).filter(c => c.tagName === cur.tagName);
+        if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(cur) + 1) + ')';
+      }}
+      parts.unshift(s); cur = p;
+    }}
+    return parts.join(' > ');
+  }};
+  let scroll = at;
+  while (scroll && scroll !== document.documentElement) {{
+    const style = getComputedStyle(scroll);
+    const canX = /(auto|scroll|overlay)/.test(style.overflowX) && scroll.scrollWidth > scroll.clientWidth;
+    const canY = /(auto|scroll|overlay)/.test(style.overflowY) && scroll.scrollHeight > scroll.clientHeight;
+    if (canX || canY) break;
+    scroll = scroll.parentElement;
+  }}
+  scroll = scroll || document.scrollingElement || document.documentElement;
+  const hovered = Array.from(document.querySelectorAll(':hover')).pop() || null;
+  return {{
+    hit: path(at), hovered: path(hovered),
+    scroll: {{ selector: path(scroll), left: scroll.scrollLeft, top: scroll.scrollTop,
+      width: scroll.scrollWidth, height: scroll.scrollHeight,
+      client_width: scroll.clientWidth, client_height: scroll.clientHeight }}
+  }};
+}})()"#
+    )
+}
+
+fn hover_probe_install_expr(key: &str) -> String {
+    let key = serde_json::to_string(key).unwrap_or_else(|_| "null".into());
+    format!(
+        r#"(function() {{
+  const key = {key};
+  const state = {{ count: 0, target: null, x: null, y: null }};
+  const handler = function(e) {{
+    state.count += 1; state.target = e.target;
+    state.x = e.clientX; state.y = e.clientY;
+  }};
+  state.handler = handler; window[key] = state;
+  window.addEventListener('mousemove', handler, {{ capture: true, once: true }});
+  return true;
+}})()"#
+    )
+}
+
+fn hover_probe_read_expr(key: &str, x: f64, y: f64) -> String {
+    let key = serde_json::to_string(key).unwrap_or_else(|_| "null".into());
+    format!(
+        r#"(function() {{
+  const key = {key}; const state = window[key] || null;
+  const hit = document.elementFromPoint({x}, {y});
+  const out = state ? {{ count: state.count, target_matches_hit: state.target === hit,
+    x: state.x, y: state.y }} : null;
+  if (state && state.handler) window.removeEventListener('mousemove', state.handler, true);
+  try {{ delete window[key]; }} catch (_) {{ window[key] = undefined; }}
+  return out;
+}})()"#
+    )
+}
+
+fn scroll_probe_install_expr(key: &str, selector: &str) -> String {
+    let key = serde_json::to_string(key).unwrap_or_else(|_| "null".into());
+    let selector = serde_json::to_string(selector).unwrap_or_else(|_| "null".into());
+    format!(
+        r#"(function() {{
+  const key = {key}; const el = document.querySelector({selector});
+  if (!el) return false;
+  const state = {{ count: 0, left: el.scrollLeft, top: el.scrollTop, resolve: null }};
+  const handler = function() {{
+    state.count += 1; state.left = el.scrollLeft; state.top = el.scrollTop;
+    if (state.resolve) state.resolve();
+  }};
+  state.element = el; state.handler = handler; window[key] = state;
+  el.addEventListener('scroll', handler, {{ capture: true, once: true }});
+  return true;
+}})()"#
+    )
+}
+
+fn scroll_probe_read_expr(key: &str, selector: &str) -> String {
+    let key = serde_json::to_string(key).unwrap_or_else(|_| "null".into());
+    let selector = serde_json::to_string(selector).unwrap_or_else(|_| "null".into());
+    format!(
+        r#"(async function() {{
+  const key = {key}; const state = window[key] || null;
+  if (state && state.count === 0) {{
+    await new Promise(resolve => {{
+      const timeout = setTimeout(resolve, 1000);
+      state.resolve = () => {{ clearTimeout(timeout); resolve(); }};
+    }});
+  }}
+  const el = document.querySelector({selector});
+  const out = el ? {{ selector: {selector}, left: el.scrollLeft, top: el.scrollTop,
+    width: el.scrollWidth, height: el.scrollHeight,
+    client_width: el.clientWidth, client_height: el.clientHeight,
+    scroll_events: state ? state.count : 0 }} : null;
+  if (state && state.element && state.handler) state.element.removeEventListener('scroll', state.handler, true);
+  try {{ delete window[key]; }} catch (_) {{ window[key] = undefined; }}
+  return out;
+}})()"#
+    )
+}
 
 /// Select everything in the node so the next `Input.insertText` replaces it.
 const SELECT_ALL_FN: &str = r#"function() {
@@ -787,6 +914,224 @@ pub fn perform_click<T: Transport>(
 
 fn moved_ok(error: &Option<CdpError>, dispatched: u32) -> bool {
     error.is_none() || dispatched > 0
+}
+
+// ---------------------------------------------------------- hover / scroll
+
+pub fn validate_pointer_coordinate(flag: &str, value: f64) -> Result<f64, String> {
+    if !value.is_finite() || !(0.0..=MAX_POINTER_COORD).contains(&value) {
+        return Err(format!(
+            "{flag} must be a finite viewport CSS coordinate in 0..={MAX_POINTER_COORD}"
+        ));
+    }
+    Ok(value)
+}
+
+pub fn validate_scroll_delta(flag: &str, value: f64) -> Result<f64, String> {
+    if !value.is_finite() || value.abs() > MAX_SCROLL_DELTA {
+        return Err(format!(
+            "{flag} must be finite and within -{MAX_SCROLL_DELTA}..={MAX_SCROLL_DELTA}"
+        ));
+    }
+    Ok(value)
+}
+
+#[derive(Debug)]
+pub struct PointPlan {
+    pub x: f64,
+    pub y: f64,
+    pub before: Value,
+}
+
+impl PointPlan {
+    pub fn json(&self) -> Value {
+        json!({ "at": { "x": self.x, "y": self.y }, "before": self.before })
+    }
+}
+
+/// Read the element and nearest scrollable container at one viewport point.
+/// This is the read-only half of both pointer actuators.
+pub fn plan_point<T: Transport>(
+    session: &mut Session<T>,
+    x: f64,
+    y: f64,
+) -> Result<PointPlan, CdpError> {
+    validate_pointer_coordinate("--x", x)
+        .and_then(|_| validate_pointer_coordinate("--y", y))
+        .map_err(|message| CdpError::typed("invalid_input", message))?;
+    let before = evaluate_on(session, &point_state_expr(x, y))?;
+    if before["hit"].as_str().is_none() {
+        return Err(CdpError::typed(
+            "cdp_point_not_found",
+            format!("no rendered page element exists at viewport point ({x}, {y})"),
+        )
+        .with_detail(json!({ "at": { "x": x, "y": y }, "effect": "not_performed" })));
+    }
+    Ok(PointPlan { x, y, before })
+}
+
+/// Move the page pointer and verify the trusted event target/coordinates
+/// against the element currently hit at the requested point.
+pub fn perform_hover<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &PointPlan,
+) -> Result<ActuationOutcome, CdpError> {
+    let probe_key = format!(
+        "__agenterm_cu_hover_{}_{}",
+        std::process::id(),
+        HOVER_PROBE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    evaluate_on(session, &hover_probe_install_expr(&probe_key))?;
+    let emulated = focus_emulation(session, true);
+    let dispatched = session.call(
+        "Input.dispatchMouseEvent",
+        json!({ "type": "mouseMoved", "x": plan.x, "y": plan.y, "button": "none" }),
+    );
+    if let Err(error) = dispatched {
+        let _ = evaluate_on(session, &hover_probe_read_expr(&probe_key, plan.x, plan.y));
+        if emulated {
+            focus_emulation(session, false);
+        }
+        return Err(error);
+    }
+    let event = evaluate_on(session, &hover_probe_read_expr(&probe_key, plan.x, plan.y));
+    let after = evaluate_on(session, &point_state_expr(plan.x, plan.y));
+    if emulated {
+        focus_emulation(session, false);
+    }
+    let event = event?;
+    let after = after?;
+    let hit = after["hit"].as_str();
+    let hovered = after["hovered"].as_str();
+    let event_verified = event["count"].as_u64().is_some_and(|count| count > 0)
+        && event["target_matches_hit"] == true
+        && event["x"]
+            .as_f64()
+            .is_some_and(|x| (x - plan.x).abs() <= 1.0)
+        && event["y"]
+            .as_f64()
+            .is_some_and(|y| (y - plan.y).abs() <= 1.0);
+    let css_verified = hit.is_some() && hit == hovered;
+    let verified = event_verified;
+    let payload = with(
+        ctx.envelope("Input.dispatchMouseEvent"),
+        json!({
+            "action": "hover",
+            "at": { "x": plan.x, "y": plan.y },
+            "performed": true,
+            "verified": verified,
+            "focus_emulation": if emulated { "enabled during hover, disabled after" } else { "unavailable" },
+            "verification": {
+                "method": "trusted-mousemove-target-readback",
+                "expected": { "target": hit, "x": plan.x, "y": plan.y },
+                "observed": event,
+                "css_hovered": hovered,
+                "css_hover_matched": css_verified,
+                "reason": if verified { Value::Null } else { json!("mousemove_not_observed_at_target") },
+            },
+            "before": plan.before,
+            "after": after,
+        }),
+    );
+    Ok(ActuationOutcome {
+        performed: true,
+        verified,
+        payload,
+    })
+}
+
+/// Dispatch a wheel event at one viewport point and read the exact scrollable
+/// container selected during planning back. An edge that cannot move is
+/// performed but deliberately unverified.
+pub fn perform_scroll<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &PointPlan,
+    delta_x: f64,
+    delta_y: f64,
+) -> Result<ActuationOutcome, CdpError> {
+    validate_scroll_delta("--dx", delta_x)
+        .and_then(|_| validate_scroll_delta("--dy", delta_y))
+        .map_err(|message| CdpError::typed("invalid_input", message))?;
+    if delta_x == 0.0 && delta_y == 0.0 {
+        return Err(CdpError::typed(
+            "invalid_input",
+            "page scroll requires a non-zero --dx or --dy",
+        ));
+    }
+    let selector = plan.before["scroll"]["selector"]
+        .as_str()
+        .ok_or_else(|| {
+            CdpError::typed(
+                "cdp_scroll_container_not_found",
+                "no readable scroll container exists at the requested point",
+            )
+        })?
+        .to_owned();
+    let probe_key = format!(
+        "__agenterm_cu_scroll_{}_{}",
+        std::process::id(),
+        SCROLL_PROBE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    let probe_installed = evaluate_on(session, &scroll_probe_install_expr(&probe_key, &selector))?
+        .as_bool()
+        .unwrap_or(false);
+    if !probe_installed {
+        return Err(CdpError::typed(
+            "cdp_scroll_container_not_found",
+            "the planned scroll container disappeared before dispatch",
+        ));
+    }
+    let emulated = focus_emulation(session, true);
+    let dispatched = session.call(
+        "Input.dispatchMouseEvent",
+        json!({
+            "type": "mouseWheel", "x": plan.x, "y": plan.y,
+            "deltaX": delta_x, "deltaY": delta_y,
+            "button": "none", "buttons": 0,
+        }),
+    );
+    if let Err(error) = dispatched {
+        let _ = evaluate_on_await(session, &scroll_probe_read_expr(&probe_key, &selector));
+        if emulated {
+            focus_emulation(session, false);
+        }
+        return Err(error);
+    }
+    let before_scroll = &plan.before["scroll"];
+    let after_scroll = evaluate_on_await(session, &scroll_probe_read_expr(&probe_key, &selector));
+    if emulated {
+        focus_emulation(session, false);
+    }
+    let after_scroll = after_scroll?;
+    let changed = changed_fields(before_scroll, &after_scroll, &["left", "top"]);
+    let verified = !changed.is_empty();
+    let after = json!({ "point": evaluate_on(session, &point_state_expr(plan.x, plan.y)).ok(), "scroll": after_scroll });
+    let payload = with(
+        ctx.envelope("Input.dispatchMouseEvent"),
+        json!({
+            "action": "scroll",
+            "at": { "x": plan.x, "y": plan.y },
+            "delta": { "x": delta_x, "y": delta_y },
+            "performed": true,
+            "verified": verified,
+            "focus_emulation": if emulated { "enabled during scroll, disabled after" } else { "unavailable" },
+            "verification": {
+                "method": "scroll-container-offset-readback",
+                "container": selector,
+                "changed": changed,
+                "reason": if verified { Value::Null } else { json!("no_observable_scroll_change") },
+            },
+            "before": plan.before,
+            "after": after,
+        }),
+    );
+    Ok(ActuationOutcome {
+        performed: true,
+        verified,
+        payload,
+    })
 }
 
 // ------------------------------------------------------------------- fill
@@ -1546,6 +1891,134 @@ mod tests {
                 .code,
             "invalid_input"
         );
+    }
+
+    #[test]
+    fn hover_reads_the_hit_target_back_without_activating_the_page() {
+        let mut moved = false;
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate" => {
+                let expression = params["expression"].as_str().unwrap();
+                if expression.contains("addEventListener('mousemove'") {
+                    return Ok(json!({ "result": { "value": true } }));
+                }
+                if expression.contains("target_matches_hit") {
+                    return Ok(json!({ "result": { "value": {
+                        "count": 1, "target_matches_hit": true, "x": 25, "y": 40
+                    } } }));
+                }
+                assert!(expression.contains("elementFromPoint(25, 40)"));
+                Ok(json!({ "result": { "value": {
+                    "hit": "html > body > button#go",
+                    "hovered": if moved { Some("html > body > button#go") } else { None },
+                    "scroll": { "selector": "html", "left": 0, "top": 0,
+                        "width": 800, "height": 1200, "client_width": 800, "client_height": 600 }
+                } } }))
+            }
+            "Input.dispatchMouseEvent" => {
+                assert_eq!(params["type"], "mouseMoved");
+                moved = true;
+                Ok(json!({}))
+            }
+            other => Err(format!("unexpected {other}")),
+        });
+        let plan = plan_point(&mut session, 25.0, 40.0).expect("plan");
+        let outcome = perform_hover(&mut session, &ctx(), &plan).expect("hover");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        assert_eq!(
+            outcome.payload["verification"]["expected"]["target"],
+            "html > body > button#go"
+        );
+        assert_eq!(outcome.payload["focus_changed"], false);
+        assert!(session.transport.sent.iter().all(|call| {
+            call["method"] != "Page.bringToFront" && call["method"] != "Target.activateTarget"
+        }));
+    }
+
+    #[test]
+    fn scroll_reads_the_planned_container_and_reports_a_boundary_honestly() {
+        let mut wheel = false;
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate" => {
+                let expression = params["expression"].as_str().unwrap();
+                if expression.contains("addEventListener('scroll'") {
+                    return Ok(json!({ "result": { "value": true } }));
+                }
+                if expression.contains("const el = document.querySelector(") {
+                    Ok(json!({ "result": { "value": {
+                        "selector": "html", "left": 0, "top": if wheel { 120 } else { 0 },
+                        "width": 800, "height": 1200, "client_width": 800, "client_height": 600
+                    } } }))
+                } else {
+                    Ok(json!({ "result": { "value": {
+                        "hit": "html > body > main", "hovered": null,
+                        "scroll": { "selector": "html", "left": 0, "top": if wheel { 120 } else { 0 },
+                            "width": 800, "height": 1200, "client_width": 800, "client_height": 600 }
+                    } } }))
+                }
+            }
+            "Input.dispatchMouseEvent" => {
+                assert_eq!(params["type"], "mouseWheel");
+                assert_eq!(params["deltaY"], 120.0);
+                wheel = true;
+                Ok(json!({}))
+            }
+            other => Err(format!("unexpected {other}")),
+        });
+        let plan = plan_point(&mut session, 10.0, 10.0).expect("plan");
+        let outcome = perform_scroll(&mut session, &ctx(), &plan, 0.0, 120.0).expect("scroll");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        assert_eq!(outcome.payload["verification"]["changed"], json!(["top"]));
+
+        let mut still = fake::session(|method, params| match method {
+            "Runtime.evaluate"
+                if params["expression"]
+                    .as_str()
+                    .unwrap()
+                    .contains("addEventListener('scroll'") =>
+            {
+                Ok(json!({ "result": { "value": true } }))
+            }
+            "Runtime.evaluate"
+                if params["expression"]
+                    .as_str()
+                    .unwrap()
+                    .contains("const el = document.querySelector(") =>
+            {
+                Ok(json!({ "result": { "value": { "selector": "html", "left": 0, "top": 600 } } }))
+            }
+            "Runtime.evaluate" => Ok(json!({ "result": { "value": {
+                "hit": "html > body", "hovered": null,
+                "scroll": { "selector": "html", "left": 0, "top": 600 }
+            } } })),
+            "Input.dispatchMouseEvent" => Ok(json!({})),
+            other => Err(format!("unexpected {other}")),
+        });
+        let plan = plan_point(&mut still, 1.0, 1.0).expect("plan");
+        let outcome = perform_scroll(&mut still, &ctx(), &plan, 0.0, 120.0).expect("edge");
+        assert!(outcome.performed);
+        assert!(!outcome.verified);
+        assert_eq!(
+            outcome.payload["verification"]["reason"],
+            "no_observable_scroll_change"
+        );
+    }
+
+    #[test]
+    fn point_actuators_reject_invalid_numbers_before_dispatch() {
+        assert!(validate_pointer_coordinate("--x", f64::NAN).is_err());
+        assert!(validate_pointer_coordinate("--x", -1.0).is_err());
+        assert!(validate_scroll_delta("--dy", f64::INFINITY).is_err());
+        let mut session = fake::session(|method, _| Err(format!("unexpected {method}")));
+        assert_eq!(
+            plan_point(&mut session, -1.0, 0.0)
+                .expect_err("negative")
+                .code,
+            "invalid_input"
+        );
+        assert_eq!(session.calls_made(), 0);
     }
 
     #[test]

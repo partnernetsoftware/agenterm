@@ -563,6 +563,56 @@ pub(super) fn page_click_payload(
     complete_cdp_receipt(receipts, &ticket, "page-click", outcome)
 }
 
+pub(super) fn page_hover_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    x: f64,
+    y: f64,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_point(&mut session, x, y)?;
+    let ticket = receipts.reserve(
+        "page-hover",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "action": "hover",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_hover(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-hover", outcome)
+}
+
+pub(super) fn page_scroll_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    x: f64,
+    y: f64,
+    delta_x: f64,
+    delta_y: f64,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    crate::cdp::page::validate_scroll_delta("page scroll --dx", delta_x)
+        .and_then(|_| crate::cdp::page::validate_scroll_delta("page scroll --dy", delta_y))
+        .map_err(invalid_input)?;
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_point(&mut session, x, y)?;
+    let ticket = receipts.reserve(
+        "page-scroll",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "action": "scroll",
+            "delta": { "x": delta_x, "y": delta_y },
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_scroll(&mut session, &ctx, &plan, delta_x, delta_y);
+    complete_cdp_receipt(receipts, &ticket, "page-scroll", outcome)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn page_fill_payload(
     port: Option<u16>,

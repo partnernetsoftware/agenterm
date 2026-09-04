@@ -1090,11 +1090,11 @@ mod tests {
             page_err.message
         );
         assert!(
-            page_err.message.contains("page-click"),
+            page_err.message.contains("page find/click/hover/scroll"),
             "{}",
             page_err.message
         );
-        // `page click` / `page nav` / `page read` are live CDP verbs now: a
+        // The mapped page verbs are live CDP verbs now: a
         // missing listener is typed, never `usage` or "unknown".
         for (argv, command) in [
             (
@@ -1109,6 +1109,16 @@ mod tests {
                     "Go",
                 ],
                 "page-click",
+            ),
+            (
+                vec!["page", "hover", "--port", "1", "--x", "10", "--y", "20"],
+                "page-hover",
+            ),
+            (
+                vec![
+                    "page", "scroll", "--port", "1", "--x", "10", "--y", "20", "--dy", "120",
+                ],
+                "page-scroll",
             ),
             (
                 vec![

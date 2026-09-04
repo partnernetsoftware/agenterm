@@ -1019,6 +1019,43 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         clicks: Option<u32>,
     },
+    /// `page hover` over CDP: move the page pointer to viewport CSS
+    /// coordinates without selecting the tab. The postcondition checks a
+    /// trusted `mousemove` event's target and coordinates; CSS `:hover` is
+    /// auxiliary because a headless/background target may not maintain it.
+    PageHover {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        x: f64,
+        y: f64,
+    },
+    /// `page scroll` over CDP: wheel at viewport CSS coordinates and read
+    /// the chosen scroll container's offsets back. At a scroll boundary the
+    /// event is performed but unverified.
+    PageScroll {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        x: f64,
+        y: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dx: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dy: Option<f64>,
+    },
     /// `page fill` over CDP: focus one editable node (`selector` / backend
     /// `node` id) with `DOM.focus`, optionally select-all (`clear`),
     /// `Input.insertText` the text, read `.value` back; `submit` then
@@ -1429,6 +1466,8 @@ impl Command {
             Self::PageText { .. } => "page-text".into(),
             Self::PageFind { .. } => "page-find".into(),
             Self::PageClick { .. } => "page-click".into(),
+            Self::PageHover { .. } => "page-hover".into(),
+            Self::PageScroll { .. } => "page-scroll".into(),
             Self::PageFill { .. } => "page-fill".into(),
             Self::PageNav { .. } => "page-nav".into(),
             Self::PageScreenshot { .. } => "page-screenshot".into(),
@@ -1505,6 +1544,8 @@ impl Command {
             | Self::PageText { target, .. }
             | Self::PageFind { target, .. }
             | Self::PageClick { target, .. }
+            | Self::PageHover { target, .. }
+            | Self::PageScroll { target, .. }
             | Self::PageFill { target, .. }
             | Self::PageNav { target, .. }
             | Self::PageScreenshot { target, .. }
@@ -1551,6 +1592,8 @@ impl Command {
             | Self::TabClose { .. }
             | Self::BrowserOpen { .. }
             | Self::PageClick { .. }
+            | Self::PageHover { .. }
+            | Self::PageScroll { .. }
             | Self::PageFill { .. }
             | Self::PageNav { .. }
             | Self::PageScreenshot { activate: true, .. }
@@ -1780,6 +1823,29 @@ mod tests {
                 ..
             }
         ));
+        let hover: Command = serde_json::from_value(serde_json::json!({
+            "verb": "page-hover", "target": "current", "target_id": "B2", "x": 12.5, "y": 40.0
+        }))
+        .expect("hover wire");
+        assert_eq!(hover.verb(), "page-hover");
+        assert_eq!(hover.required_grant(), Grant::Actuate);
+        let scroll = Command::PageScroll {
+            target: TargetRef::Current,
+            port: Some(9222),
+            target_id: None,
+            target_url: Some("docs".into()),
+            target_title: None,
+            x: 10.0,
+            y: 20.0,
+            dx: None,
+            dy: Some(-120.0),
+        };
+        assert_eq!(scroll.verb(), "page-scroll");
+        assert_eq!(scroll.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&scroll).expect("scroll wire")["dy"],
+            -120.0
+        );
         let fill = Command::PageFill {
             target: TargetRef::Current,
             port: Some(9222),

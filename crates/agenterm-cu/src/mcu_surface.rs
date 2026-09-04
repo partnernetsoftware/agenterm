@@ -92,6 +92,8 @@ pub const GROUPS: &[Group] = &[
             "page-targets",
             "page-find",
             "page-click",
+            "page-hover",
+            "page-scroll",
             "page-fill",
             "page-nav",
             "page-screenshot",
@@ -237,7 +239,7 @@ pub fn is_typed_only_verb(verb: &str) -> bool {
 fn typed_only_reason(verb: &str) -> &'static str {
     match verb {
         "page" => {
-            "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/fill/nav/screenshot to page-find/page-click/page-fill/page-nav/page-screenshot (CDP, background tabs, no focus change); any other page sub-verb is typed unsupported"
+            "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/hover/scroll/fill/nav/screenshot map to typed CDP verbs (background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
         "ghost" => "ACU migration gap: the ghost cursor overlay has no typed facade yet",
         "ps" | "kill" | "signal" | "exec" | "state" => {
@@ -549,6 +551,14 @@ pub fn verb_declaration(verb: &str) -> Value {
             "actuate",
             "one node (cdp_node_ambiguous with candidates otherwise): DOM.scrollIntoViewIfNeeded, DOM.getBoxModel centre, Input.dispatchMouseEvent pressed + released on that target; verified by document / node read-back; receipt",
         )),
+        "page-hover" => Some((
+            "actuate",
+            "Input.dispatchMouseEvent mouseMoved at bounded viewport coordinates; verified by trusted mousemove target/coordinates versus elementFromPoint (:hover auxiliary); background target remains background; receipt",
+        )),
+        "page-scroll" => Some((
+            "actuate",
+            "Input.dispatchMouseEvent mouseWheel at bounded viewport coordinates; nearest scroll-container offsets read back, with an edge honestly performed but unverified; receipt",
+        )),
         "page-fill" => Some((
             "actuate",
             "one editable node: DOM.focus, optional select-all (--clear), Input.insertText, .value read-back (== TEXT), --submit sends Enter; focus emulation on for the write, off after; receipt",
@@ -791,6 +801,8 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "page-text",
         "page-find",
         "page-click",
+        "page-hover",
+        "page-scroll",
         "page-fill",
         "page-nav",
         "page-screenshot",
@@ -877,6 +889,8 @@ mod tests {
         for verb in [
             "page-find",
             "page-click",
+            "page-hover",
+            "page-scroll",
             "page-fill",
             "page-nav",
             "page-screenshot",
@@ -889,11 +903,13 @@ mod tests {
             assert_eq!(declaration["focus_changed"], false, "{verb}");
         }
         assert_eq!(verb_declaration("page-click")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-hover")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-scroll")["grant"], "actuate");
         assert_eq!(verb_declaration("page-fill")["grant"], "actuate");
         assert_eq!(verb_declaration("page-nav")["grant"], "actuate");
         assert_eq!(verb_declaration("page-find")["grant"], "observe");
         assert_eq!(verb_declaration("page-screenshot")["grant"], "observe");
-        assert!(typed_reason_for_verb("page").contains("page-click"));
+        assert!(typed_reason_for_verb("page").contains("page find/click/hover/scroll"));
         assert_eq!(group_id_for_verb("tab-select"), "semantic");
         assert_eq!(group_id_for_verb("tab-list"), "semantic");
         assert!(!is_align_verb("page-targets") && !is_align_verb("tab-select"));

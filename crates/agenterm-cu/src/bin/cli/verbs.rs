@@ -1996,6 +1996,50 @@ were accepted, verified says something observable changed
 failure). Receipt reserved before the dispatch, completed after."#,
     },
     VerbSpec {
+        name: "page-hover",
+        command: "page-hover",
+        aliases: &["page hover"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "hover one viewport point of a CDP page target in place",
+        usage: "page-hover [--port N] (--target-id ID | --target-url SUB | --target-title SUB) --x X --y Y
+page hover ...                                      (MCU spelling)",
+        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE,
+            ArgSpec { flag: "--x", value: "X", help: "viewport CSS x coordinate" },
+            ArgSpec { flag: "--y", value: "Y", help: "viewport CSS y coordinate" },
+        ],
+        details: r#"Dispatches mouseMoved to one CDP page target without selecting
+the tab or raising the window. Coordinates are finite non-negative viewport
+CSS pixels. performed means Chromium accepted the event; verified compares
+the trusted mousemove target and coordinates with elementFromPoint. The
+deepest :hover node is auxiliary because headless/background Chromium may
+not maintain it. A point outside
+rendered page content is cdp_point_not_found. Receipt reserved before the
+dispatch and completed after read-back."#,
+    },
+    VerbSpec {
+        name: "page-scroll",
+        command: "page-scroll",
+        aliases: &["page scroll"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "wheel one viewport point of a CDP page target in place",
+        usage: "page-scroll [--port N] (--target-id ID | --target-url SUB | --target-title SUB) --x X --y Y [--dx DX] [--dy DY]
+page scroll ...                                     (MCU spelling)",
+        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE,
+            ArgSpec { flag: "--x", value: "X", help: "viewport CSS x coordinate" },
+            ArgSpec { flag: "--y", value: "Y", help: "viewport CSS y coordinate" },
+            ArgSpec { flag: "--dx", value: "DX", help: "horizontal wheel delta (default 0)" },
+            ArgSpec { flag: "--dy", value: "DY", help: "vertical wheel delta (default 120)" },
+        ],
+        details: r#"Dispatches mouseWheel at one viewport point without selecting
+the tab or raising the window. The nearest scrollable container is captured
+before dispatch and its exact offsets are read back afterwards. performed
+means Chromium accepted the wheel event; verified requires left or top to
+change. A boundary that cannot move is honestly performed but unverified
+(no_observable_scroll_change). Receipt reserved before dispatch."#,
+    },
+    VerbSpec {
         name: "page-fill",
         command: "page-fill",
         aliases: &["page fill"],
@@ -2304,15 +2348,15 @@ other profiles' windows are brought back."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "MCU page group; unmapped page verbs answer typed",
-        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page fill | page nav | page screenshot
+        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page hover | page scroll | page fill | page nav | page screenshot
 page [<other>]                                      (typed unsupported)",
         args: &[],
         details: r#"MCU page: `page read --js` -> page-js, `page read` (no --js) -> the CDP
 page-text, `page targets` -> page-targets, `page text` -> page-text (a11y
 with --window, CDP with a target selector), and the CDP background-tab
-verbs `page find` / `page click` / `page fill` / `page nav` / `page
-screenshot` -> page-find / page-click / page-fill / page-nav /
-page-screenshot. Any other page sub-verb answers typed unsupported."#,
+verbs `page find` / `page click` / `page hover` / `page scroll` / `page
+fill` / `page nav` / `page screenshot` map to their typed CDP verbs. Any
+other page sub-verb answers typed unsupported."#,
     },
     // -------------------------------------------------------------- clipboard
     VerbSpec {
@@ -2817,6 +2861,14 @@ mod tests {
             Some("page-click")
         );
         assert_eq!(
+            resolve("page", Some("hover")).map(|s| s.name),
+            Some("page-hover")
+        );
+        assert_eq!(
+            resolve("page", Some("scroll")).map(|s| s.name),
+            Some("page-scroll")
+        );
+        assert_eq!(
             resolve("page", Some("fill")).map(|s| s.name),
             Some("page-fill")
         );
@@ -2932,6 +2984,8 @@ mod tests {
             "tab-close",
             "browser-open",
             "page-click",
+            "page-hover",
+            "page-scroll",
             "page-fill",
             "page-nav",
             "app",
@@ -2948,6 +3002,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 30, "{actuate:?}");
+        assert_eq!(actuate.len(), 32, "{actuate:?}");
     }
 }

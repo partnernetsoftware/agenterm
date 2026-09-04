@@ -173,6 +173,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;
   `drag` stays in the separate explicit-global-pointer court because it may
   move the user's real cursor and must restore it even on failure.
+- [~] Browser pointer closure now includes typed `page-hover` and `page-scroll`
+  over a selected CDP target. Both keep the page/window backgrounded, separate
+  dispatch from verification, reserve receipts before effects, and use bounded
+  viewport coordinates/deltas. Hover verifies the trusted DOM event target;
+  scroll waits on the owned container's real scroll event and offset read-back.
+  The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
+  real-profile and three-host journeys remain promotion evidence.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
   PID/parent/name inventory through `agenterm-platform::process::list`, shared
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the

@@ -294,6 +294,40 @@ impl Executor {
                 *clicks,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PageHover {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                x,
+                y,
+                ..
+            } => page_hover_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                *x,
+                *y,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::PageScroll {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                x,
+                y,
+                dx,
+                dy,
+                ..
+            } => page_scroll_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                *x,
+                *y,
+                dx.unwrap_or(0.0),
+                dy.unwrap_or(120.0),
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PageFill {
                 port,
                 target_id,

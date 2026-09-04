@@ -11,11 +11,17 @@
 #   2026-09-03  PASS  Brave Origin headless (macOS): two data: tabs, A active,
 #               every CDP verb run on B (page nav to the fixture page, page
 #               text, page find by text / selector / role, page fill --clear,
-#               page click by text, page fill --node + --submit, page
+#               page click by text, page hover + page scroll with trusted
+#               event/offset read-back, page fill --node + --submit, page
 #               screenshot); after each verb /json still listed A first and
 #               `windows --focused` was unchanged; the button's onclick
 #               mutated the DOM and was read back through page-js; receipts
 #               listed page-nav / page-fill / page-click completed.
+#   2026-09-04  PASS  Google Chrome headless (macOS): the same background-tab
+#               court plus page-hover trusted-event target read-back and
+#               page-scroll exact-container event/offset read-back; 12
+#               active-target + front-window invariants stayed green; five
+#               actuator receipt kinds completed.
 #
 # What it proves, in order (all on 127.0.0.1:<free port>):
 #   1. Two tabs: A (active, first /json page) and B (background).
@@ -30,14 +36,16 @@
 #      read-back.
 #   6. `page click --text Go` performed + verified: the button's onclick
 #      rewrote #out, which page-js reads back as "clicked:hello".
-#   7. `page fill --node N --text ' world' --submit` appends and submits
+#   7. `page hover` verifies the trusted mousemove event target; `page
+#      scroll` verifies the exact container offset changed.
+#   8. `page fill --node N --text ' world' --submit` appends and submits
 #      (the form's onsubmit rewrites #out -> "submitted:hello world").
-#   8. `page screenshot --target-id B --out` writes a PNG, or answers the
+#   9. `page screenshot --target-id B --out` writes a PNG, or answers the
 #      typed cdp_screenshot_unavailable -- either way without activating.
-#   9. After EVERY verb: /json lists A first (B never became active) and
+#  10. After EVERY verb: /json lists A first (B never became active) and
 #      `windows --focused` reports the same front window as before the run
 #      (or "none" both times on an unattended session).
-#  10. `receipts` lists the three actuations as completed lines.
+#  11. `receipts` lists every actuation as completed lines.
 #
 # Browser: $CU_CDP_BROWSER (an executable), else /Applications/Brave Origin.app,
 # else /Applications/Google Chrome.app; none present is a typed SKIP.
@@ -53,6 +61,7 @@ fail() { echo "FAIL: cu-cdp-actuate-smoke: $*" >&2; exit 1; }
 [[ "$(uname -s)" == "Darwin" ]] || skip "macOS only (browser bundle discovery)"
 command -v python3 >/dev/null 2>&1 || skip "python3 not found"
 command -v curl >/dev/null 2>&1 || skip "curl not found"
+curl_local() { curl --noproxy '*' "$@"; }
 
 CU="${AGENTERM_CU:-}"
 if [[ -z "$CU" ]]; then
@@ -98,7 +107,7 @@ BPID=$!
 
 ready=0
 for _ in $(seq 1 100); do
-  if curl -sf "$BASE/json/version" >/dev/null 2>&1; then ready=1; break; fi
+  if curl_local -sf "$BASE/json/version" >/dev/null 2>&1; then ready=1; break; fi
   kill -0 "$BPID" 2>/dev/null || break
   sleep 0.2
 done
@@ -117,11 +126,11 @@ print("" if cur is None else (json.dumps(cur) if isinstance(cur, (dict, list)) e
 }
 
 # Two tabs through DevTools (headless refuses more than one argv URL).
-curl -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-A</title>A" >/dev/null
-curl -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-B</title>B" >/dev/null
+curl_local -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-A</title>A" >/dev/null
+curl_local -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-B</title>B" >/dev/null
 ids=""
 for _ in $(seq 1 50); do
-  ids="$(curl -s "$BASE/json" | python3 -c '
+  ids="$(curl_local -s "$BASE/json" | python3 -c '
 import json, sys
 a = b = None
 for t in json.load(sys.stdin):
@@ -134,10 +143,10 @@ print(f"{a} {b}" if a and b else "")')"
 done
 [[ -n "$ids" ]] || fail "tabs cu-smoke-A / cu-smoke-B did not appear in /json"
 ID_A="${ids%% *}"; ID_B="${ids##* }"
-curl -s "$BASE/json/activate/$ID_A" >/dev/null
+curl_local -s "$BASE/json/activate/$ID_A" >/dev/null
 
 active_title() {
-  curl -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])'
+  curl_local -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])'
 }
 [[ "$(active_title)" == "cu-smoke-A" ]] || fail "expected cu-smoke-A to be the first /json page after activate, got: $(active_title)"
 
@@ -187,7 +196,7 @@ import urllib.parse
 html = """<!doctype html><title>cu-actuate-B</title><h1>Hello B</h1>
 <form onsubmit="document.getElementById(&quot;out&quot;).textContent=&quot;submitted:&quot;+document.getElementById(&quot;q&quot;).value;return false">
 <input id="q" placeholder="Query"><button id="go" type="button" onclick="document.getElementById(&quot;out&quot;).textContent=&quot;clicked:&quot;+document.getElementById(&quot;q&quot;).value">Go</button>
-</form><p id="out">idle</p>"""
+</form><p id="out">idle</p><div id="scroll" style="height:120px;overflow:auto"><div style="height:1000px">Tall</div></div>"""
 print("data:text/html," + urllib.parse.quote(html, safe=""))')"
 OUT="$(act page nav --port "$PORT" --target-id "$ID_B" --url "$FIXTURE" --wait-ms 5000)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page nav: $OUT"
@@ -242,7 +251,21 @@ READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.ge
 [[ "$(jf "$READ" data.value)" == "clicked:hello" ]] || fail "the click did not run the page's onclick: $READ"
 echo "STEP 7 page click --text Go -> performed+verified (changed: $(jf "$OUT" data.verification.changed)); page-js reads #out = clicked:hello"
 
-# 6. page fill by node id, appended, then --submit runs the form's onsubmit.
+# 6. Pointer verbs use the live boxes, never guessed fixture pixels.
+BOX_GO="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#go')"
+XY_GO="$(jf "$BOX_GO" data.nodes.0.box | python3 -c 'import json,sys; b=json.load(sys.stdin); print("{} {}".format(b["x"]+b["width"]/2,b["y"]+b["height"]/2))')"
+OUT="$(act page hover --port "$PORT" --target-id "$ID_B" --x "${XY_GO%% *}" --y "${XY_GO##* }")"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page hover: $OUT"
+still_background "page hover" "$OUT"
+BOX_SCROLL="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#scroll')"
+XY_SCROLL="$(jf "$BOX_SCROLL" data.nodes.0.box | python3 -c 'import json,sys; b=json.load(sys.stdin); print("{} {}".format(b["x"]+b["width"]/2,b["y"]+b["height"]/2))')"
+OUT="$(act page scroll --port "$PORT" --target-id "$ID_B" --x "${XY_SCROLL%% *}" --y "${XY_SCROLL##* }" --dy 120)"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page scroll: $OUT"
+[[ "$(jf "$OUT" data.verification.changed)" == *"top"* ]] || fail "page scroll did not read top back: $OUT"
+still_background "page scroll" "$OUT"
+echo "STEP 8 page hover -> trusted target verified; page scroll -> container top changed; A still active"
+
+# 7. page fill by node id, appended, then --submit runs the form's onsubmit.
 OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text ' world' --submit)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill --node --submit: $OUT"
 [[ "$(jf "$OUT" data.verification.after_value)" == "hello world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
@@ -250,9 +273,9 @@ OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text 
 still_background "page fill --submit" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
 [[ "$(jf "$READ" data.value)" == "submitted:hello world" ]] || fail "Enter did not submit the form: $READ"
-echo "STEP 8 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
+echo "STEP 9 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
 
-# 7. page screenshot: a PNG, or the typed refusal -- never an activation.
+# 8. page screenshot: a PNG, or the typed refusal -- never an activation.
 SHOT="$UD/b.png"
 OUT="$(obs page screenshot --port "$PORT" --target-id "$ID_B" --out "$SHOT")" || true
 if [[ "$(jf "$OUT" ok)" == "True" ]]; then
@@ -265,18 +288,18 @@ else
   SHOT_NOTE="typed cdp_screenshot_unavailable (background tab not painted)"
 fi
 still_background "page screenshot" "$OUT"
-echo "STEP 9 page screenshot --target-id B -> $SHOT_NOTE; A still active"
+echo "STEP 10 page screenshot --target-id B -> $SHOT_NOTE; A still active"
 
-# 8. Receipts: the three actuations were reserved and completed.
+# 9. Receipts: every actuation was reserved and completed.
 OUT="$(obs receipts --max 20)"
 [[ "$(jf "$OUT" ok)" == "True" ]] || fail "receipts: $OUT"
 verbs="$(jf "$OUT" data.receipts | python3 -c '
 import json,sys
 lines = json.load(sys.stdin)
 print(" ".join(sorted({l["verb"] for l in lines if l.get("phase") == "completed"})))')"
-for verb in page-nav page-fill page-click; do
+for verb in page-nav page-fill page-click page-hover page-scroll; do
   [[ "$verbs" == *"$verb"* ]] || fail "receipts lack a completed $verb line: $verbs"
 done
-echo "STEP 10 receipts: completed [$verbs]"
+echo "STEP 11 receipts: completed [$verbs]"
 
 echo "PASS: cu-cdp-actuate-smoke ($BROWSER_NAME headless, port $PORT, every CDP verb on the background tab; $CHECKS active-target + front-window checks; front window before/after: [$FRONT0])"

@@ -1,5 +1,5 @@
 //! Browser page & tabs: the CDP verbs (`page-js`, `page-targets`, and the
-//! background-tab verbs `page find|click|fill|nav|screenshot`), the page
+//! background-tab verbs `page find|click|hover|scroll|fill|nav|screenshot`), the page
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
 //! profiles|open`), and the MCU `page` group word.
@@ -25,6 +25,8 @@ pub fn parse(
             "page-text" => page_text(target, args),
             "page-find" => page_find(target, args),
             "page-click" => page_click(target, args),
+            "page-hover" => page_hover(target, args),
+            "page-scroll" => page_scroll(target, args),
             "page-fill" => page_fill(target, args),
             "page-nav" => page_nav(target, args),
             "page-screenshot" => page_screenshot(target, args),
@@ -61,6 +63,14 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         Some("click") => {
             args.remove(0);
             return page_click(target, args);
+        }
+        Some("hover") => {
+            args.remove(0);
+            return page_hover(target, args);
+        }
+        Some("scroll") => {
+            args.remove(0);
+            return page_scroll(target, args);
         }
         Some("fill") => {
             args.remove(0);
@@ -307,6 +317,69 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         node: node.node,
         button,
         clicks,
+    })
+}
+
+fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, target_id, target_url, target_title) = cdp_target_flags("page hover", args)?;
+    let Some(x) = flag_parsed::<f64>(args, "--x")? else {
+        return Err("page hover requires --x X --y Y".into());
+    };
+    let Some(y) = flag_parsed::<f64>(args, "--y")? else {
+        return Err("page hover requires --x X --y Y".into());
+    };
+    agenterm_cu::cdp::page::validate_pointer_coordinate("page hover --x", x)?;
+    agenterm_cu::cdp::page::validate_pointer_coordinate("page hover --y", y)?;
+    if !args.is_empty() {
+        return Err(format!(
+            "page hover accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] --x X --y Y; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageHover {
+        target,
+        port,
+        target_id,
+        target_url,
+        target_title,
+        x,
+        y,
+    })
+}
+
+fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, target_id, target_url, target_title) = cdp_target_flags("page scroll", args)?;
+    let Some(x) = flag_parsed::<f64>(args, "--x")? else {
+        return Err("page scroll requires --x X --y Y [--dx DX] [--dy DY]".into());
+    };
+    let Some(y) = flag_parsed::<f64>(args, "--y")? else {
+        return Err("page scroll requires --x X --y Y [--dx DX] [--dy DY]".into());
+    };
+    let dx = flag_parsed::<f64>(args, "--dx")?;
+    let dy = flag_parsed::<f64>(args, "--dy")?;
+    agenterm_cu::cdp::page::validate_pointer_coordinate("page scroll --x", x)?;
+    agenterm_cu::cdp::page::validate_pointer_coordinate("page scroll --y", y)?;
+    agenterm_cu::cdp::page::validate_scroll_delta("page scroll --dx", dx.unwrap_or(0.0))?;
+    agenterm_cu::cdp::page::validate_scroll_delta("page scroll --dy", dy.unwrap_or(120.0))?;
+    if dx.unwrap_or(0.0) == 0.0 && dy.unwrap_or(120.0) == 0.0 {
+        return Err("page scroll requires a non-zero --dx or --dy".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "page scroll accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] --x X --y Y [--dx DX] [--dy DY]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageScroll {
+        target,
+        port,
+        target_id,
+        target_url,
+        target_title,
+        x,
+        y,
+        dx,
+        dy,
     })
 }
 

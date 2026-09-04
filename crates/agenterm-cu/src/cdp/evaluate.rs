@@ -42,6 +42,24 @@ pub fn evaluate_on<T: Transport>(
     session: &mut Session<T>,
     expression: &str,
 ) -> Result<Value, CdpError> {
+    evaluate_on_mode(session, expression, false)
+}
+
+/// Evaluate a bounded promise expression and wait for its value. Used only
+/// when a CDP actuation is acknowledged before Chromium commits observable
+/// state (for example compositor scrolling on the next task).
+pub fn evaluate_on_await<T: Transport>(
+    session: &mut Session<T>,
+    expression: &str,
+) -> Result<Value, CdpError> {
+    evaluate_on_mode(session, expression, true)
+}
+
+fn evaluate_on_mode<T: Transport>(
+    session: &mut Session<T>,
+    expression: &str,
+    await_promise: bool,
+) -> Result<Value, CdpError> {
     let before = session.largest_message;
     let result = session
         .call(
@@ -49,7 +67,7 @@ pub fn evaluate_on<T: Transport>(
             json!({
                 "expression": expression,
                 "returnByValue": true,
-                "awaitPromise": false,
+                "awaitPromise": await_promise,
             }),
         )
         .map_err(|error| {
@@ -118,7 +136,12 @@ mod tests {
             assert_eq!(params["returnByValue"], true);
             match params["expression"].as_str() {
                 Some("document.title") => {
+                    assert_eq!(params["awaitPromise"], false);
                     Ok(json!({ "result": { "type": "string", "value": "B" } }))
+                }
+                Some("promise") => {
+                    assert_eq!(params["awaitPromise"], true);
+                    Ok(json!({ "result": { "type": "number", "value": 7 } }))
                 }
                 Some("boom") => Ok(json!({
                     "result": { "type": "object", "subtype": "error" },
@@ -130,6 +153,10 @@ mod tests {
         assert_eq!(
             evaluate_on(&mut session, "document.title").expect("value"),
             "B"
+        );
+        assert_eq!(
+            evaluate_on_await(&mut session, "promise").expect("awaited value"),
+            7
         );
         let err = evaluate_on(&mut session, "boom").expect_err("thrown");
         assert_eq!(err.code, "unsupported");
