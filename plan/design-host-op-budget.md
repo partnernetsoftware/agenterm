@@ -289,10 +289,19 @@ steps/element**（门 `<260`），`split` 回到 **34.5 steps/character**（门
 解释成 `<10`。完整判决在 tinyvm
 `plan/design-direct-string-metadata-publication-experiment.md`。
 
+**事后尺子审计（tinyvm `cf70589`）**：上面的 REJECT 不改写，但 7.2 → 10.5
+不是 search loop 变慢。旧 court 用 `search_steps - s.length_steps`；生产
+`.length` 自身按 UTF-8 走约 **3.3 steps/character**，而 Variant D 把它变成
+O(1)，所以只有旧基线被额外减掉了约 3.3。下一 court 必须同时量
+`return 0` 的 build-only control 与 `return s.length` 的历史 control，并以
+`absolute search - historical search = independent length slope` 闭合；再把绝对
+search slope 分给 loop/read/compare/miss。历史判决有效，历史尺子不得继续用于
+跨实现比较。
+
 **新的性能 frontier**：暂停继续改 String record。先用不改变表示的诊断刀把
-search court 的固定派发、循环控制、码元读取、比较和 miss-return 分项计数，判断
-剩余 0.5 steps/character 属于哪一层；只有某个正交改动同时能解释该成本、且不会
-重新引入 eager scan，才为它另写冻结实验。不得把 near miss 当作调低门槛的理由。
+search court 的绝对成本、固定派发、循环控制、码元读取、比较和 miss-return 分项
+计数；只有闭合后的某个线性 owner 足够大且能被正交修改，才为它另写冻结实验。
+不得把 near miss 当作调低门槛的理由。
 实验规格已在 tinyvm `plan/design-string-search-cost-attribution-experiment.md`
-冻结（`ebee5a1`）：四个以上长度点、斜率闭合、固定/线性成本分账；只出归因和下一
+校正（`cf70589`）：双 control、四个以上长度点、两层斜率闭合、固定/线性成本分账；只出归因和下一
 实验的 owner，不在同一轮偷做优化，也不改变当前 tinyvm pin。
