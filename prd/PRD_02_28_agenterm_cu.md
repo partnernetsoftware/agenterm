@@ -345,13 +345,30 @@ flowchart LR
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
-  sockets and DNS+TCP probes. The active qjswasm/tinyvm host surface has no
-  generic DNS/TCP API; historical `std.net.*` catalog names are not a shipped
-  mechanism. A probe therefore first needs a bounded native resolver/connect
-  facade in `agenterm-platform`, with no MCU subprocess and no uncancellable
-  resolver hidden behind a nominal deadline. Native system inventory remains
-  platform-owned; socket rows must bind process start identity rather than a
-  reusable PID.
+  sockets and DNS+TCP probes. `network-probe` is now implemented as an Observe
+  facade: resolve once through the host resolver, deduplicate/freeze addresses,
+  then report the exact bounded TCP attempts. The resolver lives in an
+  invocation-owned internal child because Windows and glibc cancellation APIs
+  failed the precommitted completed-cancellation gate; deadline expiry kills
+  and reaps the exact helper instead of accumulating resolver threads. This is
+  not yet promoted: six-cell compile plus invocation-owned loopback journeys on
+  OSX/Lnx/Win remain required by
+  [`plan/design-network-probe-resolver-experiment.md`](../plan/design-network-probe-resolver-experiment.md).
+  The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
+  Native system inventory remains platform-owned; socket rows must bind process
+  start identity rather than a reusable PID.
+
+```mermaid
+flowchart LR
+  N["network probe request"] --> A["validate before effect"]
+  A --> H["owned helper<br/>system resolver once"]
+  H --> F["dedupe + freeze addresses"]
+  F --> T["exact round-robin TCP attempts"]
+  H --> D{"overall deadline"}
+  D -->|expires| K["kill + reap exact helper<br/>typed timeout"]
+  T --> E["three-OS loopback evidence"]
+  E -->|all green| P["promote ledger row to native"]
+```
 - [~] Device/audio replacement is classified across peripheral inventory and
   events, exclusive TTL claims, byte I/O, serial configuration and default
   output state. Device paths are locators rather than durable identity;

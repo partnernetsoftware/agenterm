@@ -36,6 +36,7 @@ pub enum Family {
     System,
     Windows,
     Process,
+    Network,
     Terminal,
     A11yObserve,
     A11yActuate,
@@ -47,10 +48,11 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Family; 11] = [
+    pub const ALL: [Family; 12] = [
         Family::System,
         Family::Windows,
         Family::Process,
+        Family::Network,
         Family::Terminal,
         Family::A11yObserve,
         Family::A11yActuate,
@@ -66,6 +68,7 @@ impl Family {
             Self::System => "system",
             Self::Windows => "windows",
             Self::Process => "process",
+            Self::Network => "network",
             Self::Terminal => "terminal",
             Self::A11yObserve => "a11y-observe",
             Self::A11yActuate => "a11y-actuate",
@@ -83,6 +86,7 @@ impl Family {
             Self::System => "System & permissions",
             Self::Windows => "Windows & apps",
             Self::Process => "Processes",
+            Self::Network => "Network",
             Self::Terminal => "AgenTerm terminals",
             Self::A11yObserve => "Accessibility: observe",
             Self::A11yActuate => "Accessibility: actuate",
@@ -396,6 +400,27 @@ with the user and `permissions` never attempts to bypass it."#,
         details: r#"Reuses the canonical capabilities and permissions declarations, then
 runs bounded window and display inventory probes. A failed probe remains a typed check in the
 successful diagnostic document; `doctor` never mutates setup, consent, helpers or foreground state."#,
+    },
+    VerbSpec {
+        name: "network-probe",
+        command: "network-probe",
+        aliases: &["network probe"],
+        scope: Scope::Observe,
+        family: Family::Network,
+        summary: "resolve once and measure bounded TCP reachability",
+        usage: "network-probe HOST [--port N] [--attempts N] [--timeout-ms N]\nnetwork probe HOST [--port N] [--attempts N] [--timeout-ms N]",
+        args: &[
+            ArgSpec { flag: "HOST", value: "", help: "bare hostname or IP address" },
+            ArgSpec { flag: "--port", value: "N", help: "TCP port, 1..=65535 (default 443)" },
+            ArgSpec { flag: "--attempts", value: "N", help: "exact attempts, 1..=20 (default 3)" },
+            ArgSpec { flag: "--timeout-ms", value: "N", help: "resolver and per-connect bound, 100..=60000 (default 3000)" },
+        ],
+        details: r#"Resolves through the host resolver once, deduplicates and freezes the
+address set, then makes the exact requested number of TCP attempts round-robin.
+The blocking resolver lives in an invocation-owned internal child; the parent
+enforces the overall deadline and kills and reaps that child on expiry. A TCP
+refusal or timeout is a successful unreachable observation. Resolver, worker
+and protocol failures stay typed. This is reachability evidence, not HTTP/TLS."#,
     },
     VerbSpec {
         name: "windows",

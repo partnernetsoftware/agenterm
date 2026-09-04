@@ -27,7 +27,7 @@ use crate::{
     command::{
         Command, InvokeAction, InvokeValueKind, OrderRelation, PointerButton, WaitCondition,
     },
-    mechanism, observe,
+    mechanism, network_probe, observe,
     rdp_transport::{self, RdpEndpoint},
     receipt::{self, ReceiptLog},
     reply::{CuError, CuReply},

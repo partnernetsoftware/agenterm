@@ -989,6 +989,16 @@ verified still-live outcome; never reopen or poll the numeric PID and silently
 follow a recycled process. Mutation builds on the same contract but needs its
 own actuate gate and postcondition.
 
+Host DNS is another blocking native boundary: an API named `cancel` is not
+proof that its underlying resolver work stopped. Windows legacy name-service
+providers may continue after `GetAddrInfoExCancel`, while glibc
+`getaddrinfo_a` cannot cancel a worker already running. When a feature needs a
+hard overall deadline, isolate blocking resolution in an invocation-owned
+helper, drain its bounded stdout concurrently, and on expiry kill and `wait`
+the exact child. Never implement nominal timeout by abandoning a resolver
+thread, and never wait for child exit before reading a pipe whose capacity may
+be smaller than the protocol ceiling.
+
 A process-metrics watch is a bounded observation transaction, not an unbounded
 `top` loop. Take the first sample immediately, bind every later sample to the
 same start identity, schedule from a monotonic deadline, and cap duration,

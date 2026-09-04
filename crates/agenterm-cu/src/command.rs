@@ -406,6 +406,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_processes: Option<usize>,
     },
+    /// Resolve once through the host resolver, freeze the deduplicated address
+    /// set, and perform an exact number of bounded TCP reachability attempts.
+    NetworkProbe {
+        target: TargetRef,
+        host: String,
+        port: u16,
+        attempts: u8,
+        timeout_ms: u64,
+    },
     /// Inventory AgenTerm-owned tabs using stable epoch-scoped `@N` ids.
     TerminalList {
         target: TargetRef,
@@ -1627,6 +1636,7 @@ impl Command {
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
+            Self::NetworkProbe { .. } => "network-probe".into(),
             Self::TerminalList { .. } => "terminal-list".into(),
             Self::TerminalRead { .. } => "terminal-read".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
@@ -1714,6 +1724,7 @@ impl Command {
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
             | Self::ProcessWatch { target, .. }
+            | Self::NetworkProbe { target, .. }
             | Self::TerminalList { target, .. }
             | Self::TerminalRead { target, .. }
             | Self::TerminalSend { target, .. }
@@ -2890,5 +2901,33 @@ mod tests {
         };
         assert_eq!(wait.required_grant(), Grant::Observe);
         assert_eq!(wait.verb(), "terminal-wait");
+    }
+
+    #[test]
+    fn network_probe_is_observe_only_and_keeps_its_closed_remote_shape() {
+        let command = Command::NetworkProbe {
+            target: TargetRef::Ssh,
+            host: "fixture.invalid".into(),
+            port: 8443,
+            attempts: 4,
+            timeout_ms: 750,
+        };
+        assert_eq!(command.verb(), "network-probe");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(json["host"], "fixture.invalid");
+        assert_eq!(json["attempts"], 4);
+        let round_trip: Command = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::NetworkProbe {
+                target: TargetRef::Ssh,
+                port: 8443,
+                attempts: 4,
+                timeout_ms: 750,
+                ..
+            }
+        ));
     }
 }

@@ -17,6 +17,9 @@ fn main() {
         println!("agenterm-cu {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::network_probe::WORKER_ARG) {
+        std::process::exit(agenterm_cu::network_probe::run_worker_stdio());
+    }
     match args
         .first()
         .and_then(|first| verbs::lookup(first))

@@ -21,6 +21,7 @@ pub mod macos_focus;
 pub mod macos_spaces;
 pub mod mcu_surface;
 pub mod mechanism;
+pub mod network_probe;
 pub mod observe;
 pub mod page_text;
 pub mod place;

@@ -1,6 +1,7 @@
 # Network probe resolver containment experiment
 
-Status: **planned · not implemented · does not promote the ACU capability**.
+Status: **Variant A rejected at R1 · Variant B selected for implementation ·
+does not yet promote the ACU capability**.
 
 | field | value |
 |---|---|
@@ -143,5 +144,47 @@ process/thread high-water mark, exit state and cleanup observation.
 
 ## 8. Result
 
-Not run. No variant is selected and `network.probe` remains a typed gap until
-R0–R6 produce reproducible evidence.
+### 8.1 Variant A verdict — rejected before product implementation
+
+```text
+A native async/cancel
+├─ Windows: FAIL R1
+│  └─ GetAddrInfoExCancel may signal cancellation while a synchronous legacy
+│     name-service provider continues consuming resources until it completes
+├─ Linux/glibc: FAIL R1
+│  ├─ gai_suspend timeout does not cancel
+│  └─ gai_cancel returns EAI_NOTCANCELED after a resolver worker starts
+└─ decision: stop A immediately; do not spend the court on OSX convenience
+```
+
+This is the precommitted kill criterion, not an implementation setback.
+Microsoft explicitly documents that an underlying synchronous legacy
+name-service-provider operation may continue after `GetAddrInfoExCancel`
+signals `WSA_E_CANCELLED`. Linux `getaddrinfo_a` likewise cannot cancel a
+request after its worker starts; `gai_suspend` only bounds the caller's wait.
+Both violate R1's requirement to prove completed cancellation and zero
+unbounded background work.
+
+References:
+
+- Microsoft [`GetAddrInfoExCancel`](https://learn.microsoft.com/windows/win32/api/ws2tcpip/nf-ws2tcpip-getaddrinfoexcancel)
+- Microsoft [`GetAddrInfoExW`](https://learn.microsoft.com/windows/win32/api/ws2tcpip/nf-ws2tcpip-getaddrinfoexw)
+- Linux man-pages [`getaddrinfo_a(3)`](https://man7.org/linux/man-pages/man3/getaddrinfo_a.3.html)
+
+Linux also has a delivery conflict independent of R1: both Linux release cells
+hold a glibc 2.28 floor, while the GNU asynchronous resolver lived in
+`libanl` before glibc 2.34; the current Zig-provided libc path does not supply
+that extra library. The safety failure already decides the branch, so this
+portability cost is recorded but not worked around.
+
+### 8.2 Selected next branch
+
+Variant B is selected: an invocation-owned internal helper performs blocking
+host resolution and bounded TCP connects; the parent applies the overall
+deadline and kills **and reaps** the exact child on expiry. The helper remains
+an internal bounded protocol, never a second public capability or an external
+utility dependency.
+
+`network.probe` remains a typed gap until Variant B passes R0–R6. The result
+section must be updated again with measured cleanup, concurrency, semantic,
+six-cell compile, three-OS runtime and size evidence before promotion.

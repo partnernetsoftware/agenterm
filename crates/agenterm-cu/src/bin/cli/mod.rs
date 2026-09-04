@@ -12,6 +12,7 @@ pub mod exec;
 pub mod global;
 pub mod help;
 pub mod menu;
+pub mod network;
 pub mod placement;
 pub mod process;
 pub mod system;
@@ -37,6 +38,7 @@ pub fn parse_command(
         Family::System => system::parse(spec, target, args),
         Family::Windows => windows::parse(spec, spelled, target, args),
         Family::Process => process::parse(spec, spelled, target, args),
+        Family::Network => network::parse(spec, spelled, target, args),
         Family::Terminal => terminal::parse(spec, spelled, target, args),
         Family::A11yObserve => a11y_observe::parse(spec, spelled, target, args),
         Family::A11yActuate => a11y_actuate::parse(spec, spelled, target, args),

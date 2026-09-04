@@ -588,6 +588,28 @@ mod tests {
     }
 
     #[test]
+    fn network_probe_limits_survive_remote_target_rewrite() {
+        let command = CuCommand::NetworkProbe {
+            target: TargetRef::Ssh,
+            host: "fixture.invalid".into(),
+            port: 8443,
+            attempts: 7,
+            timeout_ms: 900,
+        };
+        let remote = rewrite_command_target_current(&command).expect("rewrite");
+        assert!(matches!(
+            remote,
+            CuCommand::NetworkProbe {
+                target: TargetRef::Current,
+                ref host,
+                port: 8443,
+                attempts: 7,
+                timeout_ms: 900,
+            } if host == "fixture.invalid"
+        ));
+    }
+
+    #[test]
     fn clipboard_read_observe_survives_target_rewrite() {
         let command = CuCommand::ClipboardRead {
             target: TargetRef::Ssh,
