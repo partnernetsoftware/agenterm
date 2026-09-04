@@ -151,6 +151,41 @@ impl ControlClient {
                 "deadline_unix_ms": deadline_unix_ms,
             }
         });
+        self.send_envelope(&envelope, timeout)
+    }
+
+    /// Send a protocol-owned handshake whose authority is carried by its own
+    /// lease fields rather than the product control envelope. This is for
+    /// `ui-hello` / `ui-lease` / lease-gated `ui-interact`; ordinary product
+    /// observations and mutations must use [`Self::request`].
+    pub fn request_protocol(
+        &self,
+        args: Vec<String>,
+        timeout: Duration,
+    ) -> Result<ControlResponse, ClientError> {
+        if timeout.is_zero() {
+            return Err(client_error(
+                "control_timeout_invalid",
+                "control timeout must be greater than zero",
+            ));
+        }
+        if !matches!(
+            args.first().map(String::as_str),
+            Some("ui-hello" | "ui-lease" | "ui-interact")
+        ) {
+            return Err(client_error(
+                "control_protocol_request_invalid",
+                "protocol requests are limited to UI handshake and lease operations",
+            ));
+        }
+        self.send_envelope(&json!({ "args": args }), timeout)
+    }
+
+    fn send_envelope(
+        &self,
+        envelope: &Value,
+        timeout: Duration,
+    ) -> Result<ControlResponse, ClientError> {
         let encoded = serde_json::to_vec(&envelope)
             .map_err(|error| client_error("control_request_invalid", error.to_string()))?;
         let deadline = Instant::now() + timeout;
@@ -458,5 +493,55 @@ mod tests {
             .unwrap();
         assert!(response.ok);
         server.join().unwrap();
+    }
+
+    #[test]
+    fn protocol_request_omits_control_metadata_for_lease_owned_handshakes() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request, json!({ "args": ["ui-lease", "status"] }));
+            let mut stream = reader.into_inner();
+            stream
+                .write_all(b"{\"ok\":true,\"output\":\"{}\",\"error\":\"\"}\n")
+                .unwrap();
+        });
+        let client = ControlClient {
+            endpoint: IpcEndpoint::Tcp {
+                host: address.ip().to_string(),
+                port: address.port(),
+            },
+            server_scope_id: "agt-v1-test".into(),
+        };
+        assert!(
+            client
+                .request_protocol(
+                    vec!["ui-lease".into(), "status".into()],
+                    Duration::from_secs(1),
+                )
+                .unwrap()
+                .ok
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn protocol_request_refuses_ordinary_product_operations() {
+        let client = ControlClient {
+            endpoint: IpcEndpoint::Tcp {
+                host: "127.0.0.1".into(),
+                port: 9,
+            },
+            server_scope_id: "agt-v1-test".into(),
+        };
+        let error = client
+            .request_protocol(vec!["list-tabs".into()], Duration::from_secs(1))
+            .unwrap_err();
+        assert_eq!(error.code, "control_protocol_request_invalid");
     }
 }

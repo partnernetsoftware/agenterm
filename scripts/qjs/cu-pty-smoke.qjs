@@ -122,7 +122,7 @@ try {
     "--target", "current", "--grant", "observe", "pty-snapshot", job
   ]), "pty-snapshot");
   const event_epoch = snapshot.cursor.server_epoch;
-  const event_sequence = snapshot.cursor.sequence;
+  let event_sequence = snapshot.cursor.sequence;
   ensure(
     snapshot.name === job && snapshot.tab.id === start.status.tab_id
       && snapshot.server_epoch === start.status.server_epoch
@@ -132,6 +132,32 @@ try {
       && snapshot.identity === "job-name+server-scope+epoch+tab-id+event-cursor",
     "cu_pty_snapshot_contract:" + JSON.stringify(snapshot)
   );
+
+  print("STEP resize the exact job grid through a temporary lease and verify read-back");
+  const resize = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-resize", job,
+    "--rows", "37", "--columns", "91"
+  ]), "pty-resize");
+  ensure(
+    resize.name === job && resize.tab_id === start.status.tab_id
+      && resize.server_epoch === event_epoch
+      && resize.rows === 37 && resize.columns === 91
+      && resize.performed === true && resize.verified === true
+      && resize.lease_detached === true,
+    "cu_pty_resize_contract:" + JSON.stringify(resize)
+  );
+  const resized_snapshot = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-snapshot", job
+  ]), "pty-snapshot");
+  ensure(
+    resized_snapshot.server_epoch === event_epoch
+      && resized_snapshot.tab.id === start.status.tab_id
+      && resized_snapshot.tab.screen.rows === 37
+      && resized_snapshot.tab.screen.columns === 91
+      && resized_snapshot.cursor.sequence >= event_sequence,
+    "cu_pty_resized_snapshot_contract:" + JSON.stringify(resized_snapshot)
+  );
+  event_sequence = resized_snapshot.cursor.sequence;
 
   print("STEP send exact literal shell input and require the committed control receipt");
   const input = windows ? "echo QJS_PTY_READY\r" : "printf \"QJS_PTY_READY\\n\"\n";

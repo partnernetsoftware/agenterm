@@ -530,10 +530,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   resolves the same sole tab and returns its bounded structured screen with the
   exact job/scope/epoch/tab event cursor; `pty-events NAME --epoch ... --after
   ...` refuses epoch substitution and advances across every scanned journal
-  event while publishing only the job tab's rows. The local macOS public
-  qjswasm journey proved snapshot → literal output → non-empty event and screen
-  continuation without reopening identity. Six-cell rerun, persisted screen
-  diff, verified resize, reuse and orphan process-tree control remain open.
+  event while publishing only the job tab's rows. `pty-resize NAME --rows ...
+  --columns ...` reserves a durable receipt, obtains a temporary UI lease on
+  that exact authority, performs the resize, detaches the lease and accepts
+  success only after status independently reports the requested grid with the
+  same epoch and tab. The local macOS public qjswasm journey proved snapshot →
+  verified resize → literal output → non-empty event and screen continuation
+  without reopening identity. Six-cell rerun, persisted screen diff, reuse and
+  orphan process-tree control remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 
@@ -563,7 +567,7 @@ flowchart LR
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/list/prune/status/read/send/wait/exit/stop ✓<br/>exact job + epoch + @tab"]
-  J --> JE["pty snapshot/events ✓ local<br/>same epoch · non-empty update<br/>diff/resize + six-cell pending"]
+  J --> JE["pty snapshot/events/resize ✓ local<br/>same epoch · exact grid · detached lease<br/>diff + six-cell pending"]
   J --> J1["qjswasm public PTY court · local six-cell ✓<br/>macOS arm64 + x86_64/Rosetta<br/>Linux + Windows x86_64/arm64 native"]
   J1 --> J2["list/prune + absent/running/stale/absent ✓<br/>reuse + orphan process-tree cleanup"]
   J2 --> Q

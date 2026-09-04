@@ -181,6 +181,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "pty-read",
         "pty-snapshot",
         "pty-events",
+        "pty-resize",
         "pty-send",
         "pty-wait",
         "pty-wait-exit",
@@ -224,7 +225,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-start  pty-list  pty-prune  pty-status  pty-read  pty-snapshot  pty-events  pty-send  pty-wait\n  pty-wait-exit  pty-stop  terminal-new  terminal-close  terminal-snapshot  terminal-events  terminal-output"
+            "  pty-status  pty-snapshot  pty-wait-exit  terminal-close  terminal-snapshot  terminal-events  terminal-output\n  pty-start  pty-list  pty-prune  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-stop  terminal-new"
                 .to_owned(),
         );
     }

@@ -586,6 +586,20 @@
       ]
     },
     {
+      "name": "pty-resize",
+      "command": "pty-resize",
+      "aliases": ["pty resize"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "resize and verify one durable PTY job grid",
+      "usage": "pty-resize NAME --rows ROWS --columns COLUMNS\npty resize NAME --rows ROWS --columns COLUMNS",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"},
+        {"flag": "--rows", "value": "ROWS", "help": "requested terminal rows, 1..=512"},
+        {"flag": "--columns", "value": "COLUMNS", "help": "requested terminal columns, 1..=512"}
+      ]
+    },
+    {
       "name": "pty-send",
       "command": "pty-send",
       "aliases": ["pty send"],
@@ -3625,6 +3639,10 @@
     {
       "name": "pty-events",
       "text": "agenterm-cu pty-events    (also: pty events)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-events NAME --epoch EPOCH --after SEQUENCE [--limit N]\n  pty events NAME --epoch EPOCH --after SEQUENCE [--limit N]\n\nContinues the bounded ordered UI event journal for the sole tab of an exact durable job. The supplied epoch must still match the named authority. Its cursor advances across every scanned event while returned terminal updates remain filtered to the job tab, preventing unrelated activity from trapping the caller in replay. Restart, overwritten history and future cursors fail typed.\n"
+    },
+    {
+      "name": "pty-resize",
+      "text": "agenterm-cu pty-resize    (also: pty resize)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-resize NAME --rows ROWS --columns COLUMNS\n  pty resize NAME --rows ROWS --columns COLUMNS\n\nAcquires a temporary UI lease on the exact dedicated headless authority, resizes its sole tab, detaches the lease and independently reads the job status back. Success requires the same server epoch and tab plus the exact requested 1..=512 grid. The job lock serializes concurrent mutations; a failed detach or mismatched read-back is typed and retained in a crash-persistent receipt.\n"
     },
     {
       "name": "pty-send",

@@ -24,9 +24,10 @@ use crate::cdp::page::base64_decode;
 use crate::{CuError, TerminalWaitCondition, receipt::ReceiptLog};
 
 use super::{
-    parse_output, request, terminal_close_with_client, terminal_events_with_client,
-    terminal_inventory_with_client, terminal_new_with_client, terminal_output_with_client,
-    terminal_send_with_client, terminal_snapshot_with_client, terminal_wait_with_client,
+    parse_output, request, request_protocol, terminal_close_with_client,
+    terminal_events_with_client, terminal_inventory_with_client, terminal_new_with_client,
+    terminal_output_with_client, terminal_send_with_client, terminal_snapshot_with_client,
+    terminal_wait_with_client,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -811,6 +812,230 @@ pub(super) fn pty_events_payload(
     events["name"] = json!(name);
     events["identity"] = json!("job-name+server-scope+epoch+tab-id+event-cursor");
     Ok(events)
+}
+
+pub(super) fn pty_resize_payload(
+    name: &str,
+    rows: u16,
+    columns: u16,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if rows == 0 || rows > 512 || columns == 0 || columns > 512 {
+        return Err(CuError::new(
+            "pty_job_resize_invalid",
+            "PTY rows and columns must be in 1..=512",
+        ));
+    }
+    let directory = job_directory(name)?;
+    let _lock = acquire_job_lock(&directory)?;
+    let client = client_for(name)?;
+    let (inventory, tab) = sole_job(&client, name)?;
+    let tab_id = tab["id"].as_str().ok_or_else(|| {
+        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+    })?;
+    let epoch = inventory["server_epoch"].as_str().ok_or_else(|| {
+        CuError::new(
+            "pty_job_state_invalid",
+            "PTY job inventory omitted server epoch",
+        )
+    })?;
+    let client_pid = std::process::id();
+    let client_id = format!("acu-pty-resize-{client_pid}");
+    let ticket = receipts.reserve(
+        "pty-resize",
+        0,
+        json!({
+            "name_bytes": name.len(),
+            "tab_id": tab_id,
+            "requested": { "rows": rows, "columns": columns },
+        }),
+    )?;
+
+    let mut resize_attempted = false;
+    let mut lease_attached = false;
+    let operation = (|| -> Result<(Value, Value), CuError> {
+        let hello = parse_output(
+            request_protocol(
+                &client,
+                vec![
+                    "ui-hello".to_owned(),
+                    "--minimum".to_owned(),
+                    "1".to_owned(),
+                    "--maximum".to_owned(),
+                    "1".to_owned(),
+                    "--client-id".to_owned(),
+                    client_id.clone(),
+                ],
+                Duration::from_secs(5),
+            )?,
+            "pty_job_resize_hello_invalid",
+        )?;
+        if hello["accepted"].as_bool() != Some(true)
+            || hello["position"]["server_epoch"].as_str() != Some(epoch)
+        {
+            return Err(CuError::new(
+                "pty_job_epoch_changed",
+                "PTY job authority changed or rejected the resize protocol",
+            ));
+        }
+        let lease = parse_output(
+            request_protocol(
+                &client,
+                vec![
+                    "ui-lease".to_owned(),
+                    "attach".to_owned(),
+                    "--client-id".to_owned(),
+                    client_id,
+                    "--client-pid".to_owned(),
+                    client_pid.to_string(),
+                ],
+                Duration::from_secs(5),
+            )?,
+            "pty_job_resize_lease_invalid",
+        )?;
+        let lease_id = lease["lease_id"].as_str().ok_or_else(|| {
+            CuError::new("pty_job_resize_lease_invalid", "UI lease omitted its id")
+        })?;
+        lease_attached = true;
+        if lease["client_pid"].as_u64() != Some(u64::from(client_pid))
+            || lease["position"]["server_epoch"].as_str() != Some(epoch)
+        {
+            let _ = request_protocol(
+                &client,
+                vec![
+                    "ui-lease".to_owned(),
+                    "detach".to_owned(),
+                    "--lease-id".to_owned(),
+                    lease_id.to_owned(),
+                    "--client-pid".to_owned(),
+                    client_pid.to_string(),
+                ],
+                Duration::from_secs(5),
+            );
+            return Err(CuError::new(
+                "pty_job_epoch_changed",
+                "PTY job authority changed while acquiring the resize lease",
+            ));
+        }
+
+        resize_attempted = true;
+        let resize = request_protocol(
+            &client,
+            vec![
+                "ui-interact".to_owned(),
+                "resize".to_owned(),
+                "--lease-id".to_owned(),
+                lease_id.to_owned(),
+                "--client-pid".to_owned(),
+                client_pid.to_string(),
+                "-t".to_owned(),
+                tab_id.to_owned(),
+                "--rows".to_owned(),
+                rows.to_string(),
+                "--columns".to_owned(),
+                columns.to_string(),
+            ],
+            Duration::from_secs(5),
+        )
+        .and_then(|response| parse_output(response, "pty_job_resize_result_invalid"));
+        let detach = request_protocol(
+            &client,
+            vec![
+                "ui-lease".to_owned(),
+                "detach".to_owned(),
+                "--lease-id".to_owned(),
+                lease_id.to_owned(),
+                "--client-pid".to_owned(),
+                client_pid.to_string(),
+            ],
+            Duration::from_secs(5),
+        )
+        .and_then(|response| parse_output(response, "pty_job_resize_detach_invalid"));
+        match (resize, detach) {
+            (Ok(resize), Ok(detach)) => Ok((resize, detach)),
+            (resize, Err(cleanup_error)) => Err(CuError::new(
+                "pty_job_resize_cleanup_failed",
+                "the temporary UI lease could not be detached after a resize attempt",
+            )
+            .with_detail(json!({
+                "performed": true,
+                "resize_error": resize.err().map(|error| json!({
+                    "code": error.code,
+                    "message": error.message,
+                })),
+                "cleanup_error": {
+                    "code": cleanup_error.code,
+                    "message": cleanup_error.message,
+                },
+            }))),
+            (Err(resize_error), Ok(_)) => Err(resize_error),
+        }
+    })();
+
+    let (resize, detach) = match operation {
+        Ok(values) => values,
+        Err(error) => {
+            receipts.complete(
+                &ticket,
+                "pty-resize",
+                0,
+                false,
+                json!({
+                    "performed": resize_attempted,
+                    "verified": false,
+                    "lease_attached": lease_attached,
+                    "error": { "code": error.code, "message": error.message },
+                }),
+            )?;
+            return Err(error.with_detail(json!({ "receipt": ticket.json() })));
+        }
+    };
+    let status = status_with_client(&client, name)?;
+    let verified = resize["action"].as_str() == Some("resize")
+        && resize["tab_id"].as_str() == Some(tab_id)
+        && resize["rows"].as_u64() == Some(u64::from(rows))
+        && resize["columns"].as_u64() == Some(u64::from(columns))
+        && resize["position"]["server_epoch"].as_str() == Some(epoch)
+        && detach["detached"].as_bool() == Some(true)
+        && detach["client_pid"].as_u64() == Some(u64::from(client_pid))
+        && detach["position"]["server_epoch"].as_str() == Some(epoch)
+        && status["server_epoch"].as_str() == Some(epoch)
+        && status["tab_id"].as_str() == Some(tab_id)
+        && status["rows"].as_u64() == Some(u64::from(rows))
+        && status["columns"].as_u64() == Some(u64::from(columns));
+    receipts.complete(
+        &ticket,
+        "pty-resize",
+        0,
+        verified,
+        json!({
+            "performed": true,
+            "verified": verified,
+            "after": { "rows": status["rows"], "columns": status["columns"] },
+            "lease_detached": detach["detached"],
+        }),
+    )?;
+    let payload = json!({
+        "name": name,
+        "server_epoch": epoch,
+        "tab_id": tab_id,
+        "rows": status["rows"],
+        "columns": status["columns"],
+        "performed": true,
+        "verified": verified,
+        "lease_detached": detach["detached"],
+        "identity": "job-name+server-scope+epoch+tab-id",
+        "receipt": ticket.json(),
+    });
+    if verified {
+        Ok(payload)
+    } else {
+        Err(CuError::new(
+            "pty_job_resize_unverified",
+            "PTY resize did not produce the exact requested grid and identity",
+        )
+        .with_detail(payload))
+    }
 }
 
 pub(super) fn pty_send_payload(

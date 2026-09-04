@@ -172,6 +172,17 @@ impl Executor {
                 limit,
                 ..
             } => pty_events_payload(name, epoch, *after, *limit),
+            Command::PtyResize {
+                name,
+                rows,
+                columns,
+                ..
+            } => pty_resize_payload(
+                name,
+                *rows,
+                *columns,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PtySend { name, text, .. } => {
                 pty_send_payload(name, text, &mut self.open_receipts(command.target())?)
             }

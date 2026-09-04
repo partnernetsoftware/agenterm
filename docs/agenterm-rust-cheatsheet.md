@@ -3633,6 +3633,17 @@ lower-level reply's epoch before publishing it, and reject a caller's stale
 epoch before event continuation. Never overwrite a mismatched epoch to make the
 JSON look consistent: a same-name server restart is a different authority.
 
+Lease-gated internal UI handshakes are protocol messages, not public product
+operations. A reusable client may expose a narrowly named protocol request for
+`ui-hello`, `ui-lease` and `ui-interact`, but ordinary observations and
+mutations must retain the control envelope. The outer product verb still owns
+the durable mutation receipt: reserve it before lease attachment, distinguish
+attachment from the actual action attempt, always attempt detach after an
+action request, and verify the effect independently through the same authority.
+For resize this means exact rows, columns, server epoch and tab id plus a detach
+reply from the same client PID and epoch. Never report `performed: true` when a
+hello or lease acquisition failed before the resize request.
+
 ## Make machine JSON and process status agree
 
 A CLI that always emits a typed JSON envelope still participates in shell and

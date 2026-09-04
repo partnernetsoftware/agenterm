@@ -502,6 +502,14 @@ pub enum Command {
         after: u64,
         limit: usize,
     },
+    /// Resize the sole terminal owned by an exact durable PTY job and verify
+    /// the resulting grid through the same authority.
+    PtyResize {
+        target: TargetRef,
+        name: String,
+        rows: u16,
+        columns: u16,
+    },
     /// Send exact UTF-8 bytes to one named headless PTY job.
     PtySend {
         target: TargetRef,
@@ -1833,6 +1841,7 @@ impl Command {
             Self::PtyRead { .. } => "pty-read".into(),
             Self::PtySnapshot { .. } => "pty-snapshot".into(),
             Self::PtyEvents { .. } => "pty-events".into(),
+            Self::PtyResize { .. } => "pty-resize".into(),
             Self::PtySend { .. } => "pty-send".into(),
             Self::PtyWait { .. } => "pty-wait".into(),
             Self::PtyWaitExit { .. } => "pty-wait-exit".into(),
@@ -1942,6 +1951,7 @@ impl Command {
             | Self::PtyRead { target, .. }
             | Self::PtySnapshot { target, .. }
             | Self::PtyEvents { target, .. }
+            | Self::PtyResize { target, .. }
             | Self::PtySend { target, .. }
             | Self::PtyWait { target, .. }
             | Self::PtyWaitExit { target, .. }
@@ -2031,6 +2041,7 @@ impl Command {
             | Self::ProcessKill { .. }
             | Self::PtyStart { .. }
             | Self::PtyPrune { .. }
+            | Self::PtyResize { .. }
             | Self::PtySend { .. }
             | Self::PtyStop { .. }
             | Self::TerminalSend { .. }
@@ -3278,6 +3289,14 @@ mod tests {
         assert_eq!(job_events.required_grant(), Grant::Observe);
         assert_eq!(job_events.verb(), "pty-events");
         assert_eq!(job_events.target(), TargetRef::Ssh);
+        let job_resize = Command::PtyResize {
+            target: TargetRef::Current,
+            name: "build".into(),
+            rows: 40,
+            columns: 120,
+        };
+        assert_eq!(job_resize.required_grant(), Grant::Actuate);
+        assert_eq!(job_resize.verb(), "pty-resize");
         let send = Command::TerminalSend {
             target: TargetRef::Current,
             tab: "@9".into(),

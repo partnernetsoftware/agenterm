@@ -111,6 +111,23 @@ pub fn parse(
                 limit,
             })
         }
+        "pty-resize" => {
+            let name = required_name(args, "pty-resize")?;
+            let rows = flag_parsed::<u16>(args, "--rows")?
+                .ok_or_else(|| "pty-resize requires --rows ROWS".to_owned())?;
+            let columns = flag_parsed::<u16>(args, "--columns")?
+                .ok_or_else(|| "pty-resize requires --columns COLUMNS".to_owned())?;
+            if rows == 0 || rows > 512 || columns == 0 || columns > 512 {
+                return Err("pty-resize rows and columns must be in 1..=512".into());
+            }
+            empty(args, "pty-resize")?;
+            Ok(Command::PtyResize {
+                target,
+                name,
+                rows,
+                columns,
+            })
+        }
         "pty-send" => {
             let name = required_name(args, "pty-send")?;
             if args.first().map(String::as_str) == Some("--") {
@@ -451,6 +468,14 @@ mod tests {
                 if name == "build" && epoch == "epoch-a"
         ));
         assert!(matches!(
+            parse(
+                "pty-resize",
+                &["build", "--rows", "40", "--columns", "120"]
+            )
+            .unwrap(),
+            Command::PtyResize { name, rows: 40, columns: 120, .. } if name == "build"
+        ));
+        assert!(matches!(
             parse("pty-send", &["build", "--", "hello\r"]).unwrap(),
             Command::PtySend { name, text, .. } if name == "build" && text == "hello\r"
         ));
@@ -484,6 +509,8 @@ mod tests {
             )
             .is_err()
         );
+        assert!(parse("pty-resize", &["build", "--rows", "40"]).is_err());
+        assert!(parse("pty-resize", &["build", "--rows", "0", "--columns", "80"]).is_err());
         assert!(parse("pty-prune", &["build"]).is_err());
         assert!(parse("pty-stop", &["build"]).is_err());
         assert!(matches!(

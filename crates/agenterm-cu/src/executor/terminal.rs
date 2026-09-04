@@ -43,6 +43,29 @@ pub(super) fn request(
     }
 }
 
+pub(super) fn request_protocol(
+    client: &ControlClient,
+    args: Vec<String>,
+    timeout: Duration,
+) -> Result<ControlResponse, CuError> {
+    let response = client
+        .request_protocol(args, timeout)
+        .map_err(|error| CuError::new(error.code, error.message))?;
+    if response.ok {
+        Ok(response)
+    } else {
+        let code = if response.error_code.is_empty() {
+            "terminal_protocol_failed"
+        } else {
+            response.error_code.as_str()
+        };
+        Err(CuError::new(code, response.error).with_detail(json!({
+            "category": response.error_category,
+            "retryable": response.retryable,
+        })))
+    }
+}
+
 pub(super) fn parse_output(
     response: ControlResponse,
     code: &'static str,
