@@ -66,8 +66,12 @@ fn validate_tab(tab: &str) -> Result<(), CuError> {
 
 pub(super) fn terminal_list_payload() -> Result<Value, CuError> {
     let client = client()?;
+    terminal_inventory_with_client(&client)
+}
+
+fn terminal_inventory_with_client(client: &ControlClient) -> Result<Value, CuError> {
     let response = request(
-        &client,
+        client,
         vec!["ui-bootstrap".to_owned()],
         "ui.bootstrap",
         Intent::Query,
@@ -103,6 +107,247 @@ pub(super) fn terminal_list_payload() -> Result<Value, CuError> {
         "tabs": tabs,
         "identity": "server-scope+epoch+tab-id",
     }))
+}
+
+pub(super) fn terminal_new_payload(
+    title: Option<&str>,
+    parent: Option<&str>,
+    detached: bool,
+    child_command: &[String],
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if title.is_some_and(|value| value.len() > 4_096) {
+        return Err(CuError::new(
+            "terminal_new_title_too_large",
+            "terminal-new title exceeds 4096 bytes",
+        ));
+    }
+    if let Some(parent) = parent {
+        validate_tab(parent)?;
+    }
+    if child_command.len() > 256
+        || child_command.iter().map(String::len).sum::<usize>() > CAPTURE_MAX_BYTES
+    {
+        return Err(CuError::new(
+            "terminal_new_command_too_large",
+            "terminal-new command exceeds 256 arguments or 1048576 bytes",
+        ));
+    }
+
+    let client = client()?;
+    let before = terminal_inventory_with_client(&client)?;
+    if let Some(parent) = parent
+        && !inventory_contains(&before, parent)
+    {
+        return Err(CuError::new(
+            "terminal_parent_not_found",
+            "terminal-new parent is not present in the current server epoch",
+        )
+        .with_detail(json!({ "parent_id": parent })));
+    }
+    let ticket = receipts.reserve(
+        "terminal-new",
+        0,
+        json!({
+            "parent_id": parent,
+            "title_bytes": title.map(str::len).unwrap_or(0),
+            "detached": detached,
+            "command_arguments": child_command.len(),
+            "command_bytes": child_command.iter().map(String::len).sum::<usize>(),
+            "server_scope_id": before["server_scope_id"],
+            "server_epoch": before["server_epoch"],
+        }),
+    )?;
+    let mut args = vec![
+        "new-window".to_owned(),
+        "-F".to_owned(),
+        "#{window_id}".to_owned(),
+    ];
+    if let Some(title) = title {
+        args.extend(["-n".to_owned(), title.to_owned()]);
+    }
+    if detached {
+        args.push("-d".to_owned());
+    }
+    if let Some(parent) = parent {
+        args.extend(["--parent".to_owned(), parent.to_owned()]);
+    }
+    if !child_command.is_empty() {
+        args.push("--".to_owned());
+        args.extend(child_command.iter().cloned());
+    }
+    let response = request(
+        &client,
+        args,
+        "command.new.window",
+        Intent::Mutation,
+        Duration::from_secs(10),
+    );
+    match response {
+        Ok(response) => {
+            let tab = response.output.trim().to_owned();
+            let post = match terminal_inventory_with_client(&client) {
+                Ok(post) => post,
+                Err(error) => {
+                    let evidence = json!({
+                        "tab_id": tab,
+                        "performed": true,
+                        "verified": false,
+                        "postcheck_error": { "code": error.code, "message": error.message },
+                        "receipt": ticket.json(),
+                    });
+                    receipts.complete(&ticket, "terminal-new", 0, false, evidence.clone())?;
+                    return Err(CuError::new(
+                        "terminal_new_unverified",
+                        "AgenTerm accepted terminal creation but its post-state was unreadable",
+                    )
+                    .with_detail(evidence));
+                }
+            };
+            let same_scope = post["server_scope_id"] == before["server_scope_id"];
+            let same_epoch = post["server_epoch"] == before["server_epoch"];
+            let parent_verified = parent.is_none_or(|expected| {
+                inventory_tab(&post, &tab).and_then(|row| row["parent_id"].as_str())
+                    == Some(expected)
+            });
+            let verified = validate_tab(&tab).is_ok()
+                && same_scope
+                && same_epoch
+                && inventory_contains(&post, &tab)
+                && parent_verified;
+            let evidence = json!({
+                "tab_id": tab,
+                "parent_id": parent,
+                "performed": true,
+                "verified": verified,
+                "verification": "same-scope-epoch-inventory",
+                "server_scope_id": post["server_scope_id"],
+                "server_epoch": post["server_epoch"],
+                "receipt": ticket.json(),
+            });
+            receipts.complete(&ticket, "terminal-new", 0, verified, evidence.clone())?;
+            if verified {
+                Ok(evidence)
+            } else {
+                Err(CuError::new(
+                    "terminal_new_unverified",
+                    "AgenTerm accepted terminal creation but the new stable tab was not verified",
+                )
+                .with_detail(evidence))
+            }
+        }
+        Err(error) => {
+            receipts.complete(
+                &ticket,
+                "terminal-new",
+                0,
+                false,
+                json!({ "performed": false, "error": { "code": error.code, "message": error.message } }),
+            )?;
+            Err(error.with_detail(json!({ "receipt": ticket.json() })))
+        }
+    }
+}
+
+pub(super) fn terminal_close_payload(
+    tab: &str,
+    expect_closed: bool,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if !expect_closed {
+        return Err(CuError::new(
+            "terminal_close_intent_required",
+            "terminal-close requires explicit --expect closed",
+        ));
+    }
+    let client = client()?;
+    let before = terminal_inventory_with_client(&client)?;
+    if !inventory_contains(&before, tab) {
+        return Err(CuError::new(
+            "terminal_tab_not_found",
+            "terminal-close target is not present in the current server epoch",
+        )
+        .with_detail(json!({ "tab_id": tab })));
+    }
+    let ticket = receipts.reserve(
+        "terminal-close",
+        0,
+        json!({
+            "tab_id": tab,
+            "expected": "closed",
+            "server_scope_id": before["server_scope_id"],
+            "server_epoch": before["server_epoch"],
+        }),
+    )?;
+    let result = request(
+        &client,
+        vec!["kill-window".to_owned(), "-t".to_owned(), tab.to_owned()],
+        "command.kill.window",
+        Intent::Mutation,
+        Duration::from_secs(10),
+    );
+    let post = terminal_inventory_with_client(&client);
+    let post_verified = post.as_ref().is_ok_and(|snapshot| {
+        snapshot["server_scope_id"] == before["server_scope_id"]
+            && snapshot["server_epoch"] == before["server_epoch"]
+            && !inventory_contains(snapshot, tab)
+    });
+    match result {
+        Ok(response) if post_verified => {
+            let post = post.expect("checked above");
+            let evidence = json!({
+                "tab_id": tab,
+                "performed": true,
+                "verified": true,
+                "verification": "same-scope-epoch-inventory-absence",
+                "server_scope_id": post["server_scope_id"],
+                "server_epoch": post["server_epoch"],
+                "control_receipt": response.receipt,
+                "receipt": ticket.json(),
+            });
+            receipts.complete(&ticket, "terminal-close", 0, true, evidence.clone())?;
+            Ok(evidence)
+        }
+        Ok(response) => {
+            let evidence = json!({
+                "tab_id": tab,
+                "performed": true,
+                "verified": false,
+                "control_receipt": response.receipt,
+                "postcheck_error": post.err().map(|error| json!({ "code": error.code, "message": error.message })),
+                "receipt": ticket.json(),
+            });
+            receipts.complete(&ticket, "terminal-close", 0, false, evidence.clone())?;
+            Err(CuError::new(
+                "terminal_close_unverified",
+                "AgenTerm accepted terminal close but exact tab disappearance was not verified",
+            )
+            .with_detail(evidence))
+        }
+        Err(error) => {
+            let evidence = json!({
+                "tab_id": tab,
+                "performed": post_verified,
+                "verified": false,
+                "error": { "code": error.code, "message": error.message },
+                "receipt": ticket.json(),
+            });
+            receipts.complete(&ticket, "terminal-close", 0, false, evidence.clone())?;
+            Err(error.with_detail(evidence))
+        }
+    }
+}
+
+fn inventory_tab<'a>(inventory: &'a Value, tab: &str) -> Option<&'a Value> {
+    inventory["tabs"]
+        .as_array()?
+        .iter()
+        .find(|row| row["id"].as_str() == Some(tab))
+}
+
+fn inventory_contains(inventory: &Value, tab: &str) -> bool {
+    inventory_tab(inventory, tab).is_some()
 }
 
 pub(super) fn terminal_read_payload(tab: &str, max_bytes: usize) -> Result<Value, CuError> {

@@ -123,7 +123,16 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "shell-pty-job",
-        verbs: &["pty", "job"],
+        verbs: &[
+            "pty",
+            "job",
+            "terminal-list",
+            "terminal-new",
+            "terminal-close",
+            "terminal-read",
+            "terminal-send",
+            "terminal-wait",
+        ],
     },
     Group {
         id: "process",

@@ -21,9 +21,12 @@ MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`qui
 三平台 `.qjs` 旅程已接线；Linux/Windows integrated rerun 仍待完成。
 
 **同日 terminal 第一刀已活**：AgenTerm 自有会话新增
-`terminal-list/read/send/wait`；轻量 control client 直连产品协议，身份钉在
+`terminal-new/close/list/read/send/wait`；轻量 control client 直连产品协议，身份钉在
 scope + epoch + `@tab`。读明确是 bounded screen snapshot，不冒充增量 cursor；
-写由 ACU 与 server 两层 receipt 验证。macOS 注册旅程已全绿；Linux 新 STEP
+写与生命周期由 ACU receipt + 同 epoch inventory 验证；关闭必须显式
+`--expect closed`，创建只把 title/argv 长度写入收据。macOS 本机黑盒已证明
+parent 关系、detached 子进程输出、精确关闭和最后 tab 后空 server 存活；注册旅程
+已接入同一断言，待正式复跑。此前 macOS 旅程已全绿；Linux 新 STEP
 全过，但同套件后续旧 observe 段红而没有签出整套 evidence；Windows court
 在投送产品前被 interactive nonce 阻断。任意 headless PTY/job、进程树管理与
 loss-aware 增量输出 cursor 仍是下一层 gap。
@@ -110,9 +113,12 @@ machine-control
 ├── 窗口栈序/遮挡
 │   MCU [✓] zIndex + occlusion
 │   cu  [✓] 三平台各用原生栈序，`occluded_percent` 由矩形精确相减（契约层 6 条单测）
-├── shell / PTY / job / process / device / privilege / Simulator
+├── AgenTerm tab lifecycle
+│   MCU [✓] pty start|split|kill-pane|stop
+│   cu  [✓] terminal-new / terminal-close：scope+epoch+@N 身份、parent 读回、显式 --expect closed、双相 receipt；不伪装 tmux session
+├── shell / background PTY / job / process / device / privilege / Simulator
 │   MCU [✓/~] 实验室正殿外
-│   cu  [~] process state/usage/wait/watch + exact-object kill 已进统一 facade；其余同名动词 typed unsupported（capabilities 可查）；这是迁移缺口，
+│   cu  [~] process state/usage/wait/watch + exact-object kill 已进统一 facade；AgenTerm 自有 tab 的 new/close/read/send/wait 已原生；任意后台 PTY/job 等其余同名动词仍 typed unsupported（capabilities 可查），
 │        后续由 ACU typed facade 调 owning mechanism，不在 CU crate 复制内核
 └── 远程目标
     MCU [ ] 本机为主

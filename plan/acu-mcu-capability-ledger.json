@@ -465,10 +465,11 @@
         {
           "id": "terminal.agenterm.spawn-close",
           "mcu_shape": "pty start|split|kill-pane|stop for an owned terminal hierarchy",
-          "acu_shape": "future typed ACU facade over agenterm cli new-session|new-window|kill-window|kill-session",
-          "state": "gap",
-          "next": "bind stable session/tab ids, explicit close intent, bounded shutdown and remain-on-exit semantics",
-          "note": "AgenTerm has tabs rather than tmux panes; the facade must preserve product tree and last-tab invariants instead of pretending tmux parity."
+          "acu_shape": "terminal-new over new-window plus terminal-close over kill-window; same-scope epoch inventory verifies exact @tab creation, parent binding and disappearance",
+          "state": "native",
+          "qualification": "macos-local-black-box-green-public-journey-updated-pending-rerun",
+          "next": "run the registered lifecycle step on Linux and Windows courts; keep arbitrary background PTY/job lifecycle as a separate gap",
+          "note": "Both mutations reserve crash-persistent receipts before touching the product control plane. The receipt stores only command/title byte counts, not values. AgenTerm remains the sole tree/shutdown owner, so child promotion, remain-on-exit and the last-tab empty-window invariant are preserved instead of pretending tmux session parity."
         },
         {
           "id": "terminal.agenterm.read-send-wait",

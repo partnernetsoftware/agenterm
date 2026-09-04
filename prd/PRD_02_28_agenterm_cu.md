@@ -405,7 +405,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   started. Zero evidence is attributed to the product, and the VM was stopped.
 - [~] The MCU PTY/job/terminal surface is exhaustively classified in
   `plan/acu-mcu-capability-ledger.json`. The first AgenTerm-owned terminal
-  facade is now live as `terminal-list/read/send/wait`: the small
+  facade is now live as `terminal-new/close/list/read/send/wait`: the small
   `agenterm-control-client` crate speaks the same bounded socket/pipe protocol
   directly, preserves typed server errors and control receipts, and never
   parses human-formatted CLI output or starts a second CLI process. Stable
@@ -430,6 +430,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   not be simulated by a visible tab, by single-process metrics, or by silently
   forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
 
+  `terminal-new` and `terminal-close` now close the owned-tab lifecycle gap
+  without creating another PTY authority. Both reserve a crash-persistent
+  receipt first, bind identity to the current server scope and epoch, and read
+  the structured inventory back: creation must expose the returned `@N` (and
+  the requested parent), while close requires `--expect closed` and proves the
+  exact `@N` disappeared. Receipt metadata retains only title/argv byte counts,
+  not their values. A local macOS black-box run proved detached child output,
+  parent identity, exact close and that closing the final tab leaves the server
+  alive with an empty inventory. The registered qjswasm journey now owns the
+  same assertions; its next three-host court run remains required before this
+  leaf can claim release qualification. Arbitrary background PTY/job ownership
+  is deliberately still a different gap.
+
   The same macOS journey's opt-in qjswasm attribution receipt reported
   135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
   7,217,696-byte heap waterline. `JSON.parse` / `JSON.stringify` account for
@@ -443,10 +456,12 @@ flowchart LR
   F --> C["agenterm-control-client<br/>bounded pipe/socket + receipt"]
   C --> K["AgenTerm session/tab kernel<br/>single state owner"]
   K --> I["scope + epoch + @tab identity"]
+  K --> L["terminal-new / terminal-close<br/>receipt → effect → inventory proof"]
   K --> S["bounded screen snapshot"]
   K --> W["literal input + deterministic wait"]
   S -. "no byte cursor yet" .-> G["retained offset + gap semantics<br/>future leaf"]
   W --> Q{"macOS + Linux + Windows<br/>public journey"}
+  L --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
   Q -->|Windows transport blocked| W1["repair court; zero product claim"]

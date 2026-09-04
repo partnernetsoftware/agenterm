@@ -2712,7 +2712,7 @@ try {
   }
   ensure(launched_gone !== 0, "cu_macos_smoke_app_launch_orphan:" + launched_pid);
 
-  print("STEP terminal-list/read/send/wait bind scope+epoch+@tab, literal input reaches the owned PTY, finalized preserves the dead tab, and late input fails typed");
+  print("STEP terminal-new/list/read/send/wait/close bind scope+epoch+@tab, verify lifecycle, preserve finalized output, and keep the empty server alive");
   const terminal_spec = harness.configured_spec_with_env(
     context,
     product_executable,
@@ -2734,19 +2734,22 @@ try {
   const terminal_name = "cu-terminal-" + context.run_id;
   const terminal_token = "ACU_TERMINAL_" + context.run_id;
   const terminal_command = "IFS= read -r line; printf 'ACU_REPLY:%s\\n' \"$line\"";
-  const created = run_terminal_cli(
+  const created = run_cu_json(
     run_directory,
-    product_executable,
+    executable,
     [
-      "new-window", "-d", "-n", terminal_name, "-F", "#{window_id}", "--",
+      "--target", "current", "--grant", "observe,actuate", "terminal-new",
+      "--title", terminal_name, "--detached", "--",
       "/bin/sh", "-c", terminal_command
     ]
   );
   ensure(
-    created.success === true && created.stdout.trim().startsWith("@"),
-    "cu_macos_smoke_terminal_create:" + created.stdout + created.stderr
+    flag_at(created, "data.performed")
+      && flag_at(created, "data.verified")
+      && text_at(created, "data.verification") === "same-scope-epoch-inventory",
+    "cu_macos_smoke_terminal_create:" + JSON.stringify(created)
   );
-  terminal_tab = created.stdout.trim();
+  terminal_tab = text_at(created, "data.tab_id");
 
   const terminal_inventory = run_cu_json(
     run_directory,
@@ -2848,13 +2851,33 @@ try {
       && text_at(late_send, "error.code") === "terminal_not_writable",
     "cu_macos_smoke_terminal_late_send:" + JSON.stringify(late_send)
   );
-  const close_terminal = run_terminal_cli(
+  const close_terminal = run_cu_json(
     run_directory,
-    product_executable,
-    ["kill-window", "-t", terminal_tab]
+    executable,
+    [
+      "--target", "current", "--grant", "observe,actuate", "terminal-close",
+      "--tab", terminal_tab, "--expect", "closed"
+    ]
   );
-  ensure(close_terminal.success === true, "cu_macos_smoke_terminal_close:" + close_terminal.stderr);
+  ensure(
+    flag_at(close_terminal, "data.performed")
+      && flag_at(close_terminal, "data.verified")
+      && text_at(close_terminal, "data.verification") === "same-scope-epoch-inventory-absence",
+    "cu_macos_smoke_terminal_close:" + JSON.stringify(close_terminal)
+  );
   terminal_tab = "";
+  const empty_inventory = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "terminal-list"]
+  );
+  ensure(
+    Array.isArray(empty_inventory.data.tabs)
+      && empty_inventory.data.tabs.length === 0
+      && empty_inventory.data.active_tab_id === null
+      && text_at(empty_inventory, "data.server_epoch") === text_at(terminal_inventory, "data.server_epoch"),
+    "cu_macos_smoke_terminal_last_tab_keeps_server:" + JSON.stringify(empty_inventory.data)
+  );
   const stop_terminal = run_terminal_cli(run_directory, product_executable, ["shutdown"]);
   ensure(stop_terminal.success === true, "cu_macos_smoke_terminal_shutdown:" + stop_terminal.stderr);
   let terminal_stopped = false;

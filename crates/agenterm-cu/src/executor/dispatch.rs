@@ -139,6 +139,26 @@ impl Executor {
             } => network_probe::payload(host, *port, *attempts, *timeout_ms),
             Command::FileInspect { path, .. } => file_inspect_payload(path),
             Command::TerminalList { .. } => terminal_list_payload(),
+            Command::TerminalNew {
+                title,
+                parent,
+                detached,
+                command: child_command,
+                ..
+            } => terminal_new_payload(
+                title.as_deref(),
+                parent.as_deref(),
+                *detached,
+                child_command,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::TerminalClose {
+                tab, expect_closed, ..
+            } => terminal_close_payload(
+                tab,
+                *expect_closed,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::TerminalRead { tab, max_bytes, .. } => terminal_read_payload(tab, *max_bytes),
             Command::TerminalSend { tab, text, .. } => {
                 terminal_send_payload(tab, text, &mut self.open_receipts(command.target())?)

@@ -26,6 +26,49 @@ pub fn parse(
             empty(args, "terminal-list")?;
             Ok(Command::TerminalList { target })
         }
+        "terminal-new" => {
+            let command = if let Some(separator) = args.iter().position(|arg| arg == "--") {
+                let command = args.drain(separator + 1..).collect::<Vec<_>>();
+                args.pop();
+                command
+            } else {
+                Vec::new()
+            };
+            let title = flag_text(args, "--title")?;
+            if title.as_ref().is_some_and(|value| value.len() > 4_096) {
+                return Err("terminal-new --title exceeds 4096 bytes".into());
+            }
+            let parent = flag_text(args, "--parent")?;
+            if let Some(parent) = parent.as_deref() {
+                validate_tab(parent, "terminal-new --parent")?;
+            }
+            let detached = take_switch(args, "--detached");
+            if command.len() > 256 || command.iter().map(String::len).sum::<usize>() > 1_048_576 {
+                return Err("terminal-new command exceeds 256 arguments or 1048576 bytes".into());
+            }
+            empty(args, "terminal-new")?;
+            Ok(Command::TerminalNew {
+                target,
+                title,
+                parent,
+                detached,
+                command,
+            })
+        }
+        "terminal-close" => {
+            let tab = required_tab(args)?;
+            let expect = flag_text(args, "--expect")?
+                .ok_or_else(|| "terminal-close requires --expect closed".to_owned())?;
+            if expect != "closed" {
+                return Err("terminal-close --expect must be closed".into());
+            }
+            empty(args, "terminal-close")?;
+            Ok(Command::TerminalClose {
+                target,
+                tab,
+                expect_closed: true,
+            })
+        }
         "terminal-read" => {
             let tab = required_tab(args)?;
             let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?.unwrap_or(262_144);
@@ -95,12 +138,17 @@ pub fn parse(
 fn required_tab(args: &mut Vec<String>) -> Result<String, String> {
     let tab =
         flag_text(args, "--tab")?.ok_or_else(|| "terminal command requires --tab @N".to_owned())?;
+    validate_tab(&tab, "terminal --tab")?;
+    Ok(tab)
+}
+
+fn validate_tab(tab: &str, label: &str) -> Result<(), String> {
     let valid = tab
         .strip_prefix('@')
         .is_some_and(|value| !value.is_empty() && value.parse::<u64>().is_ok());
     valid
-        .then_some(tab)
-        .ok_or_else(|| "terminal --tab must be a stable @N id".to_owned())
+        .then_some(())
+        .ok_or_else(|| format!("{label} must be a stable @N id"))
 }
 
 fn empty(args: &[String], verb: &str) -> Result<(), String> {
@@ -132,6 +180,21 @@ mod tests {
             parse("terminal-list", &[]).unwrap(),
             Command::TerminalList { .. }
         ));
+        assert!(matches!(
+            parse(
+                "terminal-new",
+                &["--title", "build", "--parent", "@7", "--detached", "--", "sh", "-lc", "printf ok"]
+            )
+            .unwrap(),
+            Command::TerminalNew { title: Some(title), parent: Some(parent), detached: true, command, .. }
+                if title == "build" && parent == "@7" && command == ["sh", "-lc", "printf ok"]
+        ));
+        assert!(parse("terminal-new", &["--parent", "7"]).is_err());
+        assert!(matches!(
+            parse("terminal-close", &["--tab", "@7", "--expect", "closed"]).unwrap(),
+            Command::TerminalClose { tab, expect_closed: true, .. } if tab == "@7"
+        ));
+        assert!(parse("terminal-close", &["--tab", "@7"]).is_err());
         assert!(matches!(
             parse("terminal-read", &["--tab", "@7", "--max-bytes", "12"]).unwrap(),
             Command::TerminalRead { tab, max_bytes: 12, .. } if tab == "@7"

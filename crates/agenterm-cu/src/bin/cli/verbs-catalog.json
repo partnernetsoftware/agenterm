@@ -510,6 +510,62 @@
       "args": []
     },
     {
+      "name": "terminal-new",
+      "command": "terminal-new",
+      "aliases": [
+        "terminal new"
+      ],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "create one AgenTerm-owned tab and verify its stable id",
+      "usage": "terminal-new [--title TEXT] [--parent @N] [--detached] [-- PROGRAM ARG...]\nterminal new [options]",
+      "args": [
+        {
+          "flag": "--title",
+          "value": "TEXT",
+          "help": "optional tab title, at most 4096 UTF-8 bytes"
+        },
+        {
+          "flag": "--parent",
+          "value": "@N",
+          "help": "optional stable parent tab id from terminal-list"
+        },
+        {
+          "flag": "--detached",
+          "value": "",
+          "help": "create without making the new tab active"
+        },
+        {
+          "flag": "--",
+          "value": "PROGRAM ARG...",
+          "help": "optional exact child command; otherwise use the product default shell"
+        }
+      ]
+    },
+    {
+      "name": "terminal-close",
+      "command": "terminal-close",
+      "aliases": [
+        "terminal close"
+      ],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "close one exact AgenTerm tab with disappearance verification",
+      "usage": "terminal-close --tab @N --expect closed\nterminal close --tab @N --expect closed",
+      "args": [
+        {
+          "flag": "--tab",
+          "value": "@N",
+          "help": "stable tab id from terminal-list"
+        },
+        {
+          "flag": "--expect",
+          "value": "closed",
+          "help": "required destructive postcondition"
+        }
+      ]
+    },
+    {
       "name": "terminal-read",
       "command": "terminal-read",
       "aliases": [
@@ -3323,6 +3379,14 @@
     {
       "name": "terminal-list",
       "text": "agenterm-cu terminal-list    (also: terminal list)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-list\n  terminal list\n\nReturns the product control plane's structured ui-bootstrap\ninventory. A reliable identity is server_scope_id + server_epoch + tab @N;\nindex and title are mutable human labels, not authority.\n"
+    },
+    {
+      "name": "terminal-new",
+      "text": "agenterm-cu terminal-new    (also: terminal new)\n  scope: actuate    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  terminal-new [--title TEXT] [--parent @N] [--detached] [-- PROGRAM ARG...]\n  terminal new [options]\n\narguments:\n  --title TEXT                  optional title, at most 4096 UTF-8 bytes\n  --parent @N                   optional stable parent id from terminal-list\n  --detached                    do not select the new tab\n  -- PROGRAM ARG...             exact child command, at most 256 args / 1048576 bytes\n\nReserves a crash-persistent receipt, calls AgenTerm's existing new-window\ncontrol operation, then proves the returned @N exists in the same server scope\nand epoch. Parent identity is read back when supplied. Command values and title\ntext are not copied into the receipt; only bounded byte counts are retained.\n"
+    },
+    {
+      "name": "terminal-close",
+      "text": "agenterm-cu terminal-close    (also: terminal close)\n  scope: actuate    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  terminal-close --tab @N --expect closed\n  terminal close --tab @N --expect closed\n\narguments:\n  --tab @N                      exact stable tab id from terminal-list\n  --expect closed               required destructive postcondition\n\nReserves a crash-persistent receipt, invokes the product's bounded kill-window\noperation, then proves that exact @N is absent in the same server epoch. AgenTerm\nowns child shutdown, parent promotion and last-tab behavior; ACU does not fake\ntmux session semantics or terminate the application window itself.\n"
     },
     {
       "name": "terminal-read",

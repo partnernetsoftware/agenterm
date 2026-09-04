@@ -79,6 +79,8 @@ flowchart LR
   P --> Q
   SET --> PS["permissions status facade live<br/>same declaration as capabilities"]
   PS --> Q
+  PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
+  TL --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
   S --> D{"all replacement gates?"}
@@ -222,8 +224,10 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   declare the evidence, with integrated Linux/Windows reruns still open.
 - The PTY/job/terminal family is now fully classified by public shape. The
   existing AgenTerm session/tab kernel is the owner for product-terminal
-  inventory, capture, input and deterministic waits, but those commands are
-  not counted as ACU-reachable until a typed facade and public journey exist.
+  create/close, inventory, capture, input and deterministic waits. The typed
+  ACU facade now reaches all six through one scope+epoch+`@tab` identity and
+  verifies lifecycle effects by inventory read-back; the registered qjswasm
+  journey owns the public assertion and awaits the next three-host run.
   Arbitrary background PTYs and lease-owned process groups remain separate
   gaps: a visible AgenTerm tab is not silently treated as a native/tmux PTY,
   and single-process metrics are not presented as job-group coverage.
@@ -321,8 +325,9 @@ Q2 fast delegated facades
    └─ [ ] rich filters, process detail, exec and identity-bound signal/mutation
 Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
-│  ├─ [x] typed ACU terminal-list/read/send/wait facade over stable scope+epoch+tab identity
-│  ├─ [ ] terminal create/close + snapshot/event/cursor facade
+│  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
+│  ├─ [~] terminal lifecycle: local macOS black-box green; registered three-host journey pending
+│  ├─ [ ] terminal snapshot/event/cursor facade
 │  ├─ [ ] portable owned headless PTY (POSIX PTY + Windows ConPTY)
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege

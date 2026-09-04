@@ -1388,6 +1388,16 @@ mutable index or title. A vt100 screen capture is not an incremental output
 cursor: label it as a bounded screen snapshot until the runtime exposes
 retained byte offsets, earliest-retained offset and typed gap semantics.
 
+Product-owned lifecycle mutation must be verified inside that same control
+identity. Reserve the receipt before the request, retain only bounded metadata
+rather than user command/title values, then read back the same server scope and
+epoch: creation proves the returned stable id exists (plus requested parent),
+and close proves that exact id is absent. A transport error after dispatch may
+coexist with an effect, so record `performed` from observable post-state and do
+not turn an unverified shutdown into success. Let the product kernel own child
+promotion, remain-on-exit and last-tab behavior; a facade must not recreate
+those rules as fake tmux semantics.
+
 ## Headless CI is not a desktop-service fixture
 
 Linux adapter unit tests must not require the current host to run AT-SPI,

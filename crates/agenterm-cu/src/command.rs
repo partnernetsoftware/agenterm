@@ -458,6 +458,24 @@ pub enum Command {
     TerminalList {
         target: TargetRef,
     },
+    /// Create one AgenTerm-owned tab and return its stable epoch-scoped id.
+    TerminalNew {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        detached: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        command: Vec<String>,
+    },
+    /// Close one exact AgenTerm-owned tab after explicit close intent.
+    TerminalClose {
+        target: TargetRef,
+        tab: String,
+        expect_closed: bool,
+    },
     /// Read one bounded current-screen snapshot. This is deliberately not an
     /// incremental byte-stream cursor.
     TerminalRead {
@@ -1708,6 +1726,8 @@ impl Command {
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::TerminalList { .. } => "terminal-list".into(),
+            Self::TerminalNew { .. } => "terminal-new".into(),
+            Self::TerminalClose { .. } => "terminal-close".into(),
             Self::TerminalRead { .. } => "terminal-read".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
             Self::TerminalWait { .. } => "terminal-wait".into(),
@@ -1801,6 +1821,8 @@ impl Command {
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::TerminalList { target, .. }
+            | Self::TerminalNew { target, .. }
+            | Self::TerminalClose { target, .. }
             | Self::TerminalRead { target, .. }
             | Self::TerminalSend { target, .. }
             | Self::TerminalWait { target, .. }
@@ -1879,6 +1901,8 @@ impl Command {
             Self::PointerMove { .. }
             | Self::ProcessKill { .. }
             | Self::TerminalSend { .. }
+            | Self::TerminalNew { .. }
+            | Self::TerminalClose { .. }
             | Self::Invoke { .. }
             | Self::MenuInvoke { .. }
             | Self::Click { .. }
@@ -3040,6 +3064,29 @@ mod tests {
 
     #[test]
     fn terminal_facade_keeps_stable_ids_limits_and_grants_on_the_wire() {
+        let new = Command::TerminalNew {
+            target: TargetRef::Current,
+            title: Some("build".into()),
+            parent: Some("@3".into()),
+            detached: true,
+            command: vec!["sh".into(), "-lc".into(), "printf ok".into()],
+        };
+        assert_eq!(new.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&new).unwrap(),
+            serde_json::json!({
+                "verb": "terminal-new", "target": "current", "title": "build",
+                "parent": "@3", "detached": true,
+                "command": ["sh", "-lc", "printf ok"]
+            })
+        );
+        let close = Command::TerminalClose {
+            target: TargetRef::Vnc,
+            tab: "@9".into(),
+            expect_closed: true,
+        };
+        assert_eq!(close.required_grant(), Grant::Actuate);
+        assert_eq!(close.verb(), "terminal-close");
         let read = Command::TerminalRead {
             target: TargetRef::Ssh,
             tab: "@9".into(),

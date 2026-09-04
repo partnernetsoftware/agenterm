@@ -50,16 +50,23 @@ desktop accessibility for terminal state:
 
 ```bash
 cu terminal-list
+cu --grant actuate terminal-new --title build --parent @1 --detached -- sh -lc 'make test'
 cu terminal-read --tab @2 --max-bytes 262144
 cu --grant actuate terminal-send --tab @2 -- 'printf "ready\n"\r'
 cu terminal-wait --tab @2 --contains ready --timeout-ms 5000
 cu terminal-wait --tab @2 --finalized --timeout-ms 5000
+cu --grant actuate terminal-close --tab @2 --expect closed
 ```
 
 Tab authority is `(server_scope_id, server_epoch, @tab_id)`, never a mutable
 index or title. `terminal-read` is explicitly a bounded current-screen
 snapshot; it is not an incremental byte cursor. Text for `terminal-send` is
-one argument so quoting preserves its exact UTF-8 bytes.
+one argument so quoting preserves its exact UTF-8 bytes. Creation verifies the
+returned stable id and optional parent in the same server epoch; close requires
+an explicit postcondition and verifies exact disappearance. Their persistent
+receipts retain command/title byte counts, never those user-controlled values.
+AgenTerm itself remains responsible for parent promotion, remain-on-exit and
+keeping an empty application alive after the final tab closes.
 
 ## 1. Find the window
 

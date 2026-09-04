@@ -495,6 +495,12 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         );
         for (verb, grant, mode) in [
             ("terminal-list", "observe", "structured-ui-bootstrap"),
+            ("terminal-new", "actuate", "verified-owned-tab-create"),
+            (
+                "terminal-close",
+                "actuate",
+                "verified-owned-tab-disappearance",
+            ),
             ("terminal-read", "observe", "bounded-screen-snapshot"),
             ("terminal-send", "actuate", "literal-owned-pty-input"),
             (
