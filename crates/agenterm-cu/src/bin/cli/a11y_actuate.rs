@@ -1,5 +1,6 @@
 //! Accessibility actuation: invoke / menu invoke / click / focus, the text
-//! and key writers, the AT-SPI setters, and `pointer-move`.
+//! and key writers, the AT-SPI setters, and the pointer verbs
+//! `pointer-move` and `drag`.
 
 use agenterm_cu::{Command, PointerButton, TargetRef, command::InvokeAction};
 
@@ -22,6 +23,7 @@ pub fn parse(
         "invoke" => invoke(target, args),
         "menu-invoke" => menu::parse(target, args),
         "click" => click(spelled, target, args),
+        "drag" => drag(target, args),
         "focus" => {
             let window = flag_window_opt(args);
             let node = flag_value(args, "--node");
@@ -217,6 +219,70 @@ fn invoke(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> 
 
 /// `click`, with the MCU presets `dclick` (two clicks) and `rclick` (right
 /// button) keyed on the spelling.
+/// `X,Y`, consumed with its flag so a closed shape stays closed.
+fn parse_point(flag: &str, raw: &str) -> Result<[i32; 2], String> {
+    let parts: Vec<&str> = raw.split(',').map(str::trim).collect();
+    if parts.len() != 2 {
+        return Err(format!(
+            "{flag} must be X,Y (two comma-separated integers), got {raw:?}"
+        ));
+    }
+    let mut point = [0i32; 2];
+    for (slot, part) in point.iter_mut().zip(parts) {
+        *slot = part
+            .parse()
+            .map_err(|_| format!("{flag} field {part:?} is not an integer"))?;
+    }
+    Ok(point)
+}
+
+/// Closed shape: `--window H --from X,Y --to X,Y` plus the optional
+/// button, step count and the degraded opt-in. Everything that can be
+/// judged without a desktop is judged here.
+fn drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let Some(window) = flag_window(args)? else {
+        return Err("drag requires --window <handle>".into());
+    };
+    // `flag_text` (not the lenient `flag_value` the older verbs use)
+    // consumes the value with its flag, so a stray positional is a usage
+    // error here instead of a silently ignored argument.
+    let Some(from) = flag_text(args, "--from")? else {
+        return Err("drag requires --from X,Y (screen coordinates inside the window)".into());
+    };
+    let from = parse_point("--from", &from)?;
+    let Some(to) = flag_text(args, "--to")? else {
+        return Err("drag requires --to X,Y (screen coordinates)".into());
+    };
+    let to = parse_point("--to", &to)?;
+    let button = match flag_text(args, "--button")?.as_deref() {
+        Some("left") | None => PointerButton::Left,
+        Some("right") => PointerButton::Right,
+        Some("middle") => PointerButton::Middle,
+        Some(other) => {
+            return Err(format!(
+                "drag --button must be left, right or middle, got {other:?}"
+            ));
+        }
+    };
+    let steps = flag_parsed::<u32>(args, "--steps")?;
+    let degraded = take_switch(args, "--degraded");
+    if !args.is_empty() {
+        return Err(format!(
+            "drag accepts only --window H --from X,Y --to X,Y [--button B] [--steps N] [--degraded]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::Drag {
+        target,
+        window,
+        from,
+        to,
+        button,
+        steps,
+        degraded,
+    })
+}
+
 fn click(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let mut window = flag_window_opt(args);
     match flag_text(args, "--to")? {

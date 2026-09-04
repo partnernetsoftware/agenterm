@@ -53,10 +53,12 @@ mod placement;
 mod pointer;
 mod profiles;
 mod receipts;
+mod snapshots;
 #[cfg(test)]
 mod test_support;
 mod text_input;
 mod wait;
+mod window_state;
 mod windows;
 
 pub use errors::{ACCESSIBILITY_REPAIR_PATH, SCREEN_RECORDING_REPAIR_PATH};
@@ -75,10 +77,12 @@ use placement::*;
 use pointer::*;
 use profiles::*;
 use receipts::*;
+use snapshots::*;
 #[cfg(test)]
 use test_support::*;
 use text_input::*;
 use wait::*;
+use window_state::*;
 use windows::*;
 
 pub struct Executor {

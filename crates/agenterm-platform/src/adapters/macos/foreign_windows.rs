@@ -22,6 +22,10 @@ type AxValueRef = *const c_void;
 type CgWindowId = u32;
 
 const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
+/// `kCGWindowListOptionIncludingWindow`: describe exactly the window named
+/// by `relative_to`, on screen or not. This is the only list option that
+/// answers for a minimized window (see `owner_pid`).
+const K_CG_WINDOW_LIST_OPTION_INCLUDING_WINDOW: u32 = 1 << 3;
 const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
 
 #[repr(C)]
@@ -84,6 +88,14 @@ unsafe extern "C" {
     ) -> u8;
     fn CFGetTypeID(cf: CfTypeRef) -> usize;
     fn CFStringGetTypeID() -> usize;
+    /// The two shared `CFBoolean` singletons. They are constants owned by
+    /// CoreFoundation: pass them to a setter, never `CFRelease` them. Bound
+    /// under repository naming (`#[link_name]` carries the real symbol) so
+    /// the declaration does not need a lint exemption.
+    #[link_name = "kCFBooleanTrue"]
+    static CF_BOOLEAN_TRUE: CfTypeRef;
+    #[link_name = "kCFBooleanFalse"]
+    static CF_BOOLEAN_FALSE: CfTypeRef;
 
     fn AXIsProcessTrusted() -> u8;
     fn AXUIElementCreateApplication(pid: i32) -> AxUiElementRef;
@@ -597,13 +609,71 @@ fn set_ax_rect(
     }
 }
 
+/// The pid owning `handle`, whether or not the window is on screen.
+///
+/// This is the load-bearing half of every AX window op. `enumerate_top_level`
+/// is deliberately `kCGWindowListOptionOnScreenOnly` — the on-screen
+/// inventory is what its callers and the live smoke scripts mean by it — and
+/// a **minimized window is not in that list**. Measured on this host: after
+/// minimizing, the window's `CGWindowID` vanished from the enumeration, so
+/// resolving the owner through it made `restore` (and every other AX window
+/// op) fail `window_not_found` on exactly the window that needed the op.
+///
+/// `kCGWindowListOptionIncludingWindow` describes one window *by id* whether
+/// it is on screen or not, and the `CGWindowID` itself is stable across
+/// minimize/restore (measured: the same id before and after), so asking for
+/// the window by id is a sound resolution. The on-screen enumeration stays
+/// as the fallback: it is the path that already worked, and it still answers
+/// for anything the by-id query does not describe.
 fn owner_pid(handle: isize) -> Result<u32, WindowOpError> {
+    if let Some(pid) = owner_pid_including_offscreen(handle) {
+        return Ok(pid);
+    }
     let windows = enumerate_top_level().map_err(map_enum)?;
     windows
         .into_iter()
         .find(|w| w.handle == handle)
         .map(|w| w.process_id)
         .ok_or_else(|| WindowOpError::failed("window_not_found", format!("no window {handle}")))
+}
+
+/// One-window `CGWindowListCopyWindowInfo` lookup. Returns `None` (never an
+/// error) when the id names nothing: the caller owns the typed
+/// `window_not_found`, so there is exactly one place that decides a handle
+/// is unknown.
+fn owner_pid_including_offscreen(handle: isize) -> Option<u32> {
+    let id = u32::try_from(handle).ok()?;
+    unsafe {
+        let array = CGWindowListCopyWindowInfo(K_CG_WINDOW_LIST_OPTION_INCLUDING_WINDOW, id);
+        if array.is_null() {
+            return None;
+        }
+        let count = CFArrayGetCount(array);
+        let mut pid = None;
+        for i in 0..count {
+            let item = CFArrayGetValueAtIndex(array, i);
+            if item.is_null() {
+                continue;
+            }
+            let dict = item as CfDictionaryRef;
+            // The option is documented to describe the one window asked
+            // for, but the id is verified rather than assumed: attributing
+            // another window's pid to this handle would drive the AX ops
+            // into the wrong application.
+            if cf_i64(dict_get(dict, "kCGWindowNumber")) != Some(i64::from(id)) {
+                continue;
+            }
+            if let Some(owner) = cf_i64(dict_get(dict, "kCGWindowOwnerPID"))
+                && let Ok(owner) = u32::try_from(owner)
+                && owner != 0
+            {
+                pid = Some(owner);
+                break;
+            }
+        }
+        CFRelease(array);
+        pid
+    }
 }
 
 fn map_enum(err: WindowEnumerateError) -> WindowOpError {
@@ -631,12 +701,97 @@ pub(crate) fn show(
     handle: isize,
     state: crate::contract::window_op::WindowShowState,
 ) -> Result<(), WindowOpError> {
+    use crate::contract::window_op::WindowShowState;
     match state {
-        crate::contract::window_op::WindowShowState::Show => raise_window(handle),
-        _ => Err(WindowOpError::Unsupported {
-            reason: "only Show (AXRaise) is wired on macOS; hide/minimize/maximize/restore stay unmapped"
+        WindowShowState::Show => raise_window(handle),
+        // Minimize and restore are one attribute write on the window
+        // element and nothing else: no activation, no raise, no change to
+        // the frontmost order — the same background invariant `close`
+        // keeps.
+        WindowShowState::Minimize => set_minimized(handle, true),
+        WindowShowState::Restore => set_minimized(handle, false),
+        // No AX attribute means "hidden window", and `AXZoomButton` is a
+        // *button press*, not a maximize: what it does depends entirely on
+        // the application (zoom-to-fit, full screen, nothing). Neither is
+        // invented here.
+        WindowShowState::Hide | WindowShowState::Maximize => Err(WindowOpError::Unsupported {
+            reason: "macOS wires Show (AXRaise), Minimize and Restore (AXMinimized); hide and maximize stay unmapped"
                 .into(),
         }),
+    }
+}
+
+/// Write the window's `AXMinimized` flag. The CFBoolean singletons are
+/// CoreFoundation constants, so they are passed straight to the setter and
+/// never released; the attribute key and the window element are released on
+/// every path.
+fn set_minimized(handle: isize, minimized: bool) -> Result<(), WindowOpError> {
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        return Err(WindowOpError::failed(
+            "a11y_permission_denied",
+            "AXIsProcessTrusted() is false: Accessibility permission is not granted",
+        ));
+    }
+    let window = ax_element_for_handle(handle)?;
+    unsafe {
+        let key = cfstr("AXMinimized");
+        let value = if minimized {
+            CF_BOOLEAN_TRUE
+        } else {
+            CF_BOOLEAN_FALSE
+        };
+        let status = AXUIElementSetAttributeValue(window, key, value);
+        CFRelease(key as CfTypeRef);
+        CFRelease(window as CfTypeRef);
+        if status == AX_API_DISABLED {
+            return Err(WindowOpError::failed(
+                "a11y_permission_denied",
+                "AXMinimized: Accessibility permission is not granted",
+            ));
+        }
+        if status != AX_SUCCESS {
+            return Err(WindowOpError::failed(
+                "ax_set_minimized_failed",
+                format!("AXMinimized={minimized} on window {handle} failed (AXError {status})"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Read the window's `AXMinimized` flag. A pure observation: nothing is
+/// activated, raised or reordered. A window that publishes no such attribute
+/// is typed `Unsupported` — "this window cannot answer" is not the same
+/// claim as "this window is not minimized".
+pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        return Err(WindowOpError::failed(
+            "a11y_permission_denied",
+            "AXIsProcessTrusted() is false: Accessibility permission is not granted",
+        ));
+    }
+    let window = ax_element_for_handle(handle)?;
+    unsafe {
+        let key = cfstr("AXMinimized");
+        let mut value: CfTypeRef = std::ptr::null();
+        let status = AXUIElementCopyAttributeValue(window, key, &mut value);
+        CFRelease(key as CfTypeRef);
+        CFRelease(window as CfTypeRef);
+        if status == AX_API_DISABLED {
+            return Err(WindowOpError::failed(
+                "a11y_permission_denied",
+                "AXMinimized: Accessibility permission is not granted",
+            ));
+        }
+        if status != AX_SUCCESS || value.is_null() {
+            return Err(WindowOpError::Unsupported {
+                reason: format!("window {handle} publishes no AXMinimized (AXError {status})")
+                    .into(),
+            });
+        }
+        let minimized = CFBooleanGetValue(value) != 0;
+        CFRelease(value);
+        Ok(minimized)
     }
 }
 

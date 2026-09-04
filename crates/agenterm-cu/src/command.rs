@@ -1083,6 +1083,129 @@ pub enum Command {
         target: TargetRef,
         window: isize,
     },
+    /// `raise`: lift one window inside its **own application's** z-order
+    /// (macOS `AXRaise` on the window element) without activating the
+    /// application and without changing the system frontmost application.
+    ///
+    /// Distinct from `Focus`, which gives one accessibility *node* inside a
+    /// window the keyboard focus and never touches stacking. `raise` moves
+    /// a whole window in front of its siblings and never moves the
+    /// accessibility focus. The reply carries the frontmost application pid
+    /// read before and after, so "the foreground did not move" is measured
+    /// rather than assumed.
+    Raise {
+        target: TargetRef,
+        window: isize,
+    },
+    /// `minimize`: send one window to the dock through the window's own
+    /// minimize affordance (macOS: the window attribute `AXMinimized` set
+    /// to true), never a keyboard shortcut and never by activating the
+    /// application.
+    ///
+    /// Gated like `Close`, minus the snapshot: an exact target (`window`)
+    /// and a checkable postcondition (`expect: "minimized"`). A window that
+    /// is already minimized is a verified no-op (`performed: false,
+    /// verified: true`), the same contract `invoke set-checked` has for a
+    /// desired state that already holds.
+    Minimize {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
+    /// `restore`: bring one minimized window back (`AXMinimized` set to
+    /// false) without activating its application. Gate and no-op contract
+    /// are `Minimize`'s, with `expect: "restored"`.
+    Restore {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
+    /// `drag`: one press, a bounded series of moves and one release,
+    /// delivered as one gesture.
+    ///
+    /// macOS has no window-local pointer injection at all (measured: mouse
+    /// events posted to a pid arrive with no window and AppKit routes them
+    /// nowhere), so the only path there is the global one that moves the
+    /// real cursor -- exactly the situation `click --coords` already names
+    /// `degraded`. So `degraded` is a required opt-in wherever the host can
+    /// only drag by moving the user's own pointer, and the reply always
+    /// says which path ran plus the pointer position before and after.
+    Drag {
+        target: TargetRef,
+        window: isize,
+        from: [i32; 2],
+        to: [i32; 2],
+        #[serde(default)]
+        button: PointerButton,
+        /// Intermediate moves between press and release (1..=64).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        steps: Option<u32>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        degraded: bool,
+    },
+    /// `hit`: screen coordinates -> the accessibility node under them, in
+    /// the node shape `query` returns, so the `id` is directly usable with
+    /// `invoke --node` / `click --node`.
+    Hit {
+        target: TargetRef,
+        window: isize,
+        x: i32,
+        y: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+    },
+    /// `zoom`: crop one region out of a window capture so a caller can
+    /// inspect a detail without a full-screen image. A region that does not
+    /// intersect the window is typed `region_outside_window` and writes no
+    /// file.
+    Zoom {
+        target: TargetRef,
+        window: isize,
+        /// `x, y, width, height` in screen coordinates (the space
+        /// `query --within` and node `bounds` use).
+        region: [i32; 4],
+        out: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        replace: bool,
+        /// Pixels of context kept around the region (default 8).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pad: Option<u32>,
+    },
+    /// `snapshot`: capture the bounded tree as a named baseline and persist
+    /// it beside the receipts (`<audit dir>/cu-snapshots`), so `diff` can
+    /// answer "what changed since" without the caller holding the tree.
+    Snapshot {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        /// Also write the baseline to this path, for a caller that wants
+        /// the tree itself rather than only the id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        out: Option<String>,
+    },
+    /// `diff`: compare the window's current bounded tree against a stored
+    /// baseline. Without `base` the most recent snapshot of that window is
+    /// used and the reply says which. `advance` writes the tree it just
+    /// read as the next baseline in the same call, so an agent can poll a
+    /// window incrementally.
+    Diff {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        advance: bool,
+        /// Changes returned per bucket (default 200, at most 2000).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+    },
     /// MCU group this binary answers typed (no silent unknown command).
     Align {
         target: TargetRef,
@@ -1215,6 +1338,14 @@ impl Command {
             Self::BrowserProfiles { .. } => "browser-profiles".into(),
             Self::BrowserOpen { .. } => "browser-open".into(),
             Self::Unlock { .. } => "unlock".into(),
+            Self::Raise { .. } => "raise".into(),
+            Self::Minimize { .. } => "minimize".into(),
+            Self::Restore { .. } => "restore".into(),
+            Self::Drag { .. } => "drag".into(),
+            Self::Hit { .. } => "hit".into(),
+            Self::Zoom { .. } => "zoom".into(),
+            Self::Snapshot { .. } => "snapshot".into(),
+            Self::Diff { .. } => "diff".into(),
             Self::Align { group, .. } => group.clone(),
         }
     }
@@ -1275,6 +1406,14 @@ impl Command {
             | Self::BrowserProfiles { target, .. }
             | Self::BrowserOpen { target, .. }
             | Self::Unlock { target, .. }
+            | Self::Raise { target, .. }
+            | Self::Minimize { target, .. }
+            | Self::Restore { target, .. }
+            | Self::Drag { target, .. }
+            | Self::Hit { target, .. }
+            | Self::Zoom { target, .. }
+            | Self::Snapshot { target, .. }
+            | Self::Diff { target, .. }
             | Self::Align { target, .. } => *target,
         }
     }
@@ -1306,6 +1445,10 @@ impl Command {
             | Self::PageFill { .. }
             | Self::PageNav { .. }
             | Self::PageScreenshot { activate: true, .. }
+            | Self::Raise { .. }
+            | Self::Minimize { .. }
+            | Self::Restore { .. }
+            | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
         }

@@ -70,6 +70,20 @@ pub(crate) fn pointer_click(
     Ok(())
 }
 
+/// Not wired: `SendInput` can express a drag (a down, a run of absolute
+/// moves, an up), but that sequence has never been built or measured here,
+/// so the mechanism is reported absent rather than faked.
+pub(crate) fn pointer_drag(
+    _from: PointerPosition,
+    _to: PointerPosition,
+    _button: PointerButton,
+    _steps: u32,
+) -> Result<(), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer drag is not wired on Windows yet".into(),
+    })
+}
+
 pub(crate) fn type_text(text: &str) -> Result<(), InputInjectError> {
     let inputs = type_text_inputs(text);
     send_batch(&inputs)

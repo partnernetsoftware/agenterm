@@ -253,6 +253,16 @@ pub(crate) fn window_rect(handle: isize) -> Result<WindowBounds, WindowOpError> 
     })
 }
 
+/// Not wired: a minimized X11 window is `_NET_WM_STATE_HIDDEN` (or
+/// `IconicState` in `WM_STATE`), but which of the two a given window
+/// manager keeps truthful has never been measured here, so the read is
+/// reported absent rather than guessed from one of them.
+pub(crate) fn minimized(_handle: isize) -> Result<bool, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "reading the minimized state is not wired on Linux yet".into(),
+    })
+}
+
 /// `_NET_WM_STATE` add/remove of `_NET_WM_STATE_ABOVE`.
 ///
 /// 1 is `_NET_WM_STATE_ADD` and 0 is `_NET_WM_STATE_REMOVE`; the second

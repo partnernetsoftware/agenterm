@@ -1,4 +1,4 @@
-//! Accessibility-tree observation verbs: `tree`, `query`, `focused`,
+//! Accessibility-tree observation verbs: `tree`, `query`, `hit`, `focused`,
 //! `observe`, `verify`, plus the tree-budget helpers they share.
 
 use super::*;
@@ -134,6 +134,91 @@ pub(super) fn query_payload(
         "ax": observe::classify_ax_tree(&tree).as_str(),
         "next_actions": next_actions,
         "nodes": nodes,
+    }))
+}
+
+/// `hit --window H --x X --y Y`: screen coordinates -> the node under
+/// them, in the shape `query` returns.
+///
+/// The point is resolved against the window's own bounded walk rather than
+/// through a platform point-to-element call (macOS
+/// `AXUIElementCopyElementAtPosition`). That is deliberate: the element
+/// such a call hands back is a live `AXUIElement` with no address in the
+/// id space `tree` / `query` publish, so a caller could not pass it to
+/// `invoke --node` or `click --node` — which is the entire point of
+/// asking what is under a point. Resolving inside the walk returns an id
+/// that is already actionable, and the budget the caller sets is the
+/// budget the answer came from (the reply repeats it).
+pub(super) fn hit_payload(
+    window: isize,
+    x: i32,
+    y: i32,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "hit requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    let budget = tree_budget(depth, max_nodes)?;
+    let tree =
+        mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let flat = observe::flatten(&tree);
+    let Some(hit) = observe::node_at_point(&flat, x, y) else {
+        // A miss is typed, and it carries the walk it searched so the
+        // caller can tell "nothing is there" from "the walk stopped early".
+        return Err(CuError::new(
+            "a11y_node_not_found",
+            format!("no accessibility node of window {window} contains the point {x},{y}"),
+        )
+        .with_detail(serde_json::json!({
+            "window": window,
+            "point": [x, y],
+            "budget": budget_json(depth, max_nodes),
+            "visited": tree.visited,
+            "returned": tree.returned,
+            "truncated": tree.truncated,
+            "next_actions": if tree.truncated {
+                vec!["the walk was truncated: raise --depth / --max-nodes and ask again"]
+            } else {
+                Vec::new()
+            },
+        })));
+    };
+    let node =
+        serde_json::to_value(hit).map_err(|error| CuError::new("serialize", error.to_string()))?;
+    // Every node whose rectangle contains the point, innermost last: the
+    // caller sees what was ranked, not only the winner.
+    let containing: Vec<serde_json::Value> = flat
+        .iter()
+        .filter(|item| observe::node_contains_point(item.node, x, y))
+        .map(|item| {
+            serde_json::json!({
+                "index": item.index,
+                "depth": item.depth,
+                "id": item.node.id,
+                "role": item.node.role,
+                "name": item.node.name,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "degraded": false,
+        "backend": tree.backend,
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "resolution": "bounded-walk-hit-test",
+        "window": window,
+        "point": [x, y],
+        "root_id": tree.root_id,
+        "budget": budget_json(depth, max_nodes),
+        "visited": tree.visited,
+        "returned": tree.returned,
+        "truncated": tree.truncated,
+        "ax": observe::classify_ax_tree(&tree).as_str(),
+        "containing": containing,
+        "node": node,
     }))
 }
 
@@ -581,6 +666,34 @@ mod tests {
             bad_windows_page.error.as_ref().unwrap().code,
             "invalid_input"
         );
+    }
+
+    #[test]
+    fn hit_refuses_a_missing_window_and_a_bad_budget_before_the_walk() {
+        let executor = observe_executor();
+        let no_window = executor.execute(&Command::Hit {
+            target: TargetRef::Current,
+            window: 0,
+            x: 1,
+            y: 1,
+            depth: None,
+            max_nodes: None,
+        });
+        assert!(!no_window.ok);
+        assert_eq!(no_window.command, "hit");
+        assert_eq!(
+            no_window.error.as_ref().expect("typed").code,
+            "invalid_input"
+        );
+        let deep = executor.execute(&Command::Hit {
+            target: TargetRef::Current,
+            window: 1,
+            x: 1,
+            y: 1,
+            depth: Some(65),
+            max_nodes: None,
+        });
+        assert_eq!(deep.error.as_ref().expect("typed").code, "invalid_input");
     }
 
     #[test]

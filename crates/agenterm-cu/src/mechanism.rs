@@ -15,7 +15,7 @@ use crate::dynlib::{self, agt_a11y_node, agt_error};
 // Structured accessibility tree (unchanged public API).
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct A11yBounds {
     pub x: i32,
     pub y: i32,
@@ -23,7 +23,10 @@ pub struct A11yBounds {
     pub height: i32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+// `Deserialize` so a persisted `snapshot` baseline reads back into exactly
+// the type the live walk produces: `diff` compares one shape, never a
+// second parallel node struct that could drift from this one.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct A11yNode {
     pub id: String,
     pub parent_id: Option<String>,
@@ -32,10 +35,10 @@ pub struct A11yNode {
     pub states: Vec<String>,
     pub bounds: A11yBounds,
     pub actions: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// Toolkit identifier (macOS `AXIdentifier`) when the backend exposes one.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
 }
 
@@ -759,6 +762,34 @@ pub mod window_op {
         map_status("agt_native_window_set_topmost", status)
     }
 
+    /// Whether a native window is minimized (ABI 1.25
+    /// `agt_native_window_minimized`).
+    ///
+    /// This is a *separate* read from the window inventory on purpose. On
+    /// macOS the inventory is `kCGWindowListOptionOnScreenOnly`, and a
+    /// minimized window is not on screen: it leaves the list entirely
+    /// rather than appearing with `minimized: true` (measured 2026-09-03 —
+    /// CGWindowID 24140 vanished from `windows` while minimized and came
+    /// back with the same id on restore). So a `minimize` / `restore`
+    /// read-back that only consulted the inventory could say "gone", never
+    /// "minimized"; this asks the window itself.
+    pub fn minimized(handle: isize) -> Result<bool, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_MINIMIZED_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "the minimized read requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_MINIMIZED_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::WindowMinimized>(b"agt_native_window_minimized")?;
+        let mut out = 0i32;
+        let status = unsafe { f(handle, &mut out) };
+        map_status("agt_native_window_minimized", status)?;
+        Ok(out != 0)
+    }
+
     /// Close a **native** window handle (distinct from the ABI's own
     /// `agt_window_close`).
     pub fn close(handle: isize) -> Result<(), MechanismError> {
@@ -879,6 +910,36 @@ pub mod input_inject {
     }
 
     /// Type UTF-8 text into the focused control.
+    /// One press / bounded moves / release gesture (ABI 1.25
+    /// `agt_input_pointer_drag`).
+    ///
+    /// `steps` is the number of intermediate moves between the press and
+    /// the release; the library validates `1..=64` and the button code
+    /// before it touches the pointer. Where a host can only deliver this
+    /// by moving the user's real cursor (macOS: there is no window-local
+    /// pointer injection at all) the caller must have opted in with
+    /// `--degraded`, exactly as for `click --coords`.
+    pub fn pointer_drag(
+        from: (i32, i32),
+        to: (i32, i32),
+        button: PointerButton,
+        steps: u32,
+    ) -> Result<(), MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::POINTER_DRAG_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "pointer drag requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::POINTER_DRAG_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::PointerDrag>(b"agt_input_pointer_drag")?;
+        super::write_ledger::note();
+        let status = unsafe { f(from.0, from.1, to.0, to.1, button.abi_id(), steps) };
+        map_status("agt_input_pointer_drag", status)
+    }
+
     pub fn type_text(text: &str) -> Result<(), MechanismError> {
         super::write_ledger::note();
         let f = super::call_sym::<super::InputTypeText>(b"agt_input_type_text")?;
@@ -945,6 +1006,65 @@ pub mod screenshot {
                 0,
                 0,
                 0,
+            )
+        };
+        map_status("agt_screenshot_capture_window", status)?;
+        let (output_width, output_height) = png_dimensions(path);
+        let output_pixels = output_width as usize * output_height as usize;
+        Ok(ScreenshotWriteResult {
+            frame_width: output_width,
+            frame_height: output_height,
+            output_width,
+            output_height,
+            output_pixels,
+        })
+    }
+
+    /// Capture one **region of the window's own capture** to a PNG at
+    /// `path`. `left` / `top` are in the capture's pixel space (the origin
+    /// is the window's top-left, not the screen's), which is what the ABI's
+    /// client-area clip means; `zoom` converts screen coordinates into it.
+    ///
+    /// This reuses `agt_screenshot_capture_window` with `area_kind = 1`
+    /// (ABI 1.0): the adapter clips the frame it already captured, so a
+    /// region capture is never a second grab of the screen and never a
+    /// full-screen fallback.
+    pub fn capture_native_window_region_png(
+        native_window: isize,
+        path: &Path,
+        left: i32,
+        top: i32,
+        width: i32,
+        height: i32,
+    ) -> Result<ScreenshotWriteResult, MechanismError> {
+        if native_window == 0 {
+            return Err(MechanismError::Failed {
+                code: "bad_handle".to_owned(),
+                message: "native_window is 0".to_owned(),
+            });
+        }
+        if width <= 0 || height <= 0 {
+            return Err(MechanismError::Failed {
+                code: "bad_dimensions".to_owned(),
+                message: format!("region {width}x{height} must have a positive width and height"),
+            });
+        }
+        let path_c = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| {
+            MechanismError::Failed {
+                code: "bad_path".to_owned(),
+                message: "path contains an interior NUL byte".to_owned(),
+            }
+        })?;
+        let f = super::call_sym::<super::CaptureWindow>(b"agt_screenshot_capture_window")?;
+        let status = unsafe {
+            f(
+                native_window,
+                path_c.as_ptr(),
+                dynlib::AGT_SCREENSHOT_AREA_CLIENT,
+                left,
+                top,
+                width,
+                height,
             )
         };
         map_status("agt_screenshot_capture_window", status)?;
@@ -2322,9 +2442,11 @@ type WindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type WindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
 type WindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
 type WindowClose = unsafe extern "C" fn(isize) -> i32;
+type WindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type PointerMove = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;
 type PointerClick = unsafe extern "C" fn(i32, i32, i32, u32) -> i32;
+type PointerDrag = unsafe extern "C" fn(i32, i32, i32, i32, i32, u32) -> i32;
 type InputTypeText = unsafe extern "C" fn(*const u8, usize) -> i32;
 type InputSendKeys = unsafe extern "C" fn(*const u8, usize) -> i32;
 type CaptureWindow =

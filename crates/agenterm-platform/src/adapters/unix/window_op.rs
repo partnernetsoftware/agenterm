@@ -27,6 +27,12 @@ pub(crate) fn move_window(
     })
 }
 
+pub(crate) fn minimized(_handle: isize) -> Result<bool, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window-op not wired on unix".into(),
+    })
+}
+
 pub(crate) fn set_topmost(_handle: isize, _topmost: bool) -> Result<(), WindowOpError> {
     Err(WindowOpError::Unsupported {
         reason: "window-op not wired on unix".into(),

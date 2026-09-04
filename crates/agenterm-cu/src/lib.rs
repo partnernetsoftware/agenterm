@@ -27,6 +27,7 @@ pub mod place;
 pub mod rdp_transport;
 pub mod receipt;
 pub mod reply;
+pub mod snapshot;
 pub mod ssh_transport;
 #[cfg(target_os = "macos")]
 pub mod status_menu;

@@ -260,6 +260,20 @@ pub(crate) fn pointer_click(
     Ok(())
 }
 
+/// Not wired: XTest can post the motion and button events a drag needs,
+/// but the sequence has never been built or measured here, and a drag that
+/// half works is worse than one that says so.
+pub(crate) fn pointer_drag(
+    _from: PointerPosition,
+    _to: PointerPosition,
+    _button: PointerButton,
+    _steps: u32,
+) -> Result<(), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer drag is not wired on Linux yet".into(),
+    })
+}
+
 pub(crate) fn type_text(text: &str) -> Result<(), InputInjectError> {
     let context = connect()?;
     for ch in text.chars() {

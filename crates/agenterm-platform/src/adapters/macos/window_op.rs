@@ -30,6 +30,10 @@ pub(crate) fn window_rect(handle: isize) -> Result<WindowBounds, WindowOpError> 
     foreign_windows::window_rect(handle)
 }
 
+pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
+    foreign_windows::minimized(handle)
+}
+
 pub(crate) fn set_topmost(handle: isize, topmost: bool) -> Result<(), WindowOpError> {
     foreign_windows::set_topmost(handle, topmost)
 }

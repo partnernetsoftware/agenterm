@@ -1463,6 +1463,44 @@ pub fn check_expectation(node: &A11yNode, expectation: &Expectation) -> Vec<Chec
 }
 
 /// The node with this path id, if the tree still has it.
+/// Whether a node's own rectangle contains a screen point. A node with no
+/// area contains nothing: a zero-sized rectangle is how several backends
+/// report "this element has no on-screen box", and treating it as a hit
+/// would address something the user cannot point at.
+pub fn node_contains_point(node: &A11yNode, x: i32, y: i32) -> bool {
+    let bounds = &node.bounds;
+    if bounds.width <= 0 || bounds.height <= 0 {
+        return false;
+    }
+    let right = bounds.x.saturating_add(bounds.width);
+    let bottom = bounds.y.saturating_add(bounds.height);
+    x >= bounds.x && x < right && y >= bounds.y && y < bottom
+}
+
+/// The node a screen point addresses: the **innermost** node whose own
+/// rectangle contains it.
+///
+/// Ranking, in order: deepest wins (a button inside a group is what the
+/// user means), then the smallest area (two nodes at one depth that
+/// overlap — a label over its own cell), then the later position in walk
+/// order (a sibling drawn afterwards sits on top). The winner is a node of
+/// the same bounded walk `tree` and `query` return, so its `id` is the one
+/// `invoke --node` / `click --node` already accept; nothing here consults
+/// the pointer or moves it.
+pub fn node_at_point<'a, 'b>(flat: &'b [FlatNode<'a>], x: i32, y: i32) -> Option<&'b FlatNode<'a>> {
+    flat.iter()
+        .filter(|hit| node_contains_point(hit.node, x, y))
+        .max_by(|a, b| {
+            let area = |hit: &FlatNode<'_>| {
+                i64::from(hit.node.bounds.width) * i64::from(hit.node.bounds.height)
+            };
+            a.depth
+                .cmp(&b.depth)
+                .then_with(|| area(b).cmp(&area(a)))
+                .then_with(|| a.index.cmp(&b.index))
+        })
+}
+
 pub fn node_by_id<'a>(tree: &'a A11yTree, id: &str) -> Option<&'a A11yNode> {
     tree.nodes.iter().find(|node| node.id == id)
 }
@@ -2572,6 +2610,109 @@ mod tests {
         let mut stepper = node("/0/2", "incrementor", "", &["increment"]);
         stepper.text = Some("4".into());
         assert_eq!(numeric_text(&stepper), Some(4.0));
+    }
+
+    /// `hit`'s ranking, on a fake tree: innermost wins, then smallest, then
+    /// the one drawn last; a zero-area node and a miss address nothing.
+    #[test]
+    fn node_at_point_takes_the_innermost_smallest_latest_node() {
+        let boxed = |id: &str, x: i32, y: i32, width: i32, height: i32| A11yNode {
+            id: id.to_owned(),
+            parent_id: None,
+            role: "AXGroup".to_owned(),
+            name: id.to_owned(),
+            states: Vec::new(),
+            bounds: A11yBounds {
+                x,
+                y,
+                width,
+                height,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        };
+        let nodes = vec![
+            boxed("/0", 0, 0, 200, 200),
+            boxed("/0/1", 10, 10, 100, 100),
+            // Deeper than /0/1 and inside it: the innermost hit.
+            boxed("/0/1/1", 20, 20, 40, 40),
+            // Same depth as /0/1/1 and overlapping it, but larger.
+            boxed("/0/1/2", 15, 15, 80, 80),
+            // Zero area: never a hit, even though the point is on its origin.
+            boxed("/0/1/3", 30, 30, 0, 0),
+        ];
+        let walked = tree(nodes, false);
+        let flat = flatten(&walked);
+        let hit = node_at_point(&flat, 30, 30).expect("a node under the point");
+        assert_eq!(hit.node.id, "/0/1/1", "deepest, then smallest, wins");
+        // Inside the outer group but outside the inner ones.
+        let outer = node_at_point(&flat, 150, 150).expect("outer hit");
+        assert_eq!(outer.node.id, "/0");
+        // Outside every rectangle.
+        assert!(node_at_point(&flat, 900, 900).is_none());
+        // The returned shape is the walk's own identity, so it addresses
+        // `invoke --node` directly.
+        assert_eq!(hit.index, 2);
+        assert_eq!(hit.depth, 2);
+    }
+
+    #[test]
+    fn the_later_sibling_wins_an_exact_overlap() {
+        let boxed = |id: &str| A11yNode {
+            id: id.to_owned(),
+            parent_id: None,
+            role: "AXGroup".to_owned(),
+            name: id.to_owned(),
+            states: Vec::new(),
+            bounds: A11yBounds {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        };
+        let walked = tree(vec![boxed("/0/1"), boxed("/0/2")], false);
+        let flat = flatten(&walked);
+        assert_eq!(
+            node_at_point(&flat, 5, 5).expect("hit").node.id,
+            "/0/2",
+            "an identical rectangle drawn later sits on top"
+        );
+    }
+
+    #[test]
+    fn a_rectangle_is_half_open_so_adjacent_nodes_never_both_match() {
+        let cell = A11yNode {
+            id: "/0/1".to_owned(),
+            parent_id: None,
+            role: "AXCell".to_owned(),
+            name: "cell".to_owned(),
+            states: Vec::new(),
+            bounds: A11yBounds {
+                x: 10,
+                y: 10,
+                width: 10,
+                height: 10,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        };
+        assert!(node_contains_point(&cell, 10, 10));
+        assert!(node_contains_point(&cell, 19, 19));
+        assert!(
+            !node_contains_point(&cell, 20, 10),
+            "right edge is exclusive"
+        );
+        assert!(
+            !node_contains_point(&cell, 10, 20),
+            "bottom edge is exclusive"
+        );
+        assert!(!node_contains_point(&cell, 9, 10));
     }
 
     fn node(id: &str, role: &str, name: &str, actions: &[&str]) -> A11yNode {

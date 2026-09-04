@@ -27,6 +27,12 @@ pub fn window_rect(
     crate::selected::window_op::window_rect(handle)
 }
 
+/// Reads whether the native window is minimized. A pure observation: no
+/// adapter activates, raises or reorders anything to answer it.
+pub fn minimized(handle: isize) -> Result<bool, WindowOpError> {
+    crate::selected::window_op::minimized(handle)
+}
+
 pub fn set_topmost(handle: isize, topmost: bool) -> Result<(), WindowOpError> {
     crate::selected::window_op::set_topmost(handle, topmost)
 }

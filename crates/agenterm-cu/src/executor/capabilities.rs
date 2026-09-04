@@ -159,6 +159,59 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         mechanism::Capability::InputInject,
         serde_json::json!({ "scope": "desktop", "group": "pointer" }),
     );
+    // `zoom` is a clip of the same window capture `screenshot` takes, so it
+    // lives or dies with that mechanism.
+    let zoom_verb = {
+        let mut declaration = screenshot_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("mode".into(), serde_json::json!("window-capture-clip"));
+        }
+        declaration
+    };
+    // `drag` is pointer injection, and it says out loud that no host has a
+    // window-local route today: the only path moves the user's real cursor,
+    // which is why the verb requires `--degraded`.
+    let drag_verb = {
+        let mut declaration = pointer_inject_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("grant".into(), serde_json::json!("actuate"));
+            object.insert("mode".into(), serde_json::json!("press-move-release"));
+            object.insert("window_local".into(), serde_json::json!(false));
+            object.insert("requires".into(), serde_json::json!(["--degraded"]));
+        }
+        declaration
+    };
+    // `minimize` / `restore` need the window-op WRITE and the per-window
+    // minimized READ; the read is what makes the postcondition checkable,
+    // so a host without it must not claim the verbs are usable.
+    let window_state_verb = {
+        let mut declaration = capability_verb(
+            mechanism::Capability::WindowOp,
+            serde_json::json!({
+                "group": "geometry",
+                "mode": "window-minimize-affordance",
+                "grant": "actuate",
+                "activates_application": false,
+                "gate": ["--window", "--expect"],
+            }),
+        );
+        let readback = match mechanism::window_op::minimized(0) {
+            // Handle 0 is never a window: `bad_handle` proves the export is
+            // present and validating, which is what is being probed here.
+            Err(mechanism::MechanismError::Failed { code, .. }) if code == "bad_handle" => {
+                serde_json::json!("available")
+            }
+            Err(mechanism::MechanismError::Unsupported { reason }) => serde_json::json!(reason),
+            Err(mechanism::MechanismError::Failed { code, message }) => {
+                serde_json::json!(format!("{code}: {message}"))
+            }
+            Ok(_) => serde_json::json!("available"),
+        };
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert("minimized_readback".into(), readback);
+        }
+        declaration
+    };
     let permissions = permissions_declaration();
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
@@ -281,6 +334,36 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify / click / focus), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused), the poll-diff observation stream (observe), the destructive close (gate: exact target + snapshot + postcondition) with crash-persistent receipts (receipts), the read-only pointer position and the window-place frame transaction are proven by scripts/qjs/cu-macos-smoke.qjs; invoke offers no quit / delete action; AX notifications are not subscribed (observe is poll-diff)",
         }
     });
+    // The desktop-ring verbs are inserted rather than written into the
+    // literal above: `serde_json::json!` is one recursive macro expansion
+    // and the literal is already at the expander's depth limit.
+    if let Some(verbs) = payload["verbs"].as_object_mut() {
+        // `raise` is the window-op mechanism the same way `orderwin` is.
+        verbs.insert(
+            "raise".into(),
+            capability_verb(
+                mechanism::Capability::WindowOp,
+                serde_json::json!({
+                    "group": "geometry",
+                    "mode": "within-application-raise",
+                    "grant": "actuate",
+                    "activates_application": false,
+                }),
+            ),
+        );
+        // `minimize` / `restore` need the window-op WRITE *and* the
+        // per-window minimized READ; the read is what makes the
+        // postcondition checkable, so both are declared.
+        verbs.insert("minimize".into(), window_state_verb.clone());
+        verbs.insert("restore".into(), window_state_verb);
+        // Observation over the same bounded walk `tree` / `query` use, so
+        // they carry the tree's own status.
+        verbs.insert("hit".into(), tree_verb.clone());
+        verbs.insert("snapshot".into(), tree_verb.clone());
+        verbs.insert("diff".into(), tree_verb.clone());
+        verbs.insert("zoom".into(), zoom_verb);
+        verbs.insert("drag".into(), drag_verb);
+    }
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
     }

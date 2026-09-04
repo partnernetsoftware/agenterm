@@ -929,6 +929,17 @@
   },
   {
     "input": {
+      "code": "bad_steps",
+      "message": "message for bad_steps",
+      "variant": "Failed"
+    },
+    "mapped": {
+      "code": "bad_steps",
+      "message": "message for bad_steps"
+    }
+  },
+  {
+    "input": {
       "code": "bad_text",
       "message": "message for bad_text",
       "variant": "Failed"

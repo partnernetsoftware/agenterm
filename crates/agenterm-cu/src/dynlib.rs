@@ -286,6 +286,11 @@ pub const NODE_ID_STRING_ABI_MINOR: u16 = 22;
 pub const APPLICATION_HIDDEN_ABI_MINOR: u16 = 20;
 /// ABI 1.21: `agt_app_list_installed` / `agt_app_launch`.
 pub const APP_INVENTORY_ABI_MINOR: u16 = 21;
+/// ABI 1.25: `agt_input_pointer_drag` (one press / bounded moves / release
+/// gesture) and `agt_native_window_minimized` (the per-window minimized
+/// read the on-screen inventory cannot carry).
+pub const POINTER_DRAG_ABI_MINOR: u16 = 25;
+pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

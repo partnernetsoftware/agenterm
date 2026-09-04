@@ -30,7 +30,9 @@
 use std::ffi::c_void;
 
 use crate::CapabilityStatus;
-use crate::contract::input_inject::{InputInjectError, PointerButton, PointerPosition};
+use crate::contract::input_inject::{
+    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+};
 
 type CfTypeRef = *const c_void;
 type CgEventRef = *const c_void;
@@ -80,6 +82,13 @@ const CG_EVENT_RIGHT_MOUSE_DOWN: u32 = 3;
 const CG_EVENT_RIGHT_MOUSE_UP: u32 = 4;
 const CG_EVENT_OTHER_MOUSE_DOWN: u32 = 25;
 const CG_EVENT_OTHER_MOUSE_UP: u32 = 26;
+/// The dragged variants: a move posted between a button's down and up must
+/// be the *dragged* type for the button, not `mouseMoved`. An application
+/// tracking a drag consumes `mouseDragged`; a plain `mouseMoved` in the
+/// middle of a press reads as the pointer wandering, not as a drag.
+const CG_EVENT_LEFT_MOUSE_DRAGGED: u32 = 6;
+const CG_EVENT_RIGHT_MOUSE_DRAGGED: u32 = 7;
+const CG_EVENT_OTHER_MOUSE_DRAGGED: u32 = 27;
 const CG_MOUSE_BUTTON_LEFT: u32 = 0;
 const CG_MOUSE_BUTTON_RIGHT: u32 = 1;
 const CG_MOUSE_BUTTON_CENTER: u32 = 2;
@@ -96,6 +105,8 @@ const CG_FLAG_COMMAND: u64 = 0x0010_0000;
 const MAX_TYPE_TEXT_UTF16: usize = 16 * 1024;
 /// Largest number of clicks one call may deliver.
 const MAX_CLICKS: u32 = 8;
+/// Mouse button codes and their down/dragged/up event types.
+type ButtonEvents = (u32, u32, u32, u32);
 
 /// A `CGEventRef` released on drop, so an early return cannot leak it.
 struct OwnedEvent(CgEventRef);
@@ -195,40 +206,126 @@ pub(crate) fn pointer_click(
             message: format!("clicks must be 1..={MAX_CLICKS}, got {clicks}"),
         });
     }
-    let (down_type, up_type, cg_button) = match button {
+    let (down_type, _dragged_type, up_type, cg_button) = button_events(button);
+    let point = point_of(position);
+    for click in 1..=clicks {
+        for mouse_type in [down_type, up_type] {
+            post_mouse(mouse_type, point, cg_button, Some(i64::from(click)))?;
+        }
+    }
+    Ok(())
+}
+
+/// `(down, dragged, up, button code)` for one pointer button.
+fn button_events(button: PointerButton) -> ButtonEvents {
+    match button {
         PointerButton::Left => (
             CG_EVENT_LEFT_MOUSE_DOWN,
+            CG_EVENT_LEFT_MOUSE_DRAGGED,
             CG_EVENT_LEFT_MOUSE_UP,
             CG_MOUSE_BUTTON_LEFT,
         ),
         PointerButton::Right => (
             CG_EVENT_RIGHT_MOUSE_DOWN,
+            CG_EVENT_RIGHT_MOUSE_DRAGGED,
             CG_EVENT_RIGHT_MOUSE_UP,
             CG_MOUSE_BUTTON_RIGHT,
         ),
         PointerButton::Middle => (
             CG_EVENT_OTHER_MOUSE_DOWN,
+            CG_EVENT_OTHER_MOUSE_DRAGGED,
             CG_EVENT_OTHER_MOUSE_UP,
             CG_MOUSE_BUTTON_CENTER,
         ),
-    };
-    let point = point_of(position);
-    for click in 1..=clicks {
-        for mouse_type in [down_type, up_type] {
-            let event = OwnedEvent::new(
-                unsafe { CGEventCreateMouseEvent(std::ptr::null(), mouse_type, point, cg_button) },
-                "CGEventCreateMouseEvent",
-            )?;
-            unsafe {
-                CGEventSetIntegerValueField(
-                    event.as_ptr(),
-                    CG_MOUSE_EVENT_CLICK_STATE,
-                    i64::from(click),
-                );
-                CGEventPost(CG_HID_EVENT_TAP, event.as_ptr());
-            }
-        }
     }
+}
+
+/// Create one mouse event, optionally stamp its click state, post it on the
+/// HID tap, and release it — the `OwnedEvent` guard covers the early return
+/// from a failed creation as well as the normal path.
+fn post_mouse(
+    mouse_type: u32,
+    point: CgPoint,
+    cg_button: u32,
+    click_state: Option<i64>,
+) -> Result<(), InputInjectError> {
+    let event = OwnedEvent::new(
+        unsafe { CGEventCreateMouseEvent(std::ptr::null(), mouse_type, point, cg_button) },
+        "CGEventCreateMouseEvent",
+    )?;
+    unsafe {
+        if let Some(state) = click_state {
+            CGEventSetIntegerValueField(event.as_ptr(), CG_MOUSE_EVENT_CLICK_STATE, state);
+        }
+        CGEventPost(CG_HID_EVENT_TAP, event.as_ptr());
+    }
+    Ok(())
+}
+
+/// The points a drag passes through: `steps` positions interpolated from
+/// `from` to `to`, the last one exactly `to`.
+///
+/// `from` itself is not in the list — the button-down event already carries
+/// it, and repeating it as a drag point would post a zero-length move. Step
+/// `i` (1-based) lands at `from + (to - from) * i / steps`, computed in
+/// `i64` so a full-width coordinate span cannot overflow, and the final step
+/// is written as `to` verbatim so integer rounding can never leave the drag
+/// short of the target the caller asked for.
+fn drag_points(from: PointerPosition, to: PointerPosition, steps: u32) -> Vec<(i32, i32)> {
+    let steps = i64::from(steps.max(1));
+    let mut out = Vec::with_capacity(steps as usize);
+    for i in 1..=steps {
+        if i == steps {
+            out.push((to.x, to.y));
+            continue;
+        }
+        let lerp = |a: i32, b: i32| -> i32 {
+            let (a, b) = (i64::from(a), i64::from(b));
+            (a + (b - a) * i / steps) as i32
+        };
+        out.push((lerp(from.x, to.x), lerp(from.y, to.y)));
+    }
+    out
+}
+
+/// Press `button` at `from`, drag through `steps` interpolated points, and
+/// release at `to`. Like every other verb in this file this is the *global*
+/// path: macOS has no window-local pointer injection (see the module doc),
+/// so a drag necessarily moves the real cursor.
+///
+/// **No sleep between the moves, deliberately.** `CGEventPost` hands each
+/// event to the WindowServer in order and the receiving application sees a
+/// complete `down → dragged… → up` sequence whatever wall-clock gap
+/// separates them; a delay would only matter to an application that samples
+/// the pointer on its own timer instead of consuming the drag events, which
+/// is not something measured here. Staying synchronous also means the call
+/// returns with the pointer already at `to`, so a caller can read the
+/// postcondition back immediately.
+pub(crate) fn pointer_drag(
+    from: PointerPosition,
+    to: PointerPosition,
+    button: PointerButton,
+    steps: u32,
+) -> Result<(), InputInjectError> {
+    if steps == 0 || steps > MAX_POINTER_DRAG_STEPS {
+        return Err(InputInjectError::Failed {
+            code: "invalid_input".into(),
+            message: format!("steps must be 1..={MAX_POINTER_DRAG_STEPS}, got {steps}"),
+        });
+    }
+    let (down_type, dragged_type, up_type, cg_button) = button_events(button);
+    // Move first: an application that reads the pointer on mouse-down must
+    // see it at `from`, not wherever the user last left the cursor.
+    pointer_move(from)?;
+    post_mouse(down_type, point_of(from), cg_button, Some(1))?;
+    for (x, y) in drag_points(from, to, steps) {
+        let point = CgPoint {
+            x: f64::from(x),
+            y: f64::from(y),
+        };
+        post_mouse(dragged_type, point, cg_button, None)?;
+    }
+    post_mouse(up_type, point_of(to), cg_button, None)?;
     Ok(())
 }
 
@@ -439,5 +536,128 @@ mod tests {
         let at = PointerPosition { x: 10, y: 10 };
         assert!(pointer_click(at, PointerButton::Left, 0).is_err());
         assert!(pointer_click(at, PointerButton::Left, MAX_CLICKS + 1).is_err());
+    }
+
+    /// The whole point of validating first: a rejected `steps` must not have
+    /// moved the cursor or pressed anything. The check is the first
+    /// statement in `pointer_drag`, so a failure here proves no event was
+    /// posted — the test runs on a live desktop and would otherwise drag the
+    /// real pointer across the machine running it.
+    #[test]
+    fn a_drag_step_count_outside_the_bound_is_refused_before_any_event() {
+        let from = PointerPosition { x: 10, y: 10 };
+        let to = PointerPosition { x: 200, y: 120 };
+        for bad in [0, MAX_POINTER_DRAG_STEPS + 1, u32::MAX] {
+            let error = pointer_drag(from, to, PointerButton::Left, bad).unwrap_err();
+            assert!(
+                matches!(&error, InputInjectError::Failed { code, .. } if code == "invalid_input"),
+                "steps={bad} gave {error:?}"
+            );
+        }
+    }
+
+    /// Every button maps to its own down/dragged/up triple; a drag that
+    /// reused `mouseDragged` for a right-button press would be dropped by
+    /// the receiving application.
+    #[test]
+    fn each_button_maps_to_its_own_down_dragged_up_triple() {
+        assert_eq!(
+            button_events(PointerButton::Left),
+            (
+                CG_EVENT_LEFT_MOUSE_DOWN,
+                CG_EVENT_LEFT_MOUSE_DRAGGED,
+                CG_EVENT_LEFT_MOUSE_UP,
+                CG_MOUSE_BUTTON_LEFT
+            )
+        );
+        assert_eq!(
+            button_events(PointerButton::Right),
+            (
+                CG_EVENT_RIGHT_MOUSE_DOWN,
+                CG_EVENT_RIGHT_MOUSE_DRAGGED,
+                CG_EVENT_RIGHT_MOUSE_UP,
+                CG_MOUSE_BUTTON_RIGHT
+            )
+        );
+        assert_eq!(
+            button_events(PointerButton::Middle),
+            (
+                CG_EVENT_OTHER_MOUSE_DOWN,
+                CG_EVENT_OTHER_MOUSE_DRAGGED,
+                CG_EVENT_OTHER_MOUSE_UP,
+                CG_MOUSE_BUTTON_CENTER
+            )
+        );
+    }
+
+    /// The interpolation is the part worth pinning: the sequence walks away
+    /// from the press point, never backwards, and lands *exactly* on the
+    /// release point rather than one rounded pixel short of it.
+    #[test]
+    fn drag_points_walk_from_the_press_point_to_the_release_point() {
+        let from = PointerPosition { x: 100, y: 50 };
+        let to = PointerPosition { x: 340, y: 210 };
+        for steps in 1..=MAX_POINTER_DRAG_STEPS {
+            let points = drag_points(from, to, steps);
+            assert_eq!(points.len(), steps as usize, "steps={steps}");
+            assert_eq!(*points.last().unwrap(), (to.x, to.y), "steps={steps}");
+            // Prefixing the press point makes the "starts at `from`"
+            // property checkable: the drag begins there (the button-down
+            // carries it) and every later point is monotonically closer to
+            // `to` on both axes.
+            let mut walk = vec![(from.x, from.y)];
+            walk.extend_from_slice(&points);
+            for pair in walk.windows(2) {
+                assert!(
+                    pair[0].0 <= pair[1].0,
+                    "steps={steps} x went back: {walk:?}"
+                );
+                assert!(
+                    pair[0].1 <= pair[1].1,
+                    "steps={steps} y went back: {walk:?}"
+                );
+            }
+            for (x, y) in points {
+                assert!((from.x..=to.x).contains(&x), "steps={steps} x={x}");
+                assert!((from.y..=to.y).contains(&y), "steps={steps} y={y}");
+            }
+        }
+    }
+
+    /// A backwards drag is the same walk with the inequalities flipped, and
+    /// a zero-length drag still lands on the target.
+    #[test]
+    fn drag_points_handle_the_reverse_direction_and_a_zero_length_drag() {
+        let from = PointerPosition { x: 400, y: 300 };
+        let to = PointerPosition { x: 40, y: 30 };
+        let points = drag_points(from, to, 8);
+        assert_eq!(points.len(), 8);
+        assert_eq!(points[7], (to.x, to.y));
+        for pair in points.windows(2) {
+            assert!(pair[0].0 >= pair[1].0, "x went forward: {points:?}");
+            assert!(pair[0].1 >= pair[1].1, "y went forward: {points:?}");
+        }
+        assert_eq!(drag_points(from, from, 4), vec![(400, 300); 4]);
+    }
+
+    /// The endpoints of the coordinate space are the overflow case: the
+    /// interpolation runs in `i64`, so a span wider than `i32` cannot wrap.
+    #[test]
+    fn drag_points_do_not_overflow_across_the_full_coordinate_span() {
+        let from = PointerPosition {
+            x: i32::MIN,
+            y: i32::MIN,
+        };
+        let to = PointerPosition {
+            x: i32::MAX,
+            y: i32::MAX,
+        };
+        let points = drag_points(from, to, MAX_POINTER_DRAG_STEPS);
+        assert_eq!(points.len(), MAX_POINTER_DRAG_STEPS as usize);
+        assert_eq!(*points.last().unwrap(), (i32::MAX, i32::MAX));
+        for pair in points.windows(2) {
+            assert!(pair[0].0 <= pair[1].0);
+            assert!(pair[0].1 <= pair[1].1);
+        }
     }
 }

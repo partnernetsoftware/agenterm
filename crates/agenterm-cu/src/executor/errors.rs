@@ -156,6 +156,7 @@ mod tests {
         "bad_shortcut",
         "bad_size",
         "bad_state",
+        "bad_steps",
         "bad_text",
         "clipboard_backend_error",
         "clipboard_busy",

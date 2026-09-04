@@ -1,7 +1,9 @@
 //! Input injection facade (portable entry point).
 
 use crate::CapabilityStatus;
-pub use crate::contract::input_inject::{InputInjectError, PointerButton, PointerPosition};
+pub use crate::contract::input_inject::{
+    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+};
 
 pub fn capability_status() -> CapabilityStatus {
     crate::selected::input_inject::capability_status()
@@ -23,6 +25,19 @@ pub fn pointer_click(
     clicks: u32,
 ) -> Result<(), InputInjectError> {
     crate::selected::input_inject::pointer_click(position, button, clicks)
+}
+
+/// Press `button` at `from`, deliver `steps` intermediate drag moves toward
+/// `to`, and release at `to`. `steps` must be `1..=MAX_POINTER_DRAG_STEPS`;
+/// an adapter that implements the drag refuses anything else before posting
+/// a single event, so a rejected request leaves the pointer untouched.
+pub fn pointer_drag(
+    from: PointerPosition,
+    to: PointerPosition,
+    button: PointerButton,
+    steps: u32,
+) -> Result<(), InputInjectError> {
+    crate::selected::input_inject::pointer_drag(from, to, button, steps)
 }
 
 /// Types `text` into the focused control using Unicode key events.

@@ -1,6 +1,7 @@
-//! Accessibility observation: tree / query / focused / observe / verify, the
-//! independent AT-SPI read-backs, `wait`, and the two non-tree observers
-//! (`screenshot`, `pointer-position`).
+//! Accessibility observation: tree / query / hit / focused / observe /
+//! verify, the incremental pair snapshot / diff, the independent AT-SPI
+//! read-backs, `wait`, and the non-tree observers (`screenshot`, `zoom`,
+//! `pointer-position`).
 
 use agenterm_cu::{Command, TargetRef, WaitCondition};
 
@@ -36,6 +37,75 @@ pub fn parse(
             })
         }
         "query" => query(target, spelled, args),
+        "hit" => {
+            let Some(window) = flag_window(args)? else {
+                return Err("hit requires --window <handle>".into());
+            };
+            let Some(x) = flag_parsed::<i32>(args, "--x")? else {
+                return Err("hit requires --x <screen x>".into());
+            };
+            let Some(y) = flag_parsed::<i32>(args, "--y")? else {
+                return Err("hit requires --y <screen y>".into());
+            };
+            let depth = flag_parsed::<u32>(args, "--depth")?;
+            let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "hit accepts only --window H --x X --y Y [--depth N] [--max-nodes N]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::Hit {
+                target,
+                window,
+                x,
+                y,
+                depth,
+                max_nodes,
+            })
+        }
+        "snapshot" => {
+            let Some(window) = flag_window(args)? else {
+                return Err("snapshot requires --window <handle>".into());
+            };
+            let depth = flag_parsed::<u32>(args, "--depth")?;
+            let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+            let out = flag_text(args, "--out")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "snapshot accepts only --window H [--depth N] [--max-nodes N] [--out PATH]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::Snapshot {
+                target,
+                window,
+                depth,
+                max_nodes,
+                out,
+            })
+        }
+        "diff" => {
+            let Some(window) = flag_window(args)? else {
+                return Err("diff requires --window <handle>".into());
+            };
+            let base = flag_text(args, "--base")?;
+            let advance = take_switch(args, "--advance");
+            let max = flag_parsed::<usize>(args, "--max")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "diff accepts only --window H [--base ID] [--advance] [--max N]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::Diff {
+                target,
+                window,
+                base,
+                advance,
+                max,
+            })
+        }
         "focused" => {
             let Some(window) = flag_window(args)? else {
                 return Err("focused requires --window <handle>".into());
@@ -129,6 +199,34 @@ pub fn parse(
         }
         "wait" => wait(target, args),
         "screenshot" => screenshot(target, args),
+        "zoom" => {
+            let Some(window) = flag_window(args)? else {
+                return Err("zoom requires --window <handle>".into());
+            };
+            let Some(region) = flag_text(args, "--region")? else {
+                return Err("zoom requires --region X,Y,W,H".into());
+            };
+            let region = parse_rect(&region)?;
+            let Some(out) = flag_text(args, "--out")? else {
+                return Err("zoom requires --out <PATH>".into());
+            };
+            let replace = take_switch(args, "--replace");
+            let pad = flag_parsed::<u32>(args, "--pad")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "zoom accepts only --window H --region X,Y,W,H --out PATH [--replace] [--pad N]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::Zoom {
+                target,
+                window,
+                region,
+                out,
+                replace,
+                pad,
+            })
+        }
         "pointer-position" => {
             if !args.is_empty() {
                 // `cursor` is the MCU spelling; its refusal names it.
@@ -142,6 +240,24 @@ pub fn parse(
         }
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+/// `X,Y,W,H`, the same four-field spelling `query --within` takes. A
+/// malformed rectangle is a usage error before anything is captured.
+fn parse_rect(raw: &str) -> Result<[i32; 4], String> {
+    let parts: Vec<&str> = raw.split(',').map(str::trim).collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "--region must be X,Y,W,H (four comma-separated integers), got {raw:?}"
+        ));
+    }
+    let mut rect = [0i32; 4];
+    for (slot, part) in rect.iter_mut().zip(parts) {
+        *slot = part
+            .parse()
+            .map_err(|_| format!("--region field {part:?} is not an integer"))?;
+    }
+    Ok(rect)
 }
 
 /// Closed CLI shape (mcu lesson): an unknown flag, a missing value, or a

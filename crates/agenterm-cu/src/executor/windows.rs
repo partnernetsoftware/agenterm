@@ -1,5 +1,6 @@
 //! Window inventory and geometry verbs: `windows`, `windows-watch`,
-//! `apps`, `orderwin`, `displays`, `spaces`, and window `screenshot`.
+//! `apps`, `orderwin`, `displays`, `spaces`, and the window captures
+//! `screenshot` / `zoom`.
 
 use super::*;
 
@@ -543,6 +544,197 @@ pub(super) fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json
     }))
 }
 
+/// Default and ceiling for `zoom --pad`: a little context around the
+/// region, because a crop with no margin is often unreadable.
+pub(super) const DEFAULT_ZOOM_PAD: u32 = 8;
+pub(super) const MAX_ZOOM_PAD: u32 = 512;
+
+/// A screen rectangle intersected with a window's rectangle, in the
+/// window's own top-left-origin coordinates. `None` when they do not
+/// overlap at all.
+///
+/// Pure so the refusal can be tested without a display: a region that
+/// misses the window must be a typed error, never an empty PNG.
+pub(super) fn window_local_region(
+    window_bounds: (i32, i32, i32, i32),
+    region: [i32; 4],
+) -> Option<(i32, i32, i32, i32)> {
+    let (wx, wy, ww, wh) = window_bounds;
+    if ww <= 0 || wh <= 0 || region[2] <= 0 || region[3] <= 0 {
+        return None;
+    }
+    let left = region[0].max(wx);
+    let top = region[1].max(wy);
+    let right = region[0]
+        .saturating_add(region[2])
+        .min(wx.saturating_add(ww));
+    let bottom = region[1]
+        .saturating_add(region[3])
+        .min(wy.saturating_add(wh));
+    if right <= left || bottom <= top {
+        return None;
+    }
+    Some((left - wx, top - wy, right - left, bottom - top))
+}
+
+/// Scale a window-local rectangle from points into the capture's pixel
+/// space. A Retina window is captured at 2x, so a clip expressed in the
+/// point coordinates the inventory reports would land in the top-left
+/// quadrant without this.
+pub(super) fn scale_region(
+    region: (i32, i32, i32, i32),
+    scale_x: f64,
+    scale_y: f64,
+) -> (i32, i32, i32, i32) {
+    let scaled = |value: i32, scale: f64| {
+        ((f64::from(value) * scale).round() as i64).clamp(0, i32::MAX as i64) as i32
+    };
+    (
+        scaled(region.0, scale_x),
+        scaled(region.1, scale_y),
+        scaled(region.2, scale_x).max(1),
+        scaled(region.3, scale_y).max(1),
+    )
+}
+
+/// `zoom --window H --region X,Y,W,H --out PATH`: one crop of one window
+/// capture, so a caller can look at a detail without a full-screen image.
+pub(super) fn zoom_payload(
+    window: isize,
+    region: [i32; 4],
+    out: &str,
+    replace: bool,
+    pad: Option<u32>,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "zoom requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    if out.trim().is_empty() || out.contains('\0') {
+        return Err(invalid_input(
+            "zoom requires --out PATH (a writable PNG path)".into(),
+        ));
+    }
+    if region[2] <= 0 || region[3] <= 0 {
+        return Err(invalid_input(format!(
+            "zoom --region X,Y,W,H needs a positive width and height, got {}x{}",
+            region[2], region[3]
+        )));
+    }
+    let pad = match pad {
+        None => DEFAULT_ZOOM_PAD,
+        Some(value) if value > MAX_ZOOM_PAD => {
+            return Err(invalid_input(format!(
+                "zoom --pad must be at most {MAX_ZOOM_PAD}, got {value}"
+            )));
+        }
+        Some(value) => value,
+    };
+    if !replace && std::path::Path::new(out).exists() {
+        return Err(invalid_input(format!(
+            "zoom --out {out}: the file exists; pass --replace to overwrite it"
+        )));
+    }
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let Some(row) = windows.iter().find(|item| item.handle == window) else {
+        return Err(CuError::new(
+            "window_not_found",
+            format!("no top-level window with handle {window}"),
+        ));
+    };
+    let bounds = row.bounds;
+    let window_rect = (
+        bounds.x,
+        bounds.y,
+        bounds.width as i32,
+        bounds.height as i32,
+    );
+    // The refusal is judged on the region the caller asked for: padding is
+    // context around a region that already intersects, never a way for a
+    // region that misses the window to be rescued into one that does not.
+    if window_local_region(window_rect, region).is_none() {
+        return Err(CuError::new(
+            "region_outside_window",
+            format!(
+                "region {},{} {}x{} does not intersect window {window} ({}x{} at {},{}); nothing was written",
+                region[0], region[1], region[2], region[3],
+                bounds.width, bounds.height, bounds.x, bounds.y
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "region": region,
+            "window_bounds": bounds,
+            "out": out,
+            "written": false,
+        })));
+    }
+    let pad = pad as i32;
+    let padded = [
+        region[0].saturating_sub(pad),
+        region[1].saturating_sub(pad),
+        region[2].saturating_add(pad.saturating_mul(2)),
+        region[3].saturating_add(pad.saturating_mul(2)),
+    ];
+    let local = window_local_region(window_rect, padded)
+        .or_else(|| window_local_region(window_rect, region))
+        .ok_or_else(|| {
+            CuError::new(
+                "region_outside_window",
+                format!("region {region:?} does not intersect window {window}"),
+            )
+        })?;
+    // One full-window capture first, to learn the capture's pixel space:
+    // the inventory reports points and the capture is in backing-store
+    // pixels, and only their ratio can convert between them. It goes to
+    // the caller's own path, so the crop that follows overwrites it and no
+    // temporary file is left behind.
+    let full = mechanism::screenshot::capture_native_window_png(window, std::path::Path::new(out))
+        .map_err(map_mechanism_err)?;
+    let scale_x = if bounds.width > 0 {
+        f64::from(full.output_width) / f64::from(bounds.width)
+    } else {
+        1.0
+    };
+    let scale_y = if bounds.height > 0 {
+        f64::from(full.output_height) / f64::from(bounds.height)
+    } else {
+        1.0
+    };
+    let (left, top, width, height) = scale_region(local, scale_x, scale_y);
+    let cropped = mechanism::screenshot::capture_native_window_region_png(
+        window,
+        std::path::Path::new(out),
+        left,
+        top,
+        width,
+        height,
+    )
+    .map_err(map_mechanism_err)?;
+    Ok(serde_json::json!({
+        "addressing": "window-handle",
+        "mechanism": "libagenterm",
+        "via": "window-capture-clip",
+        "path": out,
+        "window": window,
+        "window_bounds": bounds,
+        "region": region,
+        "pad": pad,
+        "padded_region": padded,
+        "window_local_region": { "x": local.0, "y": local.1, "width": local.2, "height": local.3 },
+        "capture": {
+            "width": full.output_width,
+            "height": full.output_height,
+            "scale_x": scale_x,
+            "scale_y": scale_y,
+        },
+        "clip_pixels": { "x": left, "y": top, "width": width, "height": height },
+        "output_width": cropped.output_width,
+        "output_height": cropped.output_height,
+        "output_pixels": cropped.output_pixels,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +751,81 @@ mod tests {
             assert!(data["displays"].is_array());
         } else {
             assert_ne!(reply.error.as_ref().unwrap().code, "usage");
+        }
+    }
+
+    /// The crop geometry is pure, so the "does not intersect" refusal and
+    /// the point -> pixel conversion are provable without a display.
+    #[test]
+    fn a_region_that_misses_the_window_has_no_local_rectangle() {
+        let window = (100, 50, 400, 300);
+        // Fully inside.
+        assert_eq!(
+            window_local_region(window, [150, 100, 40, 30]),
+            Some((50, 50, 40, 30))
+        );
+        // Straddling the left/top edges is clipped, not refused.
+        assert_eq!(
+            window_local_region(window, [80, 30, 40, 40]),
+            Some((0, 0, 20, 20))
+        );
+        // Straddling the right/bottom edges is clipped too.
+        assert_eq!(
+            window_local_region(window, [480, 330, 100, 100]),
+            Some((380, 280, 20, 20))
+        );
+        // Entirely outside on each side, and a touching-but-empty edge.
+        for miss in [
+            [0, 0, 50, 50],
+            [600, 400, 10, 10],
+            [500, 100, 10, 10],
+            [100, 350, 10, 10],
+            [150, 100, 0, 30],
+            [150, 100, 40, -1],
+        ] {
+            assert_eq!(window_local_region(window, miss), None, "{miss:?}");
+        }
+        // A window with no area cannot be cropped.
+        assert_eq!(window_local_region((0, 0, 0, 0), [0, 0, 10, 10]), None);
+    }
+
+    #[test]
+    fn a_retina_clip_is_scaled_into_the_capture_pixel_space() {
+        assert_eq!(scale_region((10, 20, 30, 40), 2.0, 2.0), (20, 40, 60, 80));
+        assert_eq!(scale_region((10, 20, 30, 40), 1.0, 1.0), (10, 20, 30, 40));
+        // A sub-pixel region still asks for at least one pixel.
+        assert_eq!(scale_region((0, 0, 1, 1), 0.25, 0.25), (0, 0, 1, 1));
+    }
+
+    #[test]
+    fn zoom_refuses_its_bad_inputs_before_any_capture() {
+        let executor = observe_executor();
+        let zoom = |window: isize, region: [i32; 4], out: &str, pad: Option<u32>| {
+            executor.execute(&Command::Zoom {
+                target: TargetRef::Current,
+                window,
+                region,
+                out: out.into(),
+                replace: true,
+                pad,
+            })
+        };
+        for (reply, what) in [
+            (zoom(0, [0, 0, 10, 10], "/dev/null", None), "no window"),
+            (zoom(7, [0, 0, 0, 10], "/dev/null", None), "zero width"),
+            (zoom(7, [0, 0, 10, 0], "/dev/null", None), "zero height"),
+            (zoom(7, [0, 0, 10, 10], "  ", None), "empty path"),
+            (
+                zoom(7, [0, 0, 10, 10], "/dev/null", Some(MAX_ZOOM_PAD + 1)),
+                "pad too large",
+            ),
+        ] {
+            assert_eq!(reply.command, "zoom", "{what}");
+            assert_eq!(
+                reply.error.as_ref().expect("typed").code,
+                "invalid_input",
+                "{what}"
+            );
         }
     }
 

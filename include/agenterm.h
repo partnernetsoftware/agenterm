@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 24
+#define AGT_ABI_MINOR 25
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -967,6 +967,15 @@ agt_status agt_native_window_set_topmost(intptr_t handle, int32_t topmost);
 /* Close a native window handle. */
 agt_status agt_native_window_close(intptr_t handle);
 
+/* ABI 1.25: read whether a native window is minimized. handle == 0 ->
+ * AGT_FAILED{code="bad_handle"}; out_minimized == NULL ->
+ * AGT_FAILED{code="bad_pointer"}; mechanism absent -> AGT_UNSUPPORTED;
+ * platform failure -> AGT_FAILED{code="window_op_failed"}. Writes 0 or 1.
+ * A window that cannot answer (no AXMinimized on macOS, no wired read on
+ * this host) is AGT_UNSUPPORTED, never 0: "unknown" and "not minimized"
+ * are different claims. */
+agt_status agt_native_window_minimized(intptr_t handle, int32_t* out_minimized);
+
 /* Input injection. Mechanism absent on this host -> AGT_UNSUPPORTED;
  * platform failure -> AGT_FAILED{code="input_failed"}. */
 
@@ -983,6 +992,18 @@ agt_status agt_input_pointer_move(int32_t x, int32_t y);
  * invalid button never clicks). */
 agt_status agt_input_pointer_click(int32_t x, int32_t y, int32_t button,
                                    uint32_t clicks);
+
+/* ABI 1.25: press `button` at (x0,y0), deliver `steps` intermediate drag
+   moves toward (x1,y1), release at (x1,y1). `button` 0=Left 1=Right
+   2=Middle, anything else -> AGT_FAILED{code="bad_button"}; `steps` must be
+   1..=64, else AGT_FAILED{code="bad_steps"} (both validated before any
+   platform call, so an invalid request never touches the pointer);
+   mechanism absent -> AGT_UNSUPPORTED; platform failure ->
+   AGT_FAILED{code="input_failed"}. On macOS this necessarily moves the real
+   cursor: there is no window-local pointer injection (see the module doc of
+   the macOS input_inject adapter). */
+agt_status agt_input_pointer_drag(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                                  int32_t button, uint32_t steps);
 
 /* Type UTF-8 text into the focused control via Unicode key events.
  * text == NULL, or a slice that is not valid UTF-8 ->

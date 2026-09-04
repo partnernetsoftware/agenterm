@@ -18,6 +18,15 @@ pub struct PointerPosition {
     pub y: i32,
 }
 
+/// Largest number of intermediate moves one `pointer_drag` may deliver.
+///
+/// The bound belongs to the contract rather than to one adapter: the ABI
+/// validates `steps` against it *before* any platform call, so an
+/// out-of-range request never touches the pointer on any host, and every
+/// adapter that implements the drag rejects the same range with the same
+/// number in its message.
+pub const MAX_POINTER_DRAG_STEPS: u32 = 64;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum InputInjectError {

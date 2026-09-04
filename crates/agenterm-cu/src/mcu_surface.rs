@@ -197,15 +197,11 @@ pub const ALIGN_VERBS: &[&str] = &[
     // MCU leaf spellings that stay typed (not silent unknown). Live
     // aliases (dclick/rclick/shot/type/key/move/launch/quit/hide/show/
     // elements/clipboard/inspect/find/read) have dedicated parse arms and are not listed here.
-    "drag",
+    // The desktop-ring absorption made drag / hit / zoom / snapshot / diff /
+    // raise / minimize / restore live verbs with their own parse arms, so
+    // they left this list; `ghost` (a cursor overlay drawn on the desktop)
+    // is deliberately not absorbed and stays typed.
     "ghost",
-    "snapshot",
-    "hit",
-    "diff",
-    "zoom",
-    "minimize",
-    "restore",
-    "raise",
     "ps",
     "kill",
     "signal",
@@ -244,18 +240,7 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "page" => {
             "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/fill/nav/screenshot to page-find/page-click/page-fill/page-nav/page-screenshot (CDP, background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
-        "drag" => "pixel drag is not mapped; use invoke press or pointer-move --to desktop",
         "ghost" => "MCU ghost cursor overlay stays MCU; this binary will not draw on the desktop",
-        "snapshot" => "MCU snapshot token is not mapped; use tree/query",
-        "hit" => "hit-test is not mapped; use query --within or get-extents",
-        "diff" => "MCU diff is observe poll-diff; use observe --window",
-        "zoom" => "MCU zoom overlay is not mapped; screenshots are last resort",
-        "minimize" | "restore" => {
-            "MCU minimize/restore is not mapped; linux windows --minimized reads WM hidden state"
-        }
-        "raise" => {
-            "MCU raise is orderwin --relation above; macOS cannot restack another app without activating it"
-        }
         "ps" | "kill" | "signal" | "exec" | "state" => {
             "process introspect/kill stays MCU / qjs process.*; typed refuse"
         }
@@ -764,6 +749,14 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "windows-watch",
         "apps",
         "orderwin",
+        "raise",
+        "minimize",
+        "restore",
+        "drag",
+        "hit",
+        "zoom",
+        "snapshot",
+        "diff",
         "spaces",
         "displays",
         "unlock",
@@ -908,7 +901,26 @@ mod tests {
         assert_eq!(merged["tab-select"]["group"], "semantic");
         assert_eq!(merged["page-targets"]["group"], "page-js");
         assert_eq!(group_id_for_verb("drag"), "input-local");
-        assert!(is_align_verb("drag") && is_align_verb("page"));
+        // The desktop-ring absorption turned these eight into live verbs
+        // with their own parse arms, so they must NOT be typed-only any
+        // more -- and `capabilities` must still declare every one of them.
+        for absorbed in [
+            "drag", "hit", "zoom", "snapshot", "diff", "raise", "minimize", "restore",
+        ] {
+            assert!(!is_align_verb(absorbed), "{absorbed} is a live verb now");
+            assert_eq!(
+                merged[absorbed]["status"], "available",
+                "{absorbed} must stay declared in capabilities"
+            );
+        }
+        // `ghost` (a cursor overlay drawn on the desktop) was deliberately
+        // not absorbed and stays typed rather than silently unknown.
+        assert!(is_align_verb("ghost") && is_align_verb("page"));
+        assert!(
+            typed_reason_for_verb("ghost").contains("will not draw on the desktop"),
+            "{}",
+            typed_reason_for_verb("ghost")
+        );
         assert!(!is_align_verb("dclick") && !is_align_verb("launch"));
         assert!(!is_align_verb("inspect"));
         assert!(!is_align_verb("find") && !is_align_verb("read"));

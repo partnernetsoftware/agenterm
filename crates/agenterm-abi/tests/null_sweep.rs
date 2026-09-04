@@ -173,7 +173,6 @@ type ClipboardTypes = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type ClipboardGet = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
 type ClipboardSet = unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> i32;
 type ClipboardSetFile = unsafe extern "C" fn(*const u8, usize) -> i32;
-type ClipboardClear = unsafe extern "C" fn() -> i32;
 type AppListInstalled = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type AppLaunch = unsafe extern "C" fn(*const u8, usize) -> i32;
 type A11yObserveWindow = unsafe extern "C" fn(isize, u64, usize, *mut usize) -> i32;
@@ -202,6 +201,7 @@ type WindowPlacementQuery =
 type ScreenList = unsafe extern "C" fn(*mut agt_screen_info, usize, *mut usize) -> i32;
 type A11yLastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type NativeWindowShow = unsafe extern "C" fn(isize, i32) -> i32;
+type NativeWindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type NativeWindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
 type NativeWindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
@@ -209,6 +209,7 @@ type NativeWindowClose = unsafe extern "C" fn(isize) -> i32;
 type InputPointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;
 type InputPointerMove = unsafe extern "C" fn(i32, i32) -> i32;
 type InputPointerClick = unsafe extern "C" fn(i32, i32, i32, u32) -> i32;
+type InputPointerDrag = unsafe extern "C" fn(i32, i32, i32, i32, i32, u32) -> i32;
 type InputText = unsafe extern "C" fn(*const u8, usize) -> i32;
 type DesktopHostOpen =
     unsafe extern "C" fn(*const agt_desktop_action, usize, *mut *mut std::ffi::c_void) -> i32;
@@ -465,6 +466,12 @@ fn native_window_show_handle0(lib: &Library) -> i32 {
     unsafe { f(0, 0) }
 }
 
+fn native_window_minimized_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowMinimized> = unsafe { sym(lib, b"agt_native_window_minimized") };
+    let mut minimized = 0;
+    unsafe { f(0, &mut minimized) }
+}
+
 fn native_window_move_handle0(lib: &Library) -> i32 {
     let f: Symbol<NativeWindowMove> = unsafe { sym(lib, b"agt_native_window_move") };
     unsafe { f(0, 0, 0, 0, 0) }
@@ -504,6 +511,11 @@ fn input_pointer_position_null(lib: &Library) -> i32 {
 fn input_pointer_click_bad_button(lib: &Library) -> i32 {
     let f: Symbol<InputPointerClick> = unsafe { sym(lib, b"agt_input_pointer_click") };
     unsafe { f(0, 0, 99, 1) }
+}
+
+fn input_pointer_drag_bad_button(lib: &Library) -> i32 {
+    let f: Symbol<InputPointerDrag> = unsafe { sym(lib, b"agt_input_pointer_drag") };
+    unsafe { f(0, 0, 1, 1, 99, 1) }
 }
 
 fn input_type_text_null(lib: &Library) -> i32 {
@@ -1157,6 +1169,11 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| CallResult::Status(native_window_show_handle0(lib))),
         },
         SweepCase {
+            label: "agt_native_window_minimized[handle=0,out_minimized=&value]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_minimized_handle0(lib))),
+        },
+        SweepCase {
             label: "agt_native_window_move[handle=0,x=0,y=0,w=0,h=0]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_move_handle0(lib))),
@@ -1185,6 +1202,11 @@ fn null_group() -> Vec<SweepCase> {
             label: "agt_input_pointer_click[x=0,y=0,button=99,clicks=1]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(input_pointer_click_bad_button(lib))),
+        },
+        SweepCase {
+            label: "agt_input_pointer_drag[x0=0,y0=0,x1=1,y1=1,button=99,steps=1]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(input_pointer_drag_bad_button(lib))),
         },
         SweepCase {
             label: "agt_input_type_text[text=NULL,len=1]",
@@ -1624,6 +1646,15 @@ const EXEMPT_EXPORTS: &[(&str, &str, ExemptReason)] = &[
         "int32_t agt_clipboard_has_text(void)",
         ExemptReason::NoPointerArgs,
     ),
+    // Clearing has no argument that can be made necessarily invalid. Calling
+    // it here would mutate the user's real clipboard, which the null sweep
+    // explicitly must not do. The preserving round-trip is owned by
+    // `dylib_load::clipboard_roundtrip_preserves_user_clipboard`.
+    (
+        "agt_clipboard_clear",
+        "agt_status agt_clipboard_clear(void)",
+        ExemptReason::NoPointerArgs,
+    ),
     (
         "agt_a11y_drain_bus",
         "agt_status agt_a11y_drain_bus(void)",
@@ -1845,6 +1876,10 @@ fn computer_use_sweep_capability_guards() {
             native_window_show_handle0 as fn(&Library) -> i32,
         ),
         (
+            "agt_native_window_minimized",
+            native_window_minimized_handle0 as fn(&Library) -> i32,
+        ),
+        (
             "agt_native_window_move",
             native_window_move_handle0 as fn(&Library) -> i32,
         ),
@@ -1894,6 +1929,10 @@ fn computer_use_sweep_capability_guards() {
         (
             "agt_input_pointer_click",
             input_pointer_click_bad_button as fn(&Library) -> i32,
+        ),
+        (
+            "agt_input_pointer_drag",
+            input_pointer_drag_bad_button as fn(&Library) -> i32,
         ),
         (
             "agt_input_type_text",

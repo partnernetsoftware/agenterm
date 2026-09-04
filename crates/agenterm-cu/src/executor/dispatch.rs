@@ -519,6 +519,82 @@ impl Executor {
                 expect.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::Raise { window, .. } => {
+                raise_payload(*window, &mut self.open_receipts(command.target())?)
+            }
+            Command::Minimize { window, expect, .. } => window_state_payload(
+                WindowState::Minimized,
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Restore { window, expect, .. } => window_state_payload(
+                WindowState::Restored,
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Drag {
+                window,
+                from,
+                to,
+                button,
+                steps,
+                degraded,
+                ..
+            } => drag_payload(
+                *window,
+                *from,
+                *to,
+                *button,
+                *steps,
+                *degraded,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Hit {
+                window,
+                x,
+                y,
+                depth,
+                max_nodes,
+                ..
+            } => hit_payload(*window, *x, *y, *depth, *max_nodes),
+            Command::Zoom {
+                window,
+                region,
+                out,
+                replace,
+                pad,
+                ..
+            } => zoom_payload(*window, *region, out, *replace, *pad),
+            Command::Snapshot {
+                window,
+                depth,
+                max_nodes,
+                out,
+                ..
+            } => snapshot_payload(
+                &self.snapshot_store()?,
+                command.target(),
+                *window,
+                *depth,
+                *max_nodes,
+                out.as_deref(),
+            ),
+            Command::Diff {
+                window,
+                base,
+                advance,
+                max,
+                ..
+            } => diff_payload(
+                &self.snapshot_store()?,
+                command.target(),
+                *window,
+                base.as_deref(),
+                *advance,
+                *max,
+            ),
             Command::Receipts { window, max, .. } => {
                 receipts_payload(&self.receipt_dir()?, command.target(), *window, *max)
             }

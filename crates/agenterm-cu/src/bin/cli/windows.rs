@@ -31,6 +31,36 @@ pub fn parse(
             Ok(Command::Unlock { target, window })
         }
         "close" => close(target, args),
+        "raise" => {
+            let Some(window) = flag_window(args)? else {
+                return Err("raise requires --window <handle>".into());
+            };
+            if !args.is_empty() {
+                return Err(format!(
+                    "raise accepts only --window H; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::Raise { target, window })
+        }
+        // Window 0 lets the executor name `target` among the missing gate
+        // parts in one typed refusal, exactly as `close` does.
+        "minimize" => {
+            let (window, expect) = window_state(spec.name, args)?;
+            Ok(Command::Minimize {
+                target,
+                window,
+                expect,
+            })
+        }
+        "restore" => {
+            let (window, expect) = window_state(spec.name, args)?;
+            Ok(Command::Restore {
+                target,
+                window,
+                expect,
+            })
+        }
         "receipts" => {
             let window = flag_window(args)?;
             let max = flag_parsed::<usize>(args, "--max")?;
@@ -207,6 +237,21 @@ fn app(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Comma
         pid,
         path,
     })
+}
+
+/// `minimize` / `restore`: `--window H --expect <word>`, both parts of the
+/// gate parsed leniently so the executor can name every missing one in a
+/// single typed refusal instead of a usage error per flag.
+fn window_state(verb: &str, args: &mut Vec<String>) -> Result<(isize, Option<String>), String> {
+    let window = flag_window(args)?.unwrap_or(0);
+    let expect = flag_text(args, "--expect")?;
+    if !args.is_empty() {
+        return Err(format!(
+            "{verb} accepts only --window H --expect <postcondition>; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok((window, expect))
 }
 
 /// The destructive verb: closed shape, every part of the gate is a flag the

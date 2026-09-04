@@ -1227,18 +1227,38 @@ mod tests {
                 .unwrap_or(""),
             "usage"
         );
-        let drag = dispatch(vec![
+        // `ghost` is the MCU leaf this binary deliberately did NOT absorb
+        // (it draws a cursor overlay on the desktop), so it stays typed
+        // rather than silently unknown.
+        let ghost = dispatch(vec![
             "--target".into(),
             "current".into(),
             "--grant".into(),
             "observe".into(),
+            "ghost".into(),
+        ]);
+        assert_eq!(ghost.command, "ghost");
+        let ghost_err = ghost.error.expect("typed ghost");
+        assert_eq!(ghost_err.code, "unsupported", "{ghost_err:?}");
+        assert!(
+            !ghost_err.message.contains("unknown"),
+            "{}",
+            ghost_err.message
+        );
+        // `drag` used to answer here as a typed-unsupported MCU leaf; it is
+        // a live verb now, so a bare `drag` is a usage error naming its own
+        // flags, never "unknown command" and never the align reply.
+        let drag = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "actuate".into(),
             "drag".into(),
         ]);
-        assert_eq!(drag.command, "drag");
-        let drag_err = drag.error.expect("typed drag");
-        assert_eq!(drag_err.code, "unsupported", "{drag_err:?}");
+        assert_eq!(drag.command, "usage");
+        let drag_err = drag.error.expect("usage");
         assert!(
-            !drag_err.message.contains("unknown"),
+            drag_err.message.contains("drag requires --window"),
             "{}",
             drag_err.message
         );
@@ -1528,6 +1548,216 @@ mod surface_tests {
         let rows: Vec<verbs::VerbJson> = serde_json::from_str(&text).expect("parse");
         assert_eq!(rows, verbs::table_json());
         assert_eq!(rows.len(), verbs::VERBS.len());
+    }
+
+    /// The eight desktop-ring verbs parse into their own closed shapes, and
+    /// every one of them refuses an unknown flag before a target is touched.
+    #[test]
+    fn desktop_ring_verbs_parse_closed_shapes() {
+        use agenterm_cu::TargetRef;
+        let parse = |argv: &[&str]| -> Result<Command, String> {
+            let spec = verbs::lookup(argv[0]).expect("verb");
+            let mut args: Vec<String> = argv[1..].iter().map(|s| (*s).to_owned()).collect();
+            cli::parse_command(spec, argv[0], TargetRef::Current, &mut args)
+        };
+        match parse(&["raise", "--window", "42"]).expect("raise") {
+            Command::Raise { window, .. } => assert_eq!(window, 42),
+            other => panic!("{other:?}"),
+        }
+        match parse(&["minimize", "--window", "42", "--expect", "minimized"]).expect("minimize") {
+            Command::Minimize { window, expect, .. } => {
+                assert_eq!(window, 42);
+                assert_eq!(expect.as_deref(), Some("minimized"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // A missing gate part is NOT a usage error: it parses, so the
+        // executor can name every missing part in one typed refusal.
+        match parse(&["restore", "--window", "42"]).expect("restore") {
+            Command::Restore { window, expect, .. } => {
+                assert_eq!(window, 42);
+                assert_eq!(expect, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&["minimize"]).expect("bare minimize") {
+            Command::Minimize { window, expect, .. } => {
+                assert_eq!(window, 0);
+                assert_eq!(expect, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&[
+            "drag",
+            "--window",
+            "42",
+            "--from",
+            "10,20",
+            "--to",
+            "30,40",
+            "--button",
+            "right",
+            "--steps",
+            "5",
+            "--degraded",
+        ])
+        .expect("drag")
+        {
+            Command::Drag {
+                window,
+                from,
+                to,
+                button,
+                steps,
+                degraded,
+                ..
+            } => {
+                assert_eq!(window, 42);
+                assert_eq!(from, [10, 20]);
+                assert_eq!(to, [30, 40]);
+                assert_eq!(button, agenterm_cu::PointerButton::Right);
+                assert_eq!(steps, Some(5));
+                assert!(degraded);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&["drag", "--window", "42", "--from", "1,2", "--to", "3,4"]).expect("drag") {
+            Command::Drag {
+                button,
+                steps,
+                degraded,
+                ..
+            } => {
+                assert_eq!(button, agenterm_cu::PointerButton::Left);
+                assert_eq!(steps, None);
+                assert!(!degraded, "--degraded is never implied");
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&["hit", "--window", "42", "--x", "-3", "--y", "7"]).expect("hit") {
+            Command::Hit {
+                window,
+                x,
+                y,
+                depth,
+                ..
+            } => {
+                assert_eq!((window, x, y), (42, -3, 7));
+                assert_eq!(depth, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&[
+            "zoom",
+            "--window",
+            "42",
+            "--region",
+            "1,2,30,40",
+            "--out",
+            "/tmp/z.png",
+            "--pad",
+            "4",
+            "--replace",
+        ])
+        .expect("zoom")
+        {
+            Command::Zoom {
+                window,
+                region,
+                out,
+                replace,
+                pad,
+                ..
+            } => {
+                assert_eq!(window, 42);
+                assert_eq!(region, [1, 2, 30, 40]);
+                assert_eq!(out, "/tmp/z.png");
+                assert!(replace);
+                assert_eq!(pad, Some(4));
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&[
+            "snapshot",
+            "--window",
+            "42",
+            "--depth",
+            "6",
+            "--max-nodes",
+            "500",
+        ])
+        .expect("snapshot")
+        {
+            Command::Snapshot {
+                window,
+                depth,
+                max_nodes,
+                out,
+                ..
+            } => {
+                assert_eq!(window, 42);
+                assert_eq!(depth, Some(6));
+                assert_eq!(max_nodes, Some(500));
+                assert_eq!(out, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&["diff", "--window", "42", "--base", "1-2-3", "--advance"]).expect("diff") {
+            Command::Diff {
+                window,
+                base,
+                advance,
+                max,
+                ..
+            } => {
+                assert_eq!(window, 42);
+                assert_eq!(base.as_deref(), Some("1-2-3"));
+                assert!(advance);
+                assert_eq!(max, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Every one of them is a closed shape: a stray flag is a usage
+        // error, never a silently ignored argument.
+        for argv in [
+            &["raise", "--window", "1", "--force"][..],
+            &[
+                "minimize",
+                "--window",
+                "1",
+                "--expect",
+                "minimized",
+                "--now",
+            ][..],
+            &["restore", "--window", "1", "--expect", "restored", "--now"][..],
+            &[
+                "drag", "--window", "1", "--from", "1,2", "--to", "3,4", "--fast",
+            ][..],
+            &["hit", "--window", "1", "--x", "1", "--y", "2", "--deep"][..],
+            &[
+                "zoom", "--window", "1", "--region", "1,2,3,4", "--out", "z", "--crop",
+            ][..],
+            &["snapshot", "--window", "1", "--label", "x"][..],
+            &["diff", "--window", "1", "--since", "x"][..],
+        ] {
+            assert!(parse(argv).is_err(), "{argv:?} must be a usage error");
+        }
+        // A missing required value is a usage error too, and a malformed
+        // rectangle never reaches a capture.
+        for argv in [
+            &["raise"][..],
+            &["drag", "--window", "1", "--to", "3,4"][..],
+            &["drag", "--window", "1", "--from", "1,2"][..],
+            &[
+                "drag", "--window", "1", "--from", "1,2", "--to", "3,4", "--button", "back",
+            ][..],
+            &["hit", "--window", "1", "--y", "2"][..],
+            &["zoom", "--window", "1", "--region", "1,2,3", "--out", "z"][..],
+            &["zoom", "--window", "1", "--region", "1,2,3,x", "--out", "z"][..],
+            &["zoom", "--window", "1", "--region", "1,2,3,4"][..],
+        ] {
+            assert!(parse(argv).is_err(), "{argv:?} must be a usage error");
+        }
     }
 
     #[test]

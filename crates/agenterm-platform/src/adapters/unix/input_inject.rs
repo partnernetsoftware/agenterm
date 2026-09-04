@@ -31,6 +31,17 @@ pub(crate) fn pointer_click(
     })
 }
 
+pub(crate) fn pointer_drag(
+    _from: PointerPosition,
+    _to: PointerPosition,
+    _button: PointerButton,
+    _steps: u32,
+) -> Result<(), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer drag is not wired on unix".into(),
+    })
+}
+
 pub(crate) fn type_text(_text: &str) -> Result<(), InputInjectError> {
     Err(InputInjectError::Unsupported {
         reason: "input-inject not wired on unix".into(),

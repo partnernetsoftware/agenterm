@@ -580,6 +580,91 @@ as absent). Missing any -> "refused" (detail.reason destructive_gate,
 missing [...]) with nothing performed."#,
     },
     VerbSpec {
+        name: "raise",
+        command: "raise",
+        aliases: &[],
+        scope: Scope::Actuate,
+        family: Family::Windows,
+        summary: "lift one window inside its own app's z-order",
+        usage: "raise --window HANDLE",
+        args: &[WINDOW],
+        details: r#"Lifts one window in front of the other windows OF ITS OWN APPLICATION
+(macOS: AXRaise on the window element), then reads that order back. It
+does not activate the application and does not change the system
+frontmost application: the frontmost pid is read before and after and the
+reply carries both plus frontmost_app_unchanged. If it moved anyway, the
+verb fails typed "foreground_changed" rather than reporting success.
+
+raise is NOT focus. `focus` gives one accessibility NODE inside a window
+the keyboard focus and never touches stacking; `raise` moves a whole
+WINDOW in front of its siblings and never moves the accessibility focus.
+Neither is `orderwin`, which orders one window against another named
+window in the DESKTOP-wide order.
+
+Verification is the application-local stacking read-back: rank 0 of its
+app's windows. A host that reports no stacking order answers verified
+false with reason stacking_unreadable rather than letting the absence of
+a contradiction read as success; a window the order refuses to move
+fails typed "window_order_not_applied"."#,
+    },
+    VerbSpec {
+        name: "minimize",
+        command: "minimize",
+        aliases: &[],
+        scope: Scope::Actuate,
+        family: Family::Windows,
+        summary: "minimize one window through its own affordance (gated)",
+        usage: "minimize --window HANDLE --expect minimized",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--expect",
+                value: "minimized",
+                help: "checkable postcondition: the window reads back minimized",
+            },
+        ],
+        details: r#"Sends one window to the dock through the window's own minimize
+affordance (macOS: the window attribute AXMinimized set to true). Never a
+keyboard shortcut, never by activating the application; the frontmost pid
+is read before and after and reported.
+
+Gated like `close`, minus the snapshot: an exact target (--window HANDLE)
+and a checkable postcondition (--expect minimized). Missing either ->
+"refused" (detail.reason destructive_gate, missing [...]) with nothing
+performed. A window that is ALREADY minimized is a verified no-op
+(performed false, verified true, reason already_minimized) -- the same
+contract `invoke set-checked` has for a state that already holds.
+
+Read-back is the window's own minimized state, polled until it settles.
+Note for macOS: the `windows` inventory is on-screen only, so a minimized
+window LEAVES it rather than appearing with minimized true; the reply
+reports both after.minimized (the window's own state) and
+after.inventory_present so the two are never confused."#,
+    },
+    VerbSpec {
+        name: "restore",
+        command: "restore",
+        aliases: &[],
+        scope: Scope::Actuate,
+        family: Family::Windows,
+        summary: "un-minimize one window without activating its app (gated)",
+        usage: "restore --window HANDLE --expect restored",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--expect",
+                value: "restored",
+                help: "checkable postcondition: the window reads back not minimized",
+            },
+        ],
+        details: r#"Brings one minimized window back (macOS: AXMinimized set to false)
+without activating its application. Same gate as `minimize` with
+--expect restored, the same already-restored verified no-op, and the same
+minimized read-back; the window handle is stable across minimize and
+restore, so the handle `windows` gave before the minimize is the one to
+pass here."#,
+    },
+    VerbSpec {
         name: "receipts",
         command: "receipts",
         aliases: &[],
@@ -712,6 +797,46 @@ MCU). find HANDLE TEXT is query --text; read HANDLE SELECTOR is query
 --selector. MCU selectors: Role[idx] / Role@title / *@title / #desc."#,
     },
     VerbSpec {
+        name: "hit",
+        command: "hit",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::A11yObserve,
+        summary: "the a11y node under a screen point",
+        usage: "hit --window HANDLE --x X --y Y [--depth N] [--max-nodes N]",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--x",
+                value: "X",
+                help: "screen x (the space node bounds and query --within use)",
+            },
+            ArgSpec {
+                flag: "--y",
+                value: "Y",
+                help: "screen y",
+            },
+            DEPTH,
+            MAX_NODES,
+        ],
+        details: r#"Screen coordinates -> the node under them, in the same shape `query`
+returns (index, depth, id, role, name, bounds, ...), so the id goes
+straight into invoke --node / click --node. `containing` lists every node
+whose rectangle holds the point, so an ambiguous spot is visible rather
+than hidden behind the winner.
+
+Ranking: deepest wins, then smallest area, then the later position in
+walk order (a sibling drawn afterwards sits on top). A zero-area
+rectangle is never a hit. Nothing here reads or moves the pointer.
+
+The point is resolved inside the window's own bounded walk, not through
+the platform's point-to-element call (macOS
+AXUIElementCopyElementAtPosition): that call returns a live element with
+no address in the id space tree / query publish, so its answer could not
+be handed to invoke --node -- which is the whole reason to ask. A miss is
+typed "a11y_node_not_found" with the walk's visited / truncated counts."#,
+    },
+    VerbSpec {
         name: "focused",
         command: "focused",
         aliases: &[],
@@ -786,6 +911,82 @@ ValueChanged / TitleChanged / StateChanged / FocusChanged / Created /
 Destroyed with monotonic seq and t_ms; stops at --max-events (<= 5000,
 default 200) with truncated true; reports polls / emitted / filtered /
 stopped."#,
+    },
+    VerbSpec {
+        name: "snapshot",
+        command: "snapshot",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::A11yObserve,
+        summary: "name a bounded tree as a baseline for diff",
+        usage: "snapshot --window HANDLE [--depth N] [--max-nodes N] [--out PATH]",
+        args: &[
+            WINDOW,
+            DEPTH,
+            MAX_NODES,
+            ArgSpec {
+                flag: "--out",
+                value: "PATH",
+                help: "also write the baseline itself to this path",
+            },
+        ],
+        details: r#"Captures the bounded tree once and stores it as a named baseline, so
+`diff` can answer "what changed since" without the caller holding the
+tree. The reply carries snapshot_id, the node count and truncated.
+
+Baselines live beside the receipts, under the same audit directory:
+<audit dir>/cu-snapshots/<target>/w<window>/<snapshot_id>.json, so
+AGENTERM_CU_AUDIT_PATH relocates audit, receipts and baselines together.
+Each window keeps its 32 newest baselines and older ones are dropped, so
+a poll loop cannot grow the store without end."#,
+    },
+    VerbSpec {
+        name: "diff",
+        command: "diff",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::A11yObserve,
+        summary: "what changed since a snapshot baseline",
+        usage: "diff --window HANDLE [--base SNAPSHOT_ID] [--advance] [--max N]",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--base",
+                value: "SNAPSHOT_ID",
+                help: "baseline to compare against (default: the window's most recent)",
+            },
+            ArgSpec {
+                flag: "--advance",
+                value: "",
+                help: "store the walk just read as the next baseline",
+            },
+            ArgSpec {
+                flag: "--max",
+                value: "N",
+                help: "changes per bucket (default 200, at most 2000)",
+            },
+        ],
+        details: r#"Walks the window again and returns added / removed / changed nodes in
+the same shape `query` returns; a changed row carries `changed` with the
+names of the fields that differ (role, name, parent_id, states, bounds,
+actions, text, identifier). The current walk reuses the BASELINE's budget
+so a difference is a difference in the window, never a difference in how
+far each side looked.
+
+Without --base the window's most recent baseline is used and
+base_selected_by says "most-recent"; base carries the id that was used.
+--advance stores the walk it just compared as the next baseline in the
+same call, so an agent polls a window with one verb per tick and misses
+nothing between replies; next_base names the id to expect.
+
+Node ids are positional paths (/0/3/1) -- which is what makes them
+usable with invoke --node -- so inserting a sibling renumbers the ones
+after it and one real insertion can read as one added plus several
+changed. The field names say which: a renumbered node changes name /
+role, a moved one changes only bounds.
+
+Each bucket is capped at --max with truncated set; walk_truncated says
+the tree walk itself hit its budget on either side."#,
     },
     VerbSpec {
         name: "verify",
@@ -992,6 +1193,53 @@ last GetText. Never screenshot / XTest / --coords. `--` ends flag parsing."#,
 is never a positional path. `shot` is the MCU spelling."#,
     },
     VerbSpec {
+        name: "zoom",
+        command: "zoom",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::A11yObserve,
+        summary: "crop one region of a window capture to a PNG",
+        usage: "zoom --window HANDLE --region X,Y,W,H --out PATH [--replace] [--pad N]",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--region",
+                value: "X,Y,W,H",
+                help: "screen rectangle to crop (the space node bounds use)",
+            },
+            ArgSpec {
+                flag: "--out",
+                value: "PATH",
+                help: "PNG path",
+            },
+            ArgSpec {
+                flag: "--replace",
+                value: "",
+                help: "overwrite an existing file",
+            },
+            ArgSpec {
+                flag: "--pad",
+                value: "N",
+                help: "pixels of context kept around the region (default 8, at most 512)",
+            },
+        ],
+        details: r#"Crops one region out of the window's own capture, so a caller can look
+at a detail without a full-screen image. --region is in screen
+coordinates -- the same space node bounds and query --within use -- so a
+node's bounds can be passed straight in.
+
+A region that does not intersect the window is typed
+"region_outside_window" and NO file is written; a region that straddles
+an edge is clipped to the window. --pad adds context around a region that
+already intersects; it never rescues one that misses.
+
+The crop is a clip of the window capture, never a screen grab: the reply
+reports the capture size and the point -> pixel scale it applied (a
+Retina window is captured at 2x, and the region is scaled into that
+space). Still the last resort, like `screenshot`: the a11y verbs are the
+primary observation."#,
+    },
+    VerbSpec {
         name: "pointer-position",
         command: "pointer-position",
         aliases: &["cursor"],
@@ -1134,6 +1382,61 @@ rclick ...                                          (alias of click --button rig
         details: r#"--name reuses wait NodeNameContains matching, then the --node AT-SPI path.
 `dclick` is click --clicks 2 and `rclick` is click --button right (MCU
 spellings)."#,
+    },
+    VerbSpec {
+        name: "drag",
+        command: "drag",
+        aliases: &[],
+        scope: Scope::Actuate,
+        family: Family::A11yActuate,
+        summary: "press, move, release as one gesture (--degraded)",
+        usage: "drag --window HANDLE --from X,Y --to X,Y [--button left|right|middle] [--steps N] [--degraded]",
+        args: &[
+            WINDOW,
+            ArgSpec {
+                flag: "--from",
+                value: "X,Y",
+                help: "screen point of the press; must be inside the window",
+            },
+            ArgSpec {
+                flag: "--to",
+                value: "X,Y",
+                help: "screen point of the release",
+            },
+            ArgSpec {
+                flag: "--button",
+                value: "left|right|middle",
+                help: "pointer button (default left)",
+            },
+            ArgSpec {
+                flag: "--steps",
+                value: "N",
+                help: "intermediate moves between press and release (default 12, at most 64)",
+            },
+            ArgSpec {
+                flag: "--degraded",
+                value: "",
+                help: "admit the path that moves the user's real pointer",
+            },
+        ],
+        details: r#"One press, a bounded series of moves and one release, delivered as one
+gesture. There is no semantic a11y path for a drag, so this is the
+pointer, and the reply always says WHICH path ran (`path`) plus whether a
+window-local one existed (window_local_available).
+
+macOS has no window-local pointer injection at all: mouse events posted
+to a pid arrive with no window for AppKit to route them through, so the
+only working path is the global one that MOVES THE USER'S REAL CURSOR.
+That makes --degraded a required opt-in there, exactly as for
+click --coords; without it the verb refuses and names the path it would
+have taken. Nothing is injected before that refusal.
+
+--from must be inside the window (else typed "drag_outside_window",
+nothing performed); --to may leave it, and to_inside_window says so. The
+read-back is where the pointer ended up: the release happened at --to, so
+pointer_after must equal it, and the receipt records pointer_before and
+pointer_after either way. tree_changed reports whether the window's tree
+moved, as supporting evidence."#,
     },
     VerbSpec {
         name: "focus",
@@ -2464,9 +2767,18 @@ mod tests {
             "page-fill",
             "page-nav",
             "app",
+            "raise",
+            "minimize",
+            "restore",
+            "drag",
         ] {
             assert!(actuate.contains(expected), "{expected} must be actuate");
         }
-        assert_eq!(actuate.len(), 25, "{actuate:?}");
+        // The four observers added with them stay observe: reading a tree,
+        // a baseline, a point or a crop actuates nothing.
+        for expected in ["hit", "zoom", "snapshot", "diff"] {
+            assert!(!actuate.contains(expected), "{expected} must be observe");
+        }
+        assert_eq!(actuate.len(), 29, "{actuate:?}");
     }
 }

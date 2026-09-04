@@ -111,8 +111,8 @@ use agenterm_platform::input::{
     KeyPressState, LogicalKey, ModifierState, NamedKey, NormalizedKeyEvent, PhysicalKeyCode,
 };
 use agenterm_platform::input_inject::{
-    PointerButton as InjectPointerButton, PointerPosition, pointer_click, pointer_move,
-    pointer_position, send_keys, type_text,
+    MAX_POINTER_DRAG_STEPS, PointerButton as InjectPointerButton, PointerPosition, pointer_click,
+    pointer_drag, pointer_move, pointer_position, send_keys, type_text,
 };
 use agenterm_platform::parent_console::{write_stderr, write_stdout};
 use agenterm_platform::process::{kill, list};
@@ -139,7 +139,8 @@ use agenterm_platform::window_host::{
     run_pixel_window,
 };
 use agenterm_platform::window_op::{
-    WindowShowState, close, move_window, set_topmost, show, window_rect,
+    WindowShowState, close, minimized as window_minimized, move_window, set_topmost, show,
+    window_rect,
 };
 
 // §3.8 panic fence: building this crate under an abort profile would neuter
@@ -297,7 +298,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 24);
+abi_version!(1, 25);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -5929,16 +5930,6 @@ fn window_info_to_record(info: &WindowInfo) -> agt_window_info {
     }
 }
 
-/// Enumerate visible top-level windows into a caller-allocated array
-/// (two-stage, §3.4, identical semantics to `agt_process_list`):
-/// - `cap` sufficient → `AGT_OK`, `*out_count` = records actually written.
-/// - `cap` insufficient (including `cap == 0` with `buf == NULL`, the legal
-///   "how big?" probe) → `AGT_FAILED { code = "buffer_too_small" }`,
-///   `*out_count` = required count.
-/// - NULL `out_count` (or NULL `buf` with `cap > 0`) →
-///   `AGT_FAILED { code = "bad_pointer" }`.
-/// - mechanism absent on this host → `AGT_UNSUPPORTED`.
-/// - platform failure → `AGT_FAILED { code = "window_failed" }`.
 /// One window's place in the desktop's front-to-back order (ABI 1.17).
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -6172,6 +6163,16 @@ pub extern "C" fn agt_window_stacking_list(
     }
 }
 
+/// Enumerate visible top-level windows into a caller-allocated array
+/// (two-stage, §3.4, identical semantics to `agt_process_list`):
+/// - `cap` sufficient → `AGT_OK`, `*out_count` = records actually written.
+/// - `cap` insufficient (including `cap == 0` with `buf == NULL`, the legal
+///   "how big?" probe) → `AGT_FAILED { code = "buffer_too_small" }`,
+///   `*out_count` = required count.
+/// - NULL `out_count` (or NULL `buf` with `cap > 0`) →
+///   `AGT_FAILED { code = "bad_pointer" }`.
+/// - mechanism absent on this host → `AGT_UNSUPPORTED`.
+/// - platform failure → `AGT_FAILED { code = "window_failed" }`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_window_enumerate(
@@ -6776,6 +6777,68 @@ pub extern "C" fn agt_native_window_close(handle: isize) -> agt_status {
     }
 }
 
+/// ABI 1.25: read whether a native window is minimized. `handle == 0` →
+/// `AGT_FAILED{code="bad_handle"}`; `out_minimized == NULL` →
+/// `AGT_FAILED{code="bad_pointer"}` (both validated before any platform
+/// call); mechanism absent → `AGT_UNSUPPORTED`; platform failure →
+/// `AGT_FAILED{code="window_op_failed"}`. Writes 0 or 1.
+///
+/// A window that cannot answer (no `AXMinimized` on macOS, no wired read on
+/// this host) is `AGT_UNSUPPORTED`, never `0`: "unknown" and "not
+/// minimized" are different claims and a caller polling a restore must not
+/// confuse them.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_native_window_minimized(
+    handle: isize,
+    out_minimized: *mut i32,
+) -> agt_status {
+    fn inner(handle: isize, out_minimized: *mut i32) -> agt_status {
+        if native_handle_error(c"agt_native_window_minimized", handle) {
+            return agt_status::AGT_FAILED;
+        }
+        if out_minimized.is_null() {
+            record_error(
+                c"agt_native_window_minimized",
+                c"bad_pointer",
+                "out_minimized is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if !window_op_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        match window_minimized(handle) {
+            Ok(value) => {
+                unsafe { *out_minimized = i32::from(value) };
+                agt_status::AGT_OK
+            }
+            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(e) => {
+                record_error(
+                    c"agt_native_window_minimized",
+                    c"window_op_failed",
+                    format!("{e:?}"),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(handle, out_minimized))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_native_window_minimized",
+                c"panic",
+                "panic in agt_native_window_minimized",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
 /// Read the pointer's current absolute screen coordinates without injecting
 /// input. Both output pointers are required and validated before the platform
 /// query.
@@ -6917,6 +6980,75 @@ pub extern "C" fn agt_input_pointer_click(x: i32, y: i32, button: i32, clicks: u
     }
 }
 
+/// ABI 1.25: drag a pointer button — press at `(x0, y0)`, deliver `steps`
+/// intermediate drag moves toward `(x1, y1)`, release at `(x1, y1)`. An
+/// invalid `button` → `AGT_FAILED{code="bad_button"}`; `steps` outside
+/// `1..=64` → `AGT_FAILED{code="bad_steps"}` (both validated before any
+/// platform call, so an invalid request never touches the pointer);
+/// mechanism absent → `AGT_UNSUPPORTED`; platform failure →
+/// `AGT_FAILED{code="input_failed"}`.
+///
+/// On macOS this necessarily moves the real cursor: there is no
+/// window-local pointer injection (see the module doc of the macOS
+/// `input_inject` adapter).
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_input_pointer_drag(
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    button: i32,
+    steps: u32,
+) -> agt_status {
+    fn inner(x0: i32, y0: i32, x1: i32, y1: i32, button: i32, steps: u32) -> agt_status {
+        let Some(button) = pointer_button_from_i32(button) else {
+            record_error(
+                c"agt_input_pointer_drag",
+                c"bad_button",
+                "button is not 0 (Left)..=2 (Middle)",
+            );
+            return agt_status::AGT_FAILED;
+        };
+        if steps == 0 || steps > MAX_POINTER_DRAG_STEPS {
+            record_error(
+                c"agt_input_pointer_drag",
+                c"bad_steps",
+                format!("steps must be 1..={MAX_POINTER_DRAG_STEPS}, got {steps}"),
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if !input_inject_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        match pointer_drag(
+            PointerPosition { x: x0, y: y0 },
+            PointerPosition { x: x1, y: y1 },
+            button,
+            steps,
+        ) {
+            Ok(_) => agt_status::AGT_OK,
+            Err(agenterm_platform::input_inject::InputInjectError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(e) => {
+                record_error(c"agt_input_pointer_drag", c"input_failed", format!("{e:?}"));
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(x0, y0, x1, y1, button, steps))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_input_pointer_drag",
+                c"panic",
+                "panic in agt_input_pointer_drag",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
 /// Type UTF-8 text into the focused control via Unicode key events.
 /// `text == NULL`, or a slice that is not valid UTF-8 →
 /// `AGT_FAILED{code="bad_text"}`; mechanism absent → `AGT_UNSUPPORTED`;
@@ -7026,6 +7158,46 @@ pub extern "C" fn agt_input_send_keys(shortcut: *const u8, len: usize) -> agt_st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both `pointer_drag` rejections happen before the platform call, so
+    /// this runs on a live desktop without dragging the real pointer: a
+    /// regression that moved either check after the injection would be felt
+    /// as the test machine's cursor jumping, not merely as a red assert.
+    #[test]
+    fn pointer_drag_rejects_bad_button_and_bad_step_count_before_injecting() {
+        assert_eq!(
+            agt_input_pointer_drag(0, 0, 10, 10, 3, 4),
+            agt_status::AGT_FAILED
+        );
+        assert_eq!(
+            agt_input_pointer_drag(0, 0, 10, 10, -1, 4),
+            agt_status::AGT_FAILED
+        );
+        assert_eq!(
+            agt_input_pointer_drag(0, 0, 10, 10, 0, 0),
+            agt_status::AGT_FAILED
+        );
+        assert_eq!(
+            agt_input_pointer_drag(0, 0, 10, 10, 0, MAX_POINTER_DRAG_STEPS + 1),
+            agt_status::AGT_FAILED
+        );
+    }
+
+    /// A zero handle and a null out pointer are both refused before the
+    /// platform read, and neither writes through the pointer.
+    #[test]
+    fn native_window_minimized_rejects_bad_handle_and_null_output() {
+        let mut out = -7;
+        assert_eq!(
+            agt_native_window_minimized(0, &mut out),
+            agt_status::AGT_FAILED
+        );
+        assert_eq!(out, -7, "a refused call must not write the output");
+        assert_eq!(
+            agt_native_window_minimized(1, std::ptr::null_mut()),
+            agt_status::AGT_FAILED
+        );
+    }
 
     #[test]
     fn pointer_position_rejects_each_null_output_before_platform_query() {
