@@ -198,6 +198,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   composition mechanism for probes, but do not count as ACU reachability until
   the public facade exists. Native system inventory remains platform-owned;
   socket rows must bind process start identity rather than a reusable PID.
+- [~] Device/audio replacement is classified across peripheral inventory and
+  events, exclusive TTL claims, byte I/O, serial configuration and default
+  output state. Device paths are locators rather than durable identity;
+  mutations require a live lease or plan, target revalidation, bounded I/O and
+  independently read-back post-state. Backend gaps remain platform-limited.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

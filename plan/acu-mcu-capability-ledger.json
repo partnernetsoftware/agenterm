@@ -622,10 +622,68 @@
           "note": "qjswasm already carries generic TCP APIs, but a caller cannot yet reach this MCU-shaped probe through the ACU public entry."
         }
       ]
+    },
+    "device-audio": {
+      "accounting": "complete",
+      "owner": "agenterm-platform device and audio adapters, ACU lease/transaction facade",
+      "capabilities": [
+        {
+          "id": "device.inventory",
+          "mcu_shape": "device list --type usb|bluetooth|audio|camera|gpu|all --max N",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "bounded cross-platform peripheral inventory with stable device identity and preserved provider-specific properties"
+        },
+        {
+          "id": "device.watch",
+          "mcu_shape": "device watch with type, duration, interval, inventory and event ceilings",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "native notifications where reliable and explicit poll-diff otherwise; report provider truncation separately from event truncation"
+        },
+        {
+          "id": "device.claim.lifecycle",
+          "mcu_shape": "device claims|claim|renew|release with exclusive TTL secret lease",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "character-device-gap", "linux": "character-device-gap", "windows": "device-path-contract-pending"},
+          "next": "shared control-session lease plus platform-specific exclusive-open identity; never accept a path as proof of the same device after reconnect"
+        },
+        {
+          "id": "device.byte-io",
+          "mcu_shape": "device read|write with bounded hex bytes under a live lease",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "binary-safe bounded reads/writes tied to exact device and lease identity, with partial-I/O receipts"
+        },
+        {
+          "id": "device.serial-config",
+          "mcu_shape": "device claim with baud/data-bits/parity/stop-bits/flow and readback",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
+          "next": "portable serial vocabulary mapped by native adapters, with unsupported combinations rejected before opening"
+        },
+        {
+          "id": "audio.default-output.observe",
+          "mcu_shape": "audio status with default output identity, volume and muted state",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "backend-dependent", "windows": "gap"},
+          "next": "typed default-output facade with truthful backend availability and stable device identity"
+        },
+        {
+          "id": "audio.default-output.mutate",
+          "mcu_shape": "audio plan volume|muted then apply request+digest, exact before/after readback and rollback request",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "backend-dependent", "windows": "gap"},
+          "next": "plan/apply transaction over the platform audio facade with target revalidation, post-state and rollback receipt"
+        }
+      ]
     }
   },
   "remaining_families": [
-    "device-audio",
     "service-daemon-session-lock-audit",
     "setup-doctor-permissions",
     "privilege",
