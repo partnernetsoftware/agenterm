@@ -94,14 +94,14 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   accounting dimension: `page`, `browser`, `process`, `resource`, `file` and
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
-- The transitional `acu.ts` adapter currently keeps **41 top-level spellings**
-  on MCU. Its 84-name pass-through set is not a parity count: it mixes MCU
-  spellings, ACU-native spellings and group aliases. The adapter's 40 green
+- The transitional `acu.ts` adapter now keeps **33 top-level spellings** on
+  MCU. Its 92-name pass-through set is not a parity count: it mixes MCU
+  spellings, ACU-native spellings and group aliases. The adapter's 42 green
   tests prove lossless argv routing and honest refusal only; they do not prove
-  that any kept workflow has an ACU mechanism.
-- The 41 current stays split into four implementation queues:
-  - desktop closure: `drag`, `hit`, `zoom`, `snapshot`, `diff`, `raise`,
-    `minimize`, `restore`, `focus` and the diagnostic `ghost` overlay;
+  native post-state or platform parity.
+- The 33 current stays split into four implementation queues:
+  - desktop closure: window activation (`focus`) and the diagnostic `ghost`
+    overlay;
   - process/runtime: `exec`, `ps`, `process`, `job`, `pty`, `term`, `signal`,
     `kill`, `service`, `daemon`, `session`, `lock` and `audit`;
   - machine/system: `setup`, `doctor`, `permissions`, `caps`, `state`, `open`,
@@ -115,14 +115,18 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   privilege, runtime, desktop-helper and simulator are currently mostly typed
   refusals. Under this goal those declarations are **gaps to close through
   facades**, not permanent ownership exclusions.
-- An in-flight desktop slice is converting `drag`, `hit`, `zoom`, `snapshot`,
-  `diff`, `raise`, `minimize` and `restore` from typed-only declarations into
-  live commands. They remain unproved until their owning tests and native
-  journeys pass on the integrated source state.
-- The MCU-shaped `acu.ts` adapter still says it is not a 79-verb replacement.
-  That sentence describes the transitional adapter, not the product goal. The
-  adapter must eventually report the state contract above instead of one flat
-  `STAY` set.
+- The first desktop closure implementation is integrated. MCU-shaped
+  `raise`/`minimize`/`restore`/`hit`/`snapshot`/`diff` now rewrite to ACU, and
+  ACU-native `drag`/`zoom` are reachable through the compatibility entry.
+  MCU-shaped `drag` remains a gap because it promises background-local input
+  while the current ACU path requires explicit degraded global-pointer
+  admission; MCU-shaped `zoom` remains a gap because its window-local corner
+  coordinates and percentage padding are not the same contract as ACU's
+  screen rectangle and pixel padding. Both fail typed instead of silently
+  changing behavior.
+- The compatibility adapter now states the complete replacement goal and
+  labels every `stay` as a migration gap. The flat set is still transitional;
+  R0 replaces it with the machine-readable state ledger.
 - Existing adapter tests prove only honest argv rewriting. They do not prove
   the target ACU mechanism, post-state, cleanup, platform parity or MCU
   independence; those belong to R1-R6.
