@@ -248,6 +248,7 @@ const evidence_suites = {
   "control-center-macos-smoke": true,
   "cu-windows-smoke": true,
   "cu-macos-smoke": true,
+  "cu-macos-save-panel-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,

@@ -107,6 +107,32 @@
       ]
     },
     {
+      "id": "computer-use.macos-native-save-panel",
+      "kind": "behavior",
+      "status": "shipped",
+      "evidence_mode": "black-box",
+      "prd": "Native browser Save Panel handling is a separate P0",
+      "evidence_ids": [
+        "cu.macos-save-panel-tree",
+        "cu.macos-save-panel-cancel",
+        "cu.macos-save-panel-save",
+        "cu.macos-save-panel-cleanup"
+      ]
+    },
+    {
+      "id": "computer-use.native-nondesktop",
+      "kind": "behavior",
+      "status": "partial",
+      "evidence_mode": "black-box-partial",
+      "prd": "Non-desktop facade tranche has started",
+      "evidence_ids": [
+        "cu.macos-network-probe",
+        "cu.macos-terminal-control",
+        "cu.windows-network-probe",
+        "cu.windows-terminal-control"
+      ]
+    },
+    {
       "id": "control-center.native-projection",
       "kind": "behavior",
       "status": "partial",

@@ -441,9 +441,11 @@
         {
           "id": "browser.native-save-panel",
           "mcu_shape": "macOS NSOpenPanel/NSSavePanel semantic discovery and operation",
-          "acu_shape": "exact CGWindowID now resolves through bounded AXWindow/AXSheet descendants; unified download panel state and verified Save/Cancel are not yet shipped",
-          "state": "gap",
-          "next": "add a platform-owned save-panel provider and unified CDP/native signal reducer; prove sheet, separate dialog, different owner, off-Space, cancel and save with a non-sensitive fixture"
+          "acu_shape": "exact CGWindowID resolves through bounded AXWindow/AXSheet descendants; semantic Cancel and Save have exact disappearance receipts",
+          "state": "native",
+          "evidence": ["scripts/qjs/cu-macos-save-panel-smoke.qjs"],
+          "next": "add the unified CDP/native download-state reducer and extend the controlled court to a separate dialog, different owner and off-Space panel",
+          "note": "The owned Cocoa court proves an AXSheet filename, location, Cancel and Save without coordinates or activation. Cancel creates no file; Save creates one bounded ordinary file; both require performed=true, verified=true and exact handle disappearance, and every fixture is reaped. This closes native panel semantics, not the future reducer that arbitrates CDP download events against native panels."
         }
       ]
     },

@@ -243,7 +243,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   never a fabricated success. The non-sensitive Blob court owns the first
   public black-box evidence; real one-time credential downloads are excluded
   until that gate is green.
-- [~] Native browser Save Panel handling is a separate P0 from direct CDP
+- [x] Native browser Save Panel handling is a separate P0 from direct CDP
   download. A real macOS incident proved that `windows` could observe a Brave
   `保存` panel by CGWindowID while `unlock`, targeted `send-keys`, and
   `activate` all reported no AX window; untargeted key injection then claimed
@@ -253,7 +253,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `AXSheet` descendants and off-Space windows are not rejected merely for
   missing the on-screen/root lists. An existing-but-unmatched handle is now
   typed `a11y_window_not_addressable`, distinct from a vanished window.
-  Remaining product gate: one unified download reducer must interleave CDP
+  The semantic panel leaf is now live. A separate planned unified download
+  reducer must interleave CDP
   progress with bounded native panel observation, expose
   `waiting_for_save_panel | downloading | completed | canceled | blocked |
   timeout`, and permit Save/Cancel only under explicit actuation with semantic
@@ -261,14 +262,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   live credential panel is never the test fixture.
   Live evidence then closed the first read/action loop: the mapped sheet
   exposed 12 nodes, including identifier `save-panel`, a filename field, a
-  location pop-up and unique Cancel/OK buttons; semantic Cancel removed the
-  exact panel and created no file. That run also found and fixed an effect
+  location pop-up and unique Cancel/OK buttons. The controlled
+  `cu-macos-save-panel-smoke` court now proves both actions: semantic Cancel
+  removes the exact panel and creates no file; semantic Save removes the exact
+  panel and creates one bounded ordinary file. Both receipts require
+  `performed=true`, `verified=true`, before-present/after-absent inventory, and
+  orphan-free fixture cleanup. That court also found and fixed an effect
   receipt false negative: a successful Press invalidated the sheet before the
   generic post-action tree read. Invoke now treats exact before-present /
   after-absent inventory evidence as verified only for a mechanism-successful
   Press/Cancel. It cannot excuse another action or a surviving/unreadable
-  window. The controlled fixture remains required before this leaf becomes
-  shipped.
+  window. The fixture reads no saved content and prints no path or secret.
   Untargeted `send-keys` was the inverse failure in the same incident: the OS
   injection API accepted Escape while the panel stayed open. That compatibility
   path now states `performed=true`, `verified=false`, `delivered=false`, with

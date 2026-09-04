@@ -76,6 +76,16 @@
         "cu.macos-terminal-control",
         "cu.macos-ax-fixture-cleanup"
       ]
+    },
+    {
+      "id": "cu-macos-save-panel-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.macos-save-panel-tree",
+        "cu.macos-save-panel-cancel",
+        "cu.macos-save-panel-save",
+        "cu.macos-save-panel-cleanup"
+      ]
     }
   ]
 }

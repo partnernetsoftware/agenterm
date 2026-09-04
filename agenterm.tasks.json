@@ -579,6 +579,25 @@
         "task.cu-macos-web-smoke"
       ]
     },
+    "cu-macos-save-panel-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-macos-save-panel-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-save-panel-smoke"
+      ]
+    },
     "cu-macos-smoke": {
       "inputs": [
         "built-agenterm",
@@ -2243,6 +2262,26 @@
       "id": "cu-macos-web-smoke",
       "description": "Prove agenterm-cu drives real web content through macOS AX: a WKWebView fixture loaded hermetically, its WebArea tree read under a budget, the unlock poke that makes an unresponsive web process publish its tree, a positive scroll that moves a link into view, and web invoke press / set-value where a write to an unfocused field fails closed rather than reporting success; owned fixture cleanup.",
       "entry": "scripts/qjs/cu-macos-web-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-save-panel-smoke",
+      "description": "Prove exact macOS NSSavePanel discovery and semantic Cancel/Save against an owned harmless fixture: the AX sheet and controls are addressed without coordinates or activation, exact window disappearance verifies each action, Cancel writes nothing, Save writes one bounded ordinary file, and cleanup leaves no process or window behind.",
+      "entry": "scripts/qjs/cu-macos-save-panel-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

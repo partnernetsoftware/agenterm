@@ -1,0 +1,334 @@
+// Controlled, non-sensitive macOS NSSavePanel court.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// The owned Cocoa fixture opens one sheet per process. The court first
+// cancels a panel and proves that its exact CGWindow handle vanished without
+// a file, then opens a second fixture, invokes Save, and proves that the
+// fixture published one bounded ordinary file. No coordinate input,
+// AppleScript, foreground activation, or file-content output is used.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.macos-save-panel-tree",
+  "cu.macos-save-panel-cancel",
+  "cu.macos-save-panel-save",
+  "cu.macos-save-panel-cleanup"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
+}
+
+function cu_env(run_directory) {
+  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+}
+
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable,
+    arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_macos_save_panel_empty_reply:" + output.stderr);
+  // The public agenterm-cu contract is its typed JSON reply. The native CLI
+  // deliberately exits zero after printing both accepted and refused replies;
+  // journeys must not substitute process status for `ok`.
+  return JSON.parse(trimmed);
+}
+
+function run_cu_ok(run_directory, executable, arguments) {
+  const reply = run_cu_reply(run_directory, executable, arguments);
+  ensure(flag_at(reply, "ok"), "cu_macos_save_panel_cli:" + JSON.stringify(reply));
+  return reply;
+}
+
+function compile_fixture(run_directory, repo) {
+  const source = rh.join(repo, "examples/objc/agenterm_save_panel_fixture.m");
+  ensure(direct_file(source), "cu_macos_save_panel_fixture_source_missing");
+  const output = rh.join(run_directory, "agenterm_save_panel_fixture");
+  const compiled = rh.command(
+    "clang",
+    [
+      "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+      source, "-o", output
+    ],
+    { cwd: repo, timeout_ms: 60000 }
+  );
+  ensure(
+    compiled.success === true && direct_file(output),
+    "cu_macos_save_panel_fixture_compile:" + compiled.stdout + compiled.stderr
+  );
+  return output;
+}
+
+function start_fixture(context, fixture, directory, filename, label) {
+  return harness.start_child(context, {
+    program: fixture,
+    args: ["--save-panel", directory, filename],
+    current_dir: context.run_directory,
+    timeout_ms: 30000
+  }, label);
+}
+
+function panel_row(run_directory, executable, pid, owner_title) {
+  const inventory = run_cu_ok(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
+  ]);
+  let panel = null;
+  let candidates = 0;
+  for (const row of inventory.data.windows) {
+    if (int_at(row, "process_id") === pid && text_at(row, "title") !== owner_title) {
+      panel = row;
+      candidates = candidates + 1;
+    }
+  }
+  if (candidates !== 1) { return null; }
+  return panel;
+}
+
+function wait_panel(run_directory, executable, pid) {
+  const owner_title = "agenterm-save-panel-owner-" + pid;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const row = panel_row(run_directory, executable, pid, owner_title);
+    if (row !== null) { return row; }
+    harness.sleep_ms(25);
+  }
+  throw "cu_macos_save_panel_window_timeout:" + pid;
+}
+
+function handle_present(run_directory, executable, pid, handle) {
+  const inventory = run_cu_ok(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
+  ]);
+  for (const row of inventory.data.windows) {
+    if (int_at(row, "handle") === handle) { return true; }
+  }
+  return false;
+}
+
+function wait_handle_gone(run_directory, executable, pid, handle) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (!handle_present(run_directory, executable, pid, handle)) { return; }
+    harness.sleep_ms(25);
+  }
+  throw "cu_macos_save_panel_handle_lingered:" + handle;
+}
+
+function inspect_panel(run_directory, executable, handle, filename, directory_name) {
+  const tree = run_cu_ok(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "tree",
+    "--window", "" + handle, "--depth", "8", "--max-nodes", "500", "--flat"
+  ]);
+  ensure(
+    text_at(tree, "data.backend") === "ax"
+      && !flag_at(tree, "data.degraded")
+      && !flag_at(tree, "data.truncated")
+      && int_at(tree, "data.window") === handle
+      && text_at(tree.data.nodes[0], "role") === "sheet"
+      && text_at(tree.data.nodes[0], "identifier") === "save-panel",
+    "cu_macos_save_panel_tree_root:" + JSON.stringify(tree.data)
+  );
+  let name_fields = 0;
+  let locations = 0;
+  let cancels = 0;
+  let saves = 0;
+  for (const node of tree.data.nodes) {
+    const identifier = text_at(node, "identifier");
+    if (identifier === "saveAsNameTextField") {
+      name_fields = name_fields + 1;
+      ensure(text_at(node, "role") === "text-field", "cu_macos_save_panel_name_role");
+      ensure(text_at(node, "text") === filename, "cu_macos_save_panel_name:" + JSON.stringify(node));
+    }
+    if (identifier === "where popup") {
+      locations = locations + 1;
+      ensure(
+        text_at(node, "role") === "pop-up-button"
+          && text_at(node, "text") === directory_name,
+        "cu_macos_save_panel_location:" + JSON.stringify(node)
+      );
+    }
+    if (identifier === "CancelButton") {
+      cancels = cancels + 1;
+      ensure(
+        text_at(node, "role") === "button" && rh.has_item(node.actions, "click"),
+        "cu_macos_save_panel_cancel_node:" + JSON.stringify(node)
+      );
+    }
+    if (identifier === "OKButton") {
+      saves = saves + 1;
+      ensure(
+        text_at(node, "role") === "button" && rh.has_item(node.actions, "click"),
+        "cu_macos_save_panel_save_node:" + JSON.stringify(node)
+      );
+    }
+  }
+  ensure(
+    name_fields === 1 && locations === 1 && cancels === 1 && saves === 1,
+    "cu_macos_save_panel_controls:" + JSON.stringify(tree.data.nodes)
+  );
+}
+
+function invoke_panel(run_directory, executable, handle, identifier) {
+  const reply = run_cu_ok(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "invoke",
+    "--window", "" + handle, "--identifier", identifier, "press"
+  ]);
+  ensure(
+    text_at(reply, "data.addressing") === "accessibility-tree"
+      && text_at(reply, "data.backend") === "ax"
+      && flag_at(reply, "data.performed")
+      && flag_at(reply, "data.verified")
+      && text_at(reply, "data.verification.method") === "window-disappeared"
+      && flag_at(reply, "data.verification.before_inventory_present")
+      && flag_at(reply, "data.verification.after_inventory_absent"),
+    "cu_macos_save_panel_invoke_receipt:" + JSON.stringify(reply)
+  );
+  print(
+    "RECEIPT " + identifier
+      + " ok=true performed=true verified=true"
+      + " method=window-disappeared after_inventory_absent=true"
+  );
+}
+
+function terminate_fixture(child) {
+  if (harness.child_state(child) === "running") {
+    const terminated = rh.command("kill", ["-TERM", "" + child.pid], { timeout_ms: 5000 });
+    ensure(terminated.success === true, "cu_macos_save_panel_fixture_term:" + terminated.stderr);
+  }
+  const output = harness.child_wait(child, 3000);
+  ensure(output.success === true && output.exit_code === 0, "cu_macos_save_panel_fixture_exit");
+  ensure(harness.process_present(child.pid) === 0, "cu_macos_save_panel_fixture_orphan:" + child.pid);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_macos_save_panel_executable_missing");
+
+const context = harness.new_context(repo, "cu-macos-save-panel");
+const run_directory = rh.join(repo, "target/cu-macos-save-panel-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_macos_save_panel_stale_directory_locked");
+rh.create_dir_all(run_directory);
+const cancel_directory = rh.join(run_directory, "cancel-output");
+const save_directory = rh.join(run_directory, "save-output");
+rh.create_dir_all(cancel_directory);
+rh.create_dir_all(save_directory);
+const cancel_name = "cancel-smoke";
+const save_name = "saved-smoke";
+const cancel_path = rh.join(cancel_directory, cancel_name);
+const save_path = rh.join(save_directory, save_name);
+const fixture = compile_fixture(run_directory, repo);
+const children = [];
+let succeeded = false;
+let failure = "";
+
+try {
+  print("STEP cancel one exact owned NSSavePanel and prove no file appeared");
+  const cancel_child = start_fixture(
+    context, fixture, cancel_directory, cancel_name, "cancel-panel"
+  );
+  children.push(cancel_child);
+  const cancel_row = wait_panel(run_directory, executable, cancel_child.pid);
+  const cancel_handle = int_at(cancel_row, "handle");
+  inspect_panel(run_directory, executable, cancel_handle, cancel_name, "cancel-output");
+  invoke_panel(run_directory, executable, cancel_handle, "CancelButton");
+  wait_handle_gone(run_directory, executable, cancel_child.pid, cancel_handle);
+  ensure(!rh.exists(cancel_path), "cu_macos_save_panel_cancel_created_file");
+  terminate_fixture(cancel_child);
+
+  print("STEP save one exact owned NSSavePanel and prove a bounded ordinary file appeared");
+  const save_child = start_fixture(
+    context, fixture, save_directory, save_name, "save-panel"
+  );
+  children.push(save_child);
+  const save_row = wait_panel(run_directory, executable, save_child.pid);
+  const save_handle = int_at(save_row, "handle");
+  inspect_panel(run_directory, executable, save_handle, save_name, "save-output");
+  invoke_panel(run_directory, executable, save_handle, "OKButton");
+  wait_handle_gone(run_directory, executable, save_child.pid, save_handle);
+  for (let attempt = 0; attempt < 200 && !direct_file(save_path); attempt = attempt + 1) {
+    harness.sleep_ms(25);
+  }
+  ensure(direct_file(save_path), "cu_macos_save_panel_save_missing_file");
+  const metadata = rh.symlink_metadata(save_path);
+  ensure(
+    rh.int_of(metadata.len) > 0 && rh.int_of(metadata.len) <= 4096,
+    "cu_macos_save_panel_save_size:" + text_of(metadata.len)
+  );
+  terminate_fixture(save_child);
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+for (const child of children) {
+  if (!child.waited) {
+    try {
+      if (harness.child_state(child) === "running") { harness.child_kill(child); }
+      harness.child_wait(child, 3000);
+    } catch (cleanup_error) {
+      failure = failure + ":cu_macos_save_panel_cleanup_unreaped:" + child.pid;
+      succeeded = false;
+    }
+  }
+  if (harness.process_present(child.pid) !== 0) {
+    failure = failure + ":cu_macos_save_panel_cleanup_orphan:" + child.pid;
+    succeeded = false;
+  }
+}
+
+if (!succeeded) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_macos_save_panel_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_macos_save_panel_cleanup_locked");
+harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-tree");
+harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-cancel");
+harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-save");
+harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-cleanup");
+harness.complete_children(context, children, true, "");
+print("PASS: macOS Save Panel tree, Cancel, Save, receipts and owned cleanup");

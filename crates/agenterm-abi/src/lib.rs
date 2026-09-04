@@ -3263,6 +3263,7 @@ fn map_a11y_error(operation: &'static CStr, error: AccessibilityTreeError) -> ag
                 "a11y_string_limit" => c"a11y_string_limit",
                 "a11y_node_id_limit" => c"a11y_node_id_limit",
                 "a11y_window_gone" => c"a11y_window_gone",
+                "a11y_window_not_addressable" => c"a11y_window_not_addressable",
                 "a11y_node_recycled" => c"a11y_node_recycled",
                 "invalid_input" => c"invalid_input",
                 "a11y_backend_failed" => c"a11y_backend_failed",
@@ -7201,6 +7202,28 @@ pub extern "C" fn agt_input_send_keys(shortcut: *const u8, len: usize) -> agt_st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inaccessible_window_code_survives_the_abi_boundary() {
+        let status = map_a11y_error(
+            c"test_a11y_window_mapping",
+            AccessibilityTreeError::Failed {
+                code: "a11y_window_not_addressable".into(),
+                message: "owned panel disappeared after its action".into(),
+            },
+        );
+        assert_eq!(status, agt_status::AGT_FAILED);
+        let mut error = agt_error {
+            operation: std::ptr::null(),
+            code: std::ptr::null(),
+            message: std::ptr::null(),
+        };
+        assert_eq!(agt_last_error(&mut error), agt_status::AGT_OK);
+        assert_eq!(
+            unsafe { CStr::from_ptr(error.code) },
+            c"a11y_window_not_addressable"
+        );
+    }
 
     /// Both `pointer_drag` rejections happen before the platform call, so
     /// this runs on a live desktop without dragging the real pointer: a

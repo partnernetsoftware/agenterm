@@ -2310,6 +2310,10 @@ what each action means. Keep these recurring rules together:
 - The ABI must not embed a placement catalog, Quit policy or other product
   semantics. It transports opaque numeric action IDs; `agenterm-cu` assigns
   their meaning.
+- Preserve every platform typed-error code across the ABI. Post-action
+  verification may intentionally distinguish an inaccessible/disappeared
+  window from a generic backend failure; collapsing that code can turn a
+  successful destructive or dismissive action into a false-negative receipt.
 - Give every menu, global-shortcut and native callback one product-owned
   `action_id -> Command -> Executor` function. Black-box self-test should call
   that exact function with insufficient authority and require a typed refusal:
