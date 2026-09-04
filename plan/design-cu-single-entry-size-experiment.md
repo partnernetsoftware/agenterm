@@ -173,3 +173,20 @@ metadata growth from Rust code/data/relocations into a measured compressed
 stream. It is therefore retained even though it is not the final size answer.
 D may inspect genuinely reusable mechanism only; CLI grammar, wording and
 catalog policy remain in the executable, and L3 must shrink for D to count.
+
+### D attribution start — resolver is the first reviewed mechanism
+
+A Fat-LTO Darwin symbol profile is direction-finding only, not Windows size
+evidence. It attributes about 130.8 KiB of text to the standard-library system
+DNS resolver path, while `agenterm-platform` itself contributes about 12.1 KiB
+and the new decompressor about 3.8 KiB. This makes DNS resolution the first D
+candidate: it is a neutral OS mechanism useful to CU, qjswasm and other
+consumers, and the public probe already runs it inside an invocation-owned
+child so cancellation remains outside the resolver call.
+
+The admissible experiment is a typed `agenterm-platform` resolver facade plus
+a bounded libagenterm ABI projection; the CU worker keeps product validation,
+attempt policy, TCP outcome language and JSON. Reject a JSON-shaped ABI, any
+loss of the owned-worker timeout/reap contract, or a change whose exact Windows
+L3 (`agenterm-cu.exe + agenterm.dll`) does not shrink. No ABI change is accepted
+from the Darwin profile alone.

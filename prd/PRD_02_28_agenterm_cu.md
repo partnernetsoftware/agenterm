@@ -113,7 +113,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   the structural slope and rebuild-time gates pass. The executable remains
   123,904 bytes above 2 MiB, so delivery stays blocked and the court advances
   to reviewed reusable-mechanism ABI relocation; CLI metadata may not be moved
-  across the DLL seam merely to improve the executable number.
+  across the DLL seam merely to improve the executable number. The first D
+  candidate is the neutral system-DNS resolver: a direction-only symbol audit
+  attributes about 130.8 KiB to that path. It must cross through a typed
+  platform facade and bounded libagenterm ABI while CU retains validation, TCP
+  attempt policy, product JSON and invocation-owned child cancellation. Only
+  exact Windows L3 shrinkage can accept it.
 - [x] Staged public `cu-windows-smoke` passes all seven declared evidence
   receipts: host self-test, DLL load cleanup, window identity, UIA tree,
   name-addressed actuation, Value/GetText wait and UIA fixture cleanup.
