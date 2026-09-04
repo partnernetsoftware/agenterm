@@ -275,8 +275,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   with `coverage_complete=false` and an explicit count. A real owned-child exit is green through the macOS public CLI;
   macOS/Linux/Windows qjswasm journey leaves are declared for native reruns.
 - [x] Linux x86_64 exact-SHA native execution is green at 24 / 24 STEP and
-  25 / 25 evidence ids in 54.106 s, including the atomic `--ready-path` edge,
-  real owned-child exit, accessibility observation and owned cleanup. This
+  26 / 26 evidence ids in 48.123 s, including the atomic `--ready-path` edge,
+  real owned-child exit, identity-bound `process-kill` through a retained
+  pidfd, accessibility observation and owned cleanup. This
   proves the integrated journey but does not retroactively invent a cause for
   the previous mixed-time AT-SPI snapshot. The complete poll/error account now
   survives in every failure bundle; fixed sleeps and weakened assertions stay
