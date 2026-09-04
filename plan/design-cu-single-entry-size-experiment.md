@@ -1,7 +1,7 @@
 # ACU single-entry release-size experiment
 
-Status: **active · Variant C keeps the catalog growth-bounded but misses S1 ·
-Variant D next · the 2 MiB Windows executable ceiling is unchanged**.
+Status: **complete · C retained for bounded growth · D rejected and rolled
+back · the 2 MiB Windows executable ceiling remains red and unchanged**.
 
 | field | value |
 |---|---|
@@ -190,3 +190,11 @@ attempt policy, TCP outcome language and JSON. Reject a JSON-shaped ABI, any
 loss of the owned-worker timeout/reap contract, or a change whose exact Windows
 L3 (`agenterm-cu.exe + agenterm.dll`) does not shrink. No ABI change is accepted
 from the Darwin profile alone.
+
+The exact Windows build rejected that hypothesis. The resolver ABI prototype
+reduced C0 by only 1,024 bytes; removing an incidental resolver-shaped bind
+from the internal loopback fixture brought the total reduction to 1,536 bytes.
+The executable still exceeded 2 MiB by 122,368 bytes, so D failed S1 before it
+could claim an L3 win. The ABI prototype was reverted; C remains because its
+growth slope passed. This closes the time-boxed no-raise court with an explicit
+123,904-byte unresolved product-budget gap.

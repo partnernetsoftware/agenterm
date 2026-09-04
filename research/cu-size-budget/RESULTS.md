@@ -1,6 +1,6 @@
 # Results
 
-Status: **A/B/C measured · C passes growth slope but misses 2 MiB · Variant D next**.
+Status: **court complete · C retained for bounded growth · D rejected · 2 MiB remains red**.
 
 ## Measurement conditions
 
@@ -78,3 +78,25 @@ No measurement rule was changed to improve the result. The useful surprise is
 that Fat LTO removes about half of `.pdata` yet only 4.5% of the whole file;
 the remaining miss requires a structural source/data result, not more linker
 flag search.
+
+## Variant D — resolver ABI relocation rejected and rolled back
+
+A Darwin Fat-LTO symbol profile suggested about 130.8 KiB in the standard DNS
+resolver path. That was explicitly treated as direction-only evidence. ABI
+1.27 was prototyped as a neutral two-stage resolver while CU retained the
+owned child, validation, TCP attempts and product JSON.
+
+| source | CU bytes | delta from C0 | delta from 2 MiB | verdict |
+|---|---:|---:|---:|---|
+| `1f0b92cf` | 2,220,032 | −1,024 | +122,880 | S1 fail |
+| `39bc8abf` (numeric fixture bind) | 2,219,520 | −1,536 | +122,368 | S1 fail |
+
+Because D still failed S1 by more than 122 KiB, the court stopped before an L3
+claim and reverted the ABI/platform expansion in `f5f93f4e`. The independent
+numeric loopback fixture remains, but the exact post-rollback C binary is again
+2,221,056 bytes. No threshold changed and no unproven Darwin attribution was
+promoted into product architecture.
+
+The no-raise tranche is complete: retain C's 64–96 B/row cold-catalog slope,
+keep the 2 MiB release gate red, and return the 123,904-byte gap as an explicit
+product-budget decision rather than continuing unbounded micro-optimization.

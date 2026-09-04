@@ -111,14 +111,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   in-binary stream. Exact Windows x86_64 evidence is 2,221,056 bytes at zero
   synthetic rows; 16 and 32 rows grow at 96 and 64 bytes/row respectively, so
   the structural slope and rebuild-time gates pass. The executable remains
-  123,904 bytes above 2 MiB, so delivery stays blocked and the court advances
-  to reviewed reusable-mechanism ABI relocation; CLI metadata may not be moved
-  across the DLL seam merely to improve the executable number. The first D
-  candidate is the neutral system-DNS resolver: a direction-only symbol audit
-  attributes about 130.8 KiB to that path. It must cross through a typed
-  platform facade and bounded libagenterm ABI while CU retains validation, TCP
-  attempt policy, product JSON and invocation-owned child cancellation. Only
-  exact Windows L3 shrinkage can accept it.
+  123,904 bytes above 2 MiB. D tested neutral system-DNS resolution after a
+  Darwin symbol profile suggested about 130.8 KiB. Exact Windows evidence
+  recovered only 1,536 bytes and still exceeded 2 MiB by 122,368 bytes, so the
+  ABI prototype was rolled back. The time-boxed no-raise court is complete: C
+  stays for its bounded slope, the release gate remains red by 123,904 bytes,
+  and that gap returns as an explicit product-budget decision rather than an
+  excuse for moving CLI policy across the DLL seam.
 - [x] Staged public `cu-windows-smoke` passes all seven declared evidence
   receipts: host self-test, DLL load cleanup, window identity, UIA tree,
   name-addressed actuation, Value/GetText wait and UIA fixture cleanup.
@@ -395,6 +394,7 @@ flowchart LR
   E -->|three OS green| B["release-size court<br/>keep 2 MiB ceiling"]
   B --> C["C: hot route + compressed cold catalog<br/>S3 slope green · S1 still red"]
   C --> D["D: reusable mechanism review<br/>L3 must shrink · no CLI byte shifting"]
+  D -->|Windows S1 red| R["rollback ABI prototype<br/>return 123,904 B budget decision"]
   D -->|all gates green| P["promote ledger row to native"]
 ```
 - [~] Device/audio replacement is classified across peripheral inventory and
