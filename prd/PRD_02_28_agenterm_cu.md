@@ -313,7 +313,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   six seconds so cold-guest latency cannot consume the entire post-mutation
   window. Windows has a statically checked registered step, but the disposable
   court failed its interactive nonce handoff before product bytes were sent;
-  zero Windows product evidence is claimed. Arbitrary headless
+  zero Windows product evidence is claimed. A serial probe using the canonical
+  VM identity kept QGA and the VM live but still produced no job, exit or worker
+  log, ruling out duplicate VM names and narrowing the blocker to the
+  interactive Scheduled Task/session handoff. Arbitrary headless
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab, by single-process metrics, or by silently
   forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
