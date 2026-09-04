@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "78442d9";
+pub const UPSTREAM_TINYVM_REV: &str = "1bf632b";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -625,6 +625,10 @@ pub struct Cost {
     pub heap_bytes: Option<usize>,
     /// Waterline after instantiation and before the first exported call.
     pub heap_start_bytes: Option<usize>,
+    /// Gross bytes allocated while `JSON.parse` ran, diagnostic modules only.
+    pub json_parse_bytes: Option<usize>,
+    /// Gross bytes allocated while `JSON.stringify` ran, diagnostic modules only.
+    pub json_stringify_bytes: Option<usize>,
 }
 
 /// One call's result plus its deterministic cost, so "is this script
@@ -669,6 +673,10 @@ pub struct Outcome {
     pub heap_bytes: Option<usize>,
     /// Diagnostic qjs waterline before the first exported call.
     pub heap_start_bytes: Option<usize>,
+    /// Gross bytes allocated while `JSON.parse` ran, diagnostic modules only.
+    pub json_parse_bytes: Option<usize>,
+    /// Gross bytes allocated while `JSON.stringify` ran, diagnostic modules only.
+    pub json_stringify_bytes: Option<usize>,
 }
 
 /// The repository-wide fleet bridge shape, reused verbatim. This crate exposes

@@ -3434,3 +3434,11 @@ the same roots reveal the stable slope. Call growth “dead” only after a clos
 root argument: no returned reference, persistent binding, closure, exception,
 or host-retained guest pointer can name it. A positive waterline delta alone is
 not evidence that it is safe to rewind.
+
+Operation-family counters narrow attribution but still report **gross**
+allocation, not reclaimable memory. Inspect allocation order before proposing a
+bump rewind: if an operation allocates temporary builders first and its live
+return value last, dead bytes are a prefix below a live heap tail and the safe
+rewind suffix is zero. Keep these counters opt-in and absent from ordinary
+Script receipts; use a separate experiment for a larger last-use region rather
+than silently relabeling gross bytes as recovered bytes.

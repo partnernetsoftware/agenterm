@@ -206,6 +206,12 @@ pub struct ScriptCost {
     /// Diagnostic qjs allocator waterline before the first exported call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heap_start_bytes: Option<usize>,
+    /// Gross bytes allocated while `JSON.parse` ran in a diagnostic qjs module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_parse_bytes: Option<usize>,
+    /// Gross bytes allocated while `JSON.stringify` ran in a diagnostic qjs module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_stringify_bytes: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1219,6 +1225,8 @@ mod tests {
             heap_pages: 7,
             heap_bytes,
             heap_start_bytes: heap_bytes.map(|_| 400),
+            json_parse_bytes: heap_bytes.map(|_| 200),
+            json_stringify_bytes: heap_bytes.map(|_| 80),
         }
     }
 
@@ -1229,6 +1237,11 @@ mod tests {
         let diagnostic = serde_json::to_value(cost(Some(680))).expect("serializes");
         assert_eq!(diagnostic.get("heap_bytes"), Some(&Value::from(680)));
         assert_eq!(diagnostic.get("heap_start_bytes"), Some(&Value::from(400)));
+        assert_eq!(diagnostic.get("json_parse_bytes"), Some(&Value::from(200)));
+        assert_eq!(
+            diagnostic.get("json_stringify_bytes"),
+            Some(&Value::from(80))
+        );
     }
 
     fn cancel_frame(frame_id: &str, invocation_id: &str) -> ScriptFrame {

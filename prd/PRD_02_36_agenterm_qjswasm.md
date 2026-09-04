@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`78442d9`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`1bf632b`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
@@ -50,7 +50,7 @@ agenterm-qjswasm
 │  ├─ [x] corrected attribution: compare/branch owned 6.5 of 10.5 steps/byte
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
-│  ├─ [~] temporary-region lifetime court: server/wake byte waterlines measured; in-call classes + Windows workbench before L0
+│  ├─ [~] temporary-region lifetime court: server/wake waterlines + JSON-family gross bytes measured; dead-suffix proof + Windows workbench before L0
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court

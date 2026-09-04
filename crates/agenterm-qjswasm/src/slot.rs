@@ -22,6 +22,8 @@ use crate::host::{self, HostState};
 use crate::{Budget, Cost, FleetBridgeFn, JsValue, Outcome, QjswasmError, Value};
 
 const ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_heap_ptr";
+const JSON_PARSE_ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_json_parse_bytes";
+const JSON_STRINGIFY_ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_json_stringify_bytes";
 
 /// Which calling convention this slot's entry points speak.
 ///
@@ -53,10 +55,14 @@ pub(crate) struct Slot {
 
 impl Slot {
     pub(crate) fn allocation_waterline(&mut self) -> Result<Option<usize>, QjswasmError> {
+        self.allocation_counter(ALLOCATION_PROBE_EXPORT)
+    }
+
+    fn allocation_counter(&mut self, export: &str) -> Result<Option<usize>, QjswasmError> {
         if self.convention != Convention::JsV1
             || self
                 .instance
-                .exported_function_handle(ALLOCATION_PROBE_EXPORT)
+                .exported_function_handle(export)
                 .map_err(classify)?
                 .is_none()
         {
@@ -64,13 +70,13 @@ impl Slot {
         }
         match self
             .instance
-            .invoke_by_name(ALLOCATION_PROBE_EXPORT, &[])
+            .invoke_by_name(export, &[])
             .map_err(classify)?
             .as_slice()
         {
             [tinyvm::Val::I32(value)] if *value >= 0 => Ok(Some(*value as usize)),
             _ => Err(QjswasmError::Trap(tinyvm::WasmError::Trap(
-                "allocation probe returned an invalid waterline",
+                "allocation probe returned an invalid counter",
             ))),
         }
     }
@@ -140,6 +146,16 @@ impl Slot {
         } else {
             None
         };
+        let json_parse_bytes = if result.is_ok() {
+            self.allocation_counter(JSON_PARSE_ALLOCATION_PROBE_EXPORT)?
+        } else {
+            None
+        };
+        let json_stringify_bytes = if result.is_ok() {
+            self.allocation_counter(JSON_STRINGIFY_ALLOCATION_PROBE_EXPORT)?
+        } else {
+            None
+        };
 
         // Drain stdout unconditionally, including on the error paths below.
         //
@@ -179,6 +195,8 @@ impl Slot {
                     heap_pages,
                     heap_bytes: None,
                     heap_start_bytes: self.heap_start_bytes,
+                    json_parse_bytes: None,
+                    json_stringify_bytes: None,
                 });
                 return Err(self.explain(fault));
             }
@@ -209,6 +227,8 @@ impl Slot {
             heap_pages,
             heap_bytes,
             heap_start_bytes: self.heap_start_bytes,
+            json_parse_bytes,
+            json_stringify_bytes,
         })
     }
 

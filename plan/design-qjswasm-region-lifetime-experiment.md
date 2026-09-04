@@ -10,6 +10,7 @@ Status: **precommitted · attribution probe landed · real-journey attribution n
 | pre-reading | `prd/PRD_02_36_agenterm_qjswasm.md`, `plan/design-host-op-budget.md`, `crates/agenterm-qjswasm/README.md` |
 | frozen baseline | tinyvm + tinyvm-qjs `af47e4d`; server/wake/workbench observed at 32/43/22 heap pages |
 | attribution revision | tinyvm + tinyvm-qjs `78442d9`; opt-in read-only waterline export, ordinary compile unchanged |
+| operation attribution revision | tinyvm + tinyvm-qjs `1bf632b`; adds diagnostic-only gross JSON parse/stringify counters, ordinary compile unchanged |
 
 ## 0. Settled facts
 
