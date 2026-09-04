@@ -433,3 +433,88 @@ cu 改走和其它字符串同一条两段式读取；对着老库遇到截断�
 | ~~剪贴板 write/clear~~ **已做** | `clipboard write --type --path` 读回校验；`write-file` 放文件引用不是字节；`clear` 无 `--apply` 只计划 |
 | ~~`apps --all` + `app launch`~~ | **已做（片 P）**。`launch` 用 `LSOpenCFURLRef`（不是 `open -a`，也不是 shell），**回复明说 `pid: null`**——进程归 launcher 管，这个调用没法知道 pid、也没法知道 App 是否真的起来了；要 pid 就等窗口 |
 | `scroll` 在 Cocoa 上的正向证据 | AppKit 不发布 `AXScrollToVisible`（三种控件都量过）；正向证据在网页旅程里 |
+
+## 9. 片 Z：浏览器 / 标签 / 页面文本的三平台对齐（2026-09-03）
+
+macOS 在 2026-09-03 拿到了浏览器这条链的真机证据（`browser_profile`、
+`tab list` / `tab select` 走 AX 标签条、`page text` 走 AX 树）。
+`agenterm-cu` 里的纯匹配器早就接受 AT-SPI 与 UIA 的拼写，**但它们从来只见过
+单测里合成的节点列表**。这一片把适配器侧的差补上，并且**如实记下哪些差补上了、
+哪些只是"已映射"、哪些是 typed 拒绝**。
+
+### 9.1 结论表（`[x]` 有真机证据并写明脚本；`[~]` 只有单测；`[ ]` 没有）
+
+| 能力 | macOS AX | Linux AT-SPI2 | Windows UIA |
+|---|---|---|---|
+| 默认遍历预算（1000 节点 / 深度 32，软界，`truncated: true`） | `[x]` | `[x]` | `[x]` 2026-09-03 修好 |
+| 节点 `text` 来自 value/text 接口 | `[x]` `AXValue` | `[x]` 2026-09-03 网页文本走 `Text.GetText` | `[x]` `ValuePattern` → `TextPattern` |
+| `unlock`（让浏览器建网页树） | `[x]` `AXManualAccessibility` + `AXEnhancedUserInterface` + renderer wake | `[x]` 2026-09-03 会话总线 `org.a11y.Status` 的 `IsEnabled` / `ScreenReaderEnabled` | typed `unsupported`：UIA 遍历本身就发 `WM_GETOBJECT`，**读即是 poke**，所以报 `poked: false` 并带上这句理由，不假装成功 |
+| 标签条角色 | `AXTabGroup` / `AXRadioButton` | `page tab list` / `page tab` | `page tab list` / `page tab` |
+| 标签 `selected` 两向可读 | `[x]` | `[x]` 2026-09-03（`page tab` 像 `check box` 补 `unchecked` 一样补 `unselected`） | `[x]` `SelectionItemPattern` |
+| `browser_profile` | `[x]` | `[ ]` 解析器根本匹配不到 | `[ ]` 同左 |
+| 真机浏览器旅程 | `[x]` 2026-09-03 `scripts/cu-brave-live-smoke.sh` | `[ ]` `scripts/cu-linux-smoke.sh` 浏览器段 2026-09-03 写好，**没跑过**：typed `SKIP[no_chromium_browser]` | `[ ]` `scripts/qjs/cu-windows-browser-smoke.qjs` 2026-09-03 写好，**没跑过**：没有 Windows 客户机 |
+
+### 9.2 三个差，逐个说
+
+**1. Windows 的默认预算原来是硬失败，不是 `truncated`。** macOS / Linux 把
+`MAX_NODES` 当**默认软界**：走到就 `truncated: true` 收工。Windows 适配器只在
+调用方**显式**给了预算时才软界，没给就在 1000 节点上抛 `a11y_node_limit`、
+深度 32 上抛 `a11y_depth_limit`。后果不是"少读一点"，是**整条浏览器链在 Windows
+上必然报错**：`page text` 默认要 6000 节点 / 深度 64，`unlock` 也是；这两个数都
+超过那两条硬线。现在默认软界是 `DEFAULT_MAX_NODES` / `DEFAULT_MAX_DEPTH`
+（1000 / 32，和另外两家一模一样），硬线抬到契约自己的上限
+（`MAX_TREE_NODE_BUDGET` = 20000 / `MAX_TREE_DEPTH_BUDGET` = 64），
+只当兜底。顺带把 `MENU_SEARCH_NODES` (2000) / `FOCUS_SEARCH_NODES` (4000) 也
+救活了——它们本来就比旧硬线大，即"这两个搜索在 Windows 上必然抛节点上限"。
+
+**2. Linux 快照的 `text` 只填输入框。** macOS 对**每个**节点读 `AXValue`，
+Chromium 的网页文本就在那里（`name` 是空的）。Linux 适配器只对
+`entry` / `text` / `edit` 之类"看起来像输入框"的角色读 `Text.GetText`，
+于是 Chromium AuraLinux 与 WebKitGTK 发布的 `static` 文本段
+（`Name` 空、字在 `Text` 接口里）全被跳过——**`page text` 在 Linux 上是空页**。
+现在把网页文本段的角色（`static` / `static text` / `label` / `heading` /
+`link` / `caption`）也读上，**容器角色故意不读**（`paragraph` / `section` /
+`list item` / `table cell` / `document web` 的 `Text.GetText` 是后代的拼接，
+它们各自已经是一行，读了就每个字打印两遍）。
+
+**3. Linux 的 `unlock` 原来写着"没有对应机制"，这是错的。** 旧理由是
+"Linux 工具包不需要客户端 poke"。GTK/Qt 确实不需要，**但 Chromium 需要**：
+它在会话总线上盯 `org.a11y.Bus` 的 `org.a11y.Status.IsEnabled` /
+`ScreenReaderEnabled`，只有翻了才让渲染进程发布网页树——这正是
+`AXManualAccessibility` 在 macOS 上承载的那个"有辅助客户端在"的信号，
+只不过一个是元素属性、一个是总线属性。本仓自己的
+`scripts/box-chrome-a11y.sh` 用 `--force-renderer-accessibility` 绕过的，
+就是这条。现在 `poke_manual_accessibility` 去写这两个属性；两个都被拒才
+返回 typed `Unsupported`，并把总线给的拒绝原因原样带出来。
+和 macOS 一样，**这次调用自己的返回值不是判据**——调用方靠重读树来判。
+
+### 9.3 `browser_profile` 在 L/W 上为什么一定解析不出来
+
+解析器用 inventory 的 `app_name` 拼出标记 `" - <app> - "` 去标题里找。
+这**只在 macOS 成立**：那边 `app_name` 是 `kCGWindowOwnerName`，即**显示名**
+（`Brave Origin` / `Google Chrome`），恰好就是标题里的那一段。
+Linux 的 `app_name` 是 `/proc/<pid>/comm`（`brave`、`chromium-browse`——
+`comm` 只有 15 字节），Windows 的是映像名（`brave.exe`、`msedge.exe`），
+所以标记永远出现不了，每个 Chromium 行的 `browser_profile` 都是 `null`。
+`windows` 动词里那条 AX 根名兜底走的是同一个解析器，因此同样失败。
+
+**修的地方是 cu 的解析器，不是适配器**：把标题按最后两个 `" - "` 切开，
+拿中间那段和 `app_name` 做宽松比较（去掉 `.exe`、只留字母数字、互相包含）。
+让适配器把 `app_name` 改成显示名是错的——`--app` 过滤器全靠进程名匹配。
+
+### 9.4 为什么这一片交不出真机证据
+
+两个旅程都写完了，都**没跑过**，原因写在这里而不是含糊过去：
+
+- **Linux**：本机的 lima `default`（Ubuntu 26.04 aarch64）有 `Xvfb` 和
+  `at-spi-bus-launcher`，但**没有任何 Chromium 系浏览器**（26.04 上
+  `chromium` 只有 snap 包），也**没有 Rust 工具链**，`target/aarch64-unknown-linux-gnu`
+  里那个 `agenterm-cu` 是 1 月的，连 `page-text` 这个动词都还没有。
+  `~/vm/lnx-arm64` 的 qemu 客户机没在跑，`six-cell-runners.json` 里的
+  2222/2223 两个 ssh 口都是关的。
+- **Windows**：`six-cell-runners.json` 自己写着 `kind: blocked` /
+  "No Windows guest yet"（ISO 卡在需要人去填的注册表单）。
+
+所以两个脚本都以 **typed skip** 结束（`SKIP[no_chromium_browser]` 等），
+并且 `scripts/cu-linux-smoke.sh` 的最后一行会明说"浏览器段被跳过"——
+一个裸 `exit 0` 在证据台账里会被读成通过，而"没跑成"不是"能用"的证据。

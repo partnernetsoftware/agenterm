@@ -110,13 +110,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   able to control everything a human can and receive the same feedback. The
   terminal surface is largely covered; the machine outside the terminal is not.
   `agenterm-cu` closes that half.
-- [ ] Living skill source is sibling-repo `moltbaby/skills/mcu` (`bin/mcu`).
-  This product's job is to align that desktop-bridge surface (discover,
-  a11y tree, local input, CDP page, verify, window geometry) onto the
-  command / grant / `libagenterm` ABI — not to stay a Spectacle window-placer.
-  Window placement ([32](PRD_02_32_cu_window_placement.md)) is one landed
-  slice. When this product and AgenTerm are mature enough to replace the
-  skill, `skills/mcu` archives and agents depend on this product line.
+- [~] The migration source is sibling-repo `moltbaby/skills/mcu` (`bin/mcu`).
+  The accepted outcome is broader than the first desktop-bridge absorption:
+  **`agenterm-cu` becomes the one machine-control entry and completely replaces
+  MCU for production use.** Desktop discovery, accessibility trees, input,
+  CDP, verification and window geometry land first; process, PTY, file,
+  network, device, service, privilege and VM workflows must then become
+  reachable through typed AgenTerm-owned facades. They need not be copied into
+  the CU crate. Window placement
+  ([32](PRD_02_32_cu_window_placement.md)) is one landed slice, not the product
+  boundary. The executable goal, capability states and retirement gates are
+  [`plan/goal-acu-replaces-mcu.md`](../plan/goal-acu-replaces-mcu.md).
   Provenance: [14](PRD_02_14_research_provenance.md) (lessons, not a TS copy).
 - [~] absorbed from that skill on 2026-08-30 (review and slices in
   [plan/design-mcu-absorption.md](../plan/design-mcu-absorption.md)): its
@@ -128,9 +132,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   global-input or sudo fallback; delivery is not success, every action says
   `verified` / `unverified`; destructive actions need an exact target, a
   prior snapshot and a checkable postcondition). Its shell / PTY / job /
-  process domains are AgenTerm itself and the `.qjs` tool door, and stay out
-  of cu; simulator, storage, device, network, power, privilege broker and the
-  helper protocol are not absorbed. Each slice is proven by a `.qjs` journey
+  process mechanisms remain owned by AgenTerm and the `.qjs` tool door, while
+  simulator, storage, device, network, power and privilege mechanisms remain
+  owned by their platform/runtime modules. That ownership rule prevents kernel
+  duplication; it no longer means those workflows may remain trapped behind
+  MCU. ACU owns their stable public facade, typed result, deadline, cleanup and
+  evidence contract. Each slice is proven by a `.qjs` journey
   (`scripts/qjs/cu-macos-smoke.qjs`, first) so the script engine is exercised
   by real computer-use scripts.
 - [ ] the differentiator is direction, not parity. General computer-use tools

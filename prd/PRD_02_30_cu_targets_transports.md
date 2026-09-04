@@ -250,6 +250,10 @@ targets / transports (30)                    legend: [x] shipped  [~] partial  [
     ├── macOS AX semantic send-keys   [x] enter -> AXConfirm, escape -> AXCancel live (cut 3.53, cu-macos-smoke); every other chord typed: macOS delivers keys only to the active app (measured), and cu never activates
     ├── macOS input injection         [x] pointer-move / click / type-text / send-keys on the HID tap live (cut 3.53, cu-macos-pointer-smoke); no window-local route exists (measured), so --to <handle> is refused, not approximated
     ├── macOS AX web content          [x] AXWebArea tree, unlock (AXManualAccessibility, ABI 1.15), positive scroll with extents readback, web invoke / verify live (cut 3.53, cu-macos-web-smoke) against an owned WKWebView fixture
+    ├── browser tabs / page text mac  [x] 2026-09-03 scripts/cu-brave-live-smoke.sh: live Brave instance -- browser_profile in the inventory, tab list / tab select through the AX tab strip, page text from AXValue
+    ├── browser tabs / page text Lin  [~] matchers unit-tested only; adapter parity landed 2026-09-03 (unlock -> org.a11y.Status, snapshot text from Text.GetText); scripts/cu-linux-smoke.sh browser section exits SKIP[no_chromium_browser] -- no Linux GUI guest with a browser is reachable from the build host
+    ├── browser tabs / page text Win  [~] matchers unit-tested only; adapter parity landed 2026-09-03 (default walk budget truncates instead of failing at 1 000 nodes / depth 32); scripts/qjs/cu-windows-browser-smoke.qjs has never run -- no Windows guest
+    ├── browser_profile Lin / Win     [ ] never parses: the inventory app_name is the process / image name, the window title carries the display name (see below)
     └── RDP remote desktop transport  [ ] not started (session + UIA-over-RDP later Windows cut)
 ```
 
@@ -273,6 +277,47 @@ Canonical host mapping (approved product vocabulary):
 | Windows | native API + **UIA** | `IUIAutomation` control tree | UIA patterns / legacy accessible (`Invoke`, `LegacyIAccessible`) |
 | macOS | **AX** (`NSAccessibility`) | accessibility element tree — **live** (bounded walk, `AXActionNames`, `AXIdentifier`) | `AXPress` / `AXValue` write / option `AXPress` / desired-state checked & expanded / `AXIncrement` `AXDecrement` — **live** (`invoke`, cut 3.50); `AXRaise` is never sent |
 | Linux | **AT-SPI2** (`at-spi2-core` / `org.a11y.atspi.*`) | AT-SPI accessible hierarchy — **live** | AT-SPI `Action` / `Component` / `EditableText` — **live** |
+
+### Browser profile, tabs and page text across the three hosts
+
+The browser work landed on macOS on 2026-09-03: `browser_profile` per
+window in the `windows` inventory, `tab list` / `tab select` through the
+tab strip in the accessibility tree, and `page text` read from the tree.
+The pure matchers in `agenterm-cu` already accept the AT-SPI and UIA role
+spellings, but **only synthetic node lists have ever exercised them**.
+This section is the ledger of what is proven, what is merely mapped, and
+what is refused with a typed reason.
+
+| Capability | macOS AX | Linux AT-SPI2 | Windows UIA |
+|---|---|---|---|
+| default walk budget (1 000 nodes / depth 32, soft, `truncated: true`) | [x] | [x] | [x] since 2026-09-03 |
+| node `text` from the value / text interface | [x] `AXValue` | [x] since 2026-09-03 `Text.GetText` for web text runs | [x] `ValuePattern`, else `TextPattern` |
+| `unlock` (build the web tree) | [x] `AXManualAccessibility` + `AXEnhancedUserInterface` + renderer wake | [x] since 2026-09-03 `org.a11y.Status` `IsEnabled` / `ScreenReaderEnabled` on the session bus | typed `unsupported`: the UIA walk itself sends `WM_GETOBJECT`, which is what turns Chromium accessibility on -- the read **is** the poke, so `poked: false` with that reason rather than a pretend success |
+| tab strip roles the adapter publishes | `AXTabGroup` / `AXRadioButton` | `page tab list` / `page tab` | `page tab list` / `page tab` |
+| tab `selected` readable in both directions | [x] | [x] since 2026-09-03 (`page tab` completes `unselected` the way `check box` completes `unchecked`) | [x] `SelectionItemPattern` |
+| `browser_profile` | [x] | [ ] parser cannot match | [ ] parser cannot match |
+| live browser journey | [x] 2026-09-03 `scripts/cu-brave-live-smoke.sh` | [ ] `scripts/cu-linux-smoke.sh` browser section written 2026-09-03, never run: typed `SKIP[no_chromium_browser]` | [ ] `scripts/qjs/cu-windows-browser-smoke.qjs` written 2026-09-03, never run: no Windows guest |
+
+**Why `browser_profile` cannot parse off macOS.** The parser builds the
+marker `" - <app> - "` out of the inventory's `app_name` and looks for it
+in the window title. That only ever matches on macOS, where `app_name` is
+`kCGWindowOwnerName` -- the *display* name ("Brave Origin", "Google
+Chrome"), which is exactly what the title carries. Linux reports
+`/proc/<pid>/comm` (`brave`, `chromium-browse` -- `comm` is capped at 15
+bytes) and Windows reports the image name (`brave.exe`, `msedge.exe`), so
+the marker never appears and every Chromium row answers `browser_profile:
+null`. The AX-root fallback in the `windows` verb uses the same parser
+against the frame's accessible name, so it fails for the same reason.
+The fix belongs to the `agenterm-cu` parser (split the title's last two
+`" - "` segments and compare the middle one to `app_name` loosely), not to
+the platform adapters: an adapter that renamed `app_name` to a display
+name would break every `--app` filter that matches on the process name.
+
+**What each host walks away with when a difference cannot be closed.**
+Windows `unlock` is the only browser capability that stays refused, and it
+is refused typed with the mechanism named, never as an empty tree or a
+silent success. Everything else is either implemented on all three or
+recorded above as unproven rather than claimed.
 
 ### Requirements by stack
 

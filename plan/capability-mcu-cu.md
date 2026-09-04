@@ -4,11 +4,11 @@
 |---|---|
 | MCU 实验室 | 兄弟仓 `moltbaby/skills/mcu`（Bun/TS，`bin/mcu`） |
 | 产品面 | 本仓 `crates/agenterm-cu`（Rust，`agenterm-cu`） |
-| 纪律 | 吸收**命令集与分层教训**，不搬 TypeScript / helper protocol-v40 |
+| 纪律 | ACU 最终替代 MCU；吸收**能力与分层教训**，不逐行搬 TypeScript / helper protocol-v40 |
 | 切片史 | [`design-mcu-absorption.md`](design-mcu-absorption.md) 片 1–4 + web/empty-chrome/`page-js`；三平台补齐见 [`design-cu-multi-os-parity.md`](design-cu-multi-os-parity.md) 片 A–K |
 
 **还差什么（2026-09-01，夜）**：~~读富内容仍未做~~ **已做**：`clipboard-read --type`（MCU `clipboard read`）按宿主自己的类型名读有界字节，回复 `sha256` + utf8/base64，可选 `--out`。macOS 只认 `clipboard info` 的 AppleScript class（`«class PNGf»` / `string`），不认 UTI。`clipboard write`/`write-file`/`clear --apply` 已接 ABI 1.24。
-MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js`/`frame`/`movewin`/`resize`/`maximize` 已是 live 别名（几何四词走 `window-place`）；**2026-09-03 又收了一批**：`inspect`/`find`/`read` 是 `query` 的别名，`page targets` → `page-targets`，`page text` → `page-text`（a11y 阅读顺序），`page-js` 有 `--target-id/--target-url/--target-title` 选 tab，`tab list`/`tab select` 走 tab-strip 后台切 tab。其余 MCU 命令名（`drag`/`ps`/`minimize`/`page click|nav`/`browser *`…）typed 拒绝，不再 `unknown command`。
+MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js`/`frame`/`movewin`/`resize`/`maximize` 已是 live 别名（几何四词走 `window-place`）；**2026-09-03 又收了一批**：`inspect`/`find`/`read` 是 `query` 的别名，`page targets` → `page-targets`，`page text` → `page-text`（a11y 阅读顺序），`page-js` 有 `--target-id/--target-url/--target-title` 选 tab，`tab list`/`tab select` 走 tab-strip 后台切 tab。**2026-09-04 desktop closure 在制**：`drag`/`hit`/`zoom`/`snapshot`/`diff`/`raise`/`minimize`/`restore` 已有真实命令实现且包级测试通过，仍待三平台 native journey 后才能标为 live。`ps` 等其余 MCU 命令仍 typed 拒绝，不再 `unknown command`。
 **CDP 活证据已到（2026-09-03）**：`/json` reader 认了 `Content-Length` / chunked（`src/cdp/http.rs`），`scripts/cu-cdp-smoke.sh` PASS。**后台 tab 读+写也接上了**：`page text / find / click / fill / nav / screenshot --target-id|--target-url|--target-title` 全走 CDP 目标自己的 websocket（`src/cdp/`：`ws.rs` 一条 session、`Transport` trait 假转录单测；`ax.rs` 把 `Accessibility.getFullAXTree` 整成和 AX `page text` 同形的行；`page.rs` 各动词 plan/perform 中间夹收据），从不调 `Target.activateTarget` / `Page.bringToFront`（只有 `page screenshot --activate` 显式例外，算 actuate），每条回复带 `focus_changed: false` + target 身份。`scripts/cu-cdp-actuate-smoke.sh` PASS：A 活跃、B 后台，每个动词打在 B 上，按钮 onclick / 表单 onsubmit 改 DOM 由 `page-js` 回读，每步之后 `/json` 首页仍是 A、`windows --focused` 不变。真机（用户的 Brave Origin）仍需 `--remote-debugging-port=9222` 重启才能跑同一条。
 **截图三个平台都通了**：macOS 那句「被系统拿走」只对了一半——SDK 里确实没了，但符号还在框架里，
 dlsym 拿到就能抓（和本仓够 SkyLight 是同一套办法），实测 macOS 26.5 抓到真内容；符号哪天真没了
@@ -38,7 +38,7 @@ PRD 的 Linux leaf 从 `[~] mapped` 改成 `[x]`。**代价是抓出 16 个 bug�
 1 个让代码在真实 feature 组合下根本编不过**——所以 **Windows 那一侧现在应当按「未验证」理解，
 而不是「接近对齐」**：本仓没有那台机器，也没有可跑的模拟路径，leaf 仍写 `[~] mapped`。
 
-图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做。非桌面组在 cu 上必须 typed，不许静默缺失。
+图例：`[✓]` 有真机或本机旅程 · `[~]` 动词在、平台半截或 typed 诚实失败 · `[ ]` 未做。非桌面组也必须最终从 ACU 单入口可达；当前 typed refusal 是诚实缺口，不是永久边界。
 
 MCU 对 cua-driver 的桌面对照仍在 MCU `CAPABILITY-TREE.md`。本文件只对 **MCU ↔ cu**。
 
@@ -85,7 +85,8 @@ machine-control
 │   cu  [✓] 三平台各用原生栈序，`occluded_percent` 由矩形精确相减（契约层 6 条单测）
 ├── shell / PTY / job / process / device / privilege / Simulator
 │   MCU [✓/~] 实验室正殿外
-│   cu  [~] 同名动词 typed unsupported（capabilities 可查）
+│   cu  [~] 同名动词 typed unsupported（capabilities 可查）；这是迁移缺口，
+│        后续由 ACU typed facade 调 owning mechanism，不在 CU crate 复制内核
 └── 远程目标
     MCU [ ] 本机为主
     cu  [~] --target current|ssh|vnc；rdp 占位 rdp_unavailable
@@ -120,11 +121,11 @@ machine-control
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
 | App 生命周期 | `app launch/quit/hide/show` | **四个都做了**（mac live）：`hide`/`show` 写应用级 `AXHidden` 且按 **pid** 寻址（隐藏后句柄就不存在了）；`quit` 按下应用**自己的 Quit 菜单项**并配 `close` 那套三件套 + 收据，**不是信号**；`launch` 走 LaunchServices，**回复明说没有 pid**（进程归 launcher 管），要 pid 就等窗口出现 | **已对齐** |
-| 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `pty`/`job`/`process`/… **typed unsupported** | 无静默 unknown；live 仍 MCU |
+| 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `pty`/`job`/`process`/… **typed unsupported** | 无静默 unknown；属于 ACU 替代门的待迁移 facade，不是永久留 MCU |
 
 ## 2. 互相该补的缺口（文档已点名，实现另立项）
 
-**cu 可从 MCU 再吸收（仍限桌面环）**
+**ACU 从 MCU 迁移（桌面环先行，随后覆盖完整机器控制）**
 
 1. ~~稳定句柄 `App#n`~~ **已做**：`windows[].ref` + `--window App#N`（仍同时接受整数；未做 live app 前缀核验）。
 2. ~~`unlock` 的 `AXManualAccessibility` poke~~ **已做**（2026-08-31，ABI 1.15）：poke 后重读，
@@ -152,7 +153,9 @@ machine-control
 1. 默认环 + 四条不变量 + menu/focused/observe/close/receipts 已在 `agenterm-cu` mac 旅程落地。
 2. empty-chrome/`titleIncludes`/`page-js` 后端名已进 cu JSON；`page text` / `tab list` / `tab select` / `page targets` 是 cu 拼写，MCU 树引用时按这些名字。
 3. cu 多了 MCU 没有的：`--target ssh|vnc`、`--grant`、Spectacle `window-place`、始终 JSON stdout。
-4. **写刀仍留 MCU**；扩展/PTY/job/privilege **不要**再抄进 cu。
+4. 写刀、扩展、PTY、job、process、device、privilege 等能力不能永久留在
+   MCU；应由 ACU 通过 AgenTerm、qjswasm、libagenterm 或 platform 的 typed
+   facade 调用其 owning mechanism，禁止在 CU crate 复制一套内核。
 
 ## 3. 日常怎么选入口
 
@@ -162,5 +165,5 @@ machine-control
 | Chromium 网页列节点 | 两边都走 AX `query`；不要先装扩展 |
 | chatgpt.com composer / closed-shadow / tab-id | **MCU** `browser read --js`；cu `page-js` / `page find|click|fill --target-*` 需 CDP 口 |
 | 后台窗口里的后台 tab（不能抢人的前景） | **cu** `page targets --browser-profile` → `page find` → `page click`/`page fill`（CDP，`focus_changed: false`）；AX 动词得先 `tab select` |
-| 本机 PTY/job/设备/提权/Simulator | **MCU** 或 AgenTerm 本体，不调 cu |
+| 本机 PTY/job/设备/提权/Simulator | **迁移期**仍可能由 MCU/AgenTerm 本体执行；目标入口是 ACU typed facade |
 | 远程桌面 worker | **cu** `--ssh`/`--vnc` |

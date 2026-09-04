@@ -928,9 +928,27 @@ profile, or an existing one's title change) -- the user's browser is never
 restarted; `windows --browser-profile` filters on the same name; and
 `page targets --browser-profile` is an explicit title-equality heuristic.
 `tab close` presses the tab row's own close button (the `button` child of
-the Chromium tab `radio-button`) behind the `close` gate; no button is
-typed `unsupported`, never a keyboard shortcut. Live gate:
-`scripts/cu-brave-live-smoke.sh` on the real instance.
+the Chromium tab `radio-button`) behind the `close` gate; the target is
+`--title T --exact` or `--index N` (same-title duplicates). macOS Chromium
+exposes that button on the selected tab only, so a background tab is
+selected first inside its window (no window is raised), closed, and the
+previously selected row is pressed again (`selection_restored`); with
+`--port N` and a title that names exactly one page target of the whole
+instance the tab is closed by `Target.closeTarget` over the browser
+websocket instead, else the a11y path. A keyboard shortcut is never
+substituted. Live gates: `scripts/cu-brave-live-smoke.sh` (a11y) and
+`scripts/cu-brave-live-cdp-smoke.sh` (CDP verbs on a background tab of the
+real instance) on the real instance.
+
+Focus in the inventory (`windows --focused` / `focused-window`): the
+mechanism's system-wide accessibility focus read (`AXFocusedApplication`)
+fails with `kAXErrorCannotComplete` from a process outside the GUI front
+chain (tmux, SSH, an agent bridge) and marks nothing, so
+`src/macos_focus.rs` reads the frontmost application through
+`NSWorkspace` and that application's own `AXFocusedWindow`, and
+`observe::resolve_focus` (pure, unit-tested) decides: the mechanism mark,
+else the AX window, else the frontmost app's topmost window in the
+stacking order, else the explicit `{focused_app, window: null}` reply.
 
 Focused text writes (`send-text` / `paste` / `send-keys` with `--window` and
 no `--name`) are guarded: when the window is a browser's (its tree carries a
