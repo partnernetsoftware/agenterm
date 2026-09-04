@@ -335,6 +335,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   this native command, reducing the MCU `STAY` inventory from 32 to 31; routing
   tests and a live macOS adapter invocation are green. Whole-window activation
   subsequently reduces it to 30 under the separate evidence above.
+- [x] The compatibility boundary no longer lies about `permissions`: `acu
+  permissions` now reaches the same canonical observe-only ACU facade used by
+  `doctor` and `capabilities`, and the old MCU entry advertises ACU as its
+  replacement. This reduces the compatibility `STAY` inventory from 30 to 29;
+  operating-system consent remains user-controlled and the command never
+  mutates setup state.
 - [~] Process identity observation is live as `process-state --pid N` on
   current/ssh/vnc. It returns `live|dead|unknown`, preserves fail-closed unknown
   evidence, and publishes the platform start identity when available. MCU
