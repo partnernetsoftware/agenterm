@@ -117,6 +117,22 @@ try {
     "cu_pty_list_live_contract:" + JSON.stringify(live_inventory)
   );
 
+  print("STEP snapshot the structured screen and bind an exact event cursor to the durable job");
+  const snapshot = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-snapshot", job
+  ]), "pty-snapshot");
+  const event_epoch = snapshot.cursor.server_epoch;
+  const event_sequence = snapshot.cursor.sequence;
+  ensure(
+    snapshot.name === job && snapshot.tab.id === start.status.tab_id
+      && snapshot.server_epoch === start.status.server_epoch
+      && event_epoch === snapshot.server_epoch && event_sequence >= 0
+      && snapshot.read_kind === "bounded-structured-screen"
+      && snapshot.cursor_kind === "loss-aware-event-position"
+      && snapshot.identity === "job-name+server-scope+epoch+tab-id+event-cursor",
+    "cu_pty_snapshot_contract:" + JSON.stringify(snapshot)
+  );
+
   print("STEP send exact literal shell input and require the committed control receipt");
   const input = windows ? "echo QJS_PTY_READY\r" : "printf \"QJS_PTY_READY\\n\"\n";
   const send = require_ok(invoke_cu(run_directory, product, executable, [
@@ -139,6 +155,30 @@ try {
       && wait.matched_at_cursor >= 0 && wait.next_cursor > wait.matched_at_cursor
       && wait.scanned_bytes > 0,
     "cu_pty_wait_contract:" + JSON.stringify(wait)
+  );
+
+  print("STEP continue the same epoch-scoped event journal without reopening terminal identity");
+  const wrong_epoch = invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-events", job,
+    "--epoch", event_epoch + "-stale", "--after", "" + event_sequence, "--limit", "64"
+  ]);
+  ensure(
+    wrong_epoch.ok === false && wrong_epoch.error.code === "pty_job_epoch_changed",
+    "cu_pty_events_epoch_contract:" + JSON.stringify(wrong_epoch)
+  );
+  const events = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-events", job,
+    "--epoch", event_epoch, "--after", "" + event_sequence, "--limit", "64"
+  ]), "pty-events");
+  ensure(
+    events.name === job && events.tab_id === start.status.tab_id
+      && events.server_epoch === event_epoch
+      && events.cursor.server_epoch === event_epoch
+      && events.cursor.sequence >= event_sequence
+      && events.cursor_advance === "all-scanned-events-including-other-tabs"
+      && events.returned_events > 0 && events.tab_updates.length > 0
+      && events.identity === "job-name+server-scope+epoch+tab-id+event-cursor",
+    "cu_pty_events_contract:" + JSON.stringify(events)
   );
 
   print("STEP exit with status 7 and distinguish finalized-without-match from timeout");
@@ -222,7 +262,7 @@ try {
 if (succeeded !== 0 && stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
   harness.remove_run(context);
-  print("PASS: qjswasm orchestrated ACU PTY inventory, input, loss-aware wait, exact exit, typed miss, stop and stale-state prune");
+  print("PASS: qjswasm orchestrated ACU PTY inventory, structured snapshot/events, input, loss-aware wait, exact exit, typed miss, stop and stale-state prune");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

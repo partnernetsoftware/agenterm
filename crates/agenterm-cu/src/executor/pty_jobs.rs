@@ -24,9 +24,9 @@ use crate::cdp::page::base64_decode;
 use crate::{CuError, TerminalWaitCondition, receipt::ReceiptLog};
 
 use super::{
-    parse_output, request, terminal_close_with_client, terminal_inventory_with_client,
-    terminal_new_with_client, terminal_output_with_client, terminal_send_with_client,
-    terminal_wait_with_client,
+    parse_output, request, terminal_close_with_client, terminal_events_with_client,
+    terminal_inventory_with_client, terminal_new_with_client, terminal_output_with_client,
+    terminal_send_with_client, terminal_snapshot_with_client, terminal_wait_with_client,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -760,6 +760,57 @@ pub(super) fn pty_read_payload(
     output["server_epoch"] = inventory["server_epoch"].clone();
     output["identity"] = json!("job-name+server-scope+epoch+tab-id+raw-output-cursor");
     Ok(output)
+}
+
+pub(super) fn pty_snapshot_payload(name: &str) -> Result<Value, CuError> {
+    let client = client_for(name)?;
+    let (inventory, tab) = sole_job(&client, name)?;
+    let tab_id = tab["id"].as_str().ok_or_else(|| {
+        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+    })?;
+    let mut snapshot = terminal_snapshot_with_client(&client, tab_id)?;
+    if snapshot["server_epoch"] != inventory["server_epoch"] {
+        return Err(CuError::new(
+            "pty_job_epoch_changed",
+            "PTY job authority epoch changed while taking the structured snapshot",
+        )
+        .with_detail(json!({
+            "name": name,
+            "inventory_epoch": inventory["server_epoch"],
+            "snapshot_epoch": snapshot["server_epoch"],
+        })));
+    }
+    snapshot["name"] = json!(name);
+    snapshot["identity"] = json!("job-name+server-scope+epoch+tab-id+event-cursor");
+    Ok(snapshot)
+}
+
+pub(super) fn pty_events_payload(
+    name: &str,
+    epoch: &str,
+    after: u64,
+    limit: usize,
+) -> Result<Value, CuError> {
+    let client = client_for(name)?;
+    let (inventory, tab) = sole_job(&client, name)?;
+    let tab_id = tab["id"].as_str().ok_or_else(|| {
+        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+    })?;
+    if inventory["server_epoch"].as_str() != Some(epoch) {
+        return Err(CuError::new(
+            "pty_job_epoch_changed",
+            "PTY job authority epoch changed before event continuation",
+        )
+        .with_detail(json!({
+            "name": name,
+            "requested_epoch": epoch,
+            "current_epoch": inventory["server_epoch"],
+        })));
+    }
+    let mut events = terminal_events_with_client(&client, tab_id, epoch, after, limit)?;
+    events["name"] = json!(name);
+    events["identity"] = json!("job-name+server-scope+epoch+tab-id+event-cursor");
+    Ok(events)
 }
 
 pub(super) fn pty_send_payload(

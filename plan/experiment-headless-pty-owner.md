@@ -92,7 +92,10 @@ product or user data was read.
 │  ├─ [x] one authority per job id; concurrent-start court
 │  └─ [~] stale state reclamation ✓; orphan process-tree authority remains
 ├─ [~] process lifecycle: exact exit + explicit stop postconditions; tree/signal remain
-├─ [ ] bounded events/snapshot/diff projection compatible with MCU callers
+├─ [~] bounded events/snapshot/diff projection compatible with MCU callers
+│  ├─ [x] pty-snapshot: structured screen + exact epoch/sequence cursor
+│  ├─ [x] pty-events: same-job continuation; unrelated events still advance cursor
+│  └─ [ ] persisted screen diff + verified resize
 └─ [x] exact-source `a6a1c7b9` local six-cell public qjswasm court
    (macOS x86_64 via Rosetta; stale Windows job receipts rejected)
 ```
@@ -107,9 +110,11 @@ flowchart LR
   C -->|"any hard invariant fails"| B
   D --> I["job id = instance + epoch + @tab ✓"]
   D --> S["start/list/prune/status/read/send/wait/wait-exit/stop ✓<br/>reuse pending"]
+  D --> E["snapshot/events ✓<br/>diff/resize pending"]
   D --> R["existing retention / redaction / ConPTY / POSIX PTY"]
   I --> G{"three-host public qjswasm court"}
   S --> G
+  E --> G
   R --> G
   G -->|green| M["route MCU pty callers to ACU"]
   G -->|red| K["keep typed gap; do not revive duplicate daemon"]
@@ -126,7 +131,8 @@ verbs are productization gaps, not evidence for a second kernel.
 ## First product slice · 2026-09-05
 
 The public ACU facade now exposes `pty-start`, `pty-status`, `pty-read`,
-`pty-send`, `pty-wait`, `pty-wait-exit` and `pty-stop`. One validated job name deterministically maps to
+`pty-snapshot`, `pty-events`, `pty-send`, `pty-wait`, `pty-wait-exit` and
+`pty-stop`. One validated job name deterministically maps to
 one private `ephemeral:acu-pty-*` server instance; the server starts with zero
 tabs, then owns exactly one typed-argv job tab. Start and stop serialize through
 a cross-process path lock. Read reuses the terminal owner's loss-aware raw byte
@@ -147,5 +153,9 @@ shell received exact literal input, `pty-wait` found the response in retained
 raw bytes, exit status 7 was verified, and explicit stop removed the endpoint.
 Wait advances a loss-aware byte cursor and carries `needle.len - 1` bytes across
 page boundaries, so it neither reduces history to the current screen nor loses
-a split match. Regex waits and terminal event/screen projection remain separate
+a split match. The enlarged local macOS qjswasm court now also takes a bounded
+structured screen snapshot, retains its exact server epoch and sequence, sends
+output, then continues the ordered event journal and observes the matching job
+tab update. An epoch substitution fails typed before continuation. Persisted
+screen diff, resize, bounded regex parity and the six-cell rerun remain separate
 leaves rather than silently weaker aliases.

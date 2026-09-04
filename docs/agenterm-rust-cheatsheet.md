@@ -3626,6 +3626,13 @@ finalized process with no match, and cap both needle and page sizes. A current
 screen search cannot replace this contract because scrollback can disappear
 while retained output is still authoritative.
 
+When a durable job facade projects a lower-level terminal snapshot or event
+page, resolve `job name → one ControlClient → sole @tab` once per operation.
+Bind the result to the inventory's server scope and epoch, compare the
+lower-level reply's epoch before publishing it, and reject a caller's stale
+epoch before event continuation. Never overwrite a mismatched epoch to make the
+JSON look consistent: a same-name server restart is a different authority.
+
 ## Make machine JSON and process status agree
 
 A CLI that always emits a typed JSON envelope still participates in shell and

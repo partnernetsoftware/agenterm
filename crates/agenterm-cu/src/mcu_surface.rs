@@ -137,6 +137,8 @@ pub const GROUPS: &[Group] = &[
             "pty-prune",
             "pty-status",
             "pty-read",
+            "pty-snapshot",
+            "pty-events",
             "pty-send",
             "pty-wait",
             "pty-wait-exit",

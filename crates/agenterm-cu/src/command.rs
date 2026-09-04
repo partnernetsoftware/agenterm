@@ -487,6 +487,21 @@ pub enum Command {
         cursor: String,
         max_bytes: usize,
     },
+    /// Observe one bounded structured screen and event cursor for the sole tab
+    /// owned by an exact durable PTY job.
+    PtySnapshot {
+        target: TargetRef,
+        name: String,
+    },
+    /// Continue the loss-aware event journal for the sole tab owned by an
+    /// exact durable PTY job.
+    PtyEvents {
+        target: TargetRef,
+        name: String,
+        epoch: String,
+        after: u64,
+        limit: usize,
+    },
     /// Send exact UTF-8 bytes to one named headless PTY job.
     PtySend {
         target: TargetRef,
@@ -1816,6 +1831,8 @@ impl Command {
             Self::PtyPrune { .. } => "pty-prune".into(),
             Self::PtyStatus { .. } => "pty-status".into(),
             Self::PtyRead { .. } => "pty-read".into(),
+            Self::PtySnapshot { .. } => "pty-snapshot".into(),
+            Self::PtyEvents { .. } => "pty-events".into(),
             Self::PtySend { .. } => "pty-send".into(),
             Self::PtyWait { .. } => "pty-wait".into(),
             Self::PtyWaitExit { .. } => "pty-wait-exit".into(),
@@ -1923,6 +1940,8 @@ impl Command {
             | Self::PtyPrune { target, .. }
             | Self::PtyStatus { target, .. }
             | Self::PtyRead { target, .. }
+            | Self::PtySnapshot { target, .. }
+            | Self::PtyEvents { target, .. }
             | Self::PtySend { target, .. }
             | Self::PtyWait { target, .. }
             | Self::PtyWaitExit { target, .. }
@@ -3237,6 +3256,28 @@ mod tests {
                 "verb": "terminal-read", "target": "ssh", "tab": "@9", "max_bytes": 4096
             })
         );
+        let job_snapshot = Command::PtySnapshot {
+            target: TargetRef::Current,
+            name: "build".into(),
+        };
+        assert_eq!(job_snapshot.required_grant(), Grant::Observe);
+        assert_eq!(job_snapshot.verb(), "pty-snapshot");
+        assert_eq!(
+            serde_json::to_value(&job_snapshot).unwrap(),
+            serde_json::json!({
+                "verb": "pty-snapshot", "target": "current", "name": "build"
+            })
+        );
+        let job_events = Command::PtyEvents {
+            target: TargetRef::Ssh,
+            name: "build".into(),
+            epoch: "epoch-a".into(),
+            after: 12,
+            limit: 32,
+        };
+        assert_eq!(job_events.required_grant(), Grant::Observe);
+        assert_eq!(job_events.verb(), "pty-events");
+        assert_eq!(job_events.target(), TargetRef::Ssh);
         let send = Command::TerminalSend {
             target: TargetRef::Current,
             tab: "@9".into(),

@@ -429,8 +429,16 @@ pub(super) fn terminal_read_payload(tab: &str, max_bytes: usize) -> Result<Value
 pub(super) fn terminal_snapshot_payload(tab: &str) -> Result<Value, CuError> {
     validate_tab(tab)?;
     let client = client()?;
+    terminal_snapshot_with_client(&client, tab)
+}
+
+pub(super) fn terminal_snapshot_with_client(
+    client: &ControlClient,
+    tab: &str,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
     let response = request(
-        &client,
+        client,
         vec!["ui-bootstrap".to_owned()],
         "ui.bootstrap",
         Intent::Query,
@@ -498,8 +506,20 @@ pub(super) fn terminal_events_payload(
     validate_tab(tab)?;
     validate_event_request(epoch, limit)?;
     let client = client()?;
+    terminal_events_with_client(&client, tab, epoch, after, limit)
+}
+
+pub(super) fn terminal_events_with_client(
+    client: &ControlClient,
+    tab: &str,
+    epoch: &str,
+    after: u64,
+    limit: usize,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    validate_event_request(epoch, limit)?;
     let response = request(
-        &client,
+        client,
         vec![
             "ui-deltas".to_owned(),
             "--epoch".to_owned(),

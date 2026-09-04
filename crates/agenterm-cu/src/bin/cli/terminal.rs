@@ -84,6 +84,33 @@ pub fn parse(
                 max_bytes,
             })
         }
+        "pty-snapshot" => {
+            let name = required_name(args, "pty-snapshot")?;
+            empty(args, "pty-snapshot")?;
+            Ok(Command::PtySnapshot { target, name })
+        }
+        "pty-events" => {
+            let name = required_name(args, "pty-events")?;
+            let epoch = flag_text(args, "--epoch")?
+                .ok_or_else(|| "pty-events requires --epoch EPOCH".to_owned())?;
+            if epoch.is_empty() || epoch.len() > 128 || epoch.chars().any(char::is_control) {
+                return Err("pty-events --epoch must be 1..=128 non-control bytes".into());
+            }
+            let after = flag_parsed::<u64>(args, "--after")?
+                .ok_or_else(|| "pty-events requires --after SEQUENCE".to_owned())?;
+            let limit = flag_parsed::<usize>(args, "--limit")?.unwrap_or(64);
+            if !(1..=64).contains(&limit) {
+                return Err("pty-events --limit must be in 1..=64".into());
+            }
+            empty(args, "pty-events")?;
+            Ok(Command::PtyEvents {
+                target,
+                name,
+                epoch,
+                after,
+                limit,
+            })
+        }
         "pty-send" => {
             let name = required_name(args, "pty-send")?;
             if args.first().map(String::as_str) == Some("--") {
@@ -411,6 +438,19 @@ mod tests {
                 if name == "build" && cursor == "12"
         ));
         assert!(matches!(
+            parse("pty-snapshot", &["build"]).unwrap(),
+            Command::PtySnapshot { name, .. } if name == "build"
+        ));
+        assert!(matches!(
+            parse(
+                "pty-events",
+                &["build", "--epoch", "epoch-a", "--after", "12", "--limit", "8"]
+            )
+            .unwrap(),
+            Command::PtyEvents { name, epoch, after: 12, limit: 8, .. }
+                if name == "build" && epoch == "epoch-a"
+        ));
+        assert!(matches!(
             parse("pty-send", &["build", "--", "hello\r"]).unwrap(),
             Command::PtySend { name, text, .. } if name == "build" && text == "hello\r"
         ));
@@ -436,6 +476,14 @@ mod tests {
         assert!(parse("pty-start", &["build"]).is_err());
         assert!(parse("pty-send", &["build", ""]).is_err());
         assert!(parse("pty-wait", &["build"]).is_err());
+        assert!(parse("pty-events", &["build", "--epoch", "e"]).is_err());
+        assert!(
+            parse(
+                "pty-events",
+                &["build", "--epoch", "e", "--after", "0", "--limit", "65"]
+            )
+            .is_err()
+        );
         assert!(parse("pty-prune", &["build"]).is_err());
         assert!(parse("pty-stop", &["build"]).is_err());
         assert!(matches!(

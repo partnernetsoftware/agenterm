@@ -342,6 +342,11 @@ Q3 owned runtime facades
 │  │  ├─ [x] exact-source `a6a1c7b9` local six-cell qjswasm public court; macOS x86_64 via Rosetta
 │  │  ├─ [x] concurrent-start single-owner + typed exit mismatch + verified shutdown court
 │  │  └─ [~] list/prune ✓; reuse + orphan process-tree cleanup pending
+│  ├─ [~] durable-job screen/event projection
+│  │  ├─ [x] pty-snapshot: sole-tab structured screen + exact job/scope/epoch/tab cursor
+│  │  ├─ [x] pty-events: same-epoch continuation + all-scanned cursor advance
+│  │  ├─ [x] local macOS public qjswasm snapshot → output → event continuation court
+│  │  └─ [ ] six-cell rerun, persisted screen diff and verified resize
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe

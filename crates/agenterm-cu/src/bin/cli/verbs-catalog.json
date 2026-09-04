@@ -559,6 +559,33 @@
       ]
     },
     {
+      "name": "pty-snapshot",
+      "command": "pty-snapshot",
+      "aliases": ["pty snapshot"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "snapshot one durable PTY job with an event cursor",
+      "usage": "pty-snapshot NAME\npty snapshot NAME",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"}
+      ]
+    },
+    {
+      "name": "pty-events",
+      "command": "pty-events",
+      "aliases": ["pty events"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "continue one durable PTY job event cursor",
+      "usage": "pty-events NAME --epoch EPOCH --after SEQUENCE [--limit N]\npty events NAME --epoch EPOCH --after SEQUENCE [--limit N]",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"},
+        {"flag": "--epoch", "value": "EPOCH", "help": "exact server epoch returned by pty-snapshot"},
+        {"flag": "--after", "value": "SEQUENCE", "help": "last consumed event sequence"},
+        {"flag": "--limit", "value": "N", "help": "events scanned per page, 1..=64 (default 64)"}
+      ]
+    },
+    {
       "name": "pty-send",
       "command": "pty-send",
       "aliases": ["pty send"],
@@ -3590,6 +3617,14 @@
     {
       "name": "pty-read",
       "text": "agenterm-cu pty-read    (also: pty read)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-read NAME [--cursor earliest|current|N] [--max-bytes N]\n  pty read NAME ...\n\nReads the same retained redacted raw PTY byte ring as terminal-output. Base64 is lossless; valid UTF-8 is auxiliary. Continue from next_cursor. Overwritten and future cursors fail typed rather than silently skipping bytes.\n"
+    },
+    {
+      "name": "pty-snapshot",
+      "text": "agenterm-cu pty-snapshot    (also: pty snapshot)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-snapshot NAME\n  pty snapshot NAME\n\nReturns the sole durable job tab's bounded structured screen plus the exact server epoch and ordered event cursor. The job name, logical server scope, epoch and stable tab id remain one identity; an epoch change during capture fails typed rather than publishing a substituted snapshot. Continue with pty-events.\n"
+    },
+    {
+      "name": "pty-events",
+      "text": "agenterm-cu pty-events    (also: pty events)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-events NAME --epoch EPOCH --after SEQUENCE [--limit N]\n  pty events NAME --epoch EPOCH --after SEQUENCE [--limit N]\n\nContinues the bounded ordered UI event journal for the sole tab of an exact durable job. The supplied epoch must still match the named authority. Its cursor advances across every scanned event while returned terminal updates remain filtered to the job tab, preventing unrelated activity from trapping the caller in replay. Restart, overwritten history and future cursors fail typed.\n"
     },
     {
       "name": "pty-send",
