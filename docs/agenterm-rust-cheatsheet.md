@@ -3644,6 +3644,15 @@ For resize this means exact rows, columns, server epoch and tab id plus a detach
 reply from the same client PID and epoch. Never report `performed: true` when a
 hello or lease acquisition failed before the resize request.
 
+A persisted terminal-screen baseline must bind the human job name to the
+machine authority: server scope, epoch and stable tab id. Keep it separate from
+accessibility-tree baselines, publish through temporary-file + fsync + rename,
+reject links and oversized records, and impose a global record ceiling rather
+than a per-name ceiling that arbitrary names can multiply. A diff should bound
+changed rows independently, report cursor/grid/mode metadata separately, and
+let `--advance` publish the already captured current screen. Never compare an
+old baseline after a same-name server restart.
+
 ## Make machine JSON and process status agree
 
 A CLI that always emits a typed JSON envelope still participates in shell and

@@ -536,11 +536,11 @@
         {
           "id": "pty.background.screen",
           "mcu_shape": "pty --provider native|tmux snapshot|diff|resize",
-          "acu_shape": "pty-snapshot binds the sole job tab's bounded structured screen to server scope + epoch + event cursor; pty-events continues that exact epoch and advances across every scanned event while returning only the job tab's events and screen updates; pty-resize temporarily leases that same authority and verifies the exact 1..=512 grid, epoch, tab and lease cleanup",
-          "state": "gap",
+          "acu_shape": "pty-snapshot persists the sole job tab's bounded structured screen with server scope + epoch + tab identity; pty-diff returns bounded changed rows and terminal metadata, optionally advancing atomically; pty-events continues the exact event epoch; pty-resize verifies the exact 1..=512 grid and lease cleanup",
+          "state": "native",
           "qualification": "local-macos-public-qjswasm-journey-green-six-cell-pending",
-          "next": "add a persisted screen diff baseline and rerun the enlarged journey in six cells; keep the aggregate row gap until the remaining MCU diff shape is reachable",
-          "note": "Snapshot/events/resize are native ACU capability, not an inference from raw bytes. Restart or epoch substitution fails typed. Resize reserves its receipt before mutation, detaches its temporary UI lease, then independently reads the exact grid back. The aggregate MCU row remains gap because pty diff has not shipped."
+          "next": "rerun the enlarged snapshot/diff/events/resize journey in six cells before treating the compatibility route as release-qualified",
+          "note": "Snapshot/diff/events/resize are native ACU capability, not an inference from raw bytes. Restart or epoch substitution fails typed. The private baseline store is globally bounded to 128 records at 2 MiB each and prunes stale temporary writes. Resize reserves its receipt before mutation, detaches its temporary UI lease, then independently reads the exact grid back."
         },
         {
           "id": "pty.background.process-control",

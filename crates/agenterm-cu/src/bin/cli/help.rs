@@ -180,6 +180,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "pty-status",
         "pty-read",
         "pty-snapshot",
+        "pty-diff",
         "pty-events",
         "pty-resize",
         "pty-send",
@@ -209,23 +210,11 @@ fn append_missing_top_level_rows(text: &mut String) {
         .collect::<Vec<_>>();
     if compact_process
         .iter()
-        .any(|name| !text.contains(&format!("  {name}")))
-    {
-        missing.push(format!(
-            "  {}  {}  {}  {:<8} {}",
-            "process-argv",
-            "process-cwd",
-            "process-environment",
-            "observe",
-            "identity-bound launch context; values opt in",
-        ));
-    }
-    if compact_terminal
-        .iter()
+        .chain(compact_terminal.iter())
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-wait-exit  terminal-close  terminal-snapshot  terminal-events  terminal-output\n  pty-start  pty-list  pty-prune  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-stop  terminal-new"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd  process-environment"
                 .to_owned(),
         );
     }

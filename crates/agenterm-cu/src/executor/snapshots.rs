@@ -15,6 +15,7 @@
 
 use super::*;
 
+use crate::pty_snapshot::{self, PtySnapshotStore};
 use crate::snapshot::{self, SnapshotStore};
 
 impl Executor {
@@ -31,6 +32,22 @@ impl Executor {
         Ok(SnapshotStore::new(snapshot::snapshot_dir_beside(
             &audit_path,
         )))
+    }
+
+    /// Persisted PTY screen baselines share the audit root but use a separate
+    /// identity-aware store from accessibility-tree snapshots.
+    pub(super) fn pty_snapshot_store(&self) -> Result<PtySnapshotStore, CuError> {
+        #[cfg(test)]
+        if let Some(path) = self.audit_path.as_ref() {
+            return Ok(PtySnapshotStore::new(
+                pty_snapshot::pty_snapshot_dir_beside(path),
+            ));
+        }
+        let audit_path = crate::audit::resolved_audit_path()
+            .map_err(|error| CuError::new("pty_snapshot_unavailable", error))?;
+        Ok(PtySnapshotStore::new(
+            pty_snapshot::pty_snapshot_dir_beside(&audit_path),
+        ))
     }
 }
 

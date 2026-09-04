@@ -25,6 +25,7 @@ pub mod network_probe;
 pub mod observe;
 pub mod page_text;
 pub mod place;
+pub mod pty_snapshot;
 pub mod rdp_transport;
 pub mod receipt;
 pub mod reply;

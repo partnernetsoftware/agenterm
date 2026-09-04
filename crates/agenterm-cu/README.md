@@ -89,7 +89,8 @@ shell unless the caller explicitly names one:
 cu --grant actuate pty-start build-1 -- /usr/bin/make test
 cu pty-status build-1
 cu --grant actuate pty-resize build-1 --rows 40 --columns 120
-cu pty-snapshot build-1
+base=$(cu pty-snapshot build-1 | jq -r .data.snapshot_id)
+cu pty-diff build-1 --base "$base" --advance --max 200
 cu --grant actuate pty-send build-1 -- $'status\r'
 cu pty-wait build-1 --contains ready --cursor current --timeout-ms 10000
 cu pty-read build-1 --cursor earliest --max-bytes 65536
@@ -103,13 +104,16 @@ have one winner; duplicate jobs and exit mismatches fail typed. `pty-send`
 transmits one exact literal argument with no implicit Enter. `pty-resize`
 temporarily leases the same authority, verifies the exact grid and detaches the
 lease before success; snapshot/events remain bound to that job epoch and tab.
+`pty-snapshot` also persists an identity-bound baseline; `pty-diff` returns
+bounded changed rows plus terminal metadata changes and can atomically advance
+the baseline. A same-name restart is never comparable.
 `pty-wait` scans
 the loss-aware retained byte stream from an explicit cursor, preserves matches
 split across pages, and distinguishes timeout, cursor loss, and finalized
 without a match. `pty-stop`
 proves the dedicated endpoint disappeared, so a lost shutdown response cannot
-turn a completed destructive action into a false failure. Persisted screen
-diff, reuse and process-group control remain explicit gaps.
+turn a completed destructive action into a false failure. Reuse and
+process-group control remain explicit gaps.
 
 Every ordinary invocation writes exactly one `CuReply` JSON object to stdout.
 The process status agrees with it: `ok:true` exits 0, a typed runtime failure

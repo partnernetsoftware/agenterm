@@ -89,6 +89,24 @@ pub fn parse(
             empty(args, "pty-snapshot")?;
             Ok(Command::PtySnapshot { target, name })
         }
+        "pty-diff" => {
+            let name = required_name(args, "pty-diff")?;
+            let base = flag_text(args, "--base")?
+                .ok_or_else(|| "pty-diff requires --base SNAPSHOT_ID".to_owned())?;
+            let advance = take_switch(args, "--advance");
+            let max = flag_parsed::<usize>(args, "--max")?;
+            if matches!(max, Some(0 | 513..)) {
+                return Err("pty-diff --max must be in 1..=512".into());
+            }
+            empty(args, "pty-diff")?;
+            Ok(Command::PtyDiff {
+                target,
+                name,
+                base,
+                advance,
+                max,
+            })
+        }
         "pty-events" => {
             let name = required_name(args, "pty-events")?;
             let epoch = flag_text(args, "--epoch")?
@@ -469,6 +487,15 @@ mod tests {
         ));
         assert!(matches!(
             parse(
+                "pty-diff",
+                &["build", "--base", "1-2-3", "--advance", "--max", "8"]
+            )
+            .unwrap(),
+            Command::PtyDiff { name, base, advance: true, max: Some(8), .. }
+                if name == "build" && base == "1-2-3"
+        ));
+        assert!(matches!(
+            parse(
                 "pty-resize",
                 &["build", "--rows", "40", "--columns", "120"]
             )
@@ -510,6 +537,7 @@ mod tests {
             .is_err()
         );
         assert!(parse("pty-resize", &["build", "--rows", "40"]).is_err());
+        assert!(parse("pty-diff", &["build"]).is_err());
         assert!(parse("pty-resize", &["build", "--rows", "0", "--columns", "80"]).is_err());
         assert!(parse("pty-prune", &["build"]).is_err());
         assert!(parse("pty-stop", &["build"]).is_err());

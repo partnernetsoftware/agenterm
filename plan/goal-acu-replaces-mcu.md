@@ -344,10 +344,11 @@ Q3 owned runtime facades
 │  │  └─ [~] list/prune ✓; reuse + orphan process-tree cleanup pending
 │  ├─ [~] durable-job screen/event projection
 │  │  ├─ [x] pty-snapshot: sole-tab structured screen + exact job/scope/epoch/tab cursor
+│  │  ├─ [x] pty-diff: persisted identity-bound rows/metadata + bounded atomic advance
 │  │  ├─ [x] pty-events: same-epoch continuation + all-scanned cursor advance
 │  │  ├─ [x] pty-resize: temporary lease + exact grid/epoch/tab read-back + detach proof
-│  │  ├─ [x] local macOS public qjswasm snapshot → resize → output → event continuation court
-│  │  └─ [ ] six-cell rerun and persisted screen diff
+│  │  ├─ [x] local macOS public qjswasm snapshot → resize/diff → output/diff → event continuation → restart refusal
+│  │  └─ [ ] enlarged journey six-cell rerun
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe

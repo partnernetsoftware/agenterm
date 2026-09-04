@@ -21,7 +21,11 @@ use agenterm_platform::{
 use serde_json::{Value, json};
 
 use crate::cdp::page::base64_decode;
-use crate::{CuError, TerminalWaitCondition, receipt::ReceiptLog};
+use crate::{
+    CuError, TerminalWaitCondition,
+    pty_snapshot::{self, PtySnapshotStore},
+    receipt::ReceiptLog,
+};
 
 use super::{
     parse_output, request, request_protocol, terminal_close_with_client,
@@ -763,7 +767,7 @@ pub(super) fn pty_read_payload(
     Ok(output)
 }
 
-pub(super) fn pty_snapshot_payload(name: &str) -> Result<Value, CuError> {
+fn capture_pty_snapshot(name: &str) -> Result<Value, CuError> {
     let client = client_for(name)?;
     let (inventory, tab) = sole_job(&client, name)?;
     let tab_id = tab["id"].as_str().ok_or_else(|| {
@@ -784,6 +788,83 @@ pub(super) fn pty_snapshot_payload(name: &str) -> Result<Value, CuError> {
     snapshot["name"] = json!(name);
     snapshot["identity"] = json!("job-name+server-scope+epoch+tab-id+event-cursor");
     Ok(snapshot)
+}
+
+pub(super) fn pty_snapshot_payload(name: &str, store: &PtySnapshotStore) -> Result<Value, CuError> {
+    let mut snapshot = capture_pty_snapshot(name)?;
+    let baseline = store.write(name, &snapshot)?;
+    snapshot["baseline"] = baseline.meta_json();
+    snapshot["snapshot_id"] = json!(baseline.snapshot_id);
+    snapshot["next_actions"] = json!([format!(
+        "pty-diff {name} --base {} --advance",
+        snapshot["snapshot_id"].as_str().expect("stored id")
+    )]);
+    Ok(snapshot)
+}
+
+pub(super) fn pty_diff_payload(
+    name: &str,
+    base: &str,
+    advance: bool,
+    max: Option<usize>,
+    store: &PtySnapshotStore,
+) -> Result<Value, CuError> {
+    let max = pty_snapshot::validate_diff_max(max)?;
+    let baseline = store.load(name, base)?;
+    let current = capture_pty_snapshot(name)?;
+    let current_scope = current["server_scope_id"].as_str();
+    let current_epoch = current["server_epoch"].as_str();
+    let current_tab = current["tab"]["id"].as_str();
+    if current_scope != Some(baseline.server_scope_id.as_str())
+        || current_epoch != Some(baseline.server_epoch.as_str())
+        || current_tab != Some(baseline.tab_id.as_str())
+    {
+        return Err(CuError::new(
+            "pty_snapshot_authority_changed",
+            "PTY screen baseline belongs to a different job authority",
+        )
+        .with_detail(json!({
+            "name": name,
+            "snapshot_id": base,
+            "baseline": {
+                "server_scope_id": baseline.server_scope_id,
+                "server_epoch": baseline.server_epoch,
+                "tab_id": baseline.tab_id,
+            },
+            "current": {
+                "server_scope_id": current["server_scope_id"],
+                "server_epoch": current["server_epoch"],
+                "tab_id": current["tab"]["id"],
+            },
+        })));
+    }
+    let mut diff = pty_snapshot::diff_screens(&baseline.screen, &current["tab"]["screen"], max)?;
+    let advanced = if advance {
+        Some(store.write(name, &current)?)
+    } else {
+        None
+    };
+    diff["name"] = json!(name);
+    diff["base"] = baseline.meta_json();
+    diff["current"] = json!({
+        "server_scope_id": current["server_scope_id"],
+        "server_epoch": current["server_epoch"],
+        "tab_id": current["tab"]["id"],
+        "cursor_sequence": current["cursor"]["sequence"],
+        "rows": current["tab"]["screen"]["rows"],
+        "columns": current["tab"]["screen"]["columns"],
+    });
+    diff["advanced"] = advanced.as_ref().map_or(Value::Null, |row| row.meta_json());
+    diff["next_base"] = json!(
+        advanced
+            .as_ref()
+            .map(|row| row.snapshot_id.as_str())
+            .unwrap_or(base)
+    );
+    diff["max"] = json!(max);
+    diff["identity"] = json!("job-name+server-scope+epoch+tab-id+screen-baseline");
+    diff["store"] = json!(store.root());
+    Ok(diff)
 }
 
 pub(super) fn pty_events_payload(

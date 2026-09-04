@@ -508,6 +508,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "observe",
                 "bounded-structured-job-screen-with-event-cursor",
             ),
+            (
+                "pty-diff",
+                "observe",
+                "persisted-identity-bound-job-screen-diff",
+            ),
             ("pty-events", "observe", "loss-aware-job-event-continuation"),
             ("pty-resize", "actuate", "verified-job-terminal-grid-resize"),
             ("pty-send", "actuate", "literal-headless-pty-input"),

@@ -88,7 +88,7 @@ flowchart LR
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
-  QPTY["ACU headless PTY journey<br/>snapshot · verified resize · send · raw wait · events · exit · cleanup"]
+  QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
   UP["tinyvm repository<br/>generic engine write knife"]
   REJECT["reject load/call<br/>host survives"]
@@ -234,8 +234,8 @@ second route around ACU/AgenTerm product contracts.
   six-cell attempt can report six misleading pre-build failures.
 - [x] The platform-neutral `cu-pty-smoke` task drives the public ACU facade
   through qjswasm: absent/running/stale/pruned inventory reconciliation, exact
-  epoch-bound structured snapshot, exact-grid resize with lease cleanup, and
-  non-empty event/screen continuation,
+  epoch-bound structured snapshot/diff, exact-grid resize with lease cleanup,
+  non-empty event continuation and same-name restart refusal,
   literal input receipt, loss-aware raw-output match,
   exact exit status, typed finalized-without-match, and verified authority
   disappearance. The native macOS court completed in 728 ms at 2,081,763
@@ -257,12 +257,14 @@ second route around ACU/AgenTerm product contracts.
   inefficient court input. Windows qualification requires a job-specific
   marker plus the PASS line and exit receipt, because a readiness probe can
   leave a stale zero-exit file that must not satisfy the next job.
-  The next local macOS enlargement added `pty-snapshot`, a 37×91
-  `pty-resize`, and `pty-events` after the exact output match. It asserts the
-  same durable job, stable tab, server epoch and event cursor, exact resize
-  read-back, detached temporary lease, a non-empty terminal event and updated
-  structured screen. This local result does not inherit the earlier six-cell
-  claim; the enlarged bytes still require their own six-cell rerun.
+  The next local macOS enlargement added persisted `pty-snapshot`, bounded
+  `pty-diff`, a 37×91 `pty-resize`, and `pty-events` after the exact output
+  match. It asserts the same durable job, stable tab, server epoch and event
+  cursor, exact resize read-back, detached temporary lease, separate
+  row/metadata diffs and a non-empty terminal event. It then restarts the same
+  name and requires the old baseline to fail `pty_snapshot_authority_changed`.
+  This local result does not inherit the earlier six-cell claim; the enlarged
+  bytes still require their own six-cell rerun.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and

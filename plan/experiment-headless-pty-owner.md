@@ -94,9 +94,10 @@ product or user data was read.
 ├─ [~] process lifecycle: exact exit + explicit stop postconditions; tree/signal remain
 ├─ [~] bounded events/snapshot/diff projection compatible with MCU callers
 │  ├─ [x] pty-snapshot: structured screen + exact epoch/sequence cursor
+│  ├─ [x] pty-diff: persisted exact-authority baseline + rows/metadata + atomic advance
 │  ├─ [x] pty-events: same-job continuation; unrelated events still advance cursor
 │  ├─ [x] pty-resize: exact 1..=512 grid + same epoch/tab + temporary lease cleanup
-│  └─ [ ] persisted screen diff
+│  └─ [ ] enlarged journey six-cell rerun
 └─ [x] exact-source `a6a1c7b9` local six-cell public qjswasm court
    (macOS x86_64 via Rosetta; stale Windows job receipts rejected)
 ```
@@ -111,7 +112,7 @@ flowchart LR
   C -->|"any hard invariant fails"| B
   D --> I["job id = instance + epoch + @tab ✓"]
   D --> S["start/list/prune/status/read/send/wait/wait-exit/stop ✓<br/>reuse pending"]
-  D --> E["snapshot/events/verified resize ✓<br/>persisted diff pending"]
+  D --> E["snapshot/diff/events/verified resize ✓<br/>same-name restart refused · six-cell pending"]
   D --> R["existing retention / redaction / ConPTY / POSIX PTY"]
   I --> G{"three-host public qjswasm court"}
   S --> G
@@ -132,7 +133,7 @@ verbs are productization gaps, not evidence for a second kernel.
 ## First product slice · 2026-09-05
 
 The public ACU facade now exposes `pty-start`, `pty-status`, `pty-read`,
-`pty-snapshot`, `pty-events`, `pty-resize`, `pty-send`, `pty-wait`, `pty-wait-exit` and
+`pty-snapshot`, `pty-diff`, `pty-events`, `pty-resize`, `pty-send`, `pty-wait`, `pty-wait-exit` and
 `pty-stop`. One validated job name deterministically maps to
 one private `ephemeral:acu-pty-*` server instance; the server starts with zero
 tabs, then owns exactly one typed-argv job tab. Start and stop serialize through

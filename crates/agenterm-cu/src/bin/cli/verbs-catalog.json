@@ -564,10 +564,25 @@
       "aliases": ["pty snapshot"],
       "grant": "observe",
       "family": "terminal",
-      "summary": "snapshot one durable PTY job with an event cursor",
+      "summary": "snapshot and persist one exact durable PTY screen baseline",
       "usage": "pty-snapshot NAME\npty snapshot NAME",
       "args": [
         {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"}
+      ]
+    },
+    {
+      "name": "pty-diff",
+      "command": "pty-diff",
+      "aliases": ["pty diff"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "diff one durable PTY screen against an identity-bound baseline",
+      "usage": "pty-diff NAME --base SNAPSHOT_ID [--advance] [--max N]\npty diff NAME --base SNAPSHOT_ID [--advance] [--max N]",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "same stable job name used to take the baseline"},
+        {"flag": "--base", "value": "SNAPSHOT_ID", "help": "exact snapshot_id returned by pty-snapshot"},
+        {"flag": "--advance", "value": "", "help": "atomically persist the current screen as next_base"},
+        {"flag": "--max", "value": "N", "help": "changed-row ceiling, 1..=512 (default 200)"}
       ]
     },
     {
@@ -3634,7 +3649,11 @@
     },
     {
       "name": "pty-snapshot",
-      "text": "agenterm-cu pty-snapshot    (also: pty snapshot)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-snapshot NAME\n  pty snapshot NAME\n\nReturns the sole durable job tab's bounded structured screen plus the exact server epoch and ordered event cursor. The job name, logical server scope, epoch and stable tab id remain one identity; an epoch change during capture fails typed rather than publishing a substituted snapshot. Continue with pty-events.\n"
+      "text": "agenterm-cu pty-snapshot    (also: pty snapshot)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-snapshot NAME\n  pty snapshot NAME\n\nReturns the sole durable job tab's bounded structured screen plus the exact server epoch and ordered event cursor. It also persists a bounded baseline beside the audit log and returns snapshot_id. The job name, logical server scope, epoch and stable tab id remain one identity; an epoch change during capture fails typed rather than publishing a substituted snapshot. Continue with pty-events or pty-diff.\n"
+    },
+    {
+      "name": "pty-diff",
+      "text": "agenterm-cu pty-diff    (also: pty diff)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-diff NAME --base SNAPSHOT_ID [--advance] [--max N]\n  pty diff NAME --base SNAPSHOT_ID [--advance] [--max N]\n\nLoads one persisted bounded screen baseline and captures the named job again. Success requires the same job, server scope, epoch and stable tab id; restart fails pty_snapshot_authority_changed instead of comparing unrelated terminals. The reply separates changed rows from terminal metadata changes and bounds rows with --max. --advance publishes the current capture as next_base in the same operation. The private store keeps at most 128 baselines total and each record is capped at 2 MiB.\n"
     },
     {
       "name": "pty-events",

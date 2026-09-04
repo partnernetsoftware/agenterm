@@ -129,6 +129,9 @@ try {
       && event_epoch === snapshot.server_epoch && event_sequence >= 0
       && snapshot.read_kind === "bounded-structured-screen"
       && snapshot.cursor_kind === "loss-aware-event-position"
+      && ("" + snapshot.snapshot_id).length > 0
+      && snapshot.baseline.server_epoch === snapshot.server_epoch
+      && snapshot.baseline.tab_id === start.status.tab_id
       && snapshot.identity === "job-name+server-scope+epoch+tab-id+event-cursor",
     "cu_pty_snapshot_contract:" + JSON.stringify(snapshot)
   );
@@ -157,6 +160,22 @@ try {
       && resized_snapshot.cursor.sequence >= event_sequence,
     "cu_pty_resized_snapshot_contract:" + JSON.stringify(resized_snapshot)
   );
+  const resize_diff = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-diff", job,
+    "--base", snapshot.snapshot_id, "--advance", "--max", "64"
+  ]), "pty-diff");
+  ensure(
+    resize_diff.name === job
+      && resize_diff.base.snapshot_id === snapshot.snapshot_id
+      && resize_diff.current.server_epoch === event_epoch
+      && resize_diff.current.tab_id === start.status.tab_id
+      && resize_diff.metadata_changed.rows.before !== resize_diff.metadata_changed.rows.after
+      && resize_diff.metadata_changed.columns.after === 91
+      && resize_diff.changed_count > 0 && resize_diff.truncated === false
+      && ("" + resize_diff.next_base).length > 0
+      && resize_diff.next_base !== snapshot.snapshot_id,
+    "cu_pty_resize_diff_contract:" + JSON.stringify(resize_diff)
+  );
   event_sequence = resized_snapshot.cursor.sequence;
 
   print("STEP send exact literal shell input and require the committed control receipt");
@@ -181,6 +200,17 @@ try {
       && wait.matched_at_cursor >= 0 && wait.next_cursor > wait.matched_at_cursor
       && wait.scanned_bytes > 0,
     "cu_pty_wait_contract:" + JSON.stringify(wait)
+  );
+  const output_diff = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-diff", job,
+    "--base", resize_diff.next_base, "--max", "64"
+  ]), "pty-diff");
+  ensure(
+    output_diff.name === job && output_diff.current.server_epoch === event_epoch
+      && output_diff.current.tab_id === start.status.tab_id
+      && output_diff.changed_count > 0 && output_diff.changed_rows.length > 0
+      && output_diff.next_base === resize_diff.next_base,
+    "cu_pty_output_diff_contract:" + JSON.stringify(output_diff)
   );
 
   print("STEP continue the same epoch-scoped event journal without reopening terminal identity");
@@ -261,6 +291,38 @@ try {
     find_job(pruned_inventory, job) === null,
     "cu_pty_prune_absence_contract:" + JSON.stringify(pruned_inventory)
   );
+
+  print("STEP restart the same name and refuse a baseline from the prior authority");
+  const restarted = require_ok(
+    invoke_cu(run_directory, product, executable, start_arguments),
+    "pty-start"
+  );
+  started = 1;
+  stopped = 0;
+  ensure(
+    restarted.status.server_epoch !== event_epoch,
+    "cu_pty_restart_epoch_contract:" + JSON.stringify(restarted)
+  );
+  const stale_diff = invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-diff", job,
+    "--base", snapshot.snapshot_id
+  ]);
+  ensure(
+    stale_diff.ok === false
+      && stale_diff.error.code === "pty_snapshot_authority_changed",
+    "cu_pty_stale_diff_contract:" + JSON.stringify(stale_diff)
+  );
+  const restop = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-stop", job,
+    "--expect", "stopped"
+  ]), "pty-stop");
+  ensure(restop.state === "stopped" && restop.verified === true, "cu_pty_restop_contract");
+  stopped = 1;
+  const reprune = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-prune", job,
+    "--expect", "stale"
+  ]), "pty-prune");
+  ensure(reprune.verified === true, "cu_pty_reprune_contract");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -288,7 +350,7 @@ try {
 if (succeeded !== 0 && stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
   harness.remove_run(context);
-  print("PASS: qjswasm orchestrated ACU PTY inventory, structured snapshot/events, input, loss-aware wait, exact exit, typed miss, stop and stale-state prune");
+  print("PASS: qjswasm orchestrated ACU PTY inventory, structured snapshot/diff/events, verified resize, input, loss-aware wait, exact exit, restart refusal and cleanup");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

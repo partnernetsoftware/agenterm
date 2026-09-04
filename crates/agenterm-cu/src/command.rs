@@ -493,6 +493,15 @@ pub enum Command {
         target: TargetRef,
         name: String,
     },
+    /// Compare the current structured screen with one persisted, exact-job
+    /// baseline and optionally publish the current screen as the next base.
+    PtyDiff {
+        target: TargetRef,
+        name: String,
+        base: String,
+        advance: bool,
+        max: Option<usize>,
+    },
     /// Continue the loss-aware event journal for the sole tab owned by an
     /// exact durable PTY job.
     PtyEvents {
@@ -1840,6 +1849,7 @@ impl Command {
             Self::PtyStatus { .. } => "pty-status".into(),
             Self::PtyRead { .. } => "pty-read".into(),
             Self::PtySnapshot { .. } => "pty-snapshot".into(),
+            Self::PtyDiff { .. } => "pty-diff".into(),
             Self::PtyEvents { .. } => "pty-events".into(),
             Self::PtyResize { .. } => "pty-resize".into(),
             Self::PtySend { .. } => "pty-send".into(),
@@ -1950,6 +1960,7 @@ impl Command {
             | Self::PtyStatus { target, .. }
             | Self::PtyRead { target, .. }
             | Self::PtySnapshot { target, .. }
+            | Self::PtyDiff { target, .. }
             | Self::PtyEvents { target, .. }
             | Self::PtyResize { target, .. }
             | Self::PtySend { target, .. }
@@ -3297,6 +3308,15 @@ mod tests {
         };
         assert_eq!(job_resize.required_grant(), Grant::Actuate);
         assert_eq!(job_resize.verb(), "pty-resize");
+        let job_diff = Command::PtyDiff {
+            target: TargetRef::Current,
+            name: "build".into(),
+            base: "1-2-3".into(),
+            advance: true,
+            max: Some(8),
+        };
+        assert_eq!(job_diff.required_grant(), Grant::Observe);
+        assert_eq!(job_diff.verb(), "pty-diff");
         let send = Command::TerminalSend {
             target: TargetRef::Current,
             tab: "@9".into(),

@@ -164,7 +164,16 @@ impl Executor {
                 max_bytes,
                 ..
             } => pty_read_payload(name, cursor, *max_bytes),
-            Command::PtySnapshot { name, .. } => pty_snapshot_payload(name),
+            Command::PtySnapshot { name, .. } => {
+                pty_snapshot_payload(name, &self.pty_snapshot_store()?)
+            }
+            Command::PtyDiff {
+                name,
+                base,
+                advance,
+                max,
+                ..
+            } => pty_diff_payload(name, base, *advance, *max, &self.pty_snapshot_store()?),
             Command::PtyEvents {
                 name,
                 epoch,
