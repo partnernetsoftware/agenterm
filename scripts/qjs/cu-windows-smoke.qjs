@@ -41,6 +41,7 @@ const declared_evidence = [
   "cu.windows-process-wait",
   "cu.windows-process-kill",
   "cu.windows-process-lifecycle-watch",
+  "cu.windows-network-probe",
   "cu.windows-terminal-control",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
@@ -164,6 +165,43 @@ function tree_nodes(run_directory, executable, handle_text) {
   return reply.data.nodes;
 }
 
+function assert_network_probe(reply, port, attempts, reachable) {
+  const data = reply.data;
+  ensure(
+    text_of(data.provider) === "system-resolver-owned-worker"
+      && text_of(data.host) === "127.0.0.1"
+      && rh.int_of(data.port) === port
+      && data.address_set_frozen === true
+      && Array.isArray(data.resolved_addresses)
+      && data.resolved_addresses.length === 1
+      && rh.int_of(data.address_count) === 1
+      && text_of(data.resolved_addresses[0].address) === "127.0.0.1"
+      && text_of(data.resolved_addresses[0].family) === "ipv4"
+      && Array.isArray(data.attempts)
+      && data.attempts.length === attempts
+      && rh.int_of(data.attempt_count) === attempts,
+    "cu_windows_smoke_network_shape:" + JSON.stringify(data)
+  );
+  ensure(
+    text_of(data.status) === (reachable ? "reachable" : "unreachable")
+      && rh.int_of(data.connected_count) === (reachable ? attempts : 0)
+      && rh.int_of(data.unreachable_count) === (reachable ? 0 : attempts),
+    "cu_windows_smoke_network_status:" + JSON.stringify(data)
+  );
+  for (let index = 0; index < data.attempts.length; index = index + 1) {
+    const row = data.attempts[index];
+    ensure(
+      rh.int_of(row.attempt) === index + 1
+        && text_of(row.address) === text_of(data.resolved_addresses[0].address)
+        && text_of(row.family) === text_of(data.resolved_addresses[0].family)
+        && (reachable
+          ? text_of(row.outcome) === "connected" && row.error_kind === null
+          : text_of(row.outcome) !== "connected" && text_of(row.error_kind) !== ""),
+      "cu_windows_smoke_network_attempt:" + JSON.stringify(row)
+    );
+  }
+}
+
 // A WinForms Label's UIA name is its displayed text, so these are read by
 // what they currently say rather than by a stable name.
 function label_starting_with(nodes, prefix) {
@@ -210,6 +248,9 @@ let short_reaped = false;
 let terminal_gui_pid = 0;
 let terminal_gui = -1;
 let terminal_gui_reaped = false;
+let network_fixture = null;
+let network_fixture_reaped = false;
+let network_fixture_pid = 0;
 
 try {
   print("STEP capabilities declare the UI Automation tree and query available on current");
@@ -238,6 +279,75 @@ try {
     !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
     "cu_windows_smoke_refusal:" + JSON.stringify(refused)
   );
+
+  print("STEP network-probe resolves loopback once, freezes the address set for exact reachable attempts, then reports the closed listener unreachable");
+  ensure(
+    text_at(capabilities, "data.verbs.network-probe.resolution")
+        === "once-deduplicated-frozen"
+      && text_at(capabilities, "data.verbs.network-probe.attempts")
+        === "exact-round-robin",
+    "cu_windows_smoke_network_contract:" + JSON.stringify(capabilities.data.verbs)
+  );
+  const network_attempts = 3;
+  const network_stdout = rh.join(run_directory, "network-fixture.stdout");
+  const network_stderr = rh.join(run_directory, "network-fixture.stderr");
+  rh.try_remove_file(network_stdout);
+  rh.try_remove_file(network_stderr);
+  network_fixture = harness.start_child(context, {
+    program: executable,
+    args: [
+      "--agenterm-cu-internal-network-probe-fixture",
+      "" + network_attempts,
+      "30000"
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    timeout_ms: 35000,
+    stdout_path: network_stdout,
+    stderr_path: network_stderr
+  }, "network-probe-fixture");
+  network_fixture_pid = network_fixture.pid;
+  let network_header = null;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    if (rh.exists(network_stdout)) {
+      const header_text = rh.read_text(network_stdout).trim();
+      if (header_text.startsWith("{") && header_text.endsWith("}")) {
+        network_header = JSON.parse(header_text);
+        break;
+      }
+    }
+    ensure(
+      harness.child_state(network_fixture) !== "exited",
+      "cu_windows_smoke_network_fixture_early_exit"
+    );
+    harness.sleep_ms(25);
+  }
+  ensure(network_header !== null, "cu_windows_smoke_network_fixture_not_ready");
+  const network_port = rh.int_of(network_header.port);
+  ensure(network_port > 0 && network_port <= 65535, "cu_windows_smoke_network_fixture_port");
+  const reachable = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "network-probe", "127.0.0.1",
+    "--port", "" + network_port, "--attempts", "" + network_attempts,
+    "--timeout-ms", "1000"
+  ]);
+  assert_network_probe(reachable, network_port, network_attempts, true);
+  const network_fixture_output = harness.child_wait(network_fixture, 5000);
+  network_fixture_reaped = true;
+  ensure(
+    network_fixture_output.success === true && network_fixture_output.exit_code === 0,
+    "cu_windows_smoke_network_fixture_exit:" + JSON.stringify(network_fixture_output)
+  );
+  ensure(
+    harness.process_present(network_fixture_pid) === 0,
+    "cu_windows_smoke_network_fixture_orphan"
+  );
+  const unreachable_attempts = 2;
+  const unreachable = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "network-probe", "127.0.0.1",
+    "--port", "" + network_port, "--attempts", "" + unreachable_attempts,
+    "--timeout-ms", "1000"
+  ]);
+  assert_network_probe(unreachable, network_port, unreachable_attempts, false);
 
   print("STEP start the owned WinForms fixture and resolve its two windows by pid and exact title");
   const fixture_source = csc_path(rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs"));
@@ -813,6 +923,23 @@ if (terminal_gui >= 0 && !terminal_gui_reaped) {
     failure = failure + ":cu_windows_smoke_terminal_cleanup_orphan";
   }
 }
+if (network_fixture !== null && !network_fixture_reaped) {
+  try {
+    if (harness.child_state(network_fixture) === "running") {
+      harness.child_kill(network_fixture);
+    }
+    harness.child_wait(network_fixture, 5000);
+    network_fixture_reaped = true;
+  } catch (wait_error) {
+    print("cleanup: " + wait_error);
+    succeeded = 0;
+    failure = failure + ":cu_windows_smoke_network_cleanup_wait";
+  }
+  if (network_fixture_pid !== 0 && harness.process_present(network_fixture_pid) !== 0) {
+    succeeded = 0;
+    failure = failure + ":cu_windows_smoke_network_cleanup_orphan";
+  }
+}
 
 // Evidence is emitted only once the whole run has succeeded.
 if (succeeded !== 1) {
@@ -832,6 +959,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watc
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-lifecycle-watch");
+harness.emit_evidence(context, declared_evidence, "cu.windows-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.windows-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");
@@ -844,5 +972,5 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-destructive-close");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu Windows UIA journey (capabilities, windows, process state/usage, terminal control, tree, query, invoke, menu, activate, focused, window-place, screenshot, close, cleanup)");
+print("PASS: agenterm-cu Windows UIA journey (capabilities, windows, process state/usage, network probe, terminal control, tree, query, invoke, menu, activate, focused, window-place, screenshot, close, cleanup)");
 return;

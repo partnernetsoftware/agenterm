@@ -72,6 +72,7 @@
         "cu.macos-ax-destructive-refusals",
         "cu.macos-ax-destructive-close",
         "cu.macos-ax-receipts",
+        "cu.macos-network-probe",
         "cu.macos-terminal-control",
         "cu.macos-ax-fixture-cleanup"
       ]

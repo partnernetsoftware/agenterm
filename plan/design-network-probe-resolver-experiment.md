@@ -188,3 +188,22 @@ utility dependency.
 `network.probe` remains a typed gap until Variant B passes R0–R6. The result
 section must be updated again with measured cleanup, concurrency, semantic,
 six-cell compile, three-OS runtime and size evidence before promotion.
+
+### 8.3 Variant B first evidence — implemented, promotion still withheld
+
+| gate | result at 2026-09-04 |
+|---|---|
+| R0 | **OSX green** through the public `cu-macos-smoke` journey: invocation-owned IPv4 listener, three exact connected attempts, natural listener exit/reap, then two exact `ok + unreachable` attempts on the same closed port. Lnx/Win runtime pending. |
+| R1 | **mechanism green**: a test-owned child stalled for 60 seconds is killed at the 100 ms parent deadline, waited/reaped, and observed complete before 350 ms. Native resolver variant A remains rejected. |
+| R2 | **admission green**: 32 simultaneous in-process requests obtain exactly four fixed worker slots; all excess calls fail `resolver_saturated`. This is a process-wide bound, not a machine-wide quota across independent CLI processes. |
+| R3 | **unit + OSX public green**: one frozen deduplicated address, exact round-robin attempt count, closed port remains a successful unreachable observation. |
+| R4 | **unit/CLI green**: invalid limits fail before spawn; saturation, spawn, protocol, wait, worker, DNS and overall-timeout failures have distinct codes. |
+| R5 | pending stripped release delta; added transitive crates = 0. |
+| R6 | all six target cells compile; native runtime green only on OSX so far. |
+
+The surviving implementation is `agenterm-cu network-probe` (alias
+`network probe`). Its helper and loopback court entry are hidden from the verb
+catalog; the latter additionally requires an explicit test-fixture marker.
+Public OSX evidence is green, but the ledger intentionally remains
+`platform-limited` until Lnx and Win run the same loopback journey and R5 is
+recorded.

@@ -354,6 +354,8 @@ flowchart LR
   not yet promoted: six-cell compile plus invocation-owned loopback journeys on
   OSX/Lnx/Win remain required by
   [`plan/design-network-probe-resolver-experiment.md`](../plan/design-network-probe-resolver-experiment.md).
+  The OSX public journey is green; Lnx/Win runtime courts and the release-size
+  delta remain open, so the capability ledger is still `platform-limited`.
   The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
   Native system inventory remains platform-owned; socket rows must bind process
   start identity rather than a reusable PID.

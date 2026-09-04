@@ -38,6 +38,7 @@ const declared_evidence = [
   "cu.linux-process-wait",
   "cu.linux-process-kill",
   "cu.linux-process-lifecycle-watch",
+  "cu.linux-network-probe",
   "cu.linux-terminal-control",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
@@ -297,6 +298,8 @@ let fixture_reaped = false;
 let terminal_server = -1;
 let terminal_server_reaped = false;
 let terminal_tab_id = "";
+let network_fixture = null;
+let network_fixture_reaped = false;
 
 try {
   print("STEP capabilities declare the AT-SPI tree and query available on current");
@@ -322,6 +325,105 @@ try {
     !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
     "cu_linux_smoke_refusal:" + JSON.stringify(refused)
   );
+
+  print("STEP network-probe resolves one frozen loopback address, makes the exact requested attempts, observes the owned listener reachable, then reports its closed port unreachable without turning observation into failure");
+  const network_stdout_path = rh.join(run_directory, "network-probe-fixture.stdout");
+  const network_stderr_path = rh.join(run_directory, "network-probe-fixture.stderr");
+  rh.try_remove_file(network_stdout_path);
+  rh.try_remove_file(network_stderr_path);
+  const network_attempts = 3;
+  network_fixture = harness.start_child(context, {
+    program: executable,
+    args: [
+      "--agenterm-cu-internal-network-probe-fixture", "" + network_attempts, "10000"
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    stdout_path: network_stdout_path,
+    stderr_path: network_stderr_path,
+    timeout_ms: 30000
+  }, "network-probe-listener");
+  let network_ready = null;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (direct_file(network_stdout_path)) {
+      const ready_text = rh.read_text(network_stdout_path).trim();
+      if (ready_text.startsWith("{") && ready_text.endsWith("}")) {
+        const marker = JSON.parse(ready_text);
+        if (int_at(marker, "port") > 0) { network_ready = marker; break; }
+      }
+    }
+    ensure(
+      harness.child_state(network_fixture) !== "exited",
+      "cu_linux_smoke_network_fixture_early_exit"
+    );
+    harness.sleep_ms(10);
+  }
+  ensure(network_ready !== null, "cu_linux_smoke_network_fixture_not_ready");
+  const network_port = int_at(network_ready, "port");
+  const reachable = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "network-probe", "127.0.0.1",
+    "--port", "" + network_port, "--attempts", "" + network_attempts,
+    "--timeout-ms", "500"
+  ]);
+  ensure(
+    text_at(reachable, "data.provider") === "system-resolver-owned-worker"
+      && flag_at(reachable, "data.address_set_frozen")
+      && int_at(reachable, "data.address_count") === 1
+      && reachable.data.resolved_addresses.length === 1
+      && text_of(reachable.data.resolved_addresses[0].address) === "127.0.0.1"
+      && text_of(reachable.data.resolved_addresses[0].family) === "ipv4"
+      && int_at(reachable, "data.attempt_count") === network_attempts
+      && reachable.data.attempts.length === network_attempts
+      && int_at(reachable, "data.connected_count") === network_attempts
+      && int_at(reachable, "data.unreachable_count") === 0
+      && text_at(reachable, "data.status") === "reachable",
+    "cu_linux_smoke_network_reachable:" + JSON.stringify(reachable.data)
+  );
+  for (let index = 0; index < network_attempts; index = index + 1) {
+    const attempt = reachable.data.attempts[index];
+    ensure(
+      int_at(attempt, "attempt") === index + 1
+        && text_at(attempt, "address") === "127.0.0.1"
+        && text_at(attempt, "family") === "ipv4"
+        && text_at(attempt, "outcome") === "connected",
+      "cu_linux_smoke_network_reachable_attempt:" + JSON.stringify(attempt)
+    );
+  }
+  const network_fixture_output = harness.child_wait(network_fixture, 5000);
+  network_fixture_reaped = true;
+  ensure(
+    network_fixture_output.success === true,
+    "cu_linux_smoke_network_fixture_exit:" + JSON.stringify(network_fixture_output)
+  );
+  const unreachable_attempts = 2;
+  const unreachable = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "network-probe", "127.0.0.1",
+    "--port", "" + network_port, "--attempts", "" + unreachable_attempts,
+    "--timeout-ms", "500"
+  ]);
+  ensure(
+    text_at(unreachable, "data.provider") === "system-resolver-owned-worker"
+      && flag_at(unreachable, "data.address_set_frozen")
+      && int_at(unreachable, "data.address_count") === 1
+      && int_at(unreachable, "data.attempt_count") === unreachable_attempts
+      && unreachable.data.attempts.length === unreachable_attempts
+      && int_at(unreachable, "data.connected_count") === 0
+      && int_at(unreachable, "data.unreachable_count") === unreachable_attempts
+      && text_at(unreachable, "data.status") === "unreachable",
+    "cu_linux_smoke_network_unreachable:" + JSON.stringify(unreachable.data)
+  );
+  for (let index = 0; index < unreachable_attempts; index = index + 1) {
+    const attempt = unreachable.data.attempts[index];
+    ensure(
+      int_at(attempt, "attempt") === index + 1
+        && text_at(attempt, "address") === "127.0.0.1"
+        && text_at(attempt, "family") === "ipv4"
+        && text_at(attempt, "outcome") !== "connected",
+      "cu_linux_smoke_network_unreachable_attempt:" + JSON.stringify(attempt)
+    );
+  }
+  rh.try_remove_file(network_stdout_path);
+  rh.try_remove_file(network_stderr_path);
 
   print("STEP terminal-list/read/send/wait preserve stable authority and tab identity through literal input, finalized remain-on-exit, typed late-send refusal, and explicit cleanup");
   const agenterm = rh.join(rh.parent(executable), "agenterm");
@@ -1035,6 +1137,15 @@ if (fixture >= 0 && !fixture_reaped) {
   try { harness.wait(fixture, 3000); } catch (wait_error) { print("cleanup: " + wait_error); }
 }
 
+if (network_fixture !== null && !network_fixture_reaped) {
+  if (harness.child_state(network_fixture) === "running") {
+    try { harness.child_kill(network_fixture); }
+    catch (kill_error) { print("cleanup: " + kill_error); }
+  }
+  try { harness.child_wait(network_fixture, 3000); }
+  catch (wait_error) { print("cleanup: " + wait_error); }
+}
+
 if (terminal_server >= 0 && !terminal_server_reaped) {
   const agenterm = rh.join(rh.parent(executable), "agenterm");
   if (terminal_tab_id !== "") {
@@ -1068,6 +1179,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-watch"
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-lifecycle-watch");
+harness.emit_evidence(context, declared_evidence, "cu.linux-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
