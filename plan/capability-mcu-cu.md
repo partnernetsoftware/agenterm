@@ -14,6 +14,12 @@
 **还差什么（2026-09-01，夜）**：~~读富内容仍未做~~ **已做**：`clipboard-read --type`（MCU `clipboard read`）按宿主自己的类型名读有界字节，回复 `sha256` + utf8/base64，可选 `--out`。macOS 只认 `clipboard info` 的 AppleScript class（`«class PNGf»` / `string`），不认 UTI。`clipboard write`/`write-file`/`clear --apply` 已接 ABI 1.24。
 MCU 叶子 `dclick`/`rclick`/`shot`/`type`/`key`/`move`/`elements`/`launch`/`quit`/`hide`/`show`/`clipboard`/`page read --js`/`frame`/`movewin`/`resize`/`maximize` 已是 live 别名（几何四词走 `window-place`）；**2026-09-03 又收了一批**：`inspect`/`find`/`read` 是 `query` 的别名，`page targets` → `page-targets`，`page text` → `page-text`（a11y 阅读顺序），`page-js` 有 `--target-id/--target-url/--target-title` 选 tab，`tab list`/`tab select` 走 tab-strip 后台切 tab。**2026-09-04 desktop closure 第一格已活**：`hit`/`zoom`/`snapshot`/`diff`/`raise`/`minimize`/`restore` 除包级测试外，已进入 `cu-macos-smoke` 的真实 Cocoa/AX journey；其中 minimize→restore 还抓出并修正了 off-screen `CGWindowID` owner lookup。Linux/Windows 同组旅程与 `drag` 的独立全局 pointer court 仍待补齐。**同日开始非桌面迁移**：`ps --pid/--parent/--name/--offset/--max` 已走 `agenterm-platform::process::list`，与 qjswasm `process.list` 共用内核；`process-state --pid N` 又接入共享 process-observation，区分 `live|dead|unknown` 并返回可用的启动身份；`process-usage --pid N` 在前后相同身份间采样累计 CPU/内存/page-fault，并以十进制字符串无损发布宽计数，`--watch-ms` 进一步给出以单一启动身份约束、时长/间隔/样本数三重有界的序列；`process-wait` 再以调用方给出的启动身份绑定 pidfd/kqueue/Windows HANDLE 原生对象，取代 MCU 的 PID 轮询。MCU 对应的 `process state/usage N` 已可无损改写，native `process-wait` 也可由兼容入口直达。`process-kill` / `kill` 现又要求 PID + 启动身份 + `--expect exited`，先写 crash-persistent receipt，再通过同一个 native process reference 投递并等待：Linux x86_64 pidfd 与 Windows x86_64 retained-HANDLE 真机均绿；macOS 因不存在对 PID 重用原子的 signal primitive 而 typed 拒绝。更深的命令行/文件/端口过滤、任意 signal、suspend/resume 与进程树 kill 仍是 gap。其余未接 MCU 命令仍 typed 拒绝，不再 `unknown command`。
 
+**2026-09-05 process argv 迁移**：`process argv PID` 已改写到 ACU
+`process-argv`。默认逐项只返回 byte length 与 SHA-256，显式 `--values`
+才返回正文；分页硬限 4,096 项，读取前后绑定同一启动身份。Linux/macOS
+保留原生 argv 边界，Windows 明确返回 `CommandLineToArgvW` lexical projection。
+三平台 `.qjs` 旅程已接线；Linux/Windows integrated rerun 仍待完成。
+
 **同日 terminal 第一刀已活**：AgenTerm 自有会话新增
 `terminal-list/read/send/wait`；轻量 control client 直连产品协议，身份钉在
 scope + epoch + `@tab`。读明确是 bounded screen snapshot，不冒充增量 cursor；

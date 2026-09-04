@@ -85,6 +85,67 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
+    raw_command_line(pid)
+}
+
+pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
+    use windows_sys::Win32::{Foundation::LocalFree, UI::Shell::CommandLineToArgvW};
+
+    let mut command_line: Vec<u16> = raw_command_line(pid)?.encode_utf16().collect();
+    command_line.push(0);
+    let mut count = 0_i32;
+    let raw = unsafe { CommandLineToArgvW(command_line.as_ptr(), &raw mut count) };
+    if raw.is_null() || count <= 0 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "native command-line parser returned no arguments",
+        ));
+    }
+    let maximum_units = command_line.len();
+    if count as usize > maximum_units {
+        unsafe {
+            let _ = LocalFree(raw.cast());
+        }
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "native command-line parser returned too many arguments",
+        ));
+    }
+    struct OwnedArgv(*mut *mut u16);
+    impl Drop for OwnedArgv {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = LocalFree(self.0.cast());
+            }
+        }
+    }
+    let raw = OwnedArgv(raw);
+    let mut arguments = Vec::with_capacity(count as usize);
+    for index in 0..count as usize {
+        let argument = unsafe { *raw.0.add(index) };
+        if argument.is_null() {
+            return Err(ProcessError::new(
+                ProcessErrorKind::Inspect,
+                "native command-line parser returned a null argument",
+            ));
+        }
+        let mut length = 0usize;
+        while length < maximum_units && unsafe { *argument.add(length) } != 0 {
+            length += 1;
+        }
+        if length == maximum_units {
+            return Err(ProcessError::new(
+                ProcessErrorKind::InventoryTooLarge,
+                "native command-line parser returned an unterminated argument",
+            ));
+        }
+        let units = unsafe { std::slice::from_raw_parts(argument, length) };
+        arguments.push(String::from_utf16_lossy(units));
+    }
+    Ok(arguments)
+}
+
+fn raw_command_line(pid: u32) -> Result<String, ProcessError> {
     use std::ffi::c_void;
     use windows_sys::Win32::{
         Foundation::{CloseHandle, HANDLE},
@@ -176,7 +237,7 @@ pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
             "native command-line length overflow",
         )
     })?;
-    if length % 2 != 0 || end > bytes.len() {
+    if !length.is_multiple_of(2) || end > bytes.len() {
         return Err(ProcessError::new(
             ProcessErrorKind::Inspect,
             "native command-line string is outside its response buffer",

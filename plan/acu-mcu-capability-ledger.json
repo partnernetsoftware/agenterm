@@ -112,9 +112,16 @@
         {
           "id": "process.argv",
           "mcu_shape": "process argv PID",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "bounded values-off-by-default process-image facade"
+          "acu_shape": "process-argv --pid N [--values] [--offset N] [--limit N]",
+          "state": "delegated",
+          "qualification": "macos-public-cli-live-linux-windows-journey-pending",
+          "evidence": ["agenterm-cu process-argv host black-box"],
+          "declared_evidence": [
+            "cu.macos-process-argv",
+            "cu.linux-process-argv",
+            "cu.windows-process-argv"
+          ],
+          "note": "The platform adapter reads native argument boundaries between two matching start-identity observations. Plaintext is absent by default; --values is explicit and every row is paged with byte length plus SHA-256."
         },
         {
           "id": "process.environment",

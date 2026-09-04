@@ -25,12 +25,43 @@ pub fn parse(
     match spec.name {
         "ps" => ps(target, args),
         "process-state" => process_state(target, args),
+        "process-argv" => process_argv(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
         "process-watch" => process_watch(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_argv(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = match flag_parsed::<u32>(args, "--pid")? {
+        Some(pid) => pid,
+        None if !args.is_empty() && !args[0].starts_with('-') => args
+            .remove(0)
+            .parse::<u32>()
+            .map_err(|_| "process-argv PID must be a positive integer".to_owned())?,
+        None => return Err("process-argv requires --pid N (or positional PID)".into()),
+    };
+    let values = take_switch(args, "--values");
+    let offset = flag_parsed::<usize>(args, "--offset")?;
+    let limit = flag_parsed::<usize>(args, "--limit")?;
+    if pid == 0 {
+        return Err("process-argv pid must be greater than zero".into());
+    }
+    if limit.is_some_and(|value| !(1..=4_096).contains(&value)) {
+        return Err("process-argv --limit must be in 1..=4096".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("process-argv received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessArgv {
+        target,
+        pid,
+        values,
+        offset,
+        limit,
+    })
 }
 
 fn process_kill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -278,6 +309,49 @@ mod tests {
             parse(spec, spec.name, TargetRef::Current, &mut missing)
                 .expect_err("missing")
                 .contains("requires --pid")
+        );
+    }
+
+    #[test]
+    fn process_argv_accepts_native_and_mcu_shapes_and_bounds_the_page() {
+        let spec = verbs::lookup("process-argv").expect("process-argv verb");
+        let mut native = vec![
+            "--pid".into(),
+            "42".into(),
+            "--offset".into(),
+            "3".into(),
+            "--limit".into(),
+            "9".into(),
+            "--values".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut native).expect("native"),
+            Command::ProcessArgv {
+                pid: 42,
+                values: true,
+                offset: Some(3),
+                limit: Some(9),
+                ..
+            }
+        ));
+
+        let mut mcu = vec!["argv".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Current, &mut mcu).expect("MCU alias"),
+            Command::ProcessArgv {
+                pid: 42,
+                values: false,
+                offset: None,
+                limit: None,
+                ..
+            }
+        ));
+
+        let mut unbounded = vec!["--pid".into(), "42".into(), "--limit".into(), "4097".into()];
+        assert!(
+            parse(spec, spec.name, TargetRef::Current, &mut unbounded)
+                .expect_err("bounded")
+                .contains("1..=4096")
         );
     }
 

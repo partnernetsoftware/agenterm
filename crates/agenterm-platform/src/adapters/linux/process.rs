@@ -55,6 +55,10 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
+    Ok(arguments(pid)?.join(" "))
+}
+
+pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
     use std::io::Read as _;
     const MAX_BYTES: u64 = 1024 * 1024;
     let file = std::fs::File::open(format!("/proc/{pid}/cmdline"))
@@ -69,10 +73,19 @@ pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
             "process command line exceeds 1 MiB",
         ));
     }
-    while bytes.last() == Some(&0) {
+    if bytes.last() == Some(&0) {
         bytes.pop();
     }
-    Ok(String::from_utf8_lossy(&bytes).replace('\0', " "))
+    if bytes.is_empty() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "process arguments are unavailable",
+        ));
+    }
+    Ok(bytes
+        .split(|byte| *byte == 0)
+        .map(|argument| String::from_utf8_lossy(argument).into_owned())
+        .collect())
 }
 
 pub struct ProcessTreeGuard {

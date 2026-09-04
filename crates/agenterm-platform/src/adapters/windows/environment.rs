@@ -22,6 +22,10 @@ impl InheritedEnvironment {
         }
     }
 
+    // x86_64 `find_ascii` uses its bounded assembly scanner; this method is
+    // still consumed by PTY staging when that feature is present and by the
+    // portable architecture path.
+    #[cfg_attr(target_arch = "x86_64", allow(dead_code))]
     pub(crate) fn units(&self) -> io::Result<&[u16]> {
         let mut length = 0usize;
         while length < MAX_ENVIRONMENT_UNITS {

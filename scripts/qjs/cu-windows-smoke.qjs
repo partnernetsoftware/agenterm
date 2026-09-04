@@ -36,6 +36,7 @@ const declared_evidence = [
   "cu.windows-uia-capabilities",
   "cu.windows-uia-window-identity",
   "cu.windows-process-state",
+  "cu.windows-process-argv",
   "cu.windows-process-usage",
   "cu.windows-process-usage-watch",
   "cu.windows-process-wait",
@@ -425,6 +426,31 @@ try {
       && typeof process_identity === "string"
       && process_identity !== "",
     "cu_windows_smoke_process_state:" + JSON.stringify(process_state.data)
+  );
+
+  print("STEP process argv preserves native boundaries and keeps plaintext behind explicit --values");
+  const process_argv_hidden = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process", "argv", "" + fixture_pid,
+    "--limit", "1"
+  ]);
+  const process_argv_visible = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-argv", "--pid", "" + fixture_pid,
+    "--limit", "1", "--values"
+  ]);
+  const hidden_arg = process_argv_hidden.data.arguments[0];
+  const visible_arg = process_argv_visible.data.arguments[0];
+  ensure(
+    text_at(process_argv_hidden, "data.start_identity") === process_identity
+      && flag_at(process_argv_hidden, "data.verified")
+      && !flag_at(process_argv_hidden, "data.values_included")
+      && hidden_arg.value === undefined
+      && text_of(hidden_arg.sha256).length === 64
+      && rh.only_chars(text_of(hidden_arg.sha256), rh.HEX)
+      && text_of(process_argv_visible.data.executable) !== ""
+      && flag_at(process_argv_visible, "data.values_included")
+      && text_of(visible_arg.value) !== ""
+      && text_of(visible_arg.sha256) === text_of(hidden_arg.sha256),
+    "cu_windows_smoke_process_argv"
   );
 
   print("STEP process-usage preserves that identity and publishes verified lossless counters");
@@ -979,6 +1005,7 @@ ensure(remove_directory_bounded(run_directory), "cu_windows_smoke_cleanup_locked
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-capabilities");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-identity");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-state");
+harness.emit_evidence(context, declared_evidence, "cu.windows-process-argv");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");

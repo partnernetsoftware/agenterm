@@ -354,6 +354,18 @@ pub enum Command {
         target: TargetRef,
         pid: u32,
     },
+    /// Read one exact process's bounded argument vector. Values are opt-in;
+    /// the default reply contains only index, UTF-8 byte length and digest.
+    ProcessArgv {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        values: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+    },
     /// One cumulative resource sample for an exact, identity-bound process.
     ProcessUsage {
         target: TargetRef,
@@ -1638,6 +1650,7 @@ impl Command {
             Self::Apps { .. } => "apps".into(),
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
+            Self::ProcessArgv { .. } => "process-argv".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
@@ -1727,6 +1740,7 @@ impl Command {
             | Self::Apps { target, .. }
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
+            | Self::ProcessArgv { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
@@ -1935,6 +1949,30 @@ mod tests {
                 "verb": "process-state",
                 "target": "vnc",
                 "pid": 42,
+            })
+        );
+    }
+
+    #[test]
+    fn process_argv_is_observe_only_and_keeps_disclosure_and_page_on_the_wire() {
+        let command = Command::ProcessArgv {
+            target: TargetRef::Ssh,
+            pid: 42,
+            values: true,
+            offset: Some(3),
+            limit: Some(9),
+        };
+        assert_eq!(command.verb(), "process-argv");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-argv",
+                "target": "ssh",
+                "pid": 42,
+                "values": true,
+                "offset": 3,
+                "limit": 9,
             })
         );
     }

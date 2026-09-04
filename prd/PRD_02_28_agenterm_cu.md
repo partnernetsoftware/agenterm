@@ -231,6 +231,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
   ordinary CU command schema. MCU's richer CPU/memory/argv/files/ports filters
   remain typed migration gaps; no flag is silently ignored.
+- [~] `process-argv` is the first process-image detail facade. It reads native
+  argument boundaries between two matching process start-identity observations,
+  caps a page at 4,096 rows and omits plaintext by default; every hidden row
+  still carries its index, byte length and SHA-256. `--values` is the explicit
+  disclosure path. The MCU-shaped `process argv PID` adapter now routes to the
+  same command. macOS public-CLI evidence is live and all three qjswasm native
+  journeys declare platform receipts; integrated Linux/Windows reruns remain
+  open, so this leaf is not yet three-host complete.
 - [~] Permission discovery no longer requires agents to mine the broad
   capability document: `permissions` is a live observe-only public command
   that returns the host permission model, every gated verb and exact repair

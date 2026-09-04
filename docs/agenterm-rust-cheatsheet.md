@@ -974,12 +974,17 @@ accounted for. In con this removed 5,120 staged bytes and four startup-only UCRT
 DLL families while retaining unwind.
 
 Treat process argv parsing as a platform contract, not an automatic
-`std::env::args` choice. For a Windows GUI that accepts native Shell parsing,
-`GetCommandLineW` plus `CommandLineToArgvW` can make Rust's generic `OsString`
-parser family unreachable. Own the returned pointer with a guard that calls
-`LocalFree` exactly once, bound argc and every UTF-16 NUL scan, and return
-`InvalidData` for null pointers or unpaired surrogates instead of panicking in
-startup. Keep Linux/macOS behind the same UTF-8 `Result` facade.
+`std::env::args` choice. Linux `/proc/<pid>/cmdline` is NUL-delimited: remove
+exactly its final terminator and retain interior empty arguments. macOS
+`KERN_PROCARGS2` contains executable, padding, exactly `argc` arguments and then
+environment; consume exactly `argc` or environment values will masquerade as
+argv. Windows exposes one native command-line string, not the target process's
+already-parsed argv. Its documented lexical projection is `GetCommandLineW`
+data through `CommandLineToArgvW`; name that distinction rather than claiming
+unobservable parser internals. Own the returned pointer with a guard that calls
+`LocalFree` exactly once and bound argc plus every UTF-16 NUL scan. Keep all
+three behind one bounded `Result<Vec<String>>` facade and bracket a remote read
+with matching process start identities so PID reuse cannot substitute a target.
 
 For a caller-visible wait on an existing process, a PID is lookup input, not
 stable identity. First retain the native process object (`pidfd`, kqueue-backed

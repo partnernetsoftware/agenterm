@@ -212,6 +212,14 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   PID-only rows;
   macOS public-CLI evidence has observed a real owned child exit. The three
   qjswasm native journeys now declare the same event and await integrated runs.
+- `process-argv` closes one more MCU sub-verb without leaking its default
+  payload. Linux reads NUL-delimited `/proc` entries, macOS consumes exactly
+  the native `argc`, and Windows reconstructs the documented native command-line
+  lexical projection. ACU brackets the read with the same process start
+  identity, pages at a hard 4,096-row ceiling, and returns only index, byte
+  length and SHA-256 unless the caller explicitly supplies `--values`. The MCU
+  compatibility adapter routes this exact shape to ACU; three qjswasm journeys
+  declare the evidence, with integrated Linux/Windows reruns still open.
 - The PTY/job/terminal family is now fully classified by public shape. The
   existing AgenTerm session/tab kernel is the owner for product-terminal
   inventory, capture, input and deterministic waits, but those commands are

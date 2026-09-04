@@ -228,6 +228,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "fields": ["pid", "state", "start_identity", "reason", "verified"],
         "states": ["live", "dead", "unknown"],
     });
+    let process_argv_verb = serde_json::json!({
+        "status": "available",
+        "group": "process",
+        "mode": "native-bounded-argv",
+        "grant": "observe",
+        "identity_bound": true,
+        "default_disclosure": "index-byte-length-sha256",
+        "values": "explicit-opt-in",
+        "max_arguments": 4096,
+        "native_buffer_max_bytes": 1048576,
+    });
     let process_usage_verb = serde_json::json!({
         "status": "available",
         "group": "process",
@@ -416,6 +427,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     // and the literal is already at the expander's depth limit.
     if let Some(verbs) = payload["verbs"].as_object_mut() {
         verbs.insert("process-state".into(), process_state_verb);
+        verbs.insert("process-argv".into(), process_argv_verb);
         verbs.insert("process-usage".into(), process_usage_verb);
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-kill".into(), process_kill_verb);

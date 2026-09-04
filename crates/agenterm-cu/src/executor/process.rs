@@ -13,6 +13,8 @@ use super::error_payload;
 
 const DEFAULT_MAX: usize = 200;
 const MAX_RESULTS: usize = 5_000;
+const DEFAULT_ARGV_LIMIT: usize = 100;
+const MAX_ARGV_LIMIT: usize = 4_096;
 const DEFAULT_USAGE_INTERVAL_MS: u64 = 1_000;
 const DEFAULT_USAGE_MAX_SAMPLES: usize = 120;
 const MAX_USAGE_WATCH_MS: u64 = 86_400_000;
@@ -80,6 +82,83 @@ pub(super) fn process_state_payload(pid: u32) -> Result<Value, CuError> {
         "start_identity": start_identity,
         "reason": reason,
         "verified": state != "unknown",
+    }))
+}
+
+pub(super) fn process_argv_payload(
+    pid: u32,
+    values: bool,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<Value, CuError> {
+    if pid == 0 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-argv --pid must be greater than zero",
+        ));
+    }
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(DEFAULT_ARGV_LIMIT);
+    if !(1..=MAX_ARGV_LIMIT).contains(&limit) {
+        return Err(CuError::new(
+            "invalid_input",
+            format!("process-argv --limit must be in 1..={MAX_ARGV_LIMIT}"),
+        ));
+    }
+
+    let start_identity = live_start_identity(pid)?;
+    let executable = agenterm_platform::process_image::executable_path(pid).map_err(|error| {
+        CuError::new("process_image_failed", error.to_string()).with_detail(json!({
+            "kind": format!("{:?}", error.kind()),
+        }))
+    })?;
+    let arguments = agenterm_platform::process::arguments(pid).map_err(|error| {
+        CuError::new("process_arguments_failed", error.to_string()).with_detail(json!({
+            "kind": format!("{:?}", error.kind()),
+        }))
+    })?;
+    let after_identity = live_start_identity(pid)?;
+    if after_identity != start_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed while arguments were read",
+        ));
+    }
+
+    let total = arguments.len();
+    let rows = arguments
+        .into_iter()
+        .enumerate()
+        .skip(offset)
+        .take(limit)
+        .map(|(index, value)| {
+            let bytes = value.as_bytes();
+            let mut row = serde_json::Map::from_iter([
+                ("index".to_owned(), json!(index)),
+                ("byte_length".to_owned(), json!(bytes.len().to_string())),
+                (
+                    "sha256".to_owned(),
+                    json!(super::clipboard::clipboard_sha256_hex(bytes)),
+                ),
+            ]);
+            if values {
+                row.insert("value".to_owned(), json!(value));
+            }
+            Value::Object(row)
+        })
+        .collect::<Vec<_>>();
+    let returned = rows.len();
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "executable": executable.to_string_lossy(),
+        "arguments": rows,
+        "values_included": values,
+        "total": total,
+        "returned": returned,
+        "offset": offset,
+        "truncated": offset.saturating_add(returned) < total,
+        "verified": true,
     }))
 }
 
@@ -657,6 +736,48 @@ mod tests {
     fn process_state_rejects_pid_zero() {
         let error = process_state_payload(0).expect_err("zero");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn current_process_argv_is_identity_bound_hashed_and_values_are_opt_in() {
+        let pid = std::process::id();
+        let hidden = process_argv_payload(pid, false, None, Some(1)).expect("hidden argv");
+        assert_eq!(hidden["pid"], pid);
+        assert_eq!(hidden["verified"], true);
+        assert_eq!(hidden["values_included"], false);
+        assert_eq!(hidden["returned"], 1);
+        assert!(hidden["arguments"][0].get("value").is_none());
+        assert!(hidden["arguments"][0]["byte_length"].as_str().is_some());
+        assert_eq!(
+            hidden["arguments"][0]["sha256"].as_str().map(str::len),
+            Some(64)
+        );
+
+        let visible = process_argv_payload(pid, true, Some(0), Some(1)).expect("visible argv");
+        assert_eq!(visible["values_included"], true);
+        assert!(visible["arguments"][0]["value"].as_str().is_some());
+        assert!(
+            visible["executable"]
+                .as_str()
+                .is_some_and(|path| !path.is_empty())
+        );
+        assert!(visible["start_identity"].as_str().is_some());
+    }
+
+    #[test]
+    fn process_argv_rejects_zero_pid_and_unbounded_page() {
+        assert_eq!(
+            process_argv_payload(0, false, None, None)
+                .expect_err("zero pid")
+                .code,
+            "invalid_input"
+        );
+        assert_eq!(
+            process_argv_payload(std::process::id(), false, None, Some(MAX_ARGV_LIMIT + 1))
+                .expect_err("oversized page")
+                .code,
+            "invalid_input"
+        );
     }
 
     #[test]

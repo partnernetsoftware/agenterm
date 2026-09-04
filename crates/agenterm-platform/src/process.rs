@@ -31,6 +31,13 @@ pub fn command_line(pid: u32) -> Result<String, ProcessError> {
     adapter::command_line(pid)
 }
 
+/// Read one process's bounded argument vector without losing argument
+/// boundaries. Callers must keep values opt-in because arguments routinely
+/// contain credentials.
+pub fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
+    adapter::arguments(pid)
+}
+
 pub fn kill(pid: u32) -> Result<(), ProcessError> {
     crate::process_control::terminate(pid, crate::process_control::TerminationMode::Forceful)
         .map_err(|error| {
@@ -93,5 +100,12 @@ mod tests {
         let line = super::command_line(std::process::id()).expect("current command line");
         assert!(!line.trim().is_empty());
         assert!(line.len() <= 1024 * 1024);
+    }
+
+    #[test]
+    fn current_process_arguments_preserve_at_least_argv_zero() {
+        let arguments = super::arguments(std::process::id()).expect("current arguments");
+        assert_eq!(arguments, std::env::args().collect::<Vec<_>>());
+        assert!(arguments.iter().map(String::len).sum::<usize>() <= 1024 * 1024);
     }
 }

@@ -91,6 +91,10 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
+    Ok(arguments(pid)?.join(" "))
+}
+
+pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
     use std::mem::size_of;
     const MAX_BYTES: usize = 1024 * 1024;
     let pid = libc::c_int::try_from(pid)
@@ -137,6 +141,13 @@ pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
         ));
     }
     bytes.truncate(size);
+    let argc = libc::c_int::from_ne_bytes(
+        bytes[..size_of::<libc::c_int>()]
+            .try_into()
+            .expect("validated argc width"),
+    );
+    let argc = usize::try_from(argc)
+        .map_err(|_| ProcessError::new(ProcessErrorKind::Inspect, "process argc is negative"))?;
     let mut offset = size_of::<libc::c_int>();
     while offset < bytes.len() && bytes[offset] != 0 {
         offset += 1;
@@ -144,19 +155,28 @@ pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
     while offset < bytes.len() && bytes[offset] == 0 {
         offset += 1;
     }
-    let args = bytes[offset..]
-        .split(|byte| *byte == 0)
-        .filter(|arg| !arg.is_empty())
-        .map(String::from_utf8_lossy)
-        .collect::<Vec<_>>()
-        .join(" ");
-    if args.is_empty() {
+    let mut arguments = Vec::with_capacity(argc);
+    for _ in 0..argc {
+        let relative_end = bytes[offset..]
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or_else(|| {
+                ProcessError::new(
+                    ProcessErrorKind::Inspect,
+                    "process argument buffer ends before argc",
+                )
+            })?;
+        let end = offset + relative_end;
+        arguments.push(String::from_utf8_lossy(&bytes[offset..end]).into_owned());
+        offset = end + 1;
+    }
+    if arguments.is_empty() {
         return Err(ProcessError::new(
             ProcessErrorKind::Inspect,
-            "process command line is unavailable",
+            "process arguments are unavailable",
         ));
     }
-    Ok(args)
+    Ok(arguments)
 }
 
 pub struct ProcessTreeGuard {

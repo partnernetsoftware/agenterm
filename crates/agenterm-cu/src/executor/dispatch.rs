@@ -61,6 +61,13 @@ impl Executor {
                 ..
             } => process_list_payload(*pid, *parent, name.as_deref(), *offset, *max),
             Command::ProcessState { pid, .. } => process_state_payload(*pid),
+            Command::ProcessArgv {
+                pid,
+                values,
+                offset,
+                limit,
+                ..
+            } => process_argv_payload(*pid, *values, *offset, *limit),
             Command::ProcessUsage {
                 pid,
                 watch_ms,

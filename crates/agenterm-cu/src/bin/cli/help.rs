@@ -183,7 +183,11 @@ fn append_missing_top_level_rows(text: &mut String) {
     if missing.is_empty() {
         return;
     }
-    let block = format!("\n{}", missing.join("\n"));
+    // Insert at the blank line immediately before the fallback paragraph.
+    // Reuse that separator instead of adding another line: every new verb gets
+    // one discoverable row without letting whitespace consume the 160-line
+    // top-level help budget.
+    let block = missing.join("\n");
     if let Some(at) = text.find("\nMCU-aligned verbs") {
         text.insert_str(at, &block);
     } else {

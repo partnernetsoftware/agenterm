@@ -256,6 +256,39 @@
       ]
     },
     {
+      "name": "process-argv",
+      "command": "process-argv",
+      "aliases": [
+        "process argv"
+      ],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity-bound bounded process arguments; values opt in",
+      "usage": "process-argv --pid N [--offset N] [--limit N] [--values]\nprocess argv PID [--offset N] [--limit N] [--values]",
+      "args": [
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID after process argv)"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "first argument index (default 0)"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "maximum returned arguments, 1..=4096 (default 100)"
+        },
+        {
+          "flag": "--values",
+          "value": "",
+          "help": "explicitly include argument text; default is length plus SHA-256"
+        }
+      ]
+    },
+    {
       "name": "process-usage",
       "command": "process-usage",
       "aliases": [
@@ -3142,6 +3175,10 @@
     {
       "name": "process-state",
       "text": "agenterm-cu process-state    (also: process state)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-state --pid N\n  process state --pid N\n\narguments:\n  --pid N                       positive process id to observe\n\nReturns live, dead, or unknown through the shared process-observation\nfacade. A live result includes the platform start identity when available.\nUnknown is fail-closed and never means dead. Future mutation commands must bind\ntheir target to this identity rather than trusting a reusable pid alone.\n"
+    },
+    {
+      "name": "process-argv",
+      "text": "agenterm-cu process-argv    (also: process argv)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-argv --pid N [--offset N] [--limit N] [--values]\n  process argv PID [--offset N] [--limit N] [--values]\n\narguments:\n  --pid N                       positive process id (or positional PID)\n  --offset N                    first argument index (default 0)\n  --limit N                     returned arguments, 1..=4096 (default 100)\n  --values                      explicitly include argument text\n\nReads the native bounded argv vector between two matching process-start\nidentity observations. The executable path is always visible. By default each\nargument contains only its index, UTF-8 byte length and SHA-256; plaintext is\nreturned only with --values. Pagination is explicit and reports truncation.\nA process exit, PID reuse, denied provider or oversized native buffer fails\ntyped instead of returning a partial or different process.\n"
     },
     {
       "name": "process-usage",
