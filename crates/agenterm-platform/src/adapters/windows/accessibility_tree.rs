@@ -1181,25 +1181,39 @@ impl UiaSession {
         window_handle: Option<isize>,
         budget: &Budget,
     ) -> Result<ComPtr, AccessibilityTreeError> {
-        budget.check()?;
-        let mut raw = ptr::null_mut();
         let vtable = unsafe { automation_vtable(&self.automation) };
-        let hr = match window_handle {
-            Some(handle) => {
-                let hwnd = validate_window(handle)?;
-                unsafe { ((*vtable).element_from_handle)(self.automation.as_ptr(), hwnd, &mut raw) }
+        for attempt in 0..3 {
+            budget.check()?;
+            let mut raw = ptr::null_mut();
+            let hr = match window_handle {
+                Some(handle) => {
+                    let hwnd = validate_window(handle)?;
+                    unsafe {
+                        ((*vtable).element_from_handle)(self.automation.as_ptr(), hwnd, &mut raw)
+                    }
+                }
+                None => unsafe { ((*vtable).get_root_element)(self.automation.as_ptr(), &mut raw) },
+            };
+            if hr >= 0 {
+                return unsafe { ComPtr::from_raw(raw, "IUIAutomationElement root") };
             }
-            None => unsafe { ((*vtable).get_root_element)(self.automation.as_ptr(), &mut raw) },
-        };
-        if hr < 0 {
+            if !raw.is_null() {
+                drop(unsafe { ComPtr::from_raw(raw, "failed UIA root result")? });
+            }
             if let Some(handle) = window_handle
                 && unsafe { IsWindow(handle as HWND) } == 0
             {
                 return Err(window_gone(handle));
             }
-            return Err(map_hresult("resolve UI Automation root", hr));
+            if !is_transient_call_failure(hr) || attempt == 2 {
+                return Err(map_hresult("resolve UI Automation root", hr));
+            }
+            // UIA providers can transiently reject a call while publishing a
+            // changed subtree. Retry only the named transient HRESULTs and
+            // remain under the operation's existing wall-clock budget.
+            std::thread::yield_now();
         }
-        unsafe { ComPtr::from_raw(raw, "IUIAutomationElement root") }
+        unreachable!("bounded UIA root retry loop always returns")
     }
 
     fn runtime_id(
@@ -2284,12 +2298,15 @@ fn hresult(hr: HRESULT, operation: &'static str) -> Result<(), AccessibilityTree
     }
 }
 
+fn is_transient_call_failure(hr: HRESULT) -> bool {
+    hr as u32 == UIA_E_TIMEOUT || hr == RPC_E_CALL_REJECTED || hr == RPC_E_SERVERCALL_RETRYLATER
+}
+
 fn map_hresult(operation: &'static str, hr: HRESULT) -> AccessibilityTreeError {
     let raw = hr as u32;
     let (code, detail) = if hr == E_ACCESSDENIED {
         ("a11y_access_denied", "access was denied")
-    } else if raw == UIA_E_TIMEOUT || hr == RPC_E_CALL_REJECTED || hr == RPC_E_SERVERCALL_RETRYLATER
-    {
+    } else if is_transient_call_failure(hr) {
         (
             "a11y_timeout",
             "the provider exceeded its bounded call deadline",
@@ -3099,6 +3116,11 @@ mod tests {
             };
             assert_eq!(code, expected);
         }
+        assert!(is_transient_call_failure(UIA_E_TIMEOUT as i32));
+        assert!(is_transient_call_failure(RPC_E_CALL_REJECTED));
+        assert!(is_transient_call_failure(RPC_E_SERVERCALL_RETRYLATER));
+        assert!(!is_transient_call_failure(E_ACCESSDENIED));
+        assert!(!is_transient_call_failure(UIA_E_ELEMENTNOTAVAILABLE as i32));
     }
 
     #[test]

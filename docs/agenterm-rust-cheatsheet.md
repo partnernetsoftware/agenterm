@@ -2315,6 +2315,11 @@ Candidate and release status remain separate and are not implied.
   transaction timeout before traversal, then enforce an independent wall-clock
   budget and hard node, depth, sibling, RuntimeId and string limits. COM's own
   timeout is not a substitute for a bounded caller.
+- A provider can transiently answer `UIA_E_TIMEOUT`, `RPC_E_CALL_REJECTED` or
+  `RPC_E_SERVERCALL_RETRYLATER` while publishing a changed subtree. Retry only
+  those named transient HRESULTs, cap attempts, and keep every attempt inside
+  the existing operation budget. Access denial, node recycling and unsupported
+  patterns are semantic results and must not be retried into a different truth.
 - Serialize a node's RuntimeId path as identity, not ownership. For every
   Value, Invoke, Focus, text or key request, start from the supplied HWND (or a
   deliberately bounded desktop root), walk again and compare every RuntimeId

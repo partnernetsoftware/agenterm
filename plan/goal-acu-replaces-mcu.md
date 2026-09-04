@@ -174,11 +174,18 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   all passed in 54.106 s. This proves the integrated source state, not a final
   explanation for the previous mixed-time AT-SPI snapshot; complete poll/error
   accounting remains in the failure bundle so a recurrence is diagnosable.
-  Windows 16 / 16 still awaits its exact-SHA court. The latest attempt never
-  launched product bytes: the VM and QGA were ready, but the interactive
-  `job.ready` agent did not claim a nonce job after one bounded restart. That
-  result is `infrastructure_blocked` with zero product evidence, not a product
-  red; the court was stopped and its host lanes reclaimed.
+  Windows x86 now crosses the public no-console `.com` entry and the recovered
+  interactive UTM worker. The current-source journey proves capabilities,
+  fixture identity, process state/usage/watch/wait, UIA tree/query/invoke and
+  background menu inspection before stopping at the focus court. Two false
+  infrastructure/test failures were removed: the worker now synchronizes
+  asynchronous Scheduled Task creation with a nonce receipt, and the lifecycle
+  probe uses an inbox native short process rather than cold PowerShell startup.
+  UIA root resolution retries only named transient HRESULTs within the existing
+  action budget. The remaining result is a truthful product/court boundary:
+  the background desktop reports `focus performed=true` but focused read-back
+  remains false, so the 16-evidence journey stays red rather than claiming an
+  unverified action.
 - `process-watch` closes MCU's lifecycle-observation shape with a stronger
   identity contract: composable PID/parent/name filters or explicit all, an immediate
   bounded baseline, and started/exited events keyed by PID plus start identity.
@@ -269,7 +276,7 @@ Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
 ├─ [~] Linux and Windows journeys for the same verbs
 │  ├─ [x] Linux exact-3390 rerun: 24/24 STEP · 25/25 evidence · cleanup green
-│  └─ [~] Windows no-console public `.com` entry: explicit stdio fix awaits court
+│  └─ [~] Windows x86 UTM: public `.com` + process/UIA path live; background focus court remains typed-red
 └─ [ ] explicit pointer court for drag/wheel/global input; never hide degradation
 Q2 fast delegated facades
 ├─ [~] caps/doctor/permissions/setup and app inventory

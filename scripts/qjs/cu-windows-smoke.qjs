@@ -192,6 +192,9 @@ let failure = "";
 let fixture_pid = 0;
 let fixture = -1;
 let fixture_reaped = false;
+let short_pid = 0;
+let short_child = -1;
+let short_reaped = false;
 
 try {
   print("STEP capabilities declare the UI Automation tree and query available on current");
@@ -325,13 +328,16 @@ try {
   );
 
   print("STEP process lifecycle watch reports the exact identity of an owned child that exits");
-  const short_child = harness.start({
-    program: "powershell.exe",
-    args: ["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 1"],
+  // A cold PowerShell startup under an emulated x86_64 court can itself take
+  // longer than the watch deadline. Use the Windows inbox native wait path so
+  // this proves process lifecycle rather than PowerShell startup latency.
+  short_child = harness.start({
+    program: "cmd.exe",
+    args: ["/d", "/c", "ping.exe", "-n", "2", "127.0.0.1"],
     current_dir: run_directory,
     timeout_ms: 5000
   });
-  const short_pid = harness.spawned_pid(short_child);
+  short_pid = harness.spawned_pid(short_child);
   const lifecycle = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "process-watch", "--pid", "" + short_pid,
     "--duration-ms", "10000", "--interval-ms", "20", "--max-events", "1", "--max-processes", "4"
@@ -347,6 +353,7 @@ try {
     "cu_windows_smoke_process_lifecycle_watch:" + JSON.stringify(lifecycle.data)
   );
   harness.wait(short_child, 5000);
+  short_reaped = true;
 
   print("STEP the bounded tree names the fixture's controls with real rectangles and a UIA backend");
   const nodes = tree_nodes(run_directory, executable, handle_text);
@@ -449,12 +456,21 @@ try {
     );
   }
 
-  print("STEP focused binds the control the fixture starts on");
+  print("STEP focus gives the owned entry keyboard focus and focused reads that state back");
+  const focus_entry = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "focus",
+    "--window", handle_text, "--name", "Fixture Entry"
+  ]);
+  ensure(
+    flag_at(focus_entry, "data.performed") && flag_at(focus_entry, "data.verified"),
+    "cu_windows_smoke_focus:" + JSON.stringify(focus_entry.data)
+  );
   const focused = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "focused", "--window", handle_text
   ]);
   ensure(
-    text_at(focused, "data.node.role") !== "",
+    text_at(focused, "data.node.name") === "Fixture Entry"
+      && text_at(focused, "data.node.role") !== "",
     "cu_windows_smoke_focused:" + JSON.stringify(focused.data)
   );
 
@@ -565,6 +581,19 @@ if (fixture >= 0 && !fixture_reaped) {
     rh.command("taskkill", ["/PID", "" + fixture_pid, "/F"], { timeout_ms: 10000 });
   }
   try { harness.wait(fixture, 5000); } catch (wait_error) { print("cleanup: " + wait_error); }
+}
+if (short_child >= 0 && !short_reaped) {
+  // Reaping closes the final Windows process handle, which is also required
+  // before the run directory can be removed after a failed assertion.
+  if (short_pid !== 0) {
+    rh.command("taskkill", ["/PID", "" + short_pid, "/F"], { timeout_ms: 10000 });
+  }
+  try {
+    harness.wait(short_child, 5000);
+    short_reaped = true;
+  } catch (wait_error) {
+    print("cleanup: " + wait_error);
+  }
 }
 
 // Evidence is emitted only once the whole run has succeeded.

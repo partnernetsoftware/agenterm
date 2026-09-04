@@ -70,6 +70,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   Structured UIA failure is typed and never silently becomes a coordinate
   click. Five pure and two real fixture tests own the adapter evidence; staged
   `cu-windows-smoke` owns the public DLL-backed journey.
+- [~] The expanded Windows x86 UTM journey now reaches the public `.com`,
+  qjswasm worker, process observation and UIA actuation through an interactive
+  desktop worker. Its remaining red is explicit: the background court lets UIA
+  perform a node-focus request but publishes no focused read-back, so evidence
+  is withheld. Transient `UIA_E_TIMEOUT` / rejected-call results get bounded
+  retries inside the existing action deadline; semantic mismatches do not.
 - [x] Windows runtime window enumeration follows a two-stage
   required-size/fill ABI. If desktop churn makes the fill call report
   `required > capacity`, the caller retries with a fresh capacity under a hard

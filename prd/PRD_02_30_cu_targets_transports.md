@@ -1304,6 +1304,13 @@ recorded above as unproven rather than claimed.
   after the complete run succeeds. It does not claim the retired staged-host,
   persisted-grant, or clipboard receipts, and does not by itself prove
   Candidate qualification or release.
+- [~] The later 16-evidence Windows x86 court extends that baseline with
+  process state, lossless usage, bounded usage watch, identity-bound wait and
+  lifecycle watch. It now runs through the public no-console `.com` entry and
+  reaches the focus stage on current source. The background UTM desktop reports
+  the focus action as performed but not verified by `HasKeyboardFocus`; the
+  court remains red and emits no evidence rather than converting this desktop
+  capability difference into success.
 - [x] **macOS AX `current` actuation (cut 3.50) — live evidence held.**
   The same journey, same fixture, same run (2026-08-30) emits
   `cu.macos-ax-invoke-set-value`, `cu.macos-ax-invoke-set-checked`,

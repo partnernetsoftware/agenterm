@@ -290,6 +290,11 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     assert!(CU_WINDOWS_SMOKE_QJS.contains(
         "const fixture_executable = csc_path(rh.join(run_directory, \"agenterm-uia-fixture.exe\"));"
     ));
+    assert!(
+        CU_WINDOWS_SMOKE_QJS
+            .contains("args: [\"/d\", \"/c\", \"ping.exe\", \"-n\", \"2\", \"127.0.0.1\"]")
+    );
+    assert!(CU_WINDOWS_SMOKE_QJS.contains("if (short_child >= 0 && !short_reaped)"));
     assert!(CU_WINDOWS_FIXTURE_CS.contains("[STAThread]"));
     assert!(CU_WINDOWS_FIXTURE_CS.contains("public static void Main()"));
     assert!(CU_WINDOWS_FIXTURE_CS.contains("Run();"));
