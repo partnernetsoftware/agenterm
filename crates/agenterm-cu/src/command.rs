@@ -226,6 +226,12 @@ pub enum Command {
     Capabilities {
         target: TargetRef,
     },
+    /// Read-only projection of the permission declaration embedded in
+    /// `capabilities`. This is a first-class wire command so current, SSH and
+    /// VNC workers all receive the same stable shape.
+    Permissions {
+        target: TargetRef,
+    },
     /// Top-level window inventory. Without any filter or page field the
     /// reply `data` is the plain window array (unchanged shape); with one,
     /// `data` is the inventory object `{windows, visited, matched, returned,
@@ -1357,6 +1363,7 @@ impl Command {
     pub fn verb(&self) -> String {
         match self {
             Self::Capabilities { .. } => "capabilities".into(),
+            Self::Permissions { .. } => "permissions".into(),
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
@@ -1430,6 +1437,7 @@ impl Command {
     pub fn target(&self) -> TargetRef {
         match self {
             Self::Capabilities { target, .. }
+            | Self::Permissions { target, .. }
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
@@ -1541,6 +1549,25 @@ impl Command {
 mod tests {
     use super::*;
     use crate::auth::Grant;
+
+    #[test]
+    fn permissions_is_a_first_class_observe_wire_command() {
+        let command = Command::Permissions {
+            target: TargetRef::Ssh,
+        };
+        assert_eq!(command.verb(), "permissions");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let value = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(value["verb"], "permissions");
+        let back: Command = serde_json::from_value(value).expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::Permissions {
+                target: TargetRef::Ssh
+            }
+        ));
+    }
 
     #[test]
     fn ps_is_an_observe_command_with_a_closed_remote_wire_shape() {

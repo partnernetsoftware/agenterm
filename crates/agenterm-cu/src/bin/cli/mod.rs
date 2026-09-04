@@ -14,6 +14,7 @@ pub mod help;
 pub mod menu;
 pub mod placement;
 pub mod process;
+pub mod system;
 pub mod verbs;
 pub mod windows;
 
@@ -32,6 +33,7 @@ pub fn parse_command(
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
     match spec.family {
+        Family::System => system::parse(spec, target, args),
         Family::Windows => windows::parse(spec, spelled, target, args),
         Family::Process => process::parse(spec, target, args),
         Family::A11yObserve => a11y_observe::parse(spec, spelled, target, args),

@@ -13,7 +13,6 @@ pub fn parse(
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
     match spec.name {
-        "capabilities" => Ok(Command::Capabilities { target }),
         "windows" => windows(spelled, target, args),
         "windows-watch" => windows_watch(target, args),
         "apps" => apps(target, args),

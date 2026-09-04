@@ -444,7 +444,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
 /// repair path was buried inside the `tree` verb while input injection
 /// depends on the very same grant. A caller should not have to know
 /// that to find it.
-fn permissions_declaration() -> serde_json::Value {
+pub(super) fn permissions_declaration() -> serde_json::Value {
     if cfg!(target_os = "macos") {
         let accessibility =
             match mechanism::capability_status(mechanism::Capability::AccessibilityTree) {
@@ -501,6 +501,17 @@ fn permissions_declaration() -> serde_json::Value {
             "reason": "this host has no per-application permission gate; a mechanism is available or it is not",
         })
     }
+}
+
+pub(super) fn permissions_payload() -> serde_json::Value {
+    serde_json::json!({
+        "platform": crate::mcu_surface::host_os(),
+        "permissions": permissions_declaration(),
+        "action": {
+            "performed": false,
+            "reason": "status-only; operating-system consent remains user controlled",
+        },
+    })
 }
 
 /// Every verb's `grant` (`observe` / `actuate`), filled in only where the
@@ -694,5 +705,18 @@ mod tests {
             !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
             "current mapping must not claim live RDP: {mapping}"
         );
+    }
+
+    #[test]
+    fn permissions_is_a_live_read_only_facade_over_the_same_declaration() {
+        let reply = observe_executor().execute(&Command::Permissions {
+            target: TargetRef::Current,
+        });
+        assert!(reply.ok, "{reply:?}");
+        assert_eq!(reply.command, "permissions");
+        let data = reply.data.expect("permission data");
+        assert_eq!(data["platform"], crate::mcu_surface::host_os());
+        assert_eq!(data["action"]["performed"], false);
+        assert_eq!(data["permissions"], permissions_declaration());
     }
 }

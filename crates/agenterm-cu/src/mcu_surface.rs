@@ -229,9 +229,9 @@ pub fn group_id_for_verb(verb: &str) -> &'static str {
 }
 
 /// Align-CLI verbs that are typed-only (not a dedicated live command).
-/// `unlock` / `windows-watch` / `apps` / `orderwin` are dedicated.
+/// `permissions` / `unlock` / `windows-watch` / `apps` / `orderwin` are dedicated.
 pub fn is_typed_only_verb(verb: &str) -> bool {
-    is_align_verb(verb) && verb != "unlock"
+    is_align_verb(verb) && !matches!(verb, "unlock" | "permissions")
 }
 
 fn typed_only_reason(verb: &str) -> &'static str {
@@ -490,6 +490,17 @@ pub fn host_os() -> &'static str {
 pub fn verb_declaration(verb: &str) -> Value {
     let os = host_os();
     let group = group_id_for_verb(verb);
+    if verb == "permissions" {
+        return json!({
+            "status": "available",
+            "mode": "read-only-status-and-guidance",
+            "grant": "observe",
+            "reason": "reports the host permission model, affected verbs and repair guidance without changing consent",
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if verb == "inspect" || verb == "find" || verb == "read" {
         let reason = match verb {
             "find" => "MCU find HANDLE TEXT is query --window --text",

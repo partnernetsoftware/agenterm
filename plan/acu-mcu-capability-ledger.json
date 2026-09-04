@@ -797,9 +797,10 @@
         {
           "id": "permissions.status-guidance",
           "mcu_shape": "permissions status separates required and optional grants and names affected capabilities plus exact repair/recheck",
-          "acu_shape": "capabilities.permissions reports current platform permission status and repair path",
+          "acu_shape": "permissions returns the current platform permission model, gated verbs and repair guidance; capabilities embeds the identical declaration",
           "state": "delegated",
-          "qualification": "contract-present-host-journeys-partial",
+          "qualification": "direct-cli-contract-present-host-journeys-partial",
+          "evidence": ["agenterm-cu permissions unit and local public CLI"],
           "next": "prove every affected verb and required/optional classification on macOS, Linux and Windows"
         },
         {

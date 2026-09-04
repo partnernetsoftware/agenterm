@@ -3252,3 +3252,15 @@ An HTTP client that reads a response with `read_to_end` only works when the
 server closes the socket. Chromium's DevTools HTTP server ignores
 `Connection: close`, so frame the body from `Content-Length` or chunked
 encoding and bound it; otherwise every call costs the read timeout and fails.
+
+## Focused discovery commands must project one canonical declaration
+
+When a broad `capabilities` document already owns permission or mechanism
+truth, a focused command such as `permissions` must return that same value,
+not rebuild a second platform table. Keep one declaration function, project it
+through both public replies, and pin exact equality in a unit test. This avoids
+the common drift where help says a verb is live while the broad manifest still
+calls it unsupported, or where repair guidance differs by entry point. A
+status facade remains read-only: reporting an OS consent requirement is not
+authority to open settings, synthesize a grant, or claim a state the native API
+cannot inspect.

@@ -322,8 +322,10 @@ Screen Recording (`capabilities.permissions.screen_recording` carries the
 repair path). Coordinate clicks exist only as `click --coords X,Y
 --degraded` and are audited apart from a11y actuation; global pointer verbs
 (`pointer-move`) are separate from the semantic knife. Read the whole
-permission picture with `cu capabilities` (`permissions` lists every gated
-verb; `verbs` lists status / alias / reason per verb).
+permission picture directly with `agenterm-cu --target current --grant observe
+permissions`; it is the same declaration embedded in `capabilities`, lists
+every gated verb and exact repair guidance, and never changes system consent.
+`verbs` lists status / alias / reason per verb.
 
 ## Native accessibility mapping (按图索骥)
 

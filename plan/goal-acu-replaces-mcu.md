@@ -77,6 +77,8 @@ flowchart LR
   F --> Q
   I --> Q
   P --> Q
+  SET --> PS["permissions status facade live<br/>same declaration as capabilities"]
+  PS --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
   S --> D{"all replacement gates?"}
@@ -261,7 +263,11 @@ Q1 desktop closure
 ├─ [ ] Linux and Windows journeys for the same verbs
 └─ [ ] explicit pointer court for drag/wheel/global input; never hide degradation
 Q2 fast delegated facades
-├─ [ ] caps/doctor/permissions/setup and app inventory
+├─ [~] caps/doctor/permissions/setup and app inventory
+│  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
+│  ├─ [ ] permissions: required/optional three-host evidence + open-next action
+│  ├─ [ ] doctor: bounded composed health receipt
+│  └─ [ ] setup: idempotent launcher/runtime repair
 ├─ [ ] open/notify/state and terminal adoption
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade

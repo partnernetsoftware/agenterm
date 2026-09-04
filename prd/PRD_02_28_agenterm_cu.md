@@ -157,6 +157,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
   ordinary CU command schema. MCU's richer CPU/memory/argv/files/ports filters
   remain typed migration gaps; no flag is silently ignored.
+- [~] Permission discovery no longer requires agents to mine the broad
+  capability document: `permissions` is a live observe-only public command
+  that returns the host permission model, every gated verb and exact repair
+  guidance. It reuses the identical declaration embedded in `capabilities`,
+  performs no settings mutation and never claims a grant the host cannot
+  inspect. Unit and local public-CLI evidence are green on macOS; required vs
+  optional classification and native Linux/Windows journey evidence remain
+  open, as does the separate consent-preserving `open-next` action.
 - [~] Process identity observation is live as `process-state --pid N` on
   current/ssh/vnc. It returns `live|dead|unknown`, preserves fail-closed unknown
   evidence, and publishes the platform start identity when available. MCU

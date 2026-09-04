@@ -33,6 +33,7 @@ impl Scope {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
+    System,
     Windows,
     Process,
     A11yObserve,
@@ -45,7 +46,8 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Family; 9] = [
+    pub const ALL: [Family; 10] = [
+        Family::System,
         Family::Windows,
         Family::Process,
         Family::A11yObserve,
@@ -59,6 +61,7 @@ impl Family {
 
     pub fn id(self) -> &'static str {
         match self {
+            Self::System => "system",
             Self::Windows => "windows",
             Self::Process => "process",
             Self::A11yObserve => "a11y-observe",
@@ -74,6 +77,7 @@ impl Family {
     /// Group header printed in `--help`.
     pub fn header(self) -> &'static str {
         match self {
+            Self::System => "System & permissions",
             Self::Windows => "Windows & apps",
             Self::Process => "Processes",
             Self::A11yObserve => "Accessibility: observe",
@@ -344,13 +348,27 @@ pub const VERBS: &[VerbSpec] = &[
         command: "capabilities",
         aliases: &["caps"],
         scope: Scope::Observe,
-        family: Family::Windows,
+        family: Family::System,
         summary: "per-target capability matrix for this host",
         usage: "capabilities",
         args: &[],
         details: r#"What the selected target can observe and actuate, verb group by verb
 group, with a typed reason for anything this host does not support.
 `caps` is the MCU spelling."#,
+    },
+    VerbSpec {
+        name: "permissions",
+        command: "permissions",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::System,
+        summary: "permission state, affected verbs and repair guidance",
+        usage: "permissions",
+        args: &[],
+        details: r#"Reports the current host's permission model without opening settings or
+claiming a grant that the platform cannot inspect. Each permission names the verbs it gates and
+the exact repair surface when one exists. This is a read-only status facade; system consent stays
+with the user and `permissions` never attempts to bypass it."#,
     },
     VerbSpec {
         name: "windows",
@@ -2831,7 +2849,7 @@ mod tests {
         assert_eq!(first.grant, Scope::Observe);
         let value: serde_json::Value = serde_json::from_str(&json).expect("value");
         assert_eq!(value[0]["grant"], "observe");
-        assert_eq!(value[0]["family"], "windows");
+        assert_eq!(value[0]["family"], "system");
         let exec = back
             .iter()
             .find(|row| row.name == "exec")

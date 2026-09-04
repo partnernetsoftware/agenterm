@@ -7,6 +7,7 @@ impl Executor {
     pub(super) fn run_current(&self, command: &Command) -> Result<serde_json::Value, CuError> {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
+            Command::Permissions { .. } => Ok(permissions_payload()),
             Command::Windows {
                 pid,
                 app,
