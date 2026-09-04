@@ -202,7 +202,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     // they left this list; `ghost` (a cursor overlay drawn on the desktop)
     // is deliberately not absorbed and stays typed.
     "ghost",
-    "ps",
     "kill",
     "signal",
     "exec",

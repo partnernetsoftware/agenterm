@@ -145,6 +145,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;
   `drag` stays in the separate explicit-global-pointer court because it may
   move the user's real cursor and must restore it even on failure.
+- [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
+  PID/parent/name inventory through `agenterm-platform::process::list`, shared
+  with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
+  ordinary CU command schema. MCU's richer CPU/memory/argv/files/ports filters
+  remain typed migration gaps; no flag is silently ignored.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

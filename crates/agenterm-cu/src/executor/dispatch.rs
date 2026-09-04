@@ -50,6 +50,14 @@ impl Executor {
                 *max_events,
             ),
             Command::Apps { all, .. } => apps_payload(*all),
+            Command::Ps {
+                pid,
+                parent,
+                name,
+                offset,
+                max,
+                ..
+            } => process_list_payload(*pid, *parent, name.as_deref(), *offset, *max),
             Command::Tree {
                 window,
                 depth,

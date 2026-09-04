@@ -282,6 +282,23 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         all: bool,
     },
+    /// Bounded cross-platform process inventory. This first MCU replacement
+    /// slice intentionally exposes only facts the shared platform facade can
+    /// prove on every host; richer CPU/memory/argv filters remain declared
+    /// migration gaps until their typed facades land.
+    Ps {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -1288,6 +1305,7 @@ impl Command {
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
+            Self::Ps { .. } => "ps".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -1356,6 +1374,7 @@ impl Command {
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
+            | Self::Ps { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -1459,6 +1478,32 @@ impl Command {
 mod tests {
     use super::*;
     use crate::auth::Grant;
+
+    #[test]
+    fn ps_is_an_observe_command_with_a_closed_remote_wire_shape() {
+        let command = Command::Ps {
+            target: TargetRef::Ssh,
+            pid: Some(42),
+            parent: Some(7),
+            name: Some("worker".into()),
+            offset: Some(3),
+            max: Some(9),
+        };
+        assert_eq!(command.verb(), "ps");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "ps",
+                "target": "ssh",
+                "pid": 42,
+                "parent": 7,
+                "name": "worker",
+                "offset": 3,
+                "max": 9,
+            })
+        );
+    }
 
     #[test]
     fn cdp_page_verbs_carry_their_grant_and_wire_shape() {

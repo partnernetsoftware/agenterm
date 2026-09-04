@@ -94,7 +94,7 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   accounting dimension: `page`, `browser`, `process`, `resource`, `file` and
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
-- The transitional `acu.ts` adapter now keeps **33 top-level spellings** on
+- The transitional `acu.ts` adapter now keeps **32 top-level spellings** on
   MCU. Its 92-name pass-through set is not a parity count: it mixes MCU
   spellings, ACU-native spellings and group aliases. The adapter's 42 green
   tests prove lossless argv routing and honest refusal only; they do not prove
@@ -131,6 +131,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   stable `CGWindowID`; the journey proves minimize, off-screen lookup, restore,
   foreground preservation and owned cleanup together. Linux and Windows are
   still required before this tranche is three-host complete.
+- The first non-desktop facade is integrated: `ps --pid/--parent/--name` with
+  bounded pagination now calls `agenterm-platform::process::list`, the same
+  native mechanism used by qjswasm `process.list`. Richer MCU process filters
+  remain explicit gaps; the compatibility router forwards the proven subset
+  and temporarily falls back for unsupported shapes.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -167,7 +172,9 @@ Q1 desktop closure
 Q2 fast delegated facades
 ├─ [ ] caps/doctor/permissions/setup and app inventory
 ├─ [ ] open/notify/state and terminal adoption
-└─ [ ] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
+└─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
+   ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
+   └─ [ ] rich filters, process detail, exec, signal and lifecycle
 Q3 owned runtime facades
 ├─ [ ] PTY/job/daemon/session/lock/audit/service
 └─ [ ] file/network/storage/device/audio/resource/power/privilege

@@ -34,6 +34,7 @@ impl Scope {
 #[serde(rename_all = "kebab-case")]
 pub enum Family {
     Windows,
+    Process,
     A11yObserve,
     A11yActuate,
     Browser,
@@ -44,8 +45,9 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Family; 8] = [
+    pub const ALL: [Family; 9] = [
         Family::Windows,
+        Family::Process,
         Family::A11yObserve,
         Family::A11yActuate,
         Family::Browser,
@@ -58,6 +60,7 @@ impl Family {
     pub fn id(self) -> &'static str {
         match self {
             Self::Windows => "windows",
+            Self::Process => "process",
             Self::A11yObserve => "a11y-observe",
             Self::A11yActuate => "a11y-actuate",
             Self::Browser => "browser",
@@ -72,6 +75,7 @@ impl Family {
     pub fn header(self) -> &'static str {
         match self {
             Self::Windows => "Windows & apps",
+            Self::Process => "Processes",
             Self::A11yObserve => "Accessibility: observe",
             Self::A11yActuate => "Accessibility: actuate",
             Self::Browser => "Browser page & tabs",
@@ -476,6 +480,27 @@ sample."#,
         details: r#"Running apps from top-level windows (pids + window count). --all also
 lists the applications installed on this host that no window can reveal,
 each marked running or not."#,
+    },
+    VerbSpec {
+        name: "ps",
+        command: "ps",
+        aliases: &[],
+        scope: Scope::Observe,
+        family: Family::Process,
+        summary: "bounded process inventory from the shared platform facade",
+        usage: "ps [--pid N] [--parent N] [--name SUB] [--offset N] [--max N]",
+        args: &[
+            ArgSpec { flag: "--pid", value: "N", help: "exact process id" },
+            ArgSpec { flag: "--parent", value: "N", help: "exact parent process id" },
+            ArgSpec { flag: "--name", value: "SUB", help: "case-insensitive executable-name substring" },
+            OFFSET,
+            MAX,
+        ],
+        details: r#"Lists process id, parent id and executable name through the same
+agenterm-platform process facade used by qjswasm process.list. Results are
+sorted by pid and bounded before publication. MCU's --command, CPU, memory,
+file and port filters remain typed migration gaps until their owning facades
+land; this command never silently ignores them."#,
     },
     VerbSpec {
         name: "app",

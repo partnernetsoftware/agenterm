@@ -13,6 +13,7 @@ pub mod global;
 pub mod help;
 pub mod menu;
 pub mod placement;
+pub mod process;
 pub mod verbs;
 pub mod windows;
 
@@ -32,6 +33,7 @@ pub fn parse_command(
 ) -> Result<Command, String> {
     match spec.family {
         Family::Windows => windows::parse(spec, spelled, target, args),
+        Family::Process => process::parse(spec, target, args),
         Family::A11yObserve => a11y_observe::parse(spec, spelled, target, args),
         Family::A11yActuate => a11y_actuate::parse(spec, spelled, target, args),
         Family::Browser => browser::parse(spec, spelled, target, args),
