@@ -61,8 +61,8 @@ ACU replaces MCU
 ```mermaid
 flowchart LR
   M["MCU capability inventory"]
-  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & REST["system …"]
-  DESK & PROC & BROW & PTY & REST --> L["machine-readable replacement ledger"]
+  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & REST["system …"]
+  DESK & PROC & BROW & PTY & FILE & REST --> L["machine-readable replacement ledger"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -183,6 +183,12 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   things. The router must keep refusing that collision until an explicit
   argv-based shell/job command is named; compatibility never justifies a
   meaning-changing rewrite.
+- File/storage accounting is complete. Existing platform primitives for stable
+  entry identity, no-overwrite publication and per-volume capacity are useful
+  building blocks, but they do not yet constitute MCU's recoverable copy/move
+  transaction or physical-device inventory. Unix modes/xattrs and Windows
+  ACLs/attributes remain distinct platform vocabularies; parity must not be
+  manufactured by renaming one as the other.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -216,6 +222,7 @@ Q0 truthful boundary
    ├─ [x] desktop family accounted shape by shape in the JSON ledger
    ├─ [x] browser family accounted shape by shape in the JSON ledger
    ├─ [x] PTY/job/terminal family accounted shape by shape in the JSON ledger
+   ├─ [x] file/storage family accounted shape by shape in the JSON ledger
    └─ [ ] runtime/system families remain to enumerate
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey

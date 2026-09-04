@@ -187,6 +187,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab, by single-process metrics, or by silently
   forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
+- [~] File/storage replacement is classified separately from qjswasm's basic
+  filesystem calls. `agenterm-platform` already owns stable-entry,
+  no-overwrite publication and volume-capacity primitives, but ACU does not yet
+  expose MCU's physical-device inventory or recoverable copy/move transaction.
+  Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
+  contracts rather than a false cross-platform spelling match.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

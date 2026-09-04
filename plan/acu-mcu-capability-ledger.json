@@ -513,10 +513,68 @@
           "note": "The same spelling currently has different meanings and must never be forwarded silently."
         }
       ]
+    },
+    "file-storage": {
+      "accounting": "complete",
+      "owner": "agenterm-platform filesystem and storage mechanisms, ACU transaction facade, qjswasm for workflow composition",
+      "capabilities": [
+        {
+          "id": "storage.device-inventory",
+          "mcu_shape": "storage devices --max N with physical/block id, media, bus, size and health",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "add a bounded typed physical-device inventory to agenterm-platform and expose it through ACU",
+          "note": "The existing platform volume_space query reports capacity for one mounted path; it is not physical-device inventory."
+        },
+        {
+          "id": "file.metadata.inspect",
+          "mcu_shape": "file inspect PATH with object identity, type, mode, owner, size and timestamps",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "compose filesystem-entry identity and bounded metadata into a cross-platform ACU observation facade"
+        },
+        {
+          "id": "file.xattr.inspect",
+          "mcu_shape": "file xattrs PATH [--values --max N] with byte counts and digests",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "alternate-streams-not-equivalent"},
+          "next": "define an attribute namespace and bounded value disclosure per platform; never relabel Windows alternate streams as Unix xattrs"
+        },
+        {
+          "id": "file.mode.mutate",
+          "mcu_shape": "file chmod PATH OCTAL [--apply] with plan, identity recheck and readback",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "not-applicable"},
+          "next": "Unix typed plan/apply facade over an opened stable entry; Windows must expose its own ACL/attribute vocabulary instead of fake octal parity"
+        },
+        {
+          "id": "file.xattr.mutate",
+          "mcu_shape": "file xattr-set|xattr-remove|quarantine-clear [--apply] with precondition and rollback attempt",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "not-applicable"},
+          "next": "typed attribute plan/apply operation with exact prior value digest, byte ceiling, readback and rollback outcome"
+        },
+        {
+          "id": "file.copy.transaction",
+          "mcu_shape": "file copy SOURCE DEST [--replace --apply] plus status|rollback|recover|finalize",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "build the transaction facade from existing no-overwrite/atomic-publish primitives; persist source/destination identity and every recovery state"
+        },
+        {
+          "id": "file.move.transaction",
+          "mcu_shape": "file move SOURCE DEST [--replace --apply] plus status|rollback|recover|finalize",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "separate same-volume rename from cross-volume copy-and-remove and prove rollback/finalize for both"
+        }
+      ]
     }
   },
   "remaining_families": [
-    "file-storage",
     "network",
     "device-audio",
     "service-daemon-session-lock-audit",
