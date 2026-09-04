@@ -1113,6 +1113,24 @@ identity、精确大小与 Windows attributes，对缺失路径返回 typed
 `job.pending.ps1` + `job.ready`，等待本次 job 自己的唯一 done/result，最后拉回
 输出。传输成功、进程提交成功与作业完成是三种不同事实，不得互相代替。
 
+### 5.24 qjswasm → ACU PTY inventory/prune 六格复跑（2026-09-05）
+
+exact source `a6a1c7b9` 的 `cu-pty-smoke` 已把后台 PTY 旅程扩成
+`absent → running → stale → pruned → absent`，随后在六个用户态 cell 全绿：
+macOS arm64、macOS x86_64/Rosetta、Linux arm64/x86_64 原生 UTM、Windows
+arm64/x86_64 原生 UTM。每台 VM 只在自己的 lease 内运行，并在回执后回到
+`stopped`；Rosetta 仍不冒充 Intel macOS kernel。
+
+六格 `dev` 构建约两分多钟；首次冷 `release-fast` 构建约三分四十秒。后者的
+最小 court bundle 为 Linux 8.1/8.3 MiB、Windows 4.8/5.0 MiB，而早期 Linux
+debug bundle 是 55 MiB，QGA 传输数分钟且无完成上限，因此被判为错误测试输入。
+court 应传 `release-fast` 的最小依赖闭包，并把冷构建、传输和旅程时间分开记账。
+
+Windows x86_64 首次轮询读到了 `interactive-ready` 留下的旧 `job.exit=0`；其
+日志只有 readiness nonce，没有本次旅程。这次结果没有计绿。重跑要求同时出现
+本作业 marker、旅程 PASS 和匹配 exit receipt 后才晋升。Linux QGA `exec` 同样
+只能先当提交证据；调用者必须轮询本作业原子完成文件，不能提交后立即 pull。
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。

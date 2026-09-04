@@ -339,7 +339,7 @@ Q3 owned runtime facades
 │  │  ├─ [x] decision court: cross-process, zero-tab, cursor continuation, shutdown green
 │  │  ├─ [x] public pty-start/status/read/send/wait/wait-exit/stop + exact identity
 │  │  ├─ [x] literal input + loss-aware cross-page exact-output wait
-│  │  ├─ [x] local six-cell qjswasm public court; macOS x86_64 via Rosetta
+│  │  ├─ [x] exact-source `a6a1c7b9` local six-cell qjswasm public court; macOS x86_64 via Rosetta
 │  │  ├─ [x] concurrent-start single-owner + typed exit mismatch + verified shutdown court
 │  │  └─ [~] list/prune ✓; reuse + orphan process-tree cleanup pending
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup

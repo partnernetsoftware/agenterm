@@ -519,6 +519,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   receipt, permits only known workspace/settings/lock entries, and verifies the
   exact directory disappeared. Live/conflicted authorities and unknown entries
   fail without deletion. The qjswasm journey proves stale → pruned → absent.
+  Exact source `a6a1c7b9` then passed that enlarged journey in all six local
+  user-space cells: macOS arm64, macOS x86_64 under Rosetta, native Linux
+  arm64/x86_64, and native Windows arm64/x86_64. UTM execution used one active
+  lease at a time and returned every guest to `stopped`. The Windows court
+  rejected an initially observed zero exit because it belonged to the prior
+  readiness nonce; only a new per-job marker, the journey PASS line, and the
+  matching exit receipt together count as execution evidence.
   Reuse, event/screen projection and orphan process-tree control remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).

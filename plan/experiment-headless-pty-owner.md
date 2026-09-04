@@ -93,7 +93,8 @@ product or user data was read.
 │  └─ [~] stale state reclamation ✓; orphan process-tree authority remains
 ├─ [~] process lifecycle: exact exit + explicit stop postconditions; tree/signal remain
 ├─ [ ] bounded events/snapshot/diff projection compatible with MCU callers
-└─ [x] local six-cell public qjswasm court (macOS x86_64 via Rosetta)
+└─ [x] exact-source `a6a1c7b9` local six-cell public qjswasm court
+   (macOS x86_64 via Rosetta; stale Windows job receipts rejected)
 ```
 
 ```mermaid

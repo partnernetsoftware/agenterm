@@ -248,6 +248,13 @@ second route around ACU/AgenTerm product contracts.
   x86_64 macOS product/qjswasm/ACU/ABI bytes also pass under Rosetta. The local
   six-cell user-space projection is therefore green; this is not a claim of an
   Intel macOS kernel court.
+  The enlarged inventory/prune journey was rerun from exact source `a6a1c7b9`
+  and is green in the same six cells. Its `release-fast` transfer bundles were
+  8.1 MiB (Linux arm64), 8.3 MiB (Linux x86_64), 4.8 MiB (Windows arm64), and
+  5.0 MiB (Windows x86_64); the earlier 55 MiB debug bundle was rejected as an
+  inefficient court input. Windows qualification requires a job-specific
+  marker plus the PASS line and exit receipt, because a readiness probe can
+  leave a stale zero-exit file that must not satisfy the next job.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
