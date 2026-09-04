@@ -328,6 +328,25 @@ impl Executor {
                 dy.unwrap_or(120.0),
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PageDrag {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                x1,
+                y1,
+                x2,
+                y2,
+                ..
+            } => page_drag_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                *x1,
+                *y1,
+                *x2,
+                *y2,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PageFiles {
                 port,
                 target_id,

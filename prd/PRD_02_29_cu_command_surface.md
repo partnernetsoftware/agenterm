@@ -167,7 +167,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `:hover`), `page scroll --x X --y Y [--dx DX] [--dy DY]` (actuate; nearest
   scrollable container frozen during planning, wheel dispatched there, then an
   event-driven bounded wait reads its exact offsets; a boundary is performed
-  but `no_observable_scroll_change`), `page files (--selector | --node)
+  but `no_observable_scroll_change`), `page drag --x1 X --y1 Y --x2 X --y2 Y`
+  (actuate; two distinct rendered viewport points frozen before effect, left
+  down + held move + up, release attempted after every accepted press,
+  verified from the target page's trusted event sequence), `page files (--selector | --node)
   FILE...` (actuate; 1..16 absolute browser-host paths, regular non-symlink
   files only, exact enabled `input[type=file]`, `multiple` preflight,
   `DOM.setFileInputFiles`, then exact FileList basename/size read-back; public
@@ -191,7 +194,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   verified `page-hover` by the received event target, `page-scroll` by a
   `scrollTop` change from 360 to 480, and `page-files` by exact FileList
   basename/size while its absolute fixture path was absent from public output;
-  all retained `focus_changed: false`. MCU-shaped positional hover/scroll/files
+  The same court then verified `page-drag` from two live element boxes by both
+  the trusted held-event sequence and a page-owned business state change. All
+  retained `focus_changed: false`. MCU-shaped positional hover/scroll/drag/files
   now route through the sibling compatibility shim instead of staying on MCU;
   `--match` remains typed because its
   title+url+description search is not the same selector contract. Still open:

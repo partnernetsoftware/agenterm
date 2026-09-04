@@ -2060,6 +2060,27 @@ receipts never contain local paths. The tab/window stays backgrounded and no
 native file-picker is opened."#,
     },
     VerbSpec {
+        name: "page-drag",
+        command: "page-drag",
+        aliases: &["page drag"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "drag between two viewport points of a CDP target in place",
+        usage: "page-drag [--port N] (--target-id ID | --target-url SUB | --target-title SUB) --x1 X --y1 Y --x2 X --y2 Y
+page drag X1 Y1 X2 Y2 ...                         (MCU spelling)",
+        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE,
+            ArgSpec { flag: "--x1", value: "X", help: "start viewport CSS x" },
+            ArgSpec { flag: "--y1", value: "Y", help: "start viewport CSS y" },
+            ArgSpec { flag: "--x2", value: "X", help: "end viewport CSS x" },
+            ArgSpec { flag: "--y2", value: "Y", help: "end viewport CSS y" },
+        ],
+        details: r#"Moves to the start, presses left, moves to the end while
+held, and always attempts release after a successful press. The selected tab
+is not activated. performed requires all four CDP dispatches; verified requires
+the target page to observe a trusted mousedown, held mousemove and mouseup at
+the frozen endpoints. A zero-distance drag is rejected before any effect."#,
+    },
+    VerbSpec {
         name: "page-fill",
         command: "page-fill",
         aliases: &["page fill"],
@@ -2368,14 +2389,14 @@ other profiles' windows are brought back."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "MCU page group; unmapped page verbs answer typed",
-        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page hover | page scroll | page fill | page nav | page screenshot
+        usage: "page read [--js EXPR] | page targets | page text | page find | page click | page hover | page scroll | page drag | page files | page fill | page nav | page screenshot
 page [<other>]                                      (typed unsupported)",
         args: &[],
         details: r#"MCU page: `page read --js` -> page-js, `page read` (no --js) -> the CDP
 page-text, `page targets` -> page-targets, `page text` -> page-text (a11y
 with --window, CDP with a target selector), and the CDP background-tab
 verbs `page find` / `page click` / `page hover` / `page scroll` / `page
-fill` / `page nav` / `page screenshot` map to their typed CDP verbs. Any
+drag` / `page files` / `page fill` / `page nav` / `page screenshot` map to their typed CDP verbs. Any
 other page sub-verb answers typed unsupported."#,
     },
     // -------------------------------------------------------------- clipboard
@@ -2889,6 +2910,14 @@ mod tests {
             Some("page-scroll")
         );
         assert_eq!(
+            resolve("page", Some("drag")).map(|s| s.name),
+            Some("page-drag")
+        );
+        assert_eq!(
+            resolve("page", Some("files")).map(|s| s.name),
+            Some("page-files")
+        );
+        assert_eq!(
             resolve("page", Some("fill")).map(|s| s.name),
             Some("page-fill")
         );
@@ -3006,6 +3035,8 @@ mod tests {
             "page-click",
             "page-hover",
             "page-scroll",
+            "page-drag",
+            "page-files",
             "page-fill",
             "page-nav",
             "app",
@@ -3022,6 +3053,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 33, "{actuate:?}");
+        assert_eq!(actuate.len(), 34, "{actuate:?}");
     }
 }

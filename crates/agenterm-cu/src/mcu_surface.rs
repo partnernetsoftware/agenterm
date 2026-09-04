@@ -94,6 +94,7 @@ pub const GROUPS: &[Group] = &[
             "page-click",
             "page-hover",
             "page-scroll",
+            "page-drag",
             "page-files",
             "page-fill",
             "page-nav",
@@ -560,6 +561,10 @@ pub fn verb_declaration(verb: &str) -> Value {
             "actuate",
             "Input.dispatchMouseEvent mouseWheel at bounded viewport coordinates; nearest scroll-container offsets read back, with an edge honestly performed but unverified; receipt",
         )),
+        "page-drag" => Some((
+            "actuate",
+            "Input.dispatchMouseEvent left-button down/held-move/up between two bounded viewport points; trusted target-page event sequence read-back; release always attempted after press; receipt",
+        )),
         "page-files" => Some((
             "actuate",
             "DOM.setFileInputFiles on one enabled input[type=file]; bounded regular local files, exact FileList basename/size read-back, no persisted local paths; receipt",
@@ -808,6 +813,7 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "page-click",
         "page-hover",
         "page-scroll",
+        "page-drag",
         "page-files",
         "page-fill",
         "page-nav",
@@ -897,6 +903,7 @@ mod tests {
             "page-click",
             "page-hover",
             "page-scroll",
+            "page-drag",
             "page-files",
             "page-fill",
             "page-nav",
@@ -912,6 +919,7 @@ mod tests {
         assert_eq!(verb_declaration("page-click")["grant"], "actuate");
         assert_eq!(verb_declaration("page-hover")["grant"], "actuate");
         assert_eq!(verb_declaration("page-scroll")["grant"], "actuate");
+        assert_eq!(verb_declaration("page-drag")["grant"], "actuate");
         assert_eq!(verb_declaration("page-files")["grant"], "actuate");
         assert_eq!(verb_declaration("page-fill")["grant"], "actuate");
         assert_eq!(verb_declaration("page-nav")["grant"], "actuate");

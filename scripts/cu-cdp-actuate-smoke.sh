@@ -20,8 +20,9 @@
 #   2026-09-04  PASS  Google Chrome headless (macOS): the same background-tab
 #               court plus page-hover trusted-event target read-back and
 #               page-scroll exact-container event/offset read-back and
-#               page-files exact FileList read-back; 13 active-target +
-#               front-window invariants stayed green; six
+#               page-drag trusted held-sequence/business read-back and
+#               page-files exact FileList read-back; 14 active-target +
+#               front-window invariants stayed green; seven
 #               actuator receipt kinds completed.
 #
 # What it proves, in order (all on 127.0.0.1:<free port>):
@@ -41,14 +42,16 @@
 #      scroll` verifies the exact container offset changed.
 #   8. `page files` sets one local fixture without a picker and verifies its
 #      basename/size without persisting the path.
-#   9. `page fill --node N --text ' world' --submit` appends and submits
+#   9. `page drag` holds left from one rendered element to another, verifies
+#      the trusted event sequence and reads the fixture's business result.
+#  10. `page fill --node N --text ' world' --submit` appends and submits
 #      (the form's onsubmit rewrites #out -> "submitted:hello world").
-#  10. `page screenshot --target-id B --out` writes a PNG, or answers the
+#  11. `page screenshot --target-id B --out` writes a PNG, or answers the
 #      typed cdp_screenshot_unavailable -- either way without activating.
-#  11. After EVERY verb: /json lists A first (B never became active) and
+#  12. After EVERY verb: /json lists A first (B never became active) and
 #      `windows --focused` reports the same front window as before the run
 #      (or "none" both times on an unattended session).
-#  12. `receipts` lists every actuation as completed lines.
+#  13. `receipts` lists every actuation as completed lines.
 #
 # Browser: $CU_CDP_BROWSER (an executable), else /Applications/Brave Origin.app,
 # else /Applications/Google Chrome.app; none present is a typed SKIP.
@@ -199,7 +202,11 @@ import urllib.parse
 html = """<!doctype html><title>cu-actuate-B</title><h1>Hello B</h1>
 <form onsubmit="document.getElementById(&quot;out&quot;).textContent=&quot;submitted:&quot;+document.getElementById(&quot;q&quot;).value;return false">
 <input id="q" placeholder="Query"><button id="go" type="button" onclick="document.getElementById(&quot;out&quot;).textContent=&quot;clicked:&quot;+document.getElementById(&quot;q&quot;).value">Go</button>
-</form><p id="out">idle</p><input id="upload" type="file"><div id="scroll" style="height:120px;overflow:auto"><div style="height:1000px">Tall</div></div>"""
+</form><p id="out">idle</p><input id="upload" type="file">
+<div id="drag-from" style="display:inline-block;width:80px;height:40px;background:#ccc">From</div>
+<div id="drag-to" style="display:inline-block;width:80px;height:40px;background:#ddd">To</div>
+<script>let dragStarted=false;document.getElementById("drag-from").onmousedown=e=>{dragStarted=e.isTrusted};document.getElementById("drag-to").onmouseup=e=>{if(dragStarted&&e.isTrusted){document.body.dataset.drag="done";document.getElementById("out").textContent="dragged"}}</script>
+<div id="scroll" style="height:120px;overflow:auto"><div style="height:1000px">Tall</div></div>"""
 print("data:text/html," + urllib.parse.quote(html, safe=""))')"
 OUT="$(act page nav --port "$PORT" --target-id "$ID_B" --url "$FIXTURE" --wait-ms 5000)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page nav: $OUT"
@@ -278,7 +285,21 @@ OUT="$(act page files --port "$PORT" --target-id "$ID_B" --selector '#upload' "$
 still_background "page files" "$OUT"
 echo "STEP 9 page files --selector #upload -> verified basename=upload.txt size=5; no picker/path leak"
 
-# 8. page fill by node id, appended, then --submit runs the form's onsubmit.
+# 8. A held left-button sequence crosses two exact rendered elements and the
+#    fixture confirms that trusted down/up handlers observed the gesture.
+BOX_FROM="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#drag-from')"
+BOX_TO="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#drag-to')"
+XY_FROM="$(jf "$BOX_FROM" data.nodes.0.box | python3 -c 'import json,sys; b=json.load(sys.stdin); print("{} {}".format(b["x"]+b["width"]/2,b["y"]+b["height"]/2))')"
+XY_TO="$(jf "$BOX_TO" data.nodes.0.box | python3 -c 'import json,sys; b=json.load(sys.stdin); print("{} {}".format(b["x"]+b["width"]/2,b["y"]+b["height"]/2))')"
+OUT="$(act page drag --port "$PORT" --target-id "$ID_B" --x1 "${XY_FROM%% *}" --y1 "${XY_FROM##* }" --x2 "${XY_TO%% *}" --y2 "${XY_TO##* }")"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.performed)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page drag: $OUT"
+[[ "$(jf "$OUT" data.release_attempted)" == "True" ]] || fail "page drag did not release: $OUT"
+still_background "page drag" "$OUT"
+READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.body.dataset.drag")"
+[[ "$(jf "$READ" data.value)" == "done" ]] || fail "page drag business read-back: $READ"
+echo "STEP 10 page drag #drag-from -> #drag-to: trusted held sequence + business result verified"
+
+# 9. page fill by node id, appended, then --submit runs the form's onsubmit.
 OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text ' world' --submit)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill --node --submit: $OUT"
 [[ "$(jf "$OUT" data.verification.after_value)" == "hello world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
@@ -286,7 +307,7 @@ OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text 
 still_background "page fill --submit" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
 [[ "$(jf "$READ" data.value)" == "submitted:hello world" ]] || fail "Enter did not submit the form: $READ"
-echo "STEP 10 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
+echo "STEP 11 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
 
 # 9. page screenshot: a PNG, or the typed refusal -- never an activation.
 SHOT="$UD/b.png"
@@ -301,7 +322,7 @@ else
   SHOT_NOTE="typed cdp_screenshot_unavailable (background tab not painted)"
 fi
 still_background "page screenshot" "$OUT"
-echo "STEP 11 page screenshot --target-id B -> $SHOT_NOTE; A still active"
+echo "STEP 12 page screenshot --target-id B -> $SHOT_NOTE; A still active"
 
 # 10. Receipts: every actuation was reserved and completed.
 OUT="$(obs receipts --max 20)"
@@ -310,9 +331,9 @@ verbs="$(jf "$OUT" data.receipts | python3 -c '
 import json,sys
 lines = json.load(sys.stdin)
 print(" ".join(sorted({l["verb"] for l in lines if l.get("phase") == "completed"})))')"
-for verb in page-nav page-fill page-click page-hover page-scroll page-files; do
+for verb in page-nav page-fill page-click page-hover page-scroll page-drag page-files; do
   [[ "$verbs" == *"$verb"* ]] || fail "receipts lack a completed $verb line: $verbs"
 done
-echo "STEP 12 receipts: completed [$verbs]"
+echo "STEP 13 receipts: completed [$verbs]"
 
 echo "PASS: cu-cdp-actuate-smoke ($BROWSER_NAME headless, port $PORT, every CDP verb on the background tab; $CHECKS active-target + front-window checks; front window before/after: [$FRONT0])"

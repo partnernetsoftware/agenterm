@@ -1,5 +1,5 @@
 //! The background-tab verbs over one CDP session: `page text`, `page
-//! find`, `page click`, `page hover`, `page scroll`, `page fill`, `page
+//! find`, `page click`, `page hover`, `page scroll`, `page drag`, `page fill`, `page
 //! nav`, `page screenshot`.
 //!
 //! Every function here is generic over `Transport` so the message shaping
@@ -38,6 +38,7 @@ pub const MAX_FILES: usize = 16;
 pub const MAX_FILE_PATH_BYTES: usize = 4096;
 static HOVER_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SCROLL_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static DRAG_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// The identity fields every reply of these verbs carries.
 pub struct Ctx {
@@ -190,6 +191,40 @@ fn hover_probe_read_expr(key: &str, x: f64, y: f64) -> String {
   const out = state ? {{ count: state.count, target_matches_hit: state.target === hit,
     x: state.x, y: state.y }} : null;
   if (state && state.handler) window.removeEventListener('mousemove', state.handler, true);
+  try {{ delete window[key]; }} catch (_) {{ window[key] = undefined; }}
+  return out;
+}})()"#
+    )
+}
+
+fn drag_probe_install_expr(key: &str) -> String {
+    let key = serde_json::to_string(key).unwrap_or_else(|_| "null".into());
+    format!(
+        r#"(function() {{
+  const key = {key};
+  const state = {{ events: [] }};
+  const handler = function(e) {{
+    if (state.events.length >= 32) return;
+    state.events.push({{ type: e.type, trusted: e.isTrusted,
+      target_matches_hit: e.target === document.elementFromPoint(e.clientX, e.clientY),
+      x: e.clientX, y: e.clientY, button: e.button, buttons: e.buttons }});
+  }};
+  state.handler = handler; window[key] = state;
+  for (const type of ['mousedown', 'mousemove', 'mouseup'])
+    window.addEventListener(type, handler, true);
+  return true;
+}})()"#
+    )
+}
+
+fn drag_probe_read_expr(key: &str) -> String {
+    let key = serde_json::to_string(key).unwrap_or_else(|_| "null".into());
+    format!(
+        r#"(function() {{
+  const key = {key}; const state = window[key] || null;
+  const out = state ? state.events : [];
+  if (state && state.handler) for (const type of ['mousedown', 'mousemove', 'mouseup'])
+    window.removeEventListener(type, state.handler, true);
   try {{ delete window[key]; }} catch (_) {{ window[key] = undefined; }}
   return out;
 }})()"#
@@ -928,7 +963,7 @@ fn moved_ok(error: &Option<CdpError>, dispatched: u32) -> bool {
     error.is_none() || dispatched > 0
 }
 
-// ---------------------------------------------------------- hover / scroll
+// --------------------------------------------------- hover / scroll / drag
 
 pub fn validate_pointer_coordinate(flag: &str, value: f64) -> Result<f64, String> {
     if !value.is_finite() || !(0.0..=MAX_POINTER_COORD).contains(&value) {
@@ -1141,6 +1176,163 @@ pub fn perform_scroll<T: Transport>(
     );
     Ok(ActuationOutcome {
         performed: true,
+        verified,
+        payload,
+    })
+}
+
+#[derive(Debug)]
+pub struct DragPlan {
+    pub from: PointPlan,
+    pub to: PointPlan,
+}
+
+impl DragPlan {
+    pub fn json(&self) -> Value {
+        json!({ "from": self.from.json(), "to": self.to.json() })
+    }
+}
+
+/// Freeze both viewport endpoints without moving or pressing the pointer.
+pub fn plan_drag<T: Transport>(
+    session: &mut Session<T>,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+) -> Result<DragPlan, CdpError> {
+    if x1 == x2 && y1 == y2 {
+        return Err(CdpError::typed(
+            "invalid_input",
+            "page drag requires distinct --x1/--y1 and --x2/--y2 points",
+        ));
+    }
+    Ok(DragPlan {
+        from: plan_point(session, x1, y1)?,
+        to: plan_point(session, x2, y2)?,
+    })
+}
+
+fn event_at(event: &Value, kind: &str, x: f64, y: f64) -> bool {
+    event["type"] == kind
+        && event["trusted"] == true
+        && event["target_matches_hit"] == true
+        && event["x"]
+            .as_f64()
+            .is_some_and(|got| (got - x).abs() <= 1.0)
+        && event["y"]
+            .as_f64()
+            .is_some_and(|got| (got - y).abs() <= 1.0)
+}
+
+/// Hold the left button from one viewport point to another, always attempting
+/// release after a successful press. Verification comes from trusted DOM
+/// mouse events observed by the target page, not from CDP acknowledgements.
+pub fn perform_drag<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &DragPlan,
+) -> Result<ActuationOutcome, CdpError> {
+    let probe_key = format!(
+        "__agenterm_cu_drag_{}_{}",
+        std::process::id(),
+        DRAG_PROBE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    evaluate_on(session, &drag_probe_install_expr(&probe_key))?;
+    let emulated = focus_emulation(session, true);
+    let mut dispatched = 0u32;
+    let mut pressed = false;
+    let mut mechanism_error = None;
+    let calls = [
+        ("mouseMoved", plan.from.x, plan.from.y, "none", 0),
+        ("mousePressed", plan.from.x, plan.from.y, "left", 1),
+        ("mouseMoved", plan.to.x, plan.to.y, "left", 1),
+    ];
+    for (kind, x, y, button, buttons) in calls {
+        match session.call(
+            "Input.dispatchMouseEvent",
+            json!({ "type": kind, "x": x, "y": y, "button": button,
+                    "buttons": buttons, "clickCount": 1 }),
+        ) {
+            Ok(_) => {
+                dispatched += 1;
+                if kind == "mousePressed" {
+                    pressed = true;
+                }
+            }
+            Err(error) => {
+                mechanism_error = Some(error);
+                break;
+            }
+        }
+    }
+    // Once pressed, release even when the move failed: never leave a sticky
+    // browser button merely to preserve the first mechanism error.
+    if pressed {
+        match session.call(
+            "Input.dispatchMouseEvent",
+            json!({ "type": "mouseReleased", "x": plan.to.x, "y": plan.to.y,
+                    "button": "left", "buttons": 0, "clickCount": 1 }),
+        ) {
+            Ok(_) => dispatched += 1,
+            Err(error) if mechanism_error.is_none() => mechanism_error = Some(error),
+            Err(_) => {}
+        }
+    }
+    let observed = match evaluate_on(session, &drag_probe_read_expr(&probe_key)) {
+        Ok(observed) => observed,
+        Err(error) => {
+            if mechanism_error.is_none() {
+                mechanism_error = Some(error);
+            }
+            json!([])
+        }
+    };
+    if emulated {
+        focus_emulation(session, false);
+    }
+    let events = observed.as_array().cloned().unwrap_or_default();
+    let down = events
+        .iter()
+        .position(|event| event_at(event, "mousedown", plan.from.x, plan.from.y));
+    let up = events
+        .iter()
+        .rposition(|event| event_at(event, "mouseup", plan.to.x, plan.to.y));
+    let moved_held = down.zip(up).is_some_and(|(down, up)| {
+        down < up
+            && events[down + 1..up].iter().any(|event| {
+                event_at(event, "mousemove", plan.to.x, plan.to.y)
+                    && event["buttons"]
+                        .as_u64()
+                        .is_some_and(|buttons| buttons & 1 == 1)
+            })
+    });
+    let performed = mechanism_error.is_none() && dispatched == 4;
+    let verified = performed && down.is_some() && up.is_some() && moved_held;
+    let payload = with(
+        ctx.envelope("Input.dispatchMouseEvent"),
+        json!({
+            "action": "drag",
+            "from": { "x": plan.from.x, "y": plan.from.y },
+            "to": { "x": plan.to.x, "y": plan.to.y },
+            "events_dispatched": dispatched,
+            "performed": performed,
+            "verified": verified,
+            "focus_emulation": if emulated { "enabled during drag, disabled after" } else { "unavailable" },
+            "release_attempted": pressed,
+            "verification": {
+                "method": "trusted-mousedown-held-move-mouseup-readback",
+                "observed": observed,
+                "reason": if verified { Value::Null } else { json!("drag_sequence_not_observed") },
+            },
+            "before": plan.json(),
+        }),
+    );
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(json!({ "receipt": payload })));
+    }
+    Ok(ActuationOutcome {
+        performed,
         verified,
         payload,
     })
@@ -2095,6 +2287,117 @@ mod tests {
         assert!(session.transport.sent.iter().all(|call| {
             call["method"] != "Page.bringToFront" && call["method"] != "Target.activateTarget"
         }));
+    }
+
+    #[test]
+    fn drag_verifies_the_trusted_held_sequence_and_releases() {
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate" => {
+                let expression = params["expression"].as_str().unwrap();
+                if expression.contains("state ? state.events") {
+                    return Ok(json!({ "result": { "value": [
+                        { "type": "mousemove", "trusted": true, "target_matches_hit": true,
+                          "x": 10, "y": 20, "button": 0, "buttons": 0 },
+                        { "type": "mousedown", "trusted": true, "target_matches_hit": true,
+                          "x": 10, "y": 20, "button": 0, "buttons": 1 },
+                        { "type": "mousemove", "trusted": true, "target_matches_hit": true,
+                          "x": 90, "y": 70, "button": 0, "buttons": 1 },
+                        { "type": "mouseup", "trusted": true, "target_matches_hit": true,
+                          "x": 90, "y": 70, "button": 0, "buttons": 0 }
+                    ] } }));
+                }
+                if expression.contains("const state = { events: [] }") {
+                    return Ok(json!({ "result": { "value": true } }));
+                }
+                let point = if expression.contains("elementFromPoint(10, 20)") {
+                    "div#from"
+                } else {
+                    assert!(expression.contains("elementFromPoint(90, 70)"));
+                    "div#to"
+                };
+                Ok(json!({ "result": { "value": {
+                    "hit": point, "hovered": null,
+                    "scroll": { "selector": "html", "left": 0, "top": 0,
+                        "width": 800, "height": 600, "client_width": 800, "client_height": 600 }
+                } } }))
+            }
+            "Emulation.setFocusEmulationEnabled" => Ok(json!({})),
+            "Input.dispatchMouseEvent" => Ok(json!({})),
+            other => Err(format!("unexpected {other}")),
+        });
+        let plan = plan_drag(&mut session, 10.0, 20.0, 90.0, 70.0).expect("plan");
+        let outcome = perform_drag(&mut session, &ctx(), &plan).expect("drag");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        assert_eq!(outcome.payload["events_dispatched"], 4);
+        assert_eq!(outcome.payload["release_attempted"], true);
+        let dispatched: Vec<&str> = session
+            .transport
+            .sent
+            .iter()
+            .filter(|call| call["method"] == "Input.dispatchMouseEvent")
+            .map(|call| call["params"]["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            dispatched,
+            ["mouseMoved", "mousePressed", "mouseMoved", "mouseReleased"]
+        );
+        assert!(session.transport.sent.iter().all(|call| {
+            call["method"] != "Page.bringToFront" && call["method"] != "Target.activateTarget"
+        }));
+        assert_eq!(
+            plan_drag(&mut session, 1.0, 2.0, 1.0, 2.0)
+                .expect_err("zero distance")
+                .code,
+            "invalid_input"
+        );
+    }
+
+    #[test]
+    fn drag_move_failure_still_attempts_release_and_keeps_failed_receipt() {
+        let mut mouse_calls = 0usize;
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate"
+                if params["expression"]
+                    .as_str()
+                    .unwrap()
+                    .contains("state ? state.events") =>
+            {
+                Ok(json!({ "result": { "value": [] } }))
+            }
+            "Runtime.evaluate" => Ok(json!({ "result": { "value": true } })),
+            "Emulation.setFocusEmulationEnabled" => Ok(json!({})),
+            "Input.dispatchMouseEvent" => {
+                mouse_calls += 1;
+                if mouse_calls == 3 {
+                    Err("held move failed".into())
+                } else {
+                    Ok(json!({}))
+                }
+            }
+            other => Err(format!("unexpected {other}")),
+        });
+        let point = |x, y, hit| PointPlan {
+            x,
+            y,
+            before: json!({ "hit": hit, "scroll": { "selector": "html" } }),
+        };
+        let plan = DragPlan {
+            from: point(10.0, 20.0, "div#from"),
+            to: point(90.0, 70.0, "div#to"),
+        };
+        let error = perform_drag(&mut session, &ctx(), &plan).expect_err("move fails");
+        assert!(error.message.contains("held move failed"));
+        assert_eq!(error.detail["receipt"]["release_attempted"], true);
+        assert_eq!(error.detail["receipt"]["performed"], false);
+        let kinds: Vec<&str> = session
+            .transport
+            .sent
+            .iter()
+            .filter(|call| call["method"] == "Input.dispatchMouseEvent")
+            .map(|call| call["params"]["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds.last(), Some(&"mouseReleased"));
     }
 
     #[test]

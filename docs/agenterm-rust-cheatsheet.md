@@ -1528,6 +1528,13 @@ of them has to bring the tab forward. What the throwaway headless gate
   FileList as basename/size pairs. The command needs full paths transiently,
   but public results, receipts, logs and persisted evidence must never retain
   them.
+- **A drag owns its release.** Freeze both distinct rendered endpoints before
+  reserving the effect, then dispatch move/down/held-move/up on one target. Once
+  press is accepted, attempt mouse-up even if the held move fails; preserve the
+  first mechanism error but report that cleanup attempt in the failed receipt.
+  Verification requires the page to read back a trusted down, a move with the
+  left-button bit held, and an up at the frozen endpoints. Four CDP ACKs alone
+  are only `performed`, never `verified`.
 
 ## Name addressing is wait-matching then the node path
 

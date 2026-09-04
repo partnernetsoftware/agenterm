@@ -1,5 +1,5 @@
 //! Browser page & tabs: the CDP verbs (`page-js`, `page-targets`, and the
-//! background-tab verbs `page find|click|hover|scroll|fill|nav|screenshot`), the page
+//! background-tab verbs `page find|click|hover|scroll|drag|fill|nav|screenshot`), the page
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
 //! profiles|open`), and the MCU `page` group word.
@@ -27,6 +27,7 @@ pub fn parse(
             "page-click" => page_click(target, args),
             "page-hover" => page_hover(target, args),
             "page-scroll" => page_scroll(target, args),
+            "page-drag" => page_drag(target, args),
             "page-files" => page_files(target, args),
             "page-fill" => page_fill(target, args),
             "page-nav" => page_nav(target, args),
@@ -72,6 +73,10 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         Some("scroll") => {
             args.remove(0);
             return page_scroll(target, args);
+        }
+        Some("drag") => {
+            args.remove(0);
+            return page_drag(target, args);
         }
         Some("files") => {
             args.remove(0);
@@ -385,6 +390,55 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
         y,
         dx,
         dy,
+    })
+}
+
+fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, target_id, target_url, target_title) = cdp_target_flags("page drag", args)?;
+    let mut coordinates = Vec::with_capacity(4);
+    for flag in ["--x1", "--y1", "--x2", "--y2"] {
+        let value = flag_parsed::<f64>(args, flag)?;
+        coordinates.push((flag, value));
+    }
+    if coordinates.iter().any(|(_, value)| value.is_none()) && args.len() >= 4 {
+        for item in &mut coordinates {
+            if item.1.is_none() {
+                item.1 = args.first().and_then(|raw| raw.parse::<f64>().ok());
+                if item.1.is_some() {
+                    args.remove(0);
+                }
+            }
+        }
+    }
+    let [(_, Some(x1)), (_, Some(y1)), (_, Some(x2)), (_, Some(y2))] = coordinates.as_slice()
+    else {
+        return Err(
+            "page drag requires --x1 X --y1 Y --x2 X --y2 Y (or four MCU positional coordinates)"
+                .into(),
+        );
+    };
+    for (flag, value) in [("--x1", *x1), ("--y1", *y1), ("--x2", *x2), ("--y2", *y2)] {
+        agenterm_cu::cdp::page::validate_pointer_coordinate(&format!("page drag {flag}"), value)?;
+    }
+    if x1 == x2 && y1 == y2 {
+        return Err("page drag requires distinct start and end points".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "page drag accepts only target flags plus --x1 X --y1 Y --x2 X --y2 Y; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageDrag {
+        target,
+        port,
+        target_id,
+        target_url,
+        target_title,
+        x1: *x1,
+        y1: *y1,
+        x2: *x2,
+        y2: *y2,
     })
 }
 

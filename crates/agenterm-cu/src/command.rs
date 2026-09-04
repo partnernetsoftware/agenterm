@@ -1056,6 +1056,23 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dy: Option<f64>,
     },
+    /// `page drag` over CDP: hold the left button from one viewport CSS
+    /// point to another and verify the trusted down/held-move/up sequence.
+    PageDrag {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+    },
     /// `page files` over CDP: bind one or more browser-host local regular
     /// files to an exact input[type=file] and verify the resulting FileList.
     /// Receipts retain basename/size only, never local paths.
@@ -1487,6 +1504,7 @@ impl Command {
             Self::PageClick { .. } => "page-click".into(),
             Self::PageHover { .. } => "page-hover".into(),
             Self::PageScroll { .. } => "page-scroll".into(),
+            Self::PageDrag { .. } => "page-drag".into(),
             Self::PageFiles { .. } => "page-files".into(),
             Self::PageFill { .. } => "page-fill".into(),
             Self::PageNav { .. } => "page-nav".into(),
@@ -1566,6 +1584,7 @@ impl Command {
             | Self::PageClick { target, .. }
             | Self::PageHover { target, .. }
             | Self::PageScroll { target, .. }
+            | Self::PageDrag { target, .. }
             | Self::PageFiles { target, .. }
             | Self::PageFill { target, .. }
             | Self::PageNav { target, .. }
@@ -1615,6 +1634,7 @@ impl Command {
             | Self::PageClick { .. }
             | Self::PageHover { .. }
             | Self::PageScroll { .. }
+            | Self::PageDrag { .. }
             | Self::PageFiles { .. }
             | Self::PageFill { .. }
             | Self::PageNav { .. }

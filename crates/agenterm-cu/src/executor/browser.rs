@@ -613,6 +613,30 @@ pub(super) fn page_scroll_payload(
     complete_cdp_receipt(receipts, &ticket, "page-scroll", outcome)
 }
 
+pub(super) fn page_drag_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_drag(&mut session, x1, y1, x2, y2)?;
+    let ticket = receipts.reserve(
+        "page-drag",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "action": "drag",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_drag(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-drag", outcome)
+}
+
 pub(super) fn page_files_payload(
     port: Option<u16>,
     selector: crate::cdp::TargetSelector,

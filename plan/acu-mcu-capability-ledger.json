@@ -332,10 +332,10 @@
         {
           "id": "browser.cdp.pointer-dialog-files",
           "mcu_shape": "page hover/scroll/drag/dialog/files and right/double click variants",
-          "acu_shape": "page-click supports button/click count; page-hover verifies the trusted event target; page-scroll verifies the owned container event and offset; page-files verifies the exact FileList while redacting local paths; drag/dialog are absent",
+          "acu_shape": "page-click supports button/click count; page-hover verifies the trusted event target; page-scroll verifies the owned container event and offset; page-drag verifies trusted down/held-move/up and always attempts release after press; page-files verifies the exact FileList while redacting local paths; dialog is absent",
           "state": "gap",
           "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
-          "next": "add exact-target page drag/dialog verbs and MCU auto-pick/--match shapes with bounded waits, receipts and background-focus invariants"
+          "next": "add exact-target page dialog and MCU auto-pick/--match shapes with bounded waits, receipts and background-focus invariants"
         },
         {
           "id": "browser.tab.accessibility",
