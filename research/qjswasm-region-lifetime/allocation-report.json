@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "experiment": "qjswasm-region-lifetime",
+  "agenterm_source_sha": "fa9455c0000ff75d364bae0074b647a53abfb450",
+  "tinyvm_source_sha": "78442d966fe42e7c97e42b616359f31b1a7bea06",
+  "probe": "AGENTERM_QJS_ALLOCATION_PROBE=1",
+  "state": "partial-attribution",
+  "workloads": [
+    {
+      "id": "server-smoke",
+      "platform": "macos-aarch64",
+      "result": "passed",
+      "steps": 19526070,
+      "host_ops": 395,
+      "host_bytes": 348557,
+      "heap_pages": 19,
+      "heap_start_bytes": 27020,
+      "heap_bytes": 1196608,
+      "run_allocated_bytes": 1169588,
+      "proven_dead_suffix_bytes": null
+    },
+    {
+      "id": "wake-smoke",
+      "platform": "macos-aarch64",
+      "result": "passed",
+      "steps": 31023304,
+      "host_ops": 370,
+      "host_bytes": 460564,
+      "heap_pages": 26,
+      "heap_start_bytes": 26196,
+      "heap_bytes": 1693544,
+      "run_allocated_bytes": 1667348,
+      "proven_dead_suffix_bytes": null
+    },
+    {
+      "id": "workbench-smoke",
+      "platform": "windows-court",
+      "result": "pending",
+      "reason": "The owning journey is Windows-only; no same-source diagnostic court has run yet."
+    }
+  ],
+  "l0": "not-decided"
+}

@@ -50,7 +50,7 @@ agenterm-qjswasm
 │  ├─ [x] corrected attribution: compare/branch owned 6.5 of 10.5 steps/byte
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
-│  ├─ [~] temporary-region lifetime court: opt-in compile + Engine/Script byte waterline landed; real-journey attribution before L0
+│  ├─ [~] temporary-region lifetime court: server/wake byte waterlines measured; in-call classes + Windows workbench before L0
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court

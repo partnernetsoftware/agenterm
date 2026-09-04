@@ -143,5 +143,8 @@ commands and exact AgenTerm pin are required in `RESULTS.md`.
 
 ## 8. Result
 
-Not measured. No allocator or pin change is authorized until Phase B produces
-the frozen lifetime table and L0 verdict.
+Phase B is partial at
+`research/qjswasm-region-lifetime/RESULTS.md`: exact server and wake byte
+waterlines are measured; the Windows workbench court and in-call
+operation/lifetime classes remain. L0 is **not decided**. No allocator recovery
+is authorized until the frozen lifetime table and L0 verdict exist.
