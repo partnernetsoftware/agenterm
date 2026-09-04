@@ -1081,6 +1081,24 @@ DISPLAY=:0 dbus-run-session -- ./mc-tests/minicon_accessibility_linux
 execute → receipt → stop` 封成同一 CLI lease，且只把本轮 lease 真正拉起的 VM
 停掉；反复刷新控制台或沿用旧端口都不能算进度。
 
+### 5.22 Linux x86_64 court service recovery（2026-09-05）
+
+`minicon` 仓的 `scripts/utm-court.sh` 已经提供上述产品无关 lease。重启 UTM
+服务后，五个已登记 VM 的状态从陈旧 `starting` 恢复为可判定的 `stopped`；本轮
+只租用 `lnx-x86_64-desktop`，等待 QEMU Guest Agent ready，通过 court push/exec/pull
+完成证据后再 release，未留下常驻 guest。
+
+focused court 对 exact source `aff6cc7b` 的 `agenterm-cu` 与 `libagenterm.so`
+先在宿主和 guest 各算 SHA-256，两个摘要逐字节一致；guest `uname -m` 为
+`x86_64`。随后公共 `file-inspect` 证明：普通文件给出 opened-object identity，
+最终符号链接保持 `followed_final_link=false` 且返回 `link-like`，缺失路径返回
+typed `file_inspect_failed`。这关闭的是 Linux x86_64 **原生 ACU focused leaf**，
+不冒充完整 qjswasm 桌面旅程；完整旅程仍由其 owning gate 晋升。
+
+可复用经验：court 内动态库必须与可执行文件一起使用临时名传输、完成后再发布
+为最终 sibling 名，并在执行前回传两个 guest hash。只验证宿主哈希或让 loader
+偶然命中 guest 旧库，都不能作为 exact-byte court 证据。
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。

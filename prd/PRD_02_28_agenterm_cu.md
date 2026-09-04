@@ -368,9 +368,13 @@ flowchart LR
   platform metadata, brackets ordinary-entry metadata with two opened-object
   identities, and fails typed if the path was replaced. At exact source
   `286a0514`, the macOS qjswasm public journey passes 41 STEP / 42 evidence and
-  cleanup; the same Linux and Windows leaves compile but native execution
-  remains open. Package tests, strict Clippy and Windows x86_64 cross-check are
-  green. `agenterm-platform` also owns
+  cleanup. At exact source `aff6cc7b`, a real Linux x86_64 UTM court matched the
+  host hashes for the ACU executable and ABI library, then proved ordinary-file
+  opened-object identity, final-link no-follow/link-like identity and typed
+  `file_inspect_failed` for a missing path before releasing the VM. This is a
+  focused native ACU court, not yet the full Linux qjswasm journey. Windows
+  native execution remains open; package tests, strict Clippy and its x86_64
+  cross-check are green. `agenterm-platform` also owns
   no-overwrite publication and volume-capacity primitives, but ACU does not yet
   expose MCU's physical-device inventory or recoverable copy/move transaction.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific

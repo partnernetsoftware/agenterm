@@ -321,8 +321,9 @@ Q3 owned runtime facades
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
    │  ├─ [x] macOS public qjswasm journey: 41 STEP / 42 evidence + cleanup
+   │  ├─ [x] Linux x86_64 focused native UTM court: exact-byte pair + file/link/missing
    │  ├─ [x] Windows x86_64 cargo-xwin compile
-   │  └─ [~] Linux + Windows journey leaves compile; native execution pending
+   │  └─ [~] Windows native execution pending
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live
