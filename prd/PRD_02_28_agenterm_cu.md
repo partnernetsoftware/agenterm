@@ -499,6 +499,9 @@ flowchart LR
   The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
   Native system inventory remains platform-owned; socket rows must bind process
   start identity rather than a reusable PID.
+  The MCU-shaped compatibility entry now routes exactly `acu network probe HOST`
+  to `network-probe`; interfaces, routes, DNS and sockets remain explicit MCU
+  fallbacks instead of being mislabeled as the same capability.
 
 ```mermaid
 flowchart LR
