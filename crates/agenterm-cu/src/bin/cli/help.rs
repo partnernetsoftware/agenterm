@@ -175,6 +175,7 @@ fn append_missing_top_level_rows(text: &mut String) {
     let compact_process = ["process-argv", "process-cwd", "process-environment"];
     let compact_terminal = [
         "pty-start",
+        "pty-list",
         "pty-status",
         "pty-read",
         "pty-send",
@@ -220,7 +221,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-start  pty-status  pty-read  pty-send  pty-wait  pty-wait-exit  pty-stop\n  terminal-new  terminal-close  terminal-snapshot  terminal-events  terminal-output"
+            "  pty-start  pty-list  pty-status  pty-read  pty-send  pty-wait  pty-wait-exit  pty-stop\n  terminal-new  terminal-close  terminal-snapshot  terminal-events  terminal-output"
                 .to_owned(),
         );
     }

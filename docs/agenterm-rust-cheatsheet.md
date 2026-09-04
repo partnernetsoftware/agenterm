@@ -3664,3 +3664,11 @@ temporary directory: those choices make tests order-dependent and can mutate a
 reusable court image. The Linux x86_64 qjswasm-to-ACU PTY court exposed this as
 `home-directory-unavailable` before passing with isolated `HOME`,
 `XDG_DATA_HOME`, and `XDG_CONFIG_HOME`.
+
+For a durable named-resource inventory, do not equate a state directory with a
+live authority. Enumerate a bounded private root, reject malformed or
+link-like entries, sort stable names, then reconcile every name through its
+real control endpoint. Report `running`, `stale`, and `conflicted` separately;
+never hide an unclassified row or start/delete resources from a read-only list.
+Deletion needs its own explicit stale-only postcondition and race-safe removal
+contract.

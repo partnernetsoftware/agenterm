@@ -512,6 +512,16 @@
       ]
     },
     {
+      "name": "pty-list",
+      "command": "pty-list",
+      "aliases": ["pty list"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "reconcile durable PTY names with live authorities",
+      "usage": "pty-list\npty list",
+      "args": []
+    },
+    {
       "name": "pty-status",
       "command": "pty-status",
       "aliases": ["pty status"],
@@ -3551,6 +3561,10 @@
     {
       "name": "pty-start",
       "text": "agenterm-cu pty-start    (also: pty start)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-start NAME [--cwd DIR] -- PROGRAM ARG...\n  pty start NAME [--cwd DIR] -- PROGRAM ARG...\n\nStarts one invisible, cross-process PTY job under a deterministic isolated AgenTerm logical instance. AgenTerm server remains the sole POSIX PTY/ConPTY, terminal-tree, retention and process-lifecycle owner. NAME is 1..=64 ASCII letters, digits, dot, underscore or hyphen. The command is typed argv, never a shell string; its values are not copied into receipts. A same-name concurrent or existing job fails typed.\n"
+    },
+    {
+      "name": "pty-list",
+      "text": "agenterm-cu pty-list    (also: pty list)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-list\n  pty list\n\nEnumerates the bounded private named-job state directory, sorts names, and reconciles each entry with its deterministic AgenTerm authority. A row is running with full epoch/tab/process status, stale when no authority is reachable, or conflicted with a typed reconciliation error. Symlinks, malformed names and more than 4096 entries fail closed; this read-only verb never deletes or starts a job.\n"
     },
     {
       "name": "pty-status",

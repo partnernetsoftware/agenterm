@@ -149,6 +149,7 @@ impl Executor {
                 child_command,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PtyList { .. } => pty_list_payload(),
             Command::PtyStatus { name, .. } => pty_status_payload(name),
             Command::PtyRead {
                 name,

@@ -463,6 +463,11 @@ pub enum Command {
         cwd: Option<String>,
         command: Vec<String>,
     },
+    /// List durable headless PTY job names and reconcile their state
+    /// directories with the live authorities.
+    PtyList {
+        target: TargetRef,
+    },
     /// Observe one named headless PTY job and its exact epoch-scoped tab.
     PtyStatus {
         target: TargetRef,
@@ -1800,6 +1805,7 @@ impl Command {
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::PtyStart { .. } => "pty-start".into(),
+            Self::PtyList { .. } => "pty-list".into(),
             Self::PtyStatus { .. } => "pty-status".into(),
             Self::PtyRead { .. } => "pty-read".into(),
             Self::PtySend { .. } => "pty-send".into(),
@@ -1905,6 +1911,7 @@ impl Command {
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::PtyStart { target, .. }
+            | Self::PtyList { target, .. }
             | Self::PtyStatus { target, .. }
             | Self::PtyRead { target, .. }
             | Self::PtySend { target, .. }
@@ -3161,6 +3168,16 @@ mod tests {
 
     #[test]
     fn terminal_facade_keeps_stable_ids_limits_and_grants_on_the_wire() {
+        let jobs = Command::PtyList {
+            target: TargetRef::Ssh,
+        };
+        assert_eq!(jobs.required_grant(), Grant::Observe);
+        assert_eq!(jobs.verb(), "pty-list");
+        assert_eq!(jobs.target(), TargetRef::Ssh);
+        assert_eq!(
+            serde_json::to_value(&jobs).unwrap(),
+            serde_json::json!({ "verb": "pty-list", "target": "ssh" })
+        );
         let new = Command::TerminalNew {
             target: TargetRef::Current,
             title: Some("build".into()),

@@ -30,6 +30,7 @@ use super::{
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_JOB_INVENTORY: usize = 4_096;
 
 fn scan_exact_page(
     overlap: &mut Vec<u8>,
@@ -82,12 +83,15 @@ fn client_for(name: &str) -> Result<ControlClient, CuError> {
         .map_err(|error| CuError::new(error.code, error.message))
 }
 
-fn job_directory(name: &str) -> Result<PathBuf, CuError> {
+fn jobs_root(create: bool) -> Result<PathBuf, CuError> {
     let root = host_directories()
         .map_err(|error| CuError::new("pty_job_state_unavailable", error.to_string()))?
         .local_data
         .join("agenterm")
         .join("pty-jobs");
+    if !create {
+        return Ok(root);
+    }
     fs::create_dir_all(&root).map_err(|error| {
         CuError::new(
             "pty_job_state_unavailable",
@@ -100,6 +104,11 @@ fn job_directory(name: &str) -> Result<PathBuf, CuError> {
             format!("could not protect PTY job state directory: {error}"),
         )
     })?;
+    Ok(root)
+}
+
+fn job_directory(name: &str) -> Result<PathBuf, CuError> {
+    let root = jobs_root(true)?;
     let directory = root.join(name);
     fs::create_dir_all(&directory).map_err(|error| {
         CuError::new(
@@ -114,6 +123,112 @@ fn job_directory(name: &str) -> Result<PathBuf, CuError> {
         )
     })?;
     Ok(directory)
+}
+
+pub(super) fn pty_list_payload() -> Result<Value, CuError> {
+    let root = jobs_root(false)?;
+    let root_metadata = match fs::symlink_metadata(&root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(json!({
+                "schema_version": 1,
+                "jobs": [],
+                "total": 0,
+                "running": 0,
+                "stale": 0,
+                "conflicted": 0,
+                "complete": true,
+            }));
+        }
+        Err(error) => {
+            return Err(CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not inspect PTY job state directory: {error}"),
+            ));
+        }
+    };
+    if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
+        return Err(CuError::new(
+            "pty_job_inventory_invalid",
+            "PTY job state root is not a direct directory",
+        ));
+    }
+    let entries = fs::read_dir(&root).map_err(|error| {
+        CuError::new(
+            "pty_job_state_unavailable",
+            format!("could not read PTY job state directory: {error}"),
+        )
+    })?;
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not read a PTY job state entry: {error}"),
+            )
+        })?;
+        if names.len() == MAX_JOB_INVENTORY {
+            return Err(CuError::new(
+                "pty_job_inventory_limit",
+                "PTY job state contains more than 4096 named entries",
+            ));
+        }
+        let kind = entry.file_type().map_err(|error| {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not classify a PTY job state entry: {error}"),
+            )
+        })?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            return Err(CuError::new(
+                "pty_job_inventory_invalid",
+                "PTY job state contains a non-UTF-8 entry name",
+            ));
+        };
+        if !kind.is_dir() || kind.is_symlink() || validate_name(&name).is_err() {
+            return Err(CuError::new(
+                "pty_job_inventory_invalid",
+                "PTY job state contains an entry not owned by the named-job contract",
+            ));
+        }
+        names.push(name);
+    }
+    names.sort_unstable();
+
+    let mut jobs = Vec::with_capacity(names.len());
+    let mut running = 0_usize;
+    let mut stale = 0_usize;
+    let mut conflicted = 0_usize;
+    for name in names {
+        let client = client_for(&name)?;
+        match status_with_client(&client, &name) {
+            Ok(status) => {
+                running += 1;
+                jobs.push(json!({ "name": name, "state": "running", "status": status }));
+            }
+            Err(error) if error.code == "pty_job_not_found" => {
+                stale += 1;
+                jobs.push(json!({ "name": name, "state": "stale" }));
+            }
+            Err(error) => {
+                conflicted += 1;
+                jobs.push(json!({
+                    "name": name,
+                    "state": "conflicted",
+                    "error": { "code": error.code, "message": error.message },
+                }));
+            }
+        }
+    }
+    Ok(json!({
+        "schema_version": 1,
+        "total": jobs.len(),
+        "running": running,
+        "stale": stale,
+        "conflicted": conflicted,
+        "complete": true,
+        "jobs": jobs,
+    }))
 }
 
 fn acquire_job_lock(directory: &Path) -> Result<PathLock, CuError> {

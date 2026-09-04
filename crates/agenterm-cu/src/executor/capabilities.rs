@@ -495,6 +495,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         );
         for (verb, grant, mode) in [
             ("pty-start", "actuate", "isolated-headless-job-start"),
+            (
+                "pty-list",
+                "observe",
+                "durable-job-authority-reconciliation",
+            ),
             ("pty-status", "observe", "identity-bound-job-status"),
             ("pty-read", "observe", "loss-aware-retained-raw-byte-cursor"),
             ("pty-send", "actuate", "literal-headless-pty-input"),

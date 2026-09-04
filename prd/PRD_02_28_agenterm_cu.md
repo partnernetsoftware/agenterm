@@ -509,8 +509,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   qjswasm worker, ACU executable and ABI library then passed the same journey
   under Rosetta. This closes the local six-cell user-space projection; Rosetta
   is recorded as translation evidence, not an Intel kernel claim.
-  Reuse/list/prune, event/screen projection, stale reclamation, process-tree control and native
-  Linux/Windows lifecycle courts remain open.
+  `pty-list` now bounds the private job-state inventory at 4096 entries and
+  reconciles every valid name against its deterministic live authority as
+  `running`, `stale` or `conflicted`. It refuses malformed names and symlinks,
+  never starts or deletes a job, and the qjswasm journey proves the same unique
+  job absent → running with matching epoch/tab → stale after verified shutdown.
+  Reuse/prune, event/screen projection, stale reclamation and process-tree
+  control remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 
@@ -541,7 +546,7 @@ flowchart LR
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/status/read/send/wait/wait-exit/stop ✓<br/>exact job + epoch + @tab"]
   J --> J1["qjswasm public PTY court · local six-cell ✓<br/>macOS arm64 + x86_64/Rosetta<br/>Linux + Windows x86_64/arm64 native"]
-  J1 --> J2["reuse/list/prune + stale/process-tree cleanup"]
+  J1 --> J2["list + absent/running/stale reconciliation ✓<br/>reuse/prune + stale/process-tree cleanup"]
   J2 --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]

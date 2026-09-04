@@ -41,6 +41,10 @@ pub fn parse(
                 command,
             })
         }
+        "pty-list" => {
+            empty(args, "pty-list")?;
+            Ok(Command::PtyList { target })
+        }
         "pty-status" => {
             let name = required_name(args, "pty-status")?;
             empty(args, "pty-status")?;
@@ -374,6 +378,10 @@ mod tests {
             parse("pty-start", &["build", "--cwd", ".", "--", "sh", "-lc", "printf ok"]).unwrap(),
             Command::PtyStart { name, cwd: Some(cwd), command, .. }
                 if name == "build" && cwd == "." && command == ["sh", "-lc", "printf ok"]
+        ));
+        assert!(matches!(
+            parse("pty-list", &[]).unwrap(),
+            Command::PtyList { .. }
         ));
         assert!(matches!(
             parse("pty-status", &["build"]).unwrap(),

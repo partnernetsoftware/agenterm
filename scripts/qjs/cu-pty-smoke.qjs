@@ -48,6 +48,13 @@ function require_ok(reply, command) {
   return reply.data;
 }
 
+function find_job(inventory, name) {
+  for (let i = 0; i < inventory.jobs.length; i += 1) {
+    if (inventory.jobs[i].name === name) { return inventory.jobs[i]; }
+  }
+  return null;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -74,6 +81,14 @@ let succeeded = 0;
 let failure = "";
 
 try {
+  const before = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-list"
+  ]), "pty-list");
+  ensure(
+    before.complete === true && find_job(before, job) === null,
+    "cu_pty_list_initial_contract:" + JSON.stringify(before)
+  );
+
   print("STEP start one unique headless PTY authority with a platform-native interactive shell");
   const start_arguments = [
     "--target", "current", "--grant", "actuate", "pty-start", job, "--"
@@ -90,6 +105,16 @@ try {
       && start.status.name === job && start.status.tab_id === "@1"
       && start.status.dead === false && start.status.finalized === false,
     "cu_pty_start_contract:" + JSON.stringify(start)
+  );
+  const live_inventory = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-list"
+  ]), "pty-list");
+  const live_row = find_job(live_inventory, job);
+  ensure(
+    live_row !== null && live_row.state === "running"
+      && live_row.status.server_epoch === start.status.server_epoch
+      && live_row.status.tab_id === start.status.tab_id,
+    "cu_pty_list_live_contract:" + JSON.stringify(live_inventory)
   );
 
   print("STEP send exact literal shell input and require the committed control receipt");
@@ -146,6 +171,14 @@ try {
   ]), "pty-stop");
   ensure(stop.state === "stopped" && stop.verified === true, "cu_pty_stop_contract");
   stopped = 1;
+  const final_inventory = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-list"
+  ]), "pty-list");
+  const stale_row = find_job(final_inventory, job);
+  ensure(
+    stale_row !== null && stale_row.state === "stale",
+    "cu_pty_list_stale_contract:" + JSON.stringify(final_inventory)
+  );
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
