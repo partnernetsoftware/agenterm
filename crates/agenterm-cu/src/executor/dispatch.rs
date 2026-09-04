@@ -570,6 +570,9 @@ impl Executor {
                 expect.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::Activate { window, .. } => {
+                activate_payload(*window, &mut self.open_receipts(command.target())?)
+            }
             Command::Raise { window, .. } => {
                 raise_payload(*window, &mut self.open_receipts(command.target())?)
             }

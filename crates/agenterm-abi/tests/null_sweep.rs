@@ -201,6 +201,7 @@ type WindowPlacementQuery =
 type ScreenList = unsafe extern "C" fn(*mut agt_screen_info, usize, *mut usize) -> i32;
 type A11yLastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type NativeWindowShow = unsafe extern "C" fn(isize, i32) -> i32;
+type NativeWindowActivate = unsafe extern "C" fn(isize) -> i32;
 type NativeWindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type NativeWindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
@@ -464,6 +465,11 @@ fn a11y_last_text_write_via_cap1(lib: &Library) -> i32 {
 fn native_window_show_handle0(lib: &Library) -> i32 {
     let f: Symbol<NativeWindowShow> = unsafe { sym(lib, b"agt_native_window_show") };
     unsafe { f(0, 0) }
+}
+
+fn native_window_activate_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowActivate> = unsafe { sym(lib, b"agt_native_window_activate") };
+    unsafe { f(0) }
 }
 
 fn native_window_minimized_handle0(lib: &Library) -> i32 {
@@ -1167,6 +1173,11 @@ fn null_group() -> Vec<SweepCase> {
             label: "agt_native_window_show[handle=0,state=0]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_show_handle0(lib))),
+        },
+        SweepCase {
+            label: "agt_native_window_activate[handle=0]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_activate_handle0(lib))),
         },
         SweepCase {
             label: "agt_native_window_minimized[handle=0,out_minimized=&value]",
@@ -1874,6 +1885,10 @@ fn computer_use_sweep_capability_guards() {
         (
             "agt_native_window_show",
             native_window_show_handle0 as fn(&Library) -> i32,
+        ),
+        (
+            "agt_native_window_activate",
+            native_window_activate_handle0 as fn(&Library) -> i32,
         ),
         (
             "agt_native_window_minimized",

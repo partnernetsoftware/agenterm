@@ -15,6 +15,7 @@
         "cu.windows-uia-query",
         "cu.windows-uia-invoke",
         "cu.windows-uia-menu",
+        "cu.windows-window-activate",
         "cu.windows-uia-focused",
         "cu.windows-uia-screenshot",
         "cu.windows-uia-destructive-close",

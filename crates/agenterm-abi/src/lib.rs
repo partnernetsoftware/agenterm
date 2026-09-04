@@ -58,7 +58,7 @@
 //! Milestone 43 ships the native-window and input-injection mechanisms that
 //! `agenterm-cu` consumes: `agt_window_enumerate` (two-stage, §3.4, with the
 //! same inline fixed-size string truncation as `agt_process_list`),
-//! `agt_native_window_show/move/rect/set_topmost/close` (native OS handles
+//! `agt_native_window_show/activate/move/rect/set_topmost/close` (native OS handles
 //! only — deliberately distinct from `agt_window_close`, which owns the ABI's
 //! own window), and `agt_input_pointer_move/pointer_click/type_text/send_keys`.
 //! `AGT_CAP_WINDOW_ENUMERATE` / `AGT_CAP_WINDOW_OP` / `AGT_CAP_INPUT_INJECT`
@@ -139,8 +139,8 @@ use agenterm_platform::window_host::{
     run_pixel_window,
 };
 use agenterm_platform::window_op::{
-    WindowShowState, close, minimized as window_minimized, move_window, set_topmost, show,
-    window_rect,
+    WindowShowState, activate as activate_native_window, close, minimized as window_minimized,
+    move_window, set_topmost, show, window_rect,
 };
 
 // §3.8 panic fence: building this crate under an abort profile would neuter
@@ -298,7 +298,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 25);
+abi_version!(1, 26);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -6588,6 +6588,49 @@ pub extern "C" fn agt_native_window_show(handle: isize, state: i32) -> agt_statu
                 c"agt_native_window_show",
                 c"panic",
                 "panic in agt_native_window_show",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.26: activate one exact native window as the desktop foreground
+/// window. This is deliberately separate from `agt_native_window_show`: show
+/// changes window visibility/stacking, while activate changes the global
+/// foreground owner. `handle == 0` → `AGT_FAILED{code="bad_handle"}`;
+/// mechanism absent → `AGT_UNSUPPORTED`; platform refusal/failure →
+/// `AGT_FAILED{code="window_activation_failed"}`.
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_native_window_activate(handle: isize) -> agt_status {
+    fn inner(handle: isize) -> agt_status {
+        if native_handle_error(c"agt_native_window_activate", handle) {
+            return agt_status::AGT_FAILED;
+        }
+        if !window_op_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        match activate_native_window(handle) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(error) => {
+                record_error(
+                    c"agt_native_window_activate",
+                    c"window_activation_failed",
+                    format!("{error:?}"),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(handle))) {
+        Ok(status) => status,
+        Err(_) => {
+            record_error(
+                c"agt_native_window_activate",
+                c"panic",
+                "panic in agt_native_window_activate",
             );
             agt_status::AGT_FAILED
         }

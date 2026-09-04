@@ -159,6 +159,7 @@ struct agt_window_placement_info_v1 {
 type WindowPlacementQuery =
     unsafe extern "C" fn(isize, u32, *mut agt_window_placement_info_v1) -> i32;
 type NativeWindowShow = unsafe extern "C" fn(isize, i32) -> i32;
+type NativeWindowActivate = unsafe extern "C" fn(isize) -> i32;
 type InputPointerClick = unsafe extern "C" fn(i32, i32, i32, u32) -> i32;
 type InputPointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;
 type InputTypeText = unsafe extern "C" fn(*const u8, usize) -> i32;
@@ -3009,6 +3010,21 @@ fn native_window_show_rejects_zero_handle() {
     let lib = load();
     let show: Symbol<NativeWindowShow> = unsafe { sym(lib, b"agt_native_window_show") };
     let st = unsafe { show(0, 1) };
+    assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
+    let msg = last_error_message(lib);
+    assert!(
+        msg.contains("bad_handle"),
+        "expected code \"bad_handle\" in error, got: {msg}"
+    );
+}
+
+/// ABI 1.26: activation validates an exact non-zero native handle before it
+/// reaches any platform mechanism.
+#[test]
+fn native_window_activate_rejects_zero_handle() {
+    let lib = load();
+    let activate: Symbol<NativeWindowActivate> = unsafe { sym(lib, b"agt_native_window_activate") };
+    let st = unsafe { activate(0) };
     assert_eq!(st, AGT_FAILED, "expected AGT_FAILED, got {st}");
     let msg = last_error_message(lib);
     assert!(

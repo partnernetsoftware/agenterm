@@ -33,6 +33,14 @@ pub fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     crate::selected::window_op::minimized(handle)
 }
 
+/// Requests foreground activation of one exact native window. This is
+/// intentionally distinct from [`show`]: activation changes the desktop's
+/// global foreground owner, while `Show` only raises within the host-defined
+/// stacking scope.
+pub fn activate(handle: isize) -> Result<(), WindowOpError> {
+    crate::selected::window_op::activate(handle)
+}
+
 pub fn set_topmost(handle: isize, topmost: bool) -> Result<(), WindowOpError> {
     crate::selected::window_op::set_topmost(handle, topmost)
 }

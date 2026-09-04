@@ -241,6 +241,7 @@
         "cu.windows-uia-query",
         "cu.windows-uia-invoke",
         "cu.windows-uia-menu",
+        "cu.windows-window-activate",
         "cu.windows-uia-focused",
         "cu.windows-uia-window-place",
         "cu.windows-uia-screenshot",

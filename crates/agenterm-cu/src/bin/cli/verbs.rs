@@ -721,6 +721,25 @@ as absent). Missing any -> "refused" (detail.reason destructive_gate,
 missing [...]) with nothing performed."#,
     },
     VerbSpec {
+        name: "activate",
+        command: "activate",
+        aliases: &[],
+        scope: Scope::Actuate,
+        family: Family::Windows,
+        summary: "make one exact window the desktop foreground owner",
+        usage: "activate --window HANDLE",
+        args: &[WINDOW],
+        details: r#"Makes one exact top-level window the desktop foreground owner and
+then polls the public window inventory until that exact handle reads
+focused. This is the whole-window operation MCU spells `focus HANDLE`.
+
+It is deliberately not `focus`, which targets one accessibility node
+inside a window, and not `raise`, which changes only an application's own
+window order without activating the application. A mechanism refusal or
+missing focused read-back fails typed; sending an activation request is
+not by itself success."#,
+    },
+    VerbSpec {
         name: "raise",
         command: "raise",
         aliases: &[],
@@ -2916,6 +2935,7 @@ mod tests {
             "page-fill",
             "page-nav",
             "app",
+            "activate",
             "raise",
             "minimize",
             "restore",
@@ -2928,6 +2948,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 29, "{actuate:?}");
+        assert_eq!(actuate.len(), 30, "{actuate:?}");
     }
 }

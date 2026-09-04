@@ -30,6 +30,18 @@ pub fn parse(
             Ok(Command::Unlock { target, window })
         }
         "close" => close(target, args),
+        "activate" => {
+            let Some(window) = flag_window(args)? else {
+                return Err("activate requires --window <handle>".into());
+            };
+            if !args.is_empty() {
+                return Err(format!(
+                    "activate accepts only --window H; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::Activate { target, window })
+        }
         "raise" => {
             let Some(window) = flag_window(args)? else {
                 return Err("raise requires --window <handle>".into());

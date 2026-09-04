@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 25
+#define AGT_ABI_MINOR 26
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -944,13 +944,19 @@ agt_status agt_screen_list(agt_screen_info* buf, size_t cap, size_t* out_count);
  * agt_window_enumerate, NEVER on the ABI's own window handle from
  * agt_window_open (agt_window_close owns that one; the two are unrelated).
  * handle == 0 -> AGT_FAILED{code="bad_handle"}; mechanism absent ->
- * AGT_UNSUPPORTED; platform failure -> AGT_FAILED{code="window_op_failed"}. */
+ * AGT_UNSUPPORTED; platform failure -> AGT_FAILED with the function's named
+ * error code (historical operations use "window_op_failed"). */
 
 /* Show/hide/minimize/maximize/restore. state: 0=Hide 1=Show 2=Minimize
  * 3=Maximize 4=Restore; any other value -> AGT_FAILED{code="bad_state"}
  * (validated before any platform call, so an invalid state never touches
  * the window). */
 agt_status agt_native_window_show(intptr_t handle, int32_t state);
+
+/* ABI 1.26: make one exact native window the desktop foreground window.
+ * Distinct from show/raise, which does not promise to change the foreground
+ * owner. */
+agt_status agt_native_window_activate(intptr_t handle);
 
 /* Move/resize the window to the given rectangle (physical pixels). */
 agt_status agt_native_window_move(intptr_t handle, int32_t x, int32_t y,

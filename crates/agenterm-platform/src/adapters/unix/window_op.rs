@@ -33,6 +33,12 @@ pub(crate) fn minimized(_handle: isize) -> Result<bool, WindowOpError> {
     })
 }
 
+pub(crate) fn activate(_handle: isize) -> Result<(), WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window activation not wired on this unix host".into(),
+    })
+}
+
 pub(crate) fn set_topmost(_handle: isize, _topmost: bool) -> Result<(), WindowOpError> {
     Err(WindowOpError::Unsupported {
         reason: "window-op not wired on unix".into(),

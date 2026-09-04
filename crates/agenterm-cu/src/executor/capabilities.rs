@@ -404,6 +404,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-usage".into(), process_usage_verb);
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-watch".into(), process_watch_verb);
+        verbs.insert(
+            "activate".into(),
+            capability_verb(
+                mechanism::Capability::WindowOp,
+                serde_json::json!({
+                    "group": "geometry",
+                    "mode": "desktop-foreground",
+                    "grant": "actuate",
+                    "activates_application": true,
+                    "readback": "window-inventory-focused",
+                }),
+            ),
+        );
         // `raise` is the window-op mechanism the same way `orderwin` is.
         verbs.insert(
             "raise".into(),
@@ -720,6 +733,8 @@ mod tests {
         assert_eq!(data["verbs"]["orderwin"]["mode"], "raise");
         assert_eq!(data["verbs"]["orderwin"]["group"], "geometry");
         assert_ne!(data["verbs"]["orderwin"]["status"], "");
+        assert_eq!(data["verbs"]["activate"]["mode"], "desktop-foreground");
+        assert_eq!(data["verbs"]["activate"]["activates_application"], true);
         assert_eq!(data["verbs"]["page-js"]["status"], "available");
         assert_eq!(data["verbs"]["page-js"]["mode"], "cdp");
         for verb in [

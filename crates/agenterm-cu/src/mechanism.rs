@@ -723,6 +723,22 @@ pub mod window_op {
         map_status("agt_native_window_show", status)
     }
 
+    /// Make one exact native window the desktop foreground owner (ABI 1.26).
+    pub fn activate(handle: isize) -> Result<(), MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_ACTIVATE_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "window activation requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_ACTIVATE_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::WindowActivate>(b"agt_native_window_activate")?;
+        let status = unsafe { f(handle) };
+        map_status("agt_native_window_activate", status)
+    }
+
     /// Move/resize a native window handle.
     pub fn move_window(
         handle: isize,
@@ -2438,6 +2454,7 @@ type WindowPlacementQuery =
     unsafe extern "C" fn(isize, u32, *mut dynlib::agt_window_placement_info_v1) -> i32;
 type ScreenList = unsafe extern "C" fn(*mut dynlib::agt_screen_info, usize, *mut usize) -> i32;
 type WindowShow = unsafe extern "C" fn(isize, i32) -> i32;
+type WindowActivate = unsafe extern "C" fn(isize) -> i32;
 type WindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type WindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
 type WindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;

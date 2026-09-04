@@ -3289,3 +3289,21 @@ process may then duplicate those startup handles into its hidden CLI worker
 even when `AttachConsole(ATTACH_PARENT_PROCESS)` correctly fails. Qualify both
 ordinary console and no-console redirected launches; a console-only smoke is
 not sufficient evidence.
+
+## Window activation, app-local raise and node focus are three contracts
+
+Do not collapse the word “focus” across layers. A desktop-window activation
+changes the global foreground owner; an app-local raise only moves one window
+ahead of its siblings; accessibility-node focus changes the keyboard target
+inside one window. Give them separate product verbs, platform facade methods
+and ABI exports. In particular, a generic show/raise primitive is not evidence
+that the operating system accepted foreground activation.
+
+For desktop activation, resolve one exact live window handle before mutation,
+perform through the platform/ABI mechanism boundary, then poll the public
+window inventory until that exact handle reports focused under a bounded
+deadline. “The API call returned” is only `performed`; `verified` requires the
+read-back. Preserve a typed failure when foreground policy rejects the request
+or when the backend cannot publish focus state. This distinction is what lets
+compatibility adapters translate a legacy whole-window `focus HANDLE` into an
+explicit `activate --window HANDLE` without stealing the node-focus spelling.

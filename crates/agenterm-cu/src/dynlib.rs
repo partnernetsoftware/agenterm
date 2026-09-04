@@ -291,6 +291,9 @@ pub const APP_INVENTORY_ABI_MINOR: u16 = 21;
 /// read the on-screen inventory cannot carry).
 pub const POINTER_DRAG_ABI_MINOR: u16 = 25;
 pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
+/// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground
+/// operation (not app-local raise and not accessibility-node focus).
+pub const WINDOW_ACTIVATE_ABI_MINOR: u16 = 26;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

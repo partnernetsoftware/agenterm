@@ -44,6 +44,7 @@ const declared_evidence = [
   "cu.windows-uia-query",
   "cu.windows-uia-invoke",
   "cu.windows-uia-menu",
+  "cu.windows-window-activate",
   "cu.windows-uia-focused",
   "cu.windows-uia-window-place",
   "cu.windows-uia-screenshot",
@@ -456,6 +457,16 @@ try {
     );
   }
 
+  print("STEP activate makes the owned window foreground and reads the exact handle back focused");
+  const activated = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "activate", "--window", handle_text
+  ]);
+  ensure(
+    flag_at(activated, "data.performed") && flag_at(activated, "data.verified")
+      && flag_at(activated, "data.after.focused"),
+    "cu_windows_smoke_activate:" + JSON.stringify(activated.data)
+  );
+
   print("STEP focus gives the owned entry keyboard focus and focused reads that state back");
   const focus_entry = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "focus",
@@ -617,11 +628,12 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-menu");
+harness.emit_evidence(context, declared_evidence, "cu.windows-window-activate");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-focused");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-place");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-destructive-close");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu Windows UIA journey (capabilities, windows, process state/usage, tree, query, invoke, menu, focused, window-place, screenshot, close, cleanup)");
+print("PASS: agenterm-cu Windows UIA journey (capabilities, windows, process state/usage, tree, query, invoke, menu, activate, focused, window-place, screenshot, close, cleanup)");
 return;

@@ -794,6 +794,46 @@ pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     }
 }
 
+/// Activate the application owning one exact CGWindowID, then raise that
+/// window inside the newly frontmost application. `AXFrontmost` is the
+/// public accessibility mutation for application activation; the product
+/// layer independently reads the exact window's focused mark back.
+pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        return Err(WindowOpError::failed(
+            "a11y_permission_denied",
+            "AXIsProcessTrusted() is false: Accessibility permission is not granted",
+        ));
+    }
+    let pid = owner_pid(handle)?;
+    unsafe {
+        let app = AXUIElementCreateApplication(pid as i32);
+        if app.is_null() {
+            return Err(WindowOpError::failed(
+                "ax_application_unavailable",
+                format!("could not create AX application for window {handle}"),
+            ));
+        }
+        let key = cfstr("AXFrontmost");
+        let status = AXUIElementSetAttributeValue(app, key, CF_BOOLEAN_TRUE);
+        CFRelease(key as CfTypeRef);
+        CFRelease(app as CfTypeRef);
+        if status == AX_API_DISABLED {
+            return Err(WindowOpError::failed(
+                "a11y_permission_denied",
+                "AXFrontmost: Accessibility permission is not granted",
+            ));
+        }
+        if status != AX_SUCCESS {
+            return Err(WindowOpError::failed(
+                "ax_activate_failed",
+                format!("AXFrontmost on window {handle} failed (AXError {status})"),
+            ));
+        }
+    }
+    raise_window(handle)
+}
+
 /// Window-level `AXRaise` for `orderwin`. Node invoke never sends AXRaise;
 /// this path is the geometry verb, not the control-tree verb.
 fn raise_window(handle: isize) -> Result<(), WindowOpError> {

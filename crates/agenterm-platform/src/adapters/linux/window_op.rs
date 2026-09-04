@@ -263,6 +263,16 @@ pub(crate) fn minimized(_handle: isize) -> Result<bool, WindowOpError> {
     })
 }
 
+/// `_NET_ACTIVE_WINDOW`: the explicit foreground-changing counterpart to
+/// `show`/`_NET_RESTACK_WINDOW`. Source 2 identifies an automation pager;
+/// the product layer owns the subsequent `_NET_ACTIVE_WINDOW` read-back.
+pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    let active = atom(&conn, b"_NET_ACTIVE_WINDOW")?;
+    send_root_message(&conn, window, active, [2, 0, 0, 0, 0])
+}
+
 /// `_NET_WM_STATE` add/remove of `_NET_WM_STATE_ABOVE`.
 ///
 /// 1 is `_NET_WM_STATE_ADD` and 0 is `_NET_WM_STATE_REMOVE`; the second

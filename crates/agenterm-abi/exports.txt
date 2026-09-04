@@ -70,6 +70,7 @@ agt_window_stacking_list
 agt_window_placement_query
 agt_screen_list
 agt_native_window_show
+agt_native_window_activate
 agt_native_window_move
 agt_native_window_rect
 agt_native_window_set_topmost

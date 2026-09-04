@@ -76,6 +76,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   perform a node-focus request but publishes no focused read-back, so evidence
   is withheld. Transient `UIA_E_TIMEOUT` / rejected-call results get bounded
   retries inside the existing action deadline; semantic mismatches do not.
+- [~] Whole-window foreground activation is now a separate vertical slice:
+  `activate --window H` flows through `agenterm-platform`, additive
+  `libagenterm` ABI 1.26, the ACU command/receipt layer and exact focused-window
+  inventory read-back. It is deliberately distinct from accessibility-node
+  `focus` and application-local `raise`. A live macOS round trip activated a
+  background text-editor window and restored the prior foreground window, both
+  verified on the first poll; Windows x86_64 and Linux x86_64 cross-builds are
+  green. The MCU adapter now rewrites its whole-window `focus H` to this verb,
+  so that compatibility fallback inventory falls from 31 to 30. Windows and
+  Linux native desktop journeys remain the promotion evidence; the source and
+  local macOS result alone do not promote the leaf.
 - [x] Windows runtime window enumeration follows a two-stage
   required-size/fill ABI. If desktop churn makes the fill call report
   `required > capacity`, the caller retries with a fresh capacity under a hard
@@ -179,7 +190,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   ABI/target-binding checks remain open.
   The compatibility adapter now routes MCU-shaped `acu doctor` directly to
   this native command, reducing the MCU `STAY` inventory from 32 to 31; routing
-  tests and a live macOS adapter invocation are green.
+  tests and a live macOS adapter invocation are green. Whole-window activation
+  subsequently reduces it to 30 under the separate evidence above.
 - [~] Process identity observation is live as `process-state --pid N` on
   current/ssh/vnc. It returns `live|dead|unknown`, preserves fail-closed unknown
   evidence, and publishes the platform start identity when available. MCU

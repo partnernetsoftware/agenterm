@@ -1166,6 +1166,16 @@ pub enum Command {
         target: TargetRef,
         window: isize,
     },
+    /// `activate`: make one exact top-level window the desktop foreground
+    /// owner, then independently read the inventory's focused mark back.
+    ///
+    /// This is MCU's whole-window `focus <handle>` meaning. It is distinct
+    /// from [`Command::Focus`] (one accessibility node) and [`Command::Raise`]
+    /// (application-local stacking without foreground activation).
+    Activate {
+        target: TargetRef,
+        window: isize,
+    },
     /// `raise`: lift one window inside its **own application's** z-order
     /// (macOS `AXRaise` on the window element) without activating the
     /// application and without changing the system frontmost application.
@@ -1428,6 +1438,7 @@ impl Command {
             Self::BrowserProfiles { .. } => "browser-profiles".into(),
             Self::BrowserOpen { .. } => "browser-open".into(),
             Self::Unlock { .. } => "unlock".into(),
+            Self::Activate { .. } => "activate".into(),
             Self::Raise { .. } => "raise".into(),
             Self::Minimize { .. } => "minimize".into(),
             Self::Restore { .. } => "restore".into(),
@@ -1503,6 +1514,7 @@ impl Command {
             | Self::BrowserProfiles { target, .. }
             | Self::BrowserOpen { target, .. }
             | Self::Unlock { target, .. }
+            | Self::Activate { target, .. }
             | Self::Raise { target, .. }
             | Self::Minimize { target, .. }
             | Self::Restore { target, .. }
@@ -1542,6 +1554,7 @@ impl Command {
             | Self::PageFill { .. }
             | Self::PageNav { .. }
             | Self::PageScreenshot { activate: true, .. }
+            | Self::Activate { .. }
             | Self::Raise { .. }
             | Self::Minimize { .. }
             | Self::Restore { .. }

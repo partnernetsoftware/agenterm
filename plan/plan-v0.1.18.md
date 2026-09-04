@@ -14,7 +14,8 @@ v0.1.18 — an agent can use one qualified three-host desktop-control product
 ├─ Behavior
 │  ├─ one shared command vocabulary for current-host observe / act / wait
 │  ├─ native control trees: Windows UIA, macOS AX, Linux AT-SPI2
-│  ├─ invoke/focus/input/window actions return verifiable post-state
+│  ├─ node focus, app-local raise and desktop-window activation stay distinct
+│  ├─ invoke/input/window actions return verifiable post-state
 │  └─ product journeys run through qjswasm/tinyvm, not archived Rh
 ├─ Evidence
 │  ├─ three native host journeys; distro/backend variance is capability data
@@ -73,6 +74,8 @@ flowchart LR
 
 1. Reconcile PRD 28–32 and the public verb catalog with actual current-tier code.
 2. Close shared command/backend parity before adding new verbs.
+   The first active leaf is whole-window `activate`: ABI 1.26 and macOS live
+   read-back are green; Linux/Windows native courts still own promotion.
 3. Port or retire every release-critical Rh-era script gate; do not preserve a
    dark gate only to keep its name.
 4. Prove the three native journeys with capability-aware assertions. A backend

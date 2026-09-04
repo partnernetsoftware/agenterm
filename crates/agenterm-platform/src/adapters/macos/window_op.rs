@@ -34,6 +34,10 @@ pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     foreign_windows::minimized(handle)
 }
 
+pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
+    foreign_windows::activate(handle)
+}
+
 pub(crate) fn set_topmost(handle: isize, topmost: bool) -> Result<(), WindowOpError> {
     foreign_windows::set_topmost(handle, topmost)
 }

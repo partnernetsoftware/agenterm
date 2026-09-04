@@ -1,10 +1,10 @@
-//! Window-level state verbs: `raise`, `minimize`, `restore`.
+//! Window-level state verbs: `activate`, `raise`, `minimize`, `restore`.
 //!
 //! These move a whole **window** — its place in its application's stacking
 //! order, or whether it is in the dock — through the window's own
-//! affordances. None of them activates an application, brings one to the
-//! foreground, or sends a keystroke, and each reads its postcondition back
-//! before claiming anything.
+//! affordances. Only `activate` changes the desktop foreground owner;
+//! `raise`, `minimize`, and `restore` do not. None sends a keystroke, and
+//! each reads its postcondition back before claiming anything.
 //!
 //! `raise` is deliberately not `focus`: `focus` gives one accessibility
 //! *node* inside a window the keyboard focus and never touches stacking;
@@ -21,6 +21,135 @@ const STATE_READBACK_POLL: Duration = Duration::from_millis(25);
 /// `raise` is a restack request to the window server; it lands fast or not
 /// at all, so it polls for less time than a minimize animation needs.
 const RAISE_READBACK: Duration = Duration::from_millis(500);
+
+fn focused_window(
+    window: isize,
+) -> Result<Option<mechanism::window_enumerate::WindowInfo>, CuError> {
+    let rows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    Ok(rows.into_iter().find(|row| row.handle == window))
+}
+
+/// `activate --window H`: request desktop-wide foreground activation and
+/// require the exact handle to read back focused before reporting success.
+pub(super) fn activate_payload(
+    window: isize,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "activate requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    let Some(before_row) = focused_window(window)? else {
+        return Err(CuError::new(
+            "window_not_found",
+            format!("no top-level window with handle {window}"),
+        ));
+    };
+    let identity = serde_json::json!({
+        "handle": window,
+        "pid": before_row.process_id,
+        "app_name": before_row.app_name,
+        "title": before_row.title,
+    });
+    let before_focused = before_row.focused;
+    let ticket = receipts.reserve(
+        "activate",
+        window,
+        serde_json::json!({
+            "action": "activate",
+            "window_identity": identity,
+            "postcondition": "desktop-foreground",
+            "before": { "focused": before_focused },
+        }),
+    )?;
+    let mechanism_error = mechanism::window_op::activate(window)
+        .err()
+        .map(map_mechanism_err);
+    let started = Instant::now();
+    let mut polls = 0usize;
+    let mut after_row = Some(before_row);
+    let mut readback_error = None;
+    while mechanism_error.is_none() && started.elapsed() < STATE_READBACK {
+        polls += 1;
+        match focused_window(window) {
+            Ok(row) => after_row = row,
+            Err(error) => {
+                after_row = None;
+                readback_error = Some(error);
+                break;
+            }
+        }
+        if after_row.as_ref().is_some_and(|row| row.focused) {
+            break;
+        }
+        thread::sleep(STATE_READBACK_POLL);
+    }
+    let after_present = after_row.is_some();
+    let after_focused = after_row.as_ref().is_some_and(|row| row.focused);
+    let verified = mechanism_error.is_none() && readback_error.is_none() && after_focused;
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if !after_present {
+        Some("window_disappeared")
+    } else if !after_focused {
+        Some("foreground_not_observed")
+    } else {
+        None
+    };
+    let verification = serde_json::json!({
+        "method": "window-inventory-focused-readback",
+        "reason": reason,
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis(),
+    });
+    receipts.complete(
+        &ticket,
+        "activate",
+        window,
+        verified,
+        serde_json::json!({
+            "after": { "present": after_present, "focused": after_focused },
+            "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
+    let payload = serde_json::json!({
+        "addressing": "window-handle",
+        "mechanism": "libagenterm",
+        "via": "native-window-activate",
+        "window": window,
+        "target": identity,
+        "action": "activate",
+        "scope": "desktop-foreground",
+        "postcondition": "desktop-foreground",
+        "performed": mechanism_error.is_none(),
+        "verified": verified,
+        "verification": verification,
+        "before": { "focused": before_focused },
+        "after": { "present": after_present, "focused": after_focused },
+        "activated_application": true,
+        "receipt": ticket.json(),
+    });
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if let Some(error) = readback_error {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if !verified {
+        return Err(CuError::new(
+            "window_activation_not_applied",
+            format!(
+                "window {window} did not become the focused desktop window after {polls} polls"
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": reason, "receipt": payload })));
+    }
+    Ok(payload)
+}
 
 #[cfg(target_os = "macos")]
 fn frontmost_app_now() -> Option<FrontmostApp> {
@@ -571,8 +700,23 @@ mod tests {
     }
 
     #[test]
+    fn activate_requires_a_handle_and_never_reaches_the_mechanism_without_one() {
+        let reply = actuate_executor().execute(&Command::Activate {
+            target: TargetRef::Current,
+            window: 0,
+        });
+        assert!(!reply.ok);
+        assert_eq!(reply.command, "activate");
+        assert_eq!(reply.error.as_ref().expect("typed").code, "invalid_input");
+    }
+
+    #[test]
     fn raise_and_minimize_require_the_actuate_grant() {
         for command in [
+            Command::Activate {
+                target: TargetRef::Current,
+                window: 7,
+            },
             Command::Raise {
                 target: TargetRef::Current,
                 window: 7,

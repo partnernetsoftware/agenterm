@@ -1589,7 +1589,7 @@ mod surface_tests {
         assert_eq!(rows.len(), verbs::VERBS.len());
     }
 
-    /// The eight desktop-ring verbs parse into their own closed shapes, and
+    /// The desktop-ring verbs parse into their own closed shapes, and
     /// every one of them refuses an unknown flag before a target is touched.
     #[test]
     fn desktop_ring_verbs_parse_closed_shapes() {
@@ -1599,6 +1599,10 @@ mod surface_tests {
             let mut args: Vec<String> = argv[1..].iter().map(|s| (*s).to_owned()).collect();
             cli::parse_command(spec, argv[0], TargetRef::Current, &mut args)
         };
+        match parse(&["activate", "--window", "42"]).expect("activate") {
+            Command::Activate { window, .. } => assert_eq!(window, 42),
+            other => panic!("{other:?}"),
+        }
         match parse(&["raise", "--window", "42"]).expect("raise") {
             Command::Raise { window, .. } => assert_eq!(window, 42),
             other => panic!("{other:?}"),

@@ -2125,7 +2125,7 @@
     },
     {
       "id": "cu-windows-smoke",
-      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, stable process identity, lossless usage and exact-object wait, bounded tree and menu, query, invoke and idempotent set-checked, focused, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
+      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, stable process identity, lossless usage and exact-object wait, bounded tree and menu, query, invoke and idempotent set-checked, whole-window activation, focused node read-back, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
       "entry": "scripts/qjs/cu-windows-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
