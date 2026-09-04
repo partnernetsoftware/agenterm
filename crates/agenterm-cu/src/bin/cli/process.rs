@@ -12,8 +12,24 @@ pub fn parse(
 ) -> Result<Command, String> {
     match spec.name {
         "ps" => ps(target, args),
+        "process-state" => process_state(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_state(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = flag_parsed::<u32>(args, "--pid")?
+        .ok_or_else(|| "process-state requires --pid N".to_owned())?;
+    if pid == 0 {
+        return Err("process-state --pid must be greater than zero".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "process-state accepts only --pid N; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::ProcessState { target, pid })
 }
 
 fn ps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -81,5 +97,22 @@ mod tests {
         let mut args = vec!["--cpu-above".into(), "5".into()];
         let error = parse(spec, TargetRef::Current, &mut args).expect_err("typed usage");
         assert!(error.contains("unexpected"), "{error}");
+    }
+
+    #[test]
+    fn process_state_requires_one_positive_pid() {
+        let spec = verbs::lookup("process-state").expect("process-state verb");
+        let mut args = vec!["--pid".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, TargetRef::Current, &mut args).expect("parse"),
+            Command::ProcessState { pid: 42, .. }
+        ));
+
+        let mut missing = Vec::new();
+        assert!(
+            parse(spec, TargetRef::Current, &mut missing)
+                .expect_err("missing")
+                .contains("requires --pid")
+        );
     }
 }

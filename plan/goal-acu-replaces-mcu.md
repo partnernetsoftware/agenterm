@@ -95,14 +95,14 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
 - The transitional `acu.ts` adapter now keeps **32 top-level spellings** on
-  MCU. Its 92-name pass-through set is not a parity count: it mixes MCU
-  spellings, ACU-native spellings and group aliases. The adapter's 42 green
+  MCU. Its 94-name pass-through set is not a parity count: it mixes MCU
+  spellings, ACU-native spellings and group aliases. The adapter's 44 green
   tests prove lossless argv routing and honest refusal only; they do not prove
   native post-state or platform parity.
-- The 33 current stays split into four implementation queues:
+- The 32 current stays split into four implementation queues:
   - desktop closure: window activation (`focus`) and the diagnostic `ghost`
     overlay;
-  - process/runtime: `exec`, `ps`, `process`, `job`, `pty`, `term`, `signal`,
+  - process/runtime: `exec`, `process`, `job`, `pty`, `term`, `signal`,
     `kill`, `service`, `daemon`, `session`, `lock` and `audit`;
   - machine/system: `setup`, `doctor`, `permissions`, `caps`, `state`, `open`,
     `notify`, `resource`, `power`, `login-session`, `storage`, `file`,
@@ -136,6 +136,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   native mechanism used by qjswasm `process.list`. Richer MCU process filters
   remain explicit gaps; the compatibility router forwards the proven subset
   and temporarily falls back for unsupported shapes.
+- The second process slice is integrated: `process-state --pid N` returns
+  `live|dead|unknown`, a platform start identity where available, and
+  `verified=false` for unknown evidence. The compatibility router maps MCU
+  `process state N` to this facade. This identity is a prerequisite for later
+  signal/kill operations; a reusable PID alone is never sufficient.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -174,7 +179,8 @@ Q2 fast delegated facades
 ├─ [ ] open/notify/state and terminal adoption
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
-   └─ [ ] rich filters, process detail, exec, signal and lifecycle
+   ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only
+   └─ [ ] rich filters, process detail, exec, identity-bound signal and lifecycle
 Q3 owned runtime facades
 ├─ [ ] PTY/job/daemon/session/lock/audit/service
 └─ [ ] file/network/storage/device/audio/resource/power/privilege

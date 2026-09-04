@@ -503,6 +503,24 @@ file and port filters remain typed migration gaps until their owning facades
 land; this command never silently ignores them."#,
     },
     VerbSpec {
+        name: "process-state",
+        command: "process-state",
+        aliases: &["process state"],
+        scope: Scope::Observe,
+        family: Family::Process,
+        summary: "observe one pid with a stable process-start identity",
+        usage: "process-state --pid N\nprocess state --pid N",
+        args: &[ArgSpec {
+            flag: "--pid",
+            value: "N",
+            help: "positive process id to observe",
+        }],
+        details: r#"Returns live, dead, or unknown through the shared process-observation
+facade. A live result includes the platform start identity when available.
+Unknown is fail-closed and never means dead. Future mutation commands must bind
+their target to this identity rather than trusting a reusable pid alone."#,
+    },
+    VerbSpec {
         name: "app",
         command: "app",
         aliases: &["launch", "quit", "hide", "show"],

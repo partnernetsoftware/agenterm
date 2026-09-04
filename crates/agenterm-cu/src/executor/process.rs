@@ -7,6 +7,39 @@ use crate::CuError;
 const DEFAULT_MAX: usize = 200;
 const MAX_RESULTS: usize = 5_000;
 
+pub(super) fn process_state_payload(pid: u32) -> Result<Value, CuError> {
+    if pid == 0 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-state --pid must be greater than zero",
+        ));
+    }
+    let (state, start_identity, reason) = match agenterm_platform::process_observation::observe(pid)
+    {
+        agenterm_platform::process_observation::ProcessObservation::Live { start_identity } => {
+            ("live", start_identity, None)
+        }
+        agenterm_platform::process_observation::ProcessObservation::Dead { reason } => {
+            ("dead", None, Some(reason))
+        }
+        agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+            ("unknown", None, Some(reason))
+        }
+        _ => (
+            "unknown",
+            None,
+            Some("process_observation_variant_unsupported".to_owned()),
+        ),
+    };
+    Ok(json!({
+        "pid": pid,
+        "state": state,
+        "start_identity": start_identity,
+        "reason": reason,
+        "verified": state != "unknown",
+    }))
+}
+
 pub(super) fn process_list_payload(
     pid: Option<u32>,
     parent: Option<u32>,
@@ -73,6 +106,27 @@ mod tests {
         assert_eq!(value["matched"], 1);
         assert_eq!(value["returned"], 1);
         assert_eq!(value["processes"][0]["pid"], pid);
+    }
+
+    #[test]
+    fn current_process_state_is_live_and_identity_bound() {
+        let pid = std::process::id();
+        let value = process_state_payload(pid).expect("state");
+        assert_eq!(value["pid"], pid);
+        assert_eq!(value["state"], "live");
+        assert_eq!(value["verified"], true);
+        assert!(
+            value["start_identity"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        );
+        assert!(value["reason"].is_null());
+    }
+
+    #[test]
+    fn process_state_rejects_pid_zero() {
+        let error = process_state_payload(0).expect_err("zero");
+        assert_eq!(error.code, "invalid_input");
     }
 
     #[test]

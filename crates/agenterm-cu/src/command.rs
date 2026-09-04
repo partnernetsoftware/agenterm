@@ -299,6 +299,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
     },
+    /// Observe one exact process instance without changing it. The optional
+    /// start identity is the portable evidence later process mutations must
+    /// bind to so a recycled pid cannot become a different target.
+    ProcessState {
+        target: TargetRef,
+        pid: u32,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -1306,6 +1313,7 @@ impl Command {
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
             Self::Ps { .. } => "ps".into(),
+            Self::ProcessState { .. } => "process-state".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -1375,6 +1383,7 @@ impl Command {
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
             | Self::Ps { target, .. }
+            | Self::ProcessState { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -1501,6 +1510,24 @@ mod tests {
                 "name": "worker",
                 "offset": 3,
                 "max": 9,
+            })
+        );
+    }
+
+    #[test]
+    fn process_state_is_observe_only_and_has_a_closed_remote_wire_shape() {
+        let command = Command::ProcessState {
+            target: TargetRef::Vnc,
+            pid: 42,
+        };
+        assert_eq!(command.verb(), "process-state");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-state",
+                "target": "vnc",
+                "pid": 42,
             })
         );
     }
