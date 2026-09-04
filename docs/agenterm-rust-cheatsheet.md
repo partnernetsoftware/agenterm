@@ -3616,3 +3616,13 @@ future cursor. Return exact bytes (base64 at JSON boundaries), add UTF-8 only
 when the whole page validates, and advance `next_cursor` by bytes actually
 returned. Reuse the terminal owner's redacted ring instead of adding a second
 cache with a different lifetime or secrecy contract.
+
+## Make machine JSON and process status agree
+
+A CLI that always emits a typed JSON envelope still participates in shell and
+process orchestration. Never print `{ok:false}` and exit 0: readiness loops and
+supervisors will record a false success before they parse the body. Keep one
+closed mapping at the outermost executable boundary: success is 0, typed
+runtime failure is 1, and typed usage refusal is 2. Remote transports may parse
+the same JSON after a nonzero worker exit; only `ok:true` paired with nonzero is
+a transport contradiction.

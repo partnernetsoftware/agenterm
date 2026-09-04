@@ -52,6 +52,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   aliases (`shot`, `type`, `key`, `move`, `dclick`, `rclick`, `frame`,
   `movewin`, `resize`, `maximize`, `cursor`, `clip`, `caps`, `elements`,
   `inspect`, `find`, `read`).
+- [x] the shell envelope has one truth value at both layers. Every ordinary
+  invocation writes exactly one `CuReply` JSON object to stdout; `ok:true`
+  exits 0, a typed runtime/transport/operation failure exits 1, and typed
+  `usage` exits 2. This closes a 2026-09-05 false-green found by a headless
+  server readiness court, where `{ok:false, code:control_unavailable}` had
+  previously exited 0. SSH/VNC still parse and return the same typed JSON;
+  process status can no longer contradict it.
 - [x] focused-node text writers (`send-text`, `paste`, `send-keys` with
   `--window` and no `--name`) refuse `focused_node_is_browser_chrome` when the
   window is a browser and focus sits in its chrome (omnibox, toolbar, tab

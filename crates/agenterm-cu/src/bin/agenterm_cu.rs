@@ -32,7 +32,7 @@ fn main() {
         Some("verbs") => {
             match cli::help::run_verbs(&args[1..]) {
                 Ok(text) => print!("{text}"),
-                Err(reply) => print_reply(&reply),
+                Err(reply) => std::process::exit(print_reply(&reply)),
             }
             return;
         }
@@ -43,15 +43,36 @@ fn main() {
     {
         std::process::exit(run_x11_clipboard_owner());
     }
-    print_reply(&dispatch(args));
+    std::process::exit(print_reply(&dispatch(args)));
 }
 
-fn print_reply(reply: &CuReply) {
-    let json = serde_json::to_string(reply).unwrap_or_else(|_| {
-        r#"{"ok":false,"target":"","command":"","error":{"code":"serialize","message":"reply serialization failed"}}"#
-            .to_string()
-    });
-    println!("{json}");
+fn reply_exit_code(reply: &CuReply) -> i32 {
+    if reply.ok {
+        0
+    } else if reply
+        .error
+        .as_ref()
+        .is_some_and(|error| error.code == "usage")
+    {
+        2
+    } else {
+        1
+    }
+}
+
+fn print_reply(reply: &CuReply) -> i32 {
+    match serde_json::to_string(reply) {
+        Ok(json) => {
+            println!("{json}");
+            reply_exit_code(reply)
+        }
+        Err(_) => {
+            println!(
+                r#"{{"ok":false,"target":"","command":"","error":{{"code":"serialize","message":"reply serialization failed"}}}}"#
+            );
+            1
+        }
+    }
 }
 
 fn is_help_token(token: &str) -> bool {
@@ -172,6 +193,34 @@ fn run_x11_clipboard_owner() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_exit_status_agrees_with_the_typed_reply() {
+        let success = CuReply {
+            ok: true,
+            target: "current".into(),
+            command: "windows".into(),
+            data: Some(serde_json::json!([])),
+            error: None,
+        };
+        let failure = CuReply {
+            ok: false,
+            target: "current".into(),
+            command: "windows".into(),
+            data: None,
+            error: Some(agenterm_cu::CuError::new("a11y_unavailable", "unavailable")),
+        };
+        let usage = CuReply {
+            ok: false,
+            target: String::new(),
+            command: "usage".into(),
+            data: None,
+            error: Some(agenterm_cu::CuError::new("usage", "bad arguments")),
+        };
+        assert_eq!(reply_exit_code(&success), 0);
+        assert_eq!(reply_exit_code(&failure), 1);
+        assert_eq!(reply_exit_code(&usage), 2);
+    }
 
     #[test]
     fn observe_cli_carries_the_baseline_ready_path_in_its_closed_shape() {

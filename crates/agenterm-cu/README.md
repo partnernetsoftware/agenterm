@@ -81,6 +81,12 @@ receipts retain command/title byte counts, never those user-controlled values.
 AgenTerm itself remains responsible for parent promotion, remain-on-exit and
 keeping an empty application alive after the final tab closes.
 
+Every ordinary invocation writes exactly one `CuReply` JSON object to stdout.
+The process status agrees with it: `ok:true` exits 0, a typed runtime failure
+exits 1, and a typed `usage` refusal exits 2. Shell readiness checks must still
+inspect the requested postcondition; they may no longer mistake `ok:false` for
+process success.
+
 ## 1. Find the window
 
 ```bash
