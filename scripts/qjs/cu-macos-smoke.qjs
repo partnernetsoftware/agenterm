@@ -74,6 +74,8 @@ const declared_evidence = [
   "cu.macos-ax-orderwin",
   "cu.macos-ax-app-lifecycle",
   "cu.macos-ax-app-inventory",
+  "cu.macos-process-state",
+  "cu.macos-process-usage",
   "cu.macos-ax-snapshot-diff",
   "cu.macos-ax-hit-zoom",
   "cu.macos-ax-window-state",
@@ -491,6 +493,8 @@ try {
       && text_at(capabilities, "data.capabilities.tree") === "Available"
       && text_at(capabilities, "data.verbs.tree.status") === "available"
       && text_at(capabilities, "data.verbs.query.status") === "available"
+      && text_at(capabilities, "data.verbs.process-state.status") === "available"
+      && text_at(capabilities, "data.verbs.process-usage.status") === "available"
       && text_at(capabilities, "data.mapping.tree").includes("macOS AX"),
     "cu_macos_smoke_capabilities:" + JSON.stringify(capabilities.data)
   );
@@ -542,6 +546,36 @@ try {
   });
   fixture_pid = harness.spawned_pid(fixture);
   const fixture_title = "agenterm-ax-fixture-" + fixture_pid;
+
+  print("STEP process state and usage bind one live fixture identity");
+  const process_state = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-state", "--pid", "" + fixture_pid]
+  );
+  const process_identity = text_at(process_state, "data.start_identity");
+  ensure(
+    text_at(process_state, "data.state") === "live"
+      && flag_at(process_state, "data.verified")
+      && process_identity !== "",
+    "cu_macos_smoke_process_state:" + JSON.stringify(process_state)
+  );
+  const process_usage = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-usage", "--pid", "" + fixture_pid]
+  );
+  const cpu_time_ns = text_at(process_usage, "data.cpu_time_ns");
+  const resident_bytes = text_at(process_usage, "data.resident_bytes");
+  const page_faults = text_at(process_usage, "data.page_faults.total");
+  ensure(
+    flag_at(process_usage, "data.verified")
+      && text_at(process_usage, "data.start_identity") === process_identity
+      && cpu_time_ns !== "" && rh.only_chars(cpu_time_ns, rh.DIGITS)
+      && resident_bytes !== "" && rh.only_chars(resident_bytes, rh.DIGITS)
+      && page_faults !== "" && rh.only_chars(page_faults, rh.DIGITS),
+    "cu_macos_smoke_process_usage:" + JSON.stringify(process_usage)
+  );
 
   print("STEP public wait and windows --pid prove PID, title and CGWindow identity");
   const window_wait = run_cu_json(
@@ -2419,6 +2453,8 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-mcu-actions");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-stacking");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-lifecycle");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-inventory");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-state");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");

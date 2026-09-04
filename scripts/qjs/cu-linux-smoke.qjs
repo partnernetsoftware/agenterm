@@ -32,6 +32,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-atspi-capabilities",
   "cu.linux-atspi-window-identity",
+  "cu.linux-process-state",
+  "cu.linux-process-usage",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -72,6 +74,14 @@ function at(value, dotted) {
 function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function ensure_wide_counter(value, dotted) {
+  const counter = at(value, dotted);
+  ensure(
+    typeof counter === "string" && counter !== "" && rh.parse_int(counter) >= 0,
+    "cu_linux_smoke_process_counter:" + dotted + ":" + text_of(counter)
+  );
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -276,6 +286,33 @@ try {
     "cu_linux_smoke_window_row:" + JSON.stringify(row)
   );
   const handle_text = "" + fixture_handle;
+
+  print("STEP process-state and process-usage bind real observations to the owned fixture pid and one stable start identity");
+  const process_state = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-state", "--pid", "" + fixture_pid
+  ]);
+  const process_identity = text_at(process_state, "data.start_identity");
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && process_identity !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_smoke_process_state:" + JSON.stringify(process_state.data)
+  );
+  const process_usage = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-usage", "--pid", "" + fixture_pid
+  ]);
+  ensure(
+    int_at(process_usage, "data.pid") === fixture_pid
+      && text_at(process_usage, "data.start_identity") === process_identity
+      && flag_at(process_usage, "data.verified"),
+    "cu_linux_smoke_process_usage:" + JSON.stringify(process_usage.data)
+  );
+  ensure_wide_counter(process_usage, "data.cpu_time_ns");
+  ensure_wide_counter(process_usage, "data.resident_bytes");
+  ensure_wide_counter(process_usage, "data.page_faults.total");
+  ensure_wide_counter(process_usage, "data.page_faults.soft");
+  ensure_wide_counter(process_usage, "data.page_faults.hard");
 
   print("STEP every node in the tree carries a real rectangle, and a control that has none says so with the empty-rect sentinel rather than a screen coordinate");
   const nodes = tree_nodes(run_directory, executable, handle_text, "8");
@@ -760,6 +797,8 @@ if (succeeded !== 1) {
 ensure(remove_directory_bounded(run_directory), "cu_linux_smoke_cleanup_locked");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-capabilities");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-identity");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-state");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");

@@ -146,6 +146,10 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   fails if they differ, and encodes wide counters as decimal strings so a
   JavaScript/qjswasm consumer cannot silently round them. MCU `process usage N`
   now routes here when no richer watch/privilege shape was requested.
+- The three public native journeys now bind those two commands to each owned
+  GUI fixture. macOS is live green (34 STEP / 35 evidence ids); Linux declares
+  21 STEP / 22 evidence ids and Windows 13 / 13, with the two guest-court
+  reruns still required before this process slice is called three-host proven.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.

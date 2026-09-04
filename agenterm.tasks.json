@@ -2085,7 +2085,7 @@
     },
     {
       "id": "cu-macos-smoke",
-      "description": "Prove the macOS agenterm-cu AX loop on an owned fixture: identity, bounded tree/query, semantic writes and refusals, menu/focus/observe, background click, geometry and screenshot, snapshot/diff, hit/zoom, raise, minimize/restore, orderwin, destructive close, receipts, text/caret, keys, app lifecycle and owned cleanup.",
+      "description": "Prove the macOS agenterm-cu AX loop on an owned fixture: stable process identity and lossless usage, bounded tree/query, semantic writes and refusals, menu/focus/observe, background click, geometry and screenshot, snapshot/diff, hit/zoom, raise, minimize/restore, orderwin, destructive close, receipts, text/caret, keys, app lifecycle and owned cleanup.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -2105,7 +2105,7 @@
     },
     {
       "id": "cu-linux-smoke",
-      "description": "Prove the agenterm-cu AT-SPI2 loop on a real X11 desktop: capabilities, windows by pid and title, a tree whose every node carries a real rectangle, query, invoke, focus, menu inspect / invoke with the paths invoke accepts, send-text / select / caret / extents, an observe stream that catches changes made while it runs, a screenshot sized to the window, send-keys as the action a chord means, window-place whose read-back equals the request, orderwin, minimized, app hide / show, apps --all, and the close gate.",
+      "description": "Prove the agenterm-cu AT-SPI2 loop on a real X11 desktop: capabilities, windows by pid and title, stable process identity and lossless usage, a tree whose every node carries a real rectangle, query, invoke, focus, menu inspect / invoke with the paths invoke accepts, send-text / select / caret / extents, an observe stream that catches changes made while it runs, a screenshot sized to the window, send-keys as the action a chord means, window-place whose read-back equals the request, orderwin, minimized, app hide / show, apps --all, and the close gate.",
       "entry": "scripts/qjs/cu-linux-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -2125,7 +2125,7 @@
     },
     {
       "id": "cu-windows-smoke",
-      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, bounded tree and menu, query, invoke and idempotent set-checked, focused, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
+      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, stable process identity and lossless usage, bounded tree and menu, query, invoke and idempotent set-checked, focused, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
       "entry": "scripts/qjs/cu-windows-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

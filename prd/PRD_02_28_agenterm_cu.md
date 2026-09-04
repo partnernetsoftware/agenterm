@@ -155,11 +155,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   evidence, and publishes the platform start identity when available. MCU
   `process state N` routes to it. Future signal/kill work must bind the PID and
   this start identity, then verify post-state; naked PID mutation is excluded.
-- [~] `process-usage --pid N` is the next observe slice: cumulative CPU time,
+- [~] `process-usage --pid N` is live: cumulative CPU time,
   resident bytes and page faults are sampled between two equal start-identity
   observations and wide counters are decimal strings. MCU `process usage N`
   routes here only for the one-shot unprivileged shape; watches and richer I/O
-  remain explicit gaps.
+  remain explicit gaps. The macOS public journey now proves both process
+  commands against its owned fixture; the Linux and Windows public journeys
+  declare equivalent evidence and await their next native-court rerun.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

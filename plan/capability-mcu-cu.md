@@ -19,8 +19,10 @@ connection 的外部窗口返回 `kCGErrorIllegalArgument`（两条都实测过�
 （前者对进程的每个窗口做 ICCCM 图标化并回读，后者把 `enter` 落到节点的默认动作上，
 和 macOS 的 `AXConfirm` 同一个道理）。
 
-**Windows 有自己的注册旅程了**：`cu-windows-smoke`，**11 STEP / 11 EVIDENCE**，
-Windows on ARM 上连跑两次通过。入口一直都在，只是在隔壁项目里：`minicon` 的
+**Windows 有自己的注册旅程了**：`cu-windows-smoke` 的既有 **11 STEP / 11 EVIDENCE**
+曾在 Windows on ARM 上连跑两次通过；当前脚本已扩成 **13 / 13**，把 owned fixture
+的 `process-state` / `process-usage` 纳入同一条旅程，等待下一次原生 court 复跑。
+入口一直都在，只是在隔壁项目里：`minicon` 的
 `scripts/utm-court.sh` 把这两台 Windows 虚拟机登记为 `qemu-guest-agent` 适配器——
 **代理走 virtio-serial 而不是 TCP**，所以扫端口当然什么都扫不到。用它的
 `start`/`wait-ready`/`push`/`exec`/`pull` 把 `cargo-xwin` 编出来的
@@ -33,7 +35,9 @@ guest agent 在 session 0 看不见桌面，所以用一次性计划任务落到
 `process_present` 调 `ps`，在 Windows 上让「无孤儿」断言恒真通过；以及固件必须不依赖客户机里的编译器。
 
 **Linux 已经上真机，而且有自己的注册旅程了**（本机 lima VM + `zig cc` 交叉链接 +
-Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke`，20 STEP / 20 EVIDENCE，连跑多次稳定。
+Xvfb/openbox/at-spi2/GTK 固件）：`cu-linux-smoke` 既有 20 STEP / 20 EVIDENCE 连跑多次稳定；
+当前脚本已扩成 21 STEP / 22 EVIDENCE，把 owned fixture 的稳定进程身份和无损资源计数
+纳入同一旅程，等待下一次原生 court 复跑。
 PRD 的 Linux leaf 从 `[~] mapped` 改成 `[x]`。**代价是抓出 16 个 bug，其中 3 个让整个动词不可用、
 1 个让代码在真实 feature 组合下根本编不过**——所以 **Windows 那一侧现在应当按「未验证」理解，
 而不是「接近对齐」**：本仓没有那台机器，也没有可跑的模拟路径，leaf 仍写 `[~] mapped`。
