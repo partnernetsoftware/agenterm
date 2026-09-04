@@ -3310,6 +3310,15 @@ worst-case bounded sampling cadence and wall deadline. Keep that override in
 the owning task contract; do not raise the engine default or remove evidence
 collection when the old generic allowance is exhausted.
 
+Process-start identity comparison does not by itself make a later PID mutation
+safe: the process can exit and the PID can be reused between comparison and
+signal delivery. Mutation must travel through a retained native process object
+when the OS supplies one (Linux `pidfd_send_signal`, Windows `TerminateProcess`
+on the already-open HANDLE). Keep observe-only references free of mutation
+rights and open the stronger handle only for the explicit effect. A macOS
+kqueue NOTE_EXIT registration is an exact observation reference, not an exact
+signaling reference; fail typed instead of falling back to `kill(pid, ...)`.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second

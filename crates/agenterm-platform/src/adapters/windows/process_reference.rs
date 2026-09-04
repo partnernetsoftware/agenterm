@@ -11,7 +11,7 @@ use windows_sys::Win32::{
     },
     System::Threading::{
         GetCurrentProcess, GetProcessId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-        WaitForSingleObject,
+        PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
     },
 };
 
@@ -26,9 +26,17 @@ pub struct ProcessReference {
 
 impl ProcessReference {
     pub(crate) fn open(process_id: u32) -> io::Result<Self> {
+        Self::open_with_access(process_id, 0)
+    }
+
+    pub(crate) fn open_for_termination(process_id: u32) -> io::Result<Self> {
+        Self::open_with_access(process_id, PROCESS_TERMINATE)
+    }
+
+    fn open_with_access(process_id: u32, extra_access: u32) -> io::Result<Self> {
         let handle = unsafe {
             OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE_ACCESS,
+                PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE_ACCESS | extra_access,
                 0,
                 process_id,
             )
@@ -40,6 +48,23 @@ impl ProcessReference {
             handle: unsafe { OwnedHandle::from_raw_handle(handle) },
             process_id,
         })
+    }
+
+    pub(crate) fn terminate(
+        &self,
+        mode: crate::process_control::TerminationMode,
+    ) -> io::Result<()> {
+        if mode == crate::process_control::TerminationMode::Graceful {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Windows has no generic graceful signal for an arbitrary process",
+            ));
+        }
+        if unsafe { TerminateProcess(self.handle.as_raw_handle(), 1) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) const fn id(&self) -> u32 {

@@ -21,6 +21,20 @@ impl ProcessReference {
         crate::selected::process_reference::ProcessReference::open(process_id).map(Self)
     }
 
+    /// Opens one stable process object with the native authority required to
+    /// terminate it. This is separate from [`Self::open`] so an observe-only
+    /// wait never asks Windows for mutation rights.
+    pub fn open_for_termination(process_id: u32) -> io::Result<Self> {
+        if process_id == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "process id must be nonzero",
+            ));
+        }
+        crate::selected::process_reference::ProcessReference::open_for_termination(process_id)
+            .map(Self)
+    }
+
     #[must_use]
     pub fn id(&self) -> u32 {
         self.0.id()
@@ -37,6 +51,16 @@ impl ProcessReference {
     /// native timeout limits and interrupted waits are handled internally.
     pub fn wait_for_exit(&self, timeout: Option<Duration>) -> io::Result<ProcessWait> {
         self.0.wait_for_exit(timeout)
+    }
+
+    /// Sends a termination request through this exact native process object.
+    ///
+    /// Linux uses `pidfd_send_signal`; Windows forceful termination uses the
+    /// retained process HANDLE. macOS deliberately reports `Unsupported`
+    /// because a kqueue NOTE_EXIT subscription cannot make a later PID signal
+    /// atomic against PID reuse.
+    pub fn terminate(&self, mode: crate::process_control::TerminationMode) -> io::Result<()> {
+        self.0.terminate(mode)
     }
 
     /// Duplicates an already-open native process reference.
@@ -198,6 +222,43 @@ mod tests {
             ProcessWait::Exited
         );
         assert!(child.wait().expect("reap child").success());
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn termination_reference_stops_the_exact_child_object() {
+        let mut child = Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "process_reference::tests::process_reference_child",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .spawn()
+            .expect("spawn termination-reference child");
+        let reference = ProcessReference::open_for_termination(child.id())
+            .expect("open exact termination reference");
+        reference
+            .terminate(crate::process_control::TerminationMode::Forceful)
+            .expect("terminate exact child");
+        assert_eq!(
+            reference
+                .wait_for_exit(Some(Duration::from_secs(5)))
+                .expect("wait exact terminated child"),
+            ProcessWait::Exited
+        );
+        let _ = child.wait().expect("reap terminated child");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_refuses_pid_racy_termination() {
+        let reference = ProcessReference::open_for_termination(std::process::id())
+            .expect("open current process reference");
+        let error = reference
+            .terminate(crate::process_control::TerminationMode::Forceful)
+            .expect_err("kqueue cannot authorize an exact process signal");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 
     #[test]

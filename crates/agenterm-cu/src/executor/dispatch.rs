@@ -79,6 +79,21 @@ impl Executor {
                 timeout_ms,
                 ..
             } => process_wait_payload(*pid, start_identity, *timeout_ms),
+            Command::ProcessKill {
+                pid,
+                start_identity,
+                mode,
+                timeout_ms,
+                expect_exited,
+                ..
+            } => process_kill_payload(
+                *pid,
+                start_identity,
+                *mode,
+                *timeout_ms,
+                *expect_exited,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::ProcessWatch {
                 pid,
                 parent,

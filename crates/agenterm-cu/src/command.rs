@@ -43,6 +43,32 @@ pub enum AppAction {
     Launch,
 }
 
+/// Single-process termination mode. The native mechanism must target the
+/// exact process object, not reopen a reusable PID after identity validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessKillMode {
+    Graceful,
+    Forceful,
+}
+
+impl ProcessKillMode {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "graceful" | "term" | "SIGTERM" => Some(Self::Graceful),
+            "forceful" | "kill" | "SIGKILL" => Some(Self::Forceful),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Graceful => "graceful",
+            Self::Forceful => "forceful",
+        }
+    }
+}
+
 impl AppAction {
     pub fn parse(raw: &str) -> Option<Self> {
         Some(match raw.trim() {
@@ -336,6 +362,17 @@ pub enum Command {
         pid: u32,
         start_identity: String,
         timeout_ms: u64,
+    },
+    /// Terminate one previously observed process instance and verify that the
+    /// same retained native object exited. `expect_exited` is deliberately
+    /// explicit because this is a destructive operation.
+    ProcessKill {
+        target: TargetRef,
+        pid: u32,
+        start_identity: String,
+        mode: ProcessKillMode,
+        timeout_ms: u64,
+        expect_exited: bool,
     },
     /// Observe a bounded process-set lifecycle. Every row is keyed by pid and
     /// start identity so pid reuse becomes one exit plus one start instead of
@@ -1553,6 +1590,7 @@ impl Command {
             Self::ProcessState { .. } => "process-state".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
+            Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
@@ -1635,6 +1673,7 @@ impl Command {
             | Self::ProcessState { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
+            | Self::ProcessKill { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
@@ -1708,6 +1747,7 @@ impl Command {
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
             Self::PointerMove { .. }
+            | Self::ProcessKill { .. }
             | Self::Invoke { .. }
             | Self::MenuInvoke { .. }
             | Self::Click { .. }
@@ -1898,6 +1938,33 @@ mod tests {
                 "pid": 42,
                 "start_identity": "boot:123",
                 "timeout_ms": 250,
+            })
+        );
+    }
+
+    #[test]
+    fn process_kill_is_actuate_and_keeps_the_destructive_contract_on_the_wire() {
+        let command = Command::ProcessKill {
+            target: TargetRef::Ssh,
+            pid: 42,
+            start_identity: "boot:123".into(),
+            mode: ProcessKillMode::Forceful,
+            timeout_ms: 250,
+            expect_exited: true,
+        };
+        assert_eq!(command.verb(), "process-kill");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-kill",
+                "target": "ssh",
+                "pid": 42,
+                "start_identity": "boot:123",
+                "mode": "forceful",
+                "timeout_ms": 250,
+                "expect_exited": true,
             })
         );
     }

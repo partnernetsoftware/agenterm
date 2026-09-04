@@ -1,23 +1,79 @@
 //! Process inventory commands backed by the shared platform facade.
 
-use agenterm_cu::{Command, TargetRef};
+use agenterm_cu::{Command, TargetRef, command::ProcessKillMode};
 
 use super::verbs::VerbSpec;
 use super::{flag_parsed, flag_text, take_switch};
 
 pub fn parse(
     spec: &VerbSpec,
+    spelled: &str,
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spelled == "process" {
+        let expected = spec
+            .aliases
+            .iter()
+            .find_map(|alias| alias.strip_prefix("process "))
+            .ok_or_else(|| "process requires a subcommand".to_owned())?;
+        if args.first().map(String::as_str) != Some(expected) {
+            return Err(format!("process requires subcommand {expected}"));
+        }
+        args.remove(0);
+    }
     match spec.name {
         "ps" => ps(target, args),
         "process-state" => process_state(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
+        "process-kill" => process_kill(target, args),
         "process-watch" => process_watch(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_kill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = match flag_parsed::<u32>(args, "--pid")? {
+        Some(pid) => pid,
+        None if !args.is_empty() && !args[0].starts_with('-') => args
+            .remove(0)
+            .parse::<u32>()
+            .map_err(|_| "process-kill PID must be a positive integer".to_owned())?,
+        None => return Err("process-kill requires --pid N (or positional PID)".into()),
+    };
+    if pid == 0 {
+        return Err("process-kill --pid must be greater than zero".into());
+    }
+    let start_identity = flag_text(args, "--start-identity")?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "process-kill requires --start-identity ID from process-state".to_owned())?;
+    let mode = match flag_text(args, "--mode")? {
+        Some(raw) => ProcessKillMode::parse(&raw).ok_or_else(|| {
+            "process-kill --mode must be graceful|forceful (aliases: term|kill|SIGTERM|SIGKILL)"
+                .to_owned()
+        })?,
+        None => ProcessKillMode::Forceful,
+    };
+    let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(30_000);
+    let expect_exited = flag_text(args, "--expect")?.as_deref() == Some("exited");
+    if !(1..=86_400_000).contains(&timeout_ms) {
+        return Err("process-kill --timeout-ms must be in 1..=86400000".into());
+    }
+    if !expect_exited {
+        return Err("process-kill requires --expect exited".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("process-kill received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessKill {
+        target,
+        pid,
+        start_identity,
+        mode,
+        timeout_ms,
+        expect_exited,
+    })
 }
 
 fn process_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -186,7 +242,7 @@ mod tests {
             "--max".into(),
             "9".into(),
         ];
-        let command = parse(spec, TargetRef::Current, &mut args).expect("parse");
+        let command = parse(spec, spec.name, TargetRef::Current, &mut args).expect("parse");
         assert!(matches!(
             command,
             Command::Ps {
@@ -204,7 +260,7 @@ mod tests {
     fn ps_rejects_richer_mcu_flags_instead_of_ignoring_them() {
         let spec = verbs::lookup("ps").expect("ps verb");
         let mut args = vec!["--cpu-above".into(), "5".into()];
-        let error = parse(spec, TargetRef::Current, &mut args).expect_err("typed usage");
+        let error = parse(spec, spec.name, TargetRef::Current, &mut args).expect_err("typed usage");
         assert!(error.contains("unexpected"), "{error}");
     }
 
@@ -213,13 +269,13 @@ mod tests {
         let spec = verbs::lookup("process-state").expect("process-state verb");
         let mut args = vec!["--pid".into(), "42".into()];
         assert!(matches!(
-            parse(spec, TargetRef::Current, &mut args).expect("parse"),
+            parse(spec, spec.name, TargetRef::Current, &mut args).expect("parse"),
             Command::ProcessState { pid: 42, .. }
         ));
 
         let mut missing = Vec::new();
         assert!(
-            parse(spec, TargetRef::Current, &mut missing)
+            parse(spec, spec.name, TargetRef::Current, &mut missing)
                 .expect_err("missing")
                 .contains("requires --pid")
         );
@@ -230,7 +286,7 @@ mod tests {
         let spec = verbs::lookup("process-usage").expect("process-usage verb");
         let mut args = vec!["--pid".into(), "42".into()];
         assert!(matches!(
-            parse(spec, TargetRef::Ssh, &mut args).expect("parse"),
+            parse(spec, spec.name, TargetRef::Ssh, &mut args).expect("parse"),
             Command::ProcessUsage {
                 target: TargetRef::Ssh,
                 pid: 42,
@@ -255,7 +311,7 @@ mod tests {
             "4".into(),
         ];
         assert!(matches!(
-            parse(spec, TargetRef::Current, &mut args).expect("parse"),
+            parse(spec, spec.name, TargetRef::Current, &mut args).expect("parse"),
             Command::ProcessUsage {
                 pid: 42,
                 watch_ms: Some(1000),
@@ -272,7 +328,7 @@ mod tests {
             "100".into(),
         ];
         assert!(
-            parse(spec, TargetRef::Current, &mut orphan_interval)
+            parse(spec, spec.name, TargetRef::Current, &mut orphan_interval)
                 .expect_err("watch required")
                 .contains("require --watch-ms")
         );
@@ -290,7 +346,7 @@ mod tests {
             "250".into(),
         ];
         assert!(matches!(
-            parse(spec, TargetRef::Current, &mut args).expect("parse"),
+            parse(spec, spec.name, TargetRef::Current, &mut args).expect("parse"),
             Command::ProcessWait {
                 pid: 42,
                 timeout_ms: 250,
@@ -301,9 +357,63 @@ mod tests {
 
         let mut missing_identity = vec!["--pid".into(), "42".into()];
         assert!(
-            parse(spec, TargetRef::Current, &mut missing_identity)
+            parse(spec, spec.name, TargetRef::Current, &mut missing_identity)
                 .expect_err("identity")
                 .contains("--start-identity")
+        );
+    }
+
+    #[test]
+    fn process_kill_requires_identity_and_explicit_exit_postcondition() {
+        let spec = verbs::lookup("kill").expect("kill alias");
+        let mut args = vec![
+            "42".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+            "--mode".into(),
+            "SIGKILL".into(),
+            "--timeout-ms".into(),
+            "250".into(),
+            "--expect".into(),
+            "exited".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "kill", TargetRef::Current, &mut args).expect("parse"),
+            Command::ProcessKill {
+                pid: 42,
+                mode: ProcessKillMode::Forceful,
+                timeout_ms: 250,
+                expect_exited: true,
+                ref start_identity,
+                ..
+            } if start_identity == "boot:123"
+        ));
+
+        let mut missing_expect = vec![
+            "--pid".into(),
+            "42".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+        ];
+        assert!(
+            parse(spec, "kill", TargetRef::Current, &mut missing_expect)
+                .expect_err("explicit postcondition")
+                .contains("--expect exited")
+        );
+
+        let mut bad_mode = vec![
+            "42".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+            "--mode".into(),
+            "maybe".into(),
+            "--expect".into(),
+            "exited".into(),
+        ];
+        assert!(
+            parse(spec, "kill", TargetRef::Current, &mut bad_mode)
+                .expect_err("closed mode")
+                .contains("graceful|forceful")
         );
     }
 
@@ -323,7 +433,7 @@ mod tests {
             "20".into(),
         ];
         assert!(matches!(
-            parse(spec, TargetRef::Ssh, &mut args).expect("parse"),
+            parse(spec, spec.name, TargetRef::Ssh, &mut args).expect("parse"),
             Command::ProcessWatch {
                 target: TargetRef::Ssh,
                 ref name,
@@ -337,7 +447,7 @@ mod tests {
 
         let mut missing = Vec::new();
         assert!(
-            parse(spec, TargetRef::Current, &mut missing)
+            parse(spec, spec.name, TargetRef::Current, &mut missing)
                 .expect_err("missing")
                 .contains("requires --pid")
         );

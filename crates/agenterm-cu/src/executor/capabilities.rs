@@ -253,6 +253,21 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "states": ["exited", "timeout"],
         "mechanism": "native-process-reference",
     });
+    let process_kill_verb = serde_json::json!({
+        "status": "available",
+        "group": "process",
+        "mode": "exact-native-process-reference",
+        "grant": "actuate",
+        "identity_bound": true,
+        "destructive_gate": ["pid", "start_identity", "expect_exited"],
+        "modes": {
+            "linux": ["graceful", "forceful"],
+            "windows": ["forceful"],
+            "macos": [],
+        },
+        "macos_reason": "no exact-process signal primitive atomic against PID reuse",
+        "receipt": "reserved-before-effect + verified-after-exit",
+    });
     let process_watch_verb = serde_json::json!({
         "status": "available",
         "group": "process",
@@ -403,6 +418,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-state".into(), process_state_verb);
         verbs.insert("process-usage".into(), process_usage_verb);
         verbs.insert("process-wait".into(), process_wait_verb);
+        verbs.insert("process-kill".into(), process_kill_verb);
         verbs.insert("process-watch".into(), process_watch_verb);
         verbs.insert(
             "activate".into(),

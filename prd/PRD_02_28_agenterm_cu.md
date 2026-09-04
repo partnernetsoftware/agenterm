@@ -254,6 +254,18 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   verified `timeout` instead of pretending the process exited. The three public
   journey scripts own the next evidence pass; macOS is live green while Linux
   and Windows await their next native-court rerun.
+- [~] `process-kill` / MCU alias `kill` is the first identity-safe process
+  mutation. The caller must provide PID + the prior `process-state` identity +
+  explicit `--expect exited`; ACU then reserves a crash-persistent receipt,
+  signals through a retained native process object, and waits on that same
+  object for the postcondition. Linux uses `pidfd_send_signal` (graceful or
+  forceful) and a real Linux x86_64 court has returned verified exit with no
+  surviving child. Windows forceful mode uses a retained HANDLE; its x86_64
+  court likewise returned verified exit in 114 ms with a closed receipt.
+  macOS is deliberately typed `process_signal_unsupported`:
+  kqueue proves which object exits but cannot atomically signal that object, so
+  a PID fallback would retain a reuse race and is forbidden. Arbitrary signals,
+  suspend/resume and bounded process-tree termination remain separate leaves.
 - [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
   bounded identity-safe diff. It takes one baseline and emits `started` /
   `exited` rows keyed by PID plus native start identity, so PID reuse cannot

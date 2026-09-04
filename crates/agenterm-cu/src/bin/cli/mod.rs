@@ -35,7 +35,7 @@ pub fn parse_command(
     match spec.family {
         Family::System => system::parse(spec, target, args),
         Family::Windows => windows::parse(spec, spelled, target, args),
-        Family::Process => process::parse(spec, target, args),
+        Family::Process => process::parse(spec, spelled, target, args),
         Family::A11yObserve => a11y_observe::parse(spec, spelled, target, args),
         Family::A11yActuate => a11y_actuate::parse(spec, spelled, target, args),
         Family::Browser => browser::parse(spec, spelled, target, args),

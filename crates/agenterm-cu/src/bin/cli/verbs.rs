@@ -603,6 +603,29 @@ an identity mismatch fails before waiting. This avoids MCU's repeated PID
         polling and cannot silently follow a recycled pid."#,
     },
     VerbSpec {
+        name: "process-kill",
+        command: "process-kill",
+        aliases: &["process kill", "kill"],
+        scope: Scope::Actuate,
+        family: Family::Process,
+        summary: "terminate one exact identity-bound process object",
+        usage: "process-kill --pid N --start-identity ID [--mode forceful|graceful] [--timeout-ms N] --expect exited\nkill PID --start-identity ID [--mode forceful|graceful] [--timeout-ms N] --expect exited",
+        args: &[
+            ArgSpec { flag: "--pid", value: "N", help: "positive process id previously observed" },
+            ArgSpec { flag: "--start-identity", value: "ID", help: "exact value returned by process-state" },
+            ArgSpec { flag: "--mode", value: "MODE", help: "forceful (default) or graceful" },
+            ArgSpec { flag: "--timeout-ms", value: "N", help: "monotonic exit-verification limit, 1..=86400000 (default 30000)" },
+            ArgSpec { flag: "--expect", value: "exited", help: "required destructive postcondition" },
+        ],
+        details: r#"Opens a mutation-capable native reference, checks its start identity
+against the caller's prior observation, reserves a crash-persistent receipt,
+terminates through that exact object, then waits on the same object for exit.
+Linux uses pidfd_send_signal and Windows forceful mode uses the retained HANDLE.
+macOS refuses the operation because kqueue observation cannot make a later PID
+signal atomic against PID reuse. Graceful mode is therefore Linux-only today;
+unsupported is typed and no naked-PID fallback is allowed."#,
+    },
+    VerbSpec {
         name: "process-watch",
         command: "process-watch",
         aliases: &["process watch"],
@@ -3101,6 +3124,7 @@ mod tests {
             .collect();
         for expected in [
             "pointer-move",
+            "process-kill",
             "invoke",
             "menu-invoke",
             "click",
@@ -3144,6 +3168,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 36, "{actuate:?}");
+        assert_eq!(actuate.len(), 37, "{actuate:?}");
     }
 }

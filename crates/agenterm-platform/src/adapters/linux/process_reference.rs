@@ -23,6 +23,10 @@ impl ProcessReference {
         })
     }
 
+    pub(crate) fn open_for_termination(process_id: u32) -> io::Result<Self> {
+        Self::open(process_id)
+    }
+
     pub(crate) const fn id(&self) -> u32 {
         self.process_id
     }
@@ -75,6 +79,30 @@ impl ProcessReference {
                     )));
                 }
             }
+        }
+    }
+
+    pub(crate) fn terminate(
+        &self,
+        mode: crate::process_control::TerminationMode,
+    ) -> io::Result<()> {
+        let signal = match mode {
+            crate::process_control::TerminationMode::Graceful => libc::SIGTERM,
+            crate::process_control::TerminationMode::Forceful => libc::SIGKILL,
+        };
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.descriptor.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
         }
     }
 }

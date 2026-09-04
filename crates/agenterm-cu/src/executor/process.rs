@@ -7,7 +7,9 @@ use std::{
 
 use serde_json::{Value, json};
 
-use crate::CuError;
+use crate::{CuError, command::ProcessKillMode, receipt::ReceiptLog};
+
+use super::error_payload;
 
 const DEFAULT_MAX: usize = 200;
 const MAX_RESULTS: usize = 5_000;
@@ -266,6 +268,126 @@ pub(super) fn process_wait_payload(
         "verified": true,
         "mechanism": "native-process-reference",
     }))
+}
+
+pub(super) fn process_kill_payload(
+    pid: u32,
+    expected_identity: &str,
+    mode: ProcessKillMode,
+    timeout_ms: u64,
+    expect_exited: bool,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if pid == 0
+        || expected_identity.is_empty()
+        || !(1..=86_400_000).contains(&timeout_ms)
+        || !expect_exited
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-kill requires a positive pid, non-empty start identity, timeout-ms in 1..=86400000 and --expect exited",
+        ));
+    }
+    let reference = agenterm_platform::process_reference::ProcessReference::open_for_termination(
+        pid,
+    )
+    .map_err(|error| {
+        CuError::new("process_reference_failed", error.to_string())
+            .with_detail(json!({ "pid": pid }))
+    })?;
+    let actual_identity = live_start_identity(pid)?;
+    if actual_identity != expected_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity does not match the prior observation",
+        )
+        .with_detail(json!({
+            "pid": pid,
+            "expected_start_identity": expected_identity,
+            "actual_start_identity": actual_identity,
+            "effect": "not_performed",
+        })));
+    }
+    if !reference
+        .is_alive()
+        .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?
+    {
+        return Err(CuError::new(
+            "process_not_found",
+            "the exact process object exited before the effect was reserved",
+        ));
+    }
+
+    let ticket = receipts.reserve(
+        "process-kill",
+        0,
+        json!({
+            "process": { "pid": pid, "start_identity": expected_identity },
+            "mode": mode.as_str(),
+            "expect": "exited",
+            "before": { "state": "live" },
+        }),
+    )?;
+    let platform_mode = match mode {
+        ProcessKillMode::Graceful => agenterm_platform::process_control::TerminationMode::Graceful,
+        ProcessKillMode::Forceful => agenterm_platform::process_control::TerminationMode::Forceful,
+    };
+    if let Err(error) = reference.terminate(platform_mode) {
+        let code = if error.kind() == std::io::ErrorKind::Unsupported {
+            "process_signal_unsupported"
+        } else {
+            "process_signal_failed"
+        };
+        let error = CuError::new(code, error.to_string());
+        receipts.complete(
+            &ticket,
+            "process-kill",
+            0,
+            false,
+            json!({ "performed": false, "error": error_payload(&error) }),
+        )?;
+        return Err(error.with_detail(json!({ "receipt": ticket.json() })));
+    }
+
+    let started = Instant::now();
+    let wait = reference
+        .wait_for_exit(Some(Duration::from_millis(timeout_ms)))
+        .map_err(|error| CuError::new("process_wait_failed", error.to_string()))?;
+    let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let exited = wait == agenterm_platform::process_reference::ProcessWait::Exited;
+    receipts.complete(
+        &ticket,
+        "process-kill",
+        0,
+        exited,
+        json!({
+            "performed": true,
+            "after": { "state": if exited { "exited" } else { "live" } },
+            "verification": "native-process-reference",
+            "elapsed_ms": elapsed_ms,
+        }),
+    )?;
+    let payload = json!({
+        "pid": pid,
+        "start_identity": expected_identity,
+        "mode": mode.as_str(),
+        "performed": true,
+        "state": if exited { "exited" } else { "live" },
+        "verified": exited,
+        "elapsed_ms": elapsed_ms,
+        "timeout_ms": timeout_ms,
+        "mechanism": "native-process-reference",
+        "receipt": ticket.json(),
+    });
+    if exited {
+        Ok(payload)
+    } else {
+        Err(CuError::new(
+            "process_still_live",
+            "termination was requested but the exact process object did not exit before the deadline",
+        )
+        .with_detail(json!({ "receipt": payload })))
+    }
 }
 
 fn process_watch_snapshot(

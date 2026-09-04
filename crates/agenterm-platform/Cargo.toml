@@ -125,6 +125,7 @@ process-security = [
     "windows-sys/Win32_System_Threading",
 ]
 process-reference = [
+    "process-control",
     "dep:libc",
     "dep:windows-sys",
     "windows-sys/Win32_Foundation",

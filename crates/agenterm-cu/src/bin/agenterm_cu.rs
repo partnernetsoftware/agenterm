@@ -1627,6 +1627,13 @@ mod surface_tests {
                 "send-text" => vec!["--window", "1", "hello"],
                 "send-keys" => vec!["--window", "1", "enter"],
                 "pointer-move" => vec!["--to", "desktop", "--x", "0", "--y", "0"],
+                "process-kill" => vec![
+                    "4294967295",
+                    "--start-identity",
+                    "not-a-live-process",
+                    "--expect",
+                    "exited",
+                ],
                 "app" => vec!["--window", "1"],
                 _ => vec![],
             }

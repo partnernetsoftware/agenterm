@@ -48,6 +48,10 @@ impl ProcessReference {
         })
     }
 
+    pub(crate) fn open_for_termination(process_id: u32) -> io::Result<Self> {
+        Self::open(process_id)
+    }
+
     pub(crate) const fn id(&self) -> u32 {
         self.process_id
     }
@@ -102,6 +106,16 @@ impl ProcessReference {
                 }
             }
         }
+    }
+
+    pub(crate) fn terminate(
+        &self,
+        _mode: crate::process_control::TerminationMode,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "macOS has no exact-process signal primitive atomic against PID reuse",
+        ))
     }
 }
 
