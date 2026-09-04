@@ -48,6 +48,7 @@ pub(crate) struct Slot {
     /// face has no room for it, so it waits here for [`Engine::take_failed_stdout`].
     failed_stdout: String,
     failed_cost: Option<Cost>,
+    heap_start_bytes: Option<usize>,
 }
 
 impl Slot {
@@ -97,13 +98,16 @@ impl Slot {
         // fails here -- classified like any other execution fault rather than
         // reported as a malformed module.
         let instance = module.instantiate().map_err(classify)?;
-        Ok(Self {
+        let mut slot = Self {
             instance,
             door,
             convention,
             failed_stdout: String::new(),
             failed_cost: None,
-        })
+            heap_start_bytes: None,
+        };
+        slot.heap_start_bytes = slot.allocation_waterline()?;
+        Ok(slot)
     }
 
     pub(crate) fn call(
@@ -174,6 +178,7 @@ impl Slot {
                     waited_ms,
                     heap_pages,
                     heap_bytes: None,
+                    heap_start_bytes: self.heap_start_bytes,
                 });
                 return Err(self.explain(fault));
             }
@@ -203,6 +208,7 @@ impl Slot {
             waited_ms,
             heap_pages,
             heap_bytes,
+            heap_start_bytes: self.heap_start_bytes,
         })
     }
 

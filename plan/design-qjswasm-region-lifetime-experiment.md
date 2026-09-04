@@ -40,9 +40,10 @@ persistent qjswasm slot
    work is to drive the three product journeys and write their attribution
    table, not to add another allocator mechanism.
 7. Product-path proof: `AGENTERM_QJS_ALLOCATION_PROBE=1` makes the existing
-   Script cost envelope add `heap_bytes`; the same qjs eval measured 2,009
-   steps with and without the probe, and the ordinary envelope omitted the
-   optional field. This switch is diagnostic instrumentation, not a budget or
+   Script cost envelope add `heap_start_bytes` and `heap_bytes`; their
+   difference excludes the literal pool. The same qjs eval measured 2,009
+   steps with and without the probe, and the ordinary envelope omitted both
+   optional fields. This switch is diagnostic instrumentation, not a budget or
    permission profile.
 
 ## 1. Hard constraints

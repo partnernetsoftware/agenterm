@@ -203,6 +203,9 @@ pub struct ScriptCost {
     /// explicitly enabled; omitted for ordinary runs and other engines.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heap_bytes: Option<usize>,
+    /// Diagnostic qjs allocator waterline before the first exported call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heap_start_bytes: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1215,6 +1218,7 @@ mod tests {
             waited_ms: 6,
             heap_pages: 7,
             heap_bytes,
+            heap_start_bytes: heap_bytes.map(|_| 400),
         }
     }
 
@@ -1224,6 +1228,7 @@ mod tests {
         assert!(ordinary.get("heap_bytes").is_none());
         let diagnostic = serde_json::to_value(cost(Some(680))).expect("serializes");
         assert_eq!(diagnostic.get("heap_bytes"), Some(&Value::from(680)));
+        assert_eq!(diagnostic.get("heap_start_bytes"), Some(&Value::from(400)));
     }
 
     fn cancel_frame(frame_id: &str, invocation_id: &str) -> ScriptFrame {

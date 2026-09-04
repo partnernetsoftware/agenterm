@@ -42,6 +42,8 @@ fn diagnostic_slot_reports_repeatable_dead_json_growth() {
             outcome.values,
             vec![Value::Js(agenterm_qjswasm::JsValue::Number(2.0))]
         );
+        assert_eq!(outcome.heap_start_bytes, Some(waterlines[0]));
+        assert!(outcome.heap_bytes.is_some_and(|end| end > waterlines[0]));
         waterlines.push(
             engine
                 .allocation_waterline(slot)

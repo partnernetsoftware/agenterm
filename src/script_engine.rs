@@ -351,6 +351,7 @@ fn script_cost(cost: agenterm_qjswasm::Cost) -> ScriptCost {
         waited_ms: cost.waited_ms,
         heap_pages: cost.heap_pages,
         heap_bytes: cost.heap_bytes,
+        heap_start_bytes: cost.heap_start_bytes,
     }
 }
 
@@ -863,6 +864,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                         waited_ms: outcome.waited_ms,
                         heap_pages: outcome.heap_pages,
                         heap_bytes: outcome.heap_bytes,
+                        heap_start_bytes: outcome.heap_start_bytes,
                     }),
                 })
                 .map_err(|e| ScriptEngineError::from(e.to_string())),
@@ -1032,6 +1034,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 waited_ms: outcome.waited_ms,
                 heap_pages: outcome.heap_pages,
                 heap_bytes: outcome.heap_bytes,
+                heap_start_bytes: outcome.heap_start_bytes,
             }),
         })
     }
