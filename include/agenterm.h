@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 26
+#define AGT_ABI_MINOR 27
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -345,6 +345,22 @@ agt_status agt_screenshot_capture_window(intptr_t native_window, const char* pat
                                          int32_t area_kind, int32_t left,
                                          int32_t top, int32_t width,
                                          int32_t height);
+
+/* --- network resolution (ABI 1.27) --------------------------------- */
+
+typedef struct {
+    uint32_t family;       /* 4 or 6 */
+    uint16_t port;
+    uint16_t reserved;
+    uint8_t  address[16];  /* IPv4 uses the first four bytes */
+} agt_network_address;
+
+/* Resolve one UTF-8 host with the system resolver into a caller-owned array.
+ * This is the standard two-stage protocol. The caller owns cancellation; the
+ * function may block with the host resolver. */
+agt_status agt_network_resolve(const uint8_t* host, size_t host_len,
+                               uint16_t port, agt_network_address* buf,
+                               size_t cap, size_t* out_count);
 
 /* --- process (milestone 5) ------------------------------------------ */
 

@@ -23,6 +23,11 @@ ABI 1.26 新增 `agt_native_window_activate`：调用者提供一个枚举所得
 抬升与改变全局前台所有者是不同机制；调用方仍须通过窗口枚举独立回读
 `focused` 后置状态，导出返回成功不能单独充当行为证据。
 
+ABI 1.27 新增 `agt_network_resolve`：只把 UTF-8 主机名交给系统 resolver，
+通过 caller-owned 两阶段数组返回 IPv4/IPv6 地址。它不拥有超时、重试、TCP、
+HTTP 或产品 JSON；可能阻塞的 resolver 调用由消费者放在可取消、可回收的进程
+边界中。这样 qjswasm、CU 与后续消费者可共享 OS 机制，而不把产品策略塞进 ABI。
+
 ## 构建（必须用 unwind profile）
 
 规格 §3.8：panic 不得穿过 FFI 边界——每个导出都包了 `catch_unwind`，

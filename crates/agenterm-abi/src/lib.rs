@@ -114,6 +114,7 @@ use agenterm_platform::input_inject::{
     MAX_POINTER_DRAG_STEPS, PointerButton as InjectPointerButton, PointerPosition, pointer_click,
     pointer_drag, pointer_move, pointer_position, send_keys, type_text,
 };
+use agenterm_platform::network_resolve::resolve as resolve_network;
 use agenterm_platform::parent_console::{write_stderr, write_stdout};
 use agenterm_platform::process::{kill, list};
 use agenterm_platform::pty::{
@@ -298,7 +299,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 26);
+abi_version!(1, 27);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -2875,6 +2876,121 @@ pub extern "C" fn agt_screenshot_capture_window(
                 c"agt_screenshot_capture_window",
                 c"panic",
                 "panic in agt_screenshot_capture_window",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+// --- network resolution (ABI 1.27) -----------------------------------
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub struct agt_network_address {
+    /// 4 or 6.
+    pub family: u32,
+    pub port: u16,
+    pub reserved: u16,
+    /// IPv4 occupies the first four bytes; the remainder is zero.
+    pub address: [u8; 16],
+}
+
+fn network_address_record(address: std::net::SocketAddr) -> agt_network_address {
+    let mut bytes = [0_u8; 16];
+    let family = match address.ip() {
+        std::net::IpAddr::V4(ip) => {
+            bytes[..4].copy_from_slice(&ip.octets());
+            4
+        }
+        std::net::IpAddr::V6(ip) => {
+            bytes.copy_from_slice(&ip.octets());
+            6
+        }
+    };
+    agt_network_address {
+        family,
+        port: address.port(),
+        reserved: 0,
+        address: bytes,
+    }
+}
+
+/// Resolve one UTF-8 host through the system resolver into a caller-owned,
+/// two-stage address array. Cancellation is owned by the calling process.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_network_resolve(
+    host: *const u8,
+    host_len: usize,
+    port: u16,
+    buf: *mut agt_network_address,
+    cap: usize,
+    out_count: *mut usize,
+) -> agt_status {
+    fn inner(
+        host: *const u8,
+        host_len: usize,
+        port: u16,
+        buf: *mut agt_network_address,
+        cap: usize,
+        out_count: *mut usize,
+    ) -> agt_status {
+        if out_count.is_null() || host.is_null() || (cap > 0 && buf.is_null()) {
+            record_error(
+                c"agt_network_resolve",
+                c"bad_pointer",
+                "host, out_count and non-empty buffer must be non-null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let host = match std::str::from_utf8(unsafe { std::slice::from_raw_parts(host, host_len) })
+        {
+            Ok(host) => host,
+            Err(_) => {
+                record_error(
+                    c"agt_network_resolve",
+                    c"invalid_utf8",
+                    "host is not valid UTF-8",
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let addresses = match resolve_network(host, port) {
+            Ok(addresses) => addresses,
+            Err(error) => {
+                record_error(
+                    c"agt_network_resolve",
+                    c"dns_resolution_failed",
+                    error.to_string(),
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let required = addresses.len();
+        unsafe { *out_count = required };
+        if cap < required {
+            record_error(
+                c"agt_network_resolve",
+                c"buffer_too_small",
+                "cap is smaller than the resolved address count",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        for (index, address) in addresses.into_iter().enumerate() {
+            unsafe { *buf.add(index) = network_address_record(address) };
+        }
+        agt_status::AGT_OK
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(host, host_len, port, buf, cap, out_count)
+    })) {
+        Ok(status) => status,
+        Err(_) => {
+            record_error(
+                c"agt_network_resolve",
+                c"panic",
+                "panic in agt_network_resolve",
             );
             agt_status::AGT_FAILED
         }
@@ -7733,5 +7849,39 @@ mod tests {
         assert_eq!(rec.name_len, 12);
         assert_eq!(rec.name_truncated, 0);
         assert_eq!(&rec.name[..12], b"agenterm.exe");
+    }
+
+    #[test]
+    fn network_resolution_uses_two_stage_records() {
+        let host = b"127.0.0.1";
+        let mut required = 0_usize;
+        assert_eq!(
+            agt_network_resolve(
+                host.as_ptr(),
+                host.len(),
+                443,
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+            ),
+            agt_status::AGT_FAILED
+        );
+        assert_eq!(required, 1);
+        let mut rows = vec![agt_network_address::default(); required];
+        assert_eq!(
+            agt_network_resolve(
+                host.as_ptr(),
+                host.len(),
+                443,
+                rows.as_mut_ptr(),
+                rows.len(),
+                &mut required,
+            ),
+            agt_status::AGT_OK
+        );
+        assert_eq!(rows[0].family, 4);
+        assert_eq!(rows[0].port, 443);
+        assert_eq!(&rows[0].address[..4], &[127, 0, 0, 1]);
+        assert!(rows[0].address[4..].iter().all(|byte| *byte == 0));
     }
 }

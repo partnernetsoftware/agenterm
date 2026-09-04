@@ -141,6 +141,16 @@ pub struct agt_screen_info {
     pub primary: i32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+#[allow(non_camel_case_types)]
+pub struct agt_network_address {
+    pub family: u32,
+    pub port: u16,
+    pub reserved: u16,
+    pub address: [u8; 16],
+}
+
 /// C-compatible resident desktop-host action specification.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -294,6 +304,8 @@ pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground
 /// operation (not app-local raise and not accessibility-node focus).
 pub const WINDOW_ACTIVATE_ABI_MINOR: u16 = 26;
+/// ABI 1.27: bounded two-stage system DNS resolution.
+pub const NETWORK_RESOLVE_ABI_MINOR: u16 = 27;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

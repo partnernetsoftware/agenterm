@@ -5,9 +5,8 @@
 //! request, and kills *and reaps* that exact child at the overall deadline.
 
 use std::{
-    collections::BTreeSet,
     io::{Read, Write},
-    net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, TcpListener, TcpStream},
     process::{Child, ChildStdout, Command as ProcessCommand, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
     thread,
@@ -16,6 +15,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(test))]
+use crate::dynlib;
 use crate::reply::CuError;
 
 pub const WORKER_ARG: &str = "--agenterm-cu-internal-network-probe-worker";
@@ -410,27 +411,109 @@ fn execute_request(request: &ProbeRequest) -> WorkerReply {
     }
 }
 
+#[cfg(not(test))]
 fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, WorkerReply> {
-    let iterator = (host, port).to_socket_addrs().map_err(|error| {
-        worker_error(
-            "dns_resolution_failed",
-            format!("system resolver failed: {error}"),
+    type Resolve = unsafe extern "C" fn(
+        *const u8,
+        usize,
+        u16,
+        *mut dynlib::agt_network_address,
+        usize,
+        *mut usize,
+    ) -> i32;
+
+    let lib = dynlib::load()
+        .map_err(|error| worker_error("dns_mechanism_unavailable", error.message.clone()))?;
+    let version = lib
+        .abi_version()
+        .map_err(|error| worker_error("dns_mechanism_unavailable", error))?;
+    if (version & 0xffff) < u32::from(dynlib::NETWORK_RESOLVE_ABI_MINOR) {
+        return Err(worker_error(
+            "dns_mechanism_unavailable",
+            format!(
+                "libagenterm ABI 1.{} lacks network resolution",
+                version & 0xffff
+            ),
+        ));
+    }
+    let call = unsafe { lib.sym::<Resolve>(b"agt_network_resolve") }
+        .map_err(|error| worker_error("dns_mechanism_unavailable", error))?;
+    let mut required = 0_usize;
+    let first = unsafe {
+        call(
+            host.as_ptr(),
+            host.len(),
+            port,
+            std::ptr::null_mut(),
+            0,
+            &mut required,
         )
-    })?;
-    let mut unique = BTreeSet::new();
-    for address in iterator {
-        unique.insert(address);
-        if unique.len() > MAX_ADDRESSES {
+    };
+    if first != dynlib::AGT_FAILED || required == 0 {
+        return Err(worker_error(
+            "dns_resolution_failed",
+            lib.last_error_message(),
+        ));
+    }
+    if required > MAX_ADDRESSES {
+        return Err(worker_error(
+            "dns_result_too_large",
+            format!("system resolver returned more than {MAX_ADDRESSES} unique addresses"),
+        ));
+    }
+    let mut records = vec![dynlib::agt_network_address::default(); required];
+    let status = unsafe {
+        call(
+            host.as_ptr(),
+            host.len(),
+            port,
+            records.as_mut_ptr(),
+            records.len(),
+            &mut required,
+        )
+    };
+    if status != dynlib::AGT_OK || required != records.len() {
+        return Err(worker_error(
+            "dns_resolution_failed",
+            lib.last_error_message(),
+        ));
+    }
+    records.into_iter().map(address_from_record).collect()
+}
+
+#[cfg(not(test))]
+fn address_from_record(record: dynlib::agt_network_address) -> Result<SocketAddr, WorkerReply> {
+    let ip = match record.family {
+        4 if record.address[4..].iter().all(|byte| *byte == 0) => {
+            IpAddr::V4(std::net::Ipv4Addr::new(
+                record.address[0],
+                record.address[1],
+                record.address[2],
+                record.address[3],
+            ))
+        }
+        6 => IpAddr::V6(std::net::Ipv6Addr::from(record.address)),
+        _ => {
             return Err(worker_error(
-                "dns_result_too_large",
-                format!("system resolver returned more than {MAX_ADDRESSES} unique addresses"),
+                "dns_protocol_invalid",
+                "libagenterm returned an invalid address record",
             ));
         }
-    }
-    if unique.is_empty() {
+    };
+    Ok(SocketAddr::new(ip, record.port))
+}
+
+#[cfg(test)]
+fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, WorkerReply> {
+    use std::{collections::BTreeSet, net::ToSocketAddrs};
+    let unique: BTreeSet<_> = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| worker_error("dns_resolution_failed", error.to_string()))?
+        .collect();
+    if unique.is_empty() || unique.len() > MAX_ADDRESSES {
         return Err(worker_error(
-            "dns_resolution_empty",
-            "system resolver returned no addresses",
+            "dns_resolution_failed",
+            "invalid resolver result count",
         ));
     }
     Ok(unique.into_iter().collect())
