@@ -9,8 +9,9 @@ Capability ledger: [`plan/capability-mcu-cu.md`](capability-mcu-cu.md)
 
 Machine-readable state ledger:
 [`plan/acu-mcu-capability-ledger.json`](acu-mcu-capability-ledger.json). It is
-currently exhaustive for the process family and grows family by family until
-R0 reaches zero unclassified public shapes.
+now exhaustive across 11 public capability families and R0 has zero
+unclassified public shapes. This closes accounting, not implementation: every
+`gap` and `platform-limited` row still needs its owning slice and court.
 
 ## Product outcome
 
@@ -38,6 +39,9 @@ ACU replaces MCU
 │  ├─ desktop/a11y/browser/window/input → CU + platform/libagenterm
 │  ├─ PTY/process/task composition → AgenTerm + qjswasm
 │  ├─ file/network/device/service/privilege → typed platform facades
+│  ├─ setup/doctor/permissions → truthful probes + exact repair actions
+│  ├─ daemon/session/lock/audit → one durable native ACU coordinator
+│  ├─ Simulator → explicit macOS-limited typed facade
 │  └─ current/ssh/vnc/VM targets preserve one command and result schema
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
@@ -61,8 +65,9 @@ ACU replaces MCU
 ```mermaid
 flowchart LR
   M["MCU capability inventory"]
-  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & NET["network ✓"] & DEV["device/audio ✓"] & REST["system …"]
-  DESK & PROC & BROW & PTY & FILE & NET & DEV & REST --> L["machine-readable replacement ledger"]
+  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & NET["network ✓"] & DEV["device/audio ✓"]
+  M --> RUN["service/runtime/session/audit ✓"] & SET["setup/doctor/permissions ✓"] & PRIV["privilege ✓"] & SIM["Simulator ✓"]
+  DESK & PROC & BROW & PTY & FILE & NET & DEV & RUN & SET & PRIV & SIM --> L["11-family machine-readable ledger<br/>R0 accounting complete"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -203,6 +208,14 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   exclusive device leases, byte I/O, serial configuration and default-output
   state. A path alone is never durable device identity, and audio backends stay
   explicitly platform-limited until each native court proves them.
+- R0 accounting is complete across all 11 families. Runtime/service/session/
+  audit contains user/system services, native coordinator, login service,
+  leases, target locks, request idempotency, desktop delivery, audit
+  query/retention/replay and console-session locking. Setup/doctor/permissions,
+  the privilege broker chain and all CoreSimulator device/app/deployment/
+  foreground/capture shapes are separately classified. An empty
+  `remaining_families` means there is no hidden command family; it does not
+  turn any gap into an implementation.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -231,7 +244,7 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 ```text
 Q0 truthful boundary
 ├─ [x] runtime/help text: no useful capability is described as permanently MCU-owned
-└─ [~] replace top-level STAY counting with sub-verb + argument-shape ledger
+└─ [x] replace top-level STAY counting with sub-verb + argument-shape ledger
    ├─ [x] process family accounted shape by shape in the JSON ledger
    ├─ [x] desktop family accounted shape by shape in the JSON ledger
    ├─ [x] browser family accounted shape by shape in the JSON ledger
@@ -239,7 +252,10 @@ Q0 truthful boundary
    ├─ [x] file/storage family accounted shape by shape in the JSON ledger
    ├─ [x] network family accounted shape by shape in the JSON ledger
    ├─ [x] device/audio family accounted shape by shape in the JSON ledger
-   └─ [ ] runtime/system families remain to enumerate
+   ├─ [x] service/runtime/session/lock/audit family accounted shape by shape
+   ├─ [x] setup/doctor/permissions family accounted shape by shape
+   ├─ [x] privilege family accounted shape by shape
+   └─ [x] Simulator family accounted shape by shape
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
 ├─ [ ] Linux and Windows journeys for the same verbs

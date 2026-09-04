@@ -122,6 +122,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   boundary. The executable goal, capability states and retirement gates are
   [`plan/goal-acu-replaces-mcu.md`](../plan/goal-acu-replaces-mcu.md).
   Provenance: [14](PRD_02_14_research_provenance.md) (lessons, not a TS copy).
+- [x] R0 replacement accounting is exhaustive in
+  `plan/acu-mcu-capability-ledger.json`: 11 families cover desktop, browser,
+  process, PTY/job/terminal, file/storage, network, device/audio,
+  service/runtime/session/audit, setup/doctor/permissions, privilege and
+  CoreSimulator. `remaining_families` is empty. This closes only the discovery
+  DAG; rows marked `gap` or `platform-limited` remain work and cannot be called
+  shipped from catalog presence.
 - [~] absorbed from that skill on 2026-08-30 (review and slices in
   [plan/design-mcu-absorption.md](../plan/design-mcu-absorption.md)): its
   default control loop `windows -> bounded query/tree -> invoke <selector>`,

@@ -681,12 +681,236 @@
           "next": "plan/apply transaction over the platform audio facade with target revalidation, post-state and rollback receipt"
         }
       ]
+    },
+    "service-runtime-session-audit": {
+      "accounting": "complete",
+      "owner": "agenterm-platform service/session mechanisms plus an ACU durable runtime coordinator",
+      "capabilities": [
+        {
+          "id": "service.user.lifecycle",
+          "mcu_shape": "service user list|status|bootstrap|start|restart|stop|bootout",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "provider-pending"},
+          "next": "typed per-user service identity, lifecycle mutation and exact state/PID/invocation readback per native provider"
+        },
+        {
+          "id": "service.system.lifecycle",
+          "mcu_shape": "service system list|status|start|restart|stop through a typed privileged request",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "provider-pending"},
+          "next": "bind service definition identity and before state into a privilege plan; revalidate before mutation and verify state after"
+        },
+        {
+          "id": "runtime.user-daemon",
+          "mcu_shape": "daemon start|status|restart|stop plus protocol/capability manifest",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "small native ACU coordinator for leases, jobs, locks and recovery; do not recreate a Bun sidecar"
+        },
+        {
+          "id": "runtime.login-service",
+          "mcu_shape": "daemon service install|status|start|stop|uninstall with crash recovery",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
+          "next": "per-user native login-service adapters with reversible installation and owned-resource preflight"
+        },
+        {
+          "id": "runtime.session-lease",
+          "mcu_shape": "session start|status|renew|end with TTL and bound-resource cleanup",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "durable opaque session lease shared by jobs, device claims and target locks; monotonic expiry and explicit cleanup outcome"
+        },
+        {
+          "id": "runtime.target-lock",
+          "mcu_shape": "lock acquire|status|renew|release over namespaced targets",
+          "acu_shape": "individual ACU verbs have authorization/receipts but no public cross-command target lock",
+          "state": "gap",
+          "next": "atomic namespaced lock bound to target identity and session lease, recovered or expired after coordinator restart"
+        },
+        {
+          "id": "runtime.request-idempotency",
+          "mcu_shape": "--request-id reserve then completed|failed|uncertain receipt across mutations",
+          "acu_shape": "destructive and selected actuation receipts exist, but request-id coverage is not universal",
+          "state": "gap",
+          "next": "one shared reserve/effect/postcondition receipt contract for every replay-sensitive ACU mutation"
+        },
+        {
+          "id": "runtime.desktop-delivery",
+          "mcu_shape": "runtime-issued bounded desktop delivery capability tied to session, target, operation, expiry and max use",
+          "acu_shape": "grant store binds authorization to the current session target",
+          "state": "gap",
+          "next": "audit whether the ACU grant store covers every delivery invariant; add only the missing target/operation/use binding, not a parallel token system"
+        },
+        {
+          "id": "runtime.audit-query-retention",
+          "mcu_shape": "audit query|compact with filters, pagination and scan/result/byte/age/event ceilings",
+          "acu_shape": "append-only audit and receipt files with bounded receipt listing",
+          "state": "gap",
+          "next": "bounded query plus crash-safe retention over the existing ACU audit format; preserve malformed-record counts and default dry-run"
+        },
+        {
+          "id": "runtime.audit-replay",
+          "mcu_shape": "planned replay for explicitly idempotent typed actions only",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "keep planned until universal request identity exists; never replay an uncertain or non-idempotent effect"
+        },
+        {
+          "id": "login-session.inventory-lock",
+          "mcu_shape": "login-session status|lock with console identity, short approval, anti-replay reservation and locked-state readback",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "provider-pending", "windows": "provider-pending"},
+          "next": "native console-session identity and lock-only mutation; unlocking remains human credential/biometric territory"
+        }
+      ]
+    },
+    "setup-doctor-permissions": {
+      "accounting": "complete",
+      "owner": "ACU bootstrap and diagnostics over truthful platform capability probes",
+      "capabilities": [
+        {
+          "id": "setup.cli-entrypoint",
+          "mcu_shape": "setup and setup --check install or inspect the stable CLI entrypoint",
+          "acu_shape": "path-install installs the ACU launcher; no complete check/repair workflow",
+          "state": "gap",
+          "next": "idempotent native launcher install/check with atomic publication and stale-version diagnosis on all three hosts"
+        },
+        {
+          "id": "setup.runtime-refresh",
+          "mcu_shape": "setup refreshes an idle daemon and refuses to disrupt running jobs or device leases",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "depends on the ACU runtime coordinator and its owned-resource inventory; never restart blindly"
+        },
+        {
+          "id": "doctor.health",
+          "mcu_shape": "doctor verifies runtime, helper, desktop bridges, permissions and repair actions",
+          "acu_shape": "capabilities reports mechanism status and repair paths",
+          "state": "gap",
+          "next": "compose existing capabilities with runtime/service/ABI/target-binding checks into one bounded diagnostic receipt"
+        },
+        {
+          "id": "permissions.status-guidance",
+          "mcu_shape": "permissions status separates required and optional grants and names affected capabilities plus exact repair/recheck",
+          "acu_shape": "capabilities.permissions reports current platform permission status and repair path",
+          "state": "delegated",
+          "qualification": "contract-present-host-journeys-partial",
+          "next": "prove every affected verb and required/optional classification on macOS, Linux and Windows"
+        },
+        {
+          "id": "permissions.open-next",
+          "mcu_shape": "permissions open or setup opens only the next missing system settings surface",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "mostly-not-applicable", "windows": "provider-specific"},
+          "next": "platform guidance action that opens one exact settings surface without fabricating or bypassing consent"
+        },
+        {
+          "id": "runtime.capability-probe",
+          "mcu_shape": "caps performs live probes and returns the full manifest plus state counts",
+          "acu_shape": "capabilities returns the ACU verb/target/mechanism matrix",
+          "state": "delegated",
+          "qualification": "live-depth-inventory-incomplete",
+          "next": "add bounded live probe evidence where declaration alone cannot establish mechanism health; keep unsupported distinct from unavailable"
+        }
+      ]
+    },
+    "privilege": {
+      "accounting": "complete",
+      "owner": "a separate native least-authority broker consumed by ACU typed operations",
+      "capabilities": [
+        {
+          "id": "privilege.plan",
+          "mcu_shape": "privilege plan creates a versioned typed request bound to operation, target identity, before state, expiry and source digest",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "closed request schema per privileged operation; raw shell text and arbitrary executable elevation are excluded"
+        },
+        {
+          "id": "privilege.one-shot",
+          "mcu_shape": "privilege apply via typed sudo helper with preflight, identity recheck and post-state",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "provider-pending"},
+          "next": "minimal native helper validates its own root-owned bytes and one closed request, then returns structured evidence"
+        },
+        {
+          "id": "privilege.ttl-broker",
+          "mcu_shape": "broker install|status|grant|execute|uninstall with UID-private channel, TTL and capability scope",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "provider-pending", "windows": "provider-pending"},
+          "next": "native service with short-lived least-authority grants, at-most-once mutation receipts and rollback-safe upgrades"
+        },
+        {
+          "id": "privilege.native-consent",
+          "mcu_shape": "platform administrator authentication UI, with explicit canceled result and no credential collection",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "polkit-pending", "windows": "UAC-pending"},
+          "next": "invoke only the OS consent surface; passwords, MFA and biometric material never enter ACU"
+        }
+      ]
+    },
+    "simulator": {
+      "accounting": "complete",
+      "owner": "macOS CoreSimulator adapter behind an explicitly platform-limited ACU facade",
+      "capabilities": [
+        {
+          "id": "simulator.device-inventory",
+          "mcu_shape": "simulator devices|status with runtime, device type, exact UDID and boot state",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "next": "bounded CoreSimulator inventory preserving runtime and device identity"
+        },
+        {
+          "id": "simulator.device-lifecycle",
+          "mcu_shape": "simulator boot|shutdown UDID with stable request identity and settled-state readback",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "next": "target-locked device state transaction; boot waits for bootstatus and both directions verify host foreground invariants"
+        },
+        {
+          "id": "simulator.app-inventory-lifecycle",
+          "mcu_shape": "simulator apps|launch|terminate with UDID, bundle identity, executable and guest PID",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "next": "exact device+bundle control object with process start identity, target lock, receipt and appearance/disappearance readback"
+        },
+        {
+          "id": "simulator.app-deployment",
+          "mcu_shape": "simulator install|uninstall with bounded app-tree digest, replace gate and content readback",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "next": "bounded source identity and guest-container content verification; destructive uninstall remains plan-first"
+        },
+        {
+          "id": "simulator.guest-foreground",
+          "mcu_shape": "simulator foreground|activate distinguishes guest foreground from host foreground and process liveness",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "next": "typed provider for exact guest bundle/PID foreground plus host-focus and pointer invariants"
+        },
+        {
+          "id": "simulator.guest-screenshot",
+          "mcu_shape": "simulator screenshot UDID OUT with no-overwrite and PNG readback",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "next": "framebuffer capture bound to exact booted device, atomic no-overwrite publication and image identity receipt"
+        }
+      ]
     }
   },
-  "remaining_families": [
-    "service-daemon-session-lock-audit",
-    "setup-doctor-permissions",
-    "privilege",
-    "simulator"
-  ]
+  "remaining_families": []
 }
