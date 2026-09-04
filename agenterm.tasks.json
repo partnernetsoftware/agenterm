@@ -635,6 +635,24 @@
         "task.cu-network-probe-smoke"
       ]
     },
+    "cu-pty-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-pty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-pty-smoke"
+      ]
+    },
     "stage-cu-windows-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -2198,6 +2216,28 @@
         "artifact_write",
         "process_spawn",
         "network_loopback"
+      ]
+    },
+    {
+      "id": "cu-pty-smoke",
+      "description": "Prove qjswasm can orchestrate one durable headless ACU PTY across native hosts: literal input receipt, loss-aware exact output wait, exact exit, typed unmatched-after-exit and verified authority cleanup.",
+      "entry": "scripts/qjs/cu-pty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

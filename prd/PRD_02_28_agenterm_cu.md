@@ -492,6 +492,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   pages; overwritten/future cursors, timeout, and finalized-without-match are
   separate typed failures. This is stronger than polling the current screen,
   but deliberately does not claim MCU regex-wait parity yet.
+  A registered platform-neutral qjswasm task now owns the complete public
+  interaction assertion. Its first macOS run passed in 728 ms with exact
+  input, raw-output match, exit 7, typed finalized-without-match and verified
+  shutdown; native Linux and Windows runs remain open.
   Reuse/list/prune, event/screen projection, stale reclamation, process-tree control and native
   Linux/Windows lifecycle courts remain open.
   The frozen court and kill criterion are
@@ -523,7 +527,8 @@ flowchart LR
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/status/read/send/wait/wait-exit/stop ✓<br/>exact job + epoch + @tab"]
-  J --> J2["reuse/list/prune + stale/process-tree cleanup"]
+  J --> J1["qjswasm public PTY court<br/>macOS ✓ · Linux/Windows pending"]
+  J1 --> J2["reuse/list/prune + stale/process-tree cleanup"]
   J2 --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]

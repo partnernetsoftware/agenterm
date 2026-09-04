@@ -39,6 +39,7 @@ agenterm-qjswasm
 │  ├─ [x] print and engine-neutral Script host bridge
 │  ├─ [x] Fleet facade and public CLI route
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
+│  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
 │  ├─ [~] tool.* and release-task coverage grows by product need
 │  └─ [ ] every v0.1.18 release-critical journey has live .qjs evidence
 ├─ robustness
@@ -87,6 +88,7 @@ flowchart LR
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
+  QPTY["ACU headless PTY journey<br/>send · raw wait · exit · cleanup"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
   UP["tinyvm repository<br/>generic engine write knife"]
   REJECT["reject load/call<br/>host survives"]
@@ -118,6 +120,7 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
   PRODUCT -. child process .-> CAPTURE --> RECEIPT
+  PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT
   LOAD -->|no| REJECT
   SLOT -. budget / throw / host error .-> REJECT
@@ -225,6 +228,12 @@ second route around ACU/AgenTerm product contracts.
   ordinary filename characters. The Script smoke owns the lexical regression;
   the macOS ACU journey proved the native `process-cwd` comparison end to end.
 - [x] qjswasm tool process reports a missing child as a typed failure.
+- [x] The platform-neutral `cu-pty-smoke` task drives the public ACU facade
+  through qjswasm: exact literal input receipt, loss-aware raw-output match,
+  exact exit status, typed finalized-without-match, and verified authority
+  disappearance. The native macOS court completed in 728 ms at 2,081,763
+  steps, 44 host operations, 12,279 host bytes and 3 heap pages; Linux and
+  Windows native executions remain required before three-host promotion.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and

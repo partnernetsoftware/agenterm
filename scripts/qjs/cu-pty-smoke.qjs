@@ -1,0 +1,177 @@
+// Platform-neutral public black-box journey for the durable ACU PTY facade.
+//
+// Args: REPO AGENTERM_EXE AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// One unique name owns one invisible AgenTerm server. The journey drives only
+// public agenterm-cu verbs and verifies exact input, loss-aware output wait,
+// typed unmatched-after-exit, exact exit status, and endpoint disappearance.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.pty-background-interactive"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke_cu(run_directory, product, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_PRODUCT_EXECUTABLE: product,
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl")
+    },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_pty_cli_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(
+    (output.success === true) === (reply.ok === true),
+    "cu_pty_process_reply_disagree:" + output.exit_code + ":" + stdout
+  );
+  return reply;
+}
+
+function require_ok(reply, command) {
+  ensure(reply.ok === true && reply.command === command, "cu_pty_reply:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 3, "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let product = rh.absolute(args[1]);
+let executable = rh.absolute(args[2]);
+if (harness.host_is_windows()) {
+  if (!direct_file(product)) { product = product + ".exe"; }
+  if (!direct_file(executable)) { executable = executable + ".exe"; }
+}
+ensure(direct_file(product), "cu_pty_product_missing:" + product);
+ensure(direct_file(executable), "cu_pty_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-pty");
+const run_directory = context.run_directory;
+const job = "qjs-pty-" + rh.pid() + "-" + rh.now_ms();
+const windows = harness.host_is_windows();
+let started = 0;
+let stopped = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start one unique headless PTY authority with a platform-native interactive shell");
+  const start_arguments = [
+    "--target", "current", "--grant", "actuate", "pty-start", job, "--"
+  ];
+  if (windows) { start_arguments.push("cmd.exe"); start_arguments.push("/Q"); }
+  else { start_arguments.push("/bin/sh"); start_arguments.push("-i"); }
+  const start = require_ok(
+    invoke_cu(run_directory, product, executable, start_arguments),
+    "pty-start"
+  );
+  started = 1;
+  ensure(
+    start.background === true && start.verified === true
+      && start.status.name === job && start.status.tab_id === "@1"
+      && start.status.dead === false && start.status.finalized === false,
+    "cu_pty_start_contract:" + JSON.stringify(start)
+  );
+
+  print("STEP send exact literal shell input and require the committed control receipt");
+  const input = windows ? "echo QJS_PTY_READY\r" : "printf \"QJS_PTY_READY\\n\"\n";
+  const send = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-send", job, "--", input
+  ]), "pty-send");
+  ensure(
+    send.name === job && send.performed === true && send.verified === true
+      && send.text_bytes > 0 && send.send.verification === "agenterm-control-receipt",
+    "cu_pty_send_contract:" + JSON.stringify(send)
+  );
+
+  print("STEP wait from the retained raw-byte origin and return an exact match cursor");
+  const wait = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-wait", job,
+    "--contains", "QJS_PTY_READY", "--cursor", "earliest", "--timeout-ms", "10000"
+  ]), "pty-wait");
+  ensure(
+    wait.name === job && wait.completed === true && wait.state === "matched"
+      && wait.condition.kind === "contains" && wait.condition.bytes === 13
+      && wait.matched_at_cursor >= 0 && wait.next_cursor > wait.matched_at_cursor
+      && wait.scanned_bytes > 0,
+    "cu_pty_wait_contract:" + JSON.stringify(wait)
+  );
+
+  print("STEP exit with status 7 and distinguish finalized-without-match from timeout");
+  const exit_input = windows ? "exit /b 7\r" : "exit 7\n";
+  require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-send", job, "--", exit_input
+  ]), "pty-send");
+  const exited = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-wait-exit", job,
+    "--timeout-ms", "10000", "--expect-status", "7"
+  ]), "pty-wait-exit");
+  ensure(
+    exited.completed === true && exited.verified === true && exited.exit_status === 7
+      && exited.status.finalized === true,
+    "cu_pty_exit_contract:" + JSON.stringify(exited)
+  );
+  const absent = invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-wait", job,
+    "--contains", "NEVER_PRESENT", "--cursor", "earliest", "--timeout-ms", "10000"
+  ]);
+  ensure(
+    absent.ok === false && absent.error.code === "pty_job_wait_unmatched_after_exit",
+    "cu_pty_unmatched_exit_contract:" + JSON.stringify(absent)
+  );
+
+  print("STEP stop the exact job and verify its dedicated authority disappeared");
+  const stop = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-stop", job,
+    "--expect", "stopped"
+  ]), "pty-stop");
+  ensure(stop.state === "stopped" && stop.verified === true, "cu_pty_stop_contract");
+  stopped = 1;
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (started !== 0 && stopped === 0) {
+  try {
+    const cleanup = invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-stop", job,
+      "--expect", "stopped"
+    ]);
+    if (cleanup.ok === true && cleanup.data.verified === true) { stopped = 1; }
+    else { failure = failure + ";cu_pty_cleanup_unverified:" + JSON.stringify(cleanup); }
+  } catch (cleanup_error) {
+    failure = failure + ";cu_pty_cleanup_failed:" + cleanup_error;
+  }
+}
+
+let completion_failure = "";
+try {
+  harness.complete_children(context, [], succeeded !== 0 && stopped !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+if (succeeded !== 0 && stopped !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
+  harness.remove_run(context);
+  print("PASS: qjswasm orchestrated ACU headless PTY input, loss-aware wait, exact exit, typed miss and verified cleanup");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
