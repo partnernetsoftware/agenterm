@@ -239,8 +239,10 @@ second route around ACU/AgenTerm product contracts.
   journey is also green in the native Linux aarch64 UTM desktop court. Windows
   x86_64 is green through the interactive UTM job agent and public
   `agenterm.com` route, including native ConPTY execution and verified cleanup;
-  the native Windows aarch64 UTM court passes the identical contract. The only
-  remaining local six-cell projection is macOS x86_64 under Rosetta.
+  the native Windows aarch64 UTM court passes the identical contract. Exact
+  x86_64 macOS product/qjswasm/ACU/ABI bytes also pass under Rosetta. The local
+  six-cell user-space projection is therefore green; this is not a claim of an
+  Intel macOS kernel court.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and

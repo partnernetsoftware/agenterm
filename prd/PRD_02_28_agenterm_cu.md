@@ -505,9 +505,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   green through the logged-in UTM desktop job agent and the public
   `agenterm.com` trampoline: qjswasm drove the native ConPTY job through the
   same five stages and exited zero. Windows aarch64 then passed the identical
-  public journey on its native UTM guest. The remaining local six-cell
-  projection is a separate macOS x86_64/Rosetta execution, not a Windows or
-  Linux product gap.
+  public journey on its native UTM guest. The exact x86_64 macOS product,
+  qjswasm worker, ACU executable and ABI library then passed the same journey
+  under Rosetta. This closes the local six-cell user-space projection; Rosetta
+  is recorded as translation evidence, not an Intel kernel claim.
   Reuse/list/prune, event/screen projection, stale reclamation, process-tree control and native
   Linux/Windows lifecycle courts remain open.
   The frozen court and kill criterion are
@@ -539,7 +540,7 @@ flowchart LR
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/status/read/send/wait/wait-exit/stop ✓<br/>exact job + epoch + @tab"]
-  J --> J1["qjswasm public PTY court<br/>macOS arm64 ✓ · Linux x86_64/arm64 ✓<br/>Windows x86_64/arm64 ✓ · macOS x86_64 pending"]
+  J --> J1["qjswasm public PTY court · local six-cell ✓<br/>macOS arm64 + x86_64/Rosetta<br/>Linux + Windows x86_64/arm64 native"]
   J1 --> J2["reuse/list/prune + stale/process-tree cleanup"]
   J2 --> Q
   Q -->|macOS green| M1["public evidence live"]
