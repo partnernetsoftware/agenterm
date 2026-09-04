@@ -26,7 +26,10 @@ function invoke_cu(run_directory, product, executable, arguments) {
     cwd: run_directory,
     env: {
       AGENTERM_CU_PRODUCT_EXECUTABLE: product,
-      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl")
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
     },
     timeout_ms: 30000
   });

@@ -3651,3 +3651,16 @@ When a service promises an empty start, bypass restoration and the default
 state constructor at creation time. Clearing state afterward is too late if
 the default constructor itself allocates a tab, process, handle, or other
 owned resource.
+
+## Do not assume remote system sessions have a home directory
+
+QGA, service, scheduled-task, and other non-login execution contexts may omit
+`HOME` even inside a normal desktop guest. A black-box journey that launches a
+product whose durable state is home-relative must provide one private home and
+the matching platform data/config roots to every child process. Keep that tree
+inside the journey-owned run directory and reclaim it with the journey. Do not
+silently substitute the host user's home, a fixed guest account, or a global
+temporary directory: those choices make tests order-dependent and can mutate a
+reusable court image. The Linux x86_64 qjswasm-to-ACU PTY court exposed this as
+`home-directory-unavailable` before passing with isolated `HOME`,
+`XDG_DATA_HOME`, and `XDG_CONFIG_HOME`.

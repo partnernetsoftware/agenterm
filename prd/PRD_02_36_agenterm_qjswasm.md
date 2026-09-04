@@ -232,7 +232,10 @@ second route around ACU/AgenTerm product contracts.
   through qjswasm: exact literal input receipt, loss-aware raw-output match,
   exact exit status, typed finalized-without-match, and verified authority
   disappearance. The native macOS court completed in 728 ms at 2,081,763
-  steps, 44 host operations, 12,279 host bytes and 3 heap pages; Linux and
+  steps, 44 host operations, 12,279 host bytes and 3 heap pages. Native Linux
+  x86_64 is also green in the UTM desktop court after the task stopped assuming
+  that a QGA/system execution session has `HOME`: every ACU child receives a
+  private `HOME`/XDG tree rooted in the journey directory. Linux aarch64 and
   Windows native executions remain required before three-host promotion.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
