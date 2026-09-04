@@ -46,6 +46,12 @@ agenterm-qjswasm
 │  ├─ [x] cached-length/all-ASCII experiment rejected: 166 > 160-step hard gate
 │  ├─ [ ] isolate and remove the remaining generic member-dispatch overhead
 │  └─ [-] never raise a product gate merely to hide engine cost
+├─ long horizon: tinyvm as a Wasmtime-class alternative
+│  ├─ [ ] WebAssembly core conformance + malformed-module differential court
+│  ├─ [ ] interpreter cold-start/size/determinism court wins its chosen workloads
+│  ├─ [ ] standard embedder API, diagnostics, fuzzing and multi-instance lifecycle
+│  ├─ [ ] optional WASI/Component compatibility in tinyvm, never a hidden AgenTerm OS door
+│  └─ [ ] replace Wasmtime only per workload after precommitted parity/security/performance gates
 └─ non-goals
    ├─ no Node.js / browser-global compatibility promise
    ├─ no WASI as a second OS authority surface
@@ -70,6 +76,10 @@ flowchart LR
   PERF["precommitted performance court"]
   ROLLBACK["gate miss → rollback<br/>retain evidence only"]
   NEXT["new hypothesis:<br/>member-dispatch overhead"]
+  NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
+  CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
+  COURT{"size · cold start · throughput<br/>security · embedder parity"}
+  STANDARD["WASI / Component compatibility<br/>in generic tinyvm layer"]
 
   SRC --> COMP --> WASM --> LOAD
   UP -. exact git rev .-> COMP & LOAD
@@ -79,6 +89,10 @@ flowchart LR
   COMP -. measured candidate .-> PERF
   PERF -->|all frozen gates pass| UP
   PERF -->|166 > 160| ROLLBACK --> NEXT
+  UP -. accumulated generic runtime .-> CORE --> COURT
+  STANDARD --> COURT
+  COURT -->|selected workload wins| NORTH
+  COURT -->|gate misses| UP
 ```
 
 ## Invariants
@@ -94,6 +108,37 @@ flowchart LR
 - A pin bump, PRD pin line and lockfile identity change in one coherent commit.
 - Performance gates are precommitted. A near miss is recorded and rolled back,
   not converted into a pass by moving its threshold after measurement.
+
+## Long-horizon north star: replace Wasmtime, not merely coexist
+
+The strategic ambition is for `tinyvm` to become a credible replacement for
+Wasmtime, while `tinyvm-qjs` / qjswasm is its flagship language and automation
+front end. This is a staged evidence claim, not a current compatibility claim.
+The replacement unit is one declared workload at a time; no global claim is
+allowed while its required WebAssembly features, host contract or security
+court remains missing.
+
+```text
+Wasmtime-class replacement ladder
+├─ H0 [x] AgenTerm-owned .qjs automation: bounded interpreter + typed host door
+├─ H1 [ ] Core Wasm: proposal inventory, spec tests, malformed modules, differential fuzz
+├─ H2 [ ] Runtime: stable embedder API, multi-instance lifecycle, cancellation, diagnostics
+├─ H3 [ ] Performance: cold start, resident size, throughput and concurrency by workload
+├─ H4 [ ] Compatibility: optional WASI/Component adapters in generic tinyvm
+└─ H5 [ ] Adoption: replace an existing Wasmtime workload only after its frozen court passes
+```
+
+The first battleground deliberately favors the architecture we are building:
+small cross-platform automation programs, no executable memory, deterministic
+resource accounting, fast cold start, typed host calls and six-cell behavioral
+parity. Later courts widen toward general Wasm. Wasmtime remains a reference
+oracle and benchmark source during that climb; copying its dependency surface
+into AgenTerm would not count as replacement.
+
+WASI and the Component Model, if implemented, belong to the generic tinyvm
+repository. AgenTerm still exposes operating-system authority through its
+versioned typed Script door. A WASI adapter must not become an undocumented
+second route around ACU/AgenTerm product contracts.
 
 ## Current acceptance
 
