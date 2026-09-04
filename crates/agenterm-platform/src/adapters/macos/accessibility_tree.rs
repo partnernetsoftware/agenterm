@@ -2264,11 +2264,20 @@ struct CgWindow {
 }
 
 fn enumerate_cg_windows() -> Result<Vec<CgWindow>, AccessibilityTreeError> {
+    enumerate_cg_windows_with_options(
+        K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY | K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS,
+    )
+}
+
+fn enumerate_all_cg_windows() -> Result<Vec<CgWindow>, AccessibilityTreeError> {
+    enumerate_cg_windows_with_options(K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS)
+}
+
+fn enumerate_cg_windows_with_options(
+    options: u32,
+) -> Result<Vec<CgWindow>, AccessibilityTreeError> {
     unsafe {
-        let array = CGWindowListCopyWindowInfo(
-            K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY | K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS,
-            0,
-        );
+        let array = CGWindowListCopyWindowInfo(options, 0);
         let Some(array) = CfOwned::from_create(array) else {
             return Err(AccessibilityTreeError::failed(
                 "a11y_backend_failed",
@@ -2311,7 +2320,10 @@ fn owner_pid(handle: isize) -> Result<u32, AccessibilityTreeError> {
             format!("window handle {handle} is not a CGWindowID"),
         )
     })?;
-    for window in enumerate_cg_windows()? {
+    // A sheet can remain a valid CG window while it is on another managed
+    // Space or omitted from the on-screen list. The handle itself is exact;
+    // do not make visibility a prerequisite for resolving its owning AX app.
+    for window in enumerate_all_cg_windows()? {
         if window.id == target {
             return Ok(window.pid);
         }
@@ -2352,26 +2364,52 @@ fn ax_element_for_handle(
             ));
         };
         let count = CFArrayGetCount(windows.as_ptr() as CfArrayRef);
+        let mut queue = VecDeque::new();
+        let mut seen = std::collections::HashSet::new();
         for i in 0..count {
             budget.check()?;
             let el = CFArrayGetValueAtIndex(windows.as_ptr() as CfArrayRef, i);
             if el.is_null() {
                 continue;
             }
+            if let Some(element) = CfOwned::retain(el) {
+                queue.push_back(element);
+            }
+        }
+        while let Some(element) = queue.pop_front() {
+            budget.check()?;
+            if !seen.insert(element.as_ptr() as usize) {
+                continue;
+            }
+            if seen.len() > MAX_NODES {
+                return Err(limit_error(
+                    "a11y_node_limit",
+                    format!("AX window/sheet resolution exceeds {MAX_NODES} elements"),
+                ));
+            }
             let mut id = 0u32;
-            if _AXUIElementGetWindow(el as AxUiElementRef, &mut id) == AX_SUCCESS && id == target {
-                return CfOwned::retain(el).ok_or_else(|| {
-                    AccessibilityTreeError::failed(
-                        "a11y_backend_failed",
-                        "failed to retain AX window element",
-                    )
-                });
+            if _AXUIElementGetWindow(element.as_ax(), &mut id) == AX_SUCCESS && id == target {
+                return Ok(element);
+            }
+            // NSSavePanel/NSOpenPanel may be an AXSheet below its parent
+            // AXWindow instead of a row in AXWindows. AXChildren is the
+            // public relationship; deduplicate because toolkit trees can
+            // repeat elements through grouping nodes.
+            let children = match copy_children(element.as_ax(), budget) {
+                Ok(children) => children,
+                Err(error) if is_snapshot_branch_loss(&error) => Vec::new(),
+                Err(error) => return Err(error),
+            };
+            for child in children {
+                queue.push_back(child);
             }
         }
     }
     Err(AccessibilityTreeError::failed(
-        "a11y_window_gone",
-        format!("no AX window for CGWindowID {handle}"),
+        "a11y_window_not_addressable",
+        format!(
+            "CGWindowID {handle} exists, but no AX window or attached sheet exposes that identity"
+        ),
     ))
 }
 

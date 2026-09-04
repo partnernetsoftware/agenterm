@@ -409,6 +409,13 @@
           "state": "native",
           "evidence": ["scripts/cu-cdp-smoke.sh"],
           "note": "ACU serializes the browser-global allowAndName policy with one cross-process lock per CDP endpoint, listens for matching Browser.downloadWillBegin/downloadProgress completion, then verifies the GUID-named final entry by stat without reading its contents. The target stays backgrounded and every exit attempts policy restoration. Busy, blocked, canceled, not-started, timeout and missing-file states are typed failures rather than click success."
+        },
+        {
+          "id": "browser.native-save-panel",
+          "mcu_shape": "macOS NSOpenPanel/NSSavePanel semantic discovery and operation",
+          "acu_shape": "exact CGWindowID now resolves through bounded AXWindow/AXSheet descendants; unified download panel state and verified Save/Cancel are not yet shipped",
+          "state": "gap",
+          "next": "add a platform-owned save-panel provider and unified CDP/native signal reducer; prove sheet, separate dialog, different owner, off-Space, cancel and save with a non-sensitive fixture"
         }
       ]
     },

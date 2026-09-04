@@ -1595,6 +1595,17 @@ of them has to bring the tab forward. What the throwaway headless gate
   byte counts), never read or echo file contents. Keep the target backgrounded,
   restore the browser policy on every exit, and preserve blocked, canceled,
   not-started, timeout, missing-file and restore failures as typed evidence.
+- **On macOS, a CG window is not necessarily an `AXWindows` root.** Native
+  save/open panels may be `AXSheet` descendants of another AX window, and an
+  off-Space window is absent from `kCGWindowListOptionOnScreenOnly`. Resolve an
+  exact supplied CGWindowID to its owner using the all-window CG inventory,
+  then walk the application's `AXWindows` roots through bounded public
+  `AXChildren`, deduplicating element identity, until
+  `_AXUIElementGetWindow` matches. A CG handle that still has no AX match is
+  `a11y_window_not_addressable`, not `a11y_window_gone`: existence and AX
+  addressability are different facts. Do not invent an `AXSheets` attribute;
+  the SDK exposes the `AXSheet` role and sheet-created notification, while the
+  parent/child relation remains `AXChildren`.
 - **A drag owns its release.** Freeze both distinct rendered endpoints before
   reserving the effect, then dispatch move/down/held-move/up on one target. Once
   press is accepted, attempt mouse-up even if the held move fails; preserve the

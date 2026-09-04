@@ -243,6 +243,22 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   never a fabricated success. The non-sensitive Blob court owns the first
   public black-box evidence; real one-time credential downloads are excluded
   until that gate is green.
+- [~] Native browser Save Panel handling is a separate P0 from direct CDP
+  download. A real macOS incident proved that `windows` could observe a Brave
+  `保存` panel by CGWindowID while `unlock`, targeted `send-keys`, and
+  `activate` all reported no AX window; untargeted key injection then claimed
+  success although the panel remained. The first platform correction resolves
+  exact CG handles through the all-window owner inventory and recursively
+  searches public `AXChildren` below every `AXWindows` root, so attached
+  `AXSheet` descendants and off-Space windows are not rejected merely for
+  missing the on-screen/root lists. An existing-but-unmatched handle is now
+  typed `a11y_window_not_addressable`, distinct from a vanished window.
+  Remaining product gate: one unified download reducer must interleave CDP
+  progress with bounded native panel observation, expose
+  `waiting_for_save_panel | downloading | completed | canceled | blocked |
+  timeout`, and permit Save/Cancel only under explicit actuation with semantic
+  read-back. A controlled non-sensitive panel fixture owns that evidence; a
+  live credential panel is never the test fixture.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
   PID/parent/name inventory through `agenterm-platform::process::list`, shared
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
