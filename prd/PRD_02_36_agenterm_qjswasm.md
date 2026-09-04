@@ -43,6 +43,7 @@ agenterm-qjswasm
 ├─ robustness
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
+│  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  └─ [x] invocation-owned cleanup; no cross-run global backend state
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
@@ -79,6 +80,7 @@ flowchart LR
   LOAD{"tinyvm validate<br/>Limits accepted?"}
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
+  CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
   UP["tinyvm repository<br/>generic engine write knife"]
@@ -109,6 +111,7 @@ flowchart LR
   SRC --> COMP --> WASM --> LOAD
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
+  PRODUCT -. child process .-> CAPTURE --> RECEIPT
   LOAD -->|no| REJECT
   SLOT -. budget / throw / host error .-> REJECT
   SLOT -. persistent heap high-water .-> REGION --> REGION_GATE
@@ -195,6 +198,10 @@ second route around ACU/AgenTerm product contracts.
   still wait/clean up the same child.
 - [x] privacy-bounded audit records contain identity without storing secret payloads.
 - [x] qjswasm tool process returns bounded child stdout and stderr.
+- [x] Child capture never hides loss: `process.read`, `process.wait`, and
+  `process.command` publish per-stream truncation flags, including additional
+  cuts required after JSON escaping. `process.command_stdout` refuses a
+  truncated result because its raw-text return cannot carry those flags.
 - [x] qjswasm tool process reports a missing child as a typed failure.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.

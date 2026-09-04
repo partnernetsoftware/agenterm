@@ -573,6 +573,75 @@ fn process_command_captures_stdout_stderr_and_the_exit_code() {
     assert_eq!(out.tool_calls, ["tool.process.command"]);
 }
 
+/// Captured child output is allowed to be partial only when the result says
+/// which stream lost bytes. The raw-stdout convenience cannot carry those
+/// flags, so it refuses the same partial answer instead of returning a prefix.
+#[cfg(unix)]
+#[test]
+fn process_capture_limit_is_explicit_for_envelopes_and_raw_stdout() {
+    let budget = Budget {
+        max_bridge_result_bytes: 512,
+        ..Budget::default()
+    };
+    let out = Engine::with_tool_door(budget)
+        .run_once(
+            Guest::Qjs(
+                r#"
+                let spec = JSON.stringify({
+                    program: "sh",
+                    args: ["-c", "yes x | head -c 4096"],
+                    timeout_ms: 10000
+                });
+                if (process_command(spec) !== 0) { return "command:" + tool_result(); }
+                let first = JSON.parse(tool_result());
+                let raw_status = process_command_stdout(spec);
+                let second = JSON.parse(tool_result());
+                return "" + first.success + "|" + first.stdout_truncated + "|"
+                    + first.stderr_truncated + "|" + (first.stdout.length < 4096) + "|"
+                    + raw_status + "|" + second.stdout_truncated;
+                "#,
+            ),
+            None,
+            "main",
+            &[],
+        )
+        .expect("bounded process capture");
+    assert_eq!(string_of(&out), "true|true|false|true|1|true");
+}
+
+#[cfg(unix)]
+#[test]
+fn process_read_and_wait_report_a_drained_stream_that_hit_its_cap() {
+    let budget = Budget {
+        max_bridge_result_bytes: 512,
+        ..Budget::default()
+    };
+    let out = Engine::with_tool_door(budget)
+        .run_once(
+            Guest::Qjs(
+                r#"
+                let h = process_spawn(JSON.stringify({
+                    program: "sh",
+                    args: ["-c", "yes x | head -c 4096"],
+                    timeout_ms: 10000
+                }));
+                time_sleep_ms(50);
+                if (process_read(h, 64) !== 0) { return "read:" + tool_result(); }
+                let read = JSON.parse(tool_result());
+                if (process_wait(h, 5000) !== 0) { return "wait:" + tool_result(); }
+                let waited = JSON.parse(tool_result());
+                return "" + read.stdout_truncated + "|" + read.stderr_truncated + "|"
+                    + (read.stdout.length <= 64) + "|" + waited.stdout_truncated;
+                "#,
+            ),
+            None,
+            "main",
+            &[],
+        )
+        .expect("bounded incremental process capture");
+    assert_eq!(string_of(&out), "true|false|true|true");
+}
+
 #[cfg(unix)]
 #[test]
 fn process_command_honours_current_dir_env_and_stdin() {

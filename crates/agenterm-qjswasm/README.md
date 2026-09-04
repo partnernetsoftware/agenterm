@@ -254,7 +254,7 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `fs_read_to_string(p)` `fs_write(p, text)` `fs_create_dir_all(p)` `fs_remove_file(p)` | `tool.fs.*` | status `0`/`1`；文本或诊断暂存 |
 | `fs_metadata(p)` / `fs_read_dir(p)` | `tool.fs.metadata` / `tool.fs.read_dir` | status；暂存 JSON `{is_file,is_dir,len}` / 按名排序的 `[{name,path,is_file,is_dir,is_symlink}]` |
 | `fs_tree_summary(p,max_entries)` | `tool.fs.tree_summary` | status；原生侧在显式 entry 上限内递归统计文件数、逻辑字节、mtime 与首层 bucket，固定大小 JSON 过桥；超限整体拒绝，不返回截断真相 |
-| `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,timed_out}`；无 `timeout_ms` 默认 60 s 后杀 |
+| `process_command(spec_json)` | `tool.process.command` | status；spec `{program,args,current_dir,env,timeout_ms,stdin_text}`（未知字段拒），暂存 `{exit_code,success,stdout,stderr,stdout_truncated,stderr_truncated,timed_out}`；无 `timeout_ms` 默认 60 s 后杀；截断逐流显式标记，纯 stdout 捷径遇截断则拒绝 |
 | `process_id()` | `tool.process.id` | 直接 pid |
 | `process_list()` | `tool.process.list` | status；暂存平台 facade 的有界进程清单 `[{id,parent_id,executable_name}]`，供 owned-child ancestry 与清理证明使用 |
 | `process_tree(pid)` | `tool.process.tree` | status；原生侧从同一有界清单计算含根 PID 的传递子树，只把 owned subtree 暂存给高频资格采样 |
@@ -264,8 +264,9 @@ PRD 36「A1.1 的答案」定的：`.qjs` 有两种。**沙箱 `.qjs`** 只看�
 | `env_get(n)` / `env_cwd()` | `tool.env.get` / `tool.env.cwd` | status；值或诊断暂存（未设置是 status `1`，不是空串——要空串用 `env_has`） |
 | `tool_result()` | `tool.result_len` + `tool.result` | 与 `fleet_result` 同一套两趟取回；**独立**于 fleet 的暂存区，互不覆盖 |
 
-预算与审计走 fleet 那一套：暂存答案受 `max_bridge_result_bytes`（超了是拒绝不是前缀），
-`process.command` 抓的 stdout/stderr 同一个数；操作里 panic 报 `QjswasmError::Door`
+预算与审计走 fleet 那一套：普通暂存答案受 `max_bridge_result_bytes`（超了是拒绝不是前缀）；
+子进程流是唯一例外，前缀必须同时带逐流 `*_truncated` 真值，且 JSON 转义后仍装进同一上限。
+操作里 panic 报 `QjswasmError::Door`
 不伪装成 status 1。**每次调用都记名**：`Outcome::tool_calls` 按调用顺序列出
 `tool.fs.read_to_string` 这样的全名，沙箱槽永远为空——回执上写的就是它。
 

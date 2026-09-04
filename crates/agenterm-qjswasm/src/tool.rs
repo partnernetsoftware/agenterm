@@ -65,10 +65,12 @@
 //! # Budget and containment
 //!
 //! Every parked answer is bounded by [`Budget::max_bridge_result_bytes`], the
-//! same cap the fleet door applies, and refused rather than cut for the same
-//! reason: half a file is worse than a refusal, because the script cannot tell
-//! it was cut. `process.command` bounds its captured stdout and stderr by the
-//! same number and kills the child at `timeout_ms` (default
+//! same cap the fleet door applies. Ordinary file/JSON answers are refused
+//! rather than cut. Child output is the deliberate exception: process result
+//! envelopes carry `stdout_truncated` / `stderr_truncated`, so a bounded prefix
+//! is never mistaken for the whole stream; the raw-stdout convenience refuses
+//! a truncated result because its return shape cannot carry those flags.
+//! `process.command` kills the child at `timeout_ms` (default
 //! [`DEFAULT_COMMAND_TIMEOUT_MS`]), because the core's step budget does not
 //! measure time spent in the host. A panic inside a tool operation is caught
 //! and reported as [`QjswasmError::Door`], never dressed up as status `1` --
@@ -450,6 +452,7 @@ struct Running {
     started: Instant,
     deadline: Option<Duration>,
     killed_by_deadline: bool,
+    max_capture: usize,
     read_stdout: usize,
     read_stderr: usize,
 }
@@ -470,8 +473,14 @@ impl Running {
 
 /// The two capture buffers a child's pipes drain into, from spawn on.
 struct Drains {
-    stdout: Option<Arc<Mutex<Vec<u8>>>>,
-    stderr: Option<Arc<Mutex<Vec<u8>>>>,
+    stdout: Option<Arc<Mutex<CaptureBuffer>>>,
+    stderr: Option<Arc<Mutex<CaptureBuffer>>>,
+}
+
+#[derive(Clone, Default)]
+struct CaptureBuffer {
+    bytes: Vec<u8>,
+    truncated: bool,
 }
 
 impl Drains {
@@ -479,9 +488,9 @@ impl Drains {
         fn drain<R: std::io::Read + Send + 'static>(
             pipe: Option<R>,
             max_capture: usize,
-        ) -> Option<Arc<Mutex<Vec<u8>>>> {
+        ) -> Option<Arc<Mutex<CaptureBuffer>>> {
             pipe.map(|mut pipe| {
-                let buf = Arc::new(Mutex::new(Vec::new()));
+                let buf = Arc::new(Mutex::new(CaptureBuffer::default()));
                 let sink = Arc::clone(&buf);
                 std::thread::spawn(move || {
                     let mut chunk = [0u8; 4096];
@@ -493,9 +502,14 @@ impl Drains {
                         let take = n.min(max_capture.saturating_sub(total));
                         if take > 0 {
                             if let Ok(mut b) = sink.lock() {
-                                b.extend_from_slice(&chunk[..take]);
+                                b.bytes.extend_from_slice(&chunk[..take]);
                             }
                             total += take;
+                        }
+                        if take < n
+                            && let Ok(mut b) = sink.lock()
+                        {
+                            b.truncated = true;
                         }
                     }
                 });
@@ -509,15 +523,18 @@ impl Drains {
     }
 
     /// Bytes from `from` onward, as text; and where the buffer ends now.
-    fn since(buf: &Option<Arc<Mutex<Vec<u8>>>>, from: usize) -> (String, usize) {
+    fn since(buf: &Option<Arc<Mutex<CaptureBuffer>>>, from: usize) -> (String, usize, bool) {
         let Some(buf) = buf else {
-            return (String::new(), from);
+            return (String::new(), from, false);
         };
-        let b = buf.lock().map(|b| b.clone()).unwrap_or_default();
-        let end = b.len().max(from);
+        let Ok(b) = buf.lock() else {
+            return (String::new(), from, false);
+        };
+        let end = b.bytes.len().max(from);
         (
-            String::from_utf8_lossy(&b[from.min(b.len())..]).into_owned(),
+            String::from_utf8_lossy(&b.bytes[from.min(b.bytes.len())..]).into_owned(),
             end,
+            b.truncated,
         )
     }
 }
@@ -914,7 +931,10 @@ pub(crate) fn install(
                 let envelope = run_command(spec, max_capture, &cancel)?;
                 let parsed: serde_json::Value = serde_json::from_str(&envelope)
                     .map_err(|e| format!("process.command_stdout: {e}"))?;
-                if parsed["success"].as_bool() == Some(true) {
+                if parsed["success"].as_bool() == Some(true)
+                    && parsed["stdout_truncated"].as_bool() == Some(false)
+                    && parsed["stderr_truncated"].as_bool() == Some(false)
+                {
                     Ok(parsed["stdout"].as_str().unwrap_or_default().to_string())
                 } else {
                     Err(envelope)
@@ -1022,6 +1042,7 @@ pub(crate) fn install(
                     started: Instant::now(),
                     deadline: spec.timeout_ms.map(Duration::from_millis),
                     killed_by_deadline: false,
+                    max_capture,
                     read_stdout: 0,
                     read_stderr: 0,
                 }));
@@ -1508,8 +1529,9 @@ pub(crate) fn install(
     // `process.read(handle, max_bytes)`: what the child has written since
     // the last read, without waiting -- rh's `child.stdout.read(4096, 2s)`,
     // minus the blocking (a script polls with `time_sleep_ms`). The
-    // answer is JSON `{stdout, stderr, state}`; `process.wait` still answers
-    // the whole capture.
+    // answer is JSON `{stdout, stderr, stdout_truncated, stderr_truncated,
+    // state}`; `process.wait` still answers the bounded whole capture and the
+    // same loss flags.
     let state = Rc::clone(&shared);
     bind_metered(
         module,
@@ -1526,8 +1548,10 @@ pub(crate) fn install(
                 match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
                     Some(Handle::Running(r)) => {
                         r.enforce_deadline();
-                        let (mut out, end_out) = Drains::since(&r.drains.stdout, r.read_stdout);
-                        let (mut err, end_err) = Drains::since(&r.drains.stderr, r.read_stderr);
+                        let (mut out, end_out, stdout_truncated) =
+                            Drains::since(&r.drains.stdout, r.read_stdout);
+                        let (mut err, end_err, stderr_truncated) =
+                            Drains::since(&r.drains.stderr, r.read_stderr);
                         // Hand out at most `max_bytes` of each, on char boundaries.
                         let cut = |t: &mut String, from: usize| -> usize {
                             if t.len() <= max_bytes {
@@ -1547,15 +1571,23 @@ pub(crate) fn install(
                             Ok(None) => "running",
                             Err(_) => "unknown",
                         };
-                        Ok(
-                        serde_json::json!({ "stdout": out, "stderr": err, "state": state_text })
-                            .to_string(),
-                    )
+                        Ok(serde_json::json!({
+                            "stdout": out,
+                            "stderr": err,
+                            "stdout_truncated": stdout_truncated,
+                            "stderr_truncated": stderr_truncated,
+                            "state": state_text
+                        })
+                        .to_string())
                     }
-                    Some(Handle::Done { .. }) => Ok(
-                        serde_json::json!({ "stdout": "", "stderr": "", "state": "exited" })
-                            .to_string(),
-                    ),
+                    Some(Handle::Done { .. }) => Ok(serde_json::json!({
+                        "stdout": "",
+                        "stderr": "",
+                        "stdout_truncated": false,
+                        "stderr_truncated": false,
+                        "state": "exited"
+                    })
+                    .to_string()),
                     None => Err(format!("process.read: no child with handle {h}")),
                 }
             })
@@ -2108,7 +2140,8 @@ struct CommandSpec {
 }
 
 /// Spawn, feed stdin, capture both streams, wait bounded, answer as JSON:
-/// `{"exit_code": n | null, "success": bool, "stdout", "stderr", "timed_out"}`.
+/// `{"exit_code": n | null, "success": bool, "stdout", "stderr",
+/// "stdout_truncated", "stderr_truncated", "timed_out"}`.
 ///
 /// `exit_code` is `null` when the child was killed -- by the timeout here or
 /// by a signal -- and `success` is then false. Captured streams are UTF-8 with
@@ -2193,7 +2226,8 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Chil
 }
 
 /// Drain both streams on their own threads, wait bounded, answer as JSON:
-/// `{"exit_code": n | null, "success": bool, "stdout", "stderr", "timed_out"}`.
+/// `{"exit_code": n | null, "success": bool, "stdout", "stderr",
+/// "stdout_truncated", "stderr_truncated", "timed_out"}`.
 ///
 /// `exit_code` is `null` when the child was killed -- by the timeout here or
 /// by a signal -- and `success` is then false. Captured streams are UTF-8 with
@@ -2213,6 +2247,7 @@ fn wait_child(
             started: Instant::now(),
             deadline: None,
             killed_by_deadline: false,
+            max_capture,
             read_stdout: 0,
             read_stderr: 0,
         },
@@ -2230,6 +2265,7 @@ fn finish_child(
     timeout: Option<Duration>,
     cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
+    let max_capture = running.max_capture;
     let (stdout, stderr) = (running.drains.stdout.take(), running.drains.stderr.take());
     let mut child = running.child;
     let mut timed_out = running.killed_by_deadline;
@@ -2257,8 +2293,10 @@ fn finish_child(
     // past it, take what arrived. A held-open pipe is the grandchild's
     // business, not this call's.
     let grace = Instant::now() + Duration::from_millis(200);
-    let collect = |buf: Option<Arc<Mutex<Vec<u8>>>>| -> Vec<u8> {
-        let Some(buf) = buf else { return Vec::new() };
+    let collect = |buf: Option<Arc<Mutex<CaptureBuffer>>>| -> CaptureBuffer {
+        let Some(buf) = buf else {
+            return CaptureBuffer::default();
+        };
         while Arc::strong_count(&buf) > 1 && Instant::now() < grace {
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -2271,19 +2309,119 @@ fn finish_child(
         status.and_then(|s| s.code())
     };
     let success = !timed_out && status.is_some_and(|s| s.success());
-    Ok(serde_json::json!({
-        "exit_code": exit_code,
-        "success": success,
-        "stdout": String::from_utf8_lossy(&stdout),
-        "stderr": String::from_utf8_lossy(&stderr),
-        "timed_out": timed_out,
-    })
-    .to_string())
+    command_result_json(exit_code, success, stdout, stderr, timed_out, max_capture)
+}
+
+/// Serialize a child result without letting JSON escaping turn two bounded
+/// captures into an oversized bridge answer. Any bytes removed here are named
+/// by the per-stream truncation flags; a caller never receives a plausible
+/// prefix without being told that it is incomplete.
+fn command_result_json(
+    exit_code: Option<i32>,
+    success: bool,
+    stdout: CaptureBuffer,
+    stderr: CaptureBuffer,
+    timed_out: bool,
+    max_result: usize,
+) -> Result<String, String> {
+    let mut stdout_text = String::from_utf8_lossy(&stdout.bytes).into_owned();
+    let mut stderr_text = String::from_utf8_lossy(&stderr.bytes).into_owned();
+    let mut stdout_truncated = stdout.truncated;
+    let mut stderr_truncated = stderr.truncated;
+    let render = |out: &str, err: &str, out_cut: bool, err_cut: bool| {
+        serde_json::json!({
+            "exit_code": exit_code,
+            "success": success,
+            "stdout": out,
+            "stderr": err,
+            "stdout_truncated": out_cut,
+            "stderr_truncated": err_cut,
+            "timed_out": timed_out,
+        })
+        .to_string()
+    };
+    loop {
+        let encoded = render(
+            &stdout_text,
+            &stderr_text,
+            stdout_truncated,
+            stderr_truncated,
+        );
+        if encoded.len() <= max_result {
+            return Ok(encoded);
+        }
+        if stdout_text.is_empty() && stderr_text.is_empty() {
+            return Err(format!(
+                "process.wait: result envelope exceeds the {max_result}-byte bridge limit"
+            ));
+        }
+        let overflow = encoded.len() - max_result;
+        let stdout_encoded = json_string_payload_len(&stdout_text);
+        let stderr_encoded = json_string_payload_len(&stderr_text);
+        if stdout_encoded >= stderr_encoded && !stdout_text.is_empty() {
+            truncate_json_string(&mut stdout_text, overflow, stdout_encoded);
+            stdout_truncated = true;
+        } else {
+            truncate_json_string(&mut stderr_text, overflow, stderr_encoded);
+            stderr_truncated = true;
+        }
+    }
+}
+
+fn json_string_payload_len(text: &str) -> usize {
+    serde_json::to_string(text)
+        .map(|encoded| encoded.len().saturating_sub(2))
+        .unwrap_or(text.len())
+}
+
+fn truncate_json_string(text: &mut String, encoded_bytes_to_remove: usize, encoded_len: usize) {
+    let raw_len = text.len();
+    let remove = if encoded_bytes_to_remove >= encoded_len || encoded_len == 0 {
+        raw_len
+    } else {
+        usize::try_from(
+            ((encoded_bytes_to_remove as u128 * raw_len as u128).div_ceil(encoded_len as u128))
+                .max(1),
+        )
+        .unwrap_or(raw_len)
+        .min(raw_len)
+    };
+    let mut keep = raw_len - remove;
+    while !text.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    text.truncate(keep);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn child_result_json_fits_the_bridge_and_names_every_cut_stream() {
+        let answer = command_result_json(
+            Some(0),
+            true,
+            CaptureBuffer {
+                bytes: vec![0; 400],
+                truncated: false,
+            },
+            CaptureBuffer {
+                bytes: vec![b'e'; 400],
+                truncated: true,
+            },
+            false,
+            256,
+        )
+        .expect("the fixed envelope fits");
+        assert!(answer.len() <= 256, "{}", answer.len());
+        let parsed: serde_json::Value = serde_json::from_str(&answer).expect("result JSON");
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["stdout_truncated"], true);
+        assert_eq!(parsed["stderr_truncated"], true);
+        assert!(parsed["stdout"].as_str().unwrap().len() < 400);
+        assert!(parsed["stderr"].as_str().unwrap().len() < 400);
+    }
 
     #[test]
     fn cancellable_sleep_tolerates_a_deadline_crossing_between_samples() {

@@ -2320,6 +2320,15 @@ what each action means. Keep these recurring rules together:
   this proves dispatch without moving the user's window, and catches a host
   path that silently reimplements command meaning or bypasses authorization.
 
+## Bounded child capture must publish loss, including JSON-envelope loss
+
+A pipe drainer that keeps only N bytes must retain a per-stream truncation bit;
+otherwise a successful exit plus a plausible prefix is a false success. The
+final JSON envelope needs the same bound: JSON escaping can make N captured
+bytes occupy far more than N result bytes, so fit the serialized envelope and
+mark any additional cut. A raw-stdout convenience has nowhere to carry that
+metadata and therefore must fail typed when either stream was truncated.
+
 ## Hold one audit sink across an authorized side effect
 
 Opening an audit path once for the pre-action record and again for the outcome
