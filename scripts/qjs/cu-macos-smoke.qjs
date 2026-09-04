@@ -84,6 +84,7 @@ const declared_evidence = [
   "cu.macos-ax-hit-zoom",
   "cu.macos-ax-window-state",
   "cu.macos-ax-raise",
+  "cu.macos-terminal-control",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -135,10 +136,20 @@ function remove_directory_bounded(path) {
   return false;
 }
 
+// Filled after the harness has minted this run's unique instance and paths.
+// Every CU child receives the same map, so terminal control can never resolve
+// the user's default AgenTerm server by accident.
+let terminal_environment = {};
+
 // The audit log (and beside it the receipt file) of this run, never the
-// user's default location.
+// user's default location. Terminal control additionally receives the owned
+// server's instance, endpoint and product-data paths.
 function cu_env(run_directory) {
-  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+  const environment = { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+  for (const name of Object.keys(terminal_environment)) {
+    environment[name] = terminal_environment[name];
+  }
+  return environment;
 }
 
 function receipt_file(run_directory) {
@@ -183,6 +194,19 @@ function run_cu_reply(run_directory, executable, arguments) {
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_macos_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+// Product CLI call against the terminal server owned by this journey. Unlike
+// the CU wrapper, this returns the process result so the cleanup path can use
+// it best-effort after an earlier assertion failed.
+function run_terminal_cli(run_directory, product_executable, arguments) {
+  const all = ["cli", "--address", terminal_environment.AGENTERM_IPC_ADDRESS];
+  for (const argument of arguments) { all.push(argument); }
+  return rh.command(
+    product_executable,
+    all,
+    { cwd: run_directory, env: terminal_environment, timeout_ms: 30000 }
+  );
 }
 
 // Wrap the compiled fixture in a real `.app` bundle, so `app launch` has
@@ -472,12 +496,26 @@ const context = harness.new_context(repo, "cu-macos");
 const run_directory = rh.join(repo, "target/cu-macos-smoke-run");
 ensure(remove_directory_bounded(run_directory), "cu_macos_smoke_stale_directory_locked");
 rh.create_dir_all(run_directory);
+const terminal_instance = "ephemeral:cu-macos-" + context.run_id;
+terminal_environment = {
+  AGENTERM_INSTANCE: terminal_instance,
+  AGENTERM_IPC_ADDRESS: "" + context.address,
+  AGENTERM_WORKSPACE_PATH: "" + context.workspace_path,
+  AGENTERM_SETTINGS_PATH: "" + context.settings_path,
+  AGENTERM_INSTANCE_DIR: "" + context.instance_directory,
+  AGENTERM_NO_ACTIVATE: "1"
+};
+const product_executable = rh.join(rh.parent(executable), "agenterm");
+ensure(direct_file(product_executable), "cu_macos_smoke_product_executable_missing");
 
 let succeeded = 0;
 let failure = "";
 let fixture_pid = 0;
 let fixture = -1;
 let fixture_reaped = false;
+let terminal_server = -1;
+let terminal_server_reaped = false;
+let terminal_tab = "";
 
 try {
   print("STEP capabilities declare the AX tree and query available on current");
@@ -2422,6 +2460,167 @@ try {
   }
   ensure(launched_gone !== 0, "cu_macos_smoke_app_launch_orphan:" + launched_pid);
 
+  print("STEP terminal-list/read/send/wait bind scope+epoch+@tab, literal input reaches the owned PTY, finalized preserves the dead tab, and late input fails typed");
+  const terminal_spec = harness.configured_spec_with_env(
+    context,
+    product_executable,
+    ["server"],
+    { AGENTERM_INSTANCE: terminal_instance },
+    []
+  );
+  terminal_server = harness.start(terminal_spec);
+  const terminal_protocol = harness.wait_for_spawned_server(
+    context,
+    product_executable,
+    terminal_server
+  );
+  ensure(
+    text_at(terminal_protocol, "instance") === terminal_instance
+      && text_at(terminal_protocol, "server_scope_id") !== "",
+    "cu_macos_smoke_terminal_protocol_identity:" + JSON.stringify(terminal_protocol)
+  );
+  const terminal_name = "cu-terminal-" + context.run_id;
+  const terminal_token = "ACU_TERMINAL_" + context.run_id;
+  const terminal_command = "IFS= read -r line; printf 'ACU_REPLY:%s\\n' \"$line\"";
+  const created = run_terminal_cli(
+    run_directory,
+    product_executable,
+    [
+      "new-window", "-d", "-n", terminal_name, "-F", "#{window_id}", "--",
+      "/bin/sh", "-c", terminal_command
+    ]
+  );
+  ensure(
+    created.success === true && created.stdout.trim().startsWith("@"),
+    "cu_macos_smoke_terminal_create:" + created.stdout + created.stderr
+  );
+  terminal_tab = created.stdout.trim();
+
+  const terminal_inventory = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "terminal-list"]
+  );
+  let terminal_row = null;
+  for (const row of terminal_inventory.data.tabs) {
+    if (text_at(row, "id") === terminal_tab) { terminal_row = row; }
+  }
+  ensure(
+    text_at(terminal_inventory, "data.server_scope_id") === text_at(terminal_protocol, "server_scope_id")
+      && text_at(terminal_inventory, "data.server_epoch") !== ""
+      && text_at(terminal_inventory, "data.position.server_epoch") === text_at(terminal_inventory, "data.server_epoch")
+      && text_at(terminal_inventory, "data.identity") === "server-scope+epoch+tab-id"
+      && terminal_row !== null
+      && text_at(terminal_row, "id") === terminal_tab
+      && !flag_at(terminal_row, "dead"),
+    "cu_macos_smoke_terminal_inventory:" + JSON.stringify(terminal_inventory.data)
+  );
+
+  const sent = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe,actuate", "terminal-send",
+      "--tab", terminal_tab, "--", terminal_token + "\n"
+    ]
+  );
+  ensure(
+    text_at(sent, "data.tab_id") === terminal_tab
+      && int_at(sent, "data.text_bytes") === terminal_token.length + 1
+      && flag_at(sent, "data.performed")
+      && flag_at(sent, "data.verified")
+      && text_at(sent, "data.verification") === "agenterm-control-receipt",
+    "cu_macos_smoke_terminal_send:" + JSON.stringify(sent.data)
+  );
+  const contained = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-wait",
+      "--tab", terminal_tab, "--contains", "ACU_REPLY:" + terminal_token,
+      "--timeout-ms", "10000"
+    ]
+  );
+  ensure(
+    flag_at(contained, "data.completed") && text_at(contained, "data.state") === "matched",
+    "cu_macos_smoke_terminal_contains:" + JSON.stringify(contained.data)
+  );
+  const terminal_capture = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-read",
+      "--tab", terminal_tab, "--max-bytes", "4096"
+    ]
+  );
+  ensure(
+    text_at(terminal_capture, "data.tab_id") === terminal_tab
+      && text_at(terminal_capture, "data.text").includes("ACU_REPLY:" + terminal_token)
+      && text_at(terminal_capture, "data.read_kind") === "bounded-screen-snapshot"
+      && terminal_capture.data.incremental_cursor === null
+      && !flag_at(terminal_capture, "data.truncated"),
+    "cu_macos_smoke_terminal_read:" + JSON.stringify(terminal_capture.data)
+  );
+  const finalized = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-wait",
+      "--tab", terminal_tab, "--finalized", "--timeout-ms", "10000"
+    ]
+  );
+  ensure(flag_at(finalized, "data.completed"), "cu_macos_smoke_terminal_finalized");
+  const dead_inventory = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "terminal-list"]
+  );
+  let dead_row = null;
+  for (const row of dead_inventory.data.tabs) {
+    if (text_at(row, "id") === terminal_tab) { dead_row = row; }
+  }
+  ensure(
+    dead_row !== null && flag_at(dead_row, "dead") && dead_row.exit_code !== null,
+    "cu_macos_smoke_terminal_remain_on_exit:" + JSON.stringify(dead_inventory.data)
+  );
+  const late_send = run_cu_reply(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe,actuate", "terminal-send",
+      "--tab", terminal_tab, "--", "LATE_INPUT"
+    ]
+  );
+  ensure(
+    !flag_at(late_send, "ok")
+      && text_at(late_send, "error.code") === "terminal_not_writable",
+    "cu_macos_smoke_terminal_late_send:" + JSON.stringify(late_send)
+  );
+  const close_terminal = run_terminal_cli(
+    run_directory,
+    product_executable,
+    ["kill-window", "-t", terminal_tab]
+  );
+  ensure(close_terminal.success === true, "cu_macos_smoke_terminal_close:" + close_terminal.stderr);
+  terminal_tab = "";
+  const stop_terminal = run_terminal_cli(run_directory, product_executable, ["shutdown"]);
+  ensure(stop_terminal.success === true, "cu_macos_smoke_terminal_shutdown:" + stop_terminal.stderr);
+  let terminal_stopped = false;
+  for (let attempt = 0; attempt < 100; attempt = attempt + 1) {
+    if (harness.state(terminal_server) === "exited") {
+      terminal_stopped = true;
+      break;
+    }
+    harness.sleep_ms(50);
+  }
+  ensure(terminal_stopped, "cu_macos_smoke_terminal_server_exit_timeout");
+  const terminal_output = harness.wait(terminal_server, 5000);
+  terminal_server_reaped = true;
+  ensure(
+    terminal_output.success === true && terminal_output.exit_code === 0,
+    "cu_macos_smoke_terminal_server_exit:" + JSON.stringify(terminal_output)
+  );
+
   print("STEP process-kill refuses a PID-racy macOS signal and leaves the exact fixture alive");
   const kill_refusal = run_cu_reply(
     run_directory,
@@ -2473,6 +2672,25 @@ try {
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
+}
+
+if (terminal_server >= 0 && !terminal_server_reaped) {
+  if (terminal_tab !== "") {
+    run_terminal_cli(run_directory, product_executable, ["kill-window", "-t", terminal_tab]);
+    terminal_tab = "";
+  }
+  run_terminal_cli(run_directory, product_executable, ["shutdown"]);
+  for (let attempt = 0; attempt < 60; attempt = attempt + 1) {
+    if (harness.state(terminal_server) === "exited") { break; }
+    harness.sleep_ms(50);
+  }
+  if (harness.state(terminal_server) === "running") {
+    // The server is this run's exact process handle; force only that child.
+    process_kill(terminal_server);
+  }
+  try { harness.wait(terminal_server, 3000); } catch (wait_error) {
+    failure = failure + ":cu_macos_smoke_terminal_server_unreaped";
+  }
 }
 
 if (fixture >= 0 && !fixture_reaped) {
@@ -2539,7 +2757,8 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-raise");
+harness.emit_evidence(context, declared_evidence, "cu.macos-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, snapshot/diff, hit/zoom, raise, minimize/restore, close, receipts)");
+print("PASS: agenterm-cu macOS AX + terminal-control journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, snapshot/diff, hit/zoom, raise, minimize/restore, terminal list/read/send/wait, close, receipts)");
 return;

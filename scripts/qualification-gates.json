@@ -246,6 +246,7 @@
         "cu.windows-uia-window-place",
         "cu.windows-uia-screenshot",
         "cu.windows-uia-destructive-close",
+        "cu.windows-terminal-control",
         "cu.windows-uia-cleanup"
       ]
     }

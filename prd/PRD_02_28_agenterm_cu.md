@@ -303,11 +303,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   parses human-formatted CLI output or starts a second CLI process. Stable
   tab identity is `(server_scope_id, server_epoch, @tab_id)`; title and index
   are not authority. `terminal-read` truthfully returns a bounded current-screen
-  snapshot, not an invented incremental output cursor. A local isolated macOS
-  instance has passed list → literal send → contains wait → bounded read →
-  finalized wait → remain-on-exit, plus typed late-write refusal; the same
-  public qjswasm journey still needs Linux and Windows courts before this leaf
-  is promoted. Arbitrary headless
+  snapshot, not an invented incremental output cursor. The registered macOS
+  qjswasm journey now passes 39 steps / 40 evidence ids including
+  `cu.macos-terminal-control`: list → literal send → contains wait → bounded
+  read → finalized wait → remain-on-exit → typed late-write refusal → owned
+  cleanup. On Linux x86_64 the same new terminal step crossed every assertion,
+  but the enclosing suite later failed its older AT-SPI observation step, so it
+  emitted 0/27 evidence and remains unpromoted. The observation duration is now
+  six seconds so cold-guest latency cannot consume the entire post-mutation
+  window. Windows has a statically checked registered step, but the disposable
+  court failed its interactive nonce handoff before product bytes were sent;
+  zero Windows product evidence is claimed. Arbitrary headless
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab, by single-process metrics, or by silently
   forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
@@ -322,8 +328,12 @@ flowchart LR
   K --> W["literal input + deterministic wait"]
   S -. "no byte cursor yet" .-> G["retained offset + gap semantics<br/>future leaf"]
   W --> Q{"macOS + Linux + Windows<br/>public journey"}
-  Q -->|green| P["promote terminal leaf"]
-  Q -->|red| R["typed failure; keep partial"]
+  Q -->|macOS green| M1["public evidence live"]
+  Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
+  Q -->|Windows transport blocked| W1["repair court; zero product claim"]
+  M1 --> P["promote only after three-host court"]
+  L1 --> P
+  W1 --> P
 ```
 - [~] File/storage replacement is classified separately from qjswasm's basic
   filesystem calls. `agenterm-platform` already owns stable-entry,

@@ -413,8 +413,8 @@
           "mcu_shape": "pty list|panes|status for sessions owned by the terminal product",
           "acu_shape": "terminal-list over structured ui-bootstrap with server_scope_id + server_epoch + stable @tab id",
           "state": "native",
-          "qualification": "isolated-macos-live-linux-windows-public-journeys-pending",
-          "next": "add the same list/send/wait/read lifecycle to all three public qjswasm journeys",
+          "qualification": "macos-public-green-linux-step-green-suite-red-windows-infrastructure-blocked",
+          "next": "rerun the Linux suite after its older observe-window correction and repair the Windows interactive court before promotion",
           "note": "The shared control-client speaks the bounded native protocol directly; it neither parses list-panes text nor starts an agenterm CLI subprocess."
         },
         {
@@ -430,7 +430,7 @@
           "mcu_shape": "pty read|send|wait and term read|send|wait",
           "acu_shape": "terminal-read bounded screen snapshot; terminal-send literal bytes with two receipts; terminal-wait contains|exited|finalized",
           "state": "native",
-          "qualification": "isolated-macos-live-linux-windows-public-journeys-pending",
+          "qualification": "macos-public-green-linux-step-green-suite-red-windows-infrastructure-blocked",
           "next": "promote only after three-host public qjswasm evidence; add retained output offsets separately if cursor parity is required",
           "note": "Generic desktop accessibility is not substituted. The first read is explicitly a current-screen snapshot and reports incremental_cursor=null because no loss-aware byte cursor exists yet."
         },

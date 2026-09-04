@@ -38,6 +38,7 @@ const declared_evidence = [
   "cu.linux-process-wait",
   "cu.linux-process-kill",
   "cu.linux-process-lifecycle-watch",
+  "cu.linux-terminal-control",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -103,8 +104,26 @@ function remove_directory_bounded(path) {
   return false;
 }
 
+let terminal_instance = "";
+let terminal_address = "";
+let terminal_instance_directory = "";
+let terminal_workspace_path = "";
+let terminal_settings_path = "";
+
+function terminal_env(run_directory) {
+  return {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_INSTANCE: terminal_instance,
+    AGENTERM_IPC_ADDRESS: terminal_address,
+    AGENTERM_INSTANCE_DIR: terminal_instance_directory,
+    AGENTERM_WORKSPACE_PATH: terminal_workspace_path,
+    AGENTERM_SETTINGS_PATH: terminal_settings_path,
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
 function cu_env(run_directory) {
-  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+  return terminal_env(run_directory);
 }
 
 // One agenterm-cu call whose reply must be `ok: true`.
@@ -130,6 +149,24 @@ function run_cu_reply(run_directory, executable, arguments) {
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+function run_agenterm(run_directory, executable, arguments) {
+  const all = ["cli", "--address", terminal_address];
+  for (const argument of arguments) { all.push(argument); }
+  const output = rh.command(
+    executable, all,
+    { cwd: run_directory, env: terminal_env(run_directory), timeout_ms: 30000 }
+  );
+  ensure(output.success === true, "cu_linux_smoke_agenterm_cli:" + output.stdout + output.stderr);
+  return output.stdout.trim();
+}
+
+function terminal_tab(rows, tab_id) {
+  for (const row of rows) {
+    if (text_of(row.id) === tab_id) { return row; }
+  }
+  return null;
 }
 
 // Spawn an `observe` worker through the door. The readiness marker is
@@ -246,12 +283,20 @@ const context = harness.new_context(repo, "cu-linux");
 const run_directory = rh.join(repo, "target/cu-linux-smoke-run");
 ensure(remove_directory_bounded(run_directory), "cu_linux_smoke_stale_directory_locked");
 rh.create_dir_all(run_directory);
+terminal_instance = "ephemeral:cu-linux-" + context.run_id;
+terminal_address = "" + context.address;
+terminal_instance_directory = "" + context.instance_directory;
+terminal_workspace_path = "" + context.workspace_path;
+terminal_settings_path = "" + context.settings_path;
 
 let succeeded = 0;
 let failure = "";
 let fixture_pid = 0;
 let fixture = -1;
 let fixture_reaped = false;
+let terminal_server = -1;
+let terminal_server_reaped = false;
+let terminal_tab_id = "";
 
 try {
   print("STEP capabilities declare the AT-SPI tree and query available on current");
@@ -277,6 +322,124 @@ try {
     !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
     "cu_linux_smoke_refusal:" + JSON.stringify(refused)
   );
+
+  print("STEP terminal-list/read/send/wait preserve stable authority and tab identity through literal input, finalized remain-on-exit, typed late-send refusal, and explicit cleanup");
+  const agenterm = rh.join(rh.parent(executable), "agenterm");
+  ensure(direct_file(agenterm), "cu_linux_smoke_agenterm_missing:" + agenterm);
+  terminal_server = harness.start({
+    program: agenterm,
+    args: ["server", "--address", terminal_address],
+    current_dir: run_directory,
+    env: terminal_env(run_directory),
+    timeout_ms: 60000
+  });
+  let terminal_ready = null;
+  for (let attempt = 0; attempt < 400; attempt = attempt + 1) {
+    const candidate = run_cu_reply(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "terminal-list"
+    ]);
+    if (flag_at(candidate, "ok")) { terminal_ready = candidate; break; }
+    ensure(harness.state(terminal_server) !== "exited", "cu_linux_smoke_terminal_server_early_exit");
+    harness.sleep_ms(25);
+  }
+  ensure(terminal_ready !== null, "cu_linux_smoke_terminal_server_not_ready");
+  const terminal_scope = text_at(terminal_ready, "data.server_scope_id");
+  const terminal_epoch = text_at(terminal_ready, "data.server_epoch");
+  ensure(
+    terminal_scope !== "" && terminal_epoch !== ""
+      && text_at(terminal_ready, "data.identity") === "server-scope+epoch+tab-id",
+    "cu_linux_smoke_terminal_authority:" + JSON.stringify(terminal_ready.data)
+  );
+  terminal_tab_id = run_agenterm(run_directory, agenterm, [
+    "new-window", "-d", "-P", "-F", "#{window_id}",
+    "-n", "cu-terminal-" + context.run_id, "--", "sh", "-c", "stty -echo; exec sh"
+  ]);
+  ensure(terminal_tab_id.startsWith("@"), "cu_linux_smoke_terminal_tab_id:" + terminal_tab_id);
+  let terminal_inventory = null;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const candidate = run_cu_json(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "terminal-list"
+    ]);
+    if (terminal_tab(candidate.data.tabs, terminal_tab_id) !== null) {
+      terminal_inventory = candidate;
+      break;
+    }
+    harness.sleep_ms(25);
+  }
+  ensure(terminal_inventory !== null, "cu_linux_smoke_terminal_tab_missing");
+  ensure(
+    text_at(terminal_inventory, "data.server_scope_id") === terminal_scope
+      && text_at(terminal_inventory, "data.server_epoch") === terminal_epoch,
+    "cu_linux_smoke_terminal_identity_changed:" + JSON.stringify(terminal_inventory.data)
+  );
+  const terminal_marker = "ACU_TERMINAL_LITERAL_" + context.run_id;
+  const terminal_input = "printf '" + terminal_marker + "\\n'; exit\r";
+  const terminal_send = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "terminal-send",
+    "--tab", terminal_tab_id, "--", terminal_input
+  ]);
+  ensure(
+    text_at(terminal_send, "data.tab_id") === terminal_tab_id
+      && int_at(terminal_send, "data.text_bytes") === terminal_input.length
+      && flag_at(terminal_send, "data.performed")
+      && flag_at(terminal_send, "data.verified")
+      && text_at(terminal_send, "data.verification") === "agenterm-control-receipt",
+    "cu_linux_smoke_terminal_send:" + JSON.stringify(terminal_send.data)
+  );
+  const terminal_contains = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-wait",
+    "--tab", terminal_tab_id, "--contains", terminal_marker, "--timeout-ms", "10000"
+  ]);
+  ensure(
+    text_at(terminal_contains, "data.state") === "matched"
+      && flag_at(terminal_contains, "data.completed"),
+    "cu_linux_smoke_terminal_contains:" + JSON.stringify(terminal_contains.data)
+  );
+  const terminal_read = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-read",
+    "--tab", terminal_tab_id, "--max-bytes", "16384"
+  ]);
+  ensure(
+    text_at(terminal_read, "data.text").indexOf(terminal_marker) >= 0
+      && text_at(terminal_read, "data.read_kind") === "bounded-screen-snapshot"
+      && at(terminal_read, "data.incremental_cursor") === null
+      && !flag_at(terminal_read, "data.truncated"),
+    "cu_linux_smoke_terminal_read:" + JSON.stringify(terminal_read.data)
+  );
+  const terminal_finalized = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-wait",
+    "--tab", terminal_tab_id, "--finalized", "--timeout-ms", "10000"
+  ]);
+  ensure(
+    text_at(terminal_finalized, "data.state") === "matched"
+      && flag_at(terminal_finalized, "data.completed"),
+    "cu_linux_smoke_terminal_finalized:" + JSON.stringify(terminal_finalized.data)
+  );
+  const retained = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-list"
+  ]);
+  const retained_tab = terminal_tab(retained.data.tabs, terminal_tab_id);
+  ensure(
+    retained_tab !== null && retained_tab.dead === true && int_at(retained_tab, "exit_code") === 0
+      && text_at(retained, "data.server_scope_id") === terminal_scope
+      && text_at(retained, "data.server_epoch") === terminal_epoch,
+    "cu_linux_smoke_terminal_remain_on_exit:" + JSON.stringify(retained.data)
+  );
+  const terminal_late_send = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "terminal-send",
+    "--tab", terminal_tab_id, "--", "late-input"
+  ]);
+  ensure(
+    !flag_at(terminal_late_send, "ok")
+      && text_at(terminal_late_send, "error.code") === "terminal_not_writable",
+    "cu_linux_smoke_terminal_late_send:" + JSON.stringify(terminal_late_send)
+  );
+  run_agenterm(run_directory, agenterm, ["kill-window", "-t", terminal_tab_id]);
+  terminal_tab_id = "";
+  run_agenterm(run_directory, agenterm, ["shutdown"]);
+  const terminal_server_output = harness.wait(terminal_server, 10000);
+  terminal_server_reaped = true;
+  ensure(terminal_server_output.success === true, "cu_linux_smoke_terminal_server_exit");
 
   print("STEP start the owned GTK fixture and resolve its two windows by pid and exact title");
   const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
@@ -578,7 +741,10 @@ try {
   );
 
   print("STEP observe captures the changes made while it runs, with the before and after of each, rather than a snapshot taken after the fact");
-  const observer = start_observer(run_directory, executable, handle_text, "3");
+  // The two independent mutation calls can consume most of a three-second
+  // stream on a cold AT-SPI guest. Keep enough post-mutation polling time to
+  // observe both changes instead of turning host latency into a false drop.
+  const observer = start_observer(run_directory, executable, handle_text, "6");
   harness.sleep_ms(700);
   run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "invoke",
@@ -869,6 +1035,20 @@ if (fixture >= 0 && !fixture_reaped) {
   try { harness.wait(fixture, 3000); } catch (wait_error) { print("cleanup: " + wait_error); }
 }
 
+if (terminal_server >= 0 && !terminal_server_reaped) {
+  const agenterm = rh.join(rh.parent(executable), "agenterm");
+  if (terminal_tab_id !== "") {
+    try { run_agenterm(run_directory, agenterm, ["kill-window", "-t", terminal_tab_id]); }
+    catch (close_error) { print("cleanup: " + close_error); }
+  }
+  if (harness.state(terminal_server) === "running") {
+    try { run_agenterm(run_directory, agenterm, ["shutdown"]); }
+    catch (shutdown_error) { print("cleanup: " + shutdown_error); }
+  }
+  try { harness.wait(terminal_server, 3000); }
+  catch (wait_error) { print("cleanup: " + wait_error); }
+}
+
 // Evidence is emitted only once the whole run has succeeded: a partial run
 // that left evidence behind would claim what it did not finish proving.
 if (succeeded !== 1) {
@@ -888,6 +1068,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-watch"
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-lifecycle-watch");
+harness.emit_evidence(context, declared_evidence, "cu.linux-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");

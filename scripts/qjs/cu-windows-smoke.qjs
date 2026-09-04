@@ -41,6 +41,7 @@ const declared_evidence = [
   "cu.windows-process-wait",
   "cu.windows-process-kill",
   "cu.windows-process-lifecycle-watch",
+  "cu.windows-terminal-control",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
   "cu.windows-uia-invoke",
@@ -97,8 +98,16 @@ function remove_directory_bounded(path) {
   return false;
 }
 
+let terminal_instance = "";
+
 function cu_env(run_directory) {
-  return { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") };
+  const environment = {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl")
+  };
+  if (terminal_instance !== "") {
+    environment.AGENTERM_INSTANCE = terminal_instance;
+  }
+  return environment;
 }
 
 function framework_csc() {
@@ -186,6 +195,7 @@ ensure(
 
 const context = harness.new_context(repo, "cu-windows");
 const run_directory = rh.join(repo, "target/cu-windows-smoke-run");
+terminal_instance = "cu-windows-" + context.run_id;
 ensure(remove_directory_bounded(run_directory), "cu_windows_smoke_stale_directory_locked");
 rh.create_dir_all(run_directory);
 
@@ -197,6 +207,9 @@ let fixture_reaped = false;
 let short_pid = 0;
 let short_child = -1;
 let short_reaped = false;
+let terminal_gui_pid = 0;
+let terminal_gui = -1;
+let terminal_gui_reaped = false;
 
 try {
   print("STEP capabilities declare the UI Automation tree and query available on current");
@@ -356,6 +369,162 @@ try {
   );
   harness.wait(short_child, 5000);
   short_reaped = true;
+
+  print("STEP terminal control binds scope+epoch+@tab, sends literal input, waits and reads the finalized remain-on-exit tab, and refuses a late send typed");
+  const terminal_gui_executable = rh.join(rh.parent(executable), "agenterm.exe");
+  ensure(direct_file(terminal_gui_executable), "cu_windows_smoke_terminal_gui_missing");
+  terminal_gui = harness.start({
+    program: terminal_gui_executable,
+    args: [],
+    current_dir: run_directory,
+    env: {
+      AGENTERM_INSTANCE: terminal_instance,
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 60000
+  });
+  terminal_gui_pid = harness.spawned_pid(terminal_gui);
+  let terminal_list = null;
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const candidate = run_cu_reply(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "terminal-list"
+    ]);
+    if (flag_at(candidate, "ok") && Array.isArray(candidate.data.tabs)
+        && candidate.data.tabs.length > 0
+        && text_at(candidate, "data.active_tab_id").startsWith("@")) {
+      terminal_list = candidate;
+      break;
+    }
+    ensure(harness.state(terminal_gui) !== "exited", "cu_windows_smoke_terminal_gui_early_exit");
+    harness.sleep_ms(100);
+  }
+  ensure(terminal_list !== null, "cu_windows_smoke_terminal_list_startup");
+  const terminal_scope = text_at(terminal_list, "data.server_scope_id");
+  const terminal_epoch = text_at(terminal_list, "data.server_epoch");
+  const terminal_tab = text_at(terminal_list, "data.active_tab_id");
+  ensure(
+    terminal_scope.startsWith("agt-v1-")
+      && terminal_epoch !== ""
+      && text_at(terminal_list, "data.position.server_epoch") === terminal_epoch
+      && terminal_tab.startsWith("@")
+      && text_at(terminal_list, "data.identity") === "server-scope+epoch+tab-id",
+    "cu_windows_smoke_terminal_identity:" + JSON.stringify(terminal_list.data)
+  );
+  let listed_tab = null;
+  for (const tab of terminal_list.data.tabs) {
+    if (text_of(tab.id) === terminal_tab) { listed_tab = tab; }
+  }
+  ensure(listed_tab !== null, "cu_windows_smoke_terminal_active_tab_missing");
+
+  const terminal_token = "AGENTERM_CU_TERMINAL_" + context.run_id;
+  // `cls` removes cmd.exe's echoed input line first, so the later screen
+  // match proves command output reached the parser rather than merely seeing
+  // the submitted bytes echoed by the shell.
+  const literal_line = "cls & echo " + terminal_token + "\r";
+  const terminal_send = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "terminal-send",
+    "--tab", terminal_tab, "--", literal_line
+  ]);
+  ensure(
+    text_at(terminal_send, "data.tab_id") === terminal_tab
+      && int_at(terminal_send, "data.text_bytes") === literal_line.length
+      && flag_at(terminal_send, "data.performed")
+      && flag_at(terminal_send, "data.verified")
+      && text_at(terminal_send, "data.verification") === "agenterm-control-receipt",
+    "cu_windows_smoke_terminal_literal_send:" + JSON.stringify(terminal_send.data)
+  );
+  const terminal_contains = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-wait",
+    "--tab", terminal_tab, "--contains", terminal_token, "--timeout-ms", "30000"
+  ]);
+  ensure(
+    text_at(terminal_contains, "data.tab_id") === terminal_tab
+      && text_at(terminal_contains, "data.state") === "matched"
+      && flag_at(terminal_contains, "data.completed"),
+    "cu_windows_smoke_terminal_contains:" + JSON.stringify(terminal_contains.data)
+  );
+  const terminal_read = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-read",
+    "--tab", terminal_tab, "--max-bytes", "262144"
+  ]);
+  ensure(
+    text_at(terminal_read, "data.tab_id") === terminal_tab
+      && text_at(terminal_read, "data.read_kind") === "bounded-screen-snapshot"
+      && at(terminal_read, "data.incremental_cursor") === null
+      && text_at(terminal_read, "data.text").includes(terminal_token)
+      && !flag_at(terminal_read, "data.truncated"),
+    "cu_windows_smoke_terminal_read:" + JSON.stringify(terminal_read.data)
+  );
+
+  const terminal_exit = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "terminal-send",
+    "--tab", terminal_tab, "--", "exit\r"
+  ]);
+  ensure(
+    flag_at(terminal_exit, "data.performed") && flag_at(terminal_exit, "data.verified"),
+    "cu_windows_smoke_terminal_exit_send:" + JSON.stringify(terminal_exit.data)
+  );
+  const terminal_finalized = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-wait",
+    "--tab", terminal_tab, "--finalized", "--timeout-ms", "30000"
+  ]);
+  ensure(
+    text_at(terminal_finalized, "data.tab_id") === terminal_tab
+      && text_at(terminal_finalized, "data.state") === "matched"
+      && flag_at(terminal_finalized, "data.completed"),
+    "cu_windows_smoke_terminal_finalized:" + JSON.stringify(terminal_finalized.data)
+  );
+  const terminal_final_read = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-read", "--tab", terminal_tab
+  ]);
+  ensure(
+    text_at(terminal_final_read, "data.text").includes(terminal_token),
+    "cu_windows_smoke_terminal_final_read:" + JSON.stringify(terminal_final_read.data)
+  );
+  const terminal_after = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "terminal-list"
+  ]);
+  let retained_tab = null;
+  for (const tab of terminal_after.data.tabs) {
+    if (text_of(tab.id) === terminal_tab) { retained_tab = tab; }
+  }
+  ensure(
+    text_at(terminal_after, "data.server_scope_id") === terminal_scope
+      && text_at(terminal_after, "data.server_epoch") === terminal_epoch
+      && retained_tab !== null && retained_tab.dead === true
+      && int_at(retained_tab, "exit_code") === 0,
+    "cu_windows_smoke_terminal_remain_on_exit:" + JSON.stringify(terminal_after.data)
+  );
+  const terminal_late_send = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "terminal-send",
+    "--tab", terminal_tab, "--", "late-input"
+  ]);
+  ensure(
+    !flag_at(terminal_late_send, "ok")
+      && text_at(terminal_late_send, "error.code") === "terminal_not_writable",
+    "cu_windows_smoke_terminal_late_send:" + JSON.stringify(terminal_late_send)
+  );
+  const terminal_shutdown = rh.command(
+    terminal_gui_executable, ["cli", "shutdown"],
+    {
+      cwd: run_directory,
+      env: {
+        AGENTERM_INSTANCE: terminal_instance,
+        AGENTERM_NO_ACTIVATE: "1"
+      },
+      timeout_ms: 30000
+    }
+  );
+  ensure(
+    terminal_shutdown.success === true,
+    "cu_windows_smoke_terminal_shutdown:" + terminal_shutdown.stdout + terminal_shutdown.stderr
+  );
+  const terminal_gui_output = harness.wait(terminal_gui, 10000);
+  terminal_gui_reaped = true;
+  ensure(
+    terminal_gui_output.success === true && terminal_gui_output.exit_code === 0,
+    "cu_windows_smoke_terminal_gui_exit:" + JSON.stringify(terminal_gui_output)
+  );
 
   print("STEP the bounded tree names the fixture's controls with real rectangles and a UIA backend");
   const nodes = tree_nodes(run_directory, executable, handle_text);
@@ -618,6 +787,32 @@ if (short_child >= 0 && !short_reaped) {
     print("cleanup: " + wait_error);
   }
 }
+if (terminal_gui >= 0 && !terminal_gui_reaped) {
+  // Kill only this run's GUI process tree. Its terminal child has already
+  // exited on success; /T also bounds cleanup if an earlier assertion failed.
+  if (terminal_gui_pid !== 0) {
+    const terminated = rh.command(
+      "taskkill", ["/PID", "" + terminal_gui_pid, "/T", "/F"],
+      { timeout_ms: 10000 }
+    );
+    if (terminated.success !== true && harness.process_present(terminal_gui_pid) !== 0) {
+      succeeded = 0;
+      failure = failure + ":cu_windows_smoke_terminal_cleanup_kill";
+    }
+  }
+  try {
+    harness.wait(terminal_gui, 5000);
+    terminal_gui_reaped = true;
+  } catch (wait_error) {
+    print("cleanup: " + wait_error);
+    succeeded = 0;
+    failure = failure + ":cu_windows_smoke_terminal_cleanup_wait";
+  }
+  if (terminal_gui_pid !== 0 && harness.process_present(terminal_gui_pid) !== 0) {
+    succeeded = 0;
+    failure = failure + ":cu_windows_smoke_terminal_cleanup_orphan";
+  }
+}
 
 // Evidence is emitted only once the whole run has succeeded.
 if (succeeded !== 1) {
@@ -637,6 +832,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watc
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-lifecycle-watch");
+harness.emit_evidence(context, declared_evidence, "cu.windows-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-invoke");
@@ -648,5 +844,5 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-destructive-close");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu Windows UIA journey (capabilities, windows, process state/usage, tree, query, invoke, menu, activate, focused, window-place, screenshot, close, cleanup)");
+print("PASS: agenterm-cu Windows UIA journey (capabilities, windows, process state/usage, terminal control, tree, query, invoke, menu, activate, focused, window-place, screenshot, close, cleanup)");
 return;
