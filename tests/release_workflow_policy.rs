@@ -327,6 +327,25 @@ fn control_center_children_use_the_doors_cross_platform_pid() {
 }
 
 #[test]
+fn test_harness_journal_serializes_once_and_appends_without_quadratic_rewrite() {
+    assert!(TEST_HARNESS_QJS.contains(
+        "door(fs_append(context.command_journal_path, record_text + \"\\n\"), \"fs_append command journal\")"
+    ));
+    assert_eq!(
+        TEST_HARNESS_QJS.matches("JSON.stringify(record)").count(),
+        1
+    );
+    assert_eq!(
+        TEST_HARNESS_QJS
+            .matches("publish_command_record(context, record);")
+            .count(),
+        4
+    );
+    assert!(!TEST_HARNESS_QJS.contains("journal + JSON.stringify(record)"));
+    assert!(!TEST_HARNESS_QJS.contains("JSON.stringify([record])"));
+}
+
+#[test]
 fn control_center_projection_owner_outlives_short_command_helpers() {
     let title_waiter = CONTROL_CENTER_SMOKE_QJS
         .split("function wait_for_window_title")

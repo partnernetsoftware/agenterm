@@ -1,0 +1,46 @@
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const args = rh.args();
+if (args.length !== 2) { throw "expected REPO MODE"; }
+
+function door(status, what) {
+  if (status !== 0) { throw what + ":" + tool_result(); }
+  return tool_result();
+}
+
+// Frozen pre-change control. Keep it here, never in the production harness.
+function append_legacy(context, record) {
+  let journal = "";
+  if (rh.exists(context.command_journal_path)) { journal = rh.read_text(context.command_journal_path); }
+  harness.write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
+  harness.write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+}
+
+const context = harness.new_context(args[0], "journal-benchmark-" + args[1]);
+let output_text = "";
+for (let part = 0; part < 16; part = part + 1) { output_text = output_text + "abcdefghijklmnopqrstuvwxyz"; }
+const output = { exit_code: 0, success: true, stdout: output_text, stderr: "", timed_out: false };
+
+for (let i = 0; i < 33; i = i + 1) {
+  if (args[1] === "legacy") {
+    append_legacy(context, {
+      recorded_at_ms: Number(door(time_now_ms(), "time_now_ms")),
+      arguments: ["command", "" + i],
+      expected_failure: false,
+      exit_code: output.exit_code,
+      output: output.stdout
+    });
+  } else if (args[1] === "append") {
+    harness.append_command_record_bounded(context, ["command", "" + i], output, 0, []);
+  } else {
+    throw "journal_benchmark_mode";
+  }
+}
+
+const proof = harness.complete_quiet(context, [], 1, "");
+const records = rh.parse_file(context.command_log_path);
+if (records.length !== 33 || !proof.cleanup.orphan_free) { throw "journal_benchmark_invalid"; }
+harness.remove_run(context);
+print("PASS " + args[1]);
+return;

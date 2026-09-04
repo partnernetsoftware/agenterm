@@ -351,6 +351,20 @@
         "task.harness-cleanup-selftest"
       ]
     },
+    "harness-journal-cost-legacy": {
+      "inputs": ["script-runtime", "frozen-legacy-journal-algorithm"],
+      "outputs": ["journal-cost-control"],
+      "budget": {"timeout_ms": 120000, "max_operations": 1000000000, "max_output_bytes": 1048576},
+      "network": [],
+      "evidence": ["research.harness-journal-cost-legacy"]
+    },
+    "harness-journal-cost-append": {
+      "inputs": ["script-runtime", "production-harness-journal"],
+      "outputs": ["journal-cost-candidate"],
+      "budget": {"timeout_ms": 120000, "max_operations": 1000000000, "max_output_bytes": 1048576},
+      "network": [],
+      "evidence": ["research.harness-journal-cost-append"]
+    },
     "diagnostic-bundle-selftest": {
       "inputs": [
         "staged-binaries",
@@ -1889,6 +1903,28 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "harness-journal-cost-legacy",
+      "description": "Measure the frozen whole-journal rewrite control over 33 equivalent command records",
+      "entry": "scripts/qjs/harness-journal-cost.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [".", "legacy"],
+      "dependencies": [],
+      "platforms": ["windows", "linux", "macos"],
+      "side_effects": ["artifact_write"]
+    },
+    {
+      "id": "harness-journal-cost-append",
+      "description": "Measure production single-serialization append over 33 equivalent command records",
+      "entry": "scripts/qjs/harness-journal-cost.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [".", "append"],
+      "dependencies": [],
+      "platforms": ["windows", "linux", "macos"],
+      "side_effects": ["artifact_write"]
     },
     {
       "id": "diagnostic-bundle-selftest",

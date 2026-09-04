@@ -210,6 +210,17 @@ export function sleep_ms(ms) {
   time_sleep_ms(ms);
 }
 
+// Serialize once, append one crash-recoverable JSONL record without reading
+// the growing journal back, and retain the historical one-record live view.
+// A crash can leave an incomplete final line; `finalize_command_log` parses
+// every non-empty line and therefore fails closed instead of publishing a
+// partial commands.json document.
+function publish_command_record(context, record) {
+  const record_text = JSON.stringify(record);
+  door(fs_append(context.command_journal_path, record_text + "\n"), "fs_append command journal");
+  write_atomic(context.command_log_path, "[" + record_text + "]\n");
+}
+
 export function append_command_record(context, args, output, expected_failure, redactions) {
   const safe_args = [];
   for (const a of args) { safe_args.push(redact_text(a, redactions)); }
@@ -232,10 +243,7 @@ export function append_command_record(context, args, output, expected_failure, r
     exit_code: output.exit_code,
     output: bounded_record_text(redact_text(head, redactions), 512)
   };
-  let journal = "";
-  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
-  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
-  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+  publish_command_record(context, record);
 }
 
 export function finalize_command_log(context) {
@@ -412,10 +420,7 @@ export function append_command_record_bounded(context, args, output, expected_fa
     exit_code: output.exit_code,
     output: bounded_record_text_words(combined, 512)
   };
-  let journal = "";
-  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
-  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
-  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+  publish_command_record(context, record);
 }
 
 // ---- wave-2 remote-ui ----
@@ -606,10 +611,7 @@ export function append_command_record_safe(context, args, output, expected_failu
     exit_code: output.exit_code,
     output: bounded_record_text_safe(combined, 512)
   };
-  let journal = "";
-  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
-  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
-  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+  publish_command_record(context, record);
 }
 
 export function run_cli_safe(context, cli, args, expected_failure, redactions) {
@@ -791,10 +793,7 @@ export function append_command_record_lines(context, args, output, expected_fail
     exit_code: output.exit_code,
     output: bounded_record_lines(combined, 512)
   };
-  let journal = "";
-  if (exists(context.command_journal_path)) { journal = read_text(context.command_journal_path); }
-  write_atomic(context.command_journal_path, journal + JSON.stringify(record) + "\n");
-  write_atomic(context.command_log_path, JSON.stringify([record]) + "\n");
+  publish_command_record(context, record);
 }
 
 // ---- wave-2 gui-smokes ----

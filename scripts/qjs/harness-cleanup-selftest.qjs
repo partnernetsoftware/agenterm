@@ -64,8 +64,13 @@ if (failure === "") {
     // The harness's own `append_command_record` bounds with `slice`, which
     // this engine refuses; the word-bounded sibling writes the same record.
     harness.append_command_record_bounded(context, ["verbose-diagnostic-fixture"], verbose, 0, []);
+    harness.append_command_record_bounded(context, ["second-record"], verbose, 1, []);
+    const live_records = JSON.parse(rh.read_text(context.command_log_path));
     const command_log = rh.read_text(context.command_log_path);
-    if (command_log.includes("<agenterm-command-output-truncated>")
+    if (live_records.length === 1
+        && live_records[0].arguments[0] === "second-record"
+        && live_records[0].expected_failure === true
+        && command_log.includes("<agenterm-command-output-truncated>")
         && rh.metadata(context.command_log_path).len < 8192) {
       const proof = harness.complete_quiet(context, [owned], 0, marker);
       if (harness.state(owned) !== "exited") {
@@ -80,10 +85,15 @@ if (failure === "") {
       } else {
         const cleanup = rh.parse_file(context.cleanup_path);
         const manifest = rh.parse_file(context.manifest_path);
+        const folded_records = rh.parse_file(context.command_log_path);
         if (!cleanup.orphan_free
             || !rh.array_has(cleanup.forced_pids, owned_pid)
             || rh.array_has(cleanup.forced_pids, unowned_pid)
             || !manifest.cleanup.orphan_free
+            || folded_records.length !== 2
+            || folded_records[0].arguments[0] !== "verbose-diagnostic-fixture"
+            || folded_records[1].arguments[0] !== "second-record"
+            || folded_records[1].expected_failure !== true
             || !manifest.failure.includes(marker)) {
           failure = "harness_persisted_proof_incomplete";
         } else {

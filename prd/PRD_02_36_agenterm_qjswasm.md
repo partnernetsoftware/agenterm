@@ -49,6 +49,7 @@ agenterm-qjswasm
 │  ├─ [x] ruler audit: old 7.2 subtracted O(n) `.length`; 10.5 was absolute search cost, not a slower loop
 │  ├─ [x] corrected attribution: compare/branch owned 6.5 of 10.5 steps/byte
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
+│  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -87,6 +88,7 @@ flowchart LR
   NEXT["corrected attribution phase A<br/>10.50 absolute − 7.25 historical = 3.25 length"]
   LAYERS["attribution decided<br/>compare/branch owns 6.5 of 10.5 steps/byte"]
   XOR["direct i32.xor accepted<br/>9.5 steps/byte · module −6 B"]
+  JOURNAL["harness journal append<br/>33 rows · steps −26.6%<br/>host bytes −84.4%"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
@@ -103,6 +105,7 @@ flowchart LR
   PERF -->|166 > 160| ROLLBACK --> STATIC
   STATIC -->|C2 workload regression| REJECT2 --> DIRECT
   DIRECT -->|frozen D4 miss| REJECT3 --> RULER --> NEXT --> LAYERS --> XOR --> PIN
+  PRODUCT --> JOURNAL --> RECEIPT
   UP -. accumulated generic runtime .-> CORE --> COURT
   STANDARD --> COURT
   COURT -->|selected workload wins| NORTH

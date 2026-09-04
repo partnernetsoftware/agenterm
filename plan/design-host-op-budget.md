@@ -312,3 +312,28 @@ search court 的绝对成本、固定派发、循环控制、码元读取、比�
 全 `tinyvm-qjs` suite 与原 `index_of_cost` 门保持绿色。这里只通过 measuring
 ruler；dispatch/loop/read/compare/miss 与 Unicode probes 尚未运行，因此不能选下一
 优化 owner，也不能据此改 pin。
+
+## 10. Product harness journal: remove the quadratic rewrite (2026-09-04)
+
+String record experiments stay closed. A separate product-layer owner was
+visible in the existing profile: each command record serialized the same
+object twice, read the complete JSONL journal, concatenated one line, and
+atomically rewrote the growing file. The shipped `fs.append` door already owns
+the required append operation, so the harness now serializes once, appends one
+line, and constructs the historical one-record live JSON array from that same
+text. Finalization still parses every non-empty line; a crash-truncated line
+therefore fails closed rather than publishing partial evidence.
+
+The reproducible 33-record court and commands are in
+`research/qjswasm-harness-journal/RESULTS.md`:
+
+| path | steps | host ops | host bytes | heap pages |
+|---|---:|---:|---:|---:|
+| frozen whole-journal rewrite | 7,425,588 | 325 | 679,542 | 21 |
+| single serialization + append | 5,447,214 | 194 | 106,134 | 7 |
+
+Both repetitions returned identical runtime counters. The accepted path cuts
+steps 26.6%, host operations 40.3%, host bytes 84.4%, and pages 66.7%, while
+both variants fold and parse the same 33-record shape. The cleanup selftest
+also locks the one-record live view and two-record final fold. This changes no
+tinyvm representation or pin; it removes duplicated product work above the VM.
