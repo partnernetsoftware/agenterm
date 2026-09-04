@@ -191,7 +191,8 @@ Q0 truthful boundary
 ├─ [x] runtime/help text: no useful capability is described as permanently MCU-owned
 └─ [~] replace top-level STAY counting with sub-verb + argument-shape ledger
    ├─ [x] process family accounted shape by shape in the JSON ledger
-   └─ [ ] desktop/browser/runtime/system families remain to enumerate
+   ├─ [x] desktop family accounted shape by shape in the JSON ledger
+   └─ [ ] browser/runtime/system families remain to enumerate
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
 ├─ [ ] Linux and Windows journeys for the same verbs

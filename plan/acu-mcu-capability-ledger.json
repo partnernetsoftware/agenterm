@@ -129,10 +129,164 @@
           "next": "Linux cgroup v2 observation facade"
         }
       ]
+    },
+    "desktop": {
+      "accounting": "complete",
+      "owner": "agenterm-cu commands over agenterm-platform, native accessibility adapters and CDP",
+      "capabilities": [
+        {
+          "id": "desktop.window.inventory",
+          "mcu_shape": "windows [watch] with app/pid/title/space/state/occlusion/AX-root filters and pagination",
+          "acu_shape": "windows plus windows-watch with bounded filters and native z-order/occlusion/space metadata",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-window-identity", "cu.linux-atspi-window-identity", "cu.windows-uia-window-identity"],
+          "note": "The common inventory exists; every MCU argument shape still needs contract-level parity classification."
+        },
+        {
+          "id": "desktop.tree.query",
+          "mcu_shape": "tree/query/elements/inspect/find/read with depth, scan, result, state, action and region bounds",
+          "acu_shape": "tree/query plus inspect/find/read aliases, flat results and typed truncation metadata",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query"]
+        },
+        {
+          "id": "desktop.focused-element",
+          "mcu_shape": "focused PID with bounded identity filters",
+          "acu_shape": "focused --window HANDLE",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-focused", "cu.linux-atspi-focus", "cu.windows-uia-focused"],
+          "note": "Linux and Windows are implemented but their current native journeys do not prove every filter shape."
+        },
+        {
+          "id": "desktop.semantic-action",
+          "mcu_shape": "invoke HANDLE selector|index ACTION [value] with postconditions",
+          "acu_shape": "invoke with stable selector/index, grant, receipts and explicit verification",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-invoke-press", "cu.linux-atspi-invoke", "cu.windows-uia-invoke"]
+        },
+        {
+          "id": "desktop.verify.wait",
+          "mcu_shape": "verify/wait HANDLE --expect predicates",
+          "acu_shape": "verify/wait with typed present/absent/change results",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query"]
+        },
+        {
+          "id": "desktop.observe",
+          "mcu_shape": "observe/query --watch/windows watch",
+          "acu_shape": "observe notifications|poll-diff plus windows-watch",
+          "state": "native",
+          "evidence": ["cu.macos-ax-observe", "cu.macos-ax-observe-notifications", "cu.linux-atspi-observe"],
+          "note": "ACU exposes native notifications and portable poll-diff as distinct truthful mechanisms."
+        },
+        {
+          "id": "desktop.snapshot.diff",
+          "mcu_shape": "snapshot/diff/zoom/hit",
+          "acu_shape": "snapshot/diff/zoom/hit with stable ids and advance receipts",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-snapshot-diff", "cu.macos-ax-hit-zoom"]
+        },
+        {
+          "id": "desktop.window.geometry",
+          "mcu_shape": "frame/movewin/resize/maximize/orderwin/raise",
+          "acu_shape": "window-place plus aliases frame/movewin/resize/maximize/orderwin/raise",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-frame", "cu.linux-atspi-window-place", "cu.windows-uia-window-place"]
+        },
+        {
+          "id": "desktop.window.lifecycle",
+          "mcu_shape": "close/minimize/restore/focus",
+          "acu_shape": "close/minimize/restore/focus with post-state readback",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-window-state", "cu.macos-ax-destructive-close", "cu.linux-atspi-minimized", "cu.windows-uia-destructive-close"]
+        },
+        {
+          "id": "desktop.pointer.global",
+          "mcu_shape": "click/dclick/rclick/move/drag/scroll --to desktop",
+          "acu_shape": "click/drag/scroll and pointer-move --to desktop with explicit actuate grant",
+          "state": "delegated",
+          "evidence": ["cu.macos-pointer-move", "cu.macos-pointer-restored"]
+        },
+        {
+          "id": "desktop.pointer.exact-window",
+          "mcu_shape": "click/move/drag/scroll --to HANDLE including optional macOS private provider",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "typed-rejected-after-native-experiment", "linux": "gap", "windows": "gap"},
+          "next": "retain semantic accessibility actions as the default; only add a raw exact-window provider with independent delivery and postcondition evidence"
+        },
+        {
+          "id": "desktop.keyboard.text",
+          "mcu_shape": "type/key --to HANDLE|desktop and type --at|--focused-at",
+          "acu_shape": "send-text/send-keys/paste and semantic set-value through invoke",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-send-keys", "cu.linux-atspi-send-keys", "cu.windows-uia-invoke"]
+        },
+        {
+          "id": "desktop.screenshot.window",
+          "mcu_shape": "shot --handle and snapshot --shot",
+          "acu_shape": "screenshot --window plus page-screenshot for CDP targets",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-screenshot", "cu.linux-atspi-screenshot", "cu.windows-uia-screenshot"]
+        },
+        {
+          "id": "desktop.menu",
+          "mcu_shape": "menu inspect APP and menu APP --path",
+          "acu_shape": "menu-inspect/menu-invoke --window HANDLE",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-menu-invoke", "cu.linux-atspi-menu-invoke", "cu.windows-uia-menu"],
+          "note": "ACU intentionally binds the operation to a stable window instead of an ambiguous app name."
+        },
+        {
+          "id": "desktop.app.lifecycle",
+          "mcu_shape": "launch/quit/hide/show APP",
+          "acu_shape": "app launch|quit|hide|show plus compatibility aliases",
+          "state": "delegated",
+          "evidence": ["cu.macos-ax-app-lifecycle", "cu.linux-atspi-app-lifecycle"]
+        },
+        {
+          "id": "desktop.clipboard.text-rich",
+          "mcu_shape": "clip plus clipboard inspect/read/write/write-file/clear",
+          "acu_shape": "clipboard-read/write/write-file/clear with bounded bytes, native type names and digests",
+          "state": "delegated",
+          "qualification": "pending-native-public-journey",
+          "evidence": [],
+          "next": "add non-destructive text and native-type round-trip leaves to each platform journey"
+        },
+        {
+          "id": "desktop.displays-spaces",
+          "mcu_shape": "displays and spaces",
+          "acu_shape": "displays and spaces",
+          "state": "delegated",
+          "qualification": "pending-native-public-journey",
+          "evidence": [],
+          "note": "Spaces are a truthful macOS-only surface; displays are cross-platform."
+        },
+        {
+          "id": "desktop.setup-doctor-caps",
+          "mcu_shape": "setup/doctor/caps with active dependency and permission probes",
+          "acu_shape": "capabilities reports typed status and permission blockers; setup/doctor are absent",
+          "state": "gap",
+          "next": "ship a read-only doctor first, then explicit setup plans whose mutations remain outside capability discovery"
+        },
+        {
+          "id": "desktop.session-lock-audit",
+          "mcu_shape": "session/lock/audit plus crash-persistent effect receipts",
+          "acu_shape": "grant/grant-id and receipts; no public session, target-lock or audit lifecycle",
+          "state": "gap",
+          "next": "typed control-session facade shared with remote targets; preserve at-most-once receipts and independently verified postconditions"
+        },
+        {
+          "id": "desktop.ghost-cursor",
+          "mcu_shape": "ghost X Y",
+          "acu_shape": null,
+          "state": "retired",
+          "note": "Visual pointer decoration is not required for machine control replacement and has no effect authority."
+        }
+      ]
     }
   },
   "remaining_families": [
-    "desktop",
     "browser",
     "pty-job-terminal",
     "file-storage",
