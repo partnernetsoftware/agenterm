@@ -240,14 +240,14 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "page" => {
             "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/fill/nav/screenshot to page-find/page-click/page-fill/page-nav/page-screenshot (CDP, background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
-        "ghost" => "MCU ghost cursor overlay stays MCU; this binary will not draw on the desktop",
+        "ghost" => "ACU migration gap: the ghost cursor overlay has no typed facade yet",
         "ps" | "kill" | "signal" | "exec" | "state" => {
-            "process introspect/kill stays MCU / qjs process.*; typed refuse"
+            "ACU migration gap: delegate through the bounded process/qjswasm facade; typed refuse"
         }
-        "open" => "MCU open (non-GUI path) stays MCU; typed refuse",
-        "notify" => "host notification stays MCU; typed refuse",
+        "open" => "ACU migration gap: typed host-open facade pending",
+        "notify" => "ACU migration gap: typed host-notification facade pending",
         "audit" | "session" | "lock" | "service" | "term" => {
-            "MCU runtime session/lock/audit/term stays MCU; typed refuse"
+            "ACU migration gap: delegate through the AgenTerm runtime facade; typed refuse"
         }
         _ => group_status(group_id_for_verb(verb), host_os()).1,
     }
@@ -262,7 +262,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
     match group_id {
         "setup" => (
             "unsupported",
-            "TCC/setup wizard stays MCU; capabilities reports permission repair",
+            "ACU migration gap: setup/repair workflow pending; capabilities reports permission repair",
         ),
         "discover" => {
             if tree_live(os) {
@@ -344,49 +344,61 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         }
         "shell-pty-job" => (
             "unsupported",
-            "PTY/job stay AgenTerm tabs / MCU lab; this binary will not silently shell",
+            "ACU migration gap: delegate PTY/job through the AgenTerm runtime; this command will not silently shell",
         ),
         "process" => (
             "unsupported",
-            "process introspect stays MCU / qjs process.*; typed refuse",
+            "ACU migration gap: bounded process facade and qjswasm composition pending",
         ),
         "resource" => (
             "unsupported",
-            "resource pressure/cgroup stays MCU; typed refuse",
+            "ACU migration gap: typed resource facade pending",
         ),
-        "power" => ("unsupported", "power actions are terminal; typed refuse"),
+        "power" => (
+            "unsupported",
+            "ACU migration gap: terminal power actions need an explicit typed facade",
+        ),
         "login-session" => (
             "unsupported",
-            "login-session lock is session-global; typed refuse",
+            "ACU migration gap: session-global login actions need an explicit typed facade",
         ),
-        "storage" => ("unsupported", "volume inventory stays MCU; typed refuse"),
+        "storage" => (
+            "unsupported",
+            "ACU migration gap: typed volume inventory facade pending",
+        ),
         "file" => (
             "unsupported",
-            "file copy/move plan-apply stays MCU; typed refuse",
+            "ACU migration gap: typed file plan/apply facade pending",
         ),
         "network" => (
             "unsupported",
-            "network inventory/DNS plan stays MCU; typed refuse",
+            "ACU migration gap: typed network inventory/DNS facade pending",
         ),
-        "device" => ("unsupported", "device/audio lease stays MCU; typed refuse"),
+        "device" => (
+            "unsupported",
+            "ACU migration gap: typed device/audio lease facade pending",
+        ),
         "privilege" => (
             "unsupported",
-            "typed privilege broker stays MCU; no root shell",
+            "ACU migration gap: typed privilege-broker facade pending; no root shell",
         ),
-        "runtime" => ("unsupported", "user daemon/jobs stay MCU; typed refuse"),
+        "runtime" => (
+            "unsupported",
+            "ACU migration gap: AgenTerm daemon/session facade pending",
+        ),
         "desktop-helper" => (
             "unsupported",
             "cu-helper-mac is MCU desktop-helper; this binary uses libagenterm",
         ),
         "simulator" => (
             "unsupported",
-            "CoreSimulator guest AX stays MCU; typed refuse",
+            "ACU migration gap: CoreSimulator guest accessibility facade pending",
         ),
         "browser" => {
             if os == "macos" {
                 (
                     "available",
-                    "browser profiles (Local State + window inventory), browser open (open -na --profile-directory on the running instance), tab close (row close button); MV3/Native Messaging stays MCU, ordinary web is AX query/invoke",
+                    "browser profiles (Local State + window inventory), browser open (open -na --profile-directory on the running instance), tab close (row close button); MV3/Native Messaging is an ACU migration gap, ordinary web is AX query/invoke",
                 )
             } else if tree_live(os) {
                 (
@@ -396,7 +408,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             } else {
                 (
                     "unsupported",
-                    "Chromium profile user data is not mapped on this OS; MV3/Native Messaging stays MCU",
+                    "Chromium profile user data is not mapped on this OS; MV3/Native Messaging is an ACU migration gap",
                 )
             }
         }
@@ -483,7 +495,9 @@ pub fn verb_declaration(verb: &str) -> Value {
         let reason = match verb {
             "find" => "MCU find HANDLE TEXT is query --window --text",
             "read" => "MCU read HANDLE SELECTOR is query --window --selector",
-            _ => "MCU inspect HANDLE is query --window; inspect --app inventory stays MCU",
+            _ => {
+                "MCU inspect HANDLE is query --window; inspect --app inventory is an ACU migration gap"
+            }
         };
         return json!({
             "status": if tree_live(os) { "available" } else { "unsupported" },
@@ -913,11 +927,11 @@ mod tests {
                 "{absorbed} must stay declared in capabilities"
             );
         }
-        // `ghost` (a cursor overlay drawn on the desktop) was deliberately
-        // not absorbed and stays typed rather than silently unknown.
+        // `ghost` (a cursor overlay drawn on the desktop) is still a declared
+        // migration gap and stays typed rather than silently unknown.
         assert!(is_align_verb("ghost") && is_align_verb("page"));
         assert!(
-            typed_reason_for_verb("ghost").contains("will not draw on the desktop"),
+            typed_reason_for_verb("ghost").contains("ACU migration gap"),
             "{}",
             typed_reason_for_verb("ghost")
         );

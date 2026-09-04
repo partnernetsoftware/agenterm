@@ -745,7 +745,7 @@ nodes (index, depth) in walk order -- the same identity query reports.
         usage: "query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
       [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]
       [--offset N] [--max N] [--selector PATH]
-inspect HANDLE [flags]           (alias of query; --app stays MCU)
+inspect HANDLE [flags]           (alias of query; --app is a migration gap)
 find HANDLE TEXT [flags]         (alias of query --text TEXT)
 read HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)",
         args: &[
