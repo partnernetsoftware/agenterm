@@ -47,7 +47,7 @@ agenterm-qjswasm
 │  ├─ [x] static-length dispatch experiment rejected: 160-step gate met, existing workloads regressed
 │  ├─ [x] direct producer metadata experiment rejected: its frozen search court reported 10.5 steps/character against <10
 │  ├─ [x] ruler audit: old 7.2 subtracted O(n) `.length`; 10.5 was absolute search cost, not a slower loop
-│  ├─ [~] corrected search-cost attribution court frozen upstream; not run, no engine change
+│  ├─ [~] corrected search attribution: dual-control ruler closed; layer probes pending, no engine change
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -83,7 +83,8 @@ flowchart LR
   DIRECT["direct producer metadata court<br/>join/split pass · search 10.5 misses &lt;10"]
   REJECT3["reject + rollback<br/>preserve evidence, not engine diff"]
   RULER["ruler audit<br/>old 7.2 = absolute search − O(n) length"]
-  NEXT["corrected attribution frozen · not run<br/>build-only control · loop · read · compare · miss"]
+  NEXT["corrected attribution phase A<br/>10.50 absolute − 7.25 historical = 3.25 length"]
+  LAYERS["pending layer probes<br/>dispatch · loop · read · compare · miss"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
@@ -98,7 +99,7 @@ flowchart LR
   PERF -->|all frozen gates pass| UP
   PERF -->|166 > 160| ROLLBACK --> STATIC
   STATIC -->|C2 workload regression| REJECT2 --> DIRECT
-  DIRECT -->|frozen D4 miss| REJECT3 --> RULER --> NEXT
+  DIRECT -->|frozen D4 miss| REJECT3 --> RULER --> NEXT --> LAYERS
   UP -. accumulated generic runtime .-> CORE --> COURT
   STANDARD --> COURT
   COURT -->|selected workload wins| NORTH

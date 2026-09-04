@@ -305,3 +305,10 @@ search court 的绝对成本、固定派发、循环控制、码元读取、比�
 实验规格已在 tinyvm `plan/design-string-search-cost-attribution-experiment.md`
 校正（`cf70589`）：双 control、四个以上长度点、两层斜率闭合、固定/线性成本分账；只出归因和下一
 实验的 owner，不在同一轮偷做优化，也不改变当前 tinyvm pin。
+
+**Phase A 实测（tinyvm `8c946ff`，引擎零改动）**：四个长度点从 2,048 到
+131,072 字符，`includes` / `indexOf` 两条都得到绝对 **10.5000**、历史
+**7.2500**、独立 `.length` **3.2500 steps/character**，闭合式精确成立。
+全 `tinyvm-qjs` suite 与原 `index_of_cost` 门保持绿色。这里只通过 measuring
+ruler；dispatch/loop/read/compare/miss 与 Unicode probes 尚未运行，因此不能选下一
+优化 owner，也不能据此改 pin。
