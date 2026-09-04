@@ -150,6 +150,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   assertion for the next integrated Windows journey. Linux ARM64 and x86_64
   court probes found no Chromium-family browser, so their runtime evidence
   remains open with the prerequisite named instead of being skipped as green.
+  The Windows x86_64 court currently fails earlier at its interactive-job-agent
+  registration; QGA can execute `cmd.exe` and transfer files, but its
+  PowerShell child produced no result receipt. That cell is infrastructure
+  unavailable, not a failed ACU assertion, and remains open until the court
+  channel is repaired or the GitHub native runner executes the journey.
 - macOS now has native journey evidence for `snapshot`/`diff`, `hit`/`zoom`,
   `raise` and gated `minimize`/`restore`. The restore step exposed a real
   platform bug: `kCGWindowListOptionIncludingWindow` alone returned no owner
