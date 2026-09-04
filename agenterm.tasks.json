@@ -607,7 +607,7 @@
         "cu-network-probe-evidence"
       ],
       "budget": {
-        "timeout_ms": 30000,
+        "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },

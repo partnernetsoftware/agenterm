@@ -635,8 +635,8 @@
           "mcu_shape": "network probe HOST --port N --attempts N --timeout-ms N with DNS and TCP latency evidence",
           "acu_shape": "agenterm-cu network-probe HOST --port N --attempts N --timeout-ms N (alias: network probe)",
           "state": "platform-limited",
-          "next": "finish R0-R6: exact helper timeout/reap evidence, six-cell compile and one invocation-owned loopback public journey per OS; then promote to native",
-          "note": "Implemented behind an invocation-owned internal helper because Windows and glibc native resolver cancellation cannot prove completed cancellation. Resolution is once/deduplicated/frozen; TCP refusal and timeout are successful unreachable observations. The active qjswasm/tinyvm host surface still has no generic DNS/TCP APIs."
+          "next": "restore the existing 2 MiB Windows release-size court without raising it; retain the Windows arm64 UTM/QGA pre-execution transport gap separately, then promote to native",
+          "note": "Implemented behind an invocation-owned internal helper because Windows and glibc native resolver cancellation cannot prove completed cancellation. Resolution is once/deduplicated/frozen; TCP refusal and timeout are successful unreachable observations. The same public loopback journey is green on macOS arm64, Linux arm64 plus x86_64, and Windows x86_64; all six cells compile. Windows arm64 did not start because its UTM/QGA transfer lost progress. The active qjswasm/tinyvm host surface still has no generic DNS/TCP APIs."
         }
       ]
     },

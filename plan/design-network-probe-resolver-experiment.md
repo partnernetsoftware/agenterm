@@ -1,7 +1,7 @@
 # Network probe resolver containment experiment
 
-Status: **Variant A rejected at R1 · Variant B selected for implementation ·
-does not yet promote the ACU capability**.
+Status: **Variant A rejected at R1 · Variant B is three-OS green · promotion
+withheld at the release-size court**.
 
 | field | value |
 |---|---|
@@ -185,25 +185,29 @@ deadline and kills **and reaps** the exact child on expiry. The helper remains
 an internal bounded protocol, never a second public capability or an external
 utility dependency.
 
-`network.probe` remains a typed gap until Variant B passes R0–R6. The result
-section must be updated again with measured cleanup, concurrency, semantic,
-six-cell compile, three-OS runtime and size evidence before promotion.
+`network.probe` remains below promoted status until Variant B passes R0–R6.
+The result section must be updated with every court result; a transport failure
+before the journey starts is infrastructure evidence, never a product result.
 
 ### 8.3 Variant B first evidence — implemented, promotion still withheld
 
 | gate | result at 2026-09-04 |
 |---|---|
-| R0 | **OSX green** through the public `cu-macos-smoke` journey: invocation-owned IPv4 listener, three exact connected attempts, natural listener exit/reap, then two exact `ok + unreachable` attempts on the same closed port. Lnx/Win runtime pending. |
+| R0 | **OSX/Lnx/Win green** through the public loopback journey: invocation-owned IPv4 listener, three exact connected attempts, natural listener exit/reap, then two exact `ok + unreachable` attempts on the same closed port. Evidence ran on macOS arm64, Linux arm64 + x86_64, and Windows x86_64. |
 | R1 | **mechanism green**: a test-owned child stalled for 60 seconds is killed at the 100 ms parent deadline, waited/reaped, and observed complete before 350 ms. Native resolver variant A remains rejected. |
 | R2 | **admission green**: 32 simultaneous in-process requests obtain exactly four fixed worker slots; all excess calls fail `resolver_saturated`. This is a process-wide bound, not a machine-wide quota across independent CLI processes. |
-| R3 | **unit + OSX public green**: one frozen deduplicated address, exact round-robin attempt count, closed port remains a successful unreachable observation. |
+| R3 | **unit + three-OS public green**: one frozen deduplicated address, exact round-robin attempt count, closed port remains a successful unreachable observation. |
 | R4 | **unit/CLI green**: invalid limits fail before spawn; saturation, spawn, protocol, wait, worker, DNS and overall-timeout failures have distinct codes. |
-| R5 | pending stripped release delta; added transitive crates = 0. |
-| R6 | all six target cells compile; native runtime green only on OSX so far. |
+| R5 | **not closed**: added transitive crates = 0, but the current stripped Windows x86_64 `agenterm-cu.exe` is 2,376,704 bytes against the existing 2 MiB release budget. The v0.1.16 macOS arm64 asset was 1,584,688 bytes and the current macOS arm64 build is 2,485,016 bytes, but that interval includes other post-release ACU work and is not misreported as network-only delta. Do not raise the ceiling. |
+| R6 | **green for the stated criterion**: all six target cells compile; the matching native executable ran on macOS arm64, Linux arm64 + x86_64, and Windows x86_64. Windows arm64 did not start the journey because its UTM/QGA 4.4 MB upload lost RPC progress and the VM stuck in `stopping`; this is retained as a six-cell court-infrastructure gap, not a product failure or a skip. |
 
 The surviving implementation is `agenterm-cu network-probe` (alias
 `network probe`). Its helper and loopback court entry are hidden from the verb
 catalog; the latter additionally requires an explicit test-fixture marker.
-Public OSX evidence is green, but the ledger intentionally remains
-`platform-limited` until Lnx and Win run the same loopback journey and R5 is
-recorded.
+Public three-OS evidence is green, but the ledger intentionally remains
+`platform-limited` until the existing Windows release-size court is restored
+without raising it. The focused task owns a 120-second deadline because an
+emulated Windows x86 court exceeded the runtime's intentionally small default
+host-wait deadline; the engine default remains unchanged. Execute-only Windows
+courts invoke the synchronous `agenterm.com` console front door—launching the
+GUI-subsystem `agenterm.exe` directly can return before evidence exists.

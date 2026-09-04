@@ -352,10 +352,16 @@ flowchart LR
   failed the precommitted completed-cancellation gate; deadline expiry kills
   and reaps the exact helper instead of accumulating resolver threads. This is
   not yet promoted: six-cell compile plus invocation-owned loopback journeys on
-  OSX/Lnx/Win remain required by
+  OSX/Lnx/Win are governed by
   [`plan/design-network-probe-resolver-experiment.md`](../plan/design-network-probe-resolver-experiment.md).
-  The OSX public journey is green; Lnx/Win runtime courts and the release-size
-  delta remain open, so the capability ledger is still `platform-limited`.
+  The same public journey is green on macOS arm64, Linux arm64 + x86_64, and
+  Windows x86_64. Windows arm64 was blocked before execution by its UTM/QGA
+  transfer channel, so it contributes no product verdict. The current Windows
+  release binary exceeds the existing 2 MiB `agenterm-cu` budget; the release
+  size court remains open and the capability ledger stays `platform-limited`
+  without raising that ceiling. Slow execute-only courts declare a bounded
+  journey deadline and use Windows' synchronous `agenterm.com` front door;
+  neither court latency nor a GUI-subsystem early return may become false green.
   The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
   Native system inventory remains platform-owned; socket rows must bind process
   start identity rather than a reusable PID.
@@ -369,7 +375,8 @@ flowchart LR
   H --> D{"overall deadline"}
   D -->|expires| K["kill + reap exact helper<br/>typed timeout"]
   T --> E["three-OS loopback evidence"]
-  E -->|all green| P["promote ledger row to native"]
+  E -->|three OS green| B["release-size court<br/>keep 2 MiB ceiling"]
+  B -->|green| P["promote ledger row to native"]
 ```
 - [~] Device/audio replacement is classified across peripheral inventory and
   events, exclusive TTL claims, byte I/O, serial configuration and default
