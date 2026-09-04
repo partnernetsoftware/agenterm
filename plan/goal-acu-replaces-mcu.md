@@ -7,6 +7,11 @@ Product owners: [`prd/PRD_02_28_agenterm_cu.md`](../prd/PRD_02_28_agenterm_cu.md
 
 Capability ledger: [`plan/capability-mcu-cu.md`](capability-mcu-cu.md)
 
+Machine-readable state ledger:
+[`plan/acu-mcu-capability-ledger.json`](acu-mcu-capability-ledger.json). It is
+currently exhaustive for the process family and grows family by family until
+R0 reaches zero unclassified public shapes.
+
 ## Product outcome
 
 `agenterm-cu` becomes the one installed machine/computer-use entry for agents.
@@ -185,6 +190,8 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 Q0 truthful boundary
 ├─ [x] runtime/help text: no useful capability is described as permanently MCU-owned
 └─ [~] replace top-level STAY counting with sub-verb + argument-shape ledger
+   ├─ [x] process family accounted shape by shape in the JSON ledger
+   └─ [ ] desktop/browser/runtime/system families remain to enumerate
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
 ├─ [ ] Linux and Windows journeys for the same verbs

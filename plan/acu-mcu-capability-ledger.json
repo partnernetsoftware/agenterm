@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "status": "partial",
+  "product_outcome": "Every retained MCU workflow is reachable through agenterm-cu without Bun.",
+  "states": ["native", "delegated", "gap", "platform-limited", "retired"],
+  "rules": {
+    "available_requires_black_box_evidence": true,
+    "catalog_presence_is_not_evidence": true,
+    "unsupported_is_not_a_roadmap_state": true,
+    "mcu_absence_is_the_final_replacement_court": true
+  },
+  "families": {
+    "process": {
+      "accounting": "complete",
+      "owner": "agenterm-platform process facades exposed by agenterm-cu",
+      "capabilities": [
+        {
+          "id": "process.inventory.basic",
+          "mcu_shape": "ps --pid/--parent/--name/--offset/--max",
+          "acu_shape": "ps --pid/--parent/--name/--offset/--max",
+          "state": "delegated",
+          "evidence": ["cu.macos-process-state", "agenterm-cu unit process inventory"]
+        },
+        {
+          "id": "process.state",
+          "mcu_shape": "process state PID",
+          "acu_shape": "process-state --pid N",
+          "state": "delegated",
+          "evidence": ["cu.macos-process-state"]
+        },
+        {
+          "id": "process.usage.once",
+          "mcu_shape": "process usage PID",
+          "acu_shape": "process-usage --pid N",
+          "state": "delegated",
+          "evidence": ["cu.macos-process-usage"]
+        },
+        {
+          "id": "process.wait.exact",
+          "mcu_shape": "process wait PID --timeout S --interval S",
+          "acu_shape": "process-wait --pid N --start-identity ID --timeout-ms N",
+          "state": "native",
+          "evidence": ["cu.macos-process-wait"],
+          "note": "ACU retains a native process object and requires prior identity; this is stronger than MCU PID polling."
+        },
+        {
+          "id": "process.inventory.rich",
+          "mcu_shape": "ps --command/--files/--ports/--cpu-above/--memory-above-mb/--sort/--depth",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "typed bounded process-detail and filter facades"
+        },
+        {
+          "id": "process.usage.watch",
+          "mcu_shape": "process usage PID --watch S --interval S --max-samples N",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "qjswasm composition over identity-bound samples with bounded events"
+        },
+        {
+          "id": "process.lifecycle.watch",
+          "mcu_shape": "process watch --pid/--name/--parent/--all",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "bounded diff stream over shared process inventory"
+        },
+        {
+          "id": "process.state.mutate",
+          "mcu_shape": "process set-state PID running|stopped",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "identity-bound actuate gate plus post-state"
+        },
+        {
+          "id": "process.signal",
+          "mcu_shape": "signal|kill and process lifecycle mutations",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "exact identity, actuate grant, pre-state and independently verified postcondition"
+        },
+        {
+          "id": "process.cwd",
+          "mcu_shape": "process cwd PID",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "process-image facade with typed denied/needs-privilege"
+        },
+        {
+          "id": "process.argv",
+          "mcu_shape": "process argv PID",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "bounded values-off-by-default process-image facade"
+        },
+        {
+          "id": "process.environment",
+          "mcu_shape": "process env PID",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "bounded names-only default and explicit value exposure"
+        },
+        {
+          "id": "process.fds-maps-threads",
+          "mcu_shape": "process fds|maps|threads PID [--watch]",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "platform observation facades, then qjswasm bounded stream composition"
+        },
+        {
+          "id": "process.sockets",
+          "mcu_shape": "process sockets PID [--watch]",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "join process identity with the future network socket facade"
+        },
+        {
+          "id": "process.policy",
+          "mcu_shape": "process policy PID status|background|normal",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "platform-limited policy adapter plus explicit privilege broker"
+        },
+        {
+          "id": "process.cgroup",
+          "mcu_shape": "process cgroup PID",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"linux": "gap", "macos": "not-applicable", "windows": "not-applicable"},
+          "next": "Linux cgroup v2 observation facade"
+        }
+      ]
+    }
+  },
+  "remaining_families": [
+    "desktop",
+    "browser",
+    "pty-job-terminal",
+    "file-storage",
+    "network",
+    "device-audio",
+    "service-daemon-session-lock-audit",
+    "setup-doctor-permissions",
+    "privilege",
+    "simulator"
+  ]
+}
