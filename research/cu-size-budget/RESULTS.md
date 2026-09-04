@@ -100,3 +100,8 @@ promoted into product architecture.
 The no-raise tranche is complete: retain C's 64–96 B/row cold-catalog slope,
 keep the 2 MiB release gate red, and return the 123,904-byte gap as an explicit
 product-budget decision rather than continuing unbounded micro-optimization.
+
+Post-rollback Variant C compiled at exact `4d524426` for all six delivery
+targets: OSX arm64/x86_64 with Cargo, Linux arm64/x86_64 with cargo-zigbuild,
+and Windows arm64/x86_64 with cargo-xwin. This is compile evidence, not a claim
+that those six exact artifacts all ran.
