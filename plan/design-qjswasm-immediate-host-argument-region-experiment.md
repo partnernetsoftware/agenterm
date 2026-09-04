@@ -1,6 +1,6 @@
 # qjswasm immediate host-argument region experiment
 
-Status: **D0 measurement incomplete · Variant B forbidden · not must-ship**.
+Status: **DECIDED · D0 failed · Variant B killed · not must-ship**.
 
 This experiment does not change the current AgenTerm `tinyvm` / `tinyvm-qjs`
 pin, product capability state, budget defaults, or release scope. An accepted
@@ -298,31 +298,30 @@ not evidence.
 - Wasmtime-class compatibility or throughput.
 - A product release/version decision.
 
-## 8. Result placeholder
+## 8. Result
 
-Status: **rehearsal run recorded; D0 is not decided**.
+Status: **D0 failed; exact specialization killed before implementation**.
 
 The first exact-source rehearsal is recorded in
 [`research/qjswasm-immediate-host-argument-region/RESULTS.md`](../research/qjswasm-immediate-host-argument-region/RESULTS.md).
-One native row produced a complete cost receipt but failed the ratio threshold;
-two rows exposed measurement/court prerequisites and produced no admissible
-allocation receipt. No reuse implementation may start until those two evidence
-paths are made bounded and the original Boolean D0 has a complete table.
+On exact AgenTerm `b64a3454` and tinyvm `f303132`, clean macOS aarch64 native
+runs measured server at 97,068 / 1,171,364 B = 8.286749% and wake at 103,484 /
+1,669,740 B = 6.197612%. Both exceed 64 KiB but fail the frozen 10% ratio.
 
-When complete, replace this placeholder with:
+| workload | run allocation B | eligible B | ratio | row verdict |
+|---|---:|---:|---:|---|
+| server | 1,171,364 | 97,068 | 8.286749% | fail |
+| wake | 1,669,740 | 103,484 | 6.197612% | fail |
+| workbench | — | — | — | not run; Boolean already forced |
+Because D0 requires at least two of three workloads to pass, two failures make
+the gate impossible even if workbench passed. The decision path is therefore
+`D0 no → KILL`; S0/L0/B0/C0/Z0 correctly did not run.
 
-1. the decision-tree trace beginning at D0 and naming the first failed or final
-   passed criterion;
-2. one A/B table containing both payload sizes, 1/16/32 slopes, all three
-   product journeys and the three size boundaries;
-3. the complete S0 positive/negative classification table;
-4. every deviation from this specification, including skipped platforms,
-   changed order or instrumentation that affected allocation order;
-5. the honesty statement: measurements were not changed after results were
-   observed, and both interpretations are recorded if the evidence is
-   ambiguous;
-6. the exact commands, hashes and independent control value in `RESULTS.md`;
-7. any result that overturned the expected direction, called out separately.
-
-Until §8 is filled and `RESULTS.md` exists, this experiment is **planned**, not
-decided, and none of its expected benefits may be quoted as product fact.
+Deviation: the task manifest still projects these historical tasks as
+Windows-only, so the same host-shaped script entries were invoked directly
+with native binaries and unchanged budgets on the macOS target named by §2.
+No script source, workload identity, threshold, meter or budget changed.
+Measurements were not altered after results were observed. The surprising
+result is that an absolute region above 64 KiB still accounts for less than
+one tenth of both real allocation profiles. Exact commands and the full receipt
+are in `RESULTS.md` / `attribution.json`.

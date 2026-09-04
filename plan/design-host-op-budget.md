@@ -340,3 +340,18 @@ steps 26.6%, host operations 40.3%, host bytes 84.4%, and pages 66.7%, while
 both variants fold and parse the same 33-record shape. The cleanup selftest
 also locks the one-record live view and two-record final fold. This changes no
 tinyvm representation or pin; it removes duplicated product work above the VM.
+
+## 11. Immediate host-argument region is closed (2026-09-05)
+
+The diagnostic-only `f303132` meter was run on clean AgenTerm `b64a3454` with
+the frozen real workloads and budgets on macOS aarch64. The exact candidate
+region `host(JSON.stringify(binding))` accounted for 97,068 of 1,171,364 run
+allocation bytes in server (**8.286749%**) and 103,484 of 1,669,740 bytes in
+wake (**6.197612%**). Both clear 64 KiB but miss the precommitted 10% ratio.
+
+D0 required two of server/wake/workbench to pass. Since two have already
+failed, workbench cannot change the Boolean result and was not run. The
+decision path is `D0 no → kill`: retain the attribution counter, implement no
+mark/rewind/zero-on-reuse machinery, and do not reopen this exact syntactic
+specialization by relaxing the ratio. The full receipt and commands are in
+`research/qjswasm-immediate-host-argument-region/RESULTS.md`.

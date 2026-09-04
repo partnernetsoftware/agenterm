@@ -1,10 +1,10 @@
 {
   "schema": "agenterm-qjswasm-immediate-host-argument-attribution",
   "version": 1,
-  "status": "d0_measurement_incomplete",
-  "agenterm_revision": "311ed139e67b9780b334218c5bbf69b08e43db50",
+  "status": "d0_failed_specialization_killed",
+  "agenterm_revision": "b64a3454e754f4fdfed3653516d0bb17c5751e5f",
   "agenterm_source_dirty": false,
-  "tinyvm_revision": "f303132a",
+  "tinyvm_revision": "f303132acf43a02e28320bea98d1a992619b0dc8",
   "diagnostic_only": true,
   "allocator_reuse_implemented": false,
   "precommitted_gate": {
@@ -18,45 +18,60 @@
     ]
   },
   "court": {
-    "os": "windows",
-    "isa": "x86_64",
-    "execution": "native guest",
-    "note": "rehearsal only: the experiment document named macOS aarch64, while the frozen task manifest declares all three product tasks Windows-only"
+    "os": "macos",
+    "isa": "aarch64",
+    "execution": "native host",
+    "rustc": "1.97.0 (2d8144b78 2026-07-07)",
+    "note": "deciding run: direct invocation of the same host-shaped script entries with native binaries and frozen budgets; the manifest's historical Windows-only projection was not used"
   },
   "rows": [
     {
       "journey": "server-smoke",
       "result": "passed",
-      "steps": 39838979,
+      "steps": 19601665,
       "peak_call_depth": 23,
       "peak_activation_slots": 286,
-      "host_operations": 262,
-      "host_bytes": 357156,
-      "waited_ms": 311,
-      "heap_pages": 31,
-      "heap_start_bytes": 27020,
-      "heap_end_bytes": 1974868,
-      "run_allocation_bytes": 1947848,
-      "json_parse_bytes": 1231980,
-      "json_stringify_bytes": 211076,
-      "immediate_stringify_host_argument_bytes": 97516,
-      "eligible_ratio": 0.05006345669785322,
+      "host_operations": 395,
+      "host_bytes": 349425,
+      "waited_ms": 265,
+      "heap_pages": 19,
+      "heap_start_bytes": 27044,
+      "heap_end_bytes": 1198408,
+      "run_allocation_bytes": 1171364,
+      "json_parse_bytes": 453548,
+      "json_stringify_bytes": 210692,
+      "immediate_stringify_host_argument_bytes": 97068,
+      "eligible_ratio": 0.08286749464726592,
       "passes_d0_row": false
     },
     {
       "journey": "wake-smoke",
-      "result": "court_prerequisite_missing",
-      "typed_detail": "python executable absent from the Windows guest",
-      "passes_d0_row": null
+      "result": "passed",
+      "steps": 31108867,
+      "peak_call_depth": 19,
+      "peak_activation_slots": 275,
+      "host_operations": 372,
+      "host_bytes": 461718,
+      "waited_ms": 255,
+      "heap_pages": 26,
+      "heap_start_bytes": 26220,
+      "heap_end_bytes": 1695960,
+      "run_allocation_bytes": 1669740,
+      "json_parse_bytes": 716308,
+      "json_stringify_bytes": 272076,
+      "immediate_stringify_host_argument_bytes": 103484,
+      "eligible_ratio": 0.06197611604201852,
+      "passes_d0_row": false
     },
     {
       "journey": "workbench-smoke",
-      "result": "measurement_deadline_without_receipt",
-      "typed_detail": "no atomic task receipt was published inside the bounded court window",
+      "result": "not_run_decision_already_forced",
+      "typed_detail": "server and wake both failed; even a passing workbench row cannot satisfy at least two of three",
       "passes_d0_row": null
     }
   ],
   "d0_pass": false,
-  "d0_decided": false,
-  "next": "add phase-level cost receipts and a self-owned raw IPC fixture, then rerun the same three frozen workload identities before any allocator reuse code"
+  "d0_decided": true,
+  "decision": "kill_exact_immediate_stringify_host_argument_region",
+  "next": "retain diagnostic attribution only; do not implement allocator rewind for this exact shape"
 }

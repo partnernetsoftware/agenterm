@@ -8,8 +8,9 @@ Status: **`[~]` active product engine**.
 **`f303132`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 This revision adds only the opt-in immediate stringify-to-host allocation
-attribution meter needed by the D0 experiment; ordinary compilation stays
-byte-identical and no allocator rewind/reuse has been implemented.
+attribution meter. D0 has now rejected that exact recovery specialization;
+ordinary compilation stays byte-identical and no allocator rewind/reuse was
+implemented.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
@@ -57,7 +58,7 @@ agenterm-qjswasm
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
 │  ├─ [x] temporary-region lifetime court rejected: JSON is 56.69%/59.20% gross allocation, but live return records leave zero operation-return suffix
-│  ├─ [~] immediate host-argument D0: one row is 97,516 B / 5.006% and fails ratio; two measurement rows remain, so reuse code stays forbidden
+│  ├─ [x] immediate host-argument D0 rejected: server 8.286749%, wake 6.197612%; two failures make ≥2/3 impossible, so no reuse code
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -103,9 +104,9 @@ flowchart LR
   REGION["temporary-region lifetime court<br/>gross JSON attribution measured"]
   REGION_GATE{"L0 >=25% proven-dead<br/>in >=2 real journeys?"}
   REGION_KILL["L0 failed: live return at heap tail<br/>kill rewind · retain diagnostics"]
-  ARG_D0["immediate host-argument D0<br/>server row 5.006% · two rows missing"]
-  ARG_GATE{"complete table:<br/>>=64 KiB + >=10% in two?"}
-  ARG_STOP["no allocator reuse<br/>repair measurement court first"]
+  ARG_D0["immediate host-argument D0<br/>server 8.286749% · wake 6.197612%"]
+  ARG_GATE{"&gt;=64 KiB + &gt;=10%<br/>in at least two? · NO"}
+  ARG_STOP["kill exact specialization<br/>retain attribution only"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
@@ -124,7 +125,7 @@ flowchart LR
   REGION_GATE -->|no| REGION_KILL
   REGION_GATE -->|yes| PERF
   REGION_KILL --> ARG_D0 --> ARG_GATE
-  ARG_GATE -->|incomplete / no| ARG_STOP
+  ARG_GATE -->|no| ARG_STOP
   ARG_GATE -->|yes| PERF
   COMP -. measured candidate .-> PERF
   PERF -->|all frozen gates pass| UP
