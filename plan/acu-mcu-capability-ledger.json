@@ -635,8 +635,8 @@
           "mcu_shape": "network probe HOST --port N --attempts N --timeout-ms N with DNS and TCP latency evidence",
           "acu_shape": null,
           "state": "gap",
-          "next": "ACU facade composed from qjswasm DNS/TCP calls with per-attempt deadlines, resolved-address evidence and no hidden retry",
-          "note": "qjswasm already carries generic TCP APIs, but a caller cannot yet reach this MCU-shaped probe through the ACU public entry."
+          "next": "first add a bounded native resolver/connect facade to agenterm-platform, then expose resolved-address and per-attempt deadline evidence through ACU",
+          "note": "The active qjswasm/tinyvm host surface does not currently expose generic DNS/TCP APIs; historical std.net catalog names are not a shipped mechanism. Do not subprocess MCU or use an uncancellable resolver behind a nominal deadline."
         }
       ]
     },

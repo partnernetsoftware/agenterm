@@ -342,10 +342,13 @@ flowchart LR
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
-  sockets and DNS+TCP probes. qjswasm's generic TCP APIs are the intended
-  composition mechanism for probes, but do not count as ACU reachability until
-  the public facade exists. Native system inventory remains platform-owned;
-  socket rows must bind process start identity rather than a reusable PID.
+  sockets and DNS+TCP probes. The active qjswasm/tinyvm host surface has no
+  generic DNS/TCP API; historical `std.net.*` catalog names are not a shipped
+  mechanism. A probe therefore first needs a bounded native resolver/connect
+  facade in `agenterm-platform`, with no MCU subprocess and no uncancellable
+  resolver hidden behind a nominal deadline. Native system inventory remains
+  platform-owned; socket rows must bind process start identity rather than a
+  reusable PID.
 - [~] Device/audio replacement is classified across peripheral inventory and
   events, exclusive TTL claims, byte I/O, serial configuration and default
   output state. Device paths are locators rather than durable identity;

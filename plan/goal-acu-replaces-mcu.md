@@ -229,10 +229,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   ACLs/attributes remain distinct platform vocabularies; parity must not be
   manufactured by renaming one as the other.
 - Network accounting is complete across interfaces, routes, DNS, sockets and
-  DNS+TCP probes. qjswasm's generic TCP surface is the correct composition
-  engine for probes, but it does not make the ACU command reachable by itself;
-  system inventory remains a native platform facade and sockets must join a
-  process start identity rather than a reusable PID alone.
+  DNS+TCP probes. The active qjswasm/tinyvm host surface has no generic TCP or
+  DNS API; historical catalog names are not implementation. Probes require a
+  bounded native `agenterm-platform` resolver/connect facade first, while
+  system inventory remains platform-owned and socket rows must join a process
+  start identity rather than a reusable PID alone.
 - Device/audio accounting is complete across peripheral inventory and events,
   exclusive device leases, byte I/O, serial configuration and default-output
   state. A path alone is never durable device identity, and audio backends stay
