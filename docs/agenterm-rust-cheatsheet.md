@@ -1349,6 +1349,18 @@ existing directory with group/other permission bits; never silently `chmod` a
 caller-owned path to make an unsafe endpoint appear valid. Only directories
 created by the adapter may be initialized at `0700`.
 
+## A small product client reuses the control wire, not the product binary
+
+When a sibling executable needs AgenTerm-owned terminal/session state, do not
+link the full GUI crate, extend libagenterm with product concepts, parse the
+human `list-panes -F` surface, or spawn `agenterm cli`. Put bounded framing,
+native pipe/socket transport, typed response fields and control receipts in a
+small product-owned client crate; the terminal kernel remains the only state
+owner. Terminal identity is `(server_scope_id, server_epoch, @tab_id)`, never a
+mutable index or title. A vt100 screen capture is not an incremental output
+cursor: label it as a bounded screen snapshot until the runtime exposes
+retained byte offsets, earliest-retained offset and typed gap semantics.
+
 ## Headless CI is not a desktop-service fixture
 
 Linux adapter unit tests must not require the current host to run AT-SPI,

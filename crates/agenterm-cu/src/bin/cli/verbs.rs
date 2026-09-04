@@ -36,6 +36,7 @@ pub enum Family {
     System,
     Windows,
     Process,
+    Terminal,
     A11yObserve,
     A11yActuate,
     Browser,
@@ -46,10 +47,11 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Family; 10] = [
+    pub const ALL: [Family; 11] = [
         Family::System,
         Family::Windows,
         Family::Process,
+        Family::Terminal,
         Family::A11yObserve,
         Family::A11yActuate,
         Family::Browser,
@@ -64,6 +66,7 @@ impl Family {
             Self::System => "system",
             Self::Windows => "windows",
             Self::Process => "process",
+            Self::Terminal => "terminal",
             Self::A11yObserve => "a11y-observe",
             Self::A11yActuate => "a11y-actuate",
             Self::Browser => "browser",
@@ -80,6 +83,7 @@ impl Family {
             Self::System => "System & permissions",
             Self::Windows => "Windows & apps",
             Self::Process => "Processes",
+            Self::Terminal => "AgenTerm terminals",
             Self::A11yObserve => "Accessibility: observe",
             Self::A11yActuate => "Accessibility: actuate",
             Self::Browser => "Browser page & tabs",
@@ -650,6 +654,70 @@ unverifiable identity on an exact PID fails closed. A broad selector excludes
 unidentified processes and reports `coverage_complete: false` plus the count;
 it never degrades those rows to pid-only polling. Oversized inventory fails
 closed."#,
+    },
+    VerbSpec {
+        name: "terminal-list",
+        command: "terminal-list",
+        aliases: &["terminal list"],
+        scope: Scope::Observe,
+        family: Family::Terminal,
+        summary: "list AgenTerm-owned tabs with epoch-scoped stable ids",
+        usage: "terminal-list\nterminal list",
+        args: &[],
+        details: r#"Returns the product control plane's structured ui-bootstrap
+inventory. A reliable identity is server_scope_id + server_epoch + tab @N;
+index and title are mutable human labels, not authority."#,
+    },
+    VerbSpec {
+        name: "terminal-read",
+        command: "terminal-read",
+        aliases: &["terminal read"],
+        scope: Scope::Observe,
+        family: Family::Terminal,
+        summary: "read one bounded current-screen snapshot",
+        usage: "terminal-read --tab @N [--max-bytes N]\nterminal read --tab @N [--max-bytes N]",
+        args: &[
+            ArgSpec { flag: "--tab", value: "@N", help: "stable tab id from terminal-list" },
+            ArgSpec { flag: "--max-bytes", value: "N", help: "UTF-8 response ceiling, 1..=1048576 (default 262144)" },
+        ],
+        details: r#"Reads vt100 screen contents through capture-pane --json.
+This is a bounded screen snapshot, not an incremental raw-output cursor; the
+reply says so explicitly and never invents byte-range parity."#,
+    },
+    VerbSpec {
+        name: "terminal-send",
+        command: "terminal-send",
+        aliases: &["terminal send"],
+        scope: Scope::Actuate,
+        family: Family::Terminal,
+        summary: "send exact UTF-8 bytes to one AgenTerm-owned tab",
+        usage: "terminal-send --tab @N -- TEXT\nterminal send --tab @N -- TEXT",
+        args: &[
+            ArgSpec { flag: "--tab", value: "@N", help: "stable tab id from terminal-list" },
+            ArgSpec { flag: "--", value: "", help: "end options; remaining text is sent literally" },
+        ],
+        details: r#"Uses AgenTerm's own send-keys -l control operation. It
+reserves an ACU receipt before sending and retains the server control receipt;
+dead/non-writable tabs fail typed instead of falling back to desktop typing."#,
+    },
+    VerbSpec {
+        name: "terminal-wait",
+        command: "terminal-wait",
+        aliases: &["terminal wait"],
+        scope: Scope::Observe,
+        family: Family::Terminal,
+        summary: "wait for screen text, process exit, or fully drained exit",
+        usage: "terminal-wait --tab @N (--contains TEXT|--exited|--finalized) [--timeout-ms N]\nterminal wait --tab @N ...",
+        args: &[
+            ArgSpec { flag: "--tab", value: "@N", help: "stable tab id from terminal-list" },
+            ArgSpec { flag: "--contains", value: "TEXT", help: "current screen contains text" },
+            ArgSpec { flag: "--exited", value: "", help: "child exit code is present" },
+            ArgSpec { flag: "--finalized", value: "", help: "child exited and reader/parser tail drained" },
+            ArgSpec { flag: "--timeout-ms", value: "N", help: "monotonic deadline, 1..=86400000 (default 5000)" },
+        ],
+        details: r#"Polls the typed control plane at 50 ms with a monotonic
+deadline. Exactly one condition is required. --finalized is stronger than
+--exited and should precede a final read when late PTY output matters."#,
     },
     VerbSpec {
         name: "app",
@@ -3125,6 +3193,7 @@ mod tests {
         for expected in [
             "pointer-move",
             "process-kill",
+            "terminal-send",
             "invoke",
             "menu-invoke",
             "click",
@@ -3168,6 +3237,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 37, "{actuate:?}");
+        assert_eq!(actuate.len(), 38, "{actuate:?}");
     }
 }

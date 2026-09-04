@@ -411,10 +411,11 @@
         {
           "id": "terminal.agenterm.inventory",
           "mcu_shape": "pty list|panes|status for sessions owned by the terminal product",
-          "acu_shape": "future typed ACU facade over agenterm cli list-sessions|list-panes|pane-snapshot",
-          "state": "gap",
-          "next": "expose the existing AgenTerm control protocol through ACU without duplicating terminal state or parsing human-formatted output",
-          "note": "The owning kernel is shipped, but direct agenterm CLI reachability is not yet an ACU facade or ACU black-box evidence."
+          "acu_shape": "terminal-list over structured ui-bootstrap with server_scope_id + server_epoch + stable @tab id",
+          "state": "native",
+          "qualification": "isolated-macos-live-linux-windows-public-journeys-pending",
+          "next": "add the same list/send/wait/read lifecycle to all three public qjswasm journeys",
+          "note": "The shared control-client speaks the bounded native protocol directly; it neither parses list-panes text nor starts an agenterm CLI subprocess."
         },
         {
           "id": "terminal.agenterm.spawn-close",
@@ -427,10 +428,11 @@
         {
           "id": "terminal.agenterm.read-send-wait",
           "mcu_shape": "pty read|send|wait and term read|send|wait",
-          "acu_shape": "future typed ACU facade over capture-pane|send-keys|paste-buffer|wait-pane",
-          "state": "gap",
-          "next": "add bounded structured capture, literal input, deterministic contains/dead waits and typed target-not-found results",
-          "note": "Generic desktop accessibility can inspect a visible terminal, but it is not equivalent to reading and writing the owned PTY stream."
+          "acu_shape": "terminal-read bounded screen snapshot; terminal-send literal bytes with two receipts; terminal-wait contains|exited|finalized",
+          "state": "native",
+          "qualification": "isolated-macos-live-linux-windows-public-journeys-pending",
+          "next": "promote only after three-host public qjswasm evidence; add retained output offsets separately if cursor parity is required",
+          "note": "Generic desktop accessibility is not substituted. The first read is explicitly a current-screen snapshot and reports incremental_cursor=null because no loss-aware byte cursor exists yet."
         },
         {
           "id": "terminal.agenterm.snapshot-events",

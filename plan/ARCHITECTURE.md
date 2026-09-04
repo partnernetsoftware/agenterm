@@ -35,6 +35,11 @@
 crates/agenterm-platform     机制：窗口/输入/截图/进程/IPC/PTY/字体/shm…
                              typed Unsupported / Failed；无 AgenTerm 产品名
 
+crates/agenterm-control-client/
+                             产品所属的轻量 control wire client：有界 newline
+                             frame、pipe/socket、typed response/receipt、instance
+                             scope；无 GUI、PTY 状态或 subprocess CLI
+
 crates/agenterm-dyn/         内部 `publish = false` 的极小 native door：
                              intern + S-expr eval + bounded integer/pointer `dlcall`
                              不属于 Script engine family，不接 cu/platform/libagenterm

@@ -420,6 +420,28 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-kill".into(), process_kill_verb);
         verbs.insert("process-watch".into(), process_watch_verb);
+        for (verb, grant, mode) in [
+            ("terminal-list", "observe", "structured-ui-bootstrap"),
+            ("terminal-read", "observe", "bounded-screen-snapshot"),
+            ("terminal-send", "actuate", "literal-owned-pty-input"),
+            (
+                "terminal-wait",
+                "observe",
+                "bounded-screen-or-lifecycle-wait",
+            ),
+        ] {
+            verbs.insert(
+                verb.into(),
+                serde_json::json!({
+                    "status": "available",
+                    "group": "agenterm-terminal",
+                    "grant": grant,
+                    "mode": mode,
+                    "transport": "agenterm-control-protocol",
+                    "requires_running_agenterm": true,
+                }),
+            );
+        }
         verbs.insert(
             "activate".into(),
             capability_verb(

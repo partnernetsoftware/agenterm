@@ -114,6 +114,17 @@ impl Executor {
                 *max_events,
                 *max_processes,
             ),
+            Command::TerminalList { .. } => terminal_list_payload(),
+            Command::TerminalRead { tab, max_bytes, .. } => terminal_read_payload(tab, *max_bytes),
+            Command::TerminalSend { tab, text, .. } => {
+                terminal_send_payload(tab, text, &mut self.open_receipts(command.target())?)
+            }
+            Command::TerminalWait {
+                tab,
+                condition,
+                timeout_ms,
+                ..
+            } => terminal_wait_payload(tab, condition, *timeout_ms),
             Command::Tree {
                 window,
                 depth,

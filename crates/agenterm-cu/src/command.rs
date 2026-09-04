@@ -52,6 +52,17 @@ pub enum ProcessKillMode {
     Forceful,
 }
 
+/// One bounded wait over an AgenTerm-owned tab. `Contains` observes the
+/// current terminal screen; `Exited` observes process exit; `Finalized` also
+/// waits for the reader/parser tail to drain.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "kind", content = "value")]
+pub enum TerminalWaitCondition {
+    Contains(String),
+    Exited,
+    Finalized,
+}
+
 impl ProcessKillMode {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
@@ -394,6 +405,30 @@ pub enum Command {
         max_events: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_processes: Option<usize>,
+    },
+    /// Inventory AgenTerm-owned tabs using stable epoch-scoped `@N` ids.
+    TerminalList {
+        target: TargetRef,
+    },
+    /// Read one bounded current-screen snapshot. This is deliberately not an
+    /// incremental byte-stream cursor.
+    TerminalRead {
+        target: TargetRef,
+        tab: String,
+        max_bytes: usize,
+    },
+    /// Send exact UTF-8 bytes to one AgenTerm-owned tab.
+    TerminalSend {
+        target: TargetRef,
+        tab: String,
+        text: String,
+    },
+    /// Wait without a fixed sleep for one screen or lifecycle condition.
+    TerminalWait {
+        target: TargetRef,
+        tab: String,
+        condition: TerminalWaitCondition,
+        timeout_ms: u64,
     },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
@@ -1592,6 +1627,10 @@ impl Command {
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
+            Self::TerminalList { .. } => "terminal-list".into(),
+            Self::TerminalRead { .. } => "terminal-read".into(),
+            Self::TerminalSend { .. } => "terminal-send".into(),
+            Self::TerminalWait { .. } => "terminal-wait".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -1675,6 +1714,10 @@ impl Command {
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
             | Self::ProcessWatch { target, .. }
+            | Self::TerminalList { target, .. }
+            | Self::TerminalRead { target, .. }
+            | Self::TerminalSend { target, .. }
+            | Self::TerminalWait { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -1748,6 +1791,7 @@ impl Command {
         match self {
             Self::PointerMove { .. }
             | Self::ProcessKill { .. }
+            | Self::TerminalSend { .. }
             | Self::Invoke { .. }
             | Self::MenuInvoke { .. }
             | Self::Click { .. }
@@ -2816,5 +2860,35 @@ mod tests {
             serde_json::to_value(&command).expect("serialize"),
             serde_json::json!({ "verb": "pointer-position", "target": "vnc" })
         );
+    }
+
+    #[test]
+    fn terminal_facade_keeps_stable_ids_limits_and_grants_on_the_wire() {
+        let read = Command::TerminalRead {
+            target: TargetRef::Ssh,
+            tab: "@9".into(),
+            max_bytes: 4096,
+        };
+        assert_eq!(read.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&read).unwrap(),
+            serde_json::json!({
+                "verb": "terminal-read", "target": "ssh", "tab": "@9", "max_bytes": 4096
+            })
+        );
+        let send = Command::TerminalSend {
+            target: TargetRef::Current,
+            tab: "@9".into(),
+            text: "hello\r".into(),
+        };
+        assert_eq!(send.required_grant(), Grant::Actuate);
+        let wait = Command::TerminalWait {
+            target: TargetRef::Vnc,
+            tab: "@9".into(),
+            condition: TerminalWaitCondition::Finalized,
+            timeout_ms: 5000,
+        };
+        assert_eq!(wait.required_grant(), Grant::Observe);
+        assert_eq!(wait.verb(), "terminal-wait");
     }
 }

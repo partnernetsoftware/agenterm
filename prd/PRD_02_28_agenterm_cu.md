@@ -295,14 +295,36 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   UTM and QGA became ready, but the interactive job agent did not claim the
   nonce request, so neither the public version probe nor the 16-step journey
   started. Zero evidence is attributed to the product, and the VM was stopped.
-- [~] The MCU PTY/job/terminal surface is now exhaustively classified in
-  `plan/acu-mcu-capability-ledger.json`. AgenTerm's existing session/tab
-  control plane remains the owning kernel for its own terminal inventory,
-  capture, input and deterministic waits; ACU still needs a typed facade and
-  public journey before those shapes count as reachable. Arbitrary headless
+- [~] The MCU PTY/job/terminal surface is exhaustively classified in
+  `plan/acu-mcu-capability-ledger.json`. The first AgenTerm-owned terminal
+  facade is now live as `terminal-list/read/send/wait`: the small
+  `agenterm-control-client` crate speaks the same bounded socket/pipe protocol
+  directly, preserves typed server errors and control receipts, and never
+  parses human-formatted CLI output or starts a second CLI process. Stable
+  tab identity is `(server_scope_id, server_epoch, @tab_id)`; title and index
+  are not authority. `terminal-read` truthfully returns a bounded current-screen
+  snapshot, not an invented incremental output cursor. A local isolated macOS
+  instance has passed list → literal send → contains wait → bounded read →
+  finalized wait → remain-on-exit, plus typed late-write refusal; the same
+  public qjswasm journey still needs Linux and Windows courts before this leaf
+  is promoted. Arbitrary headless
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab, by single-process metrics, or by silently
   forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
+
+```mermaid
+flowchart LR
+  M["MCU terminal commands"] --> F["ACU typed terminal facade"]
+  F --> C["agenterm-control-client<br/>bounded pipe/socket + receipt"]
+  C --> K["AgenTerm session/tab kernel<br/>single state owner"]
+  K --> I["scope + epoch + @tab identity"]
+  K --> S["bounded screen snapshot"]
+  K --> W["literal input + deterministic wait"]
+  S -. "no byte cursor yet" .-> G["retained offset + gap semantics<br/>future leaf"]
+  W --> Q{"macOS + Linux + Windows<br/>public journey"}
+  Q -->|green| P["promote terminal leaf"]
+  Q -->|red| R["typed failure; keep partial"]
+```
 - [~] File/storage replacement is classified separately from qjswasm's basic
   filesystem calls. `agenterm-platform` already owns stable-entry,
   no-overwrite publication and volume-capacity primitives, but ACU does not yet

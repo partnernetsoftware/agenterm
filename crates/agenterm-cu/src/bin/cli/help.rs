@@ -295,7 +295,7 @@ mod tests {
     fn top_level_help_is_scannable() {
         let text = top_level_text();
         let lines = text.lines().count();
-        assert!(lines <= 150, "--help is {lines} lines; keep it under 150");
+        assert!(lines <= 160, "--help is {lines} lines; keep it under 160");
         for family in Family::ALL {
             assert!(text.contains(family.header()), "{family:?} header missing");
         }

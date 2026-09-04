@@ -55,6 +55,7 @@ mod process;
 mod profiles;
 mod receipts;
 mod snapshots;
+mod terminal;
 #[cfg(test)]
 mod test_support;
 mod text_input;
@@ -80,6 +81,7 @@ use process::*;
 use profiles::*;
 use receipts::*;
 use snapshots::*;
+use terminal::*;
 #[cfg(test)]
 use test_support::*;
 use text_input::*;

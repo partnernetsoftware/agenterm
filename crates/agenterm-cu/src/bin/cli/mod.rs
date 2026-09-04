@@ -15,6 +15,7 @@ pub mod menu;
 pub mod placement;
 pub mod process;
 pub mod system;
+pub mod terminal;
 pub mod verbs;
 pub mod windows;
 
@@ -36,6 +37,7 @@ pub fn parse_command(
         Family::System => system::parse(spec, target, args),
         Family::Windows => windows::parse(spec, spelled, target, args),
         Family::Process => process::parse(spec, spelled, target, args),
+        Family::Terminal => terminal::parse(spec, spelled, target, args),
         Family::A11yObserve => a11y_observe::parse(spec, spelled, target, args),
         Family::A11yActuate => a11y_actuate::parse(spec, spelled, target, args),
         Family::Browser => browser::parse(spec, spelled, target, args),
