@@ -78,7 +78,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   retries inside the existing action deadline; semantic mismatches do not.
 - [~] Whole-window foreground activation is now a separate vertical slice:
   `activate --window H` flows through `agenterm-platform`, additive
-  `libagenterm` ABI 1.27, the ACU command/receipt layer and exact focused-window
+  `libagenterm` ABI 1.26, the ACU command/receipt layer and exact focused-window
   inventory read-back. It is deliberately distinct from accessibility-node
   `focus` and application-local `raise`. A live macOS round trip activated a
   background text-editor window and restored the prior foreground window, both

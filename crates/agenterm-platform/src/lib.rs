@@ -360,9 +360,6 @@ pub mod pty;
 
 pub mod checksum;
 
-#[cfg(feature = "network-resolve")]
-pub mod network_resolve;
-
 #[cfg(feature = "process")]
 pub mod process;
 

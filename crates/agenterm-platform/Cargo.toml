@@ -105,7 +105,6 @@ app-container-process = [
     "windows-sys/Win32_System_Threading",
 ]
 process-conventions = []
-network-resolve = []
 process-control = [
     "dep:libc",
     "dep:windows-sys",
