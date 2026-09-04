@@ -307,6 +307,44 @@
       ]
     },
     {
+      "name": "process-environment",
+      "command": "process-environment",
+      "aliases": [
+        "process env"
+      ],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity-bound exec-time environment; values opt in",
+      "usage": "process-environment --pid N [--prefix TEXT] [--offset N] [--limit N] [--values]\nprocess env PID [--prefix TEXT] [--offset N] [--limit N] [--values]",
+      "args": [
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID after process env)"
+        },
+        {
+          "flag": "--prefix",
+          "value": "TEXT",
+          "help": "filter names by UTF-8 byte prefix; at most 256 bytes"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "first sorted matching entry (default 0)"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "maximum returned entries, 1..=5000 (default 256)"
+        },
+        {
+          "flag": "--values",
+          "value": "",
+          "help": "explicitly include value bytes; default returns lengths and SHA-256"
+        }
+      ]
+    },
+    {
       "name": "process-usage",
       "command": "process-usage",
       "aliases": [
@@ -3605,6 +3643,10 @@
     {
       "name": "process-cwd",
       "text": "agenterm-cu process-cwd    (also: process cwd)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-cwd --pid N\n  process cwd PID\n\narguments:\n  --pid N                       positive process id (or positional PID)\n\nReads the native working directory between two matching process-start\nidentity observations. This explicit command returns the path; persistent\nevidence retains only its UTF-8 byte length and SHA-256. Linux uses procfs and\nmacOS uses libproc vnode data. Windows returns process_cwd_unsupported because\nthere is no stable public API; ACU does not read undocumented remote PEB layouts.\nExit, PID reuse, permission denial, unavailable cwd and invalid native data are\ndistinct typed failures.\n"
+    },
+    {
+      "name": "process-environment",
+      "text": "agenterm-cu process-environment    (also: process env)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-environment --pid N [--prefix TEXT] [--offset N] [--limit N] [--values]\n  process env PID [--prefix TEXT] [--offset N] [--limit N] [--values]\n\narguments:\n  --pid N                       positive process id (or positional PID)\n  --prefix TEXT                 filter names by UTF-8 byte prefix (max 256 bytes)\n  --offset N                    first sorted matching entry (default 0)\n  --limit N                     entries returned, 1..=5000 (default 256)\n  --values                      explicitly include environment values\n\nReads the bounded native exec-time environment snapshot between two matching\nprocess-start identity observations. This is not a promise to observe mutations\na process made after exec. Entries are split at the first equals sign, raw-byte\nsorted, prefix-filtered, then paged; duplicates and empty values are preserved.\nBy default values are represented only by byte length and SHA-256. --values is\nan explicit disclosure request. Non-UTF-8 bytes are never replaced lossily.\nLinux uses /proc/PID/environ; macOS uses KERN_PROCARGS2 and typed-fails when the\nkernel omits restricted data. Windows returns process_environment_unsupported\nrather than reading undocumented remote PEB layouts.\n"
     }
   ]
 }

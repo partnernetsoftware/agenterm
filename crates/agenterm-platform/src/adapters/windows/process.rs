@@ -3,7 +3,9 @@
 use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
-use crate::contract::process::{ProcessError, ProcessErrorKind, ProcessInfo};
+use crate::contract::process::{
+    ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind, ProcessInfo,
+};
 
 pub(crate) fn stdout_probe_token(reader: &ChildStdout) -> Option<PipeProbeToken> {
     use std::os::windows::io::AsRawHandle as _;
@@ -143,6 +145,16 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
         arguments.push(String::from_utf16_lossy(units));
     }
     Ok(arguments)
+}
+
+pub(crate) fn environment_snapshot(_pid: u32) -> Result<ProcessEnvironmentSnapshot, ProcessError> {
+    // Windows has no stable documented API for another process's environment.
+    // Reading RTL_USER_PROCESS_PARAMETERS would couple this facade to private
+    // PEB layouts, access rights, and native/WOW64 pointer widths.
+    Err(ProcessError::new(
+        ProcessErrorKind::Unsupported,
+        "arbitrary-process initial-environment inspection is unsupported on Windows",
+    ))
 }
 
 pub(crate) fn current_directory(_pid: u32) -> Result<std::path::PathBuf, ProcessError> {

@@ -35,6 +35,7 @@ const declared_evidence = [
   "cu.linux-process-state",
   "cu.linux-process-argv",
   "cu.linux-process-cwd",
+  "cu.linux-process-environment",
   "cu.linux-process-usage",
   "cu.linux-process-usage-watch",
   "cu.linux-process-wait",
@@ -298,6 +299,9 @@ let failure = "";
 let fixture_pid = 0;
 let fixture = -1;
 let fixture_reaped = false;
+let environment_fixture_pid = 0;
+let environment_fixture = -1;
+let environment_fixture_reaped = false;
 let terminal_server = -1;
 let terminal_server_reaped = false;
 let terminal_tab_id = "";
@@ -613,6 +617,90 @@ try {
       && flag_at(process_state, "data.verified"),
     "cu_linux_smoke_process_state:" + JSON.stringify(process_state.data)
   );
+  print("STEP process environment binds an owned sleep fixture, hides values by default, and pages opt-in values");
+  environment_fixture = harness.start({
+    program: "sh",
+    args: ["-c", "exec sleep 300"],
+    current_dir: run_directory,
+    env: {
+      AGENTERM_CU_ENV_ALPHA: "alpha-value",
+      AGENTERM_CU_ENV_EMPTY: ""
+    },
+    timeout_ms: 30000
+  });
+  environment_fixture_pid = harness.spawned_pid(environment_fixture);
+  const environment_state = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-state", "--pid", "" + environment_fixture_pid
+  ]);
+  const environment_identity = text_at(environment_state, "data.start_identity");
+  const environment_hidden = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process", "env", "" + environment_fixture_pid,
+    "--prefix", "AGENTERM_CU_ENV_", "--limit", "2"
+  ]);
+  const hidden_environment_entries = environment_hidden.data.entries;
+  ensure(
+    int_at(environment_hidden, "data.pid") === environment_fixture_pid
+      && text_at(environment_hidden, "data.start_identity") === environment_identity
+      && text_at(environment_hidden, "data.provider") === "linux-proc-environ"
+      && text_at(environment_hidden, "data.semantics") === "exec-initial"
+      && rh.parse_int(text_at(environment_hidden, "data.source_bytes")) > 0
+      && !flag_at(environment_hidden, "data.values_included")
+      && flag_at(environment_hidden, "data.verified")
+      && Array.isArray(hidden_environment_entries)
+      && hidden_environment_entries.length === 2
+      && text_of(hidden_environment_entries[0].name) === "AGENTERM_CU_ENV_ALPHA"
+      && text_of(hidden_environment_entries[1].name) === "AGENTERM_CU_ENV_EMPTY"
+      && hidden_environment_entries[0].value === undefined
+      && hidden_environment_entries[1].value === undefined
+      && text_of(hidden_environment_entries[0].name_byte_length) === "21"
+      && text_of(hidden_environment_entries[0].value_byte_length) === "11"
+      && text_of(hidden_environment_entries[1].value_byte_length) === "0"
+      && text_of(hidden_environment_entries[0].name_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[0].name_sha256), rh.HEX)
+      && text_of(hidden_environment_entries[1].name_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[1].name_sha256), rh.HEX)
+      && text_of(hidden_environment_entries[0].value_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[0].value_sha256), rh.HEX)
+      && text_of(hidden_environment_entries[1].value_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[1].value_sha256), rh.HEX),
+    "cu_linux_smoke_process_environment_hidden:" + JSON.stringify(environment_hidden.data)
+  );
+  const environment_page_alpha = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-environment",
+    "--pid", "" + environment_fixture_pid, "--prefix", "AGENTERM_CU_ENV_",
+    "--values", "--offset", "0", "--limit", "1"
+  ]);
+  const environment_page_empty = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-environment",
+    "--pid", "" + environment_fixture_pid, "--prefix", "AGENTERM_CU_ENV_",
+    "--values", "--offset", "1", "--limit", "1"
+  ]);
+  const alpha_environment = environment_page_alpha.data.entries[0];
+  const empty_environment = environment_page_empty.data.entries[0];
+  ensure(
+    flag_at(environment_page_alpha, "data.values_included")
+      && text_at(environment_page_alpha, "data.start_identity") === environment_identity
+      && text_at(environment_page_alpha, "data.provider") === "linux-proc-environ"
+      && text_at(environment_page_alpha, "data.semantics") === "exec-initial"
+      && int_at(environment_page_alpha, "data.total") === 2
+      && int_at(environment_page_alpha, "data.returned") === 1
+      && int_at(environment_page_alpha, "data.next_offset") === 1
+      && flag_at(environment_page_alpha, "data.truncated")
+      && text_of(alpha_environment.value) === "alpha-value"
+      && text_of(alpha_environment.value_sha256) === text_of(hidden_environment_entries[0].value_sha256)
+      && flag_at(environment_page_empty, "data.values_included")
+      && text_at(environment_page_empty, "data.start_identity") === environment_identity
+      && int_at(environment_page_empty, "data.offset") === 1
+      && environment_page_empty.data.next_offset === null
+      && !flag_at(environment_page_empty, "data.truncated")
+      && text_of(empty_environment.name) === "AGENTERM_CU_ENV_EMPTY"
+      && empty_environment.value === ""
+      && text_of(empty_environment.value_sha256) === text_of(hidden_environment_entries[1].value_sha256),
+    "cu_linux_smoke_process_environment_values"
+  );
+  rh.command("kill", ["-TERM", "" + environment_fixture_pid], { timeout_ms: 5000 });
+  harness.wait(environment_fixture, 3000);
+  environment_fixture_reaped = true;
   print("STEP process argv preserves native boundaries and keeps plaintext behind explicit --values");
   const process_argv_hidden = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "process", "argv", "" + fixture_pid,
@@ -1203,6 +1291,14 @@ if (fixture >= 0 && !fixture_reaped) {
   try { harness.wait(fixture, 3000); } catch (wait_error) { print("cleanup: " + wait_error); }
 }
 
+if (environment_fixture >= 0 && !environment_fixture_reaped) {
+  if (environment_fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + environment_fixture_pid], { timeout_ms: 5000 });
+  }
+  try { harness.wait(environment_fixture, 3000); }
+  catch (wait_error) { print("cleanup: " + wait_error); }
+}
+
 if (network_fixture !== null && !network_fixture_reaped) {
   if (harness.child_state(network_fixture) === "running") {
     try { harness.child_kill(network_fixture); }
@@ -1242,6 +1338,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-identit
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-argv");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-cwd");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-environment");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");

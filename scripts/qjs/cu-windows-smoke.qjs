@@ -38,6 +38,7 @@ const declared_evidence = [
   "cu.windows-process-state",
   "cu.windows-process-argv",
   "cu.windows-process-cwd-refusal",
+  "cu.windows-process-environment-refusal",
   "cu.windows-process-usage",
   "cu.windows-process-usage-watch",
   "cu.windows-process-wait",
@@ -463,6 +464,19 @@ try {
       && process_cwd_refused.data === undefined
       && text_at(process_cwd_refused, "error.code") === "process_cwd_unsupported",
     "cu_windows_smoke_process_cwd_refusal:" + JSON.stringify(process_cwd_refused)
+  );
+
+  print("STEP process environment fails typed on Windows instead of fabricating an empty snapshot");
+  const process_environment_refused = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process", "env", "" + fixture_pid,
+    "--prefix", "AGENTERM_CU_ENV_", "--limit", "2"
+  ]);
+  ensure(
+    !flag_at(process_environment_refused, "ok")
+      && process_environment_refused.data === undefined
+      && text_at(process_environment_refused, "error.code") === "process_environment_unsupported"
+      && text_at(process_environment_refused, "error.detail.semantics") === "exec-initial",
+    "cu_windows_smoke_process_environment_refusal:" + JSON.stringify(process_environment_refused)
   );
 
   print("STEP process-usage preserves that identity and publishes verified lossless counters");
@@ -1019,6 +1033,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-identit
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-argv");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-cwd-refusal");
+harness.emit_evidence(context, declared_evidence, "cu.windows-process-environment-refusal");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");

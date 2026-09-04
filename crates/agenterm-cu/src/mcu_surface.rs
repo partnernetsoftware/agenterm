@@ -356,7 +356,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "process" => (
             "unsupported",
-            "ACU partial migration: ps/process state/argv/cwd/usage/watch/wait are live where the OS has a stable provider; env/fds/maps/threads/sockets/policy/cgroup and richer mutation remain typed gaps",
+            "ACU partial migration: ps/process state/argv/cwd/environment/usage/watch/wait are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup and richer mutation remain typed gaps",
         ),
         "resource" => (
             "unsupported",

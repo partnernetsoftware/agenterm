@@ -2,8 +2,11 @@
 
 use std::process::{Child, ChildStderr, ChildStdout, Command};
 
+use crate::contract::process::{
+    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
+    ProcessInfo, ProcessObservation,
+};
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
-use crate::contract::process::{ProcessError, ProcessErrorKind, ProcessInfo, ProcessObservation};
 use crate::process_observation::observe;
 
 pub(crate) fn stdout_probe_token(_reader: &ChildStdout) -> Option<PipeProbeToken> {
@@ -86,6 +89,36 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
         .split(|byte| *byte == 0)
         .map(|argument| String::from_utf8_lossy(argument).into_owned())
         .collect())
+}
+
+pub(crate) fn environment_snapshot(pid: u32) -> Result<ProcessEnvironmentSnapshot, ProcessError> {
+    use std::io::Read as _;
+
+    const MAX_BYTES: u64 = PROCESS_ENVIRONMENT_MAX_BYTES as u64;
+    let file = std::fs::File::open(format!("/proc/{pid}/environ"))
+        .map_err(process_environment_io_error)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(process_environment_io_error)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "process initial environment exceeds 4 MiB",
+        ));
+    }
+    // proc_pid_environ(5) defines this as the NUL-delimited environment
+    // installed by execve, not a reflection of later putenv/setenv changes.
+    Ok(ProcessEnvironmentSnapshot::from_nul_delimited(&bytes))
+}
+
+fn process_environment_io_error(error: std::io::Error) -> ProcessError {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => ProcessErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => ProcessErrorKind::PermissionDenied,
+        _ => ProcessErrorKind::Inspect,
+    };
+    ProcessError::new(kind, error.to_string())
 }
 
 pub(crate) fn current_directory(pid: u32) -> Result<std::path::PathBuf, ProcessError> {

@@ -44,4 +44,7 @@ for fam in families:
             print("```\n")
 PY
 } > "$OUT"
+# Keep exactly one trailing newline so regenerated references pass the tree's
+# diff hygiene check regardless of the final help block's prose spacing.
+perl -0pi -e 's/\n+\z/\n/' "$OUT"
 echo "gen-cu-verbs-doc: wrote $OUT ($(wc -l < "$OUT") lines)"

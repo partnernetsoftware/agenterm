@@ -77,6 +77,7 @@ const declared_evidence = [
   "cu.macos-process-state",
   "cu.macos-process-argv",
   "cu.macos-process-cwd",
+  "cu.macos-process-environment",
   "cu.macos-process-usage",
   "cu.macos-process-usage-watch",
   "cu.macos-process-wait",
@@ -713,6 +714,10 @@ try {
     program: fixture_executable,
     args: [],
     current_dir: run_directory,
+    env: {
+      AGENTERM_CU_ENV_ALPHA: "alpha-value",
+      AGENTERM_CU_ENV_EMPTY: ""
+    },
     timeout_ms: 30000
   });
   fixture_pid = harness.spawned_pid(fixture);
@@ -730,6 +735,79 @@ try {
       && flag_at(process_state, "data.verified")
       && process_identity !== "",
     "cu_macos_smoke_process_state:" + JSON.stringify(process_state)
+  );
+  print("STEP process environment binds the owned Cocoa fixture, hides values by default, and pages opt-in values");
+  const environment_identity = process_identity;
+  const environment_hidden = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process", "env", "" + fixture_pid,
+      "--prefix", "AGENTERM_CU_ENV_", "--limit", "2"]
+  );
+  const hidden_environment_entries = environment_hidden.data.entries;
+  ensure(
+    int_at(environment_hidden, "data.pid") === fixture_pid
+      && text_at(environment_hidden, "data.start_identity") === environment_identity
+      && text_at(environment_hidden, "data.provider") === "macos-kern-procargs2"
+      && text_at(environment_hidden, "data.semantics") === "exec-initial"
+      && rh.parse_int(text_at(environment_hidden, "data.source_bytes")) > 0
+      && !flag_at(environment_hidden, "data.values_included")
+      && flag_at(environment_hidden, "data.verified")
+      && Array.isArray(hidden_environment_entries)
+      && hidden_environment_entries.length === 2
+      && text_of(hidden_environment_entries[0].name) === "AGENTERM_CU_ENV_ALPHA"
+      && text_of(hidden_environment_entries[1].name) === "AGENTERM_CU_ENV_EMPTY"
+      && hidden_environment_entries[0].value === undefined
+      && hidden_environment_entries[1].value === undefined
+      && text_of(hidden_environment_entries[0].name_byte_length) === "21"
+      && text_of(hidden_environment_entries[0].value_byte_length) === "11"
+      && text_of(hidden_environment_entries[1].value_byte_length) === "0"
+      && text_of(hidden_environment_entries[0].name_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[0].name_sha256), rh.HEX)
+      && text_of(hidden_environment_entries[1].name_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[1].name_sha256), rh.HEX)
+      && text_of(hidden_environment_entries[0].value_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[0].value_sha256), rh.HEX)
+      && text_of(hidden_environment_entries[1].value_sha256).length === 64
+      && rh.only_chars(text_of(hidden_environment_entries[1].value_sha256), rh.HEX),
+    "cu_macos_smoke_process_environment_hidden:" + JSON.stringify(environment_hidden.data)
+  );
+  const environment_page_alpha = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-environment",
+      "--pid", "" + fixture_pid, "--prefix", "AGENTERM_CU_ENV_",
+      "--values", "--offset", "0", "--limit", "1"]
+  );
+  const environment_page_empty = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-environment",
+      "--pid", "" + fixture_pid, "--prefix", "AGENTERM_CU_ENV_",
+      "--values", "--offset", "1", "--limit", "1"]
+  );
+  const alpha_environment = environment_page_alpha.data.entries[0];
+  const empty_environment = environment_page_empty.data.entries[0];
+  ensure(
+    flag_at(environment_page_alpha, "data.values_included")
+      && text_at(environment_page_alpha, "data.start_identity") === environment_identity
+      && text_at(environment_page_alpha, "data.provider") === "macos-kern-procargs2"
+      && text_at(environment_page_alpha, "data.semantics") === "exec-initial"
+      && int_at(environment_page_alpha, "data.total") === 2
+      && int_at(environment_page_alpha, "data.returned") === 1
+      && int_at(environment_page_alpha, "data.next_offset") === 1
+      && flag_at(environment_page_alpha, "data.truncated")
+      && text_of(alpha_environment.value) === "alpha-value"
+      && text_of(alpha_environment.value_sha256) === text_of(hidden_environment_entries[0].value_sha256)
+      && flag_at(environment_page_empty, "data.values_included")
+      && text_at(environment_page_empty, "data.start_identity") === environment_identity
+      && int_at(environment_page_empty, "data.offset") === 1
+      && environment_page_empty.data.next_offset === null
+      && !flag_at(environment_page_empty, "data.truncated")
+      && text_of(empty_environment.name) === "AGENTERM_CU_ENV_EMPTY"
+      && empty_environment.value === ""
+      && text_of(empty_environment.value_sha256) === text_of(hidden_environment_entries[1].value_sha256),
+    "cu_macos_smoke_process_environment_values"
   );
   print("STEP process argv preserves native boundaries and keeps plaintext behind explicit --values");
   const process_argv_hidden = run_cu_json(
@@ -2933,6 +3011,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-inventory");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-argv");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-cwd");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-environment");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-wait");

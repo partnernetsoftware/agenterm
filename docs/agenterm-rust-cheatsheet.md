@@ -3499,6 +3499,24 @@ rewind suffix is zero. Keep these counters opt-in and absent from ordinary
 Script receipts; use a separate experiment for a larger last-use region rather
 than silently relabeling gross bytes as recovered bytes.
 
+## Process launch context is raw, identity-bound, and platform-limited
+
+An arbitrary process's launch context is not one portable string. Bracket
+every argv, cwd, or environment read with the same native process-start
+identity so PID reuse cannot substitute another process. Keep environment
+entries as raw bytes through the platform facade: split only at the first `=`,
+preserve duplicates, empty values, malformed entries and non-UTF-8 bytes, and
+encode wide counts losslessly at the JSON edge. Plaintext values must be an
+explicit command option; default evidence is byte length plus SHA-256.
+
+Name Unix environment observations `exec-initial`. Linux procfs and macOS
+`KERN_PROCARGS2` expose the environment installed at exec, not later in-process
+`setenv` mutations. On macOS a restricted target may return argv while omitting
+environment bytes; typed-fail that ambiguous empty result instead of claiming
+the target has no variables. On Windows there is no stable public API for an
+arbitrary process environment or cwd: refuse the operation rather than binding
+the product to undocumented PEB and WOW64 layouts.
+
 ## Keep filesystem metadata and object identity separate
 
 Use `symlink_metadata` when an observation promises to describe the final

@@ -167,8 +167,10 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
-    let missing = verbs::VERBS
+    let compact_process = ["process-argv", "process-cwd", "process-environment"];
+    let mut missing = verbs::VERBS
         .iter()
+        .filter(|spec| !compact_process.contains(&spec.name))
         .filter(|spec| !text.contains(&format!("  {}", spec.name)))
         .map(|spec| {
             let row = verbs::cold_verb(spec.name);
@@ -180,6 +182,19 @@ fn append_missing_top_level_rows(text: &mut String) {
             )
         })
         .collect::<Vec<_>>();
+    if compact_process
+        .iter()
+        .any(|name| !text.contains(&format!("  {name}")))
+    {
+        missing.push(format!(
+            "  {}  {}  {}  {:<8} {}",
+            "process-argv",
+            "process-cwd",
+            "process-environment",
+            "observe",
+            "identity-bound launch context; values opt in",
+        ));
+    }
     if missing.is_empty() {
         return;
     }

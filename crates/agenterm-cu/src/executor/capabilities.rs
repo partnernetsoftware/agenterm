@@ -255,6 +255,26 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "evidence": "path-byte-length-sha256",
         "windows": "typed-unsupported-no-public-api",
     });
+    let process_environment_verb = serde_json::json!({
+        "status": if cfg!(windows) { "unsupported" } else { "available" },
+        "group": "process",
+        "mode": if cfg!(target_os = "linux") {
+            "linux-proc-environ"
+        } else if cfg!(target_os = "macos") {
+            "macos-kern-procargs2"
+        } else {
+            "unsupported"
+        },
+        "grant": "observe",
+        "identity_bound": true,
+        "semantics": "exec-initial",
+        "default_disclosure": "name-and-value-byte-length-sha256",
+        "values": "explicit-opt-in",
+        "native_buffer_max_bytes": 4194304,
+        "max_entries": 100001,
+        "max_page_size": 5000,
+        "windows": "typed-unsupported-no-public-api",
+    });
     let process_usage_verb = serde_json::json!({
         "status": "available",
         "group": "process",
@@ -445,6 +465,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-state".into(), process_state_verb);
         verbs.insert("process-argv".into(), process_argv_verb);
         verbs.insert("process-cwd".into(), process_cwd_verb);
+        verbs.insert("process-environment".into(), process_environment_verb);
         verbs.insert("process-usage".into(), process_usage_verb);
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-kill".into(), process_kill_verb);

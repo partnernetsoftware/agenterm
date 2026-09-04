@@ -10,8 +10,11 @@ use std::{
 
 use crate::{contract::process::ProcessInfo, selected::process as adapter};
 
+pub use crate::contract::process::{
+    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentEntry, ProcessEnvironmentSnapshot,
+    ProcessError, ProcessErrorKind,
+};
 pub use crate::contract::process::{PipeProbeError, PipeProbeToken};
-pub use crate::contract::process::{ProcessError, ProcessErrorKind};
 pub use crate::process_observation::{ProcessObservation, observe, start_identity};
 pub use crate::process_spawn::{
     DetachedSpawnMode, ProcessExit, classify_exit_status, configure_breakaway_visible_command,
@@ -36,6 +39,20 @@ pub fn command_line(pid: u32) -> Result<String, ProcessError> {
 /// contain credentials.
 pub fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
     adapter::arguments(pid)
+}
+
+/// Read the bounded initial environment block installed when a process was
+/// executed. Later `setenv`/`putenv` mutations are not part of this contract.
+/// Raw entry bytes remain undecoded so product callers can expose them without
+/// collapsing non-UTF-8 native values.
+pub fn environment_snapshot(pid: u32) -> Result<ProcessEnvironmentSnapshot, ProcessError> {
+    if pid == 0 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::IdOutOfRange,
+            "process id must be greater than zero",
+        ));
+    }
+    adapter::environment_snapshot(pid)
 }
 
 /// Read one live process's current working directory.
@@ -132,6 +149,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn zero_is_not_a_process_environment_target() {
+        assert_eq!(
+            super::environment_snapshot(0).unwrap_err().kind(),
+            super::ProcessErrorKind::IdOutOfRange
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn current_process_initial_environment_is_bounded_and_raw() {
+        let snapshot = super::environment_snapshot(std::process::id())
+            .expect("current process initial environment");
+        assert!(snapshot.source_bytes <= super::PROCESS_ENVIRONMENT_MAX_BYTES);
+        assert!(snapshot.entries.iter().any(|entry| {
+            entry
+                .bytes
+                .iter()
+                .position(|byte| *byte == b'=')
+                .is_some_and(|equals| equals > 0)
+        }));
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn current_process_directory_matches_the_standard_library() {
@@ -147,6 +187,17 @@ mod tests {
         assert_eq!(
             super::current_directory(std::process::id())
                 .expect_err("Windows arbitrary-process cwd is unsupported")
+                .kind(),
+            super::ProcessErrorKind::Unsupported
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_refuses_undocumented_remote_environment_layouts() {
+        assert_eq!(
+            super::environment_snapshot(std::process::id())
+                .expect_err("Windows arbitrary-process environment is unsupported")
                 .kind(),
             super::ProcessErrorKind::Unsupported
         );

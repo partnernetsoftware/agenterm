@@ -299,6 +299,20 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   a product contract. Host unit tests and a macOS public-CLI read are green;
   the registered Linux/macOS journey evidence and Windows refusal court remain
   to be executed before promotion.
+- [~] `process-environment` / MCU-compatible `process env PID` closes another
+  process-context gap without turning environment secrets into ambient logs.
+  Linux reads the 4 MiB-bounded `/proc/<pid>/environ` block and macOS parses
+  `KERN_PROCARGS2`; both name the result `exec-initial`, because later
+  `setenv`/`putenv` mutations are outside these native contracts. The read is
+  bracketed by equal process-start identities, preserves duplicate, empty,
+  malformed and non-UTF-8 raw entries, then raw-name sorts, prefix-filters and
+  pages them. Default rows expose names plus byte lengths and SHA-256 only;
+  `--values` is the explicit value-disclosure path. A macOS kernel omission is
+  `process_environment_empty_or_omitted`, never a fabricated empty set.
+  Windows is deliberately `process_environment_unsupported` rather than a
+  remote PEB/WOW64 reader. Host tests and a macOS owned-process public CLI
+  circuit are green; registered Linux/macOS journey evidence and the Windows
+  refusal court remain to execute before promotion.
 - [~] Permission discovery no longer requires agents to mine the broad
   capability document: `permissions` is a live observe-only public command
   that returns the host permission model, every gated verb and exact repair

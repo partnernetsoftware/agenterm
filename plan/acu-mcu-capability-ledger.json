@@ -140,9 +140,23 @@
         {
           "id": "process.environment",
           "mcu_shape": "process env PID",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "bounded names-only default and explicit value exposure"
+          "acu_shape": "process-environment --pid N [--prefix TEXT] [--offset N] [--limit N] [--values] (alias: process env PID)",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "native",
+            "macos": "native",
+            "windows": "typed-unsupported"
+          },
+          "qualification": "macos-public-cli-live-linux-journey-windows-refusal-pending",
+          "evidence": [
+            "agenterm-cu process-environment macos owned-process black-box"
+          ],
+          "declared_evidence": [
+            "cu.macos-process-environment",
+            "cu.linux-process-environment",
+            "cu.windows-process-environment-refusal"
+          ],
+          "note": "Linux procfs and macOS KERN_PROCARGS2 expose the bounded exec-time environment between equal start identities. Values are hash-and-length only by default and require explicit --values disclosure. macOS omission is typed, and Windows refuses rather than reading undocumented remote PEB layouts."
         },
         {
           "id": "process.fds-maps-threads",

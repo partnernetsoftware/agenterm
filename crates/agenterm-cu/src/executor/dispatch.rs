@@ -69,6 +69,14 @@ impl Executor {
                 ..
             } => process_argv_payload(*pid, *values, *offset, *limit),
             Command::ProcessCwd { pid, .. } => process_cwd_payload(*pid),
+            Command::ProcessEnvironment {
+                pid,
+                prefix,
+                values,
+                offset,
+                limit,
+                ..
+            } => process_environment_payload(*pid, prefix.as_deref(), *values, *offset, *limit),
             Command::ProcessUsage {
                 pid,
                 watch_ms,

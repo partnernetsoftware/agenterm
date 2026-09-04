@@ -15,6 +15,9 @@ const DEFAULT_MAX: usize = 200;
 const MAX_RESULTS: usize = 5_000;
 const DEFAULT_ARGV_LIMIT: usize = 100;
 const MAX_ARGV_LIMIT: usize = 4_096;
+const DEFAULT_ENVIRONMENT_LIMIT: usize = 256;
+const MAX_ENVIRONMENT_LIMIT: usize = 5_000;
+const MAX_ENVIRONMENT_ENTRIES: usize = 100_001;
 const DEFAULT_USAGE_INTERVAL_MS: u64 = 1_000;
 const DEFAULT_USAGE_MAX_SAMPLES: usize = 120;
 const MAX_USAGE_WATCH_MS: u64 = 86_400_000;
@@ -195,6 +198,198 @@ pub(super) fn process_cwd_payload(pid: u32) -> Result<Value, CuError> {
         "path_sha256": super::clipboard::clipboard_sha256_hex(bytes),
         "verified": true,
     }))
+}
+
+pub(super) fn process_environment_payload(
+    pid: u32,
+    prefix: Option<&str>,
+    values: bool,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<Value, CuError> {
+    if pid == 0 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-environment --pid must be greater than zero",
+        ));
+    }
+    let prefix = prefix.unwrap_or("").as_bytes();
+    if prefix.len() > 256 || prefix.iter().any(|byte| matches!(byte, 0 | b'\r' | b'\n')) {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-environment --prefix must be at most 256 UTF-8 bytes without NUL/CR/LF",
+        ));
+    }
+    let offset = offset.unwrap_or(0);
+    if offset > 100_000 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-environment --offset must be in 0..=100000",
+        ));
+    }
+    let limit = limit.unwrap_or(DEFAULT_ENVIRONMENT_LIMIT);
+    if !(1..=MAX_ENVIRONMENT_LIMIT).contains(&limit) {
+        return Err(CuError::new(
+            "invalid_input",
+            format!("process-environment --limit must be in 1..={MAX_ENVIRONMENT_LIMIT}"),
+        ));
+    }
+
+    let start_identity = live_start_identity(pid)?;
+    let snapshot =
+        agenterm_platform::process::environment_snapshot(pid).map_err(process_environment_error)?;
+    let after_identity = live_start_identity(pid)?;
+    if after_identity != start_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed while its initial environment was read",
+        ));
+    }
+    if snapshot.entries.len() > MAX_ENVIRONMENT_ENTRIES {
+        return Err(CuError::new(
+            "process_environment_too_large",
+            format!("process initial environment exceeds {MAX_ENVIRONMENT_ENTRIES} entries"),
+        ));
+    }
+
+    let mut entries = snapshot
+        .entries
+        .iter()
+        .map(|entry| split_environment_entry(&entry.bytes))
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.0.cmp(right.0).then_with(|| left.1.cmp(&right.1)));
+    entries.retain(|(name, _)| name.starts_with(prefix));
+    let total = entries.len();
+    let malformed_entries = entries.iter().filter(|(_, value)| value.is_none()).count();
+    let rows = entries
+        .into_iter()
+        .enumerate()
+        .skip(offset)
+        .take(limit)
+        .map(|(index, (name, value))| environment_row(index, name, value, values))
+        .collect::<Vec<_>>();
+    let returned = rows.len();
+    let next_offset = offset.checked_add(returned).filter(|next| *next < total);
+
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "provider": process_environment_provider(),
+        "semantics": "exec-initial",
+        "values_included": values,
+        "source_bytes": snapshot.source_bytes.to_string(),
+        "total": total,
+        "returned": returned,
+        "offset": offset,
+        "next_offset": next_offset,
+        "truncated": next_offset.is_some(),
+        "malformed_entries": malformed_entries,
+        "entries": rows,
+        "verified": true,
+    }))
+}
+
+fn split_environment_entry(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {
+    match bytes.iter().position(|byte| *byte == b'=') {
+        Some(equals) => (&bytes[..equals], Some(&bytes[equals + 1..])),
+        None => (bytes, None),
+    }
+}
+
+fn environment_row(index: usize, name: &[u8], value: Option<&[u8]>, values: bool) -> Value {
+    let mut row = serde_json::Map::from_iter([
+        ("index".to_owned(), json!(index)),
+        ("name_byte_length".to_owned(), json!(name.len().to_string())),
+        (
+            "name_sha256".to_owned(),
+            json!(super::clipboard::clipboard_sha256_hex(name)),
+        ),
+        ("has_value".to_owned(), json!(value.is_some())),
+    ]);
+    insert_raw_text(&mut row, "name", name, true);
+    if let Some(value) = value {
+        row.insert(
+            "value_byte_length".to_owned(),
+            json!(value.len().to_string()),
+        );
+        row.insert(
+            "value_sha256".to_owned(),
+            json!(super::clipboard::clipboard_sha256_hex(value)),
+        );
+        if values {
+            insert_raw_text(&mut row, "value", value, true);
+        }
+    }
+    Value::Object(row)
+}
+
+fn insert_raw_text(
+    row: &mut serde_json::Map<String, Value>,
+    field: &str,
+    bytes: &[u8],
+    include_text: bool,
+) {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => {
+            row.insert(format!("{field}_encoding"), json!("utf8"));
+            if include_text {
+                row.insert(field.to_owned(), json!(text));
+            }
+        }
+        Err(_) => {
+            row.insert(format!("{field}_encoding"), json!("hex"));
+            row.insert(field.to_owned(), Value::Null);
+            row.insert(format!("{field}_hex"), json!(encode_hex(bytes)));
+        }
+    }
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn process_environment_error(error: agenterm_platform::process::ProcessError) -> CuError {
+    use agenterm_platform::process::ProcessErrorKind;
+
+    let code = match error.kind() {
+        ProcessErrorKind::IdOutOfRange => "invalid_input",
+        ProcessErrorKind::NotFound => "process_not_found",
+        ProcessErrorKind::PermissionDenied => "process_environment_permission_denied",
+        ProcessErrorKind::Unavailable => "process_environment_empty_or_omitted",
+        ProcessErrorKind::InventoryTooLarge => "process_environment_too_large",
+        ProcessErrorKind::InvalidData => "process_environment_invalid_data",
+        ProcessErrorKind::Unsupported => "process_environment_unsupported",
+        _ => "process_environment_failed",
+    };
+    CuError::new(code, error.to_string()).with_detail(json!({
+        "kind": format!("{:?}", error.kind()),
+        "semantics": "exec-initial",
+    }))
+}
+
+const fn process_environment_provider() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "linux-proc-environ"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos-kern-procargs2"
+    }
+    #[cfg(windows)]
+    {
+        "windows-unsupported"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        "unsupported"
+    }
 }
 
 fn process_cwd_error(error: agenterm_platform::process::ProcessError) -> CuError {
@@ -856,6 +1051,73 @@ mod tests {
     fn process_cwd_rejects_zero_pid() {
         assert_eq!(
             process_cwd_payload(0).expect_err("zero pid").code,
+            "invalid_input"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn current_process_environment_is_identity_bound_and_values_are_opt_in() {
+        let pid = std::process::id();
+        let hidden = process_environment_payload(pid, None, false, None, Some(8))
+            .expect("hidden environment");
+        assert_eq!(hidden["pid"], pid);
+        assert_eq!(hidden["semantics"], "exec-initial");
+        assert_eq!(hidden["values_included"], false);
+        assert_eq!(hidden["verified"], true);
+        assert!(hidden["source_bytes"].as_str().is_some());
+        assert!(hidden["start_identity"].as_str().is_some());
+        for row in hidden["entries"].as_array().expect("entry array") {
+            assert!(row.get("value").is_none());
+            if row["has_value"] == true {
+                assert_eq!(row["value_sha256"].as_str().map(str::len), Some(64));
+            }
+        }
+    }
+
+    #[test]
+    fn environment_rows_preserve_empty_duplicate_and_non_utf8_bytes() {
+        let empty = environment_row(0, b"EMPTY", Some(b""), true);
+        assert_eq!(empty["name"], "EMPTY");
+        assert_eq!(empty["value"], "");
+        assert_eq!(empty["has_value"], true);
+
+        let raw = environment_row(1, b"NON_UTF8_\xff", Some(b"\xfe"), true);
+        assert_eq!(raw["name"], Value::Null);
+        assert_eq!(raw["name_encoding"], "hex");
+        assert_eq!(raw["name_hex"], "4e4f4e5f555446385fff");
+        assert_eq!(raw["value"], Value::Null);
+        assert_eq!(raw["value_hex"], "fe");
+
+        let malformed = environment_row(2, b"NO_EQUALS", None, false);
+        assert_eq!(malformed["has_value"], false);
+        assert!(malformed.get("value_sha256").is_none());
+    }
+
+    #[test]
+    fn process_environment_rejects_unbounded_inputs_before_native_read() {
+        assert_eq!(
+            process_environment_payload(0, None, false, None, None)
+                .expect_err("zero pid")
+                .code,
+            "invalid_input"
+        );
+        assert_eq!(
+            process_environment_payload(
+                std::process::id(),
+                None,
+                false,
+                None,
+                Some(MAX_ENVIRONMENT_LIMIT + 1),
+            )
+            .expect_err("oversized page")
+            .code,
+            "invalid_input"
+        );
+        assert_eq!(
+            process_environment_payload(std::process::id(), Some("bad\n"), false, None, None,)
+                .expect_err("control byte")
+                .code,
             "invalid_input"
         );
     }

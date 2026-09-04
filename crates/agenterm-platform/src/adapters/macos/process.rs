@@ -2,8 +2,11 @@
 
 use std::process::{Child, ChildStderr, ChildStdout, Command};
 
+use crate::contract::process::{
+    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
+    ProcessInfo, ProcessObservation,
+};
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
-use crate::contract::process::{ProcessError, ProcessErrorKind, ProcessInfo, ProcessObservation};
 use crate::process_observation::observe;
 
 pub(crate) fn stdout_probe_token(_reader: &ChildStdout) -> Option<PipeProbeToken> {
@@ -95,8 +98,39 @@ pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
 }
 
 pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
-    use std::mem::size_of;
     const MAX_BYTES: usize = 1024 * 1024;
+    let bytes = read_procargs2(pid, MAX_BYTES, "arguments")?;
+    let (arguments, _) = procargs2_sections(&bytes)?;
+    if arguments.is_empty() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "process arguments are unavailable",
+        ));
+    }
+    Ok(arguments
+        .into_iter()
+        .map(|argument| String::from_utf8_lossy(argument).into_owned())
+        .collect())
+}
+
+pub(crate) fn environment_snapshot(pid: u32) -> Result<ProcessEnvironmentSnapshot, ProcessError> {
+    let bytes = read_procargs2(pid, PROCESS_ENVIRONMENT_MAX_BYTES, "initial environment")?;
+    let (_, environment) = procargs2_sections(&bytes)?;
+    if environment.is_empty() {
+        // XNU intentionally returns an argv-only KERN_PROCARGS2 buffer for a
+        // cs-restricted target unless the caller has a private entitlement.
+        // That shape is indistinguishable from a genuinely empty environment.
+        return Err(ProcessError::new(
+            ProcessErrorKind::Unavailable,
+            "process initial environment is empty or omitted by macOS",
+        ));
+    }
+    Ok(ProcessEnvironmentSnapshot::from_nul_delimited(environment))
+}
+
+fn read_procargs2(pid: u32, max_bytes: usize, subject: &str) -> Result<Vec<u8>, ProcessError> {
+    use std::mem::size_of;
+
     let pid = libc::c_int::try_from(pid)
         .map_err(|_| ProcessError::new(ProcessErrorKind::IdOutOfRange, "pid exceeds c_int"))?;
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
@@ -112,15 +146,18 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
         )
     } != 0
     {
+        return Err(procargs2_error(std::io::Error::last_os_error()));
+    }
+    if size < size_of::<libc::c_int>() {
         return Err(ProcessError::new(
-            ProcessErrorKind::Inspect,
-            std::io::Error::last_os_error().to_string(),
+            ProcessErrorKind::InvalidData,
+            format!("process {subject} buffer is too short"),
         ));
     }
-    if size < size_of::<libc::c_int>() || size > MAX_BYTES {
+    if size > max_bytes {
         return Err(ProcessError::new(
             ProcessErrorKind::InventoryTooLarge,
-            "process arguments have an invalid or oversized buffer",
+            format!("process {subject} buffer exceeds {} bytes", max_bytes),
         ));
     }
     let mut bytes = vec![0u8; size];
@@ -135,48 +172,100 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
         )
     } != 0
     {
+        return Err(procargs2_error(std::io::Error::last_os_error()));
+    }
+    if size > bytes.len() {
         return Err(ProcessError::new(
-            ProcessErrorKind::Inspect,
-            std::io::Error::last_os_error().to_string(),
+            ProcessErrorKind::InventoryTooLarge,
+            format!("process {subject} grew beyond the bounded buffer"),
         ));
     }
     bytes.truncate(size);
+    Ok(bytes)
+}
+
+fn procargs2_error(error: std::io::Error) -> ProcessError {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => ProcessErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => ProcessErrorKind::PermissionDenied,
+        _ if error.raw_os_error() == Some(libc::ESRCH) => ProcessErrorKind::NotFound,
+        _ if error.raw_os_error() == Some(libc::ENOMEM) => ProcessErrorKind::InventoryTooLarge,
+        _ => ProcessErrorKind::Inspect,
+    };
+    ProcessError::new(kind, error.to_string())
+}
+
+fn procargs2_sections(bytes: &[u8]) -> Result<(Vec<&[u8]>, &[u8]), ProcessError> {
+    use std::mem::size_of;
+
+    if bytes.len() < size_of::<libc::c_int>() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process argument buffer is too short",
+        ));
+    }
     let argc = libc::c_int::from_ne_bytes(
         bytes[..size_of::<libc::c_int>()]
             .try_into()
             .expect("validated argc width"),
     );
-    let argc = usize::try_from(argc)
-        .map_err(|_| ProcessError::new(ProcessErrorKind::Inspect, "process argc is negative"))?;
+    let argc = usize::try_from(argc).map_err(|_| {
+        ProcessError::new(ProcessErrorKind::InvalidData, "process argc is negative")
+    })?;
+    if argc > bytes.len() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process argc exceeds its bounded native buffer",
+        ));
+    }
     let mut offset = size_of::<libc::c_int>();
     while offset < bytes.len() && bytes[offset] != 0 {
         offset += 1;
+    }
+    if offset == bytes.len() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process executable path is not NUL terminated",
+        ));
     }
     while offset < bytes.len() && bytes[offset] == 0 {
         offset += 1;
     }
     let mut arguments = Vec::with_capacity(argc);
     for _ in 0..argc {
+        if offset >= bytes.len() {
+            return Err(ProcessError::new(
+                ProcessErrorKind::InvalidData,
+                "process argument buffer ends before argc",
+            ));
+        }
         let relative_end = bytes[offset..]
             .iter()
             .position(|byte| *byte == 0)
             .ok_or_else(|| {
                 ProcessError::new(
-                    ProcessErrorKind::Inspect,
+                    ProcessErrorKind::InvalidData,
                     "process argument buffer ends before argc",
                 )
             })?;
         let end = offset + relative_end;
-        arguments.push(String::from_utf8_lossy(&bytes[offset..end]).into_owned());
+        arguments.push(&bytes[offset..end]);
         offset = end + 1;
     }
-    if arguments.is_empty() {
-        return Err(ProcessError::new(
-            ProcessErrorKind::Inspect,
-            "process arguments are unavailable",
-        ));
+    while offset < bytes.len() && bytes[offset] == 0 {
+        offset += 1;
     }
-    Ok(arguments)
+    let environment_start = offset;
+    while offset < bytes.len() && bytes[offset] != 0 {
+        let Some(relative_end) = bytes[offset..].iter().position(|byte| *byte == 0) else {
+            return Err(ProcessError::new(
+                ProcessErrorKind::InvalidData,
+                "process environment entry is not NUL terminated",
+            ));
+        };
+        offset += relative_end + 1;
+    }
+    Ok((arguments, &bytes[environment_start..offset]))
 }
 
 pub(crate) fn current_directory(pid: u32) -> Result<std::path::PathBuf, ProcessError> {
@@ -354,5 +443,49 @@ impl ProcessTreeGuard {
         }
         self.active = false;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod procargs2_tests {
+    use super::procargs2_sections;
+
+    fn fixture(argc: libc::c_int, fields: &[&[u8]]) -> Vec<u8> {
+        let mut bytes = argc.to_ne_bytes().to_vec();
+        for field in fields {
+            bytes.extend_from_slice(field);
+            bytes.push(0);
+        }
+        bytes
+    }
+
+    #[test]
+    fn parser_skips_executable_padding_and_exactly_argc_arguments() {
+        let bytes = fixture(
+            3,
+            &[
+                b"/bin/demo",
+                b"",
+                b"",
+                b"demo",
+                b"",
+                b"tail",
+                b"A=one",
+                b"EMPTY=",
+                b"BAD",
+                b"NON_UTF8=\xff",
+                b"",
+            ],
+        );
+        let (arguments, environment) = procargs2_sections(&bytes).expect("valid procargs2");
+        assert_eq!(arguments, vec![&b"demo"[..], &b""[..], &b"tail"[..]]);
+        assert_eq!(environment, b"A=one\0EMPTY=\0BAD\0NON_UTF8=\xff\0");
+    }
+
+    #[test]
+    fn parser_rejects_an_unterminated_environment_entry() {
+        let mut bytes = fixture(1, &[b"/bin/demo", b"", b"demo"]);
+        bytes.extend_from_slice(b"A=unterminated");
+        assert!(procargs2_sections(&bytes).is_err());
     }
 }

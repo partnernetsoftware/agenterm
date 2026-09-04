@@ -373,6 +373,20 @@ pub enum Command {
         target: TargetRef,
         pid: u32,
     },
+    /// Read the process's bounded exec-time environment snapshot. Values are
+    /// opt-in because environment entries routinely contain credentials.
+    ProcessEnvironment {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prefix: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        values: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+    },
     /// One cumulative resource sample for an exact, identity-bound process.
     ProcessUsage {
         target: TargetRef,
@@ -1686,6 +1700,7 @@ impl Command {
             Self::ProcessState { .. } => "process-state".into(),
             Self::ProcessArgv { .. } => "process-argv".into(),
             Self::ProcessCwd { .. } => "process-cwd".into(),
+            Self::ProcessEnvironment { .. } => "process-environment".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
@@ -1778,6 +1793,7 @@ impl Command {
             | Self::ProcessState { target, .. }
             | Self::ProcessArgv { target, .. }
             | Self::ProcessCwd { target, .. }
+            | Self::ProcessEnvironment { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
@@ -2030,6 +2046,32 @@ mod tests {
                 "verb": "process-cwd",
                 "target": "ssh",
                 "pid": 42,
+            })
+        );
+    }
+
+    #[test]
+    fn process_environment_keeps_disclosure_filter_and_page_on_the_wire() {
+        let command = Command::ProcessEnvironment {
+            target: TargetRef::Ssh,
+            pid: 42,
+            prefix: Some("APP_".into()),
+            values: true,
+            offset: Some(3),
+            limit: Some(9),
+        };
+        assert_eq!(command.verb(), "process-environment");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-environment",
+                "target": "ssh",
+                "pid": 42,
+                "prefix": "APP_",
+                "values": true,
+                "offset": 3,
+                "limit": 9,
             })
         );
     }

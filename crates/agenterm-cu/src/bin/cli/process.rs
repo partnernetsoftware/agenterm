@@ -27,6 +27,7 @@ pub fn parse(
         "process-state" => process_state(target, args),
         "process-argv" => process_argv(target, args),
         "process-cwd" => process_cwd(target, args),
+        "process-environment" => process_environment(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
@@ -51,6 +52,51 @@ fn process_cwd(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
         return Err(format!("process-cwd received unexpected {:?}", args[0]));
     }
     Ok(Command::ProcessCwd { target, pid })
+}
+
+fn process_environment(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = match flag_parsed::<u32>(args, "--pid")? {
+        Some(pid) => pid,
+        None if !args.is_empty() && !args[0].starts_with('-') => args
+            .remove(0)
+            .parse::<u32>()
+            .map_err(|_| "process-environment PID must be a positive integer".to_owned())?,
+        None => return Err("process-environment requires --pid N (or positional PID)".into()),
+    };
+    let prefix = flag_text(args, "--prefix")?;
+    let values = take_switch(args, "--values");
+    let offset = flag_parsed::<usize>(args, "--offset")?;
+    let limit = flag_parsed::<usize>(args, "--limit")?;
+    if pid == 0 {
+        return Err("process-environment pid must be greater than zero".into());
+    }
+    if prefix.as_ref().is_some_and(|value| {
+        value.len() > 256 || value.bytes().any(|b| matches!(b, 0 | b'\r' | b'\n'))
+    }) {
+        return Err(
+            "process-environment --prefix must be at most 256 UTF-8 bytes without NUL/CR/LF".into(),
+        );
+    }
+    if offset.is_some_and(|value| value > 100_000) {
+        return Err("process-environment --offset must be in 0..=100000".into());
+    }
+    if limit.is_some_and(|value| !(1..=5_000).contains(&value)) {
+        return Err("process-environment --limit must be in 1..=5000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "process-environment received unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::ProcessEnvironment {
+        target,
+        pid,
+        prefix,
+        values,
+        offset,
+        limit,
+    })
 }
 
 fn process_argv(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -388,6 +434,53 @@ mod tests {
             parse(spec, "process", TargetRef::Current, &mut mcu).expect("MCU alias"),
             Command::ProcessCwd { pid: 42, .. }
         ));
+    }
+
+    #[test]
+    fn process_environment_accepts_disclosure_filter_and_bounded_page() {
+        let spec = verbs::lookup("process-environment").expect("process-environment verb");
+        let mut native = vec![
+            "--pid".into(),
+            "42".into(),
+            "--prefix".into(),
+            "APP_".into(),
+            "--offset".into(),
+            "3".into(),
+            "--limit".into(),
+            "9".into(),
+            "--values".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut native).expect("native"),
+            Command::ProcessEnvironment {
+                pid: 42,
+                prefix: Some(prefix),
+                values: true,
+                offset: Some(3),
+                limit: Some(9),
+                ..
+            } if prefix == "APP_"
+        ));
+
+        let mut mcu = vec!["env".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Current, &mut mcu).expect("MCU alias"),
+            Command::ProcessEnvironment {
+                pid: 42,
+                prefix: None,
+                values: false,
+                offset: None,
+                limit: None,
+                ..
+            }
+        ));
+
+        let mut unbounded = vec!["--pid".into(), "42".into(), "--limit".into(), "5001".into()];
+        assert!(
+            parse(spec, spec.name, TargetRef::Current, &mut unbounded)
+                .expect_err("bounded")
+                .contains("1..=5000")
+        );
     }
 
     #[test]
