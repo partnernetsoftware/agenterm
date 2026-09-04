@@ -1,0 +1,62 @@
+{
+  "schema": "agenterm-qjswasm-immediate-host-argument-attribution",
+  "version": 1,
+  "status": "d0_measurement_incomplete",
+  "agenterm_revision": "311ed139e67b9780b334218c5bbf69b08e43db50",
+  "agenterm_source_dirty": false,
+  "tinyvm_revision": "f303132a",
+  "diagnostic_only": true,
+  "allocator_reuse_implemented": false,
+  "precommitted_gate": {
+    "minimum_eligible_bytes": 65536,
+    "minimum_eligible_ratio": 0.1,
+    "minimum_passing_journeys": 2,
+    "journeys": [
+      "server-smoke",
+      "wake-smoke",
+      "workbench-smoke"
+    ]
+  },
+  "court": {
+    "os": "windows",
+    "isa": "x86_64",
+    "execution": "native guest",
+    "note": "rehearsal only: the experiment document named macOS aarch64, while the frozen task manifest declares all three product tasks Windows-only"
+  },
+  "rows": [
+    {
+      "journey": "server-smoke",
+      "result": "passed",
+      "steps": 39838979,
+      "peak_call_depth": 23,
+      "peak_activation_slots": 286,
+      "host_operations": 262,
+      "host_bytes": 357156,
+      "waited_ms": 311,
+      "heap_pages": 31,
+      "heap_start_bytes": 27020,
+      "heap_end_bytes": 1974868,
+      "run_allocation_bytes": 1947848,
+      "json_parse_bytes": 1231980,
+      "json_stringify_bytes": 211076,
+      "immediate_stringify_host_argument_bytes": 97516,
+      "eligible_ratio": 0.05006345669785322,
+      "passes_d0_row": false
+    },
+    {
+      "journey": "wake-smoke",
+      "result": "court_prerequisite_missing",
+      "typed_detail": "python executable absent from the Windows guest",
+      "passes_d0_row": null
+    },
+    {
+      "journey": "workbench-smoke",
+      "result": "measurement_deadline_without_receipt",
+      "typed_detail": "no atomic task receipt was published inside the bounded court window",
+      "passes_d0_row": null
+    }
+  ],
+  "d0_pass": false,
+  "d0_decided": false,
+  "next": "add phase-level cost receipts and a self-owned raw IPC fixture, then rerun the same three frozen workload identities before any allocator reuse code"
+}

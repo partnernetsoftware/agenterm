@@ -54,7 +54,7 @@ agenterm-qjswasm
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
 │  ├─ [x] temporary-region lifetime court rejected: JSON is 56.69%/59.20% gross allocation, but live return records leave zero operation-return suffix
-│  ├─ [ ] immediate host-argument region court: attribution D0 before code; exact producer+consumer shape only
+│  ├─ [~] immediate host-argument D0: one row is 97,516 B / 5.006% and fails ratio; two measurement rows remain, so reuse code stays forbidden
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -97,6 +97,9 @@ flowchart LR
   REGION["temporary-region lifetime court<br/>gross JSON attribution measured"]
   REGION_GATE{"L0 >=25% proven-dead<br/>in >=2 real journeys?"}
   REGION_KILL["L0 failed: live return at heap tail<br/>kill rewind · retain diagnostics"]
+  ARG_D0["immediate host-argument D0<br/>server row 5.006% · two rows missing"]
+  ARG_GATE{"complete table:<br/>>=64 KiB + >=10% in two?"}
+  ARG_STOP["no allocator reuse<br/>repair measurement court first"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
@@ -111,6 +114,9 @@ flowchart LR
   SLOT -. persistent heap high-water .-> REGION --> REGION_GATE
   REGION_GATE -->|no| REGION_KILL
   REGION_GATE -->|yes| PERF
+  REGION_KILL --> ARG_D0 --> ARG_GATE
+  ARG_GATE -->|incomplete / no| ARG_STOP
+  ARG_GATE -->|yes| PERF
   COMP -. measured candidate .-> PERF
   PERF -->|all frozen gates pass| UP
   PERF -->|166 > 160| ROLLBACK --> STATIC

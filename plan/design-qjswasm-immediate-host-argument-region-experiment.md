@@ -1,6 +1,6 @@
 # qjswasm immediate host-argument region experiment
 
-Status: **planned research experiment · not must-ship · not started**.
+Status: **D0 measurement incomplete · Variant B forbidden · not must-ship**.
 
 This experiment does not change the current AgenTerm `tinyvm` / `tinyvm-qjs`
 pin, product capability state, budget defaults, or release scope. An accepted
@@ -300,7 +300,14 @@ not evidence.
 
 ## 8. Result placeholder
 
-Status: **not run**.
+Status: **rehearsal run recorded; D0 is not decided**.
+
+The first exact-source rehearsal is recorded in
+[`research/qjswasm-immediate-host-argument-region/RESULTS.md`](../research/qjswasm-immediate-host-argument-region/RESULTS.md).
+One native row produced a complete cost receipt but failed the ratio threshold;
+two rows exposed measurement/court prerequisites and produced no admissible
+allocation receipt. No reuse implementation may start until those two evidence
+paths are made bounded and the original Boolean D0 has a complete table.
 
 When complete, replace this placeholder with:
 
