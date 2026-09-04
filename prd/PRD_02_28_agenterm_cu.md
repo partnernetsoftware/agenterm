@@ -171,6 +171,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   verified `timeout` instead of pretending the process exited. The three public
   journey scripts own the next evidence pass; macOS is live green while Linux
   and Windows await their next native-court rerun.
+- [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
+  bounded identity-safe diff. It takes one baseline and emits `started` /
+  `exited` rows keyed by PID plus native start identity, so PID reuse cannot
+  retarget the stream. Duration, interval, event count and matched inventory
+  have independent hard ceilings. Unknown identity for an exact PID and
+  oversized inventory fail typed; broad watches omit unidentified rows only
+  with `coverage_complete=false` and an explicit count. A real owned-child exit is green through the macOS public CLI;
+  macOS/Linux/Windows qjswasm journey leaves are declared for native reruns.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

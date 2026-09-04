@@ -78,6 +78,7 @@ const declared_evidence = [
   "cu.macos-process-usage",
   "cu.macos-process-usage-watch",
   "cu.macos-process-wait",
+  "cu.macos-process-lifecycle-watch",
   "cu.macos-ax-snapshot-diff",
   "cu.macos-ax-hit-zoom",
   "cu.macos-ax-window-state",
@@ -610,6 +611,29 @@ try {
       && text_at(process_wait, "data.mechanism") === "native-process-reference",
     "cu_macos_smoke_process_wait:" + JSON.stringify(process_wait)
   );
+
+  print("STEP process lifecycle watch reports the exact identity of an owned child that exits");
+  const short_child = harness.start({
+    program: "sh", args: ["-c", "sleep 1"], current_dir: run_directory, timeout_ms: 5000
+  });
+  const short_pid = harness.spawned_pid(short_child);
+  const lifecycle = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-watch", "--pid", "" + short_pid,
+      "--duration-ms", "10000", "--interval-ms", "20", "--max-events", "1", "--max-processes", "4"]
+  );
+  const lifecycle_events = at(lifecycle, "data.events");
+  ensure(
+    Array.isArray(lifecycle_events) && lifecycle_events.length === 1
+      && text_of(lifecycle_events[0].kind) === "exited"
+      && int_at(lifecycle_events[0], "process.pid") === short_pid
+      && text_of(lifecycle_events[0].process.start_identity)
+        === text_of(lifecycle.data.baseline[0].start_identity)
+      && !flag_at(lifecycle, "data.completed") && flag_at(lifecycle, "data.truncated"),
+    "cu_macos_smoke_process_lifecycle_watch:" + JSON.stringify(lifecycle.data)
+  );
+  harness.wait(short_child, 5000);
 
   print("STEP public wait and windows --pid prove PID, title and CGWindow identity");
   const window_wait = run_cu_json(
@@ -2491,6 +2515,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-wait");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");

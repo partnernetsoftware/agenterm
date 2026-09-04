@@ -63,9 +63,16 @@
         {
           "id": "process.lifecycle.watch",
           "mcu_shape": "process watch --pid/--name/--parent/--all",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "bounded diff stream over shared process inventory"
+          "acu_shape": "process-watch with composable --pid/--name/--parent filters or explicit --all, plus four independent budgets",
+          "state": "native",
+          "qualification": "macos-live-linux-windows-rerun-pending",
+          "evidence": ["cu.macos-process-lifecycle-watch"],
+          "declared_evidence": [
+            "cu.macos-process-lifecycle-watch",
+            "cu.linux-process-lifecycle-watch",
+            "cu.windows-process-lifecycle-watch"
+          ],
+          "note": "The baseline and every started/exited event carry pid plus start identity; PID reuse is two events, never target substitution."
         },
         {
           "id": "process.state.mutate",

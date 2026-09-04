@@ -3,7 +3,7 @@
 use agenterm_cu::{Command, TargetRef};
 
 use super::verbs::VerbSpec;
-use super::{flag_parsed, flag_text};
+use super::{flag_parsed, flag_text, take_switch};
 
 pub fn parse(
     spec: &VerbSpec,
@@ -15,8 +15,50 @@ pub fn parse(
         "process-state" => process_state(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
+        "process-watch" => process_watch(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = flag_parsed::<u32>(args, "--pid")?;
+    let parent = flag_parsed::<u32>(args, "--parent")?;
+    let name = flag_text(args, "--name")?;
+    let all = take_switch(args, "--all");
+    let duration_ms = flag_parsed::<u64>(args, "--duration-ms")?.unwrap_or(30_000);
+    let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
+    let max_events = flag_parsed::<usize>(args, "--max-events")?;
+    let max_processes = flag_parsed::<usize>(args, "--max-processes")?;
+    if pid.is_none() && parent.is_none() && name.is_none() && !all {
+        return Err("process-watch requires --pid N, --parent N, --name SUB or --all".into());
+    }
+    if pid == Some(0)
+        || parent == Some(0)
+        || name.as_deref().is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("process-watch selectors must be positive or non-empty".into());
+    }
+    if !(1..=86_400_000).contains(&duration_ms)
+        || interval_ms.is_some_and(|value| !(1..=60_000).contains(&value))
+        || max_events.is_some_and(|value| !(1..=4_096).contains(&value))
+        || max_processes.is_some_and(|value| !(1..=5_000).contains(&value))
+    {
+        return Err("process-watch requires duration-ms in 1..=86400000, interval-ms in 1..=60000, max-events in 1..=4096 and max-processes in 1..=5000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("process-watch received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessWatch {
+        target,
+        pid,
+        parent,
+        name,
+        all,
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
+    })
 }
 
 fn process_wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -262,6 +304,42 @@ mod tests {
             parse(spec, TargetRef::Current, &mut missing_identity)
                 .expect_err("identity")
                 .contains("--start-identity")
+        );
+    }
+
+    #[test]
+    fn process_watch_requires_a_selector_and_closed_budgets() {
+        let spec = verbs::lookup("process-watch").expect("process-watch verb");
+        let mut args = vec![
+            "--name".into(),
+            "worker".into(),
+            "--duration-ms".into(),
+            "1000".into(),
+            "--interval-ms".into(),
+            "50".into(),
+            "--max-events".into(),
+            "8".into(),
+            "--max-processes".into(),
+            "20".into(),
+        ];
+        assert!(matches!(
+            parse(spec, TargetRef::Ssh, &mut args).expect("parse"),
+            Command::ProcessWatch {
+                target: TargetRef::Ssh,
+                ref name,
+                duration_ms: 1000,
+                interval_ms: Some(50),
+                max_events: Some(8),
+                max_processes: Some(20),
+                ..
+            } if name.as_deref() == Some("worker")
+        ));
+
+        let mut missing = Vec::new();
+        assert!(
+            parse(spec, TargetRef::Current, &mut missing)
+                .expect_err("missing")
+                .contains("requires --pid")
         );
     }
 }

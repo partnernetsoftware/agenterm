@@ -993,6 +993,16 @@ a qjswasm caller can tell “observed the requested duration” from “hit the
 sample/output budget”; PID reuse or loss of identity is a typed failure, never
 a fresh series under the same number.
 
+A process-lifecycle watch applies the same identity rule to a changing set.
+Take one bounded baseline, key every row by `(pid, start_identity)`, and report
+PID reuse as an `exited` old identity plus a `started` new identity. Bound the
+duration, interval, emitted events, and matched inventory independently. An
+unverifiable exact PID fails typed. A broad watch may exclude unidentified
+rows only when it reports the count and `coverage_complete=false`; never emit
+those rows as PID-only events. Oversized inventory still fails typed. Keep the
+baseline in the reply so a zero-event watch states exactly which objects were
+observed.
+
 This is not semantics-free: `CommandLineToArgvW` differs from modern MSVC rules
 for ambiguous hand-crafted quote sequences, and loading Shell32 can hurt a
 small console process. Require standard-launcher round trips and public CLI

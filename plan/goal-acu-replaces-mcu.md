@@ -161,9 +161,17 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   verified result. This is intentionally stronger than MCU's repeated PID
   inventory polling; the native ACU spelling is reachable through the shim.
 - The three public native journeys now bind those commands to each owned GUI
-  fixture. macOS is live green at 36 STEP / 37 evidence ids; Linux declares
-  23 / 24 and Windows 15 / 15, with both updated native courts still required
+  fixture. macOS is live green at 37 STEP / 38 evidence ids; Linux declares
+  24 / 25 and Windows 16 / 16, with both updated native courts still required
   before this process slice is called three-host proven.
+- `process-watch` closes MCU's lifecycle-observation shape with a stronger
+  identity contract: composable PID/parent/name filters or explicit all, an immediate
+  bounded baseline, and started/exited events keyed by PID plus start identity.
+  Duration, interval, event count and matched inventory are separately capped;
+  broad selectors report incomplete identity coverage rather than emitting
+  PID-only rows;
+  macOS public-CLI evidence has observed a real owned child exit. The three
+  qjswasm native journeys now declare the same event and await integrated runs.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -209,7 +217,8 @@ Q2 fast delegated facades
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only
    ├─ [x] process-usage: one-shot or bounded identity-bound series, lossless counters
    ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
-   └─ [ ] rich filters, process detail, exec, identity-bound signal and lifecycle
+   ├─ [x] process-watch: bounded baseline + identity-safe started/exited diff
+   └─ [ ] rich filters, process detail, exec and identity-bound signal/mutation
 Q3 owned runtime facades
 ├─ [ ] PTY/job/daemon/session/lock/audit/service
 └─ [ ] file/network/storage/device/audio/resource/power/privilege

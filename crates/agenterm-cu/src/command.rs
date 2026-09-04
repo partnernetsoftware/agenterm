@@ -326,6 +326,27 @@ pub enum Command {
         start_identity: String,
         timeout_ms: u64,
     },
+    /// Observe a bounded process-set lifecycle. Every row is keyed by pid and
+    /// start identity so pid reuse becomes one exit plus one start instead of
+    /// silently changing the watched object.
+    ProcessWatch {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        all: bool,
+        duration_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_processes: Option<usize>,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -1336,6 +1357,7 @@ impl Command {
             Self::ProcessState { .. } => "process-state".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
+            Self::ProcessWatch { .. } => "process-watch".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -1408,6 +1430,7 @@ impl Command {
             | Self::ProcessState { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
+            | Self::ProcessWatch { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -1618,6 +1641,35 @@ mod tests {
                 "pid": 42,
                 "start_identity": "boot:123",
                 "timeout_ms": 250,
+            })
+        );
+    }
+
+    #[test]
+    fn process_watch_is_observe_only_and_has_bounded_remote_fields() {
+        let command = Command::ProcessWatch {
+            target: TargetRef::Ssh,
+            pid: None,
+            parent: None,
+            name: Some("worker".into()),
+            all: false,
+            duration_ms: 1_000,
+            interval_ms: Some(100),
+            max_events: Some(8),
+            max_processes: Some(20),
+        };
+        assert_eq!(command.verb(), "process-watch");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-watch",
+                "target": "ssh",
+                "name": "worker",
+                "duration_ms": 1_000,
+                "interval_ms": 100,
+                "max_events": 8,
+                "max_processes": 20,
             })
         );
     }

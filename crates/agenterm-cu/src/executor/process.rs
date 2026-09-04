@@ -1,6 +1,9 @@
 //! Cross-platform process observation through `agenterm-platform`.
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use serde_json::{Value, json};
 
@@ -13,6 +16,37 @@ const DEFAULT_USAGE_MAX_SAMPLES: usize = 120;
 const MAX_USAGE_WATCH_MS: u64 = 86_400_000;
 const MAX_USAGE_INTERVAL_MS: u64 = 60_000;
 const MAX_USAGE_SAMPLES: usize = 4_096;
+const DEFAULT_PROCESS_WATCH_INTERVAL_MS: u64 = 1_000;
+const DEFAULT_PROCESS_WATCH_MAX_EVENTS: usize = 256;
+const DEFAULT_PROCESS_WATCH_MAX_PROCESSES: usize = 1_000;
+
+#[derive(Clone)]
+struct WatchedProcess {
+    pid: u32,
+    parent_pid: u32,
+    executable_name: String,
+    start_identity: String,
+}
+
+struct ProcessWatchSnapshot {
+    processes: BTreeMap<(u32, String), WatchedProcess>,
+    excluded_unidentified: usize,
+}
+
+impl WatchedProcess {
+    fn key(&self) -> (u32, String) {
+        (self.pid, self.start_identity.clone())
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "pid": self.pid,
+            "parent_pid": self.parent_pid,
+            "executable_name": self.executable_name,
+            "start_identity": self.start_identity,
+        })
+    }
+}
 
 pub(super) fn process_state_payload(pid: u32) -> Result<Value, CuError> {
     if pid == 0 {
@@ -234,6 +268,186 @@ pub(super) fn process_wait_payload(
     }))
 }
 
+fn process_watch_snapshot(
+    pid: Option<u32>,
+    parent: Option<u32>,
+    name: Option<&str>,
+    max_processes: usize,
+) -> Result<ProcessWatchSnapshot, CuError> {
+    let name = name.map(str::to_ascii_lowercase);
+    let rows = agenterm_platform::process::list().map_err(|error| {
+        CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
+            "kind": format!("{:?}", error.kind()),
+        }))
+    })?;
+    let mut matched = rows
+        .into_iter()
+        .filter(|row| {
+            pid.is_none_or(|wanted| row.id == wanted)
+                && parent.is_none_or(|wanted| row.parent_id == wanted)
+                && name
+                    .as_ref()
+                    .is_none_or(|wanted| row.executable_name.to_ascii_lowercase().contains(wanted))
+        })
+        .collect::<Vec<_>>();
+    matched.sort_by_key(|row| row.id);
+    if matched.len() > max_processes {
+        return Err(CuError::new(
+            "process_watch_inventory_too_large",
+            "matched process inventory exceeds --max-processes",
+        )
+        .with_detail(json!({
+            "matched": matched.len(),
+            "max_processes": max_processes,
+        })));
+    }
+
+    let mut snapshot = BTreeMap::new();
+    let mut excluded_unidentified = 0usize;
+    for row in matched {
+        let start_identity = match agenterm_platform::process_observation::observe(row.id) {
+            agenterm_platform::process_observation::ProcessObservation::Live {
+                start_identity: Some(identity),
+            } => identity,
+            agenterm_platform::process_observation::ProcessObservation::Dead { .. } => continue,
+            agenterm_platform::process_observation::ProcessObservation::Live {
+                start_identity: None,
+            } => {
+                if pid.is_some() {
+                    return Err(CuError::new(
+                        "process_identity_unavailable",
+                        "the exact watched process is live but has no start identity",
+                    )
+                    .with_detail(json!({ "pid": row.id })));
+                }
+                excluded_unidentified += 1;
+                continue;
+            }
+            agenterm_platform::process_observation::ProcessObservation::Unknown { reason } => {
+                if pid.is_some() {
+                    return Err(CuError::new("process_identity_unknown", reason)
+                        .with_detail(json!({ "pid": row.id })));
+                }
+                excluded_unidentified += 1;
+                continue;
+            }
+            _ => {
+                if pid.is_some() {
+                    return Err(CuError::new(
+                        "process_identity_unknown",
+                        "process observation variant is unsupported",
+                    )
+                    .with_detail(json!({ "pid": row.id })));
+                }
+                excluded_unidentified += 1;
+                continue;
+            }
+        };
+        let watched = WatchedProcess {
+            pid: row.id,
+            parent_pid: row.parent_id,
+            executable_name: row.executable_name,
+            start_identity,
+        };
+        snapshot.insert(watched.key(), watched);
+    }
+    Ok(ProcessWatchSnapshot {
+        processes: snapshot,
+        excluded_unidentified,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn process_watch_payload(
+    pid: Option<u32>,
+    parent: Option<u32>,
+    name: Option<&str>,
+    all: bool,
+    duration_ms: u64,
+    interval_ms: Option<u64>,
+    max_events: Option<usize>,
+    max_processes: Option<usize>,
+) -> Result<Value, CuError> {
+    let interval_ms = interval_ms.unwrap_or(DEFAULT_PROCESS_WATCH_INTERVAL_MS);
+    let max_events = max_events.unwrap_or(DEFAULT_PROCESS_WATCH_MAX_EVENTS);
+    let max_processes = max_processes.unwrap_or(DEFAULT_PROCESS_WATCH_MAX_PROCESSES);
+    if (pid.is_none() && parent.is_none() && name.is_none() && !all)
+        || pid == Some(0)
+        || parent == Some(0)
+        || name.is_some_and(|value| value.trim().is_empty())
+        || !(1..=MAX_USAGE_WATCH_MS).contains(&duration_ms)
+        || !(1..=MAX_USAGE_INTERVAL_MS).contains(&interval_ms)
+        || !(1..=MAX_USAGE_SAMPLES).contains(&max_events)
+        || !(1..=MAX_RESULTS).contains(&max_processes)
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-watch requires one selector, duration-ms in 1..=86400000, interval-ms in 1..=60000, max-events in 1..=4096 and max-processes in 1..=5000",
+        ));
+    }
+
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(duration_ms);
+    let initial = process_watch_snapshot(pid, parent, name, max_processes)?;
+    let mut previous = initial.processes;
+    let mut excluded_unidentified = initial.excluded_unidentified;
+    let baseline = previous
+        .values()
+        .map(WatchedProcess::json)
+        .collect::<Vec<_>>();
+    let mut events = Vec::with_capacity(max_events.min(256));
+    let mut truncated = false;
+
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        std::thread::sleep(Duration::from_millis(interval_ms).min(remaining));
+        let next = process_watch_snapshot(pid, parent, name, max_processes)?;
+        excluded_unidentified = excluded_unidentified.max(next.excluded_unidentified);
+        let current = next.processes;
+        let t_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        for (kind, row) in previous
+            .iter()
+            .filter(|(key, _)| !current.contains_key(*key))
+            .map(|(_, row)| ("exited", row))
+            .chain(
+                current
+                    .iter()
+                    .filter(|(key, _)| !previous.contains_key(*key))
+                    .map(|(_, row)| ("started", row)),
+            )
+        {
+            if events.len() == max_events {
+                truncated = true;
+                break;
+            }
+            events.push(json!({ "t_ms": t_ms, "kind": kind, "process": row.json() }));
+        }
+        previous = current;
+        if truncated || events.len() == max_events {
+            truncated = Instant::now() < deadline;
+            break;
+        }
+    }
+
+    Ok(json!({
+        "mode": "bounded-diff",
+        "selector": { "pid": pid, "parent": parent, "name": name, "all": all },
+        "duration_ms": duration_ms,
+        "interval_ms": interval_ms,
+        "max_events": max_events,
+        "max_processes": max_processes,
+        "baseline": baseline,
+        "baseline_count": baseline.len(),
+        "excluded_unidentified": excluded_unidentified,
+        "coverage_complete": excluded_unidentified == 0,
+        "events": events,
+        "emitted": events.len(),
+        "completed": !truncated,
+        "truncated": truncated,
+        "verified": true,
+    }))
+}
+
 pub(super) fn process_list_payload(
     pid: Option<u32>,
     parent: Option<u32>,
@@ -392,6 +606,41 @@ mod tests {
         let error = process_wait_payload(std::process::id(), "not-this-process", 1)
             .expect_err("identity mismatch");
         assert_eq!(error.code, "process_identity_changed");
+    }
+
+    #[test]
+    fn process_watch_returns_an_identity_bound_bounded_baseline() {
+        let pid = std::process::id();
+        let value =
+            process_watch_payload(Some(pid), None, None, false, 1, Some(1), Some(4), Some(4))
+                .expect("watch");
+        assert_eq!(value["mode"], "bounded-diff");
+        assert_eq!(value["baseline_count"], 1);
+        assert_eq!(value["baseline"][0]["pid"], pid);
+        assert!(value["baseline"][0]["start_identity"].as_str().is_some());
+        assert_eq!(value["verified"], true);
+        assert_eq!(value["coverage_complete"], true);
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+    }
+
+    #[test]
+    fn process_watch_rejects_missing_or_unbounded_shapes() {
+        let error = process_watch_payload(None, None, None, false, 1, Some(1), Some(1), Some(1))
+            .expect_err("missing selector");
+        assert_eq!(error.code, "invalid_input");
+        let error = process_watch_payload(
+            None,
+            None,
+            None,
+            true,
+            1,
+            Some(1),
+            Some(1),
+            Some(MAX_RESULTS + 1),
+        )
+        .expect_err("oversized inventory");
+        assert_eq!(error.code, "invalid_input");
     }
 
     #[test]

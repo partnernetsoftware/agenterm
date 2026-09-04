@@ -77,6 +77,26 @@ impl Executor {
                 timeout_ms,
                 ..
             } => process_wait_payload(*pid, start_identity, *timeout_ms),
+            Command::ProcessWatch {
+                pid,
+                parent,
+                name,
+                all,
+                duration_ms,
+                interval_ms,
+                max_events,
+                max_processes,
+                ..
+            } => process_watch_payload(
+                *pid,
+                *parent,
+                name.as_deref(),
+                *all,
+                *duration_ms,
+                *interval_ms,
+                *max_events,
+                *max_processes,
+            ),
             Command::Tree {
                 window,
                 depth,

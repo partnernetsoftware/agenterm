@@ -246,6 +246,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "states": ["exited", "timeout"],
         "mechanism": "native-process-reference",
     });
+    let process_watch_verb = serde_json::json!({
+        "status": "available",
+        "group": "process",
+        "mode": "bounded-identity-diff",
+        "grant": "observe",
+        "identity_bound": true,
+        "broad_selector_coverage": "explicit",
+        "events": ["started", "exited"],
+        "max_duration_ms": 86400000,
+        "max_interval_ms": 60000,
+        "max_events": 4096,
+        "max_processes": 5000,
+    });
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -383,6 +396,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-state".into(), process_state_verb);
         verbs.insert("process-usage".into(), process_usage_verb);
         verbs.insert("process-wait".into(), process_wait_verb);
+        verbs.insert("process-watch".into(), process_watch_verb);
         // `raise` is the window-op mechanism the same way `orderwin` is.
         verbs.insert(
             "raise".into(),

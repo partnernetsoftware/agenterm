@@ -36,6 +36,7 @@ const declared_evidence = [
   "cu.linux-process-usage",
   "cu.linux-process-usage-watch",
   "cu.linux-process-wait",
+  "cu.linux-process-lifecycle-watch",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -343,6 +344,27 @@ try {
       && text_at(process_wait, "data.mechanism") === "native-process-reference",
     "cu_linux_smoke_process_wait:" + JSON.stringify(process_wait.data)
   );
+
+  print("STEP process lifecycle watch reports the exact identity of an owned child that exits");
+  const short_child = harness.start({
+    program: "sh", args: ["-c", "sleep 1"], current_dir: run_directory, timeout_ms: 5000
+  });
+  const short_pid = harness.spawned_pid(short_child);
+  const lifecycle = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-watch", "--pid", "" + short_pid,
+    "--duration-ms", "10000", "--interval-ms", "20", "--max-events", "1", "--max-processes", "4"
+  ]);
+  const lifecycle_events = at(lifecycle, "data.events");
+  ensure(
+    Array.isArray(lifecycle_events) && lifecycle_events.length === 1
+      && text_of(lifecycle_events[0].kind) === "exited"
+      && int_at(lifecycle_events[0], "process.pid") === short_pid
+      && text_of(lifecycle_events[0].process.start_identity)
+        === text_of(lifecycle.data.baseline[0].start_identity)
+      && !flag_at(lifecycle, "data.completed") && flag_at(lifecycle, "data.truncated"),
+    "cu_linux_smoke_process_lifecycle_watch:" + JSON.stringify(lifecycle.data)
+  );
+  harness.wait(short_child, 5000);
 
   print("STEP every node in the tree carries a real rectangle, and a control that has none says so with the empty-rect sentinel rather than a screen coordinate");
   const nodes = tree_nodes(run_directory, executable, handle_text, "8");
@@ -719,17 +741,17 @@ try {
     ensure(text_of(app.path).endsWith(".desktop"), "cu_linux_smoke_app_path:" + JSON.stringify(app));
   }
 
-  print("STEP a refusal names the mechanism that is missing, in the adapter's own words rather than one sentence for every reason");
-  // `unlock` is the clearest case left: the poke has no analogue on this
-  // backend, and the adapter says so in its own words. Before the reason
-  // was plumbed through `AGT_UNSUPPORTED` every such answer read "mechanism
-  // unavailable on this host", which named nothing.
+  print("STEP unlock truthfully reports either a performed AT-SPI poke or the backend reason it could not perform one");
+  // AT-SPI deployments differ: some expose org.a11y.Status and can perform
+  // the content poke, while others can only name why it is unavailable. Both
+  // are truthful; a blank success/refusal is not.
   const poke = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "unlock", "--window", handle_text
   ]);
   ensure(
-    flag_at(poke, "data.poked") === false
-      && text_at(poke, "data.reason").indexOf("AT-SPI") >= 0,
+    (flag_at(poke, "data.poked") && text_at(poke, "data.ax") !== "")
+      || (!flag_at(poke, "data.poked")
+        && text_at(poke, "data.reason").indexOf("AT-SPI") >= 0),
     "cu_linux_smoke_poke_reason:" + JSON.stringify(poke.data)
   );
   const launch_refusal = run_cu_reply(run_directory, executable, [
@@ -831,6 +853,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");

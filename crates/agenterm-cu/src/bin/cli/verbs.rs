@@ -559,7 +559,33 @@ counters remain an explicit migration gap."#,
 identity equals the caller's prior process-state observation, then waits for
 that exact process object. A timeout is a verified live result, not an error;
 an identity mismatch fails before waiting. This avoids MCU's repeated PID
-polling and cannot silently follow a recycled pid."#,
+        polling and cannot silently follow a recycled pid."#,
+    },
+    VerbSpec {
+        name: "process-watch",
+        command: "process-watch",
+        aliases: &["process watch"],
+        scope: Scope::Observe,
+        family: Family::Process,
+        summary: "watch a bounded, identity-safe process-set diff",
+        usage: "process-watch [--pid N] [--parent N] [--name SUB] [--all] [--duration-ms N --interval-ms N --max-events N --max-processes N]\nprocess watch [selectors] [limits]",
+        args: &[
+            ArgSpec { flag: "--pid", value: "N", help: "watch one process id" },
+            ArgSpec { flag: "--parent", value: "N", help: "watch direct children of one parent" },
+            ArgSpec { flag: "--name", value: "SUB", help: "watch executable-name substring" },
+            ArgSpec { flag: "--all", value: "", help: "watch the whole bounded inventory" },
+            ArgSpec { flag: "--duration-ms", value: "N", help: "monotonic duration, 1..=86400000 (default 30000)" },
+            ArgSpec { flag: "--interval-ms", value: "N", help: "poll interval, 1..=60000 (default 1000)" },
+            ArgSpec { flag: "--max-events", value: "N", help: "event ceiling, 1..=4096 (default 256)" },
+            ArgSpec { flag: "--max-processes", value: "N", help: "matched inventory ceiling, 1..=5000 (default 1000)" },
+        ],
+        details: r#"Takes an immediate baseline, then emits started/exited diffs until the
+monotonic duration or event ceiling is reached. Every row carries a native
+start identity; pid reuse therefore appears as an exit plus a start. An
+unverifiable identity on an exact PID fails closed. A broad selector excludes
+unidentified processes and reports `coverage_complete: false` plus the count;
+it never degrades those rows to pid-only polling. Oversized inventory fails
+closed."#,
     },
     VerbSpec {
         name: "app",

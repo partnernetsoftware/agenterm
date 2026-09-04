@@ -20,8 +20,12 @@ connection 的外部窗口返回 `kCGErrorIllegalArgument`（两条都实测过�
 和 macOS 的 `AXConfirm` 同一个道理）。
 
 **Windows 有自己的注册旅程了**：`cu-windows-smoke` 的既有 **11 STEP / 11 EVIDENCE**
-曾在 Windows on ARM 上连跑两次通过；当前脚本已扩成 **14 / 14**，把 owned fixture
-的 `process-state` / `process-usage` / `process-wait` 纳入同一条旅程，等待下一次原生 court 复跑。
+曾在 Windows on ARM 上连跑两次通过；当前脚本已把 owned fixture 的
+`process-state` / `process-usage` / `process-wait` 纳入同一条旅程，等待下一次原生 court 复跑。
+`process-watch` 也已接入三平台旅程：PID/parent/name 可组合过滤，也可显式 all，先给
+identity-bound baseline，再在 duration/interval/event/inventory 四重预算内发
+started/exited；PID 重用表现为旧 identity exited + 新 identity started。macOS 公共
+CLI 已抓到 owned child 的真实退出，三平台 qjswasm 证据等待最新 HEAD 原生复跑。
 入口一直都在，只是在隔壁项目里：`minicon` 的
 `scripts/utm-court.sh` 把这两台 Windows 虚拟机登记为 `qemu-guest-agent` 适配器——
 **代理走 virtio-serial 而不是 TCP**，所以扫端口当然什么都扫不到。用它的
@@ -125,7 +129,7 @@ machine-control
 | 授权 | session/lock/request-id | `--grant observe,actuate` / `--grant-id` | 形状不同，都 fail-closed |
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
 | App 生命周期 | `app launch/quit/hide/show` | **四个都做了**（mac live）：`hide`/`show` 写应用级 `AXHidden` 且按 **pid** 寻址（隐藏后句柄就不存在了）；`quit` 按下应用**自己的 Quit 菜单项**并配 `close` 那套三件套 + 收据，**不是信号**；`launch` 走 LaunchServices，**回复明说没有 pid**（进程归 launcher 管），要 pid 就等窗口出现 | **已对齐** |
-| 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `ps` 基础 inventory、`process-state` 稳定身份、`process-usage` 单次/有界序列、`process-wait` 原生稳定对象等待已 live；`pty`/`job`/`process` 其余形状仍 **typed unsupported** | 已开始共用 platform/qjswasm 内核；其余属于 ACU 替代门的待迁移 facade，不是永久留 MCU |
+| 进程/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `ps` 基础 inventory、`process-state` 稳定身份、`process-usage` 单次/有界序列、`process-wait` 原生稳定对象等待、`process-watch` identity-bound lifecycle diff 已 live；`pty`/`job`/`process` 其余形状仍 **typed unsupported** | 已开始共用 platform/qjswasm 内核；其余属于 ACU 替代门的待迁移 facade，不是永久留 MCU |
 
 ## 2. 互相该补的缺口（文档已点名，实现另立项）
 
