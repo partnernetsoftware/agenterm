@@ -7,7 +7,7 @@
 use std::{
     collections::BTreeSet,
     io::{Read, Write},
-    net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     process::{Child, ChildStdout, Command as ProcessCommand, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
     thread,
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::reply::CuError;
 
 pub const WORKER_ARG: &str = "--agenterm-cu-internal-network-probe-worker";
+pub const FIXTURE_ARG: &str = "--agenterm-cu-internal-network-probe-fixture";
 const MAX_HOST_BYTES: usize = 253;
 const MAX_ADDRESSES: usize = 64;
 const MAX_WORKERS: usize = 4;
@@ -282,6 +283,60 @@ pub fn run_worker_stdio() -> i32 {
         Ok(()) => 0,
         Err(_) => 2,
     }
+}
+
+/// Invocation-owned loopback listener for the three public OS journeys. This
+/// is deliberately absent from the public verb catalog and refuses to start
+/// without the test-fixture marker.
+pub fn run_loopback_fixture(args: &[String]) -> i32 {
+    if std::env::var_os("AGENTERM_CU_INTERNAL_TEST_FIXTURE").as_deref()
+        != Some(std::ffi::OsStr::new("1"))
+        || args.len() != 2
+    {
+        return 2;
+    }
+    let Ok(attempts) = args[0].parse::<u8>() else {
+        return 2;
+    };
+    let Ok(timeout_ms) = args[1].parse::<u64>() else {
+        return 2;
+    };
+    if !(1..=20).contains(&attempts) || !(100..=60_000).contains(&timeout_ms) {
+        return 2;
+    }
+    let listener = match TcpListener::bind(("127.0.0.1", 0)) {
+        Ok(listener) => listener,
+        Err(_) => return 3,
+    };
+    if listener.set_nonblocking(true).is_err() {
+        return 3;
+    }
+    let port = match listener.local_addr() {
+        Ok(address) => address.port(),
+        Err(_) => return 3,
+    };
+    let mut stdout = std::io::stdout().lock();
+    if writeln!(stdout, "{{\"port\":{port}}}").is_err() || stdout.flush().is_err() {
+        return 4;
+    }
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    let mut accepted = 0_u8;
+    while accepted < attempts {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                drop(stream);
+                accepted += 1;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return 5;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(_) => return 3,
+        }
+    }
+    0
 }
 
 fn execute_request(request: &ProbeRequest) -> WorkerReply {
