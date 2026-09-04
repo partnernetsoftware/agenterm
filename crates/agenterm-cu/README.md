@@ -52,6 +52,8 @@ desktop accessibility for terminal state:
 cu terminal-list
 cu --grant actuate terminal-new --title build --parent @1 --detached -- sh -lc 'make test'
 cu terminal-read --tab @2 --max-bytes 262144
+cu terminal-snapshot --tab @2
+cu terminal-events --tab @2 --epoch EPOCH --after SEQUENCE --limit 64
 cu --grant actuate terminal-send --tab @2 -- 'printf "ready\n"\r'
 cu terminal-wait --tab @2 --contains ready --timeout-ms 5000
 cu terminal-wait --tab @2 --finalized --timeout-ms 5000
@@ -60,7 +62,12 @@ cu --grant actuate terminal-close --tab @2 --expect closed
 
 Tab authority is `(server_scope_id, server_epoch, @tab_id)`, never a mutable
 index or title. `terminal-read` is explicitly a bounded current-screen
-snapshot; it is not an incremental byte cursor. Text for `terminal-send` is
+snapshot; it is not an incremental byte cursor. `terminal-snapshot` returns
+the bounded structured screen (cell runs, style, terminal cursor and modes)
+plus the exact event position. `terminal-events` continues that position with
+typed restart/history-gap failures; its cursor advances across all scanned
+events while the published event rows remain filtered to the requested tab.
+Neither command claims a raw PTY byte cursor. Text for `terminal-send` is
 one argument so quoting preserves its exact UTF-8 bytes. Creation verifies the
 returned stable id and optional parent in the same server epoch; close requires
 an explicit postcondition and verifies exact disappearance. Their persistent

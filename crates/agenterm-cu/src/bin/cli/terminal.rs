@@ -82,6 +82,33 @@ pub fn parse(
                 max_bytes,
             })
         }
+        "terminal-snapshot" => {
+            let tab = required_tab(args)?;
+            empty(args, "terminal-snapshot")?;
+            Ok(Command::TerminalSnapshot { target, tab })
+        }
+        "terminal-events" => {
+            let tab = required_tab(args)?;
+            let epoch = flag_text(args, "--epoch")?
+                .ok_or_else(|| "terminal-events requires --epoch EPOCH".to_owned())?;
+            if epoch.is_empty() || epoch.len() > 128 || epoch.chars().any(char::is_control) {
+                return Err("terminal-events --epoch must be 1..=128 non-control bytes".into());
+            }
+            let after = flag_parsed::<u64>(args, "--after")?
+                .ok_or_else(|| "terminal-events requires --after SEQUENCE".to_owned())?;
+            let limit = flag_parsed::<usize>(args, "--limit")?.unwrap_or(64);
+            if !(1..=64).contains(&limit) {
+                return Err("terminal-events --limit must be in 1..=64".into());
+            }
+            empty(args, "terminal-events")?;
+            Ok(Command::TerminalEvents {
+                target,
+                tab,
+                epoch,
+                after,
+                limit,
+            })
+        }
         "terminal-send" => {
             let tab = required_tab(args)?;
             if args.first().map(String::as_str) == Some("--") {
@@ -218,6 +245,29 @@ mod tests {
         ));
         assert!(parse("terminal-read", &["--tab", "7"]).is_err());
         assert!(parse("terminal-read", &["--tab", "@7", "--max-bytes", "0"]).is_err());
+        assert!(matches!(
+            parse("terminal-snapshot", &["--tab", "@7"]).unwrap(),
+            Command::TerminalSnapshot { tab, .. } if tab == "@7"
+        ));
+        assert!(matches!(
+            parse(
+                "terminal-events",
+                &["--tab", "@7", "--epoch", "epoch-a", "--after", "12", "--limit", "8"]
+            )
+            .unwrap(),
+            Command::TerminalEvents { tab, epoch, after: 12, limit: 8, .. }
+                if tab == "@7" && epoch == "epoch-a"
+        ));
+        assert!(parse("terminal-events", &["--tab", "@7", "--epoch", "e"]).is_err());
+        assert!(
+            parse(
+                "terminal-events",
+                &[
+                    "--tab", "@7", "--epoch", "e", "--after", "0", "--limit", "65"
+                ]
+            )
+            .is_err()
+        );
         assert!(parse("terminal-wait", &["--tab", "@7", "--exited", "--finalized"]).is_err());
     }
 }

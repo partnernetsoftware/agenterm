@@ -327,7 +327,8 @@ Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
-│  ├─ [ ] terminal snapshot/event/cursor facade
+│  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor
+│  ├─ [~] terminal cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
 │  ├─ [ ] portable owned headless PTY (POSIX PTY + Windows ConPTY)
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege

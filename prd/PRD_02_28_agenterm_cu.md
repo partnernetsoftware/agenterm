@@ -412,11 +412,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   tab identity is `(server_scope_id, server_epoch, @tab_id)`; title and index
   are not authority. `terminal-read` truthfully returns a bounded current-screen
   snapshot, not an invented incremental output cursor. The registered macOS
-  qjswasm journey at exact source `986863c0` now passes 40 steps / 41 evidence
-  ids in 28.504 s, including
-  `cu.macos-terminal-control`: list → literal send → contains wait → bounded
-  read → finalized wait → remain-on-exit → typed late-write refusal → owned
-  cleanup. On Linux x86_64 the same new terminal step crossed every assertion,
+  qjswasm journey now passes 44 steps / 45 evidence ids, including
+  `cu.macos-terminal-control`: list → structured snapshot/cursor → literal send
+  → contains wait → ordered delta continuation → bounded read → finalized wait
+  → remain-on-exit → typed late-write refusal → owned cleanup. On Linux x86_64
+  the earlier terminal step crossed every assertion,
   but the enclosing suite later failed its older AT-SPI observation step, so it
   emitted 0/27 evidence and remains unpromoted. The observation duration is now
   six seconds so cold-guest latency cannot consume the entire post-mutation
@@ -445,6 +445,20 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   Arbitrary background PTY/job ownership is deliberately still a different
   gap.
 
+  `terminal-snapshot` and `terminal-events` close the structured terminal
+  observation gap without claiming an output primitive AgenTerm does not own.
+  Snapshot returns the product's bounded screen cell runs, styles, cursor,
+  terminal modes and completeness flags with the exact
+  `(server_scope_id, server_epoch, sequence, @tab_id)` identity. Events
+  continues the bounded `ui-deltas` journal: it publishes only the requested
+  tab's events and screen updates, while advancing its cursor over every
+  scanned event so activity in another tab cannot cause infinite replay.
+  Restart, overwritten history and future cursors fail typed; the product's
+  64-event / 1 MiB delta limits remain authoritative. The macOS registered
+  qjswasm journey proves snapshot → terminal output → delta continuation plus
+  the existing lifecycle assertions. Linux and Windows courts remain pending.
+  This is a loss-aware event cursor, not a raw retained-PTY byte offset.
+
   The same macOS journey's opt-in qjswasm attribution receipt reported
   135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
   7,217,696-byte heap waterline. `JSON.parse` / `JSON.stringify` account for
@@ -460,10 +474,13 @@ flowchart LR
   K --> I["scope + epoch + @tab identity"]
   K --> L["terminal-new / terminal-close<br/>receipt → effect → inventory proof"]
   K --> S["bounded screen snapshot"]
+  K --> E["structured snapshot<br/>epoch + sequence cursor"]
+  E --> D["bounded ui-deltas<br/>loss-aware continuation"]
   K --> W["literal input + deterministic wait"]
-  S -. "no byte cursor yet" .-> G["retained offset + gap semantics<br/>future leaf"]
+  S -. "no raw PTY byte cursor" .-> G["retained byte offset<br/>separate future leaf"]
   W --> Q{"macOS + Linux + Windows<br/>public journey"}
   L --> Q
+  D --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
   Q -->|Windows transport blocked| W1["repair court; zero product claim"]

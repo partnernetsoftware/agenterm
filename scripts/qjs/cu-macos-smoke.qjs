@@ -2787,6 +2787,26 @@ try {
       && !flag_at(terminal_row, "dead"),
     "cu_macos_smoke_terminal_inventory:" + JSON.stringify(terminal_inventory.data)
   );
+  const terminal_snapshot = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-snapshot",
+      "--tab", terminal_tab
+    ]
+  );
+  const terminal_event_epoch = text_at(terminal_snapshot, "data.cursor.server_epoch");
+  const terminal_event_sequence = int_at(terminal_snapshot, "data.cursor.sequence");
+  ensure(
+    text_at(terminal_snapshot, "data.server_scope_id") === text_at(terminal_protocol, "server_scope_id")
+      && terminal_event_epoch === text_at(terminal_inventory, "data.server_epoch")
+      && terminal_event_sequence >= 0
+      && text_at(terminal_snapshot, "data.tab.id") === terminal_tab
+      && text_at(terminal_snapshot, "data.tab.screen.tab_id") === terminal_tab
+      && text_at(terminal_snapshot, "data.read_kind") === "bounded-structured-screen"
+      && text_at(terminal_snapshot, "data.cursor_kind") === "loss-aware-event-position",
+    "cu_macos_smoke_terminal_snapshot:" + JSON.stringify(terminal_snapshot.data)
+  );
 
   const sent = run_cu_json(
     run_directory,
@@ -2816,6 +2836,31 @@ try {
   ensure(
     flag_at(contained, "data.completed") && text_at(contained, "data.state") === "matched",
     "cu_macos_smoke_terminal_contains:" + JSON.stringify(contained.data)
+  );
+  const terminal_events = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "terminal-events",
+      "--tab", terminal_tab, "--epoch", terminal_event_epoch,
+      "--after", "" + terminal_event_sequence, "--limit", "64"
+    ]
+  );
+  let saw_terminal_output = false;
+  for (const event of terminal_events.data.events) {
+    if (text_at(event, "kind") === "terminal.output"
+        && text_at(event, "tab_id") === terminal_tab) {
+      saw_terminal_output = true;
+    }
+  }
+  ensure(
+    text_at(terminal_events, "data.server_scope_id") === text_at(terminal_protocol, "server_scope_id")
+      && text_at(terminal_events, "data.cursor.server_epoch") === terminal_event_epoch
+      && int_at(terminal_events, "data.cursor.sequence") > terminal_event_sequence
+      && int_at(terminal_events, "data.scanned_events") >= int_at(terminal_events, "data.returned_events")
+      && text_at(terminal_events, "data.cursor_advance") === "all-scanned-events-including-other-tabs"
+      && saw_terminal_output,
+    "cu_macos_smoke_terminal_events:" + JSON.stringify(terminal_events.data)
   );
   const terminal_capture = run_cu_json(
     run_directory,

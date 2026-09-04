@@ -483,9 +483,11 @@
         {
           "id": "terminal.agenterm.snapshot-events",
           "mcu_shape": "pty events|snapshot|diff",
-          "acu_shape": "future typed ACU facade over pane-snapshot, capture-pane and read-events/wait-events",
-          "state": "gap",
-          "next": "define cursor/epoch identity, output ceilings, truncation and snapshot-advance receipts before routing"
+          "acu_shape": "terminal-snapshot returns one bounded structured screen plus server_scope_id + epoch + sequence; terminal-events continues the loss-aware ui-deltas journal for one stable @tab",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "next": "run the registered cursor assertions on Linux and Windows courts; keep raw retained PTY bytes and wait-on-event as separate gaps",
+          "note": "The cursor is an AgenTerm event-journal position, never a claimed raw PTY byte offset. terminal-events filters returned events and screen updates to the requested tab but advances through every scanned event, including other tabs, so a filtered reader cannot replay forever. Product-enforced 64-event and 1 MiB delta ceilings expose complete/truncated; restart, overwritten history and future cursors remain typed failures."
         },
         {
           "id": "terminal.agenterm.viewport-image",

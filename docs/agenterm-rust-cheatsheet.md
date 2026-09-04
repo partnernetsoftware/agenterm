@@ -1373,6 +1373,14 @@ directory, and `./child` must not become `<cwd>/./child`. Strip `.\child` only
 when the current host path is Windows-shaped; on POSIX, backslash is an ordinary
 filename character. This is normalization, not permission or canonicalization.
 
+For a filtered event API, the published rows and the consumed cursor are two
+different facts. Filter the rows to the requested object, but advance the
+cursor through every event the bounded source page scanned; otherwise traffic
+for another object can trap the caller in an infinite replay loop. Bind the
+cursor to a restart identity (for AgenTerm: server scope + epoch), expose
+complete/truncated, and preserve typed restart, history-gap, and future-cursor
+failures. Do not rename an event-journal position into a raw byte offset.
+
 ## Unix IPC may resolve only platform-owned aliases
 
 Do not canonicalize arbitrary symlink ancestry while validating a Unix socket

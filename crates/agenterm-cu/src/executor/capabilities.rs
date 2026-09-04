@@ -502,6 +502,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "verified-owned-tab-disappearance",
             ),
             ("terminal-read", "observe", "bounded-screen-snapshot"),
+            (
+                "terminal-snapshot",
+                "observe",
+                "bounded-structured-screen-with-event-cursor",
+            ),
+            (
+                "terminal-events",
+                "observe",
+                "loss-aware-ordered-event-cursor",
+            ),
             ("terminal-send", "actuate", "literal-owned-pty-input"),
             (
                 "terminal-wait",

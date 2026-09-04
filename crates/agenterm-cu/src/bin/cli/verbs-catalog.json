@@ -612,6 +612,57 @@
       ]
     },
     {
+      "name": "terminal-snapshot",
+      "command": "terminal-snapshot",
+      "aliases": [
+        "terminal snapshot"
+      ],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "read a structured screen plus an exact event cursor",
+      "usage": "terminal-snapshot --tab @N\nterminal snapshot --tab @N",
+      "args": [
+        {
+          "flag": "--tab",
+          "value": "@N",
+          "help": "stable tab id from terminal-list"
+        }
+      ]
+    },
+    {
+      "name": "terminal-events",
+      "command": "terminal-events",
+      "aliases": [
+        "terminal events"
+      ],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "continue one terminal's loss-aware event cursor",
+      "usage": "terminal-events --tab @N --epoch EPOCH --after SEQUENCE [--limit N]\nterminal events --tab @N --epoch EPOCH --after SEQUENCE [--limit N]",
+      "args": [
+        {
+          "flag": "--tab",
+          "value": "@N",
+          "help": "stable tab id from terminal-snapshot"
+        },
+        {
+          "flag": "--epoch",
+          "value": "EPOCH",
+          "help": "exact server epoch from terminal-snapshot"
+        },
+        {
+          "flag": "--after",
+          "value": "SEQUENCE",
+          "help": "last consumed event sequence"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "events scanned per page, 1..=64 (default 64)"
+        }
+      ]
+    },
+    {
       "name": "terminal-wait",
       "command": "terminal-wait",
       "aliases": [
@@ -3395,6 +3446,14 @@
     {
       "name": "terminal-send",
       "text": "agenterm-cu terminal-send    (also: terminal send)\n  scope: actuate    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  terminal-send --tab @N -- TEXT\n  terminal send --tab @N -- TEXT\n\narguments:\n  --tab @N                      stable tab id from terminal-list\n  --                            end options; remaining text is sent literally\n\nUses AgenTerm's own send-keys -l control operation. It\nreserves an ACU receipt before sending and retains the server control receipt;\ndead/non-writable tabs fail typed instead of falling back to desktop typing.\n"
+    },
+    {
+      "name": "terminal-snapshot",
+      "text": "agenterm-cu terminal-snapshot    (also: terminal snapshot)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-snapshot --tab @N\n  terminal snapshot --tab @N\n\narguments:\n  --tab @N                      stable tab id from terminal-list\n\nReturns one bounded structured screen, including cell runs, styles, cursor,\nterminal modes and completeness flags, together with server_scope_id and an\nexact {server_epoch, sequence} cursor. This is an event-journal cursor, not a\nraw PTY byte offset. Continue it with terminal-events.\n"
+    },
+    {
+      "name": "terminal-events",
+      "text": "agenterm-cu terminal-events    (also: terminal events)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-events --tab @N --epoch EPOCH --after SEQUENCE [--limit N]\n  terminal events --tab @N --epoch EPOCH --after SEQUENCE [--limit N]\n\narguments:\n  --tab @N                      stable tab id from terminal-snapshot\n  --epoch EPOCH                 exact server epoch from terminal-snapshot\n  --after SEQUENCE              last consumed event sequence\n  --limit N                     events scanned per page, 1..=64 (default 64)\n\nReads AgenTerm's bounded ordered UI delta journal. Restart, overwritten history\nand a future sequence fail typed. The reply filters published events and screen\nupdates to the requested tab, but advances its cursor across every scanned\nevent so unrelated tabs cannot trap a reader in an infinite replay loop.\ncomplete/truncated say whether the cursor reached the current server position.\n"
     },
     {
       "name": "terminal-wait",

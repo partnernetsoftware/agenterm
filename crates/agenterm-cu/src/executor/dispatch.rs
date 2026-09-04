@@ -160,6 +160,14 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::TerminalRead { tab, max_bytes, .. } => terminal_read_payload(tab, *max_bytes),
+            Command::TerminalSnapshot { tab, .. } => terminal_snapshot_payload(tab),
+            Command::TerminalEvents {
+                tab,
+                epoch,
+                after,
+                limit,
+                ..
+            } => terminal_events_payload(tab, epoch, *after, *limit),
             Command::TerminalSend { tab, text, .. } => {
                 terminal_send_payload(tab, text, &mut self.open_receipts(command.target())?)
             }

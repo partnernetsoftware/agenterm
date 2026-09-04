@@ -380,6 +380,182 @@ pub(super) fn terminal_read_payload(tab: &str, max_bytes: usize) -> Result<Value
     Ok(capture)
 }
 
+pub(super) fn terminal_snapshot_payload(tab: &str) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    let client = client()?;
+    let response = request(
+        &client,
+        vec!["ui-bootstrap".to_owned()],
+        "ui.bootstrap",
+        Intent::Query,
+        Duration::from_secs(5),
+    )?;
+    let snapshot = parse_output(response, "terminal_snapshot_invalid")?;
+    terminal_snapshot_from_bootstrap(client.server_scope_id(), tab, &snapshot)
+}
+
+fn terminal_snapshot_from_bootstrap(
+    server_scope_id: &str,
+    tab: &str,
+    snapshot: &Value,
+) -> Result<Value, CuError> {
+    let epoch = snapshot["server_epoch"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CuError::new(
+                "terminal_snapshot_invalid",
+                "ui-bootstrap omitted server_epoch",
+            )
+        })?;
+    let position_epoch = snapshot["position"]["server_epoch"].as_str();
+    let sequence = snapshot["position"]["sequence"].as_u64();
+    if position_epoch != Some(epoch) || sequence.is_none() {
+        return Err(CuError::new(
+            "terminal_snapshot_invalid",
+            "ui-bootstrap returned an inconsistent event cursor",
+        ));
+    }
+    let row = snapshot["tabs"]
+        .as_array()
+        .and_then(|tabs| tabs.iter().find(|row| row["id"].as_str() == Some(tab)))
+        .cloned()
+        .ok_or_else(|| {
+            CuError::new(
+                "terminal_tab_not_found",
+                "terminal-snapshot target is not present in the current server epoch",
+            )
+            .with_detail(json!({ "tab_id": tab, "server_epoch": epoch }))
+        })?;
+    Ok(json!({
+        "server_scope_id": server_scope_id,
+        "server_epoch": epoch,
+        "cursor": {
+            "server_epoch": epoch,
+            "sequence": sequence.expect("checked above"),
+        },
+        "tab": row,
+        "snapshot_complete": snapshot["complete"],
+        "snapshot_truncated": snapshot["truncated"],
+        "read_kind": "bounded-structured-screen",
+        "cursor_kind": "loss-aware-event-position",
+        "identity": "server-scope+epoch+tab-id",
+    }))
+}
+
+pub(super) fn terminal_events_payload(
+    tab: &str,
+    epoch: &str,
+    after: u64,
+    limit: usize,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    validate_event_request(epoch, limit)?;
+    let client = client()?;
+    let response = request(
+        &client,
+        vec![
+            "ui-deltas".to_owned(),
+            "--epoch".to_owned(),
+            epoch.to_owned(),
+            "--after".to_owned(),
+            after.to_string(),
+            "--limit".to_owned(),
+            limit.to_string(),
+        ],
+        "ui.deltas",
+        Intent::Query,
+        Duration::from_secs(5),
+    )?;
+    let batch = parse_output(response, "terminal_events_invalid")?;
+    terminal_events_from_delta(client.server_scope_id(), tab, epoch, after, &batch)
+}
+
+fn validate_event_request(epoch: &str, limit: usize) -> Result<(), CuError> {
+    if epoch.is_empty() || epoch.len() > 128 || epoch.chars().any(char::is_control) {
+        return Err(CuError::new(
+            "terminal_event_epoch_invalid",
+            "terminal-events --epoch must be 1..=128 non-control bytes",
+        ));
+    }
+    if !(1..=64).contains(&limit) {
+        return Err(CuError::new(
+            "terminal_event_limit_invalid",
+            "terminal-events --limit must be in 1..=64",
+        ));
+    }
+    Ok(())
+}
+
+fn terminal_events_from_delta(
+    server_scope_id: &str,
+    tab: &str,
+    requested_epoch: &str,
+    requested_after: u64,
+    batch: &Value,
+) -> Result<Value, CuError> {
+    let epoch = batch["server_epoch"].as_str();
+    let after = batch["after_sequence"].as_u64();
+    let through = batch["through_sequence"].as_u64();
+    let current = batch["current_sequence"].as_u64();
+    if epoch != Some(requested_epoch)
+        || after != Some(requested_after)
+        || through.is_none()
+        || current.is_none()
+        || through > current
+    {
+        return Err(CuError::new(
+            "terminal_events_invalid",
+            "ui-deltas returned an inconsistent event cursor",
+        ));
+    }
+    let all_events = batch["events"]
+        .as_array()
+        .ok_or_else(|| CuError::new("terminal_events_invalid", "ui-deltas omitted events"))?;
+    let events = all_events
+        .iter()
+        .filter(|event| event["tab_id"].as_str() == Some(tab))
+        .cloned()
+        .collect::<Vec<_>>();
+    let tab_updates = batch["tab_updates"]
+        .as_array()
+        .ok_or_else(|| CuError::new("terminal_events_invalid", "ui-deltas omitted tab_updates"))?
+        .iter()
+        .filter(|row| row["id"].as_str() == Some(tab))
+        .cloned()
+        .collect::<Vec<_>>();
+    let closed = batch["closed_tab_ids"]
+        .as_array()
+        .ok_or_else(|| {
+            CuError::new(
+                "terminal_events_invalid",
+                "ui-deltas omitted closed_tab_ids",
+            )
+        })?
+        .iter()
+        .any(|id| id.as_str() == Some(tab));
+    Ok(json!({
+        "server_scope_id": server_scope_id,
+        "server_epoch": requested_epoch,
+        "tab_id": tab,
+        "cursor": {
+            "server_epoch": requested_epoch,
+            "sequence": through.expect("checked above"),
+        },
+        "current_sequence": current.expect("checked above"),
+        "scanned_events": all_events.len(),
+        "returned_events": events.len(),
+        "events": events,
+        "tab_updates": tab_updates,
+        "closed": closed,
+        "complete": batch["complete"],
+        "truncated": batch["truncated"],
+        "cursor_kind": "loss-aware-event-position",
+        "cursor_advance": "all-scanned-events-including-other-tabs",
+        "identity": "server-scope+epoch+tab-id",
+    }))
+}
+
 pub(super) fn terminal_send_payload(
     tab: &str,
     text: &str,
@@ -571,4 +747,90 @@ fn terminal_read_with_client(
         timeout,
     )?;
     parse_output(response, "terminal_capture_invalid")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structured_snapshot_binds_tab_to_server_cursor() {
+        let value = terminal_snapshot_from_bootstrap(
+            "scope-a",
+            "@2",
+            &json!({
+                "server_epoch": "epoch-a",
+                "position": { "server_epoch": "epoch-a", "sequence": 7 },
+                "tabs": [
+                    { "id": "@1", "screen": { "cursor": { "row": 0, "column": 0 } } },
+                    { "id": "@2", "screen": { "cursor": { "row": 3, "column": 4 }, "complete": true, "truncated": false } }
+                ],
+                "complete": true,
+                "truncated": false
+            }),
+        )
+        .unwrap();
+        assert_eq!(value["cursor"]["sequence"], 7);
+        assert_eq!(value["tab"]["id"], "@2");
+        assert_eq!(value["tab"]["screen"]["cursor"]["column"], 4);
+        assert_eq!(value["cursor_kind"], "loss-aware-event-position");
+    }
+
+    #[test]
+    fn event_page_filters_payload_but_advances_over_other_tabs() {
+        let value = terminal_events_from_delta(
+            "scope-a",
+            "@2",
+            "epoch-a",
+            4,
+            &json!({
+                "server_epoch": "epoch-a",
+                "after_sequence": 4,
+                "through_sequence": 7,
+                "current_sequence": 9,
+                "events": [
+                    { "sequence": 5, "kind": "terminal.output", "tab_id": "@1" },
+                    { "sequence": 6, "kind": "terminal.output", "tab_id": "@2" },
+                    { "sequence": 7, "kind": "focus.changed", "tab_id": null }
+                ],
+                "tab_updates": [
+                    { "id": "@1" },
+                    { "id": "@2", "screen": { "generation": 7 } }
+                ],
+                "closed_tab_ids": [],
+                "complete": false,
+                "truncated": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(value["cursor"]["sequence"], 7);
+        assert_eq!(value["scanned_events"], 3);
+        assert_eq!(value["returned_events"], 1);
+        assert_eq!(value["events"][0]["tab_id"], "@2");
+        assert_eq!(value["tab_updates"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            value["cursor_advance"],
+            "all-scanned-events-including-other-tabs"
+        );
+    }
+
+    #[test]
+    fn event_page_rejects_identity_drift() {
+        let error = terminal_events_from_delta(
+            "scope-a",
+            "@2",
+            "epoch-a",
+            4,
+            &json!({
+                "server_epoch": "epoch-b",
+                "after_sequence": 4,
+                "through_sequence": 4,
+                "current_sequence": 4,
+                "events": [], "tab_updates": [], "closed_tab_ids": [],
+                "complete": true, "truncated": false
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "terminal_events_invalid");
+    }
 }

@@ -168,11 +168,16 @@ pub fn verbs_text() -> String {
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
     let compact_process = ["process-argv", "process-cwd", "process-environment"];
-    let compact_terminal_lifecycle = ["terminal-new", "terminal-close"];
+    let compact_terminal = [
+        "terminal-new",
+        "terminal-close",
+        "terminal-snapshot",
+        "terminal-events",
+    ];
     let mut missing = verbs::VERBS
         .iter()
         .filter(|spec| !compact_process.contains(&spec.name))
-        .filter(|spec| !compact_terminal_lifecycle.contains(&spec.name))
+        .filter(|spec| !compact_terminal.contains(&spec.name))
         .filter(|spec| !text.contains(&format!("  {}", spec.name)))
         .map(|spec| {
             let row = verbs::cold_verb(spec.name);
@@ -197,14 +202,14 @@ fn append_missing_top_level_rows(text: &mut String) {
             "identity-bound launch context; values opt in",
         ));
     }
-    if compact_terminal_lifecycle
+    if compact_terminal
         .iter()
         .any(|name| !text.contains(&format!("  {name}")))
     {
-        missing.push(format!(
-            "  {}  {}  {:<8} {}",
-            "terminal-new", "terminal-close", "actuate", "verified AgenTerm tab lifecycle",
-        ));
+        missing.push(
+            "  terminal-new  terminal-close (actuate);  terminal-snapshot  terminal-events (observe)"
+                .to_owned(),
+        );
     }
     if missing.is_empty() {
         return;

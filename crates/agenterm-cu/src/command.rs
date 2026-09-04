@@ -483,6 +483,22 @@ pub enum Command {
         tab: String,
         max_bytes: usize,
     },
+    /// Read one bounded structured screen snapshot together with the exact
+    /// server epoch/event cursor from which delta observation can continue.
+    TerminalSnapshot {
+        target: TargetRef,
+        tab: String,
+    },
+    /// Read one bounded, loss-aware event page after an explicit server
+    /// epoch/sequence cursor. Events for other tabs are scanned so the cursor
+    /// can advance, but are not exposed as terminal events for this tab.
+    TerminalEvents {
+        target: TargetRef,
+        tab: String,
+        epoch: String,
+        after: u64,
+        limit: usize,
+    },
     /// Send exact UTF-8 bytes to one AgenTerm-owned tab.
     TerminalSend {
         target: TargetRef,
@@ -1729,6 +1745,8 @@ impl Command {
             Self::TerminalNew { .. } => "terminal-new".into(),
             Self::TerminalClose { .. } => "terminal-close".into(),
             Self::TerminalRead { .. } => "terminal-read".into(),
+            Self::TerminalSnapshot { .. } => "terminal-snapshot".into(),
+            Self::TerminalEvents { .. } => "terminal-events".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
             Self::TerminalWait { .. } => "terminal-wait".into(),
             Self::Tree { .. } => "tree".into(),
@@ -1824,6 +1842,8 @@ impl Command {
             | Self::TerminalNew { target, .. }
             | Self::TerminalClose { target, .. }
             | Self::TerminalRead { target, .. }
+            | Self::TerminalSnapshot { target, .. }
+            | Self::TerminalEvents { target, .. }
             | Self::TerminalSend { target, .. }
             | Self::TerminalWait { target, .. }
             | Self::Tree { target, .. }
@@ -3113,6 +3133,22 @@ mod tests {
         };
         assert_eq!(wait.required_grant(), Grant::Observe);
         assert_eq!(wait.verb(), "terminal-wait");
+        let snapshot = Command::TerminalSnapshot {
+            target: TargetRef::Current,
+            tab: "@9".into(),
+        };
+        assert_eq!(snapshot.required_grant(), Grant::Observe);
+        assert_eq!(snapshot.verb(), "terminal-snapshot");
+        let events = Command::TerminalEvents {
+            target: TargetRef::Ssh,
+            tab: "@9".into(),
+            epoch: "epoch-a".into(),
+            after: 12,
+            limit: 32,
+        };
+        assert_eq!(events.required_grant(), Grant::Observe);
+        assert_eq!(events.verb(), "terminal-events");
+        assert_eq!(events.target(), TargetRef::Ssh);
     }
 
     #[test]
