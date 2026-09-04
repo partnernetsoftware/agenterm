@@ -1,6 +1,6 @@
 # qjswasm temporary-region lifetime experiment
 
-Status: **precommitted · attribution phase next · no allocator change yet**.
+Status: **precommitted · attribution probe landed · real-journey attribution next · no allocator change yet**.
 
 | field | value |
 |---|---|
@@ -9,6 +9,7 @@ Status: **precommitted · attribution phase next · no allocator change yet**.
 | implementation | upstream `tinyvm` research first; AgenTerm only bumps one exact pin after all courts pass |
 | pre-reading | `prd/PRD_02_36_agenterm_qjswasm.md`, `plan/design-host-op-budget.md`, `crates/agenterm-qjswasm/README.md` |
 | frozen baseline | tinyvm + tinyvm-qjs `af47e4d`; server/wake/workbench observed at 32/43/22 heap pages |
+| attribution revision | tinyvm + tinyvm-qjs `78442d9`; opt-in read-only waterline export, ordinary compile unchanged |
 
 ## 0. Settled facts
 
@@ -29,6 +30,10 @@ persistent qjswasm slot
    whether named internal operations have a safe recoverable suffix.
 4. String records, object layout, public JS semantics, host-door ABI and budget
    defaults are frozen. The rejected string-metadata experiments stay rejected.
+5. The first probe court separated lazy live state from dead growth: JSON's
+   first call retained a 52-byte namespace object; after warm-up, a no-binding
+   primitive-result parse added a stable 256 dead bytes per call. This proves
+   the ruler, not L0 for the three product journeys.
 
 ## 1. Hard constraints
 

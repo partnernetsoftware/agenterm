@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`af47e4d`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`78442d9`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
@@ -50,7 +50,7 @@ agenterm-qjswasm
 │  ├─ [x] corrected attribution: compare/branch owned 6.5 of 10.5 steps/byte
 │  ├─ [x] direct i32.xor: search 10.5 → 9.5 steps/byte; emitted modules −6 B
 │  ├─ [x] harness journal: serialize once + fs.append; 33-row court 7.43M → 5.45M steps
-│  ├─ [~] temporary-region lifetime court: attribution first; no allocator change before L0
+│  ├─ [~] temporary-region lifetime court: opt-in waterline probe landed; real-journey attribution before L0
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -90,7 +90,7 @@ flowchart LR
   LAYERS["attribution decided<br/>compare/branch owns 6.5 of 10.5 steps/byte"]
   XOR["direct i32.xor accepted<br/>9.5 steps/byte · module −6 B"]
   JOURNAL["harness journal append<br/>33 rows · steps −26.6%<br/>host bytes −84.4%"]
-  REGION["temporary-region lifetime court<br/>attribute dead suffix first"]
+  REGION["temporary-region lifetime court<br/>opt-in waterline probe · attribute dead suffix"]
   REGION_GATE{"L0 >=25% proven-dead<br/>in >=2 real journeys?"}
   REGION_KILL["kill hypothesis<br/>no tracing-GC expansion"]
   PIN["AgenTerm exact pin<br/>tinyvm + tinyvm-qjs same rev"]
