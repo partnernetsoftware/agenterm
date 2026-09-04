@@ -1084,3 +1084,14 @@ fn release_identity_inputs_have_platform_stable_line_endings() {
         );
     }
 }
+
+#[test]
+fn six_cell_qjs_orchestrators_use_the_live_script_front_door() {
+    for source in [
+        include_str!("../scripts/qjs/build-all.qjs"),
+        include_str!("../scripts/qjs/six-cell-qualify.qjs"),
+    ] {
+        assert!(source.contains("\"cli\", \"script\", \"task\", \"run\""));
+        assert!(!source.contains("\"rh\", \"task\", \"run\""));
+    }
+}

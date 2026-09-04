@@ -228,6 +228,10 @@ second route around ACU/AgenTerm product contracts.
   ordinary filename characters. The Script smoke owns the lexical regression;
   the macOS ACU journey proved the native `process-cwd` comparison end to end.
 - [x] qjswasm tool process reports a missing child as a typed failure.
+- [x] The qjswasm six-cell build and qualification orchestrators recursively
+  enter named tasks through the live `agenterm cli script task run` front door.
+  A policy regression rejects the retired `agenterm rh task run` argv before a
+  six-cell attempt can report six misleading pre-build failures.
 - [x] The platform-neutral `cu-pty-smoke` task drives the public ACU facade
   through qjswasm: absent/running/stale/pruned inventory reconciliation, exact
   literal input receipt, loss-aware raw-output match,

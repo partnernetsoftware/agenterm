@@ -112,7 +112,7 @@ if (do_build !== 0) {
   const built = run(
     worker,
     [
-      "rh", "task", "run", "client-build-all",
+      "cli", "script", "task", "run", "client-build-all",
       "--manifest", task_manifest,
       "--", profile
     ],

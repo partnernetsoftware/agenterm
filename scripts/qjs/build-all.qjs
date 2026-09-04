@@ -97,7 +97,7 @@ for (const cell of cells) {
   const stderr_path = rh.join(output_root, target + ".stderr");
 
   const cell_args = [
-    "rh", "task", "run", "client-build",
+    "cli", "script", "task", "run", "client-build",
     "--manifest", task_manifest,
     "--", profile, "--target", target, "--driver", driver
   ];
