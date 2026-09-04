@@ -185,7 +185,8 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   verified result. This is intentionally stronger than MCU's repeated PID
   inventory polling; the native ACU spelling is reachable through the shim.
 - The three public native journeys now bind those commands to each owned GUI
-  fixture. macOS is live green at 37 STEP / 38 evidence ids. Linux x86_64 is
+  fixture. macOS exact source `986863c0` is live green at 40 STEP / 41 evidence
+  ids in 28.504 s. Linux x86_64 is
   also exact-SHA green at 24 / 24 STEP and 25 / 25 evidence ids: the atomic
   ready marker, real owned-child exit, accessibility observation and cleanup
   all passed in 54.106 s. This proves the integrated source state, not a final
@@ -312,10 +313,14 @@ Q2 fast delegated facades
    └─ [ ] rich filters, process detail, exec and identity-bound signal/mutation
 Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
-│  ├─ [ ] typed ACU facade over existing AgenTerm session/tab control
+│  ├─ [x] typed ACU terminal-list/read/send/wait facade over stable scope+epoch+tab identity
+│  ├─ [ ] terminal create/close + snapshot/event/cursor facade
 │  ├─ [ ] portable owned headless PTY (POSIX PTY + Windows ConPTY)
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
-└─ [ ] file/network/storage/device/audio/resource/power/privilege
+└─ [~] file/network/storage/device/audio/resource/power/privilege
+   ├─ [x] bounded identity-aware network-probe
+   ├─ [ ] next slice: file-inspect over platform entry identity + bounded metadata
+   └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live
 │  ├─ [x] page hover: trusted mousemove target read-back; MCU positional shape routed

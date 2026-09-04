@@ -320,7 +320,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   tab identity is `(server_scope_id, server_epoch, @tab_id)`; title and index
   are not authority. `terminal-read` truthfully returns a bounded current-screen
   snapshot, not an invented incremental output cursor. The registered macOS
-  qjswasm journey now passes 39 steps / 40 evidence ids including
+  qjswasm journey at exact source `986863c0` now passes 40 steps / 41 evidence
+  ids in 28.504 s, including
   `cu.macos-terminal-control`: list → literal send → contains wait → bounded
   read → finalized wait → remain-on-exit → typed late-write refusal → owned
   cleanup. On Linux x86_64 the same new terminal step crossed every assertion,
@@ -336,6 +337,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab, by single-process metrics, or by silently
   forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
+
+  The same macOS journey's opt-in qjswasm attribution receipt reported
+  135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
+  7,217,696-byte heap waterline. `JSON.parse` / `JSON.stringify` account for
+  2,187,300 / 2,712,916 gross bytes. These are performance evidence, not a
+  claim that the bytes are safely reclaimable; the rejected region experiment
+  remains governed by PRD 36.
 
 ```mermaid
 flowchart LR
