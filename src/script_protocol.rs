@@ -212,6 +212,10 @@ pub struct ScriptCost {
     /// Gross bytes allocated while `JSON.stringify` ran in a diagnostic qjs module.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub json_stringify_bytes: Option<usize>,
+    /// Gross bytes attributed to an exact immediate stringify-to-host argument
+    /// region in a diagnostic qjs module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub immediate_stringify_host_argument_bytes: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1227,6 +1231,7 @@ mod tests {
             heap_start_bytes: heap_bytes.map(|_| 400),
             json_parse_bytes: heap_bytes.map(|_| 200),
             json_stringify_bytes: heap_bytes.map(|_| 80),
+            immediate_stringify_host_argument_bytes: heap_bytes.map(|_| 32),
         }
     }
 
@@ -1241,6 +1246,10 @@ mod tests {
         assert_eq!(
             diagnostic.get("json_stringify_bytes"),
             Some(&Value::from(80))
+        );
+        assert_eq!(
+            diagnostic.get("immediate_stringify_host_argument_bytes"),
+            Some(&Value::from(32))
         );
     }
 

@@ -13,6 +13,7 @@ result would still require a separate exact-pin review.
 | implementation | upstream `tinyvm` research first; AgenTerm supplies product journeys and may consume a later exact pin only after every court passes |
 | pre-reading | `plan/design-qjswasm-region-lifetime-experiment.md`, `research/qjswasm-region-lifetime/RESULTS.md`, `plan/design-host-op-budget.md`, `prd/PRD_02_36_agenterm_qjswasm.md` |
 | frozen engine baseline | `tinyvm` + `tinyvm-qjs` `1bf632b` |
+| diagnostic meter revision | `tinyvm` + `tinyvm-qjs` `f303132`; attribution only, no rewind |
 | source discipline | one implementation with a build-time experiment switch; build A and B from the same source rather than maintaining twin prototypes |
 
 ## 0. Background and settled facts

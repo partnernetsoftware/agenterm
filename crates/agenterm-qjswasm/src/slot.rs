@@ -24,6 +24,8 @@ use crate::{Budget, Cost, FleetBridgeFn, JsValue, Outcome, QjswasmError, Value};
 const ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_heap_ptr";
 const JSON_PARSE_ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_json_parse_bytes";
 const JSON_STRINGIFY_ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_json_stringify_bytes";
+const IMMEDIATE_STRINGIFY_HOST_ARGUMENT_PROBE_EXPORT: &str =
+    "__tinyvm_qjs_immediate_stringify_host_argument_bytes";
 
 /// Which calling convention this slot's entry points speak.
 ///
@@ -156,6 +158,11 @@ impl Slot {
         } else {
             None
         };
+        let immediate_stringify_host_argument_bytes = if result.is_ok() {
+            self.allocation_counter(IMMEDIATE_STRINGIFY_HOST_ARGUMENT_PROBE_EXPORT)?
+        } else {
+            None
+        };
 
         // Drain stdout unconditionally, including on the error paths below.
         //
@@ -197,6 +204,7 @@ impl Slot {
                     heap_start_bytes: self.heap_start_bytes,
                     json_parse_bytes: None,
                     json_stringify_bytes: None,
+                    immediate_stringify_host_argument_bytes: None,
                 });
                 return Err(self.explain(fault));
             }
@@ -229,6 +237,7 @@ impl Slot {
             heap_start_bytes: self.heap_start_bytes,
             json_parse_bytes,
             json_stringify_bytes,
+            immediate_stringify_host_argument_bytes,
         })
     }
 

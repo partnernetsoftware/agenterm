@@ -354,6 +354,7 @@ fn script_cost(cost: agenterm_qjswasm::Cost) -> ScriptCost {
         heap_start_bytes: cost.heap_start_bytes,
         json_parse_bytes: cost.json_parse_bytes,
         json_stringify_bytes: cost.json_stringify_bytes,
+        immediate_stringify_host_argument_bytes: cost.immediate_stringify_host_argument_bytes,
     }
 }
 
@@ -869,6 +870,8 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                         heap_start_bytes: outcome.heap_start_bytes,
                         json_parse_bytes: outcome.json_parse_bytes,
                         json_stringify_bytes: outcome.json_stringify_bytes,
+                        immediate_stringify_host_argument_bytes: outcome
+                            .immediate_stringify_host_argument_bytes,
                     }),
                 })
                 .map_err(|e| ScriptEngineError::from(e.to_string())),
@@ -1041,6 +1044,8 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                 heap_start_bytes: outcome.heap_start_bytes,
                 json_parse_bytes: outcome.json_parse_bytes,
                 json_stringify_bytes: outcome.json_stringify_bytes,
+                immediate_stringify_host_argument_bytes: outcome
+                    .immediate_stringify_host_argument_bytes,
             }),
         })
     }

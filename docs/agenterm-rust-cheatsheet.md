@@ -3499,6 +3499,14 @@ rewind suffix is zero. Keep these counters opt-in and absent from ordinary
 Script receipts; use a separate experiment for a larger last-use region rather
 than silently relabeling gross bytes as recovered bytes.
 
+For an immediate producer-to-host-consumer hypothesis, keep the first change a
+diagnostic-only syntactic recognizer: exact direct `JSON.stringify(binding)`,
+one synchronous `StrPtrLen` host argument, a scalar/no result, and no lexical
+unwind. Export only its cumulative gross allocation counter; do not restore the
+heap in the same change. Thread that optional counter through the engine cost
+envelope while keeping it absent from ordinary compilation, then run the
+precommitted product-workload D0 gate before writing any reuse mechanism.
+
 ## Process launch context is raw, identity-bound, and platform-limited
 
 An arbitrary process's launch context is not one portable string. Bracket

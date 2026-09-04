@@ -46,6 +46,7 @@ fn diagnostic_slot_reports_repeatable_dead_json_growth() {
         assert!(outcome.heap_bytes.is_some_and(|end| end > waterlines[0]));
         assert!(outcome.json_parse_bytes.is_some_and(|bytes| bytes > 0));
         assert_eq!(outcome.json_stringify_bytes, Some(0));
+        assert_eq!(outcome.immediate_stringify_host_argument_bytes, Some(0));
         waterlines.push(
             engine
                 .allocation_waterline(slot)

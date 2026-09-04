@@ -5,8 +5,11 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`1bf632b`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`f303132`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
+This revision adds only the opt-in immediate stringify-to-host allocation
+attribution meter needed by the D0 experiment; ordinary compilation stays
+byte-identical and no allocator rewind/reuse has been implemented.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
