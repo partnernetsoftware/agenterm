@@ -7,6 +7,84 @@
 
 use super::*;
 
+/// Resolve one Chromium debugging endpoint without scanning or guessing.
+///
+/// A PID is useful only when the same live process identity surrounds the
+/// command-line read and that command line explicitly carries one valid
+/// `--remote-debugging-port`. The command line itself is credential-bearing
+/// mechanism data and must never enter the returned error detail or receipt.
+pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u16, CuError> {
+    if port.is_some() && pid.is_some() {
+        return Err(invalid_input(
+            "CDP endpoint takes at most one of port and pid".into(),
+        ));
+    }
+    let Some(pid) = pid else {
+        return Ok(port.unwrap_or(crate::cdp::DEFAULT_PORT));
+    };
+    if pid == 0 {
+        return Err(invalid_input("CDP process pid must be non-zero".into()));
+    }
+    let before = agenterm_platform::process::observe(pid);
+    let before_identity = match &before {
+        agenterm_platform::process::ProcessObservation::Live {
+            start_identity: Some(identity),
+        } => identity,
+        _ => {
+            return Err(CuError::new(
+                "cdp_process_unavailable",
+                "CDP process is not live with a stable start identity",
+            )
+            .with_detail(serde_json::json!({ "pid": pid })));
+        }
+    };
+    let command_line = agenterm_platform::process::command_line(pid).map_err(|_| {
+        CuError::new(
+            "cdp_process_inspect_failed",
+            "could not inspect the CDP process command line",
+        )
+        .with_detail(serde_json::json!({ "pid": pid }))
+    })?;
+    let after = agenterm_platform::process::observe(pid);
+    if !matches!(
+        &after,
+        agenterm_platform::process::ProcessObservation::Live {
+            start_identity: Some(identity)
+        } if identity == before_identity
+    ) {
+        return Err(CuError::new(
+            "cdp_process_identity_changed",
+            "CDP process identity changed while its endpoint was resolved",
+        )
+        .with_detail(serde_json::json!({ "pid": pid })));
+    }
+    debug_port_from_command_line(&command_line).ok_or_else(|| {
+        CuError::new(
+            "cdp_debug_port_not_found",
+            "CDP process has no explicit valid remote debugging port",
+        )
+        .with_detail(serde_json::json!({ "pid": pid }))
+    })
+}
+
+fn debug_port_from_command_line(command_line: &str) -> Option<u16> {
+    let mut words = command_line.split_whitespace();
+    while let Some(word) = words.next() {
+        let raw = if let Some(raw) = word.strip_prefix("--remote-debugging-port=") {
+            raw
+        } else if word == "--remote-debugging-port" {
+            words.next()?
+        } else {
+            continue;
+        };
+        if let Ok(port @ 1..=u16::MAX) = raw.parse::<u16>() {
+            return Some(port);
+        }
+        return None;
+    }
+    None
+}
+
 /// `unlock`: read the window's tree, ask the owning application to build
 /// its full accessibility tree, read the tree again, and report what
 /// actually changed.
@@ -1849,6 +1927,26 @@ pub(super) fn browser_chrome_refusal(verb: &str, node: &mechanism::A11yNode) -> 
 mod tests {
     use super::*;
 
+    #[test]
+    fn debugging_port_parser_accepts_only_explicit_valid_ports() {
+        assert_eq!(
+            debug_port_from_command_line("browser --remote-debugging-port=9222 --headless"),
+            Some(9222)
+        );
+        assert_eq!(
+            debug_port_from_command_line("browser --remote-debugging-port 9333 about:blank"),
+            Some(9333)
+        );
+        for line in [
+            "browser --headless",
+            "browser --remote-debugging-port=0",
+            "browser --remote-debugging-port=65536",
+            "browser --remote-debugging-port nope",
+        ] {
+            assert_eq!(debug_port_from_command_line(line), None, "{line}");
+        }
+    }
+
     /// The `poke` field is what the caller reads to know what was done to
     /// their browser. It used to be the macOS sentence on every host, so a
     /// Linux reply named an attribute Linux has no notion of and a Windows
@@ -1901,6 +1999,7 @@ mod tests {
             window: None,
             expression: Some("1+1".into()),
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: None,
@@ -1918,6 +2017,7 @@ mod tests {
         let targets = observe_executor().execute(&Command::PageTargets {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             browser_profile: None,
         });
         assert!(!targets.ok);
@@ -1934,6 +2034,7 @@ mod tests {
             window: None,
             expression: Some("1+1".into()),
             port: Some(1),
+            pid: None,
             target_id: Some("A1".into()),
             target_url: Some("mail".into()),
             target_title: None,
@@ -1958,6 +2059,7 @@ mod tests {
                 depth,
                 max_nodes: None,
                 port,
+                pid: None,
                 target_id: None,
                 target_url: None,
                 target_title: title.map(str::to_owned),
@@ -2025,6 +2127,7 @@ mod tests {
         let click = Command::PageClick {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
@@ -2052,6 +2155,7 @@ mod tests {
         let shapeless = executor.execute(&Command::PageClick {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
@@ -2068,6 +2172,7 @@ mod tests {
         let fill = executor.execute(&Command::PageFill {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
@@ -2083,6 +2188,7 @@ mod tests {
         let nav = executor.execute(&Command::PageNav {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
@@ -2098,6 +2204,7 @@ mod tests {
         let shot = observe_executor().execute(&Command::PageScreenshot {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: None,
@@ -2114,6 +2221,7 @@ mod tests {
         let raised = observe_executor().execute(&Command::PageScreenshot {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: None,
@@ -2126,6 +2234,7 @@ mod tests {
         let find = observe_executor().execute(&Command::PageFind {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: None,
@@ -2505,6 +2614,7 @@ mod tests {
         let reply = observe_executor().execute(&Command::PageTargets {
             target: TargetRef::Current,
             port: Some(1),
+            pid: None,
             browser_profile: Some("  ".into()),
         });
         assert!(!reply.ok);

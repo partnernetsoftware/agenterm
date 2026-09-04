@@ -288,6 +288,11 @@ const PORT: ArgSpec = ArgSpec {
     value: "N",
     help: "CDP listener port on 127.0.0.1 (default 9222)",
 };
+const PID: ArgSpec = ArgSpec {
+    flag: "--pid",
+    value: "PID",
+    help: "browser process whose explicit --remote-debugging-port is used (exclusive with --port)",
+};
 const TARGET_ID: ArgSpec = ArgSpec {
     flag: "--target-id",
     value: "ID",
@@ -1803,7 +1808,7 @@ move ...                                            (alias)",
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "CDP Runtime.evaluate against one page target",
-        usage: "page-js [--window HANDLE] --expression EXPR [--port N]
+        usage: "page-js [--window HANDLE] --expression EXPR [--port N | --pid PID]
         [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]
 page read --js EXPR [...]                           (MCU spelling)",
         args: &[
@@ -1814,6 +1819,7 @@ page read --js EXPR [...]                           (MCU spelling)",
                 help: "JavaScript expression (MCU: --js)",
             },
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -1837,12 +1843,14 @@ local process, so open it only while needed."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "the CDP /json target inventory",
-        usage: "page-targets [--port N] [--browser-profile SUB]
-page targets [--port N] [--browser-profile SUB]     (MCU spelling)",
-        args: &[PORT, BROWSER_PROFILE],
+        usage: "page-targets [--port N | --pid PID] [--browser-profile SUB]
+page targets [--port N | --pid PID] [--browser-profile SUB]     (MCU spelling)",
+        args: &[PORT, PID, BROWSER_PROFILE],
         details: r#"The CDP /json inventory: id, url, title, type, attached, websocket
 (offered or not). Pick a --target-id here. No listener -> typed
-unsupported. Chrome / Brave must be started with
+unsupported. `--pid` is exclusive with `--port` and performs an identity-bound
+exact-process discovery without port scanning or command-line publication.
+Chrome / Brave must be started with
 --remote-debugging-port=9222 for every CDP path; that port answers any
 local process, so open it only while needed.
 
@@ -1864,7 +1872,7 @@ browser_window_not_found before any socket is opened."#,
         family: Family::Browser,
         summary: "visible page text in reading order (a11y tree or CDP)",
         usage: "page-text --window HANDLE [--max-bytes N] [--within X,Y,W,H] [--depth N] [--max-nodes N]
-page-text [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--max-bytes N]
+page-text [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--max-bytes N]
 page text ...  |  page read [...]                   (MCU spellings)",
         args: &[
             WINDOW,
@@ -1889,6 +1897,7 @@ page text ...  |  page read [...]                   (MCU spellings)",
                 help: "a11y only: walk budget (default 6000)",
             },
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -1927,11 +1936,12 @@ call. Default 16 KiB (max 1 MiB), truncated flag."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "nodes of one CDP page target by CSS, text or role",
-        usage: "page-find [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+        usage: "page-find [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         (--selector CSS | --text SUB | --role R [--name SUB])
 page find ...                                       (MCU spelling)",
         args: &[
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -1967,11 +1977,12 @@ of page-js (cdp_target_not_found / cdp_target_ambiguous)."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "click one node or point in a CDP page target",
-        usage: "page-click [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+        usage: "page-click [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         ((--selector CSS | --text SUB | --node ID) | --x X --y Y) [--button left|right|middle] [--clicks N]
 page click ...                                      (MCU spelling)",
         args: &[
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -2020,9 +2031,9 @@ the dispatch, completed after."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "hover one viewport point of a CDP page target in place",
-        usage: "page-hover [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y
+        usage: "page-hover [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y
 page hover ...                                      (MCU spelling)",
-        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
+        args: &[PORT, PID, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
             ArgSpec { flag: "--x", value: "X", help: "viewport CSS x coordinate" },
             ArgSpec { flag: "--y", value: "Y", help: "viewport CSS y coordinate" },
         ],
@@ -2042,9 +2053,9 @@ dispatch and completed after read-back."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "wheel one viewport point of a CDP page target in place",
-        usage: "page-scroll [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y [--dx DX] [--dy DY]
+        usage: "page-scroll [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y [--dx DX] [--dy DY]
 page scroll ...                                     (MCU spelling)",
-        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
+        args: &[PORT, PID, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
             ArgSpec { flag: "--x", value: "X", help: "viewport CSS x coordinate" },
             ArgSpec { flag: "--y", value: "Y", help: "viewport CSS y coordinate" },
             ArgSpec { flag: "--dx", value: "DX", help: "horizontal wheel delta (default 0)" },
@@ -2064,10 +2075,10 @@ change. A boundary that cannot move is honestly performed but unverified
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "set and verify one CDP file input without a picker",
-        usage: "page-files [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+        usage: "page-files [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         (--selector CSS | --node ID) FILE...
 page files [--node] ID FILE...                     (MCU spelling)",
-        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH, CDP_SELECTOR, CDP_NODE,
+        args: &[PORT, PID, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH, CDP_SELECTOR, CDP_NODE,
             ArgSpec { flag: "FILE...", value: "", help: "1..=16 absolute regular non-symlink files on the browser host" },
         ],
         details: r#"Resolves exactly one enabled input[type=file], refuses more
@@ -2084,9 +2095,9 @@ native file-picker is opened."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "drag between two viewport points of a CDP target in place",
-        usage: "page-drag [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x1 X --y1 Y --x2 X --y2 Y
+        usage: "page-drag [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x1 X --y1 Y --x2 X --y2 Y
 page drag X1 Y1 X2 Y2 ...                         (MCU spelling)",
-        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
+        args: &[PORT, PID, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
             ArgSpec { flag: "--x1", value: "X", help: "start viewport CSS x" },
             ArgSpec { flag: "--y1", value: "Y", help: "start viewport CSS y" },
             ArgSpec { flag: "--x2", value: "X", help: "end viewport CSS x" },
@@ -2105,9 +2116,9 @@ the frozen endpoints. A zero-distance drag is rejected before any effect."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "accept or dismiss one real JavaScript dialog on a CDP target",
-        usage: "page-dialog [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--dismiss] [--text TEXT] [--wait-ms N]
+        usage: "page-dialog [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--dismiss] [--text TEXT] [--wait-ms N]
 page dialog ...                                     (MCU spelling)",
-        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
+        args: &[PORT, PID, TARGET_ID, TARGET_URL, TARGET_TITLE, TARGET_MATCH,
             ArgSpec { flag: "--dismiss", value: "", help: "dismiss instead of accept" },
             ArgSpec { flag: "--text", value: "TEXT", help: "prompt response (accept only; redacted from receipt)" },
             ArgSpec { flag: "--wait-ms", value: "N", help: "dialog-opening deadline, 1..=30000 (default 3000)" },
@@ -2126,11 +2137,12 @@ counts in persistent/public evidence."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "type into one field of a CDP page target in place",
-        usage: "page-fill [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+        usage: "page-fill [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         (--selector CSS | --node ID) --text TEXT [--clear] [--submit]
 page fill ...                                       (MCU spelling)",
         args: &[
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -2172,10 +2184,11 @@ page that rewrites its own field. Receipt reserved before the write,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "insert text at a CDP page target's current focus",
-        usage: "page-type [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
+        usage: "page-type [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
 page type TEXT ...                                  (MCU spelling)",
         args: &[
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -2200,10 +2213,11 @@ evidence; only byte counts, element identity and the typed verdict do."#,
         scope: Scope::Actuate,
         family: Family::Browser,
         summary: "navigate one CDP page target without selecting it",
-        usage: "page-nav [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --url URL [--wait-ms N]
+        usage: "page-nav [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --url URL [--wait-ms N]
 page nav ...                                        (MCU spelling)",
         args: &[
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,
@@ -2235,10 +2249,11 @@ receipt."#,
         scope: Scope::Observe,
         family: Family::Browser,
         summary: "PNG of one CDP page target (background may refuse)",
-        usage: "page-screenshot [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --out PATH [--replace] [--activate]
+        usage: "page-screenshot [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --out PATH [--replace] [--activate]
 page screenshot ...                                 (MCU spelling)",
         args: &[
             PORT,
+            PID,
             TARGET_ID,
             TARGET_URL,
             TARGET_TITLE,

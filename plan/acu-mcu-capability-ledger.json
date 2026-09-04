@@ -302,10 +302,10 @@
         {
           "id": "browser.cdp.targets-eval",
           "mcu_shape": "page targets and page read --js with automatic or explicit target selection",
-          "acu_shape": "page-targets and page-js with target id/url/title or MCU-compatible match across title+URL+description",
+          "acu_shape": "page-targets and page-js with target id/url/title or MCU-compatible match across title+URL+description; endpoint by exclusive --port or identity-bound --pid",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-smoke.sh"],
-          "note": "ACU improves MCU auto-pick: --match preserves the same three metadata fields but requires one unambiguous eligible target; zero/many are typed failures instead of first-hit guessing."
+          "note": "ACU improves MCU auto-pick: --match preserves the same three metadata fields but requires one unambiguous eligible target; zero/many are typed failures instead of first-hit guessing. PID endpoint discovery reads one bounded exact-process command line between equal start identities, extracts only an explicit debugging port, never scans, and never publishes the command line."
         },
         {
           "id": "browser.cdp.semantic-read",

@@ -138,6 +138,13 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   coordinates and percentage padding are not the same contract as ACU's
   screen rectangle and pixel padding. Both fail typed instead of silently
   changing behavior.
+- The browser endpoint gap is closed at the compatibility boundary. All ACU
+  CDP page verbs accept either `--port N` or `--pid PID`; the PID route binds
+  the process start identity around a bounded native command-line read,
+  extracts only an explicit debugging-port flag, never scans, and never
+  publishes the command line. `scripts/cu-cdp-smoke.sh` proves the real PID
+  route against a throwaway headless browser; the MCU-shaped adapter now
+  forwards it instead of retaining the call.
 - macOS now has native journey evidence for `snapshot`/`diff`, `hit`/`zoom`,
   `raise` and gated `minimize`/`restore`. The restore step exposed a real
   platform bug: `kCGWindowListOptionIncludingWindow` alone returned no owner

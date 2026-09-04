@@ -90,6 +90,75 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
     Ok(processes)
 }
 
+pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
+    use std::mem::size_of;
+    const MAX_BYTES: usize = 1024 * 1024;
+    let pid = libc::c_int::try_from(pid)
+        .map_err(|_| ProcessError::new(ProcessErrorKind::IdOutOfRange, "pid exceeds c_int"))?;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut size = 0usize;
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as u32,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    if size < size_of::<libc::c_int>() || size > MAX_BYTES {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "process arguments have an invalid or oversized buffer",
+        ));
+    }
+    let mut bytes = vec![0u8; size];
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as u32,
+            bytes.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    bytes.truncate(size);
+    let mut offset = size_of::<libc::c_int>();
+    while offset < bytes.len() && bytes[offset] != 0 {
+        offset += 1;
+    }
+    while offset < bytes.len() && bytes[offset] == 0 {
+        offset += 1;
+    }
+    let args = bytes[offset..]
+        .split(|byte| *byte == 0)
+        .filter(|arg| !arg.is_empty())
+        .map(String::from_utf8_lossy)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if args.is_empty() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "process command line is unavailable",
+        ));
+    }
+    Ok(args)
+}
+
 pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
     root_start_identity: Option<String>,

@@ -137,10 +137,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `cdp_target_ambiguous`, both with the candidates (id, url, title) in
   `error.detail`; the reply echoes the chosen `target`. `Runtime.evaluate`
   runs in a background tab, so no focus changes. `page targets` /
-  `page-targets [--port N]` lists the inventory (id, url, title, type,
+  `page-targets [--port N | --pid PID]` lists the inventory (id, url, title, type,
   attached, websocket); no listener is typed `unsupported` like `page-js`.
+  Every CDP page verb accepts the same exclusive endpoint pair. `--pid`
+  observes one stable process identity before and after a bounded native
+  command-line read, accepts only its explicit valid debugging-port flag, and
+  never scans ports or publishes the credential-bearing command line.
   Evidence: `cdp::targets` selector unit tests; `scripts/cu-cdp-smoke.sh`
-  PASS 2026-09-03 (headless Brave Origin, fresh profile, two `data:`
+  PASS 2026-09-03, strengthened 2026-09-04 with real PID endpoint discovery
+  (headless Brave Origin, fresh profile, two `data:`
   tabs: `page targets`, `page-js --target-title` on the background tab,
   not-found, ambiguous) once the `/json` reader honoured
   `Content-Length` / chunked framing (`src/cdp/http.rs`; Chromium keeps

@@ -1550,7 +1550,7 @@ Moves to absolute screen coordinates without any press / release / click
 ### `page-js`
 
 ```text
-page-js [--window HANDLE] --expression EXPR [--port N]
+page-js [--window HANDLE] --expression EXPR [--port N | --pid PID]
         [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]
 page read --js EXPR [...]                           (MCU spelling)
 ```
@@ -1560,7 +1560,7 @@ agenterm-cu page-js    (also: page read)
   scope: observe    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  page-js [--window HANDLE] --expression EXPR [--port N]
+  page-js [--window HANDLE] --expression EXPR [--port N | --pid PID]
           [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]
   page read --js EXPR [...]                           (MCU spelling)
 
@@ -1568,6 +1568,7 @@ arguments:
   --window HANDLE               window handle from `windows` (numeric or App#N)
   --expression EXPR             JavaScript expression (MCU: --js)
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1588,8 +1589,8 @@ local process, so open it only while needed.
 ### `page-targets`
 
 ```text
-page-targets [--port N] [--browser-profile SUB]
-page targets [--port N] [--browser-profile SUB]     (MCU spelling)
+page-targets [--port N | --pid PID] [--browser-profile SUB]
+page targets [--port N | --pid PID] [--browser-profile SUB]     (MCU spelling)
 ```
 
 ```text
@@ -1597,16 +1598,19 @@ agenterm-cu page-targets    (also: page targets)
   scope: observe    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  page-targets [--port N] [--browser-profile SUB]
-  page targets [--port N] [--browser-profile SUB]     (MCU spelling)
+  page-targets [--port N | --pid PID] [--browser-profile SUB]
+  page targets [--port N | --pid PID] [--browser-profile SUB]     (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --browser-profile SUB         case-insensitive substring of the window's browser_profile (Chromium profile name)
 
 The CDP /json inventory: id, url, title, type, attached, websocket
 (offered or not). Pick a --target-id here. No listener -> typed
-unsupported. Chrome / Brave must be started with
+unsupported. `--pid` is exclusive with `--port` and performs an identity-bound
+exact-process discovery without port scanning or command-line publication.
+Chrome / Brave must be started with
 --remote-debugging-port=9222 for every CDP path; that port answers any
 local process, so open it only while needed.
 
@@ -1625,7 +1629,7 @@ browser_window_not_found before any socket is opened.
 
 ```text
 page-text --window HANDLE [--max-bytes N] [--within X,Y,W,H] [--depth N] [--max-nodes N]
-page-text [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--max-bytes N]
+page-text [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--max-bytes N]
 page text ...  |  page read [...]                   (MCU spellings)
 ```
 
@@ -1635,7 +1639,7 @@ agenterm-cu page-text    (also: page text)
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
   page-text --window HANDLE [--max-bytes N] [--within X,Y,W,H] [--depth N] [--max-nodes N]
-  page-text [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--max-bytes N]
+  page-text [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--max-bytes N]
   page text ...  |  page read [...]                   (MCU spellings)
 
 arguments:
@@ -1645,6 +1649,7 @@ arguments:
   --depth N                     a11y only: walk depth (default 64)
   --max-nodes N                 a11y only: walk budget (default 6000)
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1680,7 +1685,7 @@ call. Default 16 KiB (max 1 MiB), truncated flag.
 ### `page-find`
 
 ```text
-page-find [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+page-find [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         (--selector CSS | --text SUB | --role R [--name SUB])
 page find ...                                       (MCU spelling)
 ```
@@ -1690,12 +1695,13 @@ agenterm-cu page-find    (also: page find)
   scope: observe    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  page-find [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+  page-find [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
           (--selector CSS | --text SUB | --role R [--name SUB])
   page find ...                                       (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1720,7 +1726,7 @@ of page-js (cdp_target_not_found / cdp_target_ambiguous).
 ### `page-click`
 
 ```text
-page-click [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+page-click [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         ((--selector CSS | --text SUB | --node ID) | --x X --y Y) [--button left|right|middle] [--clicks N]
 page click ...                                      (MCU spelling)
 ```
@@ -1730,12 +1736,13 @@ agenterm-cu page-click    (also: page click)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-click [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+  page-click [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
           ((--selector CSS | --text SUB | --node ID) | --x X --y Y) [--button left|right|middle] [--clicks N]
   page click ...                                      (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1765,7 +1772,7 @@ the dispatch, completed after.
 ### `page-hover`
 
 ```text
-page-hover [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y
+page-hover [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y
 page hover ...                                      (MCU spelling)
 ```
 
@@ -1774,11 +1781,12 @@ agenterm-cu page-hover    (also: page hover)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-hover [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y
+  page-hover [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y
   page hover ...                                      (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1799,7 +1807,7 @@ dispatch and completed after read-back.
 ### `page-scroll`
 
 ```text
-page-scroll [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y [--dx DX] [--dy DY]
+page-scroll [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y [--dx DX] [--dy DY]
 page scroll ...                                     (MCU spelling)
 ```
 
@@ -1808,11 +1816,12 @@ agenterm-cu page-scroll    (also: page scroll)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-scroll [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y [--dx DX] [--dy DY]
+  page-scroll [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x X --y Y [--dx DX] [--dy DY]
   page scroll ...                                     (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1833,7 +1842,7 @@ change. A boundary that cannot move is honestly performed but unverified
 ### `page-files`
 
 ```text
-page-files [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+page-files [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         (--selector CSS | --node ID) FILE...
 page files [--node] ID FILE...                     (MCU spelling)
 ```
@@ -1843,12 +1852,13 @@ agenterm-cu page-files    (also: page files)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-files [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+  page-files [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
           (--selector CSS | --node ID) FILE...
   page files [--node] ID FILE...                     (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1868,7 +1878,7 @@ native file-picker is opened.
 ### `page-drag`
 
 ```text
-page-drag [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x1 X --y1 Y --x2 X --y2 Y
+page-drag [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x1 X --y1 Y --x2 X --y2 Y
 page drag X1 Y1 X2 Y2 ...                         (MCU spelling)
 ```
 
@@ -1877,11 +1887,12 @@ agenterm-cu page-drag    (also: page drag)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-drag [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x1 X --y1 Y --x2 X --y2 Y
+  page-drag [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --x1 X --y1 Y --x2 X --y2 Y
   page drag X1 Y1 X2 Y2 ...                         (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1901,7 +1912,7 @@ the frozen endpoints. A zero-distance drag is rejected before any effect.
 ### `page-dialog`
 
 ```text
-page-dialog [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--dismiss] [--text TEXT] [--wait-ms N]
+page-dialog [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--dismiss] [--text TEXT] [--wait-ms N]
 page dialog ...                                     (MCU spelling)
 ```
 
@@ -1910,11 +1921,12 @@ agenterm-cu page-dialog    (also: page dialog)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-dialog [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--dismiss] [--text TEXT] [--wait-ms N]
+  page-dialog [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) [--dismiss] [--text TEXT] [--wait-ms N]
   page dialog ...                                     (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1934,7 +1946,7 @@ counts in persistent/public evidence.
 ### `page-fill`
 
 ```text
-page-fill [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+page-fill [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
         (--selector CSS | --node ID) --text TEXT [--clear] [--submit]
 page fill ...                                       (MCU spelling)
 ```
@@ -1944,12 +1956,13 @@ agenterm-cu page-fill    (also: page fill)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-fill [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
+  page-fill [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
           (--selector CSS | --node ID) --text TEXT [--clear] [--submit]
   page fill ...                                       (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -1976,7 +1989,7 @@ page that rewrites its own field. Receipt reserved before the write,
 ### `page-type`
 
 ```text
-page-type [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
+page-type [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
 page type TEXT ...                                  (MCU spelling)
 ```
 
@@ -1985,11 +1998,12 @@ agenterm-cu page-type    (also: page type)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-type [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
+  page-type [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --text TEXT
   page type TEXT ...                                  (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -2007,7 +2021,7 @@ evidence; only byte counts, element identity and the typed verdict do.
 ### `page-nav`
 
 ```text
-page-nav [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --url URL [--wait-ms N]
+page-nav [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --url URL [--wait-ms N]
 page nav ...                                        (MCU spelling)
 ```
 
@@ -2016,11 +2030,12 @@ agenterm-cu page-nav    (also: page nav)
   scope: actuate    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  page-nav [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --url URL [--wait-ms N]
+  page-nav [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --url URL [--wait-ms N]
   page nav ...                                        (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target
@@ -2041,7 +2056,7 @@ receipt.
 ### `page-screenshot`
 
 ```text
-page-screenshot [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --out PATH [--replace] [--activate]
+page-screenshot [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --out PATH [--replace] [--activate]
 page screenshot ...                                 (MCU spelling)
 ```
 
@@ -2050,11 +2065,12 @@ agenterm-cu page-screenshot    (also: page screenshot)
   scope: observe    family: Browser page & tabs
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  page-screenshot [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --out PATH [--replace] [--activate]
+  page-screenshot [--port N | --pid PID] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB) --out PATH [--replace] [--activate]
   page screenshot ...                                 (MCU spelling)
 
 arguments:
   --port N                      CDP listener port on 127.0.0.1 (default 9222)
+  --pid PID                     browser process whose explicit --remote-debugging-port is used (exclusive with --port)
   --target-id ID                exact CDP target id (from page-targets)
   --target-url SUB              case-insensitive url substring of the page target
   --target-title SUB            case-insensitive title substring of the page target

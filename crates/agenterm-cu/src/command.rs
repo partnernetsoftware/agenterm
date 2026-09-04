@@ -906,6 +906,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_url: Option<String>,
@@ -921,6 +923,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         /// When set, only the targets whose title equals (exactly) a tab
         /// title of a window whose `browser_profile` contains this
         /// substring are returned, each marked `profile_match: "title"`.
@@ -960,6 +964,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_url: Option<String>,
@@ -978,6 +984,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1006,6 +1014,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1040,6 +1050,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_url: Option<String>,
@@ -1057,6 +1069,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1079,6 +1093,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_url: Option<String>,
@@ -1098,6 +1114,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1120,6 +1138,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1146,6 +1166,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_url: Option<String>,
@@ -1171,6 +1193,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_url: Option<String>,
@@ -1188,6 +1212,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1209,6 +1235,8 @@ pub enum Command {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1908,6 +1936,7 @@ mod tests {
         let find = Command::PageFind {
             target: TargetRef::Current,
             port: None,
+            pid: None,
             target_id: Some("B2".into()),
             target_url: None,
             target_title: None,
@@ -1946,6 +1975,7 @@ mod tests {
         let scroll = Command::PageScroll {
             target: TargetRef::Current,
             port: Some(9222),
+            pid: None,
             target_id: None,
             target_url: Some("docs".into()),
             target_title: None,
@@ -1964,6 +1994,7 @@ mod tests {
         let fill = Command::PageFill {
             target: TargetRef::Current,
             port: Some(9222),
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("B".into()),
@@ -1985,6 +2016,7 @@ mod tests {
         let nav = Command::PageNav {
             target: TargetRef::Current,
             port: None,
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("B".into()),
@@ -1997,6 +2029,7 @@ mod tests {
         let shot = Command::PageScreenshot {
             target: TargetRef::Current,
             port: None,
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("B".into()),
@@ -2011,6 +2044,7 @@ mod tests {
             Command::PageScreenshot {
                 target,
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -2021,6 +2055,7 @@ mod tests {
             } => Command::PageScreenshot {
                 target,
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -2392,6 +2427,7 @@ mod tests {
             window: Some(14278),
             expression: Some("document.title".into()),
             port: None,
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: Some("Nepal".into()),
@@ -2423,6 +2459,7 @@ mod tests {
         let targets = Command::PageTargets {
             target: TargetRef::Current,
             port: Some(9223),
+            pid: None,
             browser_profile: None,
         };
         assert_eq!(targets.verb(), "page-targets");
@@ -2447,6 +2484,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             port: None,
+            pid: None,
             target_id: None,
             target_url: None,
             target_title: None,

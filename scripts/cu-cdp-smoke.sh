@@ -24,7 +24,8 @@
 #
 # What it proves (all on 127.0.0.1:<free port>, browser started with
 # --remote-debugging-port, the only way any cu CDP verb can work):
-#   1. `page targets --port N` lists both data: tabs (titles cu-smoke-A / B).
+#   1. `page targets --pid PID` resolves the process's explicit port without
+#      scanning, then lists both data: tabs (titles cu-smoke-A / B).
 #   2. `page-js --port N --target-title cu-smoke-B --expression document.title`
 #      returns "cu-smoke-B" while A is the active (first /json) page, and the
 #      bare `page-js` (no selector) returns "cu-smoke-A" -- a background tab is
@@ -51,6 +52,7 @@ fail() { echo "FAIL: cu-cdp-smoke: $*" >&2; exit 1; }
 [[ "$(uname -s)" == "Darwin" ]] || skip "macOS only (browser bundle discovery)"
 command -v python3 >/dev/null 2>&1 || skip "python3 not found"
 command -v curl >/dev/null 2>&1 || skip "curl not found"
+curl_local() { curl --noproxy '*' "$@"; }
 
 CU="${AGENTERM_CU:-}"
 if [[ -z "$CU" ]]; then
@@ -96,7 +98,7 @@ BPID=$!
 
 ready=0
 for _ in $(seq 1 100); do
-  if curl -sf "$BASE/json/version" >/dev/null 2>&1; then ready=1; break; fi
+  if curl_local -sf "$BASE/json/version" >/dev/null 2>&1; then ready=1; break; fi
   kill -0 "$BPID" 2>/dev/null || break
   sleep 0.2
 done
@@ -104,13 +106,13 @@ done
 echo "STEP 1 browser: $BROWSER_NAME headless, throwaway profile, CDP on 127.0.0.1:$PORT"
 
 # Two tabs with distinct titles, both created through DevTools (see header).
-curl -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-A</title>A" >/dev/null
-curl -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-B</title>B" >/dev/null
+curl_local -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-A</title>A" >/dev/null
+curl_local -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-B</title>B" >/dev/null
 
 # Wait until both titles are published, then make A the active (first) page.
 ids=""
 for _ in $(seq 1 50); do
-  ids="$(curl -s "$BASE/json" | python3 -c '
+  ids="$(curl_local -s "$BASE/json" | python3 -c '
 import json, sys
 a = b = None
 for t in json.load(sys.stdin):
@@ -123,8 +125,8 @@ print(f"{a} {b}" if a and b else "")')"
 done
 [[ -n "$ids" ]] || fail "tabs cu-smoke-A / cu-smoke-B did not appear in /json"
 ID_A="${ids%% *}"; ID_B="${ids##* }"
-curl -s "$BASE/json/activate/$ID_A" >/dev/null
-first="$(curl -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])')"
+curl_local -s "$BASE/json/activate/$ID_A" >/dev/null
+first="$(curl_local -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])')"
 [[ "$first" == "cu-smoke-A" ]] || fail "expected cu-smoke-A to be the first /json page after activate, got: $first"
 echo "STEP 2 tabs: A=$ID_A (active) B=$ID_B"
 
@@ -142,11 +144,11 @@ print("" if cur is None else (json.dumps(cur) if isinstance(cur, (dict, list)) e
 }
 
 # 1. page targets lists both.
-OUT="$(cu page targets --port "$PORT")"
+OUT="$(cu page targets --pid "$BPID")"
 [[ "$(jf "$OUT" ok)" == "True" ]] || fail "page targets: $OUT"
 titles="$(jf "$OUT" data.targets | python3 -c 'import json,sys; print(" ".join(sorted(t["title"] for t in json.load(sys.stdin) if t.get("type")=="page")))')"
 [[ "$titles" == *"cu-smoke-A"* && "$titles" == *"cu-smoke-B"* ]] || fail "page targets missed a tab: $titles"
-echo "STEP 3 page targets --port $PORT: pages=$(jf "$OUT" data.pages) titles=[$titles]"
+echo "STEP 3 page targets --pid: pages=$(jf "$OUT" data.pages) titles=[$titles]"
 
 # 2. background tab by title; bare selector keeps the active page.
 OUT="$(cu page-js --port "$PORT" --target-title cu-smoke-B --expression document.title)"
@@ -154,7 +156,7 @@ OUT="$(cu page-js --port "$PORT" --target-title cu-smoke-B --expression document
 [[ "$(jf "$OUT" data.target.id)" == "$ID_B" ]] || fail "page-js echoed the wrong target: $(jf "$OUT" data.target)"
 OUT2="$(cu page-js --port "$PORT" --expression document.title)"
 [[ "$(jf "$OUT2" ok)" == "True" && "$(jf "$OUT2" data.value)" == "cu-smoke-A" ]] || fail "bare page-js should evaluate the active page A: $OUT2"
-first="$(curl -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])')"
+first="$(curl_local -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])')"
 [[ "$first" == "cu-smoke-A" ]] || fail "evaluating B changed the active page to: $first"
 echo "STEP 4 page-js --target-title cu-smoke-B -> cu-smoke-B (background); bare page-js -> cu-smoke-A; A still active"
 

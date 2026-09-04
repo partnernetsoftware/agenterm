@@ -45,6 +45,7 @@ pub enum ProcessErrorKind {
     IdOutOfRange,
     Inventory,
     InventoryTooLarge,
+    Inspect,
     KillOpen,
     Kill,
     Unsupported,

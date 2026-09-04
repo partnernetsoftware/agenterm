@@ -193,6 +193,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   MCU `page type TEXT` now freezes the existing editable focus and verifies
   same-element value growth; plaintext input and field values never enter its
   public reply or persistent receipt.
+  MCU's `page --pid` endpoint discovery is no longer trapped behind the
+  compatibility runtime: every ACU CDP verb accepts `--pid PID` as an exclusive
+  alternative to `--port`. The native platform adapter reads only that exact
+  live process, requires the same start identity before and after inspection,
+  extracts an explicit valid `--remote-debugging-port`, and never scans guessed
+  ports. The full command line is credential-bearing mechanism data and is
+  never copied into replies, errors, receipts or documentation evidence.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
   real-profile and three-host journeys remain promotion evidence.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded

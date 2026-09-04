@@ -221,6 +221,7 @@ impl Executor {
             Command::PageJs {
                 expression,
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -228,14 +229,21 @@ impl Executor {
                 ..
             } => page_js_payload(
                 expression.as_deref(),
-                *port,
+                match pid {
+                    Some(pid) => Some(resolve_cdp_port(*port, Some(*pid))?),
+                    None => *port,
+                },
                 cdp_selector(target_id, target_url, target_title, target_match),
             ),
             Command::PageTargets {
                 port,
+                pid,
                 browser_profile,
                 ..
-            } => page_targets_payload(*port, browser_profile.as_deref()),
+            } => page_targets_payload(
+                Some(resolve_cdp_port(*port, *pid)?),
+                browser_profile.as_deref(),
+            ),
             Command::PageText {
                 window,
                 max_bytes,
@@ -243,6 +251,7 @@ impl Executor {
                 depth,
                 max_nodes,
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -254,11 +263,15 @@ impl Executor {
                 *within,
                 *depth,
                 *max_nodes,
-                *port,
+                match pid {
+                    Some(pid) => Some(resolve_cdp_port(*port, Some(*pid))?),
+                    None => *port,
+                },
                 cdp_selector(target_id, target_url, target_title, target_match),
             ),
             Command::PageFind {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -269,7 +282,7 @@ impl Executor {
                 name,
                 ..
             } => page_find_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 text.as_deref(),
@@ -278,6 +291,7 @@ impl Executor {
             ),
             Command::PageClick {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -291,7 +305,7 @@ impl Executor {
                 clicks,
                 ..
             } => page_click_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 text.as_deref(),
@@ -304,6 +318,7 @@ impl Executor {
             ),
             Command::PageHover {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -312,7 +327,7 @@ impl Executor {
                 y,
                 ..
             } => page_hover_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 *x,
                 *y,
@@ -320,6 +335,7 @@ impl Executor {
             ),
             Command::PageScroll {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -330,7 +346,7 @@ impl Executor {
                 dy,
                 ..
             } => page_scroll_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 *x,
                 *y,
@@ -340,6 +356,7 @@ impl Executor {
             ),
             Command::PageDrag {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -350,7 +367,7 @@ impl Executor {
                 y2,
                 ..
             } => page_drag_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 *x1,
                 *y1,
@@ -360,6 +377,7 @@ impl Executor {
             ),
             Command::PageDialog {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -369,7 +387,7 @@ impl Executor {
                 wait_ms,
                 ..
             } => page_dialog_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 *dismiss,
                 text.as_deref(),
@@ -378,6 +396,7 @@ impl Executor {
             ),
             Command::PageFiles {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -387,7 +406,7 @@ impl Executor {
                 files,
                 ..
             } => page_files_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 *node,
@@ -396,6 +415,7 @@ impl Executor {
             ),
             Command::PageFill {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -407,7 +427,7 @@ impl Executor {
                 submit,
                 ..
             } => page_fill_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 *node,
@@ -418,6 +438,7 @@ impl Executor {
             ),
             Command::PageType {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -425,13 +446,14 @@ impl Executor {
                 text,
                 ..
             } => page_type_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 text,
                 &mut self.open_receipts(command.target())?,
             ),
             Command::PageNav {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -440,7 +462,7 @@ impl Executor {
                 wait_ms,
                 ..
             } => page_nav_payload(
-                *port,
+                Some(resolve_cdp_port(*port, *pid)?),
                 cdp_selector(target_id, target_url, target_title, target_match),
                 url,
                 *wait_ms,
@@ -448,6 +470,7 @@ impl Executor {
             ),
             Command::PageScreenshot {
                 port,
+                pid,
                 target_id,
                 target_url,
                 target_title,
@@ -463,7 +486,7 @@ impl Executor {
                     None
                 };
                 page_screenshot_payload(
-                    *port,
+                    Some(resolve_cdp_port(*port, *pid)?),
                     cdp_selector(target_id, target_url, target_title, target_match),
                     out,
                     *replace,

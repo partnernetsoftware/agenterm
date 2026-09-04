@@ -127,11 +127,12 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     page_js(target, args)
 }
 
-/// `(port, target_id, target_url, target_title, target_match)`: the CDP target
+/// `(port, pid, target_id, target_url, target_title, target_match)`: the CDP target
 /// selector every CDP verb takes. At most one of the four selectors,
 /// none of them empty.
 type CdpTargetFlags = (
     Option<u16>,
+    Option<u32>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -140,6 +141,12 @@ type CdpTargetFlags = (
 
 fn cdp_target_flags(verb: &str, args: &mut Vec<String>) -> Result<CdpTargetFlags, String> {
     let port = flag_parsed::<u16>(args, "--port")?;
+    let pid = flag_parsed::<u32>(args, "--pid")?;
+    if port.is_some() && pid.is_some() {
+        return Err(format!(
+            "{verb} takes at most one of --port N and --pid PID"
+        ));
+    }
     let target_id = flag_text(args, "--target-id")?;
     let target_url = flag_text(args, "--target-url")?;
     let target_title = flag_text(args, "--target-title")?;
@@ -161,13 +168,13 @@ fn cdp_target_flags(verb: &str, args: &mut Vec<String>) -> Result<CdpTargetFlags
             "{verb} --target-id / --target-url / --target-title / --match must not be empty"
         ));
     }
-    Ok((port, target_id, target_url, target_title, target_match))
+    Ok((port, pid, target_id, target_url, target_title, target_match))
 }
 
 fn page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let window = flag_window(args)?;
     let expression = flag_text(args, "--expression")?;
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page-js", args)?;
     if !args.is_empty() {
         return Err(format!(
@@ -181,6 +188,7 @@ fn page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
         window,
         expression,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -199,9 +207,10 @@ fn page_text(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     let depth = flag_parsed::<u32>(args, "--depth")?;
     let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
     agenterm_cu::observe::validate_budget(depth, max_nodes)?;
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page text", args)?;
     let cdp = port.is_some()
+        || pid.is_some()
         || target_id.is_some()
         || target_url.is_some()
         || target_title.is_some()
@@ -228,6 +237,7 @@ fn page_text(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         depth,
         max_nodes,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -297,7 +307,7 @@ fn node_flags(verb: &str, args: &mut Vec<String>, allowed: &[&str]) -> Result<No
 }
 
 fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page find", args)?;
     let node = node_flags("page find", args, &["--selector", "--text", "--role"])?;
     if !args.is_empty() {
@@ -310,6 +320,7 @@ fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     Ok(Command::PageFind {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -322,7 +333,7 @@ fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page click", args)?;
     let x = flag_parsed::<f64>(args, "--x")?;
     let y = flag_parsed::<f64>(args, "--y")?;
@@ -373,6 +384,7 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     Ok(Command::PageClick {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -388,7 +400,7 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
 }
 
 fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page hover", args)?;
     let Some(x) = flag_parsed::<f64>(args, "--x")? else {
         return Err("page hover requires --x X --y Y".into());
@@ -407,6 +419,7 @@ fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     Ok(Command::PageHover {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -417,7 +430,7 @@ fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
 }
 
 fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page scroll", args)?;
     let Some(x) = flag_parsed::<f64>(args, "--x")? else {
         return Err("page scroll requires --x X --y Y [--dx DX] [--dy DY]".into());
@@ -443,6 +456,7 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
     Ok(Command::PageScroll {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -455,7 +469,7 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
 }
 
 fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page drag", args)?;
     let mut coordinates = Vec::with_capacity(4);
     for flag in ["--x1", "--y1", "--x2", "--y2"] {
@@ -494,6 +508,7 @@ fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     Ok(Command::PageDrag {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -506,7 +521,7 @@ fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page dialog", args)?;
     let dismiss = take_switch(args, "--dismiss");
     let text = flag_text(args, "--text")?;
@@ -539,6 +554,7 @@ fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
     Ok(Command::PageDialog {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -550,7 +566,7 @@ fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
 }
 
 fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page files", args)?;
     let selector = flag_text(args, "--selector")?;
     let mut node = flag_parsed::<u64>(args, "--node")?;
@@ -594,6 +610,7 @@ fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     Ok(Command::PageFiles {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -605,7 +622,7 @@ fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
 }
 
 fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page fill", args)?;
     // `--text` is the payload here, not an addressing form.
     let Some(text) = flag_text(args, "--text")? else {
@@ -627,6 +644,7 @@ fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     Ok(Command::PageFill {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -640,7 +658,7 @@ fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_type(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page type", args)?;
     let text = flag_text(args, "--text")?.or_else(|| {
         if args.len() == 1 {
@@ -664,6 +682,7 @@ fn page_type(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     Ok(Command::PageType {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -673,7 +692,7 @@ fn page_type(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_nav(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page nav", args)?;
     let Some(url) = flag_text(args, "--url")? else {
         return Err("page nav requires --url URL".into());
@@ -691,6 +710,7 @@ fn page_nav(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String
     Ok(Command::PageNav {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -701,7 +721,7 @@ fn page_nav(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String
 }
 
 fn page_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title, target_match) =
+    let (port, pid, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page screenshot", args)?;
     let Some(out) = flag_text(args, "--out")? else {
         return Err("page screenshot requires --out PATH (PNG)".into());
@@ -721,6 +741,7 @@ fn page_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
     Ok(Command::PageScreenshot {
         target,
         port,
+        pid,
         target_id,
         target_url,
         target_title,
@@ -733,6 +754,10 @@ fn page_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
 
 fn page_targets(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let port = flag_parsed::<u16>(args, "--port")?;
+    let pid = flag_parsed::<u32>(args, "--pid")?;
+    if port.is_some() && pid.is_some() {
+        return Err("page targets takes at most one of --port N and --pid PID".into());
+    }
     let browser_profile = flag_text(args, "--browser-profile")?;
     if browser_profile
         .as_deref()
@@ -742,13 +767,14 @@ fn page_targets(target: TargetRef, args: &mut Vec<String>) -> Result<Command, St
     }
     if !args.is_empty() {
         return Err(format!(
-            "page targets accepts only --port N --browser-profile SUB; unexpected {:?}",
+            "page targets accepts only [--port N | --pid PID] --browser-profile SUB; unexpected {:?}",
             args[0]
         ));
     }
     Ok(Command::PageTargets {
         target,
         port,
+        pid,
         browser_profile,
     })
 }

@@ -54,6 +54,27 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
     Ok(processes)
 }
 
+pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
+    use std::io::Read as _;
+    const MAX_BYTES: u64 = 1024 * 1024;
+    let file = std::fs::File::open(format!("/proc/{pid}/cmdline"))
+        .map_err(|error| ProcessError::new(ProcessErrorKind::Inspect, error.to_string()))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| ProcessError::new(ProcessErrorKind::Inspect, error.to_string()))?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "process command line exceeds 1 MiB",
+        ));
+    }
+    while bytes.last() == Some(&0) {
+        bytes.pop();
+    }
+    Ok(String::from_utf8_lossy(&bytes).replace('\0', " "))
+}
+
 pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
     root_start_identity: Option<String>,

@@ -1447,6 +1447,14 @@ file, which a refusal never writes.
 
 ## A background browser tab is a target id (CDP) or a tab-strip row (AX), never a web-area
 
+When a caller has a browser PID instead of a CDP port, treat the process
+command line as secret-bearing mechanism input, not evidence. Observe a stable
+native start identity, perform one bounded exact-PID command-line query, observe
+the same identity again, and accept only an explicit valid
+`--remote-debugging-port`. Never publish the full command line and never scan or
+guess neighboring ports. PID reuse, inspection failure, missing flags and an
+unreachable `/json` endpoint remain distinct typed failures.
+
 macOS Chromium (Chrome, Brave, Edge) publishes only the active tab's
 `web-area` in the AX tree; every other tab is a `radio-button` row of the
 tab-strip `tab-group` (name = title, state `selected` / `unselected`).

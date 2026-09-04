@@ -433,6 +433,34 @@ mod tests {
         let err = mixed.error.expect("exclusive selector usage");
         assert_eq!(err.code, "usage");
         assert!(err.message.contains("at most one"), "{}", err.message);
+
+        let pid_text = std::process::id().to_string();
+        let port_and_pid = base(&["--pid", &pid_text]);
+        let err = port_and_pid.error.expect("exclusive endpoint usage");
+        assert_eq!(err.code, "usage");
+        assert!(err.message.contains("--port") && err.message.contains("--pid"));
+
+        let by_pid = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "page-js".into(),
+            "--expression".into(),
+            "document.title".into(),
+            "--pid".into(),
+            pid_text,
+        ]);
+        let err = by_pid.error.expect("current test process has no CDP flag");
+        assert_eq!(err.code, "cdp_debug_port_not_found");
+        assert_eq!(
+            err.detail
+                .as_ref()
+                .and_then(|d| d.get("pid"))
+                .and_then(|v| v.as_u64()),
+            Some(std::process::id().into())
+        );
+        assert!(!err.message.contains("document.title"));
     }
 
     #[test]

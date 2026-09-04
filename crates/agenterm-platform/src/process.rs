@@ -25,6 +25,12 @@ pub fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
     adapter::list()
 }
 
+/// Read one process's bounded command line for mechanism discovery. Callers
+/// must not publish it wholesale: arguments routinely contain credentials.
+pub fn command_line(pid: u32) -> Result<String, ProcessError> {
+    adapter::command_line(pid)
+}
+
 pub fn kill(pid: u32) -> Result<(), ProcessError> {
     crate::process_control::terminate(pid, crate::process_control::TerminationMode::Forceful)
         .map_err(|error| {
@@ -79,3 +85,13 @@ pub fn write_parent_console_stdout(message: &str) -> bool {
 // their target `cfg`s) live in `selected::console_surface` per boundary
 // policy; this contract file only re-exports the stable names.
 pub use crate::selected::console_surface::{ScopedConsole, StdHandle, duplicated_std_handles};
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn current_process_command_line_is_bounded_and_nonempty() {
+        let line = super::command_line(std::process::id()).expect("current command line");
+        assert!(!line.trim().is_empty());
+        assert!(line.len() <= 1024 * 1024);
+    }
+}

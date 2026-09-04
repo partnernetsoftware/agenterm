@@ -84,6 +84,109 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
     Ok(processes)
 }
 
+pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
+    use std::ffi::c_void;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+
+    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
+    const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC000_0004u32 as i32;
+    const MAX_BYTES: u32 = 1024 * 1024;
+    #[repr(C)]
+    struct UnicodeString {
+        length: u16,
+        maximum_length: u16,
+        buffer: *const u16,
+    }
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process: HANDLE,
+            information_class: u32,
+            information: *mut c_void,
+            information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    struct Owned(HANDLE);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+    let handle = Owned(handle);
+    let mut required = 0u32;
+    let first = unsafe {
+        NtQueryInformationProcess(
+            handle.0,
+            PROCESS_COMMAND_LINE_INFORMATION,
+            std::ptr::null_mut(),
+            0,
+            &mut required,
+        )
+    };
+    if first != STATUS_INFO_LENGTH_MISMATCH || required == 0 || required > MAX_BYTES {
+        return Err(ProcessError::new(
+            if required > MAX_BYTES {
+                ProcessErrorKind::InventoryTooLarge
+            } else {
+                ProcessErrorKind::Inspect
+            },
+            "native process command-line query did not return a bounded size",
+        ));
+    }
+    let mut bytes = vec![0u8; required as usize];
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle.0,
+            PROCESS_COMMAND_LINE_INFORMATION,
+            bytes.as_mut_ptr().cast(),
+            required,
+            &mut required,
+        )
+    };
+    if status < 0 || bytes.len() < std::mem::size_of::<UnicodeString>() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            format!("native process command-line query failed with status 0x{status:08x}"),
+        ));
+    }
+    let string = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<UnicodeString>()) };
+    let base = bytes.as_ptr() as usize;
+    let start = (string.buffer as usize).checked_sub(base).ok_or_else(|| {
+        ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "native command-line pointer is outside its response buffer",
+        )
+    })?;
+    let length = string.length as usize;
+    let end = start.checked_add(length).ok_or_else(|| {
+        ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "native command-line length overflow",
+        )
+    })?;
+    if length % 2 != 0 || end > bytes.len() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Inspect,
+            "native command-line string is outside its response buffer",
+        ));
+    }
+    let units =
+        unsafe { std::slice::from_raw_parts(bytes.as_ptr().add(start).cast::<u16>(), length / 2) };
+    Ok(String::from_utf16_lossy(units))
+}
+
 pub struct ProcessTreeGuard {
     containment: crate::process_containment::ProcessContainment,
     active: bool,
