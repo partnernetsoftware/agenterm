@@ -53,9 +53,12 @@
         {
           "id": "process.usage.watch",
           "mcu_shape": "process usage PID --watch S --interval S --max-samples N",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "qjswasm composition over identity-bound samples with bounded events"
+          "acu_shape": "process-usage --pid N --watch-ms N --interval-ms N --max-samples N",
+          "state": "delegated",
+          "qualification": "macos-live-linux-windows-rerun-pending",
+          "evidence": ["cu.macos-process-usage-watch"],
+          "declared_evidence": ["cu.linux-process-usage-watch", "cu.windows-process-usage-watch"],
+          "note": "Every sample is identity-bound; completed and truncated are distinct."
         },
         {
           "id": "process.lifecycle.watch",

@@ -157,11 +157,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   this start identity, then verify post-state; naked PID mutation is excluded.
 - [~] `process-usage --pid N` is live: cumulative CPU time,
   resident bytes and page faults are sampled between two equal start-identity
-  observations and wide counters are decimal strings. MCU `process usage N`
-  routes here only for the one-shot unprivileged shape; watches and richer I/O
-  remain explicit gaps. The macOS public journey now proves both process
-  commands against its owned fixture; the Linux and Windows public journeys
-  declare equivalent evidence and await their next native-court rerun.
+  observations and wide counters are decimal strings. `--watch-ms` returns an
+  immediate sample plus a monotonic, identity-bound series under independent
+  duration, interval and sample ceilings; `completed` and `truncated` remain
+  distinct. MCU `process usage N --watch S --interval S --max-samples N` maps
+  to this shape without a Bun-owned sampler; richer I/O remains an explicit
+  gap. macOS has live evidence; Linux and Windows declare the same leaf and
+  await their updated native-court runs.
 - [~] `process-wait` is the first process capability that deliberately exceeds
   MCU's implementation: the caller supplies the `process-state` start identity,
   ACU opens and waits on a native stable process object, and PID reuse is a

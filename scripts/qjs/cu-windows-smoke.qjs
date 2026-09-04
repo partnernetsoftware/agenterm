@@ -37,6 +37,7 @@ const declared_evidence = [
   "cu.windows-uia-window-identity",
   "cu.windows-process-state",
   "cu.windows-process-usage",
+  "cu.windows-process-usage-watch",
   "cu.windows-process-wait",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
@@ -292,6 +293,22 @@ try {
       && rh.only_chars(page_faults_total, rh.DIGITS),
     "cu_windows_smoke_process_usage:" + JSON.stringify(process_usage.data)
   );
+  print("STEP bounded process usage watch preserves one identity and stops at its sample ceiling");
+  const usage_watch = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-usage",
+    "--pid", "" + fixture_pid, "--watch-ms", "20", "--interval-ms", "5", "--max-samples", "2"
+  ]);
+  const usage_samples = at(usage_watch, "data.samples");
+  ensure(
+    Array.isArray(usage_samples) && usage_samples.length === 2
+      && int_at(usage_watch, "data.emitted") === 2
+      && flag_at(usage_watch, "data.truncated")
+      && flag_at(usage_watch, "data.verified")
+      && text_at(usage_watch, "data.start_identity") === process_identity
+      && text_of(usage_samples[0].cpu_time_ns) !== ""
+      && text_of(usage_samples[1].cpu_time_ns) !== "",
+    "cu_windows_smoke_process_usage_watch:" + JSON.stringify(usage_watch.data)
+  );
   print("STEP process-wait binds the same identity to the Windows process HANDLE and times out while the fixture remains live");
   const process_wait = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "process-wait",
@@ -539,6 +556,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-capabilities")
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-identity");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage");
+harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");

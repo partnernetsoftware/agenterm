@@ -2085,7 +2085,7 @@
     },
     {
       "id": "cu-macos-smoke",
-      "description": "Prove the macOS agenterm-cu AX loop on an owned fixture: stable process identity, lossless usage and exact-object wait, bounded tree/query, semantic writes and refusals, menu/focus/observe, background click, geometry and screenshot, snapshot/diff, hit/zoom, raise, minimize/restore, orderwin, destructive close, receipts, text/caret, keys, app lifecycle and owned cleanup.",
+      "description": "Prove the macOS agenterm-cu AX loop on an owned fixture: stable process identity, lossless one-shot/bounded usage and exact-object wait, bounded tree/query, semantic writes and refusals, menu/focus/observe, background click, geometry and screenshot, snapshot/diff, hit/zoom, raise, minimize/restore, orderwin, destructive close, receipts, text/caret, keys, app lifecycle and owned cleanup.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -347,7 +347,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "process" => (
             "unsupported",
-            "ACU migration gap: bounded process facade and qjswasm composition pending",
+            "ACU partial migration: ps/process state/usage/watch/wait are live; cwd/argv/env/fds/maps/threads/sockets/policy/cgroup and mutation remain typed gaps",
         ),
         "resource" => (
             "unsupported",

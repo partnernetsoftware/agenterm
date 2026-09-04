@@ -149,17 +149,18 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 - `process-usage --pid N` adds a one-shot cumulative CPU, resident-memory and
   page-fault sample. It reads the start identity before and after the sample,
   fails if they differ, and encodes wide counters as decimal strings so a
-  JavaScript/qjswasm consumer cannot silently round them. MCU `process usage N`
-  now routes here when no richer watch/privilege shape was requested.
+  JavaScript/qjswasm consumer cannot silently round them. `--watch-ms` adds a
+  monotonic bounded series with independent interval/sample ceilings and binds
+  every sample to that first identity. MCU `process usage N [--watch ...]`
+  can now route here when no privilege-only shape was requested.
 - `process-wait --pid N --start-identity ID --timeout-ms N` retains a native
   process object (pidfd/kqueue/Windows HANDLE), verifies the caller's prior
   identity, and waits monotonically for that exact object. A live timeout is a
   verified result. This is intentionally stronger than MCU's repeated PID
   inventory polling; the native ACU spelling is reachable through the shim.
-- The three public native journeys now bind those two commands to each owned
-  GUI fixture. macOS is live green including exact-object wait (35 STEP / 36
-  evidence ids); Linux declares 22 STEP / 23
-  evidence ids and Windows 14 / 14, with all updated journey courts required
+- The three public native journeys now bind those commands to each owned GUI
+  fixture. macOS is live green at 36 STEP / 37 evidence ids; Linux declares
+  23 / 24 and Windows 15 / 15, with both updated native courts still required
   before this process slice is called three-host proven.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
@@ -203,7 +204,7 @@ Q2 fast delegated facades
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only
-   ├─ [x] process-usage: identity-bound CPU/memory/fault sample, lossless counters
+   ├─ [x] process-usage: one-shot or bounded identity-bound series, lossless counters
    ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
    └─ [ ] rich filters, process detail, exec, identity-bound signal and lifecycle
 Q3 owned runtime facades

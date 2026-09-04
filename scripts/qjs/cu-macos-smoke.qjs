@@ -76,6 +76,7 @@ const declared_evidence = [
   "cu.macos-ax-app-inventory",
   "cu.macos-process-state",
   "cu.macos-process-usage",
+  "cu.macos-process-usage-watch",
   "cu.macos-process-wait",
   "cu.macos-ax-snapshot-diff",
   "cu.macos-ax-hit-zoom",
@@ -576,6 +577,24 @@ try {
       && resident_bytes !== "" && rh.only_chars(resident_bytes, rh.DIGITS)
       && page_faults !== "" && rh.only_chars(page_faults, rh.DIGITS),
     "cu_macos_smoke_process_usage:" + JSON.stringify(process_usage)
+  );
+  print("STEP bounded process usage watch preserves one identity and stops at its sample ceiling");
+  const usage_watch = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-usage", "--pid", "" + fixture_pid,
+      "--watch-ms", "20", "--interval-ms", "5", "--max-samples", "2"]
+  );
+  const usage_samples = at(usage_watch, "data.samples");
+  ensure(
+    Array.isArray(usage_samples) && usage_samples.length === 2
+      && int_at(usage_watch, "data.emitted") === 2
+      && flag_at(usage_watch, "data.truncated")
+      && flag_at(usage_watch, "data.verified")
+      && text_at(usage_watch, "data.start_identity") === process_identity
+      && text_of(usage_samples[0].cpu_time_ns) !== ""
+      && text_of(usage_samples[1].cpu_time_ns) !== "",
+    "cu_macos_smoke_process_usage_watch:" + JSON.stringify(usage_watch)
   );
   print("STEP process wait times out on that exact still-live fixture instead of polling a reusable pid");
   const process_wait = run_cu_json(
@@ -2470,6 +2489,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-lifecycle");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-inventory");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");

@@ -52,8 +52,35 @@ fn required_positive_pid_flag(args: &mut Vec<String>, command: &str) -> Result<u
 }
 
 fn process_usage(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let pid = required_positive_pid(args, "process-usage")?;
-    Ok(Command::ProcessUsage { target, pid })
+    let pid = required_positive_pid_flag(args, "process-usage")?;
+    let watch_ms = flag_parsed::<u64>(args, "--watch-ms")?;
+    let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
+    let max_samples = flag_parsed::<usize>(args, "--max-samples")?;
+    if watch_ms.is_none() && (interval_ms.is_some() || max_samples.is_some()) {
+        return Err("process-usage --interval-ms/--max-samples require --watch-ms N".into());
+    }
+    if watch_ms.is_some_and(|value| !(1..=86_400_000).contains(&value)) {
+        return Err("process-usage --watch-ms must be in 1..=86400000".into());
+    }
+    if interval_ms.is_some_and(|value| !(1..=60_000).contains(&value)) {
+        return Err("process-usage --interval-ms must be in 1..=60000".into());
+    }
+    if max_samples.is_some_and(|value| !(1..=4_096).contains(&value)) {
+        return Err("process-usage --max-samples must be in 1..=4096".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "process-usage accepts only --pid N [--watch-ms N --interval-ms N --max-samples N]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::ProcessUsage {
+        target,
+        pid,
+        watch_ms,
+        interval_ms,
+        max_samples,
+    })
 }
 
 fn required_positive_pid(args: &mut Vec<String>, command: &str) -> Result<u32, String> {
@@ -165,8 +192,48 @@ mod tests {
             Command::ProcessUsage {
                 target: TargetRef::Ssh,
                 pid: 42,
+                watch_ms: None,
+                interval_ms: None,
+                max_samples: None,
             }
         ));
+    }
+
+    #[test]
+    fn process_usage_watch_requires_closed_bounded_parameters() {
+        let spec = verbs::lookup("process-usage").expect("process-usage verb");
+        let mut args = vec![
+            "--pid".into(),
+            "42".into(),
+            "--watch-ms".into(),
+            "1000".into(),
+            "--interval-ms".into(),
+            "100".into(),
+            "--max-samples".into(),
+            "4".into(),
+        ];
+        assert!(matches!(
+            parse(spec, TargetRef::Current, &mut args).expect("parse"),
+            Command::ProcessUsage {
+                pid: 42,
+                watch_ms: Some(1000),
+                interval_ms: Some(100),
+                max_samples: Some(4),
+                ..
+            }
+        ));
+
+        let mut orphan_interval = vec![
+            "--pid".into(),
+            "42".into(),
+            "--interval-ms".into(),
+            "100".into(),
+        ];
+        assert!(
+            parse(spec, TargetRef::Current, &mut orphan_interval)
+                .expect_err("watch required")
+                .contains("require --watch-ms")
+        );
     }
 
     #[test]

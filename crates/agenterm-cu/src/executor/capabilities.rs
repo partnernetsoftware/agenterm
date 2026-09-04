@@ -229,6 +229,13 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "identity_bound": true,
         "counter_encoding": "decimal-string",
         "fields": ["cpu_time_ns", "resident_bytes", "page_faults"],
+        "watch": {
+            "mode": "bounded-series",
+            "clock": "monotonic",
+            "max_duration_ms": 86400000,
+            "max_interval_ms": 60000,
+            "max_samples": 4096,
+        },
     });
     let process_wait_verb = serde_json::json!({
         "status": "available",

@@ -984,6 +984,15 @@ verified still-live outcome; never reopen or poll the numeric PID and silently
 follow a recycled process. Mutation builds on the same contract but needs its
 own actuate gate and postcondition.
 
+A process-metrics watch is a bounded observation transaction, not an unbounded
+`top` loop. Take the first sample immediately, bind every later sample to the
+same start identity, schedule from a monotonic deadline, and cap duration,
+interval and returned sample count independently. Preserve wide native counters
+as decimal strings at every sample. Distinguish `completed` from `truncated` so
+a qjswasm caller can tell “observed the requested duration” from “hit the
+sample/output budget”; PID reuse or loss of identity is a typed failure, never
+a fresh series under the same number.
+
 This is not semantics-free: `CommandLineToArgvW` differs from modern MSVC rules
 for ambiguous hand-crafted quote sequences, and loading Shell32 can hurt a
 small console process. Require standard-launcher round trips and public CLI

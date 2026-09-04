@@ -526,17 +526,21 @@ their target to this identity rather than trusting a reusable pid alone."#,
         aliases: &["process usage"],
         scope: Scope::Observe,
         family: Family::Process,
-        summary: "sample identity-bound cumulative CPU, memory and page faults",
-        usage: "process-usage --pid N\nprocess usage --pid N",
-        args: &[ArgSpec {
-            flag: "--pid",
-            value: "N",
-            help: "positive process id to sample",
-        }],
+        summary: "sample or watch identity-bound CPU, memory and page faults",
+        usage: "process-usage --pid N [--watch-ms N --interval-ms N --max-samples N]\nprocess usage --pid N [--watch-ms N --interval-ms N --max-samples N]",
+        args: &[
+            ArgSpec { flag: "--pid", value: "N", help: "positive process id to sample" },
+            ArgSpec { flag: "--watch-ms", value: "N", help: "bounded observation duration, 1..=86400000" },
+            ArgSpec { flag: "--interval-ms", value: "N", help: "sample interval, 1..=60000 (default 1000)" },
+            ArgSpec { flag: "--max-samples", value: "N", help: "maximum returned samples, 1..=4096 (default 120)" },
+        ],
         details: r#"Reads one cumulative resource sample between two matching process-start
 identity observations. CPU nanoseconds, resident bytes and page-fault counters
 are decimal strings so JSON/JavaScript consumers cannot lose u64 precision.
-Streaming rates and richer I/O counters remain explicit migration gaps."#,
+Watch mode takes an immediate sample, then samples on a monotonic bounded
+schedule while the same start identity remains live. It reports every sample
+and whether the sample ceiling truncated the requested duration. Richer I/O
+counters remain an explicit migration gap."#,
     },
     VerbSpec {
         name: "process-wait",

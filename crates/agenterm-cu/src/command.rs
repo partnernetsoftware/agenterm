@@ -310,6 +310,13 @@ pub enum Command {
     ProcessUsage {
         target: TargetRef,
         pid: u32,
+        /// When present, collect a bounded series instead of one sample.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watch_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_samples: Option<usize>,
     },
     /// Wait for one previously observed process instance to exit. Requiring
     /// the start identity prevents a recycled pid from becoming a new target.
@@ -1554,6 +1561,9 @@ mod tests {
         let command = Command::ProcessUsage {
             target: TargetRef::Ssh,
             pid: 42,
+            watch_ms: None,
+            interval_ms: None,
+            max_samples: None,
         };
         assert_eq!(command.verb(), "process-usage");
         assert_eq!(command.required_grant(), Grant::Observe);
@@ -1563,6 +1573,29 @@ mod tests {
                 "verb": "process-usage",
                 "target": "ssh",
                 "pid": 42,
+            })
+        );
+    }
+
+    #[test]
+    fn process_usage_watch_has_bounded_remote_wire_fields() {
+        let command = Command::ProcessUsage {
+            target: TargetRef::Vnc,
+            pid: 42,
+            watch_ms: Some(1_000),
+            interval_ms: Some(100),
+            max_samples: Some(4),
+        };
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-usage",
+                "target": "vnc",
+                "pid": 42,
+                "watch_ms": 1_000,
+                "interval_ms": 100,
+                "max_samples": 4,
             })
         );
     }

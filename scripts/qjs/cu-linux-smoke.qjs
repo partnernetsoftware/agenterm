@@ -34,6 +34,7 @@ const declared_evidence = [
   "cu.linux-atspi-window-identity",
   "cu.linux-process-state",
   "cu.linux-process-usage",
+  "cu.linux-process-usage-watch",
   "cu.linux-process-wait",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
@@ -314,6 +315,22 @@ try {
   ensure_wide_counter(process_usage, "data.page_faults.total");
   ensure_wide_counter(process_usage, "data.page_faults.soft");
   ensure_wide_counter(process_usage, "data.page_faults.hard");
+  print("STEP bounded process usage watch preserves one identity and stops at its sample ceiling");
+  const usage_watch = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-usage", "--pid", "" + fixture_pid,
+    "--watch-ms", "20", "--interval-ms", "5", "--max-samples", "2"
+  ]);
+  const usage_samples = at(usage_watch, "data.samples");
+  ensure(
+    Array.isArray(usage_samples) && usage_samples.length === 2
+      && int_at(usage_watch, "data.emitted") === 2
+      && flag_at(usage_watch, "data.truncated")
+      && flag_at(usage_watch, "data.verified")
+      && text_at(usage_watch, "data.start_identity") === process_identity
+      && text_of(usage_samples[0].cpu_time_ns) !== ""
+      && text_of(usage_samples[1].cpu_time_ns) !== "",
+    "cu_linux_smoke_process_usage_watch:" + JSON.stringify(usage_watch.data)
+  );
   print("STEP process-wait binds the same identity to a native exact-object timeout");
   const process_wait = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "process-wait",
@@ -812,6 +829,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-capabilities")
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-identity");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");

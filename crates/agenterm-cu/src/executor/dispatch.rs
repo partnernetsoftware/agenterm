@@ -59,7 +59,18 @@ impl Executor {
                 ..
             } => process_list_payload(*pid, *parent, name.as_deref(), *offset, *max),
             Command::ProcessState { pid, .. } => process_state_payload(*pid),
-            Command::ProcessUsage { pid, .. } => process_usage_payload(*pid),
+            Command::ProcessUsage {
+                pid,
+                watch_ms,
+                interval_ms,
+                max_samples,
+                ..
+            } => match watch_ms {
+                Some(duration_ms) => {
+                    process_usage_watch_payload(*pid, *duration_ms, *interval_ms, *max_samples)
+                }
+                None => process_usage_payload(*pid),
+            },
             Command::ProcessWait {
                 pid,
                 start_identity,

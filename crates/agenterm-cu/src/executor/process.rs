@@ -8,6 +8,11 @@ use crate::CuError;
 
 const DEFAULT_MAX: usize = 200;
 const MAX_RESULTS: usize = 5_000;
+const DEFAULT_USAGE_INTERVAL_MS: u64 = 1_000;
+const DEFAULT_USAGE_MAX_SAMPLES: usize = 120;
+const MAX_USAGE_WATCH_MS: u64 = 86_400_000;
+const MAX_USAGE_INTERVAL_MS: u64 = 60_000;
+const MAX_USAGE_SAMPLES: usize = 4_096;
 
 pub(super) fn process_state_payload(pid: u32) -> Result<Value, CuError> {
     if pid == 0 {
@@ -97,6 +102,85 @@ pub(super) fn process_usage_payload(pid: u32) -> Result<Value, CuError> {
             "hard": sample.page_faults.hard.map(|value| value.to_string()),
         },
         "verified": true,
+    }))
+}
+
+pub(super) fn process_usage_watch_payload(
+    pid: u32,
+    watch_ms: u64,
+    interval_ms: Option<u64>,
+    max_samples: Option<usize>,
+) -> Result<Value, CuError> {
+    let interval_ms = interval_ms.unwrap_or(DEFAULT_USAGE_INTERVAL_MS);
+    let max_samples = max_samples.unwrap_or(DEFAULT_USAGE_MAX_SAMPLES);
+    if pid == 0
+        || !(1..=MAX_USAGE_WATCH_MS).contains(&watch_ms)
+        || !(1..=MAX_USAGE_INTERVAL_MS).contains(&interval_ms)
+        || !(1..=MAX_USAGE_SAMPLES).contains(&max_samples)
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-usage watch requires pid > 0, watch-ms in 1..=86400000, interval-ms in 1..=60000 and max-samples in 1..=4096",
+        ));
+    }
+
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(watch_ms);
+    let mut samples = Vec::with_capacity(max_samples.min(256));
+    let mut initial_identity = None::<String>;
+    loop {
+        let full_sample = process_usage_payload(pid)?;
+        let identity = full_sample["start_identity"]
+            .as_str()
+            .ok_or_else(|| {
+                CuError::new(
+                    "process_identity_unavailable",
+                    "process usage sample omitted its start identity",
+                )
+            })?
+            .to_owned();
+        if let Some(expected) = initial_identity.as_deref() {
+            if expected != identity {
+                return Err(CuError::new(
+                    "process_identity_changed",
+                    "process start identity changed during usage observation",
+                )
+                .with_detail(json!({
+                    "pid": pid,
+                    "expected_start_identity": expected,
+                    "actual_start_identity": identity,
+                    "samples_completed": samples.len(),
+                })));
+            }
+        } else {
+            initial_identity = Some(identity);
+        }
+        samples.push(json!({
+            "t_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            "cpu_time_ns": full_sample["cpu_time_ns"].clone(),
+            "resident_bytes": full_sample["resident_bytes"].clone(),
+            "page_faults": full_sample["page_faults"].clone(),
+        }));
+
+        if Instant::now() >= deadline || samples.len() >= max_samples {
+            break;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        std::thread::sleep(Duration::from_millis(interval_ms).min(remaining));
+    }
+    let completed = Instant::now() >= deadline;
+    Ok(json!({
+        "pid": pid,
+        "start_identity": initial_identity,
+        "mode": "bounded-series",
+        "duration_ms": watch_ms,
+        "interval_ms": interval_ms,
+        "max_samples": max_samples,
+        "emitted": samples.len(),
+        "completed": completed,
+        "truncated": !completed,
+        "verified": true,
+        "samples": samples,
     }))
 }
 
@@ -249,6 +333,45 @@ mod tests {
             assert!(value[path].as_str().is_some_and(|value| !value.is_empty()));
         }
         assert!(value["page_faults"]["total"].as_str().is_some());
+    }
+
+    #[test]
+    fn process_usage_watch_is_identity_bound_and_stops_at_its_sample_budget() {
+        let pid = std::process::id();
+        let value = process_usage_watch_payload(pid, 60_000, Some(10), Some(1)).expect("watch");
+        assert_eq!(value["pid"], pid);
+        assert_eq!(value["mode"], "bounded-series");
+        assert_eq!(value["emitted"], 1);
+        assert_eq!(value["completed"], false);
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["verified"], true);
+        assert!(value["start_identity"].as_str().is_some());
+        assert!(value["samples"][0].get("start_identity").is_none());
+        assert!(value["samples"][0]["t_ms"].as_u64().is_some());
+    }
+
+    #[test]
+    fn process_usage_watch_distinguishes_completed_duration_from_truncation() {
+        let value = process_usage_watch_payload(std::process::id(), 1, Some(1), Some(10))
+            .expect("completed watch");
+        assert_eq!(value["completed"], true);
+        assert_eq!(value["truncated"], false);
+        assert!(value["emitted"].as_u64().is_some_and(|count| count >= 1));
+    }
+
+    #[test]
+    fn process_usage_watch_rejects_unbounded_remote_wire_values() {
+        let error = process_usage_watch_payload(std::process::id(), 0, Some(1), Some(1))
+            .expect_err("zero duration");
+        assert_eq!(error.code, "invalid_input");
+        let error = process_usage_watch_payload(
+            std::process::id(),
+            1,
+            Some(MAX_USAGE_INTERVAL_MS + 1),
+            Some(1),
+        )
+        .expect_err("large interval");
+        assert_eq!(error.code, "invalid_input");
     }
 
     #[test]
