@@ -39,6 +39,7 @@ const declared_evidence = [
   "cu.windows-process-usage",
   "cu.windows-process-usage-watch",
   "cu.windows-process-wait",
+  "cu.windows-process-kill",
   "cu.windows-process-lifecycle-watch",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
@@ -566,8 +567,19 @@ try {
   ]);
   ensure(receipts.data.receipts.length > 0, "cu_windows_smoke_receipts");
 
-  print("STEP the owned fixture ends and no window of it survives");
-  rh.command("taskkill", ["/PID", "" + fixture_pid, "/F"], { timeout_ms: 10000 });
+  print("STEP process-kill terminates the retained Windows HANDLE, verifies exit, and leaves no window");
+  const process_kill = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "process-kill",
+    "--pid", "" + fixture_pid, "--start-identity", process_identity,
+    "--mode", "forceful", "--timeout-ms", "10000", "--expect", "exited"
+  ]);
+  ensure(
+    flag_at(process_kill, "data.performed")
+      && text_at(process_kill, "data.state") === "exited"
+      && flag_at(process_kill, "data.verified")
+      && text_at(process_kill, "data.mechanism") === "native-process-reference",
+    "cu_windows_smoke_process_kill:" + JSON.stringify(process_kill.data)
+  );
   let fixture_exited = 0;
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
     if (harness.state(fixture) === "exited") { fixture_exited = 1; break; }
@@ -623,6 +635,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");
+harness.emit_evidence(context, declared_evidence, "cu.windows-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");

@@ -82,11 +82,25 @@
           "next": "identity-bound actuate gate plus post-state"
         },
         {
-          "id": "process.signal",
-          "mcu_shape": "signal|kill and process lifecycle mutations",
+          "id": "process.kill.single",
+          "mcu_shape": "kill PID [--force] [--timeout S]",
+          "acu_shape": "process-kill --pid N --start-identity ID --mode graceful|forceful --timeout-ms N --expect exited",
+          "state": "platform-limited",
+          "platforms": {"linux": "native", "macos": "typed-unsupported", "windows": "native"},
+          "evidence": ["linux-x86_64-pidfd-live", "windows-x86_64-retained-handle-live"],
+          "declared_evidence": [
+            "cu.linux-process-kill",
+            "cu.macos-process-kill-refusal",
+            "cu.windows-process-kill"
+          ],
+          "note": "ACU reserves a crash-persistent receipt, mutates through one retained native process object, and waits on that object. macOS refuses because kqueue observation cannot make a later PID signal atomic against reuse."
+        },
+        {
+          "id": "process.signal-and-tree",
+          "mcu_shape": "signal PID SIG... and kill|signal --tree",
           "acu_shape": null,
           "state": "gap",
-          "next": "exact identity, actuate grant, pre-state and independently verified postcondition"
+          "next": "arbitrary signal semantics, bounded tree snapshot, per-member identity and independently verified postconditions"
         },
         {
           "id": "process.cwd",

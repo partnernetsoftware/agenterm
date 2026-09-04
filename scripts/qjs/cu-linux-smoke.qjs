@@ -36,6 +36,7 @@ const declared_evidence = [
   "cu.linux-process-usage",
   "cu.linux-process-usage-watch",
   "cu.linux-process-wait",
+  "cu.linux-process-kill",
   "cu.linux-process-lifecycle-watch",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
@@ -823,8 +824,19 @@ try {
     "cu_linux_smoke_receipts:" + JSON.stringify(receipts.data)
   );
 
-  print("STEP SIGTERM ends only the owned fixture, and no window of it survives");
-  rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  print("STEP process-kill sends SIGTERM through the retained pidfd, verifies exit, and leaves no window");
+  const process_kill = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "process-kill",
+    "--pid", "" + fixture_pid, "--start-identity", process_identity,
+    "--mode", "graceful", "--timeout-ms", "5000", "--expect", "exited"
+  ]);
+  ensure(
+    flag_at(process_kill, "data.performed")
+      && text_at(process_kill, "data.state") === "exited"
+      && flag_at(process_kill, "data.verified")
+      && text_at(process_kill, "data.mechanism") === "native-process-reference",
+    "cu_linux_smoke_process_kill:" + JSON.stringify(process_kill.data)
+  );
   let fixture_exited = 0;
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
     if (harness.state(fixture) === "exited") { fixture_exited = 1; break; }
@@ -874,6 +886,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");

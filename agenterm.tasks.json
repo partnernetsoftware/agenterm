@@ -2085,7 +2085,7 @@
     },
     {
       "id": "cu-macos-smoke",
-      "description": "Prove the macOS agenterm-cu AX loop on an owned fixture: stable process identity, lossless one-shot/bounded usage and exact-object wait, bounded tree/query, semantic writes and refusals, menu/focus/observe, background click, geometry and screenshot, snapshot/diff, hit/zoom, raise, minimize/restore, orderwin, destructive close, receipts, text/caret, keys, app lifecycle and owned cleanup.",
+      "description": "Prove the macOS agenterm-cu AX loop on an owned fixture: stable process identity, lossless one-shot/bounded usage, exact-object wait and typed refusal of PID-racy kill, bounded tree/query, semantic writes and refusals, menu/focus/observe, background click, geometry and screenshot, snapshot/diff, hit/zoom, raise, minimize/restore, orderwin, destructive close, receipts, text/caret, keys, app lifecycle and owned cleanup.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -2105,7 +2105,7 @@
     },
     {
       "id": "cu-linux-smoke",
-      "description": "Prove the public agenterm-cu path on a real Linux X11/AT-SPI2 desktop: process identity/usage/wait, window and tree reads, semantic input, observation, screenshot, placement, app lifecycle, typed refusal and owned cleanup.",
+      "description": "Prove the public agenterm-cu path on a real Linux X11/AT-SPI2 desktop: process identity/usage/wait/kill, window and tree reads, semantic input, observation, screenshot, placement, app lifecycle, typed refusal and owned cleanup.",
       "entry": "scripts/qjs/cu-linux-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -2125,7 +2125,7 @@
     },
     {
       "id": "cu-windows-smoke",
-      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, stable process identity, lossless usage and exact-object wait, bounded tree and menu, query, invoke and idempotent set-checked, whole-window activation, focused node read-back, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
+      "description": "Prove the agenterm-cu UI Automation loop on a real Windows desktop: capabilities and typed refusal, an owned .NET-compiled C# WinForms fixture resolved by pid/title, stable process identity, lossless usage and exact-object wait/kill, bounded tree and menu, query, invoke and idempotent set-checked, whole-window activation, focused node read-back, window-place refusal then read-back, window-sized screenshot, destructive close gate, and no orphan.",
       "entry": "scripts/qjs/cu-windows-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
