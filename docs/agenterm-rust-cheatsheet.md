@@ -3671,4 +3671,8 @@ link-like entries, sort stable names, then reconcile every name through its
 real control endpoint. Report `running`, `stale`, and `conflicted` separately;
 never hide an unclassified row or start/delete resources from a read-only list.
 Deletion needs its own explicit stale-only postcondition and race-safe removal
-contract.
+contract. Serialize it against creation at the registry level, then lock the
+named resource, re-prove the authority is unreachable, reserve a durable
+receipt, allow only the state files the product owns, and verify exact absence.
+Do not recursively remove an unknown subtree merely because its parent has a
+valid job name.

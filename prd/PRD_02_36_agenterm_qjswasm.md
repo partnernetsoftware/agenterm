@@ -229,8 +229,8 @@ second route around ACU/AgenTerm product contracts.
   the macOS ACU journey proved the native `process-cwd` comparison end to end.
 - [x] qjswasm tool process reports a missing child as a typed failure.
 - [x] The platform-neutral `cu-pty-smoke` task drives the public ACU facade
-  through qjswasm: absent/running/stale inventory reconciliation, exact literal
-  input receipt, loss-aware raw-output match,
+  through qjswasm: absent/running/stale/pruned inventory reconciliation, exact
+  literal input receipt, loss-aware raw-output match,
   exact exit status, typed finalized-without-match, and verified authority
   disappearance. The native macOS court completed in 728 ms at 2,081,763
   steps, 44 host operations, 12,279 host bytes and 3 heap pages. Native Linux

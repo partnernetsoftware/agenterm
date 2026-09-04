@@ -500,6 +500,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "observe",
                 "durable-job-authority-reconciliation",
             ),
+            ("pty-prune", "actuate", "verified-stale-state-reclamation"),
             ("pty-status", "observe", "identity-bound-job-status"),
             ("pty-read", "observe", "loss-aware-retained-raw-byte-cursor"),
             ("pty-send", "actuate", "literal-headless-pty-input"),

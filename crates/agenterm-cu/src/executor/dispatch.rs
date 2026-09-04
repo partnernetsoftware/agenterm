@@ -150,6 +150,13 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::PtyList { .. } => pty_list_payload(),
+            Command::PtyPrune {
+                name, expect_stale, ..
+            } => pty_prune_payload(
+                name,
+                *expect_stale,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PtyStatus { name, .. } => pty_status_payload(name),
             Command::PtyRead {
                 name,

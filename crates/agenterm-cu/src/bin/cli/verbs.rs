@@ -241,6 +241,7 @@ mod tests {
         for expected in [
             "pointer-move",
             "process-kill",
+            "pty-prune",
             "terminal-send",
             "invoke",
             "click",
@@ -257,6 +258,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 44, "{actuate:?}");
+        assert_eq!(actuate.len(), 45, "{actuate:?}");
     }
 }

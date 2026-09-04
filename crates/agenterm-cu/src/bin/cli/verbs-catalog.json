@@ -522,6 +522,19 @@
       "args": []
     },
     {
+      "name": "pty-prune",
+      "command": "pty-prune",
+      "aliases": ["pty prune"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "reclaim one independently verified stale PTY state",
+      "usage": "pty-prune NAME --expect stale\npty prune NAME --expect stale",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "exact durable job name previously returned by pty-list"},
+        {"flag": "--expect", "value": "stale", "help": "required destructive postcondition"}
+      ]
+    },
+    {
       "name": "pty-status",
       "command": "pty-status",
       "aliases": ["pty status"],
@@ -3565,6 +3578,10 @@
     {
       "name": "pty-list",
       "text": "agenterm-cu pty-list    (also: pty list)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-list\n  pty list\n\nEnumerates the bounded private named-job state directory, sorts names, and reconciles each entry with its deterministic AgenTerm authority. A row is running with full epoch/tab/process status, stale when no authority is reachable, or conflicted with a typed reconciliation error. Symlinks, malformed names and more than 4096 entries fail closed; this read-only verb never deletes or starts a job.\n"
+    },
+    {
+      "name": "pty-prune",
+      "text": "agenterm-cu pty-prune    (also: pty prune)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-prune NAME --expect stale\n  pty prune NAME --expect stale\n\nReclaims one exact named state directory only after taking the same registry lock as pty-start, taking the job lock, and independently proving that the deterministic authority is unreachable. It reserves a persistent receipt before deletion, accepts only the known workspace/settings/lock files, removes no unknown subtree, and verifies the directory is absent. A live or conflicted authority, unknown entry, link-like directory, concurrent start, missing intent or missing state fails typed without deletion.\n"
     },
     {
       "name": "pty-status",

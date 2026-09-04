@@ -341,7 +341,7 @@ Q3 owned runtime facades
 │  │  ├─ [x] literal input + loss-aware cross-page exact-output wait
 │  │  ├─ [x] local six-cell qjswasm public court; macOS x86_64 via Rosetta
 │  │  ├─ [x] concurrent-start single-owner + typed exit mismatch + verified shutdown court
-│  │  └─ [~] list ✓; reuse/prune + stale registry + process-tree cleanup pending
+│  │  └─ [~] list/prune ✓; reuse + orphan process-tree cleanup pending
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe

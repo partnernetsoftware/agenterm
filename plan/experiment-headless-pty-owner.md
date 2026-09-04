@@ -87,10 +87,10 @@ product or user data was read.
 ├─ [x] raw byte continuation: terminal-output
 ├─ [x] cross-process server persistence and zero-tab survival court
 ├─ [x] owned job identity: job id → logical instance + server epoch + @tab
-├─ [~] supervisor: start/list/status/read/send/wait/wait-exit/stop are live; reuse/prune remain
+├─ [~] supervisor: start/list/prune/status/read/send/wait/wait-exit/stop are live; reuse remains
 │  ├─ [x] no false-green readiness; typed deadline
 │  ├─ [x] one authority per job id; concurrent-start court
-│  └─ [ ] stale owner and registry reclamation
+│  └─ [~] stale state reclamation ✓; orphan process-tree authority remains
 ├─ [~] process lifecycle: exact exit + explicit stop postconditions; tree/signal remain
 ├─ [ ] bounded events/snapshot/diff projection compatible with MCU callers
 └─ [x] local six-cell public qjswasm court (macOS x86_64 via Rosetta)
@@ -105,7 +105,7 @@ flowchart LR
   C -->|"zero tabs + two cursor reads + cleanup"| D["ACCEPT reuse server"]
   C -->|"any hard invariant fails"| B
   D --> I["job id = instance + epoch + @tab ✓"]
-  D --> S["start/list/status/read/send/wait/wait-exit/stop ✓<br/>reuse/prune pending"]
+  D --> S["start/list/prune/status/read/send/wait/wait-exit/stop ✓<br/>reuse pending"]
   D --> R["existing retention / redaction / ConPTY / POSIX PTY"]
   I --> G{"three-host public qjswasm court"}
   S --> G

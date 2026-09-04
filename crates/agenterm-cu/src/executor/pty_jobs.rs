@@ -242,6 +242,242 @@ fn acquire_job_lock(directory: &Path) -> Result<PathLock, CuError> {
     })
 }
 
+fn acquire_registry_lock(root: &Path) -> Result<PathLock, CuError> {
+    let path = root.with_extension("registry.lock");
+    PathLock::try_acquire(&path).map_err(|error| {
+        let code = if error.kind() == LockErrorKind::Contended {
+            "pty_job_registry_busy"
+        } else {
+            "pty_job_state_unavailable"
+        };
+        CuError::new(code, error.to_string())
+    })
+}
+
+fn remove_file_if_present(path: &Path) -> Result<(), std::io::Error> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+pub(super) fn pty_prune_payload(
+    name: &str,
+    expect_stale: bool,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    validate_name(name)?;
+    if !expect_stale {
+        return Err(CuError::new(
+            "pty_job_prune_intent_required",
+            "pty-prune requires explicit --expect stale",
+        ));
+    }
+    let root = jobs_root(false)?;
+    let directory = root.join(name);
+    let initial = fs::symlink_metadata(&directory).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            CuError::new(
+                "pty_job_state_not_found",
+                format!("PTY job state for {name:?} does not exist"),
+            )
+        } else {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not inspect named PTY job state: {error}"),
+            )
+        }
+    })?;
+    if !initial.is_dir() || initial.file_type().is_symlink() {
+        return Err(CuError::new(
+            "pty_job_inventory_invalid",
+            "named PTY job state is not a direct directory",
+        ));
+    }
+    let initial_identity =
+        agenterm_platform::file_identity::path_identity(&directory).map_err(|error| {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not identify named PTY job state: {error}"),
+            )
+        })?;
+
+    let _registry_lock = acquire_registry_lock(&root)?;
+    let current = fs::symlink_metadata(&directory).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            CuError::new(
+                "pty_job_state_changed",
+                "named PTY job state disappeared while acquiring the registry lock",
+            )
+        } else {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not re-inspect named PTY job state: {error}"),
+            )
+        }
+    })?;
+    if !current.is_dir() || current.file_type().is_symlink() {
+        return Err(CuError::new(
+            "pty_job_state_changed",
+            "named PTY job state changed identity while acquiring the registry lock",
+        ));
+    }
+    let current_identity =
+        agenterm_platform::file_identity::path_identity(&directory).map_err(|error| {
+            CuError::new(
+                "pty_job_state_changed",
+                format!("could not re-identify named PTY job state: {error}"),
+            )
+        })?;
+    if !initial_identity.same_object(current_identity) {
+        return Err(CuError::new(
+            "pty_job_state_changed",
+            "named PTY job state was replaced while acquiring the registry lock",
+        ));
+    }
+    let job_lock = acquire_job_lock(&directory)?;
+    let client = client_for(name)?;
+    match status_with_client(&client, name) {
+        Ok(status) => {
+            return Err(CuError::new(
+                "pty_job_prune_live",
+                "refusing to prune a PTY job whose authority is still reachable",
+            )
+            .with_detail(json!({ "name": name, "status": status })));
+        }
+        Err(error) if error.code == "pty_job_not_found" => {}
+        Err(error) => {
+            return Err(CuError::new(
+                "pty_job_prune_unverified",
+                "could not prove the named PTY job authority is stale",
+            )
+            .with_detail(json!({
+                "name": name,
+                "observation": { "code": error.code, "message": error.message },
+            })));
+        }
+    }
+
+    let mut removable = Vec::new();
+    for entry in fs::read_dir(&directory).map_err(|error| {
+        CuError::new(
+            "pty_job_state_unavailable",
+            format!("could not inspect named PTY job contents: {error}"),
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not read a named PTY job entry: {error}"),
+            )
+        })?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Err(CuError::new(
+                "pty_job_prune_state_unknown",
+                "named PTY job state contains an unknown non-UTF-8 entry",
+            ));
+        };
+        if name == "supervisor.lock" {
+            continue;
+        }
+        if !matches!(name, "workspace.json" | "settings.json") {
+            return Err(CuError::new(
+                "pty_job_prune_state_unknown",
+                "named PTY job state contains an entry outside the reclaim contract",
+            ));
+        }
+        let kind = entry.file_type().map_err(|error| {
+            CuError::new(
+                "pty_job_state_unavailable",
+                format!("could not classify a named PTY job entry: {error}"),
+            )
+        })?;
+        if kind.is_dir() {
+            return Err(CuError::new(
+                "pty_job_prune_state_unknown",
+                "named PTY job state contains a directory outside the reclaim contract",
+            ));
+        }
+        removable.push(entry.path());
+    }
+
+    let ticket = receipts.reserve(
+        "pty-prune",
+        0,
+        json!({
+            "name_bytes": name.len(),
+            "expect": "stale",
+            "before": { "authority": "unreachable", "state_directory": "present" },
+            "known_entries": removable.len(),
+        }),
+    )?;
+    let removal = (|| -> Result<(), CuError> {
+        for path in &removable {
+            remove_file_if_present(path).map_err(|error| {
+                CuError::new(
+                    "pty_job_prune_failed",
+                    format!("could not remove a known PTY job state file: {error}"),
+                )
+            })?;
+        }
+        drop(job_lock);
+        remove_file_if_present(&directory.join("supervisor.lock")).map_err(|error| {
+            CuError::new(
+                "pty_job_prune_failed",
+                format!("could not remove the PTY job lock file: {error}"),
+            )
+        })?;
+        fs::remove_dir(&directory).map_err(|error| {
+            CuError::new(
+                "pty_job_prune_failed",
+                format!("could not remove the empty PTY job state directory: {error}"),
+            )
+        })?;
+        match fs::symlink_metadata(&directory) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Ok(_) => Err(CuError::new(
+                "pty_job_prune_unverified",
+                "PTY job state directory remained after removal",
+            )),
+            Err(error) => Err(CuError::new(
+                "pty_job_prune_unverified",
+                format!("could not verify PTY job state removal: {error}"),
+            )),
+        }
+    })();
+    if let Err(error) = removal {
+        receipts.complete(
+            &ticket,
+            "pty-prune",
+            0,
+            false,
+            json!({ "performed": true, "verified": false, "error": { "code": error.code, "message": error.message } }),
+        )?;
+        return Err(error.with_detail(json!({ "receipt": ticket.json() })));
+    }
+    receipts.complete(
+        &ticket,
+        "pty-prune",
+        0,
+        true,
+        json!({
+            "performed": true,
+            "verified": true,
+            "after": { "state_directory": "absent" },
+        }),
+    )?;
+    Ok(json!({
+        "name": name,
+        "state": "pruned",
+        "performed": true,
+        "verified": true,
+        "removed_known_entries": removable.len(),
+        "receipt": ticket.json(),
+    }))
+}
+
 fn product_executable() -> Result<PathBuf, CuError> {
     if let Some(path) = std::env::var_os("AGENTERM_CU_PRODUCT_EXECUTABLE") {
         let path = PathBuf::from(path);
@@ -458,6 +694,8 @@ pub(super) fn pty_start_payload(
             "pty-start requires 1..=256 arguments totaling at most 1048576 bytes",
         ));
     }
+    let root = jobs_root(true)?;
+    let _registry_lock = acquire_registry_lock(&root)?;
     let directory = job_directory(name)?;
     let _lock = acquire_job_lock(&directory)?;
     let client = client_for(name)?;
@@ -783,5 +1021,23 @@ mod tests {
             scan_exact_page(&mut overlap, b"EDyy", b"NEED", 14),
             Some(12)
         );
+    }
+
+    #[test]
+    fn registry_lock_serializes_start_and_prune() {
+        let root = std::env::temp_dir().join(format!(
+            "agenterm-cu-pty-registry-lock-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(root.with_extension("registry.lock"));
+        let first = acquire_registry_lock(&root).expect("first registry lock");
+        let second = match acquire_registry_lock(&root) {
+            Ok(_) => panic!("registry lock must contend"),
+            Err(error) => error,
+        };
+        assert_eq!(second.code, "pty_job_registry_busy");
+        drop(first);
+        acquire_registry_lock(&root).expect("registry lock released");
+        let _ = fs::remove_file(root.with_extension("registry.lock"));
     }
 }

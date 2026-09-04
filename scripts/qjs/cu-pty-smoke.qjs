@@ -179,6 +179,22 @@ try {
     stale_row !== null && stale_row.state === "stale",
     "cu_pty_list_stale_contract:" + JSON.stringify(final_inventory)
   );
+  const prune = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-prune", job,
+    "--expect", "stale"
+  ]), "pty-prune");
+  ensure(
+    prune.name === job && prune.state === "pruned"
+      && prune.performed === true && prune.verified === true,
+    "cu_pty_prune_contract:" + JSON.stringify(prune)
+  );
+  const pruned_inventory = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-list"
+  ]), "pty-list");
+  ensure(
+    find_job(pruned_inventory, job) === null,
+    "cu_pty_prune_absence_contract:" + JSON.stringify(pruned_inventory)
+  );
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -206,7 +222,7 @@ try {
 if (succeeded !== 0 && stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
   harness.remove_run(context);
-  print("PASS: qjswasm orchestrated ACU headless PTY input, loss-aware wait, exact exit, typed miss and verified cleanup");
+  print("PASS: qjswasm orchestrated ACU PTY inventory, input, loss-aware wait, exact exit, typed miss, stop and stale-state prune");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

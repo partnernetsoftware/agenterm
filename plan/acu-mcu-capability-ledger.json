@@ -518,11 +518,11 @@
         {
           "id": "pty.background.registry",
           "mcu_shape": "pty --provider native|tmux list|prune plus reuse and stale-owner reclamation",
-          "acu_shape": "pty-list bounds the private state inventory and reconciles each deterministic job authority as running, stale or conflicted without starting or deleting it",
-          "state": "partial",
+          "acu_shape": "pty-list bounds and reconciles each deterministic job authority as running, stale or conflicted; pty-prune --expect stale serializes against start, re-proves staleness, permits only known state files and verifies exact removal",
+          "state": "native",
           "qualification": "macos-public-qjswasm-journey-green-six-cell-rerun-pending",
-          "next": "add explicit stale-only prune and reusable authority adoption with scope+epoch and process-tree safety",
-          "note": "The list is complete or fails typed: malformed names, symlinks and more than 4096 entries are refused. A directory is never called running without a live authority and exact status. Prune remains a separate destructive postcondition."
+          "next": "add reusable authority adoption with scope+epoch and process-tree safety; rerun the enlarged journey in the other five cells",
+          "note": "The list is complete or fails typed: malformed names, symlinks and more than 4096 entries are refused. A directory is never called running without a live authority and exact status. Prune requires an explicit stale postcondition, a durable receipt and directory-absence verification; a live/conflicted authority or unknown state entry is never deleted."
         },
         {
           "id": "pty.background.io",

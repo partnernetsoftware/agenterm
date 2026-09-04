@@ -45,6 +45,20 @@ pub fn parse(
             empty(args, "pty-list")?;
             Ok(Command::PtyList { target })
         }
+        "pty-prune" => {
+            let name = required_name(args, "pty-prune")?;
+            let expect = flag_text(args, "--expect")?
+                .ok_or_else(|| "pty-prune requires --expect stale".to_owned())?;
+            if expect != "stale" {
+                return Err("pty-prune --expect must be stale".into());
+            }
+            empty(args, "pty-prune")?;
+            Ok(Command::PtyPrune {
+                target,
+                name,
+                expect_stale: true,
+            })
+        }
         "pty-status" => {
             let name = required_name(args, "pty-status")?;
             empty(args, "pty-status")?;
@@ -384,6 +398,10 @@ mod tests {
             Command::PtyList { .. }
         ));
         assert!(matches!(
+            parse("pty-prune", &["build", "--expect", "stale"]).unwrap(),
+            Command::PtyPrune { name, expect_stale: true, .. } if name == "build"
+        ));
+        assert!(matches!(
             parse("pty-status", &["build"]).unwrap(),
             Command::PtyStatus { name, .. } if name == "build"
         ));
@@ -418,6 +436,7 @@ mod tests {
         assert!(parse("pty-start", &["build"]).is_err());
         assert!(parse("pty-send", &["build", ""]).is_err());
         assert!(parse("pty-wait", &["build"]).is_err());
+        assert!(parse("pty-prune", &["build"]).is_err());
         assert!(parse("pty-stop", &["build"]).is_err());
         assert!(matches!(
             parse("terminal-list", &[]).unwrap(),

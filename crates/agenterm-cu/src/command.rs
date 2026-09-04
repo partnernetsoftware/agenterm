@@ -468,6 +468,13 @@ pub enum Command {
     PtyList {
         target: TargetRef,
     },
+    /// Reclaim one exact named state directory only after independently
+    /// proving that its deterministic authority is stale.
+    PtyPrune {
+        target: TargetRef,
+        name: String,
+        expect_stale: bool,
+    },
     /// Observe one named headless PTY job and its exact epoch-scoped tab.
     PtyStatus {
         target: TargetRef,
@@ -1806,6 +1813,7 @@ impl Command {
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::PtyStart { .. } => "pty-start".into(),
             Self::PtyList { .. } => "pty-list".into(),
+            Self::PtyPrune { .. } => "pty-prune".into(),
             Self::PtyStatus { .. } => "pty-status".into(),
             Self::PtyRead { .. } => "pty-read".into(),
             Self::PtySend { .. } => "pty-send".into(),
@@ -1912,6 +1920,7 @@ impl Command {
             | Self::FileInspect { target, .. }
             | Self::PtyStart { target, .. }
             | Self::PtyList { target, .. }
+            | Self::PtyPrune { target, .. }
             | Self::PtyStatus { target, .. }
             | Self::PtyRead { target, .. }
             | Self::PtySend { target, .. }
@@ -2002,6 +2011,7 @@ impl Command {
             Self::PointerMove { .. }
             | Self::ProcessKill { .. }
             | Self::PtyStart { .. }
+            | Self::PtyPrune { .. }
             | Self::PtySend { .. }
             | Self::PtyStop { .. }
             | Self::TerminalSend { .. }
@@ -3177,6 +3187,20 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&jobs).unwrap(),
             serde_json::json!({ "verb": "pty-list", "target": "ssh" })
+        );
+        let prune = Command::PtyPrune {
+            target: TargetRef::Current,
+            name: "build".into(),
+            expect_stale: true,
+        };
+        assert_eq!(prune.required_grant(), Grant::Actuate);
+        assert_eq!(prune.verb(), "pty-prune");
+        assert_eq!(
+            serde_json::to_value(&prune).unwrap(),
+            serde_json::json!({
+                "verb": "pty-prune", "target": "current", "name": "build",
+                "expect_stale": true
+            })
         );
         let new = Command::TerminalNew {
             target: TargetRef::Current,

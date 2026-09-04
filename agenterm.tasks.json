@@ -2220,7 +2220,7 @@
     },
     {
       "id": "cu-pty-smoke",
-      "description": "Prove qjswasm can orchestrate one durable headless ACU PTY across native hosts: absent/running/stale inventory reconciliation, literal input receipt, loss-aware exact output wait, exact exit, typed unmatched-after-exit and verified authority cleanup.",
+      "description": "Prove qjswasm can orchestrate one durable headless ACU PTY across native hosts: absent/running/stale inventory, literal input, loss-aware wait, exact exit, typed miss, verified stop and stale-state prune.",
       "entry": "scripts/qjs/cu-pty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
