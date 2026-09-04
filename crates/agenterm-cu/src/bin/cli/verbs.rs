@@ -980,7 +980,8 @@ name / identifier / states / value preview), read without the foreground;
         family: Family::A11yObserve,
         summary: "bounded a11y event stream by poll-diff",
         usage: "observe --window HANDLE (--duration S | --duration-ms N) [--depth N] [--max-nodes N]
-        [--max-events N] [--notification A,B] [--interval-ms N] [--mode poll-diff|notifications]",
+        [--max-events N] [--notification A,B] [--interval-ms N] [--mode poll-diff|notifications]
+        [--ready-path PATH]",
         args: &[
             WINDOW,
             ArgSpec {
@@ -1015,12 +1016,19 @@ name / identifier / states / value preview), read without the foreground;
                 value: "poll-diff|notifications",
                 help: "event source",
             },
+            ArgSpec {
+                flag: "--ready-path",
+                value: "PATH",
+                help: "atomic marker after the complete poll-diff baseline",
+            },
         ],
         details: r#"Bounded event stream by poll-diff over the same bounded tree:
 ValueChanged / TitleChanged / StateChanged / FocusChanged / Created /
 Destroyed with monotonic seq and t_ms; stops at --max-events (<= 5000,
 default 200) with truncated true; reports polls / emitted / filtered /
-stopped."#,
+stopped. --ready-path publishes a caller-owned no-overwrite JSON marker
+after the complete poll-diff baseline and before its duration starts; native
+notifications reject it until subscription readiness is available."#,
     },
     VerbSpec {
         name: "snapshot",

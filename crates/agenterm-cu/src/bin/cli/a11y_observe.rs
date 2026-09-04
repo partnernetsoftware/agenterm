@@ -381,6 +381,7 @@ fn observe(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
     };
     let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
     let mode = flag_text(args, "--mode")?;
+    let ready_path = flag_text(args, "--ready-path")?;
     if let Some(mode) = &mode
         && mode != "poll-diff"
         && mode != "notifications"
@@ -390,7 +391,8 @@ fn observe(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
     if !args.is_empty() {
         return Err(format!(
             "observe accepts only --window H --duration S | --duration-ms N --depth N --max-nodes N \
-             --max-events N --notification A,B --interval-ms N --mode poll-diff|notifications; unexpected {:?}",
+             --max-events N --notification A,B --interval-ms N --mode poll-diff|notifications \
+             --ready-path PATH; unexpected {:?}",
             args[0]
         ));
     }
@@ -398,6 +400,7 @@ fn observe(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
         target,
         window,
         duration_ms,
+        ready_path,
         depth,
         max_nodes,
         max_events,

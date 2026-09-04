@@ -66,6 +66,7 @@ cu query --window "$H" --text "Sign in"          # substring of name or text; --
 cu query --window "$H" --selector 'AXButton@Save' # MCU Role[idx] / Role@title / *@title / #desc
 cu tree --window "$H" --depth 3 --flat            # numbered walk order; invoke --index addresses it
 cu focused --window "$H" --role AXTextField       # the app's own focused control, without foreground
+cu observe --window "$H" --duration 3 --ready-path run/observe-ready.json
 ```
 
 `page text` rows are `{id, role, text, bounds}` (+ `name` when it differs,
@@ -81,6 +82,15 @@ nests past depth 40). `query` / `tree` say so in `next_actions`; pass
 An idle Chromium window is not blank either: replies carry `ax` plus
 `next_actions` naming a deeper `query --role WebArea`, never "screenshot" or
 "install an extension".
+
+Concurrent `poll-diff` automation must wait for `--ready-path` before it
+changes the UI. The marker is atomically published only after the complete
+baseline tree walk; this prevents a slow backend from reading one control
+before a mutation and another control after it, then silently treating that
+torn state as the baseline. The caller chooses a unique path, verifies the
+marker JSON, and removes it after reaping `observe`. Observation duration
+starts after readiness. Native `--mode notifications` rejects this option
+until its subscription layer can provide the same ordering guarantee.
 
 **`unlock`** (actuate) asks the application to build its full a11y tree,
 then bounded re-reads. The poke is per host and the reply's `poke` field
@@ -325,6 +335,7 @@ verb; `verbs` lists status / alias / reason per verb).
 | Semantic write | `AXPress`, `AXValue` write + read-back, `AXExpanded`, `AXIncrement` / `AXDecrement` | `Action` press / `EditableText` (`Text` + toolkit set-value for Chrome / WebKitGTK) | `Invoke` / `Value` / `Toggle` |
 | Background menus / focused control | `AXMenuBar` walk + `AXPress`; `AXFocusedUIElement` | tree search (`mode: tree-search` / `state-search`, mapped) | same, mapped |
 | Event stream | poll-diff (default) or `--mode notifications` (AXObserver) | poll-diff | poll-diff |
+| Concurrent baseline | poll-diff `--ready-path` | poll-diff `--ready-path` | poll-diff `--ready-path` |
 | Screenshot | window capture (Screen Recording TCC) | X11 `GetImage` (TrueColor only) | GDI |
 
 Missing Accessibility permission is typed `denied` with the repair path in

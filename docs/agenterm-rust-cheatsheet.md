@@ -1680,6 +1680,19 @@ typed `timeout` and reports the last GetText. Never screenshot, XTest,
 or `--coords`. Do not implement contains as OCR, a sidecar tree walk, or
 a check of the write reply.
 
+`observe` poll-diff needs an explicit baseline-readiness edge. On a slow
+AT-SPI host, one breadth-first tree walk can outlast a test's startup delay:
+it may read an early button before an action and a later text field after an
+action. That torn walk is internally valid but is not a causally valid
+baseline, so a later diff can miss the text change. `--ready-path PATH`
+atomically publishes a no-overwrite JSON marker only after the complete baseline; the
+actuator waits for that marker, then mutates. Start `duration_ms` after this
+publication so baseline cost does not consume the advertised observation
+window. The caller owns marker cleanup. Do not repair this race by increasing
+a fixed sleep, weakening event assertions, or pretending a tree walk is an
+atomic OS snapshot. Native-notification mode must reject the marker until its
+subscription API can expose an equivalent ready edge.
+
 `agenterm-cu --ssh <user@host>` is the first remote target tier (PRD 30).
 It does not invent verbs: the host rewrites the abstract command to
 `target=current` and runs a remote `agenterm-cu exec --json -` worker over

@@ -161,9 +161,14 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   verified result. This is intentionally stronger than MCU's repeated PID
   inventory polling; the native ACU spelling is reachable through the shim.
 - The three public native journeys now bind those commands to each owned GUI
-  fixture. macOS is live green at 37 STEP / 38 evidence ids; Linux declares
-  24 / 25 and Windows 16 / 16, with both updated native courts still required
-  before this process slice is called three-host proven.
+  fixture. macOS is live green at 37 STEP / 38 evidence ids. The exact-SHA
+  Linux x86_64 court passed the process leaves through STEP 13, including a
+  real owned child exit, then correctly emitted 0 / 25 evidence because the
+  later accessibility observer missed an editable-text event. Root cause is a
+  baseline tree walk racing concurrent mutations on a slow AT-SPI host;
+  poll-diff now exposes an atomic `--ready-path` edge and the journey waits on
+  it. Linux remains unproven until that integrated journey reruns green;
+  Windows 16 / 16 also awaits its exact-SHA court.
 - `process-watch` closes MCU's lifecycle-observation shape with a stronger
   identity contract: composable PID/parent/name filters or explicit all, an immediate
   bounded baseline, and started/exited events keyed by PID plus start identity.

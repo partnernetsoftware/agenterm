@@ -487,6 +487,13 @@ pub enum Command {
         target: TargetRef,
         window: isize,
         duration_ms: u64,
+        /// Optional caller-owned readiness marker. For `poll-diff`, it is
+        /// atomically published only after the complete baseline walk, so a
+        /// concurrent actuator can change the UI without racing that walk.
+        /// The caller owns removal. Native-notification mode rejects it until
+        /// its subscription layer can expose the same ordering guarantee.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ready_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         depth: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2094,13 +2101,15 @@ mod tests {
         assert_eq!(focused.required_grant(), Grant::Observe);
         let observe: Command = serde_json::from_value(serde_json::json!({
             "verb": "observe", "target": "current", "window": 7, "duration_ms": 1500,
-            "notifications": ["ValueChanged"], "max_events": 50
+            "notifications": ["ValueChanged"], "max_events": 50,
+            "ready_path": "observe-ready.json"
         }))
         .expect("deserialize");
         assert!(matches!(
             observe,
-            Command::Observe { window: 7, duration_ms: 1500, max_events: Some(50), ref notifications, .. }
+            Command::Observe { window: 7, duration_ms: 1500, max_events: Some(50), ref notifications, ref ready_path, .. }
                 if notifications == &["ValueChanged".to_owned()]
+                    && ready_path.as_deref() == Some("observe-ready.json")
         ));
         assert_eq!(observe.required_grant(), Grant::Observe);
         // A pre-1.14 invoke wire form still decodes with `focused` false.

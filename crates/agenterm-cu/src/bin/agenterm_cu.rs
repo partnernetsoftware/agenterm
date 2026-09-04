@@ -168,6 +168,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn observe_cli_carries_the_baseline_ready_path_in_its_closed_shape() {
+        let spec = verbs::lookup("observe").expect("observe verb");
+        let mut args = [
+            "--window",
+            "41",
+            "--duration-ms",
+            "900",
+            "--ready-path",
+            "observe-ready.json",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let command =
+            cli::parse_command(spec, "observe", agenterm_cu::TargetRef::Current, &mut args)
+                .expect("closed observe shape");
+        assert!(matches!(
+            command,
+            Command::Observe {
+                window: 41,
+                duration_ms: 900,
+                ready_path: Some(ref path),
+                ..
+            } if path == "observe-ready.json"
+        ));
+        let mut unknown = ["--window", "41", "--duration-ms", "900", "--ready"]
+            .map(str::to_owned)
+            .to_vec();
+        assert!(
+            cli::parse_command(
+                spec,
+                "observe",
+                agenterm_cu::TargetRef::Current,
+                &mut unknown
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn pointer_move_cli_parses_explicit_signed_coordinates_before_authorization() {
         let reply = dispatch(vec![
             "--target".into(),

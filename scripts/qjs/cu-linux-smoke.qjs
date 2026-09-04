@@ -131,23 +131,41 @@ function run_cu_reply(run_directory, executable, arguments) {
   return JSON.parse(trimmed);
 }
 
-// Spawn an `observe` worker through the door; the caller changes the tree
-// while it runs and reaps it to read its one JSON reply.
+// Spawn an `observe` worker through the door. The readiness marker is
+// published only after the complete poll-diff baseline, so a slow AT-SPI
+// walk cannot straddle the caller's writes and turn them into the baseline.
 function start_observer(run_directory, executable, handle_text, duration) {
-  return harness.start({
+  const ready_path = rh.join(run_directory, "observe-ready.json");
+  rh.try_remove_file(ready_path);
+  const handle = harness.start({
     program: executable,
     args: [
       "--target", "current", "--grant", "observe", "observe",
-      "--window", handle_text, "--duration", duration
+      "--window", handle_text, "--duration", duration,
+      "--ready-path", ready_path
     ],
     current_dir: run_directory,
     env: cu_env(run_directory),
     timeout_ms: 30000
   });
+  let ready = false;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (direct_file(ready_path)) {
+      const marker = rh.parse_file(ready_path);
+      ready = text_at(marker, "state") === "ready"
+        && text_at(marker, "mode") === "poll-diff"
+        && text_at(marker, "window") === handle_text;
+      if (ready) { break; }
+    }
+    harness.sleep_ms(50);
+  }
+  ensure(ready, "cu_linux_smoke_observer_not_ready");
+  return { handle: handle, ready_path: ready_path };
 }
 
-function observer_result(handle) {
-  const output = harness.wait(handle, 20000);
+function observer_result(observer) {
+  const output = harness.wait(observer.handle, 20000);
+  rh.try_remove_file(observer.ready_path);
   ensure(output.success === true, "cu_linux_smoke_observer_process:" + JSON.stringify(output));
   const document = JSON.parse(output.stdout.trim());
   ensure(flag_at(document, "ok"), "cu_linux_smoke_observer_reply:" + JSON.stringify(document));

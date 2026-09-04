@@ -196,6 +196,7 @@ impl Executor {
             Command::Observe {
                 window,
                 duration_ms,
+                ready_path,
                 depth,
                 max_nodes,
                 max_events,
@@ -206,6 +207,7 @@ impl Executor {
             } => observe_payload(
                 *window,
                 *duration_ms,
+                ready_path.as_deref(),
                 *depth,
                 *max_nodes,
                 *max_events,

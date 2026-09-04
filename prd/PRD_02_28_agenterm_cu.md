@@ -179,6 +179,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   oversized inventory fail typed; broad watches omit unidentified rows only
   with `coverage_complete=false` and an explicit count. A real owned-child exit is green through the macOS public CLI;
   macOS/Linux/Windows qjswasm journey leaves are declared for native reruns.
+- [~] Linux x86_64 native execution proved the new process leaves through the
+  real owned-child exit, then failed closed later in `observe`: the slow
+  AT-SPI baseline walk crossed the button and editable-text mutations, so only
+  the button change remained diffable and the journey emitted 0 / 25 evidence.
+  Poll-diff now offers `--ready-path`, atomically published after the complete
+  baseline, and starts its duration after that edge. The caller waits for and
+  cleans the marker. Fixed sleeps and weakened event assertions are excluded;
+  the full native journey must rerun before this leaf advances.
 - [~] The MCU PTY/job/terminal surface is now exhaustively classified in
   `plan/acu-mcu-capability-ledger.json`. AgenTerm's existing session/tab
   control plane remains the owning kernel for its own terminal inventory,

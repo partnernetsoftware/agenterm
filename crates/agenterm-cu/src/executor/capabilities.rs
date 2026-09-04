@@ -135,6 +135,13 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         if let Some(object) = declaration.as_object_mut() {
             object.insert("default_mode".into(), serde_json::json!("poll-diff"));
             object.insert(
+                "baseline_readiness".into(),
+                serde_json::json!({
+                    "poll-diff": "--ready-path atomically publishes after the complete baseline walk; caller owns cleanup",
+                    "notifications": "unavailable until native subscription readiness is ordered",
+                }),
+            );
+            object.insert(
                 "modes".into(),
                 serde_json::json!({
                     "poll-diff": "available",

@@ -347,6 +347,7 @@ pub(super) fn native_observe_payload(
 pub(super) fn observe_payload(
     window: isize,
     duration_ms: u64,
+    ready_path: Option<&str>,
     depth: Option<u32>,
     max_nodes: Option<usize>,
     max_events: Option<usize>,
@@ -357,6 +358,11 @@ pub(super) fn observe_payload(
     if window == 0 {
         return Err(invalid_input(
             "observe requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    if ready_path.is_some() && mode == Some("notifications") {
+        return Err(invalid_input(
+            "observe --ready-path currently requires --mode poll-diff; native notifications do not yet expose subscription readiness".into(),
         ));
     }
     observe::validate_observe(duration_ms, max_events, interval_ms).map_err(invalid_input)?;
@@ -402,11 +408,17 @@ pub(super) fn observe_payload(
             Err(error) => Err(map_mechanism_err(error)),
         };
     }
-    let started = Instant::now();
-    let deadline = started + Duration::from_millis(duration_ms);
     let mut previous =
         mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
     let backend = previous.backend.clone();
+    if let Some(path) = ready_path {
+        publish_observe_ready(path, window, &backend)?;
+    }
+    // `duration_ms` is the observation window, not baseline acquisition.
+    // Starting it after the full baseline also makes slow accessibility
+    // backends receive the same advertised window as fast ones.
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(duration_ms);
     let mut events: Vec<serde_json::Value> = Vec::new();
     let mut seq = 0u64;
     let mut filtered = 0usize;
@@ -482,6 +494,75 @@ pub(super) fn observe_payload(
         "stopped": stopped,
         "events": events,
     }))
+}
+
+/// Publish the point after which mutations are ordered after the complete
+/// poll-diff baseline. The temporary file lives beside the destination and
+/// is published with a same-filesystem hard link, so publication is atomic,
+/// refuses to overwrite an existing caller marker, and a reader can never
+/// mistake partial JSON for readiness. The caller owns marker cleanup.
+fn publish_observe_ready(path: &str, window: isize, backend: &str) -> Result<(), CuError> {
+    use std::io::Write;
+
+    let destination = std::path::Path::new(path);
+    let Some(parent) = destination.parent() else {
+        return Err(CuError::new(
+            "observe_ready_publish_failed",
+            "--ready-path has no parent directory",
+        ));
+    };
+    if !parent.as_os_str().is_empty() && !parent.is_dir() {
+        return Err(CuError::new(
+            "observe_ready_publish_failed",
+            format!("--ready-path parent does not exist: {}", parent.display()),
+        ));
+    }
+    if destination.exists() {
+        return Err(CuError::new(
+            "observe_ready_publish_failed",
+            format!("--ready-path already exists: {}", destination.display()),
+        ));
+    }
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            CuError::new(
+                "observe_ready_publish_failed",
+                "--ready-path needs a UTF-8 file name",
+            )
+        })?;
+    let temporary = parent.join(format!(".{file_name}.{}.tmp", std::process::id()));
+    let body = serde_json::to_vec(&serde_json::json!({
+        "schema": 1,
+        "state": "ready",
+        "mode": "poll-diff",
+        "window": window,
+        "backend": backend,
+    }))
+    .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(&body)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::hard_link(&temporary, destination)?;
+        std::fs::remove_file(&temporary)
+    })();
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(CuError::new(
+            "observe_ready_publish_failed",
+            format!(
+                "could not publish --ready-path {}: {error}",
+                destination.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// One expectation checked against one flattened tree.
@@ -605,6 +686,56 @@ pub(super) fn verify_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observe_ready_marker_is_atomic_owned_json_and_never_overwrites() {
+        let directory = std::env::temp_dir().join(format!(
+            "agenterm-cu-observe-ready-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).expect("temporary directory");
+        let path = directory.join("ready.json");
+        publish_observe_ready(path.to_str().expect("UTF-8 path"), 41, "atspi")
+            .expect("publish marker");
+        let marker: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("read marker"))
+                .expect("parse marker");
+        assert_eq!(marker["schema"], 1);
+        assert_eq!(marker["state"], "ready");
+        assert_eq!(marker["mode"], "poll-diff");
+        assert_eq!(marker["window"], 41);
+        assert_eq!(marker["backend"], "atspi");
+        let error = publish_observe_ready(path.to_str().expect("UTF-8 path"), 42, "ax")
+            .expect_err("caller-owned marker is never overwritten");
+        assert_eq!(error.code, "observe_ready_publish_failed");
+        assert_eq!(
+            marker,
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).unwrap()).unwrap()
+        );
+        std::fs::remove_file(path).expect("remove marker");
+        std::fs::remove_dir(directory).expect("remove temporary directory");
+    }
+
+    #[test]
+    fn native_observe_refuses_a_ready_marker_before_touching_the_backend() {
+        let error = observe_payload(
+            1,
+            1_000,
+            Some("unused-ready.json"),
+            None,
+            None,
+            None,
+            &[],
+            None,
+            Some("notifications"),
+        )
+        .expect_err("native subscription readiness is not implemented");
+        assert_eq!(error.code, "invalid_input");
+    }
 
     #[test]
     fn tree_and_query_budgets_fail_typed_before_any_mechanism_call() {
