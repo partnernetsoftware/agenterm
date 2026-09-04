@@ -475,6 +475,20 @@ pub enum Command {
         cursor: String,
         max_bytes: usize,
     },
+    /// Send exact UTF-8 bytes to one named headless PTY job.
+    PtySend {
+        target: TargetRef,
+        name: String,
+        text: String,
+    },
+    /// Wait for exact UTF-8 bytes in one job's loss-aware retained output.
+    PtyWait {
+        target: TargetRef,
+        name: String,
+        contains: String,
+        cursor: String,
+        timeout_ms: u64,
+    },
     /// Wait for one named job's terminal reader to finalize and optionally
     /// require an exact process exit status.
     PtyWaitExit {
@@ -1788,6 +1802,8 @@ impl Command {
             Self::PtyStart { .. } => "pty-start".into(),
             Self::PtyStatus { .. } => "pty-status".into(),
             Self::PtyRead { .. } => "pty-read".into(),
+            Self::PtySend { .. } => "pty-send".into(),
+            Self::PtyWait { .. } => "pty-wait".into(),
             Self::PtyWaitExit { .. } => "pty-wait-exit".into(),
             Self::PtyStop { .. } => "pty-stop".into(),
             Self::TerminalList { .. } => "terminal-list".into(),
@@ -1891,6 +1907,8 @@ impl Command {
             | Self::PtyStart { target, .. }
             | Self::PtyStatus { target, .. }
             | Self::PtyRead { target, .. }
+            | Self::PtySend { target, .. }
+            | Self::PtyWait { target, .. }
             | Self::PtyWaitExit { target, .. }
             | Self::PtyStop { target, .. }
             | Self::TerminalList { target, .. }
@@ -1977,6 +1995,7 @@ impl Command {
             Self::PointerMove { .. }
             | Self::ProcessKill { .. }
             | Self::PtyStart { .. }
+            | Self::PtySend { .. }
             | Self::PtyStop { .. }
             | Self::TerminalSend { .. }
             | Self::TerminalNew { .. }

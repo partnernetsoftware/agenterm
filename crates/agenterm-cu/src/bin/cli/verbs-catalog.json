@@ -536,6 +536,34 @@
       ]
     },
     {
+      "name": "pty-send",
+      "command": "pty-send",
+      "aliases": ["pty send"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "send exact UTF-8 bytes to a PTY job",
+      "usage": "pty-send NAME -- TEXT\npty send NAME -- TEXT",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name"},
+        {"flag": "--", "value": "TEXT", "help": "one non-empty literal UTF-8 argument, at most 1048576 bytes"}
+      ]
+    },
+    {
+      "name": "pty-wait",
+      "command": "pty-wait",
+      "aliases": ["pty wait"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "wait for exact bytes in retained PTY output",
+      "usage": "pty-wait NAME --contains TEXT [--cursor earliest|current|N] [--timeout-ms N]\npty wait NAME ...",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name"},
+        {"flag": "--contains", "value": "TEXT", "help": "exact UTF-8 bytes, 1..=65536 bytes"},
+        {"flag": "--cursor", "value": "CURSOR", "help": "loss-aware starting cursor (default earliest)"},
+        {"flag": "--timeout-ms", "value": "N", "help": "monotonic deadline, 1..=86400000 (default 30000)"}
+      ]
+    },
+    {
       "name": "pty-wait-exit",
       "command": "pty-wait-exit",
       "aliases": ["pty wait-exit"],
@@ -3531,6 +3559,14 @@
     {
       "name": "pty-read",
       "text": "agenterm-cu pty-read    (also: pty read)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-read NAME [--cursor earliest|current|N] [--max-bytes N]\n  pty read NAME ...\n\nReads the same retained redacted raw PTY byte ring as terminal-output. Base64 is lossless; valid UTF-8 is auxiliary. Continue from next_cursor. Overwritten and future cursors fail typed rather than silently skipping bytes.\n"
+    },
+    {
+      "name": "pty-send",
+      "text": "agenterm-cu pty-send    (also: pty send)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-send NAME -- TEXT\n  pty send NAME -- TEXT\n\nSends one non-empty literal UTF-8 argument to the exact epoch-scoped job tab and requires AgenTerm's committed control receipt. No Enter or shell interpretation is implicit; include \\r or \\n in TEXT when the target program requires it. Same-name mutations are serialized.\n"
+    },
+    {
+      "name": "pty-wait",
+      "text": "agenterm-cu pty-wait    (also: pty wait)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-wait NAME --contains TEXT [--cursor earliest|current|N] [--timeout-ms N]\n  pty wait NAME ...\n\nWaits for exact UTF-8 bytes in the loss-aware retained raw-output stream, including a match split across output pages. The reply reports its byte cursor and scan count. Overwritten/future cursors, timeout, and finalized-without-match are distinct typed failures; output is never reduced to a screen snapshot.\n"
     },
     {
       "name": "pty-wait-exit",

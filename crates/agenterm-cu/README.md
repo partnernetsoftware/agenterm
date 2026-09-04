@@ -88,6 +88,8 @@ shell unless the caller explicitly names one:
 ```bash
 cu --grant actuate pty-start build-1 -- /usr/bin/make test
 cu pty-status build-1
+cu --grant actuate pty-send build-1 -- $'status\r'
+cu pty-wait build-1 --contains ready --cursor current --timeout-ms 10000
 cu pty-read build-1 --cursor earliest --max-bytes 65536
 cu pty-wait-exit build-1 --timeout-ms 60000 --expect-status 0
 cu --grant actuate pty-stop build-1 --expect stopped
@@ -95,10 +97,14 @@ cu --grant actuate pty-stop build-1 --expect stopped
 
 Job names are 1–64 ASCII letters, digits, `.`, `_` or `-`. Identity is the job
 name plus its private server scope, epoch and stable tab id. Concurrent starts
-have one winner; duplicate jobs and exit mismatches fail typed. `pty-stop`
+have one winner; duplicate jobs and exit mismatches fail typed. `pty-send`
+transmits one exact literal argument with no implicit Enter. `pty-wait` scans
+the loss-aware retained byte stream from an explicit cursor, preserves matches
+split across pages, and distinguishes timeout, cursor loss, and finalized
+without a match. `pty-stop`
 proves the dedicated endpoint disappeared, so a lost shutdown response cannot
 turn a completed destructive action into a false failure. Reuse, list/prune,
-input/events/screen projection and process-group control remain explicit gaps.
+events/screen projection and process-group control remain explicit gaps.
 
 Every ordinary invocation writes exactly one `CuReply` JSON object to stdout.
 The process status agrees with it: `ok:true` exits 0, a typed runtime failure

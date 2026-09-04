@@ -477,7 +477,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   cursor reads → finalized → exact close → zero-tab survival → explicit server
   shutdown. The discarded first run exposed and led to the separate CLI exit
   truth fix in `5446f2c7`; it contributes no server evidence. The first durable
-  facade is now public as `pty-start/status/read/wait-exit/stop`: a validated
+  facade is now public as `pty-start/status/read/send/wait/wait-exit/stop`: a validated
   job name selects one private zero-tab server instance, then binds the owned
   process to its exact scope, epoch and stable `@tab`. Start/stop are serialized
   by a cross-process lock; read reuses the raw retention cursor; wait can
@@ -486,7 +486,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   duplicate and exit-mismatch failures, output continuation, finalization and
   endpoint disappearance after shutdown. Both Windows targets pass
   `cargo-xwin` checks and both Linux targets pass `cargo-zigbuild`.
-  Reuse/list/prune, stale reclamation, process-tree control and native
+  The interactive slice now sends one exact literal UTF-8 argument with a
+  committed control receipt and waits on the retained raw byte stream from an
+  explicit cursor. Its bounded overlap preserves a match split across output
+  pages; overwritten/future cursors, timeout, and finalized-without-match are
+  separate typed failures. This is stronger than polling the current screen,
+  but deliberately does not claim MCU regex-wait parity yet.
+  Reuse/list/prune, event/screen projection, stale reclamation, process-tree control and native
   Linux/Windows lifecycle courts remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
@@ -516,7 +522,7 @@ flowchart LR
   D --> Q
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
-  H --> J["pty start/status/read/wait/stop ✓<br/>exact job + epoch + @tab"]
+  H --> J["pty start/status/read/send/wait/wait-exit/stop ✓<br/>exact job + epoch + @tab"]
   J --> J2["reuse/list/prune + stale/process-tree cleanup"]
   J2 --> Q
   Q -->|macOS green| M1["public evidence live"]

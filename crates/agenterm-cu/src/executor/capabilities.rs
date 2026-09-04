@@ -494,6 +494,13 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         for (verb, grant, mode) in [
+            ("pty-start", "actuate", "isolated-headless-job-start"),
+            ("pty-status", "observe", "identity-bound-job-status"),
+            ("pty-read", "observe", "loss-aware-retained-raw-byte-cursor"),
+            ("pty-send", "actuate", "literal-headless-pty-input"),
+            ("pty-wait", "observe", "loss-aware-retained-byte-wait"),
+            ("pty-wait-exit", "observe", "drained-exit-status-wait"),
+            ("pty-stop", "actuate", "verified-authority-disappearance"),
             ("terminal-list", "observe", "structured-ui-bootstrap"),
             ("terminal-new", "actuate", "verified-owned-tab-create"),
             (
@@ -528,11 +535,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 verb.into(),
                 serde_json::json!({
                     "status": "available",
-                    "group": "agenterm-terminal",
+                    "group": if verb.starts_with("pty-") { "headless-pty-job" } else { "agenterm-terminal" },
                     "grant": grant,
                     "mode": mode,
                     "transport": "agenterm-control-protocol",
-                    "requires_running_agenterm": true,
+                    "requires_running_agenterm": !verb.starts_with("pty-"),
                 }),
             );
         }

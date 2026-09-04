@@ -105,7 +105,7 @@ flowchart LR
   C -->|"zero tabs + two cursor reads + cleanup"| D["ACCEPT reuse server"]
   C -->|"any hard invariant fails"| B
   D --> I["job id = instance + epoch + @tab ✓"]
-  D --> S["start/status/read/wait-exit/stop ✓<br/>reuse/list/prune pending"]
+  D --> S["start/status/read/send/wait/wait-exit/stop ✓<br/>reuse/list/prune pending"]
   D --> R["existing retention / redaction / ConPTY / POSIX PTY"]
   I --> G{"three-host public qjswasm court"}
   S --> G
@@ -125,7 +125,7 @@ verbs are productization gaps, not evidence for a second kernel.
 ## First product slice · 2026-09-05
 
 The public ACU facade now exposes `pty-start`, `pty-status`, `pty-read`,
-`pty-wait-exit` and `pty-stop`. One validated job name deterministically maps to
+`pty-send`, `pty-wait`, `pty-wait-exit` and `pty-stop`. One validated job name deterministically maps to
 one private `ephemeral:acu-pty-*` server instance; the server starts with zero
 tabs, then owns exactly one typed-argv job tab. Start and stop serialize through
 a cross-process path lock. Read reuses the terminal owner's loss-aware raw byte
@@ -140,3 +140,11 @@ dedicated control endpoint disappeared. A shutdown ACK is auxiliary because a
 successful destructive operation may remove the response authority itself.
 Both Windows ISA cells pass `cargo-xwin` checking and both Linux ISA cells pass
 `cargo-zigbuild`; native Linux and Windows lifecycle courts remain open.
+
+The next interactive court on the same owner passed on macOS: an interactive
+shell received exact literal input, `pty-wait` found the response in retained
+raw bytes, exit status 7 was verified, and explicit stop removed the endpoint.
+Wait advances a loss-aware byte cursor and carries `needle.len - 1` bytes across
+page boundaries, so it neither reduces history to the current screen nor loses
+a split match. Regex waits and terminal event/screen projection remain separate
+leaves rather than silently weaker aliases.

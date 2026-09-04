@@ -698,13 +698,35 @@ pub(super) fn terminal_send_payload(
         ));
     }
     let client = client()?;
+    terminal_send_with_client(&client, tab, text, receipts)
+}
+
+pub(super) fn terminal_send_with_client(
+    client: &ControlClient,
+    tab: &str,
+    text: &str,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if text.is_empty() {
+        return Err(CuError::new(
+            "terminal_send_empty",
+            "terminal-send text must not be empty",
+        ));
+    }
+    if text.len() > CAPTURE_MAX_BYTES {
+        return Err(CuError::new(
+            "terminal_send_too_large",
+            "terminal-send text exceeds 1048576 bytes",
+        ));
+    }
     let ticket = receipts.reserve(
         "terminal-send",
         0,
         json!({ "tab_id": tab, "text_bytes": text.len(), "before": "unknown" }),
     )?;
     let result = request(
-        &client,
+        client,
         vec![
             "send-keys".to_owned(),
             "-t".to_owned(),

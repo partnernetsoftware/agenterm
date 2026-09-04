@@ -20,14 +20,41 @@ use agenterm_platform::{
 };
 use serde_json::{Value, json};
 
+use crate::cdp::page::base64_decode;
 use crate::{CuError, TerminalWaitCondition, receipt::ReceiptLog};
 
 use super::{
     parse_output, request, terminal_close_with_client, terminal_inventory_with_client,
-    terminal_new_with_client, terminal_output_with_client, terminal_wait_with_client,
+    terminal_new_with_client, terminal_output_with_client, terminal_send_with_client,
+    terminal_wait_with_client,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn scan_exact_page(
+    overlap: &mut Vec<u8>,
+    page: &[u8],
+    needle: &[u8],
+    page_start_cursor: u64,
+) -> Option<u64> {
+    let overlap_len = overlap.len();
+    overlap.extend_from_slice(page);
+    if let Some(position) = overlap
+        .windows(needle.len())
+        .position(|part| part == needle)
+    {
+        return Some(
+            page_start_cursor
+                .saturating_sub(overlap_len as u64)
+                .saturating_add(position as u64),
+        );
+    }
+    let retain = needle.len().saturating_sub(1).min(overlap.len());
+    if overlap.len() > retain {
+        overlap.drain(..overlap.len() - retain);
+    }
+    None
+}
 
 fn validate_name(name: &str) -> Result<(), CuError> {
     let valid = !name.is_empty()
@@ -382,6 +409,155 @@ pub(super) fn pty_read_payload(
     Ok(output)
 }
 
+pub(super) fn pty_send_payload(
+    name: &str,
+    text: &str,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    let directory = job_directory(name)?;
+    let _lock = acquire_job_lock(&directory)?;
+    let client = client_for(name)?;
+    let (inventory, tab) = sole_job(&client, name)?;
+    let tab_id = tab["id"].as_str().ok_or_else(|| {
+        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+    })?;
+    let sent = terminal_send_with_client(&client, tab_id, text, receipts)?;
+    Ok(json!({
+        "name": name,
+        "server_epoch": inventory["server_epoch"],
+        "tab_id": tab_id,
+        "text_bytes": text.len(),
+        "performed": sent["performed"],
+        "verified": sent["verified"],
+        "identity": "job-name+server-scope+epoch+tab-id",
+        "send": sent,
+    }))
+}
+
+pub(super) fn pty_wait_payload(
+    name: &str,
+    contains: &str,
+    cursor: &str,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    validate_name(name)?;
+    if contains.is_empty() || contains.len() > 65_536 {
+        return Err(CuError::new(
+            "pty_job_wait_condition_invalid",
+            "pty-wait --contains must be 1..=65536 bytes",
+        ));
+    }
+    if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
+        return Err(CuError::new(
+            "pty_job_wait_cursor_invalid",
+            "pty-wait --cursor must be earliest, current, or a non-negative integer",
+        ));
+    }
+    if !(1..=86_400_000).contains(&timeout_ms) {
+        return Err(CuError::new(
+            "pty_job_wait_limit_invalid",
+            "pty-wait --timeout-ms must be in 1..=86400000",
+        ));
+    }
+    let client = client_for(name)?;
+    let (inventory, tab) = sole_job(&client, name)?;
+    let tab_id = tab["id"].as_str().ok_or_else(|| {
+        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+    })?;
+    let needle = contains.as_bytes();
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(timeout_ms);
+    let mut next = cursor.to_owned();
+    let mut overlap = Vec::new();
+    let mut scanned_bytes = 0_u64;
+    loop {
+        let page = terminal_output_with_client(&client, tab_id, &next, 1_048_576)?;
+        let start_cursor = page["start_cursor"].as_u64().ok_or_else(|| {
+            CuError::new(
+                "pty_job_wait_output_invalid",
+                "PTY output omitted start_cursor",
+            )
+        })?;
+        let next_cursor = page["next_cursor"].as_u64().ok_or_else(|| {
+            CuError::new(
+                "pty_job_wait_output_invalid",
+                "PTY output omitted next_cursor",
+            )
+        })?;
+        let current_cursor = page["current_cursor"].as_u64().ok_or_else(|| {
+            CuError::new(
+                "pty_job_wait_output_invalid",
+                "PTY output omitted current_cursor",
+            )
+        })?;
+        let encoded = page["data_base64"].as_str().ok_or_else(|| {
+            CuError::new(
+                "pty_job_wait_output_invalid",
+                "PTY output omitted data_base64",
+            )
+        })?;
+        let bytes = base64_decode(encoded).map_err(|reason| {
+            CuError::new(
+                "pty_job_wait_output_invalid",
+                format!("PTY output base64 was invalid: {reason}"),
+            )
+        })?;
+        scanned_bytes = scanned_bytes.saturating_add(bytes.len() as u64);
+        if let Some(matched_at_cursor) = scan_exact_page(&mut overlap, &bytes, needle, start_cursor)
+        {
+            return Ok(json!({
+                "name": name,
+                "server_epoch": inventory["server_epoch"],
+                "tab_id": tab_id,
+                "condition": { "kind": "contains", "bytes": needle.len() },
+                "state": "matched",
+                "completed": true,
+                "matched_at_cursor": matched_at_cursor,
+                "next_cursor": next_cursor,
+                "scanned_bytes": scanned_bytes,
+                "elapsed_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                "identity": "job-name+server-scope+epoch+tab-id+raw-output-cursor",
+            }));
+        }
+        next = next_cursor.to_string();
+        if next_cursor < current_cursor {
+            continue;
+        }
+        if Instant::now() >= deadline {
+            return Err(CuError::new(
+                "pty_job_wait_timeout",
+                "PTY output did not contain the requested bytes before the deadline",
+            )
+            .with_detail(json!({
+                "name": name,
+                "tab_id": tab_id,
+                "timeout_ms": timeout_ms,
+                "next_cursor": next_cursor,
+                "scanned_bytes": scanned_bytes,
+            })));
+        }
+        let status = status_with_client(&client, name)?;
+        if status["finalized"].as_bool() == Some(true) {
+            return Err(CuError::new(
+                "pty_job_wait_unmatched_after_exit",
+                "PTY job finalized before its output contained the requested bytes",
+            )
+            .with_detail(json!({
+                "name": name,
+                "tab_id": tab_id,
+                "exit_code": status["exit_code"],
+                "next_cursor": next_cursor,
+                "scanned_bytes": scanned_bytes,
+            })));
+        }
+        thread::sleep(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(50)),
+        );
+    }
+}
+
 pub(super) fn pty_wait_exit_payload(
     name: &str,
     timeout_ms: u64,
@@ -481,6 +657,16 @@ mod tests {
         assert_eq!(
             validate_name(&"x".repeat(65)).unwrap_err().code,
             "pty_job_name_invalid"
+        );
+    }
+
+    #[test]
+    fn exact_wait_preserves_a_match_split_across_pages() {
+        let mut overlap = Vec::new();
+        assert_eq!(scan_exact_page(&mut overlap, b"xxNE", b"NEED", 10), None);
+        assert_eq!(
+            scan_exact_page(&mut overlap, b"EDyy", b"NEED", 14),
+            Some(12)
         );
     }
 }

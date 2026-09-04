@@ -28,8 +28,9 @@ scope + epoch + `@tab`。读明确是 bounded screen snapshot，不冒充增量 
 parent 关系、detached 子进程输出、精确关闭和最后 tab 后空 server 存活；注册旅程
 已以 44 STEP / 45 evidence 全绿。Linux 新 STEP
 全过，但同套件后续旧 observe 段红而没有签出整套 evidence；Windows court
-在投送产品前被 interactive nonce 阻断。任意 headless PTY/job、进程树管理与
-任意 headless PTY/job 仍是下一层 gap。`terminal-snapshot` 已返回有界的
+在投送产品前被 interactive nonce 阻断。Headless PTY 已有独立 server owner，
+且 `pty-start/status/read/send/wait/wait-exit/stop` 已形成首个交互闭环；registry、
+event/screen projection 与进程树管理仍是下一层 gap。`terminal-snapshot` 已返回有界的
 cell runs / style / terminal cursor / modes，并附 `(server_scope_id, epoch, sequence)`；
 `terminal-events` 以同一 epoch/sequence 继续有界 delta journal。它对外只返回目标
 tab 的事件和 screen update，但 cursor 会跨过所有已扫描事件，避免其它 tab 令过滤

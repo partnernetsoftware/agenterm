@@ -66,6 +66,49 @@ pub fn parse(
                 max_bytes,
             })
         }
+        "pty-send" => {
+            let name = required_name(args, "pty-send")?;
+            if args.first().map(String::as_str) == Some("--") {
+                args.remove(0);
+            }
+            if args.len() != 1 || args[0].is_empty() {
+                return Err(
+                    "pty-send requires exactly one non-empty text argument after --; quote text containing spaces"
+                        .into(),
+                );
+            }
+            if args[0].len() > 1_048_576 {
+                return Err("pty-send text exceeds 1048576 bytes".into());
+            }
+            let text = args.remove(0);
+            Ok(Command::PtySend { target, name, text })
+        }
+        "pty-wait" => {
+            let name = required_name(args, "pty-wait")?;
+            let contains = flag_text(args, "--contains")?
+                .ok_or_else(|| "pty-wait requires --contains TEXT".to_owned())?;
+            if contains.is_empty() || contains.len() > 65_536 {
+                return Err("pty-wait --contains must be 1..=65536 bytes".into());
+            }
+            let cursor = flag_text(args, "--cursor")?.unwrap_or_else(|| "earliest".to_owned());
+            if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
+                return Err(
+                    "pty-wait --cursor must be earliest, current, or a non-negative integer".into(),
+                );
+            }
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(30_000);
+            if !(1..=86_400_000).contains(&timeout_ms) {
+                return Err("pty-wait --timeout-ms must be in 1..=86400000".into());
+            }
+            empty(args, "pty-wait")?;
+            Ok(Command::PtyWait {
+                target,
+                name,
+                contains,
+                cursor,
+                timeout_ms,
+            })
+        }
         "pty-wait-exit" => {
             let name = required_name(args, "pty-wait-exit")?;
             let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(300_000);
@@ -342,6 +385,19 @@ mod tests {
                 if name == "build" && cursor == "12"
         ));
         assert!(matches!(
+            parse("pty-send", &["build", "--", "hello\r"]).unwrap(),
+            Command::PtySend { name, text, .. } if name == "build" && text == "hello\r"
+        ));
+        assert!(matches!(
+            parse(
+                "pty-wait",
+                &["build", "--contains", "ready", "--cursor", "current", "--timeout-ms", "9"]
+            )
+            .unwrap(),
+            Command::PtyWait { name, contains, cursor, timeout_ms: 9, .. }
+                if name == "build" && contains == "ready" && cursor == "current"
+        ));
+        assert!(matches!(
             parse("pty-wait-exit", &["build", "--timeout-ms", "9", "--expect-status", "0"]).unwrap(),
             Command::PtyWaitExit { name, timeout_ms: 9, expect_status: Some(0), .. }
                 if name == "build"
@@ -352,6 +408,8 @@ mod tests {
         ));
         assert!(parse("pty-start", &["bad/name", "--", "true"]).is_err());
         assert!(parse("pty-start", &["build"]).is_err());
+        assert!(parse("pty-send", &["build", ""]).is_err());
+        assert!(parse("pty-wait", &["build"]).is_err());
         assert!(parse("pty-stop", &["build"]).is_err());
         assert!(matches!(
             parse("terminal-list", &[]).unwrap(),

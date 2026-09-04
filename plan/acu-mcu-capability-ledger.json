@@ -526,9 +526,11 @@
         {
           "id": "pty.background.io",
           "mcu_shape": "pty --provider native|tmux read|send|wait|events with cursors and byte/event limits",
-          "acu_shape": "pty-read exposes the retained raw-output cursor; send, general waits and event projection remain open",
-          "state": "gap",
-          "next": "bounded binary-safe read/write/event stream with monotonic cursors, typed truncation, deadline and owner cleanup"
+          "acu_shape": "pty-read exposes the retained raw-output cursor; pty-send writes exact literal UTF-8; pty-wait scans exact UTF-8 across retained raw-output pages from an explicit cursor",
+          "state": "native",
+          "qualification": "macos-public-process-green-linux-and-windows-native-courts-pending",
+          "next": "add loss-aware event projection and run the interactive lifecycle on native Linux and Windows",
+          "note": "No Enter is implicit. Wait preserves a boundary overlap so a needle split across pages still matches; overwritten/future cursors, timeout and finalized-without-match remain distinct typed failures. MCU regex wait remains on MCU until ACU has an equally bounded regex contract."
         },
         {
           "id": "pty.background.screen",

@@ -156,6 +156,16 @@ impl Executor {
                 max_bytes,
                 ..
             } => pty_read_payload(name, cursor, *max_bytes),
+            Command::PtySend { name, text, .. } => {
+                pty_send_payload(name, text, &mut self.open_receipts(command.target())?)
+            }
+            Command::PtyWait {
+                name,
+                contains,
+                cursor,
+                timeout_ms,
+                ..
+            } => pty_wait_payload(name, contains, cursor, *timeout_ms),
             Command::PtyWaitExit {
                 name,
                 timeout_ms,

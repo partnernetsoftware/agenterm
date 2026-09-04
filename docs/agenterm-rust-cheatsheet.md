@@ -3617,6 +3617,15 @@ when the whole page validates, and advance `next_cursor` by bytes actually
 returned. Reuse the terminal owner's redacted ring instead of adding a second
 cache with a different lifetime or secrecy contract.
 
+An exact substring wait over that raw cursor must retain the last
+`needle.len() - 1` bytes between pages. Search `overlap + page`, report the
+absolute match cursor, then advance only to the source's `next_cursor`. Poll
+only when caught up; consume immediately while `next_cursor < current_cursor`.
+Propagate a retention gap or future cursor, distinguish deadline expiry from a
+finalized process with no match, and cap both needle and page sizes. A current
+screen search cannot replace this contract because scrollback can disappear
+while retained output is still authoritative.
+
 ## Make machine JSON and process status agree
 
 A CLI that always emits a typed JSON envelope still participates in shell and

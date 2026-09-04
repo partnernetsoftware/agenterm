@@ -228,11 +228,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   ACU facade now reaches all six through one scope+epoch+`@tab` identity and
   verifies lifecycle effects by inventory read-back; the registered qjswasm
   journey owns the public assertion and awaits the next three-host run.
-  The first headless layer is also live: `pty-start/status/read/wait-exit/stop`
+  The first headless layer is also live: `pty-start/status/read/send/wait/wait-exit/stop`
   map one validated job name to one isolated zero-UI server instance and exact
   epoch+`@tab` identity. A macOS race court proved one owner under concurrent
-  start, loss-aware output continuation, exact exit mismatch, and verified
-  shutdown. Reuse/list/prune, input/events/screen projection, stale registry
+  start, loss-aware output continuation, literal input, cross-page exact wait,
+  exact exit mismatch, and verified shutdown. Reuse/list/prune, events/screen projection, stale registry
   reclamation and process-group control remain open; one process is not claimed
   as job-group coverage.
 - MCU `exec <command...>` and ACU `exec --json` currently mean different
@@ -337,7 +337,8 @@ Q3 owned runtime facades
 │  ├─ [~] raw-output cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
 │  ├─ [~] portable owned headless PTY: existing agenterm server selected as sole owner
 │  │  ├─ [x] decision court: cross-process, zero-tab, cursor continuation, shutdown green
-│  │  ├─ [x] public pty-start/status/read/wait-exit/stop + exact identity
+│  │  ├─ [x] public pty-start/status/read/send/wait/wait-exit/stop + exact identity
+│  │  ├─ [x] literal input + loss-aware cross-page exact-output wait
 │  │  ├─ [x] concurrent-start single-owner + typed exit mismatch + verified shutdown court
 │  │  └─ [ ] reuse/list/prune + stale registry + process-tree cleanup
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
