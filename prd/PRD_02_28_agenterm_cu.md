@@ -470,6 +470,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   proves current → literal send → incremental reply → empty tail. Linux and
   Windows courts remain pending.
 
+  The bounded headless-owner court has also decided the next architecture
+  branch: reuse the existing independent `agenterm server`, not a new CU
+  daemon. Under one isolated logical instance, separate ACU processes proved
+  initial-tab close → zero-tab survival → detached job creation → two exact raw
+  cursor reads → finalized → exact close → zero-tab survival → explicit server
+  shutdown. The discarded first run exposed and led to the separate CLI exit
+  truth fix in `5446f2c7`; it contributes no server evidence. Durable job ids,
+  concurrent start, stale reclamation and process-tree cleanup remain open.
+  The frozen court and kill criterion are
+  [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
+
   The same macOS journey's opt-in qjswasm attribution receipt reported
   135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
   7,217,696-byte heap waterline. `JSON.parse` / `JSON.stringify` account for
@@ -494,6 +505,9 @@ flowchart LR
   L --> Q
   D --> Q
   B --> Q
+  K --> H["headless server<br/>single PTY owner"]
+  H --> J["future job id + supervisor<br/>stale/process-tree cleanup"]
+  J --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
   Q -->|Windows transport blocked| W1["repair court; zero product claim"]

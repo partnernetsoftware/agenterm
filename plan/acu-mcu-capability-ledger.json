@@ -508,10 +508,10 @@
         {
           "id": "pty.background.lifecycle",
           "mcu_shape": "pty --provider native|tmux list|prune|start|status|wait-exit|stop",
-          "acu_shape": null,
+          "acu_shape": "planned public pty supervisor over one isolated headless agenterm server; job identity binds logical instance + server epoch + stable @tab",
           "state": "gap",
-          "next": "portable owned-headless-PTY facade in agenterm-platform with Windows ConPTY and POSIX PTY adapters, stable identity and stale-owner reclamation",
-          "note": "A visible AgenTerm tab is an alternative product surface, not a substitute for an arbitrary background PTY."
+          "next": "add start/reuse/status/list/stop/prune supervision, concurrent-start and stale/process-tree cleanup courts without creating another PTY daemon",
+          "note": "The 2026-09-05 decision court selected the existing headless agenterm server as sole PTY owner: isolated cross-process calls, zero-tab survival, raw cursor continuation and explicit shutdown passed. A visible tab is still not the public background-job shape; the missing layer is durable job supervision, not a second POSIX PTY/ConPTY implementation."
         },
         {
           "id": "pty.background.io",

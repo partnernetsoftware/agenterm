@@ -331,7 +331,9 @@ Q3 owned runtime facades
 │  ├─ [~] terminal cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
 │  ├─ [x] terminal-output: retained raw bytes + absolute cursor + typed gap/future failures
 │  ├─ [~] raw-output cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
-│  ├─ [ ] portable owned headless PTY (POSIX PTY + Windows ConPTY)
+│  ├─ [~] portable owned headless PTY: existing agenterm server selected as sole owner
+│  │  ├─ [x] decision court: cross-process, zero-tab, cursor continuation, shutdown green
+│  │  └─ [ ] public pty job identity + supervisor + stale/process-tree cleanup
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe
