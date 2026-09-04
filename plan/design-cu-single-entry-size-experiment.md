@@ -137,6 +137,22 @@ needed to reproduce it.
 
 ## 8. Result
 
-Pending. The Thin/Fat numbers above are exploratory pilots obtained before
-this specification; both must be rerun by `research/cu-size-budget/measure.sh`
-before they can decide a branch.
+### A/B exact rerun — B rejected at S1
+
+Both variants were rerun from clean exact source `b7ba020b` with
+`research/cu-size-budget/measure.sh`; commands, section bytes and complete
+provenance are retained in `research/cu-size-budget/RESULTS.md`.
+
+```text
+A Thin baseline = 2,376,704 B · 18 s package rebuild
+└─ B Fat LTO    = 2,268,672 B · 21 s package rebuild
+   ├─ S4 latency: PASS (21 s < 60 s; +16.7% < 25%)
+   └─ S1 size: FAIL (171,520 B above 2 MiB) → stop B → enter C
+```
+
+Fat LTO recovers 108,032 bytes and substantially reduces PE unwind metadata,
+but the decision tree checks S1 before convenience: B is not an accepted
+solution. S0 was not rerun for a variant already killed by S1, and no metric or
+threshold was changed after seeing the result. The result overturned the hope
+that linker configuration alone could close the court; Variant C now owns the
+next measurement.
