@@ -37,14 +37,15 @@ agenterm-qjswasm
 ├─ product doors
 │  ├─ [x] print and engine-neutral Script host bridge
 │  ├─ [x] Fleet facade and public CLI route
-│  ├─ [x] qualify / pack / run / bounded check-many
+│  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [~] tool.* and release-task coverage grows by product need
 │  └─ [ ] every v0.1.18 release-critical journey has live .qjs evidence
 ├─ robustness
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
-│  └─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
+│  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
+│  └─ [x] check-many entry + recursive imports share bytes/modules/deadline budgets
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
 │  ├─ [x] cached-length/all-ASCII experiment rejected: 166 > 160-step hard gate
@@ -75,6 +76,7 @@ agenterm-qjswasm
 ```mermaid
 flowchart LR
   SRC[".qjs source"]
+  MANY["check-many manifest<br/>entry + recursive import ledger"]
   COMP["tinyvm-qjs<br/>parse · lower · encode"]
   WASM["standard .wasm bytes"]
   LOAD{"tinyvm validate<br/>Limits accepted?"}
@@ -108,7 +110,8 @@ flowchart LR
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
   STANDARD["WASI / Component compatibility<br/>in generic tinyvm layer"]
 
-  SRC --> COMP --> WASM --> LOAD
+  MANY --> SRC --> COMP --> WASM --> LOAD
+  MANY -. bytes · modules · deadline .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
   PRODUCT -. child process .-> CAPTURE --> RECEIPT
@@ -206,6 +209,11 @@ second route around ACU/AgenTerm product contracts.
   Explicit kill, timeout, cancellation and slot reclamation terminate the tree
   before reaping the direct child; guard-attachment failure kills the newly
   spawned child and fails typed instead of returning an uncontained handle.
+- [x] `check-many` charges entry files and recursively resolved imports to one
+  aggregate source ledger, applies the per-source byte limit to every imported
+  module, caps resolved modules at 1024 and checks the same wall deadline during
+  resolution and after compilation. Budget failures keep the public `limit`
+  exit class; unresolved modules remain ordinary script diagnostics.
 - [x] qjswasm tool process reports a missing child as a typed failure.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.

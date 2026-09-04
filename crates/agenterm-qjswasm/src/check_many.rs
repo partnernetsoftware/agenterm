@@ -5,7 +5,10 @@
 //! every entry through the tool door, with imports rooted first beside the
 //! entry and then at the declared project root.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use agenterm_script_common::check_many::{self, CheckFailure};
 
@@ -14,17 +17,33 @@ pub use agenterm_script_common::check_many::{
 };
 
 pub const QJS_CHECK_MANIFEST_KIND: &str = "agenterm-qjs-check-manifest";
+pub const IMPORT_MODULES_MAX: usize = 1_024;
 
 pub fn read_manifest(path: &Path) -> Result<CheckManyManifest, String> {
     check_many::read_manifest(path, &[QJS_CHECK_MANIFEST_KIND])
 }
 
 pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) -> CheckManyReport {
+    let deadline = Instant::now() + Duration::from_millis(options.wall_time_ms);
+    let per_source_max = options.source_bytes;
+    let aggregate_source_max = check_many::TOTAL_SOURCE_MAX_BYTES;
+    let mut compile_source_bytes = 0_usize;
+    let mut imported_modules = 0_usize;
     check_many::run_check_many(
         manifest,
         options,
         "agenterm-qjswasm-check-many",
         |source, path, root| {
+            compile_source_bytes = compile_source_bytes.saturating_add(source.len());
+            if compile_source_bytes > aggregate_source_max {
+                return Err(CheckFailure::new(
+                    "limit_import_source_bytes",
+                    format!(
+                        "entry and imported source exceeds aggregate limit of {aggregate_source_max} bytes"
+                    ),
+                    "limit",
+                ));
+            }
             let script_root = root.join("scripts/qjs");
             let module_root = if script_root.is_dir() {
                 script_root
@@ -39,7 +58,15 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
-            let resolve = resolver(&roots);
+            let resolver_state = Rc::new(RefCell::new(ResolverState {
+                deadline,
+                per_source_max,
+                aggregate_source_max,
+                compile_source_bytes,
+                imported_modules,
+                failure: None,
+            }));
+            let resolve = resolver(&roots, Rc::clone(&resolver_state));
             let is_library = source.lines().any(|line| line.starts_with("export "));
             let importer = path
                 .strip_prefix(&module_root)
@@ -54,8 +81,25 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
             } else {
                 source
             };
-            crate::check_qjs_tool_with_modules(checked_source, &resolve, &crate::Budget::default())
-                .map_err(|error| CheckFailure::new("qjs_check", error.to_string(), "script"))
+            let checked = crate::check_qjs_tool_with_modules(
+                checked_source,
+                &resolve,
+                &crate::Budget::default(),
+            );
+            let state = resolver_state.borrow();
+            compile_source_bytes = state.compile_source_bytes;
+            imported_modules = state.imported_modules;
+            if let Some(failure) = &state.failure {
+                return Err(failure.clone());
+            }
+            if Instant::now() >= deadline {
+                return Err(CheckFailure::new(
+                    "limit_wall_time",
+                    "check-many reached its aggregate wall-time budget while compiling imports",
+                    "limit",
+                ));
+            }
+            checked.map_err(|error| CheckFailure::new("qjs_check", error.to_string(), "script"))
         },
     )
 }
@@ -67,7 +111,20 @@ where
     agenterm_script_common::cli::parse_check_many_cli(args)
 }
 
-fn resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
+#[derive(Debug)]
+struct ResolverState {
+    deadline: Instant,
+    per_source_max: usize,
+    aggregate_source_max: usize,
+    compile_source_bytes: usize,
+    imported_modules: usize,
+    failure: Option<CheckFailure>,
+}
+
+fn resolver(
+    roots: &[PathBuf],
+    state: Rc<RefCell<ResolverState>>,
+) -> impl Fn(&str) -> Option<String> + use<> {
     let mut canonical = Vec::new();
     for root in roots {
         if let Ok(root) = root.canonicalize()
@@ -77,17 +134,105 @@ fn resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
         }
     }
     move |specifier: &str| {
-        canonical.iter().find_map(|root| {
+        if state.borrow().failure.is_some() {
+            return None;
+        }
+        if Instant::now() >= state.borrow().deadline {
+            state.borrow_mut().failure = Some(CheckFailure::new(
+                "limit_wall_time",
+                "check-many reached its aggregate wall-time budget while resolving imports",
+                "limit",
+            ));
+            return None;
+        }
+        for root in &canonical {
             let mut candidate = root.join(specifier);
             if candidate.extension().is_none() {
                 candidate.set_extension("qjs");
             }
-            let resolved = candidate.canonicalize().ok()?;
+            let Ok(resolved) = candidate.canonicalize() else {
+                continue;
+            };
             if !resolved.starts_with(root) {
+                continue;
+            }
+            let metadata = match std::fs::metadata(&resolved) {
+                Ok(metadata) if metadata.is_file() => metadata,
+                Ok(_) => continue,
+                Err(error) => {
+                    state.borrow_mut().failure = Some(CheckFailure::new(
+                        "host_import_read",
+                        format!("cannot inspect imported module {specifier:?}: {error}"),
+                        "host",
+                    ));
+                    return None;
+                }
+            };
+            let source_len = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            let mut budget = state.borrow_mut();
+            if source_len > budget.per_source_max {
+                budget.failure = Some(CheckFailure::new(
+                    "limit_import_source_bytes",
+                    format!(
+                        "imported module {specifier:?} exceeds per-source limit of {} bytes",
+                        budget.per_source_max
+                    ),
+                    "limit",
+                ));
                 return None;
             }
-            std::fs::read_to_string(resolved).ok()
-        })
+            if budget.imported_modules >= IMPORT_MODULES_MAX {
+                budget.failure = Some(CheckFailure::new(
+                    "limit_import_modules",
+                    format!("recursive imports exceed {IMPORT_MODULES_MAX} resolved modules"),
+                    "limit",
+                ));
+                return None;
+            }
+            let next_total = budget.compile_source_bytes.saturating_add(source_len);
+            if next_total > budget.aggregate_source_max {
+                budget.failure = Some(CheckFailure::new(
+                    "limit_import_source_bytes",
+                    format!(
+                        "entry and imported source exceeds aggregate limit of {} bytes",
+                        budget.aggregate_source_max
+                    ),
+                    "limit",
+                ));
+                return None;
+            }
+            drop(budget);
+            let source = match std::fs::read_to_string(&resolved) {
+                Ok(source) => source,
+                Err(error) => {
+                    state.borrow_mut().failure = Some(CheckFailure::new(
+                        "host_import_read",
+                        format!("cannot read imported module {specifier:?}: {error}"),
+                        "host",
+                    ));
+                    return None;
+                }
+            };
+            let mut budget = state.borrow_mut();
+            let actual_len = source.len();
+            if actual_len > budget.per_source_max
+                || budget.compile_source_bytes.saturating_add(actual_len)
+                    > budget.aggregate_source_max
+            {
+                budget.failure = Some(CheckFailure::new(
+                    "limit_import_source_bytes",
+                    format!(
+                        "imported module {specifier:?} changed while reading and exceeds the source budget"
+                    ),
+                    "limit",
+                ));
+                return None;
+            }
+            budget.compile_source_bytes = budget.compile_source_bytes.saturating_add(actual_len);
+            budget.imported_modules += 1;
+            return Some(source);
+        }
+        None
     }
 }
 
@@ -135,5 +280,77 @@ mod tests {
         .unwrap();
         let error = read_manifest(&path).expect_err("wrong kind");
         assert!(error.contains("schema"), "{error}");
+    }
+
+    #[test]
+    fn imported_modules_share_the_per_source_budget() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("large.qjs"),
+            format!("export const value = \"{}\";", "x".repeat(256)),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("entry.qjs"),
+            "import * as large from \"large\"; return large.value;",
+        )
+        .unwrap();
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: QJS_CHECK_MANIFEST_KIND.to_owned(),
+                files: vec!["entry.qjs".to_owned()],
+            },
+            CheckManyOptions {
+                project_root: dir.path().to_path_buf(),
+                source_bytes: 128,
+                ..Default::default()
+            },
+        );
+        assert!(!report.ok);
+        assert_eq!(report.failures[0].code, "limit_import_source_bytes");
+        assert_eq!(report.failures[0].exit_class, "limit");
+    }
+
+    #[test]
+    fn resolver_enforces_one_recursive_module_and_byte_ledger() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("one.qjs"), "export const one = 1;").unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let state = Rc::new(RefCell::new(ResolverState {
+            deadline: Instant::now() + Duration::from_secs(1),
+            per_source_max: 128,
+            aggregate_source_max: 128,
+            compile_source_bytes: 100,
+            imported_modules: IMPORT_MODULES_MAX - 1,
+            failure: None,
+        }));
+        let resolve = resolver(&[root], Rc::clone(&state));
+        assert_eq!(resolve("one"), Some("export const one = 1;".to_owned()));
+        assert_eq!(state.borrow().imported_modules, IMPORT_MODULES_MAX);
+        assert_eq!(resolve("one"), None);
+        let failure = state.borrow().failure.clone().expect("typed limit");
+        assert_eq!(failure.code, "limit_import_modules");
+        assert_eq!(failure.exit_class, "limit");
+    }
+
+    #[test]
+    fn resolver_refuses_import_work_after_the_shared_deadline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("late.qjs"), "export const late = 1;").unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let state = Rc::new(RefCell::new(ResolverState {
+            deadline: Instant::now(),
+            per_source_max: 128,
+            aggregate_source_max: 128,
+            compile_source_bytes: 0,
+            imported_modules: 0,
+            failure: None,
+        }));
+        let resolve = resolver(&[root], Rc::clone(&state));
+        assert_eq!(resolve("late"), None);
+        let failure = state.borrow().failure.clone().expect("typed deadline");
+        assert_eq!(failure.code, "limit_wall_time");
+        assert_eq!(failure.exit_class, "limit");
     }
 }

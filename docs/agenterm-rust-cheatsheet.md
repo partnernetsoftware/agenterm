@@ -3370,6 +3370,15 @@ the caller changes the invocation or installation. Test both a compiler refusal
 and a post-compile unsupported method through the public CLI; an engine-only
 unit test cannot prove the worker preserved the category.
 
+For multi-file source checks, budget the compiler's whole source closure, not
+only the manifest entries. A module resolver is a file reader invoked
+recursively by the parser: give it the same aggregate wall deadline, a
+per-module byte cap, a resolved-module count and a total entry-plus-import byte
+ledger. Check metadata before reading and the actual buffer afterward so a
+concurrent file growth cannot escape the limit. Preserve a typed resolver
+failure separately from `Option::None`; otherwise a byte/deadline violation is
+misreported as an ordinary missing module.
+
 ## Keep native window facts separate from screenshot documents
 
 Cross-platform GUI tests must not infer native window identity, title, presence,
