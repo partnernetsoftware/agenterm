@@ -149,11 +149,13 @@ int main(int argc, const char *argv[]) {
             [NSString stringWithFormat:@"agenterm-ax-fixture-%d", (int)getpid()];
         NSRect frame = NSMakeRect(160.0, 160.0, 560.0, 440.0);
         // Resizable so the slice-4 `window-place --action frame` transaction
-        // (ABI 1.10 resizable/size-settable preflight) can set its rect.
+        // can set its rect; miniaturizable so the desktop-closure journey can
+        // prove AXMinimized true/false instead of asking AppKit to perform an
+        // operation this fixture's own style mask forbids.
         NSWindow *window = [[NSWindow alloc]
             initWithContentRect:frame
                       styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-                                 | NSWindowStyleMaskResizable)
+                                 | NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable)
                         backing:NSBackingStoreBuffered
                           defer:NO];
         [window setTitle:title];

@@ -140,6 +140,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   evidence contract. Each slice is proven by a `.qjs` journey
   (`scripts/qjs/cu-macos-smoke.qjs`, first) so the script engine is exercised
   by real computer-use scripts.
+- [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
+  gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
+  The same source state must still pass Linux AT-SPI2 and Windows UIA courts;
+  `drag` stays in the separate explicit-global-pointer court because it may
+  move the user's real cursor and must restore it even on failure.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

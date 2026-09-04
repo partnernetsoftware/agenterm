@@ -3173,6 +3173,13 @@ renderer-request strategy whose document may carry a rendered snapshot. Probe
 window readiness through the process-window facts door tied to the owned child
 handle, and capture a real PNG separately when visual evidence is required.
 
+Restoring a minimized foreign macOS window cannot rediscover its owner through
+the ordinary on-screen `CGWindowList` inventory. Do not use
+`kCGWindowListOptionIncludingWindow` alone as an off-screen lookup: native
+evidence showed it returned no row for the minimized `CGWindowID`.
+`kCGWindowListOptionAll` retained the exact stable id and owner pid; filter that
+result by the requested id before resolving the corresponding AX window.
+
 ## Observe qualification descendants through the platform process facade
 
 A release receipt must not turn “a command was invoked” into process-tree

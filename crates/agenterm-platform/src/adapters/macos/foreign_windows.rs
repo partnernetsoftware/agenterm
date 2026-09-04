@@ -22,10 +22,9 @@ type AxValueRef = *const c_void;
 type CgWindowId = u32;
 
 const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
-/// `kCGWindowListOptionIncludingWindow`: describe exactly the window named
-/// by `relative_to`, on screen or not. This is the only list option that
-/// answers for a minimized window (see `owner_pid`).
-const K_CG_WINDOW_LIST_OPTION_INCLUDING_WINDOW: u32 = 1 << 3;
+/// `kCGWindowListOptionAll`: unlike the including-window modifier below,
+/// this base option retains minimized/off-screen windows in the result.
+const K_CG_WINDOW_LIST_OPTION_ALL: u32 = 0;
 const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
 
 #[repr(C)]
@@ -619,12 +618,12 @@ fn set_ax_rect(
 /// resolving the owner through it made `restore` (and every other AX window
 /// op) fail `window_not_found` on exactly the window that needed the op.
 ///
-/// `kCGWindowListOptionIncludingWindow` describes one window *by id* whether
-/// it is on screen or not, and the `CGWindowID` itself is stable across
-/// minimize/restore (measured: the same id before and after), so asking for
-/// the window by id is a sound resolution. The on-screen enumeration stays
-/// as the fallback: it is the path that already worked, and it still answers
-/// for anything the by-id query does not describe.
+/// `kCGWindowListOptionAll` includes the minimized row and the `CGWindowID`
+/// itself is stable across minimize/restore. `IncludingWindow` alone was
+/// measured to return an empty array after minimize, while `All` returned the
+/// exact id and owner pid. The on-screen enumeration stays as the fallback:
+/// it is the path that already worked, and it still answers for anything the
+/// all-windows query does not describe.
 fn owner_pid(handle: isize) -> Result<u32, WindowOpError> {
     if let Some(pid) = owner_pid_including_offscreen(handle) {
         return Ok(pid);
@@ -644,7 +643,7 @@ fn owner_pid(handle: isize) -> Result<u32, WindowOpError> {
 fn owner_pid_including_offscreen(handle: isize) -> Option<u32> {
     let id = u32::try_from(handle).ok()?;
     unsafe {
-        let array = CGWindowListCopyWindowInfo(K_CG_WINDOW_LIST_OPTION_INCLUDING_WINDOW, id);
+        let array = CGWindowListCopyWindowInfo(K_CG_WINDOW_LIST_OPTION_ALL, 0);
         if array.is_null() {
             return None;
         }

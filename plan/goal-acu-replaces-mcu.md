@@ -124,6 +124,13 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   coordinates and percentage padding are not the same contract as ACU's
   screen rectangle and pixel padding. Both fail typed instead of silently
   changing behavior.
+- macOS now has native journey evidence for `snapshot`/`diff`, `hit`/`zoom`,
+  `raise` and gated `minimize`/`restore`. The restore step exposed a real
+  platform bug: `kCGWindowListOptionIncludingWindow` alone returned no owner
+  row after minimize. The adapter now filters `kCGWindowListOptionAll` by the
+  stable `CGWindowID`; the journey proves minimize, off-screen lookup, restore,
+  foreground preservation and owned cleanup together. Linux and Windows are
+  still required before this tranche is three-host complete.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.

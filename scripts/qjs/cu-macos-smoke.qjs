@@ -74,6 +74,10 @@ const declared_evidence = [
   "cu.macos-ax-orderwin",
   "cu.macos-ax-app-lifecycle",
   "cu.macos-ax-app-inventory",
+  "cu.macos-ax-snapshot-diff",
+  "cu.macos-ax-hit-zoom",
+  "cu.macos-ax-window-state",
+  "cu.macos-ax-raise",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -2055,6 +2059,105 @@ try {
     );
   }
 
+  print("STEP snapshot names one bounded baseline and diff returns only the independently changed node while atomically advancing the baseline");
+  const baseline = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "snapshot",
+    "--window", handle_text, "--depth", "16", "--max-nodes", "2000"
+  ]);
+  const baseline_id = text_at(baseline, "data.snapshot_id");
+  ensure(
+    baseline_id !== "" && int_at(baseline, "data.nodes") > 1
+      && !flag_at(baseline, "data.truncated"),
+    "cu_macos_smoke_snapshot:" + JSON.stringify(baseline.data)
+  );
+  invoke_ok(
+    run_directory, executable, handle_text,
+    ["--identifier", "fixture-text"], ["set-value", "desktop closure delta"]
+  );
+  const delta = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "diff",
+    "--window", handle_text, "--base", baseline_id, "--advance", "--max", "100"
+  ]);
+  ensure(
+    text_at(delta, "data.base.snapshot_id") === baseline_id
+      && text_at(delta, "data.base_selected_by") === "explicit"
+      && int_at(delta, "data.changes") >= 1
+      && int_at(delta, "data.counts.changed") >= 1
+      && text_at(delta, "data.next_base") !== ""
+      && text_at(delta, "data.next_base") !== baseline_id,
+    "cu_macos_smoke_diff:" + JSON.stringify(delta.data)
+  );
+
+  print("STEP hit resolves a screen point to the same stable accessibility node, and zoom crops that node's screen rectangle without leaving an implicit full-screen capture");
+  const hit_x = int_at(extents, "data.extents.x") + 1;
+  const hit_y = int_at(extents, "data.extents.y") + 1;
+  const hit = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "hit",
+    "--window", handle_text, "--x", "" + hit_x, "--y", "" + hit_y,
+    "--depth", "16", "--max-nodes", "2000"
+  ]);
+  ensure(
+    text_at(hit, "data.resolution") === "bounded-walk-hit-test"
+      && text_at(hit, "data.node.identifier") === "fixture-text"
+      && !flag_at(hit, "data.truncated"),
+    "cu_macos_smoke_hit:" + JSON.stringify(hit.data)
+  );
+  const zoom_path = rh.join(run_directory, "fixture-text-zoom.png");
+  const zoom = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "zoom",
+    "--window", handle_text,
+    "--region", "" + int_at(extents, "data.extents.x") + ","
+      + int_at(extents, "data.extents.y") + ","
+      + int_at(extents, "data.extents.width") + ","
+      + int_at(extents, "data.extents.height"),
+    "--out", zoom_path, "--pad", "4"
+  ]);
+  ensure(
+    text_at(zoom, "data.via") === "window-capture-clip"
+      && int_at(zoom, "data.output_width") > 0
+      && int_at(zoom, "data.output_height") > 0
+      && direct_file(zoom_path) && rh.metadata(zoom_path).len > 100,
+    "cu_macos_smoke_zoom:" + JSON.stringify(zoom.data)
+  );
+
+  print("STEP raise keeps the system frontmost application unchanged; minimize and restore require explicit postconditions and prove the window state by read-back");
+  const raised_main = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "raise", "--window", handle_text
+  ]);
+  ensure(
+    flag_at(raised_main, "data.frontmost_app_unchanged")
+      && flag_at(raised_main, "data.verified"),
+    "cu_macos_smoke_raise:" + JSON.stringify(raised_main.data)
+  );
+  const minimize_ungated = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "minimize", "--window", handle_text
+  ]);
+  ensure(
+    !flag_at(minimize_ungated, "ok")
+      && text_at(minimize_ungated, "error.code") === "refused"
+      && text_at(minimize_ungated, "error.detail.effect") === "not_performed",
+    "cu_macos_smoke_minimize_ungated:" + JSON.stringify(minimize_ungated)
+  );
+  const minimized = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "minimize",
+    "--window", handle_text, "--expect", "minimized"
+  ]);
+  ensure(
+    flag_at(minimized, "data.verified") && flag_at(minimized, "data.after.minimized")
+      && flag_at(minimized, "data.frontmost_app_unchanged"),
+    "cu_macos_smoke_minimize:" + JSON.stringify(minimized.data)
+  );
+  const restored_window = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "restore",
+    "--window", handle_text, "--expect", "restored"
+  ]);
+  ensure(
+    flag_at(restored_window, "data.verified")
+      && !flag_at(restored_window, "data.after.minimized")
+      && flag_at(restored_window, "data.frontmost_app_unchanged"),
+    "cu_macos_smoke_restore:" + JSON.stringify(restored_window.data)
+  );
+
   print("STEP app hide / show step a second owned fixture aside and back, and app quit ends it through its own Quit menu item behind the destructive gate");
   // A second fixture, so nothing here disturbs the one the rest of the
   // journey is still using.
@@ -2316,7 +2419,11 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-mcu-actions");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-stacking");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-lifecycle");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-inventory");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");
+harness.emit_evidence(context, declared_evidence, "cu.macos-ax-raise");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
-print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, close, receipts)");
+print("PASS: agenterm-cu macOS AX journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, snapshot/diff, hit/zoom, raise, minimize/restore, close, receipts)");
 return;
