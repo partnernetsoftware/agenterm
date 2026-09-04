@@ -60,6 +60,12 @@ impl Executor {
             } => process_list_payload(*pid, *parent, name.as_deref(), *offset, *max),
             Command::ProcessState { pid, .. } => process_state_payload(*pid),
             Command::ProcessUsage { pid, .. } => process_usage_payload(*pid),
+            Command::ProcessWait {
+                pid,
+                start_identity,
+                timeout_ms,
+                ..
+            } => process_wait_payload(*pid, start_identity, *timeout_ms),
             Command::Tree {
                 window,
                 depth,

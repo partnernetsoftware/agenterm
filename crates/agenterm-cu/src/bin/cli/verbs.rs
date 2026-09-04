@@ -539,6 +539,25 @@ are decimal strings so JSON/JavaScript consumers cannot lose u64 precision.
 Streaming rates and richer I/O counters remain explicit migration gaps."#,
     },
     VerbSpec {
+        name: "process-wait",
+        command: "process-wait",
+        aliases: &["process wait"],
+        scope: Scope::Observe,
+        family: Family::Process,
+        summary: "wait for one identity-bound process instance to exit",
+        usage: "process-wait --pid N --start-identity ID [--timeout-ms N]\nprocess wait --pid N --start-identity ID [--timeout-ms N]",
+        args: &[
+            ArgSpec { flag: "--pid", value: "N", help: "positive process id previously observed" },
+            ArgSpec { flag: "--start-identity", value: "ID", help: "exact value returned by process-state" },
+            ArgSpec { flag: "--timeout-ms", value: "N", help: "monotonic wait limit, 1..=86400000 (default 30000)" },
+        ],
+        details: r#"Opens a native stable process reference, verifies that its current start
+identity equals the caller's prior process-state observation, then waits for
+that exact process object. A timeout is a verified live result, not an error;
+an identity mismatch fails before waiting. This avoids MCU's repeated PID
+polling and cannot silently follow a recycled pid."#,
+    },
+    VerbSpec {
         name: "app",
         command: "app",
         aliases: &["launch", "quit", "hide", "show"],

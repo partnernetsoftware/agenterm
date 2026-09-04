@@ -34,6 +34,7 @@ const declared_evidence = [
   "cu.linux-atspi-window-identity",
   "cu.linux-process-state",
   "cu.linux-process-usage",
+  "cu.linux-process-wait",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -313,6 +314,18 @@ try {
   ensure_wide_counter(process_usage, "data.page_faults.total");
   ensure_wide_counter(process_usage, "data.page_faults.soft");
   ensure_wide_counter(process_usage, "data.page_faults.hard");
+  print("STEP process-wait binds the same identity to a native exact-object timeout");
+  const process_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-wait",
+    "--pid", "" + fixture_pid, "--start-identity", process_identity, "--timeout-ms", "5"
+  ]);
+  ensure(
+    text_at(process_wait, "data.state") === "timeout"
+      && !flag_at(process_wait, "data.completed")
+      && flag_at(process_wait, "data.verified")
+      && text_at(process_wait, "data.mechanism") === "native-process-reference",
+    "cu_linux_smoke_process_wait:" + JSON.stringify(process_wait.data)
+  );
 
   print("STEP every node in the tree carries a real rectangle, and a control that has none says so with the empty-rect sentinel rather than a screen coordinate");
   const nodes = tree_nodes(run_directory, executable, handle_text, "8");
@@ -799,6 +812,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-capabilities")
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-identity");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage");
+harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");

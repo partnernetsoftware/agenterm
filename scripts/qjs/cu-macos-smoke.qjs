@@ -76,6 +76,7 @@ const declared_evidence = [
   "cu.macos-ax-app-inventory",
   "cu.macos-process-state",
   "cu.macos-process-usage",
+  "cu.macos-process-wait",
   "cu.macos-ax-snapshot-diff",
   "cu.macos-ax-hit-zoom",
   "cu.macos-ax-window-state",
@@ -575,6 +576,20 @@ try {
       && resident_bytes !== "" && rh.only_chars(resident_bytes, rh.DIGITS)
       && page_faults !== "" && rh.only_chars(page_faults, rh.DIGITS),
     "cu_macos_smoke_process_usage:" + JSON.stringify(process_usage)
+  );
+  print("STEP process wait times out on that exact still-live fixture instead of polling a reusable pid");
+  const process_wait = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "process-wait", "--pid", "" + fixture_pid,
+      "--start-identity", process_identity, "--timeout-ms", "5"]
+  );
+  ensure(
+    text_at(process_wait, "data.state") === "timeout"
+      && !flag_at(process_wait, "data.completed")
+      && flag_at(process_wait, "data.verified")
+      && text_at(process_wait, "data.mechanism") === "native-process-reference",
+    "cu_macos_smoke_process_wait:" + JSON.stringify(process_wait)
   );
 
   print("STEP public wait and windows --pid prove PID, title and CGWindow identity");
@@ -2455,6 +2470,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-lifecycle");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-app-inventory");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");

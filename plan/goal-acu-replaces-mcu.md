@@ -95,7 +95,7 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
 - The transitional `acu.ts` adapter now keeps **32 top-level spellings** on
-  MCU. Its 95-name pass-through set is not a parity count: it mixes MCU
+  MCU. Its 96-name pass-through set is not a parity count: it mixes MCU
   spellings, ACU-native spellings and group aliases. The adapter's 45 green
   tests prove lossless argv routing and honest refusal only; they do not prove
   native post-state or platform parity.
@@ -146,10 +146,16 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   fails if they differ, and encodes wide counters as decimal strings so a
   JavaScript/qjswasm consumer cannot silently round them. MCU `process usage N`
   now routes here when no richer watch/privilege shape was requested.
+- `process-wait --pid N --start-identity ID --timeout-ms N` retains a native
+  process object (pidfd/kqueue/Windows HANDLE), verifies the caller's prior
+  identity, and waits monotonically for that exact object. A live timeout is a
+  verified result. This is intentionally stronger than MCU's repeated PID
+  inventory polling; the native ACU spelling is reachable through the shim.
 - The three public native journeys now bind those two commands to each owned
-  GUI fixture. macOS is live green (34 STEP / 35 evidence ids); Linux declares
-  21 STEP / 22 evidence ids and Windows 13 / 13, with the two guest-court
-  reruns still required before this process slice is called three-host proven.
+  GUI fixture. macOS is live green including exact-object wait (35 STEP / 36
+  evidence ids); Linux declares 22 STEP / 23
+  evidence ids and Windows 14 / 14, with all updated journey courts required
+  before this process slice is called three-host proven.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -190,6 +196,7 @@ Q2 fast delegated facades
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only
    ├─ [x] process-usage: identity-bound CPU/memory/fault sample, lossless counters
+   ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
    └─ [ ] rich filters, process detail, exec, identity-bound signal and lifecycle
 Q3 owned runtime facades
 ├─ [ ] PTY/job/daemon/session/lock/audit/service

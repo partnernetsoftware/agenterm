@@ -976,6 +976,14 @@ parser family unreachable. Own the returned pointer with a guard that calls
 `InvalidData` for null pointers or unpaired surrogates instead of panicking in
 startup. Keep Linux/macOS behind the same UTF-8 `Result` facade.
 
+For a caller-visible wait on an existing process, a PID is lookup input, not
+stable identity. First retain the native process object (`pidfd`, kqueue-backed
+reference, or Windows HANDLE), then compare the caller's prior start identity
+with a fresh observation before waiting. Report a monotonic timeout as a
+verified still-live outcome; never reopen or poll the numeric PID and silently
+follow a recycled process. Mutation builds on the same contract but needs its
+own actuate gate and postcondition.
+
 This is not semantics-free: `CommandLineToArgvW` differs from modern MSVC rules
 for ambiguous hand-crafted quote sequences, and loading Shell32 can hurt a
 small console process. Require standard-launcher round trips and public CLI

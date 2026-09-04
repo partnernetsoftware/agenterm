@@ -1,5 +1,7 @@
 //! Cross-platform process observation through `agenterm-platform`.
 
+use std::time::{Duration, Instant};
+
 use serde_json::{Value, json};
 
 use crate::CuError;
@@ -95,6 +97,56 @@ pub(super) fn process_usage_payload(pid: u32) -> Result<Value, CuError> {
             "hard": sample.page_faults.hard.map(|value| value.to_string()),
         },
         "verified": true,
+    }))
+}
+
+pub(super) fn process_wait_payload(
+    pid: u32,
+    expected_identity: &str,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    if pid == 0 || expected_identity.is_empty() || !(1..=86_400_000).contains(&timeout_ms) {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-wait requires a positive pid, non-empty start identity and timeout-ms in 1..=86400000",
+        ));
+    }
+    let reference =
+        agenterm_platform::process_reference::ProcessReference::open(pid).map_err(|error| {
+            CuError::new("process_reference_failed", error.to_string())
+                .with_detail(json!({ "pid": pid }))
+        })?;
+    let actual_identity = live_start_identity(pid)?;
+    if actual_identity != expected_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity does not match the prior observation",
+        )
+        .with_detail(json!({
+            "pid": pid,
+            "expected_start_identity": expected_identity,
+            "actual_start_identity": actual_identity,
+        })));
+    }
+
+    let started = Instant::now();
+    let state = reference
+        .wait_for_exit(Some(Duration::from_millis(timeout_ms)))
+        .map_err(|error| CuError::new("process_wait_failed", error.to_string()))?;
+    let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let (state, completed) = match state {
+        agenterm_platform::process_reference::ProcessWait::Exited => ("exited", true),
+        agenterm_platform::process_reference::ProcessWait::TimedOut => ("timeout", false),
+    };
+    Ok(json!({
+        "pid": pid,
+        "start_identity": expected_identity,
+        "state": state,
+        "completed": completed,
+        "elapsed_ms": elapsed_ms,
+        "timeout_ms": timeout_ms,
+        "verified": true,
+        "mechanism": "native-process-reference",
     }))
 }
 
@@ -197,6 +249,26 @@ mod tests {
             assert!(value[path].as_str().is_some_and(|value| !value.is_empty()));
         }
         assert!(value["page_faults"]["total"].as_str().is_some());
+    }
+
+    #[test]
+    fn process_wait_times_out_on_the_same_live_process_object() {
+        let pid = std::process::id();
+        let identity = live_start_identity(pid).expect("identity");
+        let value = process_wait_payload(pid, &identity, 1).expect("bounded wait");
+        assert_eq!(value["pid"], pid);
+        assert_eq!(value["start_identity"], identity);
+        assert_eq!(value["state"], "timeout");
+        assert_eq!(value["completed"], false);
+        assert_eq!(value["verified"], true);
+        assert_eq!(value["mechanism"], "native-process-reference");
+    }
+
+    #[test]
+    fn process_wait_refuses_a_recycled_or_invented_identity_before_waiting() {
+        let error = process_wait_payload(std::process::id(), "not-this-process", 1)
+            .expect_err("identity mismatch");
+        assert_eq!(error.code, "process_identity_changed");
     }
 
     #[test]

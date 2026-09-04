@@ -162,6 +162,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   remain explicit gaps. The macOS public journey now proves both process
   commands against its owned fixture; the Linux and Windows public journeys
   declare equivalent evidence and await their next native-court rerun.
+- [~] `process-wait` is the first process capability that deliberately exceeds
+  MCU's implementation: the caller supplies the `process-state` start identity,
+  ACU opens and waits on a native stable process object, and PID reuse is a
+  typed mismatch rather than a new target. Its timeout is monotonic and returns
+  verified `timeout` instead of pretending the process exited. The three public
+  journey scripts own the next evidence pass; macOS is live green while Linux
+  and Windows await their next native-court rerun.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

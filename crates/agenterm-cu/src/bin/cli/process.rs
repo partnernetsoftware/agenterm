@@ -14,8 +14,41 @@ pub fn parse(
         "ps" => ps(target, args),
         "process-state" => process_state(target, args),
         "process-usage" => process_usage(target, args),
+        "process-wait" => process_wait(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = required_positive_pid_flag(args, "process-wait")?;
+    let start_identity = flag_text(args, "--start-identity")?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "process-wait requires --start-identity ID from process-state".to_owned())?;
+    let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(30_000);
+    if !(1..=86_400_000).contains(&timeout_ms) {
+        return Err("process-wait --timeout-ms must be in 1..=86400000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "process-wait accepts only --pid N --start-identity ID --timeout-ms N; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::ProcessWait {
+        target,
+        pid,
+        start_identity,
+        timeout_ms,
+    })
+}
+
+fn required_positive_pid_flag(args: &mut Vec<String>, command: &str) -> Result<u32, String> {
+    let pid =
+        flag_parsed::<u32>(args, "--pid")?.ok_or_else(|| format!("{command} requires --pid N"))?;
+    if pid == 0 {
+        return Err(format!("{command} --pid must be greater than zero"));
+    }
+    Ok(pid)
 }
 
 fn process_usage(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -24,11 +57,7 @@ fn process_usage(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
 }
 
 fn required_positive_pid(args: &mut Vec<String>, command: &str) -> Result<u32, String> {
-    let pid =
-        flag_parsed::<u32>(args, "--pid")?.ok_or_else(|| format!("{command} requires --pid N"))?;
-    if pid == 0 {
-        return Err(format!("{command} --pid must be greater than zero"));
-    }
+    let pid = required_positive_pid_flag(args, command)?;
     if !args.is_empty() {
         return Err(format!(
             "{command} accepts only --pid N; unexpected {:?}",
@@ -138,5 +167,34 @@ mod tests {
                 pid: 42,
             }
         ));
+    }
+
+    #[test]
+    fn process_wait_requires_identity_and_a_bounded_timeout() {
+        let spec = verbs::lookup("process-wait").expect("process-wait verb");
+        let mut args = vec![
+            "--pid".into(),
+            "42".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+            "--timeout-ms".into(),
+            "250".into(),
+        ];
+        assert!(matches!(
+            parse(spec, TargetRef::Current, &mut args).expect("parse"),
+            Command::ProcessWait {
+                pid: 42,
+                timeout_ms: 250,
+                ref start_identity,
+                ..
+            } if start_identity == "boot:123"
+        ));
+
+        let mut missing_identity = vec!["--pid".into(), "42".into()];
+        assert!(
+            parse(spec, TargetRef::Current, &mut missing_identity)
+                .expect_err("identity")
+                .contains("--start-identity")
+        );
     }
 }

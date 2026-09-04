@@ -37,6 +37,7 @@ const declared_evidence = [
   "cu.windows-uia-window-identity",
   "cu.windows-process-state",
   "cu.windows-process-usage",
+  "cu.windows-process-wait",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
   "cu.windows-uia-invoke",
@@ -291,6 +292,19 @@ try {
       && rh.only_chars(page_faults_total, rh.DIGITS),
     "cu_windows_smoke_process_usage:" + JSON.stringify(process_usage.data)
   );
+  print("STEP process-wait binds the same identity to the Windows process HANDLE and times out while the fixture remains live");
+  const process_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-wait",
+    "--pid", "" + fixture_pid, "--start-identity", process_identity,
+    "--timeout-ms", "5"
+  ]);
+  ensure(
+    text_at(process_wait, "data.state") === "timeout"
+      && !flag_at(process_wait, "data.completed")
+      && flag_at(process_wait, "data.verified")
+      && text_at(process_wait, "data.mechanism") === "native-process-reference",
+    "cu_windows_smoke_process_wait:" + JSON.stringify(process_wait.data)
+  );
 
   print("STEP the bounded tree names the fixture's controls with real rectangles and a UIA backend");
   const nodes = tree_nodes(run_directory, executable, handle_text);
@@ -525,6 +539,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-capabilities")
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-identity");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage");
+harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-invoke");

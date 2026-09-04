@@ -311,6 +311,14 @@ pub enum Command {
         target: TargetRef,
         pid: u32,
     },
+    /// Wait for one previously observed process instance to exit. Requiring
+    /// the start identity prevents a recycled pid from becoming a new target.
+    ProcessWait {
+        target: TargetRef,
+        pid: u32,
+        start_identity: String,
+        timeout_ms: u64,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -1320,6 +1328,7 @@ impl Command {
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
+            Self::ProcessWait { .. } => "process-wait".into(),
             Self::Tree { .. } => "tree".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
@@ -1391,6 +1400,7 @@ impl Command {
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
             | Self::ProcessUsage { target, .. }
+            | Self::ProcessWait { target, .. }
             | Self::Tree { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
@@ -1553,6 +1563,28 @@ mod tests {
                 "verb": "process-usage",
                 "target": "ssh",
                 "pid": 42,
+            })
+        );
+    }
+
+    #[test]
+    fn process_wait_is_observe_only_and_binds_the_remote_wire_to_an_identity() {
+        let command = Command::ProcessWait {
+            target: TargetRef::Vnc,
+            pid: 42,
+            start_identity: "boot:123".into(),
+            timeout_ms: 250,
+        };
+        assert_eq!(command.verb(), "process-wait");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-wait",
+                "target": "vnc",
+                "pid": 42,
+                "start_identity": "boot:123",
+                "timeout_ms": 250,
             })
         );
     }
