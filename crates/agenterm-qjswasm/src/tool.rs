@@ -448,6 +448,7 @@ enum Handle {
 /// the door ignored it.
 struct Running {
     child: std::process::Child,
+    tree: agenterm_platform::process::ProcessTreeGuard,
     drains: Drains,
     started: Instant,
     deadline: Option<Duration>,
@@ -461,6 +462,7 @@ impl Running {
     /// Kill the child once its deadline has passed; true if it did.
     fn enforce_deadline(&mut self) -> bool {
         if !self.killed_by_deadline && self.deadline.is_some_and(|d| self.started.elapsed() >= d) {
+            let _ = self.tree.terminate();
             let _ = self.child.kill();
             // Reap it now, so the very next `try_wait` sees the exit rather
             // than a SIGKILLed process the kernel has not yet collected.
@@ -546,6 +548,7 @@ impl Drop for ToolState {
     fn drop(&mut self) {
         for handle in &mut self.children {
             if let Handle::Running(r) = handle {
+                let _ = r.tree.terminate();
                 let _ = r.child.kill();
                 let _ = r.child.wait();
             }
@@ -829,12 +832,13 @@ pub(crate) fn install(
                 // Not captured: spawned with null pipes, so a chatty child
                 // neither blocks on a pipe nobody reads nor dies of SIGPIPE on
                 // one that was dropped.
-                let mut child = spawn_command(&spec, false)?;
+                let (mut child, mut tree) = spawn_command(&spec, false)?;
                 let started = Instant::now();
                 loop {
                     match child.try_wait() {
                         Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
                         Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
+                            let _ = tree.terminate();
                             let _ = child.kill();
                             let _ = child.wait();
                             return Err("process.status: timed out".to_string());
@@ -842,6 +846,7 @@ pub(crate) fn install(
                         Ok(None) => {
                             // A cancel kills the child too: no orphans.
                             if cancellable_sleep(&cancel, Duration::from_millis(5)).is_err() {
+                                let _ = tree.terminate();
                                 let _ = child.kill();
                                 let _ = child.wait();
                                 return Err(CANCELLED_MARK.to_string());
@@ -1033,11 +1038,12 @@ pub(crate) fn install(
             direct(&state, "process.spawn", || {
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
-                let mut child = spawn_command(&spec, true)?;
+                let (mut child, tree) = spawn_command(&spec, true)?;
                 let drains = Drains::start(&mut child, max_capture);
                 let mut s = state.borrow_mut();
                 s.children.push(Handle::Running(Running {
                     child,
+                    tree,
                     drains,
                     started: Instant::now(),
                     deadline: spec.timeout_ms.map(Duration::from_millis),
@@ -1092,8 +1098,11 @@ pub(crate) fn install(
                 let mut s = state.borrow_mut();
                 match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
                     Some(Handle::Running(r)) => {
+                        let tree_result = r.tree.terminate();
                         let _ = r.child.kill();
-                        Ok(0)
+                        tree_result
+                            .map(|()| 0)
+                            .map_err(|error| format!("process.kill: owned tree cleanup: {error}"))
                     }
                     Some(Handle::Done { .. }) => Ok(0),
                     None => Err(format!("process.kill: no child with handle {h}")),
@@ -2153,8 +2162,8 @@ fn run_command(
     cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
     let timeout = spec.timeout_ms.map(Duration::from_millis);
-    let child = spawn_command(&spec, true)?;
-    wait_child(child, timeout, max_capture, cancel)
+    let (child, tree) = spawn_command(&spec, true)?;
+    wait_child(child, tree, timeout, max_capture, cancel)
 }
 
 /// Spawn per the spec with both streams piped and stdin fed on its own
@@ -2175,7 +2184,16 @@ fn modified_ms(meta: &std::fs::Metadata) -> Option<u64> {
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Child, String> {
+fn spawn_command(
+    spec: &CommandSpec,
+    capture: bool,
+) -> Result<
+    (
+        std::process::Child,
+        agenterm_platform::process::ProcessTreeGuard,
+    ),
+    String,
+> {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
@@ -2190,6 +2208,8 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Chil
     for key in &spec.env_remove {
         command.env_remove(key);
     }
+    agenterm_platform::process::configure_owned_command(&mut command)
+        .map_err(|e| format!("process.command: configuring owned process tree: {e}"))?;
     command
         .stdin(if spec.stdin_text.is_some() {
             Stdio::piped()
@@ -2216,13 +2236,24 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Chil
     let mut child = command
         .spawn()
         .map_err(|e| format!("process.command: spawning `{}`: {e}", spec.program))?;
+    let tree = match agenterm_platform::process::ProcessTreeGuard::attach(&child) {
+        Ok(tree) => tree,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "process.command: containing `{}`: {error}",
+                spec.program
+            ));
+        }
+    };
     if let (Some(text), Some(mut stdin)) = (&spec.stdin_text, child.stdin.take()) {
         let text = text.clone();
         std::thread::spawn(move || {
             let _ = stdin.write_all(text.as_bytes());
         });
     }
-    Ok(child)
+    Ok((child, tree))
 }
 
 /// Drain both streams on their own threads, wait bounded, answer as JSON:
@@ -2235,6 +2266,7 @@ fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<std::process::Chil
 /// that carries text. Capture is capped at `max_capture` per stream.
 fn wait_child(
     mut child: std::process::Child,
+    tree: agenterm_platform::process::ProcessTreeGuard,
     timeout: Option<Duration>,
     max_capture: usize,
     cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -2243,6 +2275,7 @@ fn wait_child(
     finish_child(
         Running {
             child,
+            tree,
             drains,
             started: Instant::now(),
             deadline: None,
@@ -2267,6 +2300,7 @@ fn finish_child(
 ) -> Result<String, String> {
     let max_capture = running.max_capture;
     let (stdout, stderr) = (running.drains.stdout.take(), running.drains.stderr.take());
+    let mut tree = running.tree;
     let mut child = running.child;
     let mut timed_out = running.killed_by_deadline;
     let started = Instant::now();
@@ -2275,12 +2309,14 @@ fn finish_child(
             Ok(Some(status)) => break Some(status),
             Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
                 timed_out = true;
+                let _ = tree.terminate();
                 let _ = child.kill();
                 break child.wait().ok();
             }
             Ok(None) => {
                 // A cancel kills the child too: no orphans.
                 if cancellable_sleep(cancel, Duration::from_millis(5)).is_err() {
+                    let _ = tree.terminate();
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(CANCELLED_MARK.to_string());

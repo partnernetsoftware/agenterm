@@ -1141,6 +1141,61 @@ fn an_unwaited_child_is_killed_with_the_slot() {
     );
 }
 
+/// The owned unit is the process tree, not only the shell returned by spawn.
+/// Dropping a slot must not leave a background grandchild running after its
+/// direct child is killed.
+#[cfg(unix)]
+#[test]
+fn an_unwaited_child_tree_is_killed_with_the_slot() {
+    let dir = Scratch::new("child-tree");
+    let pid_file = dir.path("grandchild.pid");
+    let source = format!(
+        r#"
+        const h = process_spawn(JSON.stringify({{
+            program: "sh",
+            args: ["-c", "sleep 30 & echo $! > \"$1\"; wait", "sh", {pid_file}],
+            timeout_ms: 30000
+        }}));
+        if (h < 0) {{ return "spawn:" + tool_result(); }}
+        for (let i = 0; i < 100 && fs_exists({pid_file}) !== 1; i = i + 1) {{
+            time_sleep_ms(10);
+        }}
+        return "" + fs_exists({pid_file});
+        "#,
+        pid_file = js(&pid_file)
+    );
+    let mut engine = Engine::with_tool_door(Budget::default());
+    let wasm = compile_qjs_tool(&source).expect("compiles");
+    let out = engine
+        .run_once(Guest::CompiledQjs(&wasm), None, "main", &[])
+        .expect("runs");
+    assert_eq!(string_of(&out), "1", "grandchild identity was published");
+    let grandchild: u32 = std::fs::read_to_string(&pid_file)
+        .expect("grandchild pid")
+        .trim()
+        .parse()
+        .expect("numeric grandchild pid");
+    let is_alive = || {
+        std::process::Command::new("kill")
+            .args(["-0", &grandchild.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    // The PID file is written by the grandchild's owning shell before the
+    // script returns. `run_once` reclaims its slot (and tree) before handing
+    // this Outcome back, so absence here is the desired postcondition.
+    drop(engine);
+    for _ in 0..100 {
+        if !is_alive() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("owned grandchild {grandchild} survived slot cleanup");
+}
+
 /// `env_remove` strips an inherited variable, which is not what setting it
 /// to "" does: a child that tests `env_has` sees the difference.
 #[test]

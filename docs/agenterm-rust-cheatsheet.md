@@ -3409,6 +3409,13 @@ worst-case bounded sampling cadence and wall deadline. Keep that override in
 the owning task contract; do not raise the engine default or remove evidence
 collection when the old generic allowance is exhausted.
 
+The same ownership must govern cleanup. Configure an owned command before
+spawn, attach the platform `ProcessTreeGuard` immediately afterwards, and keep
+it beside the `Child` for every timeout, cancellation, explicit kill and owner
+drop path. Killing only `Child` leaves shells' background grandchildren alive;
+if guard attachment fails, kill and reap the just-created child before
+returning the typed setup failure.
+
 Process-start identity comparison does not by itself make a later PID mutation
 safe: the process can exit and the PID can be reused between comparison and
 signal delivery. Mutation must travel through a retained native process object

@@ -44,7 +44,7 @@ agenterm-qjswasm
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
-│  └─ [x] invocation-owned cleanup; no cross-run global backend state
+│  └─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
 │  ├─ [x] cached-length/all-ASCII experiment rejected: 166 > 160-step hard gate
@@ -202,6 +202,10 @@ second route around ACU/AgenTerm product contracts.
   `process.command` publish per-stream truncation flags, including additional
   cuts required after JSON escaping. `process.command_stdout` refuses a
   truncated result because its raw-text return cannot carry those flags.
+- [x] Tool children are configured and retained as owned process trees.
+  Explicit kill, timeout, cancellation and slot reclamation terminate the tree
+  before reaping the direct child; guard-attachment failure kills the newly
+  spawned child and fails typed instead of returning an uncontained handle.
 - [x] qjswasm tool process reports a missing child as a typed failure.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
