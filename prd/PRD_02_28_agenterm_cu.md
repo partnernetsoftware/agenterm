@@ -193,6 +193,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   expose MCU's physical-device inventory or recoverable copy/move transaction.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
+- [~] Network replacement is classified into interfaces, routes, active DNS,
+  sockets and DNS+TCP probes. qjswasm's generic TCP APIs are the intended
+  composition mechanism for probes, but do not count as ACU reachability until
+  the public facade exists. Native system inventory remains platform-owned;
+  socket rows must bind process start identity rather than a reusable PID.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

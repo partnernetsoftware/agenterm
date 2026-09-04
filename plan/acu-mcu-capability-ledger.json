@@ -572,10 +572,59 @@
           "next": "separate same-volume rename from cross-volume copy-and-remove and prove rollback/finalize for both"
         }
       ]
+    },
+    "network": {
+      "accounting": "complete",
+      "owner": "agenterm-platform network observation facades and qjswasm network runtime, exposed through agenterm-cu",
+      "capabilities": [
+        {
+          "id": "network.interfaces",
+          "mcu_shape": "network interfaces --max N with address, netmask, CIDR, MAC, scope and internal state",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "cross-platform bounded interface inventory with stable interface identity and typed unavailable fields"
+        },
+        {
+          "id": "network.routes",
+          "mcu_shape": "network routes --max N with destination, gateway, interface, flags, table and metric",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "native route-table facade with normalized destination/gateway plus preserved platform-specific metadata"
+        },
+        {
+          "id": "network.dns.resolvers",
+          "mcu_shape": "network dns --max N",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "typed active resolver/search-domain inventory; Linux must not assume resolv.conf is the complete systemd-resolved state"
+        },
+        {
+          "id": "network.dns.services",
+          "mcu_shape": "network dns-services --max N",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "provider-specific", "windows": "provider-specific"},
+          "next": "define per-service DNS identity separately for each OS instead of treating the current macOS networksetup shape as portable"
+        },
+        {
+          "id": "network.sockets",
+          "mcu_shape": "network sockets --pid/--name/--protocol/--state/--offset/--max/--scan-max",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "bounded native socket inventory joined to process start identity; expose truncated result and truncated scan independently"
+        },
+        {
+          "id": "network.probe",
+          "mcu_shape": "network probe HOST --port N --attempts N --timeout-ms N with DNS and TCP latency evidence",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "ACU facade composed from qjswasm DNS/TCP calls with per-attempt deadlines, resolved-address evidence and no hidden retry",
+          "note": "qjswasm already carries generic TCP APIs, but a caller cannot yet reach this MCU-shaped probe through the ACU public entry."
+        }
+      ]
     }
   },
   "remaining_families": [
-    "network",
     "device-audio",
     "service-daemon-session-lock-audit",
     "setup-doctor-permissions",

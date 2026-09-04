@@ -61,8 +61,8 @@ ACU replaces MCU
 ```mermaid
 flowchart LR
   M["MCU capability inventory"]
-  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & REST["system …"]
-  DESK & PROC & BROW & PTY & FILE & REST --> L["machine-readable replacement ledger"]
+  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & NET["network ✓"] & REST["system …"]
+  DESK & PROC & BROW & PTY & FILE & NET & REST --> L["machine-readable replacement ledger"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -189,6 +189,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   transaction or physical-device inventory. Unix modes/xattrs and Windows
   ACLs/attributes remain distinct platform vocabularies; parity must not be
   manufactured by renaming one as the other.
+- Network accounting is complete across interfaces, routes, DNS, sockets and
+  DNS+TCP probes. qjswasm's generic TCP surface is the correct composition
+  engine for probes, but it does not make the ACU command reachable by itself;
+  system inventory remains a native platform facade and sockets must join a
+  process start identity rather than a reusable PID alone.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -223,6 +228,7 @@ Q0 truthful boundary
    ├─ [x] browser family accounted shape by shape in the JSON ledger
    ├─ [x] PTY/job/terminal family accounted shape by shape in the JSON ledger
    ├─ [x] file/storage family accounted shape by shape in the JSON ledger
+   ├─ [x] network family accounted shape by shape in the JSON ledger
    └─ [ ] runtime/system families remain to enumerate
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
