@@ -57,6 +57,10 @@ P1 早于 P2 是刻意的：**两个不确定性不叠加 debug**。VM 装好当
    不允许「先做通四格再说」。
 3. **§6 的坑逐条兑现**：`winresource` 的 resource compiler、`usb-tablet` 绝对坐标、
    QMP `sendkey` 组合键、整帧刷新、UTM 不开 VNC、Eval 90 天快照、`script-*` feature 的 C 编译边界。
+4. **本机 UTM court 串行**：minicon 的 court service 为节省内存刻意实行
+   single-active lease；新 court 会回收仍在运行的 peer VM。不同 VM 也不是可并行
+   资源，调度器必须等前一 court `release` 且状态为 `stopped` 后才能 lease 下一格。
+   2026-09-04 的 Linux/Windows 并行复核曾互相停止 VM，不能把这种运行记成产品红。
 
 --- END GOAL ---
 
