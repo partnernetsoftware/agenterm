@@ -388,10 +388,134 @@
           "next": "define bounded download ownership, destination integrity and cleanup before implementation"
         }
       ]
+    },
+    "pty-job-terminal": {
+      "accounting": "complete",
+      "owner": "agenterm terminal/session kernel, agenterm-platform process and PTY adapters, exposed through typed agenterm-cu facades",
+      "capabilities": [
+        {
+          "id": "terminal.agenterm.inventory",
+          "mcu_shape": "pty list|panes|status for sessions owned by the terminal product",
+          "acu_shape": "future typed ACU facade over agenterm cli list-sessions|list-panes|pane-snapshot",
+          "state": "gap",
+          "next": "expose the existing AgenTerm control protocol through ACU without duplicating terminal state or parsing human-formatted output",
+          "note": "The owning kernel is shipped, but direct agenterm CLI reachability is not yet an ACU facade or ACU black-box evidence."
+        },
+        {
+          "id": "terminal.agenterm.spawn-close",
+          "mcu_shape": "pty start|split|kill-pane|stop for an owned terminal hierarchy",
+          "acu_shape": "future typed ACU facade over agenterm cli new-session|new-window|kill-window|kill-session",
+          "state": "gap",
+          "next": "bind stable session/tab ids, explicit close intent, bounded shutdown and remain-on-exit semantics",
+          "note": "AgenTerm has tabs rather than tmux panes; the facade must preserve product tree and last-tab invariants instead of pretending tmux parity."
+        },
+        {
+          "id": "terminal.agenterm.read-send-wait",
+          "mcu_shape": "pty read|send|wait and term read|send|wait",
+          "acu_shape": "future typed ACU facade over capture-pane|send-keys|paste-buffer|wait-pane",
+          "state": "gap",
+          "next": "add bounded structured capture, literal input, deterministic contains/dead waits and typed target-not-found results",
+          "note": "Generic desktop accessibility can inspect a visible terminal, but it is not equivalent to reading and writing the owned PTY stream."
+        },
+        {
+          "id": "terminal.agenterm.snapshot-events",
+          "mcu_shape": "pty events|snapshot|diff",
+          "acu_shape": "future typed ACU facade over pane-snapshot, capture-pane and read-events/wait-events",
+          "state": "gap",
+          "next": "define cursor/epoch identity, output ceilings, truncation and snapshot-advance receipts before routing"
+        },
+        {
+          "id": "terminal.agenterm.viewport-image",
+          "mcu_shape": "pty resize plus screen observation",
+          "acu_shape": "future facade over AgenTerm ui resize, scroll-pane and screenshot-pane",
+          "state": "gap",
+          "next": "separate PTY dimensions, viewport scroll and rendered screenshot instead of collapsing them into one resize claim"
+        },
+        {
+          "id": "pty.background.lifecycle",
+          "mcu_shape": "pty --provider native|tmux list|prune|start|status|wait-exit|stop",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "portable owned-headless-PTY facade in agenterm-platform with Windows ConPTY and POSIX PTY adapters, stable identity and stale-owner reclamation",
+          "note": "A visible AgenTerm tab is an alternative product surface, not a substitute for an arbitrary background PTY."
+        },
+        {
+          "id": "pty.background.io",
+          "mcu_shape": "pty --provider native|tmux read|send|wait|events with cursors and byte/event limits",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "bounded binary-safe read/write/event stream with monotonic cursors, typed truncation, deadline and owner cleanup"
+        },
+        {
+          "id": "pty.background.screen",
+          "mcu_shape": "pty --provider native|tmux snapshot|diff|resize",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "terminal-cell snapshot/diff contract plus independently verified rows and columns; do not infer a screen from raw bytes"
+        },
+        {
+          "id": "pty.background.process-control",
+          "mcu_shape": "pty --provider native|tmux signal|wait-exit|stop",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "identity-bound foreground process-group operations with signal delivery receipt, post-state and bounded forced cleanup"
+        },
+        {
+          "id": "pty.tmux.multi-pane",
+          "mcu_shape": "pty --provider tmux panes|split|kill-pane",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"linux": "gap", "macos": "gap", "windows": "provider-dependent"},
+          "next": "keep tmux as an optional delegated provider after the generic PTY contract exists",
+          "note": "tmux topology is provider-specific; ACU replacement does not require installing tmux or claiming one AgenTerm tab has tmux pane semantics."
+        },
+        {
+          "id": "job.spawn-adopt-inventory",
+          "mcu_shape": "job spawn|adopt|list|status|prune with request id, cwd, env, limits and ownership",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "typed owned-job registry over agenterm-platform spawn/process references with atomic receipts and bounded terminal-record retention"
+        },
+        {
+          "id": "job.output-events-input",
+          "mcu_shape": "job output|events|write with independent stdout/stderr cursors and bounded long poll",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "binary-safe stdin and dual-stream cursor facade with response ceilings, timeout, terminal event and truncation markers"
+        },
+        {
+          "id": "job.context-resources",
+          "mcu_shape": "job env|resources [--watch]",
+          "acu_shape": "process-usage covers one identity-bound process only",
+          "state": "gap",
+          "next": "owned process-group environment and aggregate resource views; never label single-process metrics as group coverage"
+        },
+        {
+          "id": "job.policy-priority-state",
+          "mcu_shape": "job policy|priority|set-state|signal",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "lease-authorized process-group mutation with read-before, identity recheck, delivery receipt and verified post-state"
+        },
+        {
+          "id": "job.lease-wait-stop",
+          "mcu_shape": "job renew|wait|stop plus on-lease-expiry detach|stop",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "shared ACU control-session lease primitive with monotonic wait, explicit expiry policy and crash-persistent cleanup receipt"
+        },
+        {
+          "id": "shell.exec.bounded",
+          "mcu_shape": "exec <command...> --timeout S",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "add an explicitly named argv-based command or route through owned jobs; preserve ACU exec --json for serialized CU commands",
+          "note": "The same spelling currently has different meanings and must never be forwarded silently."
+        }
+      ]
     }
   },
   "remaining_families": [
-    "pty-job-terminal",
     "file-storage",
     "network",
     "device-audio",

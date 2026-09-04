@@ -61,8 +61,8 @@ ACU replaces MCU
 ```mermaid
 flowchart LR
   M["MCU capability inventory"]
-  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & REST["runtime/system …"]
-  DESK & PROC & BROW & REST --> L["machine-readable replacement ledger"]
+  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & REST["system …"]
+  DESK & PROC & BROW & PTY & REST --> L["machine-readable replacement ledger"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -172,6 +172,17 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   PID-only rows;
   macOS public-CLI evidence has observed a real owned child exit. The three
   qjswasm native journeys now declare the same event and await integrated runs.
+- The PTY/job/terminal family is now fully classified by public shape. The
+  existing AgenTerm session/tab kernel is the owner for product-terminal
+  inventory, capture, input and deterministic waits, but those commands are
+  not counted as ACU-reachable until a typed facade and public journey exist.
+  Arbitrary background PTYs and lease-owned process groups remain separate
+  gaps: a visible AgenTerm tab is not silently treated as a native/tmux PTY,
+  and single-process metrics are not presented as job-group coverage.
+- MCU `exec <command...>` and ACU `exec --json` currently mean different
+  things. The router must keep refusing that collision until an explicit
+  argv-based shell/job command is named; compatibility never justifies a
+  meaning-changing rewrite.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
@@ -204,6 +215,7 @@ Q0 truthful boundary
    ├─ [x] process family accounted shape by shape in the JSON ledger
    ├─ [x] desktop family accounted shape by shape in the JSON ledger
    ├─ [x] browser family accounted shape by shape in the JSON ledger
+   ├─ [x] PTY/job/terminal family accounted shape by shape in the JSON ledger
    └─ [ ] runtime/system families remain to enumerate
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
@@ -220,7 +232,10 @@ Q2 fast delegated facades
    ├─ [x] process-watch: bounded baseline + identity-safe started/exited diff
    └─ [ ] rich filters, process detail, exec and identity-bound signal/mutation
 Q3 owned runtime facades
-├─ [ ] PTY/job/daemon/session/lock/audit/service
+├─ [~] PTY/job/daemon/session/lock/audit/service
+│  ├─ [ ] typed ACU facade over existing AgenTerm session/tab control
+│  ├─ [ ] portable owned headless PTY (POSIX PTY + Windows ConPTY)
+│  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [ ] file/network/storage/device/audio/resource/power/privilege
 Q4 browser and platform depth
 ├─ [~] CDP core live; pointer/dialog/files and MCU auto-pick shapes remain

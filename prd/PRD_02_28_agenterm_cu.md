@@ -179,6 +179,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   oversized inventory fail typed; broad watches omit unidentified rows only
   with `coverage_complete=false` and an explicit count. A real owned-child exit is green through the macOS public CLI;
   macOS/Linux/Windows qjswasm journey leaves are declared for native reruns.
+- [~] The MCU PTY/job/terminal surface is now exhaustively classified in
+  `plan/acu-mcu-capability-ledger.json`. AgenTerm's existing session/tab
+  control plane remains the owning kernel for its own terminal inventory,
+  capture, input and deterministic waits; ACU still needs a typed facade and
+  public journey before those shapes count as reachable. Arbitrary headless
+  PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
+  not be simulated by a visible tab, by single-process metrics, or by silently
+  forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm
