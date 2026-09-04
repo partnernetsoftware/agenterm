@@ -64,6 +64,16 @@ harness.require(args.length === 3, "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE"
 const repo = rh.absolute(args[0]);
 let product = rh.absolute(args[1]);
 let executable = rh.absolute(args[2]);
+// The manifest keeps convenient native debug defaults for ordinary local
+// development. Six-cell courts must instead name the exact artifact pair for
+// their own OS/ISA cell; otherwise an x86_64 Script worker can accidentally
+// drive arm64 children through Rosetta and produce misleading evidence.
+if (env_has("AGENTERM_CU_PTY_SMOKE_PRODUCT") === 1) {
+  product = rh.absolute(rh.env_or("AGENTERM_CU_PTY_SMOKE_PRODUCT", ""));
+}
+if (env_has("AGENTERM_CU_PTY_SMOKE_DRIVER") === 1) {
+  executable = rh.absolute(rh.env_or("AGENTERM_CU_PTY_SMOKE_DRIVER", ""));
+}
 if (harness.host_is_windows()) {
   if (!direct_file(product)) { product = product + ".exe"; }
   if (!direct_file(executable)) { executable = executable + ".exe"; }

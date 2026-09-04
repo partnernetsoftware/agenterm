@@ -6,6 +6,7 @@
 //! entry and then at the declared project root.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -29,6 +30,7 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
     let aggregate_source_max = check_many::TOTAL_SOURCE_MAX_BYTES;
     let mut compile_source_bytes = 0_usize;
     let mut imported_modules = 0_usize;
+    let resolved_modules = Rc::new(RefCell::new(HashMap::<PathBuf, String>::new()));
     check_many::run_check_many(
         manifest,
         options,
@@ -66,8 +68,14 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
                 imported_modules,
                 failure: None,
             }));
-            let resolve = resolver(&roots, Rc::clone(&resolver_state));
-            let is_library = source.lines().any(|line| line.starts_with("export "));
+            let resolve = resolver(
+                &roots,
+                Rc::clone(&resolver_state),
+                Rc::clone(&resolved_modules),
+            );
+            let is_library = source
+                .lines()
+                .any(|line| line.trim_start().starts_with("export "));
             let importer = path
                 .strip_prefix(&module_root)
                 .ok()
@@ -124,6 +132,7 @@ struct ResolverState {
 fn resolver(
     roots: &[PathBuf],
     state: Rc<RefCell<ResolverState>>,
+    resolved_modules: Rc<RefCell<HashMap<PathBuf, String>>>,
 ) -> impl Fn(&str) -> Option<String> + use<> {
     let mut canonical = Vec::new();
     for root in roots {
@@ -155,6 +164,9 @@ fn resolver(
             };
             if !resolved.starts_with(root) {
                 continue;
+            }
+            if let Some(source) = resolved_modules.borrow().get(&resolved).cloned() {
+                return Some(source);
             }
             let metadata = match std::fs::metadata(&resolved) {
                 Ok(metadata) if metadata.is_file() => metadata,
@@ -230,6 +242,10 @@ fn resolver(
             }
             budget.compile_source_bytes = budget.compile_source_bytes.saturating_add(actual_len);
             budget.imported_modules += 1;
+            drop(budget);
+            resolved_modules
+                .borrow_mut()
+                .insert(resolved, source.clone());
             return Some(source);
         }
         None
@@ -325,10 +341,14 @@ mod tests {
             imported_modules: IMPORT_MODULES_MAX - 1,
             failure: None,
         }));
-        let resolve = resolver(&[root], Rc::clone(&state));
+        let modules = Rc::new(RefCell::new(HashMap::new()));
+        let resolve = resolver(&[root], Rc::clone(&state), Rc::clone(&modules));
         assert_eq!(resolve("one"), Some("export const one = 1;".to_owned()));
         assert_eq!(state.borrow().imported_modules, IMPORT_MODULES_MAX);
-        assert_eq!(resolve("one"), None);
+        assert_eq!(resolve("one"), Some("export const one = 1;".to_owned()));
+        assert_eq!(state.borrow().imported_modules, IMPORT_MODULES_MAX);
+        std::fs::write(dir.path().join("two.qjs"), "export const two = 2;").unwrap();
+        assert_eq!(resolve("two"), None);
         let failure = state.borrow().failure.clone().expect("typed limit");
         assert_eq!(failure.code, "limit_import_modules");
         assert_eq!(failure.exit_class, "limit");
@@ -347,10 +367,36 @@ mod tests {
             imported_modules: 0,
             failure: None,
         }));
-        let resolve = resolver(&[root], Rc::clone(&state));
+        let resolve = resolver(
+            &[root],
+            Rc::clone(&state),
+            Rc::new(RefCell::new(HashMap::new())),
+        );
         assert_eq!(resolve("late"), None);
         let failure = state.borrow().failure.clone().expect("typed deadline");
         assert_eq!(failure.code, "limit_wall_time");
         assert_eq!(failure.exit_class, "limit");
+    }
+
+    #[test]
+    fn indented_export_is_checked_as_a_library_entry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("library.qjs"),
+            "  export const value = 42;\n",
+        )
+        .unwrap();
+        let report = run_check_many(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: QJS_CHECK_MANIFEST_KIND.to_owned(),
+                files: vec!["library.qjs".to_owned()],
+            },
+            CheckManyOptions {
+                project_root: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+        );
+        assert!(report.ok, "{report:?}");
     }
 }

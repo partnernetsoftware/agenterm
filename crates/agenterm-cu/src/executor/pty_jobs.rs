@@ -550,10 +550,18 @@ fn spawn_server(name: &str, cwd: Option<&str>, directory: &Path) -> Result<&'sta
     let mode = mode.as_str();
     let client = client_for(name)?;
     let deadline = Instant::now() + READY_TIMEOUT;
+    let mut consecutive_empty_reads = 0_u8;
     loop {
         match terminal_inventory_with_client(&client) {
             Ok(inventory) if inventory["tabs"].as_array().is_some_and(Vec::is_empty) => {
-                return Ok(mode);
+                // A Windows named-pipe listener can accept one probe while the
+                // server is still rotating from startup into its steady accept
+                // loop. Requiring two independent query connections prevents
+                // the first mutation from inheriting ERROR_BROKEN_PIPE (233).
+                consecutive_empty_reads = consecutive_empty_reads.saturating_add(1);
+                if consecutive_empty_reads >= 2 {
+                    return Ok(mode);
+                }
             }
             Ok(_) => {
                 return Err(CuError::new(
@@ -562,13 +570,13 @@ fn spawn_server(name: &str, cwd: Option<&str>, directory: &Path) -> Result<&'sta
                 ));
             }
             Err(_) if Instant::now() < deadline => {
+                consecutive_empty_reads = 0;
                 if let Ok(Some(status)) = child.try_wait() {
                     return Err(CuError::new(
                         "pty_server_start_failed",
                         format!("AgenTerm headless server exited before readiness: {status}"),
                     ));
                 }
-                thread::sleep(Duration::from_millis(25));
             }
             Err(error) => {
                 return Err(CuError::new(
@@ -577,6 +585,7 @@ fn spawn_server(name: &str, cwd: Option<&str>, directory: &Path) -> Result<&'sta
                 ));
             }
         }
+        thread::sleep(Duration::from_millis(25));
     }
 }
 
