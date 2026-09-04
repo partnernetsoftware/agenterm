@@ -21,6 +21,8 @@
 use crate::host::{self, HostState};
 use crate::{Budget, Cost, FleetBridgeFn, JsValue, Outcome, QjswasmError, Value};
 
+const ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_heap_ptr";
+
 /// Which calling convention this slot's entry points speak.
 ///
 /// Not a property of the wasm bytes -- both conventions are ordinary wasm --
@@ -49,6 +51,29 @@ pub(crate) struct Slot {
 }
 
 impl Slot {
+    pub(crate) fn allocation_waterline(&mut self) -> Result<Option<usize>, QjswasmError> {
+        if self.convention != Convention::JsV1
+            || self
+                .instance
+                .exported_function_handle(ALLOCATION_PROBE_EXPORT)
+                .map_err(classify)?
+                .is_none()
+        {
+            return Ok(None);
+        }
+        match self
+            .instance
+            .invoke_by_name(ALLOCATION_PROBE_EXPORT, &[])
+            .map_err(classify)?
+            .as_slice()
+        {
+            [tinyvm::Val::I32(value)] if *value >= 0 => Ok(Some(*value as usize)),
+            _ => Err(QjswasmError::Trap(tinyvm::WasmError::Trap(
+                "allocation probe returned an invalid waterline",
+            ))),
+        }
+    }
+
     pub(crate) fn take_failed_stdout(&mut self) -> String {
         std::mem::take(&mut self.failed_stdout)
     }

@@ -197,6 +197,25 @@ pub fn compile_qjs_tool_with_modules(
     )
 }
 
+/// Diagnostic twin of [`compile_qjs_tool_with_modules`].
+///
+/// The module additionally exports a read-only allocator-waterline function
+/// consumed by [`Engine::allocation_waterline`]. Ordinary tool compilation
+/// never publishes that export; this entry exists only for bounded allocation
+/// attribution courts.
+pub fn compile_qjs_tool_with_modules_and_allocation_probe(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(both_doors()),
+        },
+        resolve,
+    )
+}
+
 /// The fleet door followed by the tool door: declaration order is import
 /// order, so a tool script's `agenterm.*` imports come first, exactly where a
 /// sandbox script's would be.
@@ -229,6 +248,21 @@ pub fn compile_qjs_with_modules(
     resolve: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Vec<u8>, CompileError> {
     tinyvm_qjs::compile_qjs_m1_with_modules(
+        source,
+        tinyvm_qjs::Options {
+            names: tinyvm_qjs::Names::Declared(host::declarations()),
+        },
+        resolve,
+    )
+}
+
+/// Diagnostic twin of [`compile_qjs_with_modules`]; see
+/// [`compile_qjs_tool_with_modules_and_allocation_probe`].
+pub fn compile_qjs_with_modules_and_allocation_probe(
+    source: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<u8>, CompileError> {
+    tinyvm_qjs::compile_qjs_m1_with_modules_and_allocation_probe(
         source,
         tinyvm_qjs::Options {
             names: tinyvm_qjs::Names::Declared(host::declarations()),
@@ -1238,6 +1272,25 @@ impl Engine {
         if let Some(entry) = self.slots.get_mut(slot.index as usize) {
             *entry = None;
         }
+    }
+
+    /// Read the qjs bump allocator's current byte waterline when this slot was
+    /// compiled with an allocation probe.
+    ///
+    /// `Ok(None)` is the ordinary production answer: hand-written Wasm and
+    /// normally compiled qjs publish no probe. Reading is side-effect free and
+    /// exists for the precommitted allocation-lifetime court; it is not a
+    /// script capability and does not weaken the slot's limits or host door.
+    pub fn allocation_waterline(&mut self, slot: SlotId) -> Result<Option<usize>, QjswasmError> {
+        if slot.engine != self.id {
+            return Err(QjswasmError::NoSuchSlot(slot));
+        }
+        let s = self
+            .slots
+            .get_mut(slot.index as usize)
+            .and_then(Option::as_mut)
+            .ok_or(QjswasmError::NoSuchSlot(slot))?;
+        s.allocation_waterline()
     }
 
     pub fn live_slots(&self) -> usize {

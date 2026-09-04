@@ -34,6 +34,11 @@ persistent qjswasm slot
    first call retained a 52-byte namespace object; after warm-up, a no-binding
    primitive-result parse added a stable 256 dead bytes per call. This proves
    the ruler, not L0 for the three product journeys.
+6. AgenTerm's engine now has an explicit diagnostic compile +
+   `Engine::allocation_waterline` path. Ordinary qjs and hand-written Wasm
+   answer `None`; only an opt-in module can expose bytes. The remaining Phase B
+   work is to drive the three product journeys and write their attribution
+   table, not to add another allocator mechanism.
 
 ## 1. Hard constraints
 

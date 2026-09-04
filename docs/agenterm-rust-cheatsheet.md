@@ -3418,3 +3418,19 @@ Measure growth as well as today's file size. The CU catalog court showed that
 first conversion saved only 47,616 bytes and did not by itself reach the 2 MiB
 product ceiling. A good slope is a durable architecture result, not permission
 to claim the absolute budget passed or to move CLI policy into a shared DLL.
+
+## Measure guest allocation below the page granularity
+
+Linear-memory pages are a budget receipt, not an allocation-lifetime trace: a
+64 KiB page count cannot distinguish live persistent state from a small dead
+suffix. For qjswasm attribution, add diagnostics only through an explicit
+compiler entry and append a read-only function export after normal lowering so
+ordinary modules, function indices and script capabilities remain unchanged.
+Read the bump waterline around repeated calls on one persistent slot.
+
+Always separate warm-up from steady state. A first call may publish lazy state
+into a global (the JSON namespace measured 52 bytes), while later calls with
+the same roots reveal the stable slope. Call growth “dead” only after a closed
+root argument: no returned reference, persistent binding, closure, exception,
+or host-retained guest pointer can name it. A positive waterline delta alone is
+not evidence that it is safe to rewind.
