@@ -154,6 +154,38 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 6. **Retirement court** — switch examples/default PATH, remove Bun from the
    production dependency graph, rehearse MCU absence, then archive the shim.
 
+## Ordered execution queue
+
+```text
+Q0 truthful boundary
+├─ [x] runtime/help text: no useful capability is described as permanently MCU-owned
+└─ [~] replace top-level STAY counting with sub-verb + argument-shape ledger
+Q1 desktop closure
+├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
+├─ [ ] Linux and Windows journeys for the same verbs
+└─ [ ] explicit pointer court for drag/wheel/global input; never hide degradation
+Q2 fast delegated facades
+├─ [ ] caps/doctor/permissions/setup and app inventory
+├─ [ ] open/notify/state and terminal adoption
+└─ [ ] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
+Q3 owned runtime facades
+├─ [ ] PTY/job/daemon/session/lock/audit/service
+└─ [ ] file/network/storage/device/audio/resource/power/privilege
+Q4 browser and platform depth
+├─ [ ] remaining CDP argument shapes + MV3/Native Messaging
+├─ [ ] Simulator facade
+└─ [ ] current/ssh/vnc/VM schema parity
+Q5 retirement
+└─ [ ] parity corpus + three-host native + six-cell + MCU-absent rehearsal
+```
+
+`moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
+means “ACU cannot yet express this exact public shape; use MCU temporarily,”
+not “this capability belongs to MCU forever.” A same-named command also stays
+when forwarding would silently change meaning, such as window activation vs.
+node focus or shell execution vs. one JSON CU command. The ledger and queues
+above turn every such honest refusal into owned removal work.
+
 ## Hard gates
 
 - **R0 Accounting:** zero unclassified MCU public command shapes.
