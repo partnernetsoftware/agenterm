@@ -1614,6 +1614,12 @@ of them has to bring the tab forward. What the throwaway headless gate
   succeeded, accept disappearance only for Press/Cancel and only when a fresh
   native inventory proves that exact handle absent. Any inventory read failure,
   surviving handle, other action, or mechanism error remains a typed failure.
+- **Input injection acceptance is not delivery verification.** A platform API
+  accepting a global key event proves only `performed`. Without an addressed
+  window/node and a semantic read-back, publish `verified=false` and
+  `delivered=false`, and close the persistent receipt as unverified. Never let
+  a bare JSON `ok` imply that an Escape reached a modal panel. Persistent key
+  receipts retain byte length and SHA-256 only, not the chord text.
 - **A drag owns its release.** Freeze both distinct rendered endpoints before
   reserving the effect, then dispatch move/down/held-move/up on one target. Once
   press is accepted, attempt mouse-up even if the held move fails; preserve the

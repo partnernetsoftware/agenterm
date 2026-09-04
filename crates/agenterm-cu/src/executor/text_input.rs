@@ -267,8 +267,56 @@ pub(super) fn send_keys(
             |node| send_keys_to_focused_node(keys, window, node),
         );
     }
-    mechanism::input_inject::send_keys(keys).map_err(map_mechanism_err)?;
-    Ok(serde_json::json!({ "keys": keys }))
+    let ticket = receipts.reserve(
+        "send-keys",
+        0,
+        serde_json::json!({
+            "addressing": "global-focus",
+            "action": "send-keys",
+            "keys_bytes": keys.len(),
+            "keys_sha256": super::clipboard::clipboard_sha256_hex(keys.as_bytes()),
+            "performed": true,
+        }),
+    )?;
+    if let Err(error) = mechanism::input_inject::send_keys(keys) {
+        let error = map_mechanism_err(error);
+        receipts.complete(
+            &ticket,
+            "send-keys",
+            0,
+            false,
+            serde_json::json!({
+                "performed": false,
+                "delivered": false,
+                "error": error_payload(&error),
+            }),
+        )?;
+        return Err(error.with_detail(serde_json::json!({ "receipt": ticket.json() })));
+    }
+    let payload = serde_json::json!({
+        "addressing": "global-focus",
+        "action": "send-keys",
+        "keys": keys,
+        "performed": true,
+        "verified": false,
+        "delivered": false,
+        "reason": "global_injection_has_no_delivery_readback",
+        "receipt": ticket.json(),
+    });
+    receipts.complete(
+        &ticket,
+        "send-keys",
+        0,
+        false,
+        serde_json::json!({
+            "performed": true,
+            "delivered": false,
+            "reason": "global_injection_has_no_delivery_readback",
+            "keys_bytes": keys.len(),
+            "keys_sha256": super::clipboard::clipboard_sha256_hex(keys.as_bytes()),
+        }),
+    )?;
+    Ok(payload)
 }
 
 /// What the local backend actually did to deliver a chord. Linux and

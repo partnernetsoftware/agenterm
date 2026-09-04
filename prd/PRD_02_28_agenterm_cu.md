@@ -269,6 +269,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   Press/Cancel. It cannot excuse another action or a surviving/unreadable
   window. The controlled fixture remains required before this leaf becomes
   shipped.
+  Untargeted `send-keys` was the inverse failure in the same incident: the OS
+  injection API accepted Escape while the panel stayed open. That compatibility
+  path now states `performed=true`, `verified=false`, `delivered=false`, with
+  an unverified persistent receipt whose key evidence is length+digest rather
+  than plaintext. Callers needing proof must use an exact window/node semantic
+  action and its postcondition; JSON `ok` alone is not delivery evidence.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
   PID/parent/name inventory through `agenterm-platform::process::list`, shared
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
