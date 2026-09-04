@@ -44,7 +44,8 @@ agenterm-qjswasm
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
 │  ├─ [x] cached-length/all-ASCII experiment rejected: 166 > 160-step hard gate
-│  ├─ [ ] isolate and remove the remaining generic member-dispatch overhead
+│  ├─ [x] static-length dispatch experiment rejected: 160-step gate met, existing workloads regressed
+│  ├─ [ ] test direct per-producer metadata publication without eager general scans
 │  └─ [-] never raise a product gate merely to hide engine cost
 ├─ long horizon: tinyvm as a Wasmtime-class alternative
 │  ├─ [ ] WebAssembly core conformance + malformed-module differential court
@@ -75,7 +76,9 @@ flowchart LR
   REJECT["reject load/call<br/>host survives"]
   PERF["precommitted performance court"]
   ROLLBACK["gate miss → rollback<br/>retain evidence only"]
-  NEXT["new hypothesis:<br/>member-dispatch overhead"]
+  STATIC["static length dispatch court<br/>160 steps · zero slope"]
+  REJECT2["reject candidate<br/>join · JSON · object courts regress"]
+  NEXT["new hypothesis:<br/>direct producer metadata<br/>no eager general scan"]
   NORTH["long horizon<br/>tinyvm replaces Wasmtime<br/>workload by workload"]
   CORE["Core Wasm conformance<br/>malformed + differential fuzz"]
   COURT{"size · cold start · throughput<br/>security · embedder parity"}
@@ -88,7 +91,8 @@ flowchart LR
   SLOT -. budget / throw / host error .-> REJECT
   COMP -. measured candidate .-> PERF
   PERF -->|all frozen gates pass| UP
-  PERF -->|166 > 160| ROLLBACK --> NEXT
+  PERF -->|166 > 160| ROLLBACK --> STATIC
+  STATIC -->|C2 workload regression| REJECT2 --> NEXT
   UP -. accumulated generic runtime .-> CORE --> COURT
   STANDARD --> COURT
   COURT -->|selected workload wins| NORTH

@@ -265,6 +265,17 @@ wake-smoke 的 1.8M 全在 `array_has(client_waited, client)`——它在轮询�
 6 steps 就事后改门。完整表在 tinyvm `plan/design-string-record-metadata-experiment.md`
 （evidence commit `0a43271`）；本仓 engine pin 仍为 `028a914`。
 
-**下一刀**：另立实验，专门分解并削掉 generic member-access/lowering 的至少
-6 steps 固定成本，再重新评估记录布局。新实验仍须事前冻结兼容、steps、wasm
-体积和峰值页门，不从这次未通过的 candidate 直接挑选提交。
+**第二次实验判决（tinyvm evidence `a6ba2f9`）**：静态 `length` prefab
+把 64 位和 6,000 位 ASCII 的 `.length` 都做到 **160 steps/call**，斜率为零，
+说明最后 6 steps 的派发成本确实能够拿掉；但候选仍被 C2 判退。统一的构造后
+扫描让已有负载产生真实回归：Array `join` **573.9 steps/element**（门 `<260`）、
+1,000-byte String 的 `JSON.stringify` **73 steps/byte**（门 `<50`）、journal
+stringify **68,490 steps**（门 `<60,000`）、flat Object **1,536
+steps/property**（门 `<1,500`），并带坏 `includes` / `indexOf` / `split` courts。
+因此不能以 `.length` 单点达标覆盖整机回归；实现已完整回滚，pin 仍为
+`028a914`。
+
+**下一刀**：只允许预注册“各字符串生产者直接发布元数据”的判决实验，避免
+eager general post-construction scan。实验必须先列全生产者、定义未覆盖生产者的
+正确 fallback，并冻结既有 join / JSON / journal / Object / search / split courts；
+不能重开已判退候选，也不能放宽旧门。
