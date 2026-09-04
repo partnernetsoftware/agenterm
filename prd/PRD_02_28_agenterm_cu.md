@@ -226,6 +226,23 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   prerequisite gap (`no Chromium-family browser`), not a fabricated pass.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
   real-profile and three-host journeys remain promotion evidence.
+- [~] Browser download ownership is now a native `page-download` vertical
+  slice rather than a successful `page-js` / `page-click` acknowledgement.
+  The caller selects exactly one CDP page target and one download control,
+  supplies an existing absolute `--download-dir`, and bounds the lifecycle
+  with `--wait-ms 1..=300000`. ACU takes one cross-process lock per CDP
+  endpoint because `Browser.setDownloadBehavior` is browser-global, installs
+  `allowAndName` with events enabled, clicks without selecting the tab or
+  raising its window, and correlates `downloadWillBegin` with
+  `downloadProgress`. Success requires `state=completed` and a final regular
+  non-symlink entry at the GUID path that is independently `stat`-verified;
+  evidence returns the GUID, suggested filename, final path and decimal byte
+  counts but never opens or emits file contents. Every exit attempts policy
+  restoration. A held endpoint lock, policy refusal, cancellation, absent
+  start event, deadline, or missing final file is a distinct typed failure,
+  never a fabricated success. The non-sensitive Blob court owns the first
+  public black-box evidence; real one-time credential downloads are excluded
+  until that gate is green.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
   PID/parent/name inventory through `agenterm-platform::process::list`, shared
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the

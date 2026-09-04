@@ -92,6 +92,7 @@ pub const GROUPS: &[Group] = &[
             "page-targets",
             "page-find",
             "page-click",
+            "page-download",
             "page-hover",
             "page-scroll",
             "page-drag",
@@ -556,6 +557,10 @@ pub fn verb_declaration(verb: &str) -> Value {
         "page-click" => Some((
             "actuate",
             "one node (typed ambiguity) or one frozen viewport point: Input.dispatchMouseEvent pressed + released on that target; node path verifies document/node change, point path verifies trusted down/up and attempts release cleanup; receipt",
+        )),
+        "page-download" => Some((
+            "actuate",
+            "one background page node click under an explicit Browser download policy; waits for correlated start/completion events and stats the GUID-named regular file without reading content; typed canceled/not-started/timeout/blocked; receipt",
         )),
         "page-hover" => Some((
             "actuate",

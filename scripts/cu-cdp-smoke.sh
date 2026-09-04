@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # cu-cdp-smoke — end-to-end CDP smoke for `agenterm-cu page targets` and
-# `page-js --target-id | --target-url | --target-title` against a THROWAWAY
+# `page-js --target-id | --target-url | --target-title` plus an event-bound
+# `page-download` against a THROWAWAY
 # Chromium-family browser. It never touches the user's running browser: a
 # fresh --user-data-dir under mktemp, a free loopback port, headless, and the
 # process plus the directory are removed on EXIT (also on failure / Ctrl-C).
@@ -33,6 +34,9 @@
 #   3. `--target-title cu-smoke-Z` is typed cdp_target_not_found.
 #   4. `--target-title cu-smoke` (matches both) is typed cdp_target_ambiguous
 #      with both candidates in error.detail.
+#   5. A background link download completes under an explicit GUID-named
+#      policy; the returned path is a non-empty regular file, content is never
+#      read by ACU, and A remains active.
 #
 # Browser: $CU_CDP_BROWSER (an executable), else /Applications/Brave Origin.app,
 # else /Applications/Google Chrome.app; none present is a typed SKIP.
@@ -107,7 +111,8 @@ echo "STEP 1 browser: $BROWSER_NAME headless, throwaway profile, CDP on 127.0.0.
 
 # Two tabs with distinct titles, both created through DevTools (see header).
 curl_local -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-A</title>A" >/dev/null
-curl_local -s -X PUT "$BASE/json/new?data:text/html,<title>cu-smoke-B</title>B" >/dev/null
+URL_B="$(python3 -c 'import base64; print("data:text/html;base64," + base64.b64encode(b"<title>cu-smoke-B</title><a id=d download=smoke.txt href=data:text/plain,acu-download-smoke>download</a>").decode())')"
+curl_local -s -X PUT "$BASE/json/new?$URL_B" >/dev/null
 
 # Wait until both titles are published, then make A the active (first) page.
 ids=""
@@ -172,4 +177,20 @@ ncand="$(jf "$OUT" error.detail.candidates | python3 -c 'import json,sys; print(
 [[ "$ncand" -ge 2 ]] || fail "cdp_target_ambiguous should list both candidates: $OUT"
 echo "STEP 6 --target-title cu-smoke -> cdp_target_ambiguous ($ncand candidates)"
 
-echo "PASS: cu-cdp-smoke ($BROWSER_NAME headless, port $PORT, 2 tabs, 4 verbs checked)"
+# 5. Browser-level download events prove an actual background file. The verb
+# returns only metadata; this harness checks size and deliberately never reads
+# the file contents.
+mkdir "$UD/downloads"
+DOWNLOADS="$(cd "$UD/downloads" && pwd -P)"
+OUT="$("$CU" --target current --grant actuate page-download --port "$PORT" --target-title cu-smoke-B --selector '#d' --download-dir "$DOWNLOADS" --wait-ms 10000)" || true
+[[ "$(jf "$OUT" ok)" == "True" ]] || fail "page-download: $OUT"
+FINAL="$(jf "$OUT" data.final_path)"
+[[ -n "$FINAL" && -f "$FINAL" && ! -L "$FINAL" && -s "$FINAL" ]] || fail "page-download receipt path is not a non-empty regular file: $OUT"
+[[ "$(dirname "$FINAL")" == "$DOWNLOADS" ]] || fail "page-download escaped the requested directory: $FINAL"
+[[ "$(jf "$OUT" data.suggested_filename)" == "smoke.txt" ]] || fail "page-download lost suggested filename: $OUT"
+[[ "$(jf "$OUT" data.content_read)" == "False" ]] || fail "page-download did not attest stat-only handling: $OUT"
+first="$(curl_local -s "$BASE/json" | python3 -c 'import json,sys; print([t for t in json.load(sys.stdin) if t.get("type")=="page"][0]["title"])')"
+[[ "$first" == "cu-smoke-A" ]] || fail "downloading from B changed the active page to: $first"
+echo "STEP 7 page-download: completed $(jf "$OUT" data.file_size) bytes as GUID, suggested smoke.txt, content unread, A still active"
+
+echo "PASS: cu-cdp-smoke ($BROWSER_NAME headless, port $PORT, 2 tabs, background download verified)"

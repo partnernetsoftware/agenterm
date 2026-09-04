@@ -500,6 +500,50 @@ mod tests {
     }
 
     #[test]
+    fn page_download_requires_one_node_directory_and_bounded_wait() {
+        let base = |extra: &[&str]| {
+            let mut argv: Vec<String> = [
+                "--target",
+                "current",
+                "--grant",
+                "actuate",
+                "page-download",
+                "--port",
+                "1",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+            argv.extend(extra.iter().map(|s| (*s).to_owned()));
+            dispatch(argv)
+        };
+        let valid = base(&[
+            "--selector",
+            "#download",
+            "--download-dir",
+            "/tmp",
+            "--wait-ms",
+            "1000",
+        ]);
+        assert_eq!(valid.command, "page-download");
+        assert_eq!(valid.error.expect("no listener").code, "unsupported");
+
+        let missing_dir = base(&["--selector", "#download"]);
+        assert_eq!(missing_dir.error.expect("directory required").code, "usage");
+        let missing_node = base(&["--download-dir", "/tmp"]);
+        assert_eq!(missing_node.error.expect("node required").code, "usage");
+        let unbounded = base(&[
+            "--node",
+            "7",
+            "--download-dir",
+            "/tmp",
+            "--wait-ms",
+            "300001",
+        ]);
+        assert_eq!(unbounded.error.expect("wait bound").code, "usage");
+    }
+
+    #[test]
     fn page_type_accepts_positional_or_flag_text_without_echoing_it() {
         let run = |tail: &[&str]| {
             let mut argv: Vec<String> =

@@ -670,6 +670,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
         for verb in [
             "page-find",
             "page-click",
+            "page-download",
             "page-hover",
             "page-scroll",
             "page-drag",
@@ -705,6 +706,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("page-find", "observe"),
             ("page-screenshot", "observe"),
             ("page-click", "actuate"),
+            ("page-download", "actuate"),
             ("page-hover", "actuate"),
             ("page-scroll", "actuate"),
             ("page-drag", "actuate"),

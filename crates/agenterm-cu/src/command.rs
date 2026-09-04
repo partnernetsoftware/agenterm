@@ -1140,6 +1140,33 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         clicks: Option<u32>,
     },
+    /// Start one browser download from a background page node, wait for
+    /// Chromium's browser-level completion event, and prove the GUID-named
+    /// regular file exists without reading its contents.
+    PageDownload {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<u64>,
+        download_dir: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wait_ms: Option<u64>,
+    },
     /// `page hover` over CDP: move the page pointer to viewport CSS
     /// coordinates without selecting the tab. The postcondition checks a
     /// trusted `mousemove` event's target and coordinates; CSS `:hover` is
@@ -1702,6 +1729,7 @@ impl Command {
             Self::PageText { .. } => "page-text".into(),
             Self::PageFind { .. } => "page-find".into(),
             Self::PageClick { .. } => "page-click".into(),
+            Self::PageDownload { .. } => "page-download".into(),
             Self::PageHover { .. } => "page-hover".into(),
             Self::PageScroll { .. } => "page-scroll".into(),
             Self::PageDrag { .. } => "page-drag".into(),
@@ -1792,6 +1820,7 @@ impl Command {
             | Self::PageText { target, .. }
             | Self::PageFind { target, .. }
             | Self::PageClick { target, .. }
+            | Self::PageDownload { target, .. }
             | Self::PageHover { target, .. }
             | Self::PageScroll { target, .. }
             | Self::PageDrag { target, .. }
@@ -1846,6 +1875,7 @@ impl Command {
             | Self::TabClose { .. }
             | Self::BrowserOpen { .. }
             | Self::PageClick { .. }
+            | Self::PageDownload { .. }
             | Self::PageHover { .. }
             | Self::PageScroll { .. }
             | Self::PageDrag { .. }
@@ -2131,6 +2161,26 @@ mod tests {
             Command::PageClick {
                 node: Some(17),
                 clicks: Some(2),
+                ..
+            }
+        ));
+        let download: Command = serde_json::from_value(serde_json::json!({
+            "verb": "page-download",
+            "target": "ssh",
+            "port": 9222,
+            "target_id": "B2",
+            "selector": "#download",
+            "download_dir": "~/downloads",
+            "wait_ms": 30000
+        }))
+        .expect("deserialize download");
+        assert_eq!(download.verb(), "page-download");
+        assert_eq!(download.required_grant(), Grant::Actuate);
+        assert!(matches!(
+            download,
+            Command::PageDownload {
+                target: TargetRef::Ssh,
+                wait_ms: Some(30000),
                 ..
             }
         ));

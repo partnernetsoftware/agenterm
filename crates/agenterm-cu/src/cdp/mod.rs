@@ -29,6 +29,7 @@
 //!   `nav` / `screenshot` over a session.
 
 pub mod ax;
+pub mod download;
 pub mod evaluate;
 pub mod http;
 pub mod page;

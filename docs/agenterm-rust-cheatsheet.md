@@ -1581,6 +1581,20 @@ of them has to bring the tab forward. What the throwaway headless gate
   FileList as basename/size pairs. The command needs full paths transiently,
   but public results, receipts, logs and persisted evidence must never retain
   them.
+- **A browser download is a browser-global event lifecycle, not a click.**
+  `Browser.setDownloadBehavior` belongs to the browser websocket, while the
+  planned click belongs to the selected page websocket. Serialize that global
+  policy with a cross-process lock keyed by the resolved CDP endpoint; a second
+  owner must fail typed busy instead of racing policy or events. Use
+  `allowAndName`, an explicit existing absolute download directory and download
+  events, then correlate `downloadWillBegin` with subsequent
+  `downloadProgress` by GUID until `completed` or a bounded deadline. Success
+  still requires `stat` of the GUID-named final regular non-symlink file; a CDP
+  ACK, a click ACK, or even a completed event without the file is not enough.
+  Return metadata only (GUID, suggested filename, final path, state and decimal
+  byte counts), never read or echo file contents. Keep the target backgrounded,
+  restore the browser policy on every exit, and preserve blocked, canceled,
+  not-started, timeout, missing-file and restore failures as typed evidence.
 - **A drag owns its release.** Freeze both distinct rendered endpoints before
   reserving the effect, then dispatch move/down/held-move/up on one target. Once
   press is accepted, attempt mouse-up even if the held move fails; preserve the

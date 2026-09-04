@@ -1,5 +1,5 @@
 //! Browser page & tabs: the CDP verbs (`page-js`, `page-targets`, and the
-//! background-tab verbs `page find|click|hover|scroll|drag|dialog|files|fill|type|nav|screenshot`), the page
+//! background-tab verbs `page find|click|download|hover|scroll|drag|dialog|files|fill|type|nav|screenshot`), the page
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
 //! profiles|open`), and the MCU `page` group word.
@@ -25,6 +25,7 @@ pub fn parse(
             "page-text" => page_text(target, args),
             "page-find" => page_find(target, args),
             "page-click" => page_click(target, args),
+            "page-download" => page_download(target, args),
             "page-hover" => page_hover(target, args),
             "page-scroll" => page_scroll(target, args),
             "page-drag" => page_drag(target, args),
@@ -67,6 +68,10 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         Some("click") => {
             args.remove(0);
             return page_click(target, args);
+        }
+        Some("download") => {
+            args.remove(0);
+            return page_download(target, args);
         }
         Some("hover") => {
             args.remove(0);
@@ -396,6 +401,39 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         y,
         button,
         clicks,
+    })
+}
+
+fn page_download(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, pid, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page download", args)?;
+    let node = node_flags("page download", args, &["--selector", "--text", "--node"])?;
+    let Some(download_dir) = flag_text(args, "--download-dir")? else {
+        return Err("page download requires --download-dir PATH".into());
+    };
+    let wait_ms = flag_parsed::<u64>(args, "--wait-ms")?;
+    if wait_ms.is_some_and(|value| !(1..=300_000).contains(&value)) {
+        return Err("page download --wait-ms accepts 1..=300000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "page download accepts only CDP target flags, one of --selector / --text / --node, --download-dir PATH and [--wait-ms N]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::PageDownload {
+        target,
+        port,
+        pid,
+        target_id,
+        target_url,
+        target_title,
+        target_match,
+        selector: node.selector,
+        text: node.text,
+        node: node.node,
+        download_dir,
+        wait_ms,
     })
 }
 

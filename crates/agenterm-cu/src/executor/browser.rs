@@ -687,6 +687,132 @@ pub(super) fn page_click_payload(
     complete_cdp_receipt(receipts, &ticket, "page-click", outcome)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn page_download_payload(
+    port: u16,
+    selector: crate::cdp::TargetSelector,
+    css: Option<&str>,
+    text: Option<&str>,
+    node: Option<u64>,
+    download_dir: &str,
+    wait_ms: Option<u64>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let query = cdp_node_query("page download", css, text, None, None, node)?;
+    let directory = std::path::Path::new(download_dir)
+        .canonicalize()
+        .map_err(|_| {
+            CuError::new(
+                "cdp_download_directory_invalid",
+                "download directory must already exist and be accessible",
+            )
+        })?;
+    if !directory.is_dir() {
+        return Err(CuError::new(
+            "cdp_download_directory_invalid",
+            "download destination is not a directory",
+        ));
+    }
+    let wait = std::time::Duration::from_millis(
+        wait_ms.unwrap_or(crate::cdp::download::DEFAULT_WAIT.as_millis() as u64),
+    );
+    if wait.is_zero() || wait > crate::cdp::download::MAX_WAIT {
+        return Err(invalid_input(
+            "page download --wait-ms accepts 1..=300000".into(),
+        ));
+    }
+
+    // Browser.setDownloadBehavior is global to one debugging endpoint.  A
+    // non-blocking cross-process lock prevents two ACU workers from replacing
+    // each other's policy or consuming each other's browser events.
+    let lock_path = std::env::temp_dir().join(format!("agenterm-cu-cdp-{port}.download.lock"));
+    let _lock = agenterm_platform::locking::PathLock::try_acquire(&lock_path).map_err(|error| {
+        CuError::new(
+            "cdp_download_busy",
+            "another download command owns this Chromium endpoint",
+        )
+        .with_detail(serde_json::json!({ "lock_kind": format!("{:?}", error.kind()) }))
+    })?;
+
+    let (ctx, mut page) = cdp_connect(Some(port), selector)?;
+    let plan = crate::cdp::page::plan_click(&mut page, &query, "left", 1)?;
+    let frames = crate::cdp::download::frame_ids(&mut page)?;
+    let browser_url = crate::cdp::targets::browser_ws_url(port)?;
+    let mut browser = crate::cdp::ws::connect(&browser_url)?;
+    let ticket = receipts.reserve(
+        "page-download",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "query": query.json(),
+            "action": "download",
+            "download_directory": directory.to_string_lossy(),
+            "wait_ms": wait.as_millis().to_string(),
+            "content_read": false,
+            "focus_changed": false,
+        }),
+    )?;
+
+    let operation = (|| -> Result<serde_json::Value, crate::cdp::CdpError> {
+        crate::cdp::download::enable(&mut browser, &directory)?;
+        let click = crate::cdp::page::perform_click(&mut page, &ctx, &plan)?;
+        if !click.performed {
+            return Err(crate::cdp::CdpError::typed(
+                "cdp_download_click_failed",
+                "download node click was not completely dispatched",
+            ));
+        }
+        Ok(crate::cdp::download::wait(&mut browser, &frames, &directory, wait)?.json())
+    })();
+    let cleanup = crate::cdp::download::disable(&mut browser);
+
+    match (operation, cleanup) {
+        (Ok(mut payload), Ok(())) => {
+            receipts.complete(
+                &ticket,
+                "page-download",
+                0,
+                true,
+                serde_json::json!({
+                    "performed": true,
+                    "file": payload,
+                    "policy_restored": true,
+                }),
+            )?;
+            payload["receipt"] = ticket.json();
+            Ok(payload)
+        }
+        (result, cleanup) => {
+            let error = match (result, cleanup) {
+                (Err(error), Ok(())) => CuError::from(error),
+                (Ok(payload), Err(cleanup)) => CuError::from(cleanup).with_detail(
+                    serde_json::json!({ "download": payload, "policy_restored": false }),
+                ),
+                (Err(error), Err(cleanup)) => CuError::from(error).with_detail(serde_json::json!({
+                    "policy_restored": false,
+                    "cleanup_error": {
+                        "code": cleanup.code,
+                        "message": cleanup.message,
+                        "detail": cleanup.detail,
+                    },
+                })),
+                (Ok(_), Ok(())) => unreachable!(),
+            };
+            receipts.complete(
+                &ticket,
+                "page-download",
+                0,
+                false,
+                serde_json::json!({
+                    "performed": false,
+                    "error": error_payload(&error),
+                }),
+            )?;
+            Err(error.with_detail(serde_json::json!({ "receipt": ticket.json() })))
+        }
+    }
+}
+
 pub(super) fn page_hover_payload(
     port: Option<u16>,
     selector: crate::cdp::TargetSelector,

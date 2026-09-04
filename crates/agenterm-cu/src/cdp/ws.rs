@@ -339,6 +339,11 @@ impl<T: Transport> Session<T> {
         std::mem::take(&mut self.events)
     }
 
+    #[cfg(test)]
+    pub(crate) fn transport_ref(&self) -> &T {
+        &self.transport
+    }
+
     fn parse(&mut self, text: &str) -> Result<Value, CdpError> {
         self.largest_message = self.largest_message.max(text.len());
         serde_json::from_str(text)

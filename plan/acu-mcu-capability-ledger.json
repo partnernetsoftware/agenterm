@@ -405,9 +405,10 @@
         {
           "id": "browser.download",
           "mcu_shape": "planned browser download lifecycle",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "define bounded download ownership, destination integrity and cleanup before implementation"
+          "acu_shape": "page-download with exact CDP target and node, explicit download directory, bounded completion wait and stat-only receipt",
+          "state": "native",
+          "evidence": ["scripts/cu-cdp-smoke.sh"],
+          "note": "ACU serializes the browser-global allowAndName policy with one cross-process lock per CDP endpoint, listens for matching Browser.downloadWillBegin/downloadProgress completion, then verifies the GUID-named final entry by stat without reading its contents. The target stays backgrounded and every exit attempts policy restoration. Busy, blocked, canceled, not-started, timeout and missing-file states are typed failures rather than click success."
         }
       ]
     },
