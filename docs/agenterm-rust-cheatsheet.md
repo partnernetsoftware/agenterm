@@ -986,6 +986,18 @@ unobservable parser internals. Own the returned pointer with a guard that calls
 three behind one bounded `Result<Vec<String>>` facade and bracket a remote read
 with matching process start identities so PID reuse cannot substitute a target.
 
+Treat another process's working directory as a platform-limited observation,
+not a reason to normalize around undocumented internals. Linux exposes the
+live object through `/proc/<pid>/cwd`; macOS exposes it through
+`proc_pidinfo(PROC_PIDVNODEPATHINFO)`. Preserve native non-UTF-8 paths inside
+the platform facade, then let a JSON product boundary reject an unrepresentable
+path with a typed invalid-data result instead of using lossy text. Windows has
+no stable public arbitrary-process cwd API: reading remote PEB /
+`RTL_USER_PROCESS_PARAMETERS` couples the product to private layouts,
+privilege and native/WOW64 width. Return typed unsupported until a separately
+bounded experiment proves that matrix. As with argv, bracket the point read
+with equal process-start identities so PID reuse cannot change the target.
+
 For a caller-visible wait on an existing process, a PID is lookup input, not
 stable identity. First retain the native process object (`pidfd`, kqueue-backed
 reference, or Windows HANDLE), then compare the caller's prior start identity

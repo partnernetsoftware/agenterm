@@ -179,6 +179,64 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
     Ok(arguments)
 }
 
+pub(crate) fn current_directory(pid: u32) -> Result<std::path::PathBuf, ProcessError> {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+    let pid = libc::c_int::try_from(pid)
+        .map_err(|_| ProcessError::new(ProcessErrorKind::IdOutOfRange, "pid exceeds c_int"))?;
+    let mut info = unsafe { std::mem::zeroed::<libc::proc_vnodepathinfo>() };
+    let size =
+        libc::c_int::try_from(std::mem::size_of::<libc::proc_vnodepathinfo>()).map_err(|_| {
+            ProcessError::new(ProcessErrorKind::InvalidData, "cwd buffer overflows c_int")
+        })?;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
+    };
+    if read <= 0 {
+        let error = std::io::Error::last_os_error();
+        let kind = match error.kind() {
+            std::io::ErrorKind::NotFound => ProcessErrorKind::NotFound,
+            std::io::ErrorKind::PermissionDenied => ProcessErrorKind::PermissionDenied,
+            _ => ProcessErrorKind::Inspect,
+        };
+        return Err(ProcessError::new(kind, error.to_string()));
+    }
+    if read != size {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "PROC_PIDVNODEPATHINFO returned a partial record",
+        ));
+    }
+
+    let path = &info.pvi_cdir.vip_path;
+    let capacity = std::mem::size_of_val(path);
+    // SAFETY: vip_path is an inline [[c_char; 32]; 32] byte array. Reading its
+    // complete object representation as u8 is valid, and the NUL scan remains
+    // bounded by that exact inline capacity.
+    let bytes = unsafe { std::slice::from_raw_parts(path.as_ptr().cast::<u8>(), capacity) };
+    let length = bytes.iter().position(|byte| *byte == 0).ok_or_else(|| {
+        ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "current-directory path is not NUL terminated",
+        )
+    })?;
+    if length == 0 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::Unavailable,
+            "current-directory path is unavailable",
+        ));
+    }
+    Ok(std::path::PathBuf::from(OsString::from_vec(
+        bytes[..length].to_vec(),
+    )))
+}
+
 pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
     root_start_identity: Option<String>,

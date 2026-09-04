@@ -105,9 +105,23 @@
         {
           "id": "process.cwd",
           "mcu_shape": "process cwd PID",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "process-image facade with typed denied/needs-privilege"
+          "acu_shape": "process-cwd --pid N (alias: process cwd PID)",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "native",
+            "macos": "native",
+            "windows": "typed-unsupported"
+          },
+          "qualification": "macos-public-cli-live-linux-journey-windows-refusal-pending",
+          "evidence": [
+            "agenterm-cu process-cwd macos host black-box"
+          ],
+          "declared_evidence": [
+            "cu.macos-process-cwd",
+            "cu.linux-process-cwd",
+            "cu.windows-process-cwd-refusal"
+          ],
+          "note": "Linux procfs and macOS libproc reads are bracketed by equal start identities. Windows refuses rather than reading undocumented PEB/WOW64 layouts."
         },
         {
           "id": "process.argv",

@@ -366,6 +366,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<usize>,
     },
+    /// Read the live working directory for one exact process instance. The
+    /// path is disclosed by this explicit command, but persistent evidence
+    /// stores only its byte length and digest.
+    ProcessCwd {
+        target: TargetRef,
+        pid: u32,
+    },
     /// One cumulative resource sample for an exact, identity-bound process.
     ProcessUsage {
         target: TargetRef,
@@ -1678,6 +1685,7 @@ impl Command {
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
             Self::ProcessArgv { .. } => "process-argv".into(),
+            Self::ProcessCwd { .. } => "process-cwd".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
@@ -1769,6 +1777,7 @@ impl Command {
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
             | Self::ProcessArgv { target, .. }
+            | Self::ProcessCwd { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
@@ -2003,6 +2012,24 @@ mod tests {
                 "values": true,
                 "offset": 3,
                 "limit": 9,
+            })
+        );
+    }
+
+    #[test]
+    fn process_cwd_is_observe_only_and_has_a_closed_remote_wire_shape() {
+        let command = Command::ProcessCwd {
+            target: TargetRef::Ssh,
+            pid: 42,
+        };
+        assert_eq!(command.verb(), "process-cwd");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-cwd",
+                "target": "ssh",
+                "pid": 42,
             })
         );
     }

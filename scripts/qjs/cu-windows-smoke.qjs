@@ -37,6 +37,7 @@ const declared_evidence = [
   "cu.windows-uia-window-identity",
   "cu.windows-process-state",
   "cu.windows-process-argv",
+  "cu.windows-process-cwd-refusal",
   "cu.windows-process-usage",
   "cu.windows-process-usage-watch",
   "cu.windows-process-wait",
@@ -451,6 +452,17 @@ try {
       && text_of(visible_arg.value) !== ""
       && text_of(visible_arg.sha256) === text_of(hidden_arg.sha256),
     "cu_windows_smoke_process_argv"
+  );
+
+  print("STEP process cwd fails typed on Windows instead of inventing an empty path");
+  const process_cwd_refused = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process", "cwd", "" + fixture_pid
+  ]);
+  ensure(
+    !flag_at(process_cwd_refused, "ok")
+      && process_cwd_refused.data === undefined
+      && text_at(process_cwd_refused, "error.code") === "process_cwd_unsupported",
+    "cu_windows_smoke_process_cwd_refusal:" + JSON.stringify(process_cwd_refused)
   );
 
   print("STEP process-usage preserves that identity and publishes verified lossless counters");
@@ -1006,6 +1018,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-uia-capabilities")
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-window-identity");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-state");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-argv");
+harness.emit_evidence(context, declared_evidence, "cu.windows-process-cwd-refusal");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");

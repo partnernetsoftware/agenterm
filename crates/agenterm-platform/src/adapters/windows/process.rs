@@ -145,6 +145,16 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
     Ok(arguments)
 }
 
+pub(crate) fn current_directory(_pid: u32) -> Result<std::path::PathBuf, ProcessError> {
+    // Windows has no stable documented API for another process's current
+    // directory. Reading RTL_USER_PROCESS_PARAMETERS would depend on internal
+    // PEB layouts and differ across native/WOW64 targets, so fail explicitly.
+    Err(ProcessError::new(
+        ProcessErrorKind::Unsupported,
+        "arbitrary-process current-directory inspection is unsupported on Windows",
+    ))
+}
+
 fn raw_command_line(pid: u32) -> Result<String, ProcessError> {
     use std::ffi::c_void;
     use windows_sys::Win32::{

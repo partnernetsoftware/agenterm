@@ -3,15 +3,15 @@
 //! This module owns the stable product-facing verbs while `selected` resolves
 //! the one native adapter for the compilation target.
 
-use std::process::{ChildStderr, ChildStdout, Command};
-
-use crate::{
-    contract::process::{ProcessError, ProcessInfo},
-    selected::process as adapter,
+use std::{
+    path::PathBuf,
+    process::{ChildStderr, ChildStdout, Command},
 };
 
-pub use crate::contract::process::ProcessErrorKind;
+use crate::{contract::process::ProcessInfo, selected::process as adapter};
+
 pub use crate::contract::process::{PipeProbeError, PipeProbeToken};
+pub use crate::contract::process::{ProcessError, ProcessErrorKind};
 pub use crate::process_observation::{ProcessObservation, observe, start_identity};
 pub use crate::process_spawn::{
     DetachedSpawnMode, ProcessExit, classify_exit_status, configure_breakaway_visible_command,
@@ -36,6 +36,21 @@ pub fn command_line(pid: u32) -> Result<String, ProcessError> {
 /// contain credentials.
 pub fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
     adapter::arguments(pid)
+}
+
+/// Read one live process's current working directory.
+///
+/// This is a point-in-time mechanism read. Callers that publish the result for
+/// an existing process must bracket it with a stable process-start identity so
+/// PID reuse cannot substitute a different target.
+pub fn current_directory(pid: u32) -> Result<PathBuf, ProcessError> {
+    if pid == 0 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::IdOutOfRange,
+            "process id must be greater than zero",
+        ));
+    }
+    adapter::current_directory(pid)
 }
 
 pub fn kill(pid: u32) -> Result<(), ProcessError> {
@@ -107,5 +122,33 @@ mod tests {
         let arguments = super::arguments(std::process::id()).expect("current arguments");
         assert_eq!(arguments, std::env::args().collect::<Vec<_>>());
         assert!(arguments.iter().map(String::len).sum::<usize>() <= 1024 * 1024);
+    }
+
+    #[test]
+    fn zero_is_not_a_process_current_directory() {
+        assert_eq!(
+            super::current_directory(0).unwrap_err().kind(),
+            super::ProcessErrorKind::IdOutOfRange
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn current_process_directory_matches_the_standard_library() {
+        assert_eq!(
+            super::current_directory(std::process::id()).expect("current process directory"),
+            std::env::current_dir().expect("standard current directory")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_refuses_undocumented_remote_process_parameter_layouts() {
+        assert_eq!(
+            super::current_directory(std::process::id())
+                .expect_err("Windows arbitrary-process cwd is unsupported")
+                .kind(),
+            super::ProcessErrorKind::Unsupported
+        );
     }
 }

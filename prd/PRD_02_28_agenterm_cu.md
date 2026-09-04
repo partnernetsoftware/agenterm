@@ -288,6 +288,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   same command. macOS public-CLI evidence is live and all three qjswasm native
   journeys declare platform receipts; integrated Linux/Windows reruns remain
   open, so this leaf is not yet three-host complete.
+- [~] `process-cwd` / MCU-compatible `process cwd PID` is the next native
+  process-context slice. It brackets the native read with equal process-start
+  identities, publishes the explicitly requested UTF-8 path plus byte length
+  and SHA-256, and never substitutes the ACU worker's directory. Linux reads
+  `/proc/<pid>/cwd`; macOS reads `PROC_PIDVNODEPATHINFO` directly through
+  libproc. Windows is deliberately `process_cwd_unsupported`: there is no
+  stable public API for another process's current directory, and undocumented
+  remote PEB / `RTL_USER_PROCESS_PARAMETERS` layouts (including WOW64) are not
+  a product contract. Host unit tests and a macOS public-CLI read are green;
+  the registered Linux/macOS journey evidence and Windows refusal court remain
+  to be executed before promotion.
 - [~] Permission discovery no longer requires agents to mine the broad
   capability document: `permissions` is a live observe-only public command
   that returns the host permission model, every gated verb and exact repair

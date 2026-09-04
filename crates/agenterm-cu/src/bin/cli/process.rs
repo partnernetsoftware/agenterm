@@ -26,12 +26,31 @@ pub fn parse(
         "ps" => ps(target, args),
         "process-state" => process_state(target, args),
         "process-argv" => process_argv(target, args),
+        "process-cwd" => process_cwd(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
         "process-watch" => process_watch(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_cwd(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = match flag_parsed::<u32>(args, "--pid")? {
+        Some(pid) => pid,
+        None if !args.is_empty() && !args[0].starts_with('-') => args
+            .remove(0)
+            .parse::<u32>()
+            .map_err(|_| "process-cwd PID must be a positive integer".to_owned())?,
+        None => return Err("process-cwd requires --pid N (or positional PID)".into()),
+    };
+    if pid == 0 {
+        return Err("process-cwd pid must be greater than zero".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("process-cwd received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessCwd { target, pid })
 }
 
 fn process_argv(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -353,6 +372,22 @@ mod tests {
                 .expect_err("bounded")
                 .contains("1..=4096")
         );
+    }
+
+    #[test]
+    fn process_cwd_accepts_native_and_mcu_shapes() {
+        let spec = verbs::lookup("process-cwd").expect("process-cwd verb");
+        let mut native = vec!["--pid".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut native).expect("native"),
+            Command::ProcessCwd { pid: 42, .. }
+        ));
+
+        let mut mcu = vec!["cwd".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Current, &mut mcu).expect("MCU alias"),
+            Command::ProcessCwd { pid: 42, .. }
+        ));
     }
 
     #[test]

@@ -162,6 +162,77 @@ pub(super) fn process_argv_payload(
     }))
 }
 
+pub(super) fn process_cwd_payload(pid: u32) -> Result<Value, CuError> {
+    if pid == 0 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-cwd --pid must be greater than zero",
+        ));
+    }
+
+    let start_identity = live_start_identity(pid)?;
+    let path = agenterm_platform::process::current_directory(pid).map_err(process_cwd_error)?;
+    let after_identity = live_start_identity(pid)?;
+    if after_identity != start_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed while its working directory was read",
+        ));
+    }
+    let path = path.to_str().ok_or_else(|| {
+        CuError::new(
+            "process_cwd_invalid_data",
+            "process working directory is not valid UTF-8",
+        )
+    })?;
+    let bytes = path.as_bytes();
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "provider": process_cwd_provider(),
+        "path": path,
+        "path_byte_length": bytes.len().to_string(),
+        "path_sha256": super::clipboard::clipboard_sha256_hex(bytes),
+        "verified": true,
+    }))
+}
+
+fn process_cwd_error(error: agenterm_platform::process::ProcessError) -> CuError {
+    use agenterm_platform::process::ProcessErrorKind;
+
+    let code = match error.kind() {
+        ProcessErrorKind::IdOutOfRange => "invalid_input",
+        ProcessErrorKind::NotFound => "process_not_found",
+        ProcessErrorKind::PermissionDenied => "process_cwd_permission_denied",
+        ProcessErrorKind::Unavailable => "process_cwd_unavailable",
+        ProcessErrorKind::InvalidData => "process_cwd_invalid_data",
+        ProcessErrorKind::Unsupported => "process_cwd_unsupported",
+        _ => "process_cwd_failed",
+    };
+    CuError::new(code, error.to_string()).with_detail(json!({
+        "kind": format!("{:?}", error.kind()),
+    }))
+}
+
+const fn process_cwd_provider() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "linux-proc-cwd"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos-libproc-vnodepath"
+    }
+    #[cfg(windows)]
+    {
+        "windows-unsupported"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        "unsupported"
+    }
+}
+
 fn live_start_identity(pid: u32) -> Result<String, CuError> {
     match agenterm_platform::process_observation::observe(pid) {
         agenterm_platform::process_observation::ProcessObservation::Live {
@@ -762,6 +833,31 @@ mod tests {
                 .is_some_and(|path| !path.is_empty())
         );
         assert!(visible["start_identity"].as_str().is_some());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn current_process_cwd_is_identity_bound_and_exact() {
+        let payload = process_cwd_payload(std::process::id()).expect("current cwd");
+        let expected = std::env::current_dir().expect("std cwd");
+        assert_eq!(
+            payload["path"],
+            expected.to_str().expect("test cwd is UTF-8")
+        );
+        assert_eq!(payload["verified"], true);
+        assert_eq!(
+            payload["path_byte_length"],
+            expected.as_os_str().len().to_string()
+        );
+        assert!(payload["start_identity"].as_str().is_some());
+    }
+
+    #[test]
+    fn process_cwd_rejects_zero_pid() {
+        assert_eq!(
+            process_cwd_payload(0).expect_err("zero pid").code,
+            "invalid_input"
+        );
     }
 
     #[test]

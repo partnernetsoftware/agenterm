@@ -43,6 +43,10 @@ pub enum PipeProbeError {
 #[non_exhaustive]
 pub enum ProcessErrorKind {
     IdOutOfRange,
+    NotFound,
+    PermissionDenied,
+    Unavailable,
+    InvalidData,
     Inventory,
     InventoryTooLarge,
     Inspect,

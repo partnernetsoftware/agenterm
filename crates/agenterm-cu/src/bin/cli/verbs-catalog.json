@@ -289,6 +289,24 @@
       ]
     },
     {
+      "name": "process-cwd",
+      "command": "process-cwd",
+      "aliases": [
+        "process cwd"
+      ],
+      "grant": "observe",
+      "family": "process",
+      "summary": "read one identity-bound process working directory",
+      "usage": "process-cwd --pid N\nprocess cwd PID",
+      "args": [
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID after process cwd)"
+        }
+      ]
+    },
+    {
       "name": "process-usage",
       "command": "process-usage",
       "aliases": [
@@ -3583,6 +3601,10 @@
     {
       "name": "verbs",
       "text": "agenterm-cu verbs\n  scope: none       family: Grants, host & help\n\nusage:\n  agenterm-cu verbs [--json | --text]\n\narguments:\n  --json                        JSON array (the default when stdout is not a terminal)\n  --text                        aligned text table\n\nEvery row of the verb table: name, command, aliases, grant, family,\nsummary, usage and args. The JSON form is the machine-readable surface for\nagents and generated docs; it is exactly what `--help` and `help <verb>`\nrender.\n"
+    },
+    {
+      "name": "process-cwd",
+      "text": "agenterm-cu process-cwd    (also: process cwd)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-cwd --pid N\n  process cwd PID\n\narguments:\n  --pid N                       positive process id (or positional PID)\n\nReads the native working directory between two matching process-start\nidentity observations. This explicit command returns the path; persistent\nevidence retains only its UTF-8 byte length and SHA-256. Linux uses procfs and\nmacOS uses libproc vnode data. Windows returns process_cwd_unsupported because\nthere is no stable public API; ACU does not read undocumented remote PEB layouts.\nExit, PID reuse, permission denial, unavailable cwd and invalid native data are\ndistinct typed failures.\n"
     }
   ]
 }

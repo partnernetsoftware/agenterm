@@ -88,6 +88,17 @@ pub(crate) fn arguments(pid: u32) -> Result<Vec<String>, ProcessError> {
         .collect())
 }
 
+pub(crate) fn current_directory(pid: u32) -> Result<std::path::PathBuf, ProcessError> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).map_err(|error| {
+        let kind = match error.kind() {
+            std::io::ErrorKind::NotFound => ProcessErrorKind::NotFound,
+            std::io::ErrorKind::PermissionDenied => ProcessErrorKind::PermissionDenied,
+            _ => ProcessErrorKind::Inspect,
+        };
+        ProcessError::new(kind, error.to_string())
+    })
+}
+
 pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
     root_start_identity: Option<String>,

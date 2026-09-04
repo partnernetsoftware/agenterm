@@ -239,6 +239,22 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "max_arguments": 4096,
         "native_buffer_max_bytes": 1048576,
     });
+    let process_cwd_verb = serde_json::json!({
+        "status": if cfg!(windows) { "unsupported" } else { "available" },
+        "group": "process",
+        "mode": if cfg!(target_os = "linux") {
+            "linux-proc-cwd"
+        } else if cfg!(target_os = "macos") {
+            "macos-libproc-vnodepath"
+        } else {
+            "unsupported"
+        },
+        "grant": "observe",
+        "identity_bound": true,
+        "path_disclosure": "explicit-command",
+        "evidence": "path-byte-length-sha256",
+        "windows": "typed-unsupported-no-public-api",
+    });
     let process_usage_verb = serde_json::json!({
         "status": "available",
         "group": "process",
@@ -428,6 +444,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     if let Some(verbs) = payload["verbs"].as_object_mut() {
         verbs.insert("process-state".into(), process_state_verb);
         verbs.insert("process-argv".into(), process_argv_verb);
+        verbs.insert("process-cwd".into(), process_cwd_verb);
         verbs.insert("process-usage".into(), process_usage_verb);
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-kill".into(), process_kill_verb);

@@ -68,6 +68,7 @@ impl Executor {
                 limit,
                 ..
             } => process_argv_payload(*pid, *values, *offset, *limit),
+            Command::ProcessCwd { pid, .. } => process_cwd_payload(*pid),
             Command::ProcessUsage {
                 pid,
                 watch_ms,
