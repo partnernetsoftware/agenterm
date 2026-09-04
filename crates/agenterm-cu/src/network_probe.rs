@@ -305,7 +305,7 @@ pub fn run_loopback_fixture(args: &[String]) -> i32 {
     if !(1..=20).contains(&attempts) || !(100..=60_000).contains(&timeout_ms) {
         return 2;
     }
-    let listener = match TcpListener::bind(("127.0.0.1", 0)) {
+    let listener = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))) {
         Ok(listener) => listener,
         Err(_) => return 3,
     };
