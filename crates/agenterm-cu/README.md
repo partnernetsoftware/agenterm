@@ -261,6 +261,7 @@ cu page find --port 9222 --target-title "Inbox" --selector "input[name=q]"   #  
 cu page find --port 9222 --target-title "Inbox" --role button --name "Send"
 cu --grant actuate page fill --port 9222 --target-title "Inbox" --selector "input[name=q]" --text "hello" --clear --submit
 cu --grant actuate page click --port 9222 --target-title "Inbox" --text "Archive"     # or --node N from page find
+cu --grant actuate page click --port 9222 --match "Inbox" --x 120 --y 40              # viewport CSS point; trusted down/up proof
 cu --grant actuate page nav --port 9222 --target-title "Inbox" --url "https://mail.example/sent" --wait-ms 8000
 cu page screenshot --port 9222 --target-title "Inbox" --out shot.png  # may be typed cdp_screenshot_unavailable in the
                                                                       # background; --activate is the explicit opt-in

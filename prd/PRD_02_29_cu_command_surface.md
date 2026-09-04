@@ -159,10 +159,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   (--selector CSS | --text SUB | --role R [--name SUB])` (observe; `{node,
   path, tag, role, name, text, value, editable, box}`, a text hit inside a
   button / link lifted to the control, zero -> `cdp_node_not_found`),
-  `page click (--selector | --text | --node) [--button] [--clicks]`
-  (actuate; one node or `cdp_node_ambiguous` with candidates,
-  `DOM.scrollIntoViewIfNeeded`, box centre, `Input.dispatchMouseEvent`
-  pressed + released, verified by document / node read-back), `page hover
+  `page click ((--selector | --text | --node) | --x X --y Y) [--button]
+  [--clicks]` (actuate; one node or `cdp_node_ambiguous` with candidates,
+  or one frozen rendered viewport point; node clicks use document/node
+  read-back, point clicks require trusted down/up at the point and attempt
+  release after every accepted press), `page hover
   --x X --y Y` (actuate; bounded viewport CSS coordinates, one trusted
   `mousemove` probe installed before dispatch and removed after read-back;
   headless Chromium may truthfully deliver the event without maintaining CSS

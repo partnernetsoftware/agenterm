@@ -319,7 +319,33 @@ fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let (port, target_id, target_url, target_title, target_match) =
         cdp_target_flags("page click", args)?;
-    let node = node_flags("page click", args, &["--selector", "--text", "--node"])?;
+    let x = flag_parsed::<f64>(args, "--x")?;
+    let y = flag_parsed::<f64>(args, "--y")?;
+    let coordinates = x.is_some() || y.is_some();
+    if coordinates && (x.is_none() || y.is_none()) {
+        return Err("page click coordinates require both --x X and --y Y".into());
+    }
+    if let (Some(x), Some(y)) = (x, y) {
+        agenterm_cu::cdp::page::validate_pointer_coordinate("page click --x", x)?;
+        agenterm_cu::cdp::page::validate_pointer_coordinate("page click --y", y)?;
+    }
+    let node = if coordinates {
+        if args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "--selector" | "--text" | "--node"))
+        {
+            return Err("page click takes either --x X --y Y or one of --selector / --text / --node, not both".into());
+        }
+        NodeFlags {
+            selector: None,
+            text: None,
+            role: None,
+            name: None,
+            node: None,
+        }
+    } else {
+        node_flags("page click", args, &["--selector", "--text", "--node"])?
+    };
     let button = flag_text(args, "--button")?;
     if let Some(button) = button.as_deref()
         && !matches!(button, "left" | "right" | "middle")
@@ -335,7 +361,7 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     if !args.is_empty() {
         return Err(format!(
             "page click accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] \
-             (--selector CSS | --text SUB | --node ID) [--button left|right|middle] [--clicks N]; unexpected {:?}",
+             ((--selector CSS | --text SUB | --node ID) | --x X --y Y) [--button left|right|middle] [--clicks N]; unexpected {:?}",
             args[0]
         ));
     }
@@ -349,6 +375,8 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         selector: node.selector,
         text: node.text,
         node: node.node,
+        x,
+        y,
         button,
         clicks,
     })

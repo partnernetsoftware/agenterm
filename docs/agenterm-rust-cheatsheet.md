@@ -613,6 +613,11 @@ Use the smallest authoritative evidence first:
 7. Release artifact and size.
 8. Integrated repository/release gate only at the proper boundary.
 
+`cargo test --bin NAME` builds a test harness; it does not prove that
+`target/debug/NAME` was refreshed. Before a black-box script or generated-doc
+step invokes that path, run an explicit `cargo build -p PACKAGE --bin NAME` and
+record the product binary as the evidence subject.
+
 When a Script task summarizes a large filesystem tree, do not issue one host
 call per entry or return a whole directory listing through a bounded bridge.
 Put the neutral bounded walk in `agenterm-platform`, require an explicit entry
@@ -1458,6 +1463,11 @@ paths, neither of which raises or activates the window:
   candidates in `error.detail` — never take the first hit of a substring.
   MCU historically chose its first matching target; ACU deliberately tightens
   that behavior to exact-one so a reordered tab list cannot redirect an action.
+- A CDP viewport click is not verified by `Input.dispatchMouseEvent` returning
+  success. Freeze a rendered hit before reserving the receipt, install a
+  one-shot page event probe, require trusted down/up at that exact point, and
+  always attempt release after an accepted press. A cleanup release never turns
+  an uncertain mechanism failure into success.
 - Without a CDP port, switch the window's active tab through the strip:
   `tab select` presses the matching `radio-button` whose direct parent is
   the `tab-group` (a form's radio buttons are not tabs) and verifies by

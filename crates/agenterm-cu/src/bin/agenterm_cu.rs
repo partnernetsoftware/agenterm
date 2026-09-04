@@ -436,6 +436,36 @@ mod tests {
     }
 
     #[test]
+    fn page_click_accepts_exactly_one_node_or_complete_point() {
+        let base = |extra: &[&str]| {
+            let mut argv: Vec<String> = [
+                "--target",
+                "current",
+                "--grant",
+                "actuate",
+                "page-click",
+                "--port",
+                "1",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+            argv.extend(extra.iter().map(|s| (*s).to_owned()));
+            dispatch(argv)
+        };
+        let point = base(&["--x", "12.5", "--y", "40"]);
+        assert_eq!(point.command, "page-click");
+        assert_eq!(point.error.expect("no listener").code, "unsupported");
+
+        let half = base(&["--x", "12.5"]);
+        assert_eq!(half.error.expect("complete point").code, "usage");
+        let mixed = base(&["--x", "12.5", "--y", "40", "--selector", "#go"]);
+        assert_eq!(mixed.error.expect("exclusive addressing").code, "usage");
+        let invalid = base(&["--x", "-1", "--y", "40"]);
+        assert_eq!(invalid.error.expect("bounded coordinate").code, "usage");
+    }
+
+    #[test]
     fn page_targets_is_a_typed_cdp_observe_verb() {
         for argv in [
             vec!["page", "targets", "--port", "1"],

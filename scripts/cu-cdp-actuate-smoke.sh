@@ -23,7 +23,7 @@
 #               page-drag trusted held-sequence/business read-back and
 #               page-dialog closed-event/redaction and page-files exact
 #               FileList read-back; `--match` unique selection plus typed
-#               ambiguity; 16 active-target + front-window
+#               ambiguity; node and viewport-point click; 17 active-target + front-window
 #               invariants stayed green; eight
 #               actuator receipt kinds completed.
 #
@@ -271,6 +271,10 @@ echo "STEP 7 page click --text Go -> performed+verified (changed: $(jf "$OUT" da
 # 6. Pointer verbs use the live boxes, never guessed fixture pixels.
 BOX_GO="$(obs page find --port "$PORT" --target-id "$ID_B" --selector '#go')"
 XY_GO="$(jf "$BOX_GO" data.nodes.0.box | python3 -c 'import json,sys; b=json.load(sys.stdin); print("{} {}".format(b["x"]+b["width"]/2,b["y"]+b["height"]/2))')"
+OUT="$(act page click --port "$PORT" --match cu-actuate-B --x "${XY_GO%% *}" --y "${XY_GO##* }")"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page point click: $OUT"
+[[ "$(jf "$OUT" data.verification.method)" == "trusted-mousedown-mouseup-readback" ]] || fail "page point click verification: $OUT"
+still_background "page point click" "$OUT"
 OUT="$(act page hover --port "$PORT" --target-id "$ID_B" --x "${XY_GO%% *}" --y "${XY_GO##* }")"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page hover: $OUT"
 still_background "page hover" "$OUT"
@@ -280,7 +284,7 @@ OUT="$(act page scroll --port "$PORT" --target-id "$ID_B" --x "${XY_SCROLL%% *}"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page scroll: $OUT"
 [[ "$(jf "$OUT" data.verification.changed)" == *"top"* ]] || fail "page scroll did not read top back: $OUT"
 still_background "page scroll" "$OUT"
-echo "STEP 8 page hover -> trusted target verified; page scroll -> container top changed; A still active"
+echo "STEP 8 page point click + hover -> trusted target verified; page scroll -> container top changed; A still active"
 
 # 7. File input is exact and path-redacted in the public reply/receipt.
 UPLOAD="$UD/upload.txt"

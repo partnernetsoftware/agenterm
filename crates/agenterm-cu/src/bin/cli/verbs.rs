@@ -1966,9 +1966,9 @@ of page-js (cdp_target_not_found / cdp_target_ambiguous)."#,
         aliases: &["page click"],
         scope: Scope::Actuate,
         family: Family::Browser,
-        summary: "click one node of a CDP page target in place",
+        summary: "click one node or point in a CDP page target",
         usage: "page-click [--port N] (--target-id ID | --target-url SUB | --target-title SUB | --match SUB)
-        (--selector CSS | --text SUB | --node ID) [--button left|right|middle] [--clicks N]
+        ((--selector CSS | --text SUB | --node ID) | --x X --y Y) [--button left|right|middle] [--clicks N]
 page click ...                                      (MCU spelling)",
         args: &[
             PORT,
@@ -1980,6 +1980,16 @@ page click ...                                      (MCU spelling)",
             CDP_TEXT,
             CDP_NODE,
             ArgSpec {
+                flag: "--x",
+                value: "X",
+                help: "viewport CSS x coordinate (pixel compatibility path)",
+            },
+            ArgSpec {
+                flag: "--y",
+                value: "Y",
+                help: "viewport CSS y coordinate (pixel compatibility path)",
+            },
+            ArgSpec {
                 flag: "--button",
                 value: "B",
                 help: "left (default) | right | middle",
@@ -1990,19 +2000,18 @@ page click ...                                      (MCU spelling)",
                 help: "1 (default) ..= 3 press / release pairs",
             },
         ],
-        details: r#"Resolves exactly one node (zero -> cdp_node_not_found, more ->
-cdp_node_ambiguous with candidates; narrow the selector or pass --node),
-DOM.scrollIntoViewIfNeeded, takes the DOM.getBoxModel content centre, and
-dispatches Input.dispatchMouseEvent mouseMoved + pressed + released on
-that page target. The tab is not selected and the window is not raised
+        details: r#"Either resolves exactly one node (zero -> cdp_node_not_found, more ->
+cdp_node_ambiguous with candidates; narrow the selector or pass --node), or freezes one
+explicit --x/--y viewport point. The node path scrolls into view and takes the box centre.
+The point path proves a rendered hit exists, then verifies trusted mousedown/up events at
+the frozen point and always attempts release after a successful press. Both dispatch
+Input.dispatchMouseEvent on that page target. The tab is not selected and the window is not raised
 (focus_changed: false); focus emulation is switched on for the click and
 off after so an unfocused page handles it normally. A node without a
 layout box -> cdp_node_not_visible, nothing dispatched. Verified by
-reading the document (url, title, text length, active element) and the
-node (text, value, checked, attributes) back: performed says the events
-were accepted, verified says something observable changed
-(verification.changed lists what; no_observable_change is honest, not a
-failure). Receipt reserved before the dispatch, completed after."#,
+Node clicks are verified by reading the document and node back; point clicks use the trusted
+event sequence so a legitimate no-op target can still be verified. Receipt reserved before
+the dispatch, completed after."#,
     },
     VerbSpec {
         name: "page-hover",

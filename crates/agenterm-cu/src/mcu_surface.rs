@@ -539,7 +539,7 @@ pub fn verb_declaration(verb: &str) -> Value {
             "status": "available",
             "backend": crate::observe::page_js_backend(),
             "mode": "cdp",
-            "reason": "CDP /json target inventory (id, url, title, type, attached, websocket) when --remote-debugging-port answers; no listener is typed unsupported",
+            "reason": "CDP /json target inventory (id, url, title, description, type, attached, websocket) when --remote-debugging-port answers; no listener is typed unsupported",
             "group": group,
             "os": os,
             "verb": verb,
@@ -552,7 +552,7 @@ pub fn verb_declaration(verb: &str) -> Value {
         )),
         "page-click" => Some((
             "actuate",
-            "one node (cdp_node_ambiguous with candidates otherwise): DOM.scrollIntoViewIfNeeded, DOM.getBoxModel centre, Input.dispatchMouseEvent pressed + released on that target; verified by document / node read-back; receipt",
+            "one node (typed ambiguity) or one frozen viewport point: Input.dispatchMouseEvent pressed + released on that target; node path verifies document/node change, point path verifies trusted down/up and attempts release cleanup; receipt",
         )),
         "page-hover" => Some((
             "actuate",

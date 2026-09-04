@@ -995,10 +995,10 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
-    /// `page click` over CDP: resolve exactly one node (`selector` /
+    /// `page click` over CDP: either resolve exactly one node (`selector` /
     /// `text` / backend `node` id; more than one is `cdp_node_ambiguous`
-    /// with candidates), scroll it into view, and dispatch mouse
-    /// pressed + released at its box centre through
+    /// with candidates) or freeze one explicit viewport point, then dispatch
+    /// mouse pressed + released through
     /// `Input.dispatchMouseEvent` on that target -- the tab and window
     /// stay where they are. Verified by reading the document and the
     /// node back; a receipt is written.
@@ -1020,6 +1020,10 @@ pub enum Command {
         text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         node: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        x: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        y: Option<f64>,
         /// `left` (default) | `right` | `middle`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         button: Option<String>,

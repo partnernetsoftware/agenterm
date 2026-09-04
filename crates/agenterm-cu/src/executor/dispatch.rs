@@ -285,6 +285,8 @@ impl Executor {
                 selector,
                 text,
                 node,
+                x,
+                y,
                 button,
                 clicks,
                 ..
@@ -294,6 +296,8 @@ impl Executor {
                 selector.as_deref(),
                 text.as_deref(),
                 *node,
+                *x,
+                *y,
                 button.as_deref(),
                 *clicks,
                 &mut self.open_receipts(command.target())?,

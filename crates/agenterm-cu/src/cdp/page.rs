@@ -42,6 +42,7 @@ pub const MAX_DIALOG_WAIT_MS: u64 = 30_000;
 static HOVER_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SCROLL_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DRAG_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static CLICK_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// The identity fields every reply of these verbs carries.
 pub struct Ctx {
@@ -997,6 +998,157 @@ impl PointPlan {
     pub fn json(&self) -> Value {
         json!({ "at": { "x": self.x, "y": self.y }, "before": self.before })
     }
+}
+
+/// Click one already-frozen viewport point and verify the page observed the
+/// trusted down/up sequence. This is the MCU pixel-click compatibility path;
+/// semantic node clicks continue through `ClickPlan` above.
+pub fn perform_point_click<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &PointPlan,
+    button: &str,
+    clicks: u32,
+) -> Result<ActuationOutcome, CdpError> {
+    if !matches!(button, "left" | "right" | "middle") {
+        return Err(CdpError::typed(
+            "invalid_input",
+            format!("page click --button accepts left | right | middle, got {button:?}"),
+        ));
+    }
+    if !(1..=3).contains(&clicks) {
+        return Err(CdpError::typed(
+            "invalid_input",
+            format!("page click --clicks accepts 1..=3, got {clicks}"),
+        ));
+    }
+    let probe_key = format!(
+        "__agenterm_cu_click_{}_{}",
+        std::process::id(),
+        CLICK_PROBE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    evaluate_on(session, &drag_probe_install_expr(&probe_key))?;
+    let emulated = focus_emulation(session, true);
+    let button_mask = match button {
+        "right" => 2,
+        "middle" => 4,
+        _ => 1,
+    };
+    let mut dispatched = 0u32;
+    let mut pressed = false;
+    let mut mechanism_error = None;
+    let moved = session.call(
+        "Input.dispatchMouseEvent",
+        json!({ "type": "mouseMoved", "x": plan.x, "y": plan.y, "button": "none" }),
+    );
+    if let Err(error) = moved {
+        mechanism_error = Some(error);
+    } else {
+        dispatched += 1;
+        for click in 1..=clicks {
+            match session.call(
+                "Input.dispatchMouseEvent",
+                json!({ "type": "mousePressed", "x": plan.x, "y": plan.y,
+                        "button": button, "buttons": button_mask, "clickCount": click }),
+            ) {
+                Ok(_) => {
+                    dispatched += 1;
+                    pressed = true;
+                }
+                Err(error) => {
+                    mechanism_error = Some(error);
+                    break;
+                }
+            }
+            match session.call(
+                "Input.dispatchMouseEvent",
+                json!({ "type": "mouseReleased", "x": plan.x, "y": plan.y,
+                        "button": button, "buttons": 0, "clickCount": click }),
+            ) {
+                Ok(_) => {
+                    dispatched += 1;
+                    pressed = false;
+                }
+                Err(error) => {
+                    mechanism_error = Some(error);
+                    break;
+                }
+            }
+        }
+    }
+    // A failed release is an uncertain effect, not permission to leave the
+    // renderer's pointer held. The cleanup attempt does not turn failure green.
+    let cleanup_release_attempted = if pressed {
+        let _ = session.call(
+            "Input.dispatchMouseEvent",
+            json!({ "type": "mouseReleased", "x": plan.x, "y": plan.y,
+                    "button": button, "buttons": 0, "clickCount": clicks }),
+        );
+        true
+    } else {
+        false
+    };
+    let events = evaluate_on(session, &drag_probe_read_expr(&probe_key));
+    let after = evaluate_on(session, &point_state_expr(plan.x, plan.y));
+    if emulated {
+        focus_emulation(session, false);
+    }
+    let events = events?;
+    let after = after?;
+    let relevant: Vec<&Value> = events
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|event| matches!(event["type"].as_str(), Some("mousedown" | "mouseup")))
+        .collect();
+    let event_verified = relevant.len() == clicks as usize * 2
+        && relevant.iter().enumerate().all(|(index, event)| {
+            let kind = if index % 2 == 0 {
+                "mousedown"
+            } else {
+                "mouseup"
+            };
+            event_at(event, kind, plan.x, plan.y)
+        });
+    let performed = mechanism_error.is_none() && dispatched == 1 + clicks * 2;
+    let verified = performed && event_verified;
+    let reason = if mechanism_error.is_some() {
+        json!("dispatch_failed")
+    } else if !event_verified {
+        json!("trusted_click_sequence_not_observed")
+    } else {
+        Value::Null
+    };
+    let payload = with(
+        ctx.envelope("Input.dispatchMouseEvent"),
+        json!({
+            "action": "click",
+            "point_addressing": "viewport-css",
+            "at": { "x": plan.x, "y": plan.y },
+            "button": button,
+            "clicks": clicks,
+            "events_dispatched": dispatched,
+            "performed": performed,
+            "verified": verified,
+            "cleanup_release_attempted": cleanup_release_attempted,
+            "focus_emulation": if emulated { "enabled during click, disabled after" } else { "unavailable" },
+            "verification": {
+                "method": "trusted-mousedown-mouseup-readback",
+                "observed": events,
+                "reason": reason,
+            },
+            "before": plan.before,
+            "after": after,
+        }),
+    );
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(json!({ "receipt": payload })));
+    }
+    Ok(ActuationOutcome {
+        performed,
+        verified,
+        payload,
+    })
 }
 
 /// Read the element and nearest scrollable container at one viewport point.
@@ -2390,6 +2542,90 @@ mod tests {
                 .code,
             "invalid_input"
         );
+    }
+
+    #[test]
+    fn point_click_is_verified_by_trusted_events_not_content_mutation() {
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate" => {
+                let expression = params["expression"].as_str().unwrap();
+                if expression.contains("const state = { events: [] }") {
+                    return Ok(json!({ "result": { "value": true } }));
+                }
+                if expression.contains("state ? state.events") {
+                    return Ok(json!({ "result": { "value": [
+                        { "type": "mousemove", "trusted": true, "target_matches_hit": true,
+                          "x": 25, "y": 40, "button": 0, "buttons": 0 },
+                        { "type": "mousedown", "trusted": true, "target_matches_hit": true,
+                          "x": 25, "y": 40, "button": 0, "buttons": 1 },
+                        { "type": "mouseup", "trusted": true, "target_matches_hit": true,
+                          "x": 25, "y": 40, "button": 0, "buttons": 0 }
+                    ] } }));
+                }
+                assert!(expression.contains("elementFromPoint(25, 40)"));
+                Ok(json!({ "result": { "value": {
+                    "hit": "body > button", "hovered": null,
+                    "scroll": { "selector": "html", "left": 0, "top": 0,
+                      "width": 100, "height": 100, "client_width": 100, "client_height": 100 }
+                } } }))
+            }
+            "Emulation.setFocusEmulationEnabled" | "Input.dispatchMouseEvent" => Ok(json!({})),
+            other => Err(format!("unexpected method {other}")),
+        });
+        let plan = plan_point(&mut session, 25.0, 40.0).expect("point plan");
+        let outcome =
+            perform_point_click(&mut session, &ctx(), &plan, "left", 1).expect("point click");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        assert_eq!(
+            outcome.payload["verification"]["method"],
+            "trusted-mousedown-mouseup-readback"
+        );
+        assert_eq!(outcome.payload["point_addressing"], "viewport-css");
+        assert_eq!(outcome.payload["events_dispatched"], 3);
+        assert!(session.transport.sent.iter().all(|call| {
+            call["method"] != "Target.activateTarget" && call["method"] != "Page.bringToFront"
+        }));
+    }
+
+    #[test]
+    fn point_click_retries_release_after_the_effect_release_fails() {
+        let releases = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let observed = releases.clone();
+        let mut session = fake::session(move |method, params| match method {
+            "Runtime.evaluate" => {
+                let expression = params["expression"].as_str().unwrap();
+                if expression.contains("const state = { events: [] }") {
+                    return Ok(json!({ "result": { "value": true } }));
+                }
+                if expression.contains("state ? state.events") {
+                    return Ok(json!({ "result": { "value": [] } }));
+                }
+                Ok(json!({ "result": { "value": {
+                    "hit": "body > button", "hovered": null,
+                    "scroll": { "selector": "html", "left": 0, "top": 0,
+                      "width": 100, "height": 100, "client_width": 100, "client_height": 100 }
+                } } }))
+            }
+            "Input.dispatchMouseEvent" if params["type"] == "mouseReleased" => {
+                let count = observed.get() + 1;
+                observed.set(count);
+                if count == 1 {
+                    Err("injected release failure".into())
+                } else {
+                    Ok(json!({}))
+                }
+            }
+            "Emulation.setFocusEmulationEnabled" | "Input.dispatchMouseEvent" => Ok(json!({})),
+            other => Err(format!("unexpected method {other}")),
+        });
+        let plan = plan_point(&mut session, 25.0, 40.0).expect("point plan");
+        let error = perform_point_click(&mut session, &ctx(), &plan, "left", 1)
+            .expect_err("first release remains failure");
+        assert_eq!(releases.get(), 2, "cleanup must retry mouseReleased");
+        assert_eq!(error.detail["receipt"]["cleanup_release_attempted"], true);
+        assert_eq!(error.detail["receipt"]["performed"], false);
+        assert_eq!(error.detail["receipt"]["verified"], false);
     }
 
     #[test]

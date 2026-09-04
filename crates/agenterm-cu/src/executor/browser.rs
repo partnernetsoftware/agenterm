@@ -542,13 +542,57 @@ pub(super) fn page_click_payload(
     css: Option<&str>,
     text: Option<&str>,
     node: Option<u64>,
+    x: Option<f64>,
+    y: Option<f64>,
     button: Option<&str>,
     clicks: Option<u32>,
     receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
-    let query = cdp_node_query("page click", css, text, None, None, node)?;
     let button = button.unwrap_or("left");
     let clicks = clicks.unwrap_or(1);
+    if !matches!(button, "left" | "right" | "middle") {
+        return Err(invalid_input(format!(
+            "page click --button accepts left | right | middle, got {button:?}"
+        )));
+    }
+    if !(1..=3).contains(&clicks) {
+        return Err(invalid_input(format!(
+            "page click --clicks accepts 1..=3, got {clicks}"
+        )));
+    }
+    if let (Some(x), Some(y)) = (x, y) {
+        if css.is_some() || text.is_some() || node.is_some() {
+            return Err(invalid_input(
+                "page click takes a viewport point or one node query, not both".into(),
+            ));
+        }
+        crate::cdp::page::validate_pointer_coordinate("page click --x", x)
+            .and_then(|_| crate::cdp::page::validate_pointer_coordinate("page click --y", y))
+            .map_err(invalid_input)?;
+        let (ctx, mut session) = cdp_connect(port, selector)?;
+        let plan = crate::cdp::page::plan_point(&mut session, x, y)?;
+        let ticket = receipts.reserve(
+            "page-click",
+            0,
+            serde_json::json!({
+                "cdp_target": ctx.target.identity_json(),
+                "action": "click",
+                "point_addressing": "viewport-css",
+                "plan": plan.json(),
+                "button": button,
+                "clicks": clicks,
+            }),
+        )?;
+        let outcome =
+            crate::cdp::page::perform_point_click(&mut session, &ctx, &plan, button, clicks);
+        return complete_cdp_receipt(receipts, &ticket, "page-click", outcome);
+    }
+    if x.is_some() || y.is_some() {
+        return Err(invalid_input(
+            "page click coordinates require both --x and --y".into(),
+        ));
+    }
+    let query = cdp_node_query("page click", css, text, None, None, node)?;
     let (ctx, mut session) = cdp_connect(port, selector)?;
     let plan = crate::cdp::page::plan_click(&mut session, &query, button, clicks)?;
     let ticket = receipts.reserve(
@@ -1961,6 +2005,8 @@ mod tests {
             selector: Some("#go".into()),
             text: None,
             node: None,
+            x: None,
+            y: None,
             button: None,
             clicks: None,
         };
@@ -1986,6 +2032,8 @@ mod tests {
             selector: None,
             text: None,
             node: None,
+            x: None,
+            y: None,
             button: None,
             clicks: None,
         });

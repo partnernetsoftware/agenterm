@@ -332,7 +332,7 @@
         {
           "id": "browser.cdp.pointer-dialog-files",
           "mcu_shape": "page hover/scroll/drag/dialog/files and right/double click variants",
-          "acu_shape": "page-click supports button/click count; page-hover verifies the trusted event target; page-scroll verifies the owned container event and offset; page-drag verifies trusted down/held-move/up and always attempts release after press; page-dialog verifies opening/closed events and redacts contents; page-files verifies the exact FileList while redacting local paths",
+          "acu_shape": "page-click supports semantic nodes or viewport pixels with trusted down/up read-back and release cleanup; page-hover verifies the trusted event target; page-scroll verifies the owned container event and offset; page-drag verifies trusted down/held-move/up and always attempts release after press; page-dialog verifies opening/closed events and redacts contents; page-files verifies the exact FileList while redacting local paths",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
           "next": "promote the current throwaway-Chrome proof through real-profile and three-host browser courts"
