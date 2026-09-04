@@ -15,7 +15,7 @@
 //   tab list --window H              both tabs, exactly one `selected: true`
 //   tab select --window H --title B  switches, proven by a `tab list` re-read
 //   page text --window H             the selected tab's words, with node ids
-//   page targets --port N            both tabs over CDP
+//   page targets --pid PID           identity-bound endpoint discovery + both tabs
 //   page-js --port N --target-title B --expression document.title
 //                                    answers B while A is the active tab
 //
@@ -357,9 +357,9 @@ try {
     "cu_windows_browser_tab_select_back:" + JSON.stringify(back_to_a)
   );
 
-  print("STEP page targets --port " + cdp_port + " lists both tabs");
+  print("STEP page targets --pid resolves the owned browser and lists both tabs");
   const targets_reply = run_cu_json(run_directory, executable, [
-    "--target", "current", "--grant", "observe", "page", "targets", "--port", "" + cdp_port
+    "--target", "current", "--grant", "observe", "page", "targets", "--pid", "" + browser_pid
   ]);
   const target_rows = at(targets_reply, "data.targets");
   const target_titles = titles_of(target_rows === undefined || target_rows === null ? [] : target_rows, "title");

@@ -15,7 +15,7 @@
 # --user-data-dir, --no-first-run, two data: URL tabs) and proves the
 # browser verbs against it without a screenshot: `windows --app`, `unlock`
 # (the AT-SPI org.a11y.Status poke), `tab list`, `tab select` with a
-# read-back, `page text`, and over CDP `page targets` / `page-js` against a
+# read-back, `page text`, and over CDP `page targets --pid` / `page-js` against a
 # *background* tab. Every missing prerequisite prints a TYPED
 # `SKIP[<code>]` and makes the final line say the section was skipped -- a
 # bare exit 0 there would be read as a pass by the parity ledger.
@@ -434,8 +434,8 @@ selected = [t for t in tabs if t.get("selected") is True]
 assert len(selected) == 1 and sys.argv[2] in selected[0].get("title", ""), "expected %s active, got %s" % (sys.argv[2], selected)
 ' "$TABS" "$TAB_A"
 
-      echo "== browser: page targets --port $CDP_PORT =="
-      OUT="$(run_json --target current --grant observe page targets --port "$CDP_PORT")"
+      echo "== browser: page targets --pid =="
+      OUT="$(run_json --target current --grant observe page targets --pid "$BROWSER_PID")"
       test "$(json_field "$OUT" ok)" = "True"
       python3 -c '
 import json, sys

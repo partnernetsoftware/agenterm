@@ -145,6 +145,11 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   publishes the command line. `scripts/cu-cdp-smoke.sh` proves the real PID
   route against a throwaway headless browser; the MCU-shaped adapter now
   forwards it instead of retaining the call.
+  A native Windows ARM64 UTM court also returned the owned Edge page through
+  this PID route. `scripts/qjs/cu-windows-browser-smoke.qjs` now owns that
+  assertion for the next integrated Windows journey. Linux ARM64 and x86_64
+  court probes found no Chromium-family browser, so their runtime evidence
+  remains open with the prerequisite named instead of being skipped as green.
 - macOS now has native journey evidence for `snapshot`/`diff`, `hit`/`zoom`,
   `raise` and gated `minimize`/`restore`. The restore step exposed a real
   platform bug: `kCGWindowListOptionIncludingWindow` alone returned no owner

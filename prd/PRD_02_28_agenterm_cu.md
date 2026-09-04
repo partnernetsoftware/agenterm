@@ -200,6 +200,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   extracts an explicit valid `--remote-debugging-port`, and never scans guessed
   ports. The full command line is credential-bearing mechanism data and is
   never copied into replies, errors, receipts or documentation evidence.
+  Native Windows ARM64 court evidence is green: an owned Edge process launched
+  with an explicit port was resolved from its PID through the Windows adapter,
+  and `page-targets` returned the expected page. The authoritative Windows
+  `.qjs` browser journey now exercises that PID route; its integrated rerun is
+  still required. Both Linux desktop courts currently report a typed
+  prerequisite gap (`no Chromium-family browser`), not a fabricated pass.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
   real-profile and three-host journeys remain promotion evidence.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
