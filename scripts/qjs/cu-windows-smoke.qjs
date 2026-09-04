@@ -42,6 +42,7 @@ const declared_evidence = [
   "cu.windows-process-kill",
   "cu.windows-process-lifecycle-watch",
   "cu.windows-network-probe",
+  "cu.windows-file-inspect",
   "cu.windows-terminal-control",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
@@ -278,6 +279,30 @@ try {
   ensure(
     !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
     "cu_windows_smoke_refusal:" + JSON.stringify(refused)
+  );
+
+  print("STEP file-inspect reads one final entry without following links and binds metadata to one stable object identity");
+  const file_fixture = rh.join(run_directory, "file-inspect-fixture.txt");
+  rh.write_text(file_fixture, "file-inspect");
+  const file_inspect = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file", "inspect", file_fixture
+  ]);
+  ensure(
+    text_at(capabilities, "data.verbs.file-inspect.status") === "available"
+      && text_at(capabilities, "data.verbs.file-inspect.link_policy") === "never-follow-final-link"
+      && text_at(file_inspect, "data.kind") === "file"
+      && text_at(file_inspect, "data.size_bytes") === "12"
+      && flag_at(file_inspect, "data.identity.available")
+      && !flag_at(file_inspect, "data.followed_final_link"),
+    "cu_windows_smoke_file_inspect:" + JSON.stringify(file_inspect)
+  );
+  const file_missing = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-inspect",
+    rh.join(run_directory, "file-inspect-missing")
+  ]);
+  ensure(
+    !flag_at(file_missing, "ok") && text_at(file_missing, "error.code") === "file_inspect_failed",
+    "cu_windows_smoke_file_inspect_missing:" + JSON.stringify(file_missing)
   );
 
   print("STEP network-probe resolves loopback once, freezes the address set for exact reachable attempts, then reports the closed listener unreachable");
@@ -960,6 +985,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-kill");
 harness.emit_evidence(context, declared_evidence, "cu.windows-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.windows-network-probe");
+harness.emit_evidence(context, declared_evidence, "cu.windows-file-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.windows-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");

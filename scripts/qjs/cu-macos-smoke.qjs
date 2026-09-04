@@ -81,6 +81,7 @@ const declared_evidence = [
   "cu.macos-process-kill-refusal",
   "cu.macos-process-lifecycle-watch",
   "cu.macos-network-probe",
+  "cu.macos-file-inspect",
   "cu.macos-ax-snapshot-diff",
   "cu.macos-ax-hit-zoom",
   "cu.macos-ax-window-state",
@@ -579,6 +580,30 @@ try {
   ensure(
     !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
     "cu_macos_smoke_refusal:" + JSON.stringify(refused)
+  );
+
+  print("STEP file-inspect reads one final entry without following links and binds metadata to one stable object identity");
+  const file_fixture = rh.join(run_directory, "file-inspect-fixture.txt");
+  rh.write_text(file_fixture, "file-inspect");
+  const file_inspect = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file", "inspect", file_fixture
+  ]);
+  ensure(
+    text_at(capabilities, "data.verbs.file-inspect.status") === "available"
+      && text_at(capabilities, "data.verbs.file-inspect.link_policy") === "never-follow-final-link"
+      && text_at(file_inspect, "data.kind") === "file"
+      && text_at(file_inspect, "data.size_bytes") === "12"
+      && flag_at(file_inspect, "data.identity.available")
+      && !flag_at(file_inspect, "data.followed_final_link"),
+    "cu_macos_smoke_file_inspect:" + JSON.stringify(file_inspect)
+  );
+  const file_missing = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "file-inspect",
+    rh.join(run_directory, "file-inspect-missing")
+  ]);
+  ensure(
+    !flag_at(file_missing, "ok") && text_at(file_missing, "error.code") === "file_inspect_failed",
+    "cu_macos_smoke_file_inspect_missing:" + JSON.stringify(file_missing)
   );
 
   print("STEP network-probe resolves one frozen loopback address, makes the exact requested attempts, observes the owned listener reachable, then reports its closed port unreachable without turning observation into failure");
@@ -2865,6 +2890,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-process-wait");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-kill-refusal");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-network-probe");
+harness.emit_evidence(context, declared_evidence, "cu.macos-file-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");
