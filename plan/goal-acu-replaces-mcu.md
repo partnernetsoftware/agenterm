@@ -260,7 +260,9 @@ Q0 truthful boundary
    └─ [x] Simulator family accounted shape by shape
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
-├─ [ ] Linux and Windows journeys for the same verbs
+├─ [~] Linux and Windows journeys for the same verbs
+│  ├─ [~] Linux exact-98cf rerun: built/byte-pinned; native court in progress
+│  └─ [~] Windows no-console public `.com` entry: explicit stdio fix awaits court
 └─ [ ] explicit pointer court for drag/wheel/global input; never hide degradation
 Q2 fast delegated facades
 ├─ [~] caps/doctor/permissions/setup and app inventory

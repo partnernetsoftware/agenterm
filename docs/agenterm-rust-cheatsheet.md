@@ -3264,3 +3264,16 @@ calls it unsupported, or where repair guidance differs by entry point. A
 status facade remains read-only: reporting an OS consent requirement is not
 authority to open settings, synthesize a grant, or claim a state the native API
 cannot inspect.
+
+## Windows console trampolines must forward stdio explicitly
+
+`bInheritHandles=TRUE` does not by itself define a GUI-subsystem child's
+standard streams. A console launch can make missing `STARTUPINFO` wiring appear
+to work, while Scheduled Tasks and other no-console launchers expose the null
+slots. A Console-subsystem trampoline that starts a GUI PE must set
+`STARTF_USESTDHANDLES` and copy all three `GetStdHandle` values into
+`hStdInput`/`hStdOutput`/`hStdError`, with handle inheritance enabled. The GUI
+process may then duplicate those startup handles into its hidden CLI worker
+even when `AttachConsole(ATTACH_PARENT_PROCESS)` correctly fails. Qualify both
+ordinary console and no-console redirected launches; a console-only smoke is
+not sufficient evidence.

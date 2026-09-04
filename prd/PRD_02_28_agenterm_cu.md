@@ -202,6 +202,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   baseline, and starts its duration after that edge. The caller waits for and
   cleans the marker. Fixed sleeps and weakened event assertions are excluded;
   the full native journey must rerun before this leaf advances.
+- [~] The Windows x86_64 Scheduled Task court exposed a distinct public-entry
+  defect before the journey's first STEP: `agenterm.com` started the GUI PE
+  with handle inheritance but without `STARTF_USESTDHANDLES`, so a no-console
+  parent could lose redirected stdin/stdout/stderr before the hidden CLI
+  worker existed. The trampoline now explicitly passes all three standard
+  handles. Cross-compilation and source-contract tests are local evidence only;
+  the same no-console public `.com` court must turn green before this is called
+  fixed. Direct `agenterm.exe __agenterm-internal-cli` runs are diagnostic and
+  can never substitute for that public evidence.
 - [~] The MCU PTY/job/terminal surface is now exhaustively classified in
   `plan/acu-mcu-capability-ledger.json`. AgenTerm's existing session/tab
   control plane remains the owning kernel for its own terminal inventory,

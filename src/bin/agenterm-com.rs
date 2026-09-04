@@ -12,6 +12,9 @@ mod windows_launcher {
     type Handle = *mut c_void;
 
     const COMMAND_CAPACITY: usize = 32_768;
+    const STARTF_USESTDHANDLES: Dword = 0x0000_0100;
+    const STD_INPUT_HANDLE: Dword = -10_i32 as Dword;
+    const STD_OUTPUT_HANDLE: Dword = -11_i32 as Dword;
     const STD_ERROR_HANDLE: Dword = -12_i32 as Dword;
     const WAIT_FAILED: Dword = Dword::MAX;
     const AGENTERM_EXE: [u16; 13] = [
@@ -172,6 +175,17 @@ mod windows_launcher {
 
             let mut startup: StartupInfoW = mem::zeroed();
             startup.cb = mem::size_of::<StartupInfoW>() as Dword;
+            // A console parent normally lets Windows synthesize these slots,
+            // which hid this omission. Scheduled Tasks and other no-console
+            // launchers can still give agenterm.com redirected pipe/file
+            // handles, but a GUI-subsystem child receives them only when
+            // STARTF_USESTDHANDLES carries the exact inherited values.
+            // agenterm.exe then duplicates these handles into its hidden CLI
+            // worker even though AttachConsole(parent) correctly fails.
+            startup.dw_flags = STARTF_USESTDHANDLES;
+            startup.h_std_input = GetStdHandle(STD_INPUT_HANDLE);
+            startup.h_std_output = GetStdHandle(STD_OUTPUT_HANDLE);
+            startup.h_std_error = GetStdHandle(STD_ERROR_HANDLE);
             let mut process: ProcessInformation = mem::zeroed();
             if CreateProcessW(
                 path,

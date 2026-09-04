@@ -36,6 +36,15 @@ fn launcher_forwards_stdout_and_success() {
 }
 
 #[test]
+fn launcher_source_explicitly_forwards_stdio_to_the_gui_child() {
+    let source = include_str!("../src/bin/agenterm-com.rs");
+    assert!(source.contains("startup.dw_flags = STARTF_USESTDHANDLES;"));
+    assert!(source.contains("startup.h_std_input = GetStdHandle(STD_INPUT_HANDLE);"));
+    assert!(source.contains("startup.h_std_output = GetStdHandle(STD_OUTPUT_HANDLE);"));
+    assert!(source.contains("startup.h_std_error = GetStdHandle(STD_ERROR_HANDLE);"));
+}
+
+#[test]
 fn launcher_forwards_stderr_and_exit_code() {
     let output = Command::new(launcher())
         .args(["cli", "--deadline-ms", "0", "list-windows"])
