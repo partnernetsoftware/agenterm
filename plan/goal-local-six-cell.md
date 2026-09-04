@@ -1063,6 +1063,24 @@ DISPLAY=:0 dbus-run-session -- ./mc-tests/minicon_accessibility_linux
 
 ---
 
+## 5.21 UTM runner registry drift（2026-09-04）
+
+为 ACU `file-inspect` 补 Linux x86_64 原生旅程时，先做了只读 runner
+核对，发现当前登记已不能直接当真：
+
+- UTM 实际已有 `minicon-lnx-{arm,x86}-64`、`minicon-win-{arm,x86}-64`
+  等 VM，而 `scripts/six-cell-runners.json` 仍写 Windows guest 不存在；
+- JSON 中 Linux SSH 端口来自较早的 `~/vm/` 裸 QEMU 路线，并不自动等于
+  UTM `vmnet-shared` guest 的可达地址；
+- `utmctl start minicon-lnx-x86-64` 本轮超过一分钟一直停在 `starting`，QEMU
+  launcher 带 `-S` 处于暂停启动态；`utmctl ip-address` 返回 OSStatus `-2700`，
+  SSH 端口也未出现。已终止这次未完成 launcher，未产生 Linux 运行结论。
+
+因此 runner registry 在重新发现每格地址、agent、桌面 session 与 stop/release
+生命周期之前必须 fail closed。下一次修复应把 `start → readiness → transfer →
+execute → receipt → stop` 封成同一 CLI lease，且只把本轮 lease 真正拉起的 VM
+停掉；反复刷新控制台或沿用旧端口都不能算进度。
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。

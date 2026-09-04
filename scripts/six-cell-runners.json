@@ -58,14 +58,14 @@
       "target": "aarch64-pc-windows-msvc",
       "kind": "blocked",
       "level": "native",
-      "reason": "No Windows guest yet. The Windows 11 Enterprise 25H2 Arm64 evaluation ISO is behind a registration form at the Microsoft Evaluation Center, which a person has to complete.",
+      "reason": "A Windows arm64 UTM VM exists, but this registry has no verified invocation lease, interactive-session agent or artifact transfer route for it yet. Discover and prove start/readiness/execute/receipt/stop before changing kind.",
       "expect_file": "PE32+ executable (GUI) Aarch64"
     },
     {
       "target": "x86_64-pc-windows-msvc",
       "kind": "blocked",
       "level": "emulated=prism",
-      "reason": "Shares VM1 with aarch64-pc-windows-msvc; blocked on the same ISO.",
+      "reason": "Windows x86_64 UTM guests exist, but this registry has no verified invocation lease, interactive-session agent or artifact transfer route. Presence of a VM is not a callable runner.",
       "expect_file": "PE32+ executable (GUI) x86-64"
     }
   ]
