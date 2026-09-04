@@ -1,6 +1,6 @@
 # Results
 
-Status: **A/B measured · Fat LTO rejected at S1 · Variant C next**.
+Status: **A/B/C measured · C passes growth slope but misses 2 MiB · Variant D next**.
 
 ## Measurement conditions
 
@@ -27,7 +27,30 @@ Status: **A/B measured · Fat LTO rejected at S1 · Variant C next**.
 Fat saves 108,032 bytes (4.5% of A), but still misses S1. Its 21-second package
 rebuild is below 60 seconds and 16.7% slower than A, so S4 passes. Per the
 precommitted order, S1 kills B before a behavior rerun; the court advances to
-Variant C. L3 and the 0/16/32-row slope are intentionally still unmeasured.
+  Variant C.
+
+## Variant C — hot route + compressed cold catalog
+
+- Source: clean exact `a345e436139cbc92b0dde34fe1e57c1ead1a9bbe`.
+- Change: `name + aliases + parser family` stay in the generated hot table;
+  complete help, argument and JSON metadata live in one validated immutable
+  zlib stream and are decoded only by help/catalog commands.
+- Behavior: all 56 binary unit tests, all-target Clippy and generated verb
+  documentation parity passed before the exact measurements.
+- Build: Fat LTO, otherwise the same Release settings and toolchain as A/B.
+
+| cold rows | file bytes | delta from 2 MiB | `.text` | `.rdata` | `.pdata` | rebuild | SHA-256 |
+|---:|---:|---:|---:|---:|---:|---:|---|
+| 0 | 2,221,056 | +123,904 | 1,850,694 | 325,108 | 35,472 | 22 s | `471d617c6d07240641e6e00a2a9c9b763cdd7e21d6af8786bf87fa64bd664006` |
+| 16 | 2,222,592 | +125,440 | 1,850,694 | 326,388 | 35,472 | 20 s | `7280c66f602c5ae37b69988cbb40a6dd06ab5ffeee9a9572c251cc47029b2e71` |
+| 32 | 2,223,104 | +125,952 | 1,850,694 | 327,028 | 35,472 | 20 s | `09742eda84b01acba9f5c3f39de400d945d2bb6f05c96e22e3d24d2796ca8c34` |
+
+C saves 47,616 bytes versus B. S3 passes decisively: 0→16 is 96 bytes per
+row, 0→32 averages 64 bytes per row, both below the 256-byte ceiling. S4 also
+passes. S1 still fails by 123,904 bytes, so C is retained as the structurally
+bounded catalog implementation but cannot close the court. The precommitted
+tree now permits D to inspect only genuinely reusable ABI mechanism; moving
+CLI wording or metadata across the DLL seam remains forbidden.
 
 ## Decision trace
 
@@ -35,7 +58,9 @@ Variant C. L3 and the 0/16/32-row slope are intentionally still unmeasured.
 2. Change only LTO mode for B.
 3. S1 fails by 171,520 bytes; stop B.
 4. Do not accept the real latency pass as a substitute for size.
-5. Enter Variant C; do not move bytes into the ABI or raise the ceiling.
+5. C passes S3 and S4 but fails S1 by 123,904 bytes.
+6. Retain C's bounded growth, enter D, and do not move CLI wording into the ABI
+   or raise the ceiling.
 
 ## Reproduce
 
@@ -44,6 +69,9 @@ From repository root:
 ```bash
 research/cu-size-budget/measure.sh thin
 research/cu-size-budget/measure.sh fat
+research/cu-size-budget/measure.sh cold0
+research/cu-size-budget/measure.sh cold16
+research/cu-size-budget/measure.sh cold32
 ```
 
 No measurement rule was changed to improve the result. The useful surprise is

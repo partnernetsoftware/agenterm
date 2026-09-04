@@ -106,6 +106,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   current capability growth has crossed the still-governing 2 MiB executable
   court. The no-raise decision experiment is
   [`plan/design-cu-single-entry-size-experiment.md`](../plan/design-cu-single-entry-size-experiment.md).
+  Variant C now keeps only route identity and parser family hot and stores the
+  complete validated help/catalog projection as an immutable compressed
+  in-binary stream. Exact Windows x86_64 evidence is 2,221,056 bytes at zero
+  synthetic rows; 16 and 32 rows grow at 96 and 64 bytes/row respectively, so
+  the structural slope and rebuild-time gates pass. The executable remains
+  123,904 bytes above 2 MiB, so delivery stays blocked and the court advances
+  to reviewed reusable-mechanism ABI relocation; CLI metadata may not be moved
+  across the DLL seam merely to improve the executable number.
 - [x] Staged public `cu-windows-smoke` passes all seven declared evidence
   receipts: host self-test, DLL load cleanup, window identity, UIA tree,
   name-addressed actuation, Value/GetText wait and UIA fixture cleanup.
@@ -380,7 +388,9 @@ flowchart LR
   D -->|expires| K["kill + reap exact helper<br/>typed timeout"]
   T --> E["three-OS loopback evidence"]
   E -->|three OS green| B["release-size court<br/>keep 2 MiB ceiling"]
-  B -->|green| P["promote ledger row to native"]
+  B --> C["C: hot route + compressed cold catalog<br/>S3 slope green · S1 still red"]
+  C --> D["D: reusable mechanism review<br/>L3 must shrink · no CLI byte shifting"]
+  D -->|all gates green| P["promote ledger row to native"]
 ```
 - [~] Device/audio replacement is classified across peripheral inventory and
   events, exclusive TTL claims, byte I/O, serial configuration and default

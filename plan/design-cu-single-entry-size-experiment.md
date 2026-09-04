@@ -1,7 +1,7 @@
 # ACU single-entry release-size experiment
 
-Status: **active · precommitted court · the 2 MiB Windows executable ceiling is
-unchanged**.
+Status: **active · Variant C keeps the catalog growth-bounded but misses S1 ·
+Variant D next · the 2 MiB Windows executable ceiling is unchanged**.
 
 | field | value |
 |---|---|
@@ -156,3 +156,20 @@ solution. S0 was not rerun for a variant already killed by S1, and no metric or
 threshold was changed after seeing the result. The result overturned the hope
 that linker configuration alone could close the court; Variant C now owns the
 next measurement.
+
+### C exact rerun — bounded growth accepted, S1 still red
+
+```text
+C0  = 2,221,056 B · 22 s · +123,904 over 2 MiB
+C16 = 2,222,592 B · 20 s · 96 B/row from C0
+C32 = 2,223,104 B · 20 s · 64 B/row average from C0
+├─ S3: PASS (both slopes < 256 B/row)
+├─ S4: PASS (< 60 s and no regression against A)
+└─ S1: FAIL → retain the bounded catalog architecture → enter D
+```
+
+The catalog refactor removed 47,616 bytes from B while converting future cold
+metadata growth from Rust code/data/relocations into a measured compressed
+stream. It is therefore retained even though it is not the final size answer.
+D may inspect genuinely reusable mechanism only; CLI grammar, wording and
+catalog policy remain in the executable, and L3 must shrink for D to count.

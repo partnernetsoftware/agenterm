@@ -3401,3 +3401,20 @@ read-back. Preserve a typed failure when foreground policy rejects the request
 or when the backend cannot publish focus state. This distinction is what lets
 compatibility adapters translate a legacy whole-window `focus HANDLE` into an
 explicit `activate --window HANDLE` without stealing the node-focus spelling.
+
+## Separate expanding cold catalogs from hot native dispatch
+
+Large static Rust declaration tables turn help prose into machine code, data
+and relocation growth even when ordinary commands only need a few routing
+fields. Keep one checked-in declaration, validate it at build time, generate a
+minimal typed hot table, and store the cold projection as one immutable
+compressed in-binary stream decoded only by discovery/help paths. Reject
+missing identities, alias collisions, invalid families and incomplete help at
+build time; pin public text/JSON and generated-document parity before measuring
+size.
+
+Measure growth as well as today's file size. The CU catalog court showed that
+0/16/32 synthetic metadata rows can average 64 bytes per row even though the
+first conversion saved only 47,616 bytes and did not by itself reach the 2 MiB
+product ceiling. A good slope is a durable architecture result, not permission
+to claim the absolute budget passed or to move CLI policy into a shared DLL.
