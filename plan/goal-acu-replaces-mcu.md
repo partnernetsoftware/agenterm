@@ -323,7 +323,8 @@ Q3 owned runtime facades
    │  ├─ [x] macOS public qjswasm journey: 41 STEP / 42 evidence + cleanup
    │  ├─ [x] Linux x86_64 focused native UTM court: exact-byte pair + file/link/missing
    │  ├─ [x] Windows x86_64 cargo-xwin compile
-   │  └─ [~] Windows native execution pending
+   │  ├─ [x] Windows x86_64 focused native UTM court: exact-byte pair + file/missing
+   │  └─ [~] Linux + Windows focused leaves await full qjswasm journey promotion
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

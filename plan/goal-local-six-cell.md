@@ -1099,6 +1099,20 @@ typed `file_inspect_failed`。这关闭的是 Linux x86_64 **原生 ACU focused 
 为最终 sibling 名，并在执行前回传两个 guest hash。只验证宿主哈希或让 loader
 偶然命中 guest 旧库，都不能作为 exact-byte court 证据。
 
+### 5.23 Windows x86_64 focused court（2026-09-05）
+
+同一 lease 对 `win-x86_64-desktop` 完成了 source `867a6a64` 的 focused
+`file-inspect` court。guest 报告 `AMD64`；`agenterm-cu.exe` 与 `agenterm.dll`
+的 guest SHA-256 均与宿主一致。公共命令对 12 字节普通文件返回 opened-object
+identity、精确大小与 Windows attributes，对缺失路径返回 typed
+`file_inspect_failed`；VM 随后 release 回 `stopped`。
+
+这台 guest 再次证明：QGA session 0 的直接 `cmd.exe`/PowerShell 提交即使客户端
+静默返回，也不能证明带重定向的命令体真正执行。Windows court 必须先用
+`interactive-ready` 建立带 nonce 的登录桌面 worker，再原子发布
+`job.pending.ps1` + `job.ready`，等待本次 job 自己的唯一 done/result，最后拉回
+输出。传输成功、进程提交成功与作业完成是三种不同事实，不得互相代替。
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。

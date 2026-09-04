@@ -372,9 +372,13 @@ flowchart LR
   host hashes for the ACU executable and ABI library, then proved ordinary-file
   opened-object identity, final-link no-follow/link-like identity and typed
   `file_inspect_failed` for a missing path before releasing the VM. This is a
-  focused native ACU court, not yet the full Linux qjswasm journey. Windows
-  native execution remains open; package tests, strict Clippy and its x86_64
-  cross-check are green. `agenterm-platform` also owns
+  focused native ACU court, not yet the full Linux qjswasm journey. At exact
+  source `867a6a64`, a real Windows x86_64 UTM court likewise matched the host
+  hashes for `agenterm-cu.exe` and `agenterm.dll`, then proved ordinary-file
+  opened-object identity, exact size and Windows attributes plus the same typed
+  missing-path failure before release. Linux and Windows focused leaves are now
+  green; promotion into both full qjswasm journeys remains open. Package tests,
+  strict Clippy and the Windows x86_64 cross-check are green. `agenterm-platform` also owns
   no-overwrite publication and volume-capacity primitives, but ACU does not yet
   expose MCU's physical-device inventory or recoverable copy/move transaction.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
