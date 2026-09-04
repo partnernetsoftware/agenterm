@@ -287,10 +287,103 @@
           "note": "Visual pointer decoration is not required for machine control replacement and has no effect authority."
         }
       ]
+    },
+    "browser": {
+      "accounting": "complete",
+      "owner": "agenterm-cu CDP client plus native accessibility browser adapters",
+      "capabilities": [
+        {
+          "id": "browser.cdp.targets-eval",
+          "mcu_shape": "page targets and page read --js with automatic or explicit target selection",
+          "acu_shape": "page-targets and page-js with explicit port/profile and target id/url/title",
+          "state": "delegated",
+          "evidence": ["scripts/cu-cdp-smoke.sh"],
+          "note": "ACU requires unambiguous target addressing and preserves typed not-found/ambiguous failures; MCU auto-pick shapes remain an adapter gap."
+        },
+        {
+          "id": "browser.cdp.semantic-read",
+          "mcu_shape": "page read plus browser debug-read over DOM/accessibility content",
+          "acu_shape": "page-text and page-find over explicit CDP target, or native accessibility window",
+          "state": "delegated",
+          "evidence": ["scripts/cu-cdp-actuate-smoke.sh", "cu.windows-browser-page-text"]
+        },
+        {
+          "id": "browser.cdp.actuate",
+          "mcu_shape": "page click/type/nav and browser click/type/nav",
+          "acu_shape": "page-click/page-fill/page-nav with exact target and node/selector plus receipts",
+          "state": "delegated",
+          "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
+          "note": "Background-tab focus preservation and post-state readback are proved on the throwaway macOS court; Windows journey is declared but not yet promoted to evidence."
+        },
+        {
+          "id": "browser.cdp.screenshot",
+          "mcu_shape": "page screenshot",
+          "acu_shape": "page-screenshot with exact target and typed unavailable result",
+          "state": "delegated",
+          "evidence": ["scripts/cu-cdp-actuate-smoke.sh"]
+        },
+        {
+          "id": "browser.cdp.pointer-dialog-files",
+          "mcu_shape": "page hover/scroll/drag/dialog/files and right/double click variants",
+          "acu_shape": "page-click supports button/click count; hover/scroll/drag/dialog/files are absent",
+          "state": "gap",
+          "next": "add exact-target CDP verbs with bounded waits, receipts and background-focus invariants"
+        },
+        {
+          "id": "browser.tab.accessibility",
+          "mcu_shape": "browser tabs plus tab activation/close",
+          "acu_shape": "tab-list/tab-select/tab-close bound to a stable browser window",
+          "state": "delegated",
+          "evidence": ["scripts/cu-brave-live-smoke.sh", "scripts/cu-brave-live-cdp-smoke.sh"],
+          "declared_evidence": ["cu.windows-browser-tab-list", "cu.windows-browser-tab-select"]
+        },
+        {
+          "id": "browser.profile.inventory-open",
+          "mcu_shape": "browser profile inventory and browser open",
+          "acu_shape": "browser-profiles/browser-open using an existing local profile",
+          "state": "native",
+          "evidence": ["scripts/cu-brave-live-smoke.sh", "scripts/cu-brave-live-cdp-smoke.sh"],
+          "note": "This does not claim ownership of profile creation, leasing or cleanup."
+        },
+        {
+          "id": "browser.managed-profile",
+          "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "owned browser process/profile lifecycle facade with recoverable removal and no foreground takeover"
+        },
+        {
+          "id": "browser.mv3-native-bridge",
+          "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "versioned Native Messaging transport, fixed extension identity, profile-instance routing and at-most-once receipts"
+        },
+        {
+          "id": "browser.closed-tree",
+          "mcu_shape": "browser debug-read/debug-type/debug-invoke/debug-files across frames and closed shadow DOM",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "MV3 debugger facade with exact tab/frame/node identity, bounded traversal, detach cleanup and secret-free receipts"
+        },
+        {
+          "id": "browser.window-lifecycle",
+          "mcu_shape": "browser windows and browser window-state",
+          "acu_shape": "generic windows/window-place/minimize/restore plus browser profile metadata",
+          "state": "gap",
+          "next": "profile-scoped browser window identity/state facade with foreground-preservation postconditions"
+        },
+        {
+          "id": "browser.download",
+          "mcu_shape": "planned browser download lifecycle",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "define bounded download ownership, destination integrity and cleanup before implementation"
+        }
+      ]
     }
   },
   "remaining_families": [
-    "browser",
     "pty-job-terminal",
     "file-storage",
     "network",

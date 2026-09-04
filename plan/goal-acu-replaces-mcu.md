@@ -60,7 +60,9 @@ ACU replaces MCU
 
 ```mermaid
 flowchart LR
-  M["MCU capability inventory"] --> L["machine-readable replacement ledger"]
+  M["MCU capability inventory"]
+  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & REST["runtime/system …"]
+  DESK & PROC & BROW & REST --> L["machine-readable replacement ledger"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -193,7 +195,8 @@ Q0 truthful boundary
 └─ [~] replace top-level STAY counting with sub-verb + argument-shape ledger
    ├─ [x] process family accounted shape by shape in the JSON ledger
    ├─ [x] desktop family accounted shape by shape in the JSON ledger
-   └─ [ ] browser/runtime/system families remain to enumerate
+   ├─ [x] browser family accounted shape by shape in the JSON ledger
+   └─ [ ] runtime/system families remain to enumerate
 Q1 desktop closure
 ├─ [x] macOS snapshot/diff/hit/zoom/raise/minimize/restore native journey
 ├─ [ ] Linux and Windows journeys for the same verbs
@@ -211,7 +214,8 @@ Q3 owned runtime facades
 ├─ [ ] PTY/job/daemon/session/lock/audit/service
 └─ [ ] file/network/storage/device/audio/resource/power/privilege
 Q4 browser and platform depth
-├─ [ ] remaining CDP argument shapes + MV3/Native Messaging
+├─ [~] CDP core live; pointer/dialog/files and MCU auto-pick shapes remain
+├─ [ ] MV3/Native Messaging + managed-profile ownership
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement
