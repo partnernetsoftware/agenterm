@@ -604,7 +604,10 @@ try {
   }
   ensure(
     saw_label_change === 1 && saw_text_change === 1,
-    "cu_linux_smoke_observe_events:" + JSON.stringify(observed.events)
+    // Keep the complete poll account on failure. A slow AT-SPI court needs
+    // polls / elapsed / errors / filtering to distinguish a mixed tree walk
+    // from a dropped event; the event rows alone cannot make that decision.
+    "cu_linux_smoke_observe_events:" + JSON.stringify(observed)
   );
 
   print("STEP screenshot writes a PNG of the window itself, sized to the window rather than to the screen");

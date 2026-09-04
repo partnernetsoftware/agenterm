@@ -195,13 +195,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   with `coverage_complete=false` and an explicit count. A real owned-child exit is green through the macOS public CLI;
   macOS/Linux/Windows qjswasm journey leaves are declared for native reruns.
 - [~] Linux x86_64 native execution proved the new process leaves through the
-  real owned-child exit, then failed closed later in `observe`: the slow
-  AT-SPI baseline walk crossed the button and editable-text mutations, so only
-  the button change remained diffable and the journey emitted 0 / 25 evidence.
-  Poll-diff now offers `--ready-path`, atomically published after the complete
-  baseline, and starts its duration after that edge. The caller waits for and
-  cleans the marker. Fixed sleeps and weakened event assertions are excluded;
-  the full native journey must rerun before this leaf advances.
+  real owned-child exit, then failed closed later in `observe`. The exact-SHA
+  rerun proved `--ready-path` itself: the marker contained the expected backend
+  and window, and the button mutation appeared only after that edge. It also
+  disproved the earlier baseline-race diagnosis. The first recorded post-ready
+  event arrived at 2.074 s and contained the new button but not the later entry
+  value, consistent with a slow AT-SPI walk producing a mixed-time snapshot;
+  the old failure bundle discarded poll counts and errors, so this is not yet
+  a final root cause. The journey now retains the complete poll account on
+  failure. Fixed sleeps and weakened event assertions remain excluded; rerun
+  evidence decides whether the owner is scan cost, a poll error, or text state.
 - [~] The Windows x86_64 Scheduled Task court exposed a distinct public-entry
   defect before the journey's first STEP: `agenterm.com` started the GUI PE
   with handle inheritance but without `STARTF_USESTDHANDLES`, so a no-console
