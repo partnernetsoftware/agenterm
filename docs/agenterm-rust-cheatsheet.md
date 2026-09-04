@@ -3525,6 +3525,13 @@ the target has no variables. On Windows there is no stable public API for an
 arbitrary process environment or cwd: refuse the operation rather than binding
 the product to undocumented PEB and WOW64 layouts.
 
+For Script child-process controls, validate signed guest limits before moving
+an owned handle into a wait or borrowing its drains. A failed integer
+conversion must be a typed parameter refusal; never turn a negative timeout
+into `None` (unbounded wait) or a negative capture bound into `usize::MAX`.
+Prove the refusal leaves the same child handle usable for corrected wait and
+cleanup.
+
 ## Keep filesystem metadata and object identity separate
 
 Use `symlink_metadata` when an observation promises to describe the final

@@ -1092,6 +1092,9 @@ pub(crate) fn install(
             let timeout_ms = arg(args, 1)?;
             let cancel = state.borrow().cancel.clone();
             answer(&state, "process.wait", || {
+                let timeout = u64::try_from(timeout_ms)
+                    .map(Duration::from_millis)
+                    .map_err(|_| "process.wait: timeout_ms is negative".to_string())?;
                 let index = usize::try_from(h).ok();
                 // Take the child out for the wait; the slot holds its pid and,
                 // afterwards, its answer, so a second wait replays the first.
@@ -1122,13 +1125,12 @@ pub(crate) fn install(
                 };
                 // The wait's own timeout, capped by whatever is left of the
                 // spawn deadline.
-                let timeout = u64::try_from(timeout_ms).ok().map(Duration::from_millis);
                 let remaining = child
                     .deadline
                     .map(|d| d.saturating_sub(child.started.elapsed()));
-                let timeout = match (timeout, remaining) {
-                    (Some(a), Some(b)) => Some(a.min(b)),
-                    (a, b) => a.or(b),
+                let timeout = match remaining {
+                    Some(remaining) => Some(timeout.min(remaining)),
+                    None => Some(timeout),
                 };
                 let answer = finish_child(child, timeout, &cancel);
                 {
@@ -1516,8 +1518,10 @@ pub(crate) fn install(
         "process.read",
         move |args, _memory| {
             let h = arg(args, 0)?;
-            let max_bytes = usize::try_from(arg(args, 1)?).unwrap_or(usize::MAX);
+            let max_bytes = arg(args, 1)?;
             answer(&state, "process.read", || {
+                let max_bytes = usize::try_from(max_bytes)
+                    .map_err(|_| "process.read: max_bytes is negative".to_string())?;
                 let mut s = state.borrow_mut();
                 match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
                     Some(Handle::Running(r)) => {

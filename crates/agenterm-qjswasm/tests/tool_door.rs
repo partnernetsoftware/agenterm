@@ -382,6 +382,32 @@ fn process_read_hands_out_output_as_it_arrives_and_wait_still_has_all_of_it() {
     assert_eq!(string_of(&out), "a\n|a\nb\n|0", "{out:?}");
 }
 
+/// Negative robustness limits are refusals, never spellings for an unbounded
+/// wait or capture. Refusal must leave the owned child handle usable so a
+/// corrected caller can still clean it up.
+#[cfg(unix)]
+#[test]
+fn process_wait_and_read_reject_negative_limits_without_consuming_the_child() {
+    let out = run_tool(
+        r#"
+        let h = process_spawn(JSON.stringify({ program: "sh", args: ["-c", "sleep 0.05; echo done"] }));
+        let wait_status = process_wait(h, -1);
+        let wait_error = tool_result();
+        let read_status = process_read(h, -1);
+        let read_error = tool_result();
+        if (process_wait(h, 5000) !== 0) { return "cleanup: " + tool_result(); }
+        let result = JSON.parse(tool_result());
+        return "" + wait_status + "|" + wait_error + "|" + read_status + "|"
+            + read_error + "|" + result.exit_code + "|" + result.stdout;
+        "#,
+    );
+    assert_eq!(
+        string_of(&out),
+        "1|process.wait: timeout_ms is negative|1|process.read: max_bytes is negative|0|done\n",
+        "{out:?}"
+    );
+}
+
 /// A spawn spec's `timeout_ms` is a deadline: past it the child is killed,
 /// `state` says exited, and the wait reports `timed_out`. rh gave `.start()`
 /// children a 15/22 s cap; the door used to ignore the field.

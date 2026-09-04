@@ -179,6 +179,11 @@ second route around ACU/AgenTerm product contracts.
 - [x] `script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata.
 - [x] qjswasm computation budget fails closed with the public limit exit class.
 - [x] qjswasm tool profile executes bounded child processes with typed failures.
+- [x] child-process wait and incremental-read limits reject negative values
+  before consuming or mutating the owned handle. A negative timeout is not an
+  alias for an unbounded wait, and a negative capture size is not an alias for
+  the host address-space maximum; the caller can correct the argument and
+  still wait/clean up the same child.
 - [x] privacy-bounded audit records contain identity without storing secret payloads.
 - [x] qjswasm tool process returns bounded child stdout and stderr.
 - [x] qjswasm tool process reports a missing child as a typed failure.
