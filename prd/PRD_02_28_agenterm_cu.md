@@ -101,7 +101,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `actions=19` and `cleaned_up=true`.
 - [x] Local `dist` staging colocates `agenterm-cu.exe` and `agenterm.dll`; the
   staged `cu-windows-smoke` proves version, dynamic-library load, 19 desktop
-  actions and deterministic cleanup. Both artifacts remain below 1 MiB.
+  actions and deterministic cleanup. The old “both below 1 MiB” statement is
+  archived: v0.1.16 Windows x86_64 shipped a 1,420,800-byte CU executable, and
+  current capability growth has crossed the still-governing 2 MiB executable
+  court. The no-raise decision experiment is
+  [`plan/design-cu-single-entry-size-experiment.md`](../plan/design-cu-single-entry-size-experiment.md).
 - [x] Staged public `cu-windows-smoke` passes all seven declared evidence
   receipts: host self-test, DLL load cleanup, window identity, UIA tree,
   name-addressed actuation, Value/GetText wait and UIA fixture cleanup.
