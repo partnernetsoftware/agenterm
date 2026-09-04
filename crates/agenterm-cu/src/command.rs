@@ -1056,6 +1056,25 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dy: Option<f64>,
     },
+    /// `page files` over CDP: bind one or more browser-host local regular
+    /// files to an exact input[type=file] and verify the resulting FileList.
+    /// Receipts retain basename/size only, never local paths.
+    PageFiles {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node: Option<u64>,
+        files: Vec<String>,
+    },
     /// `page fill` over CDP: focus one editable node (`selector` / backend
     /// `node` id) with `DOM.focus`, optionally select-all (`clear`),
     /// `Input.insertText` the text, read `.value` back; `submit` then
@@ -1468,6 +1487,7 @@ impl Command {
             Self::PageClick { .. } => "page-click".into(),
             Self::PageHover { .. } => "page-hover".into(),
             Self::PageScroll { .. } => "page-scroll".into(),
+            Self::PageFiles { .. } => "page-files".into(),
             Self::PageFill { .. } => "page-fill".into(),
             Self::PageNav { .. } => "page-nav".into(),
             Self::PageScreenshot { .. } => "page-screenshot".into(),
@@ -1546,6 +1566,7 @@ impl Command {
             | Self::PageClick { target, .. }
             | Self::PageHover { target, .. }
             | Self::PageScroll { target, .. }
+            | Self::PageFiles { target, .. }
             | Self::PageFill { target, .. }
             | Self::PageNav { target, .. }
             | Self::PageScreenshot { target, .. }
@@ -1594,6 +1615,7 @@ impl Command {
             | Self::PageClick { .. }
             | Self::PageHover { .. }
             | Self::PageScroll { .. }
+            | Self::PageFiles { .. }
             | Self::PageFill { .. }
             | Self::PageNav { .. }
             | Self::PageScreenshot { activate: true, .. }

@@ -1521,6 +1521,13 @@ of them has to bring the tab forward. What the throwaway headless gate
   trusted `mousemove` arrived; verify the event's `target` against
   `elementFromPoint`, and report CSS hover only as auxiliary evidence.
   Never turn CDP ACK alone into `verified: true`.
+- **File inputs cross a privacy boundary.** Validate 1..16 absolute paths as
+  regular non-symlink browser-host files before reserving a receipt; resolve
+  exactly one enabled `input[type=file]` and reject multiple files unless the
+  control declares `multiple`. After `DOM.setFileInputFiles`, verify the exact
+  FileList as basename/size pairs. The command needs full paths transiently,
+  but public results, receipts, logs and persisted evidence must never retain
+  them.
 
 ## Name addressing is wait-matching then the node path
 

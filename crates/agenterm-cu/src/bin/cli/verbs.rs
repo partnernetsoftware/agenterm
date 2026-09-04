@@ -2040,6 +2040,26 @@ change. A boundary that cannot move is honestly performed but unverified
 (no_observable_scroll_change). Receipt reserved before dispatch."#,
     },
     VerbSpec {
+        name: "page-files",
+        command: "page-files",
+        aliases: &["page files"],
+        scope: Scope::Actuate,
+        family: Family::Browser,
+        summary: "set and verify one CDP file input without a picker",
+        usage: "page-files [--port N] (--target-id ID | --target-url SUB | --target-title SUB)
+        (--selector CSS | --node ID) FILE...
+page files [--node] ID FILE...                     (MCU spelling)",
+        args: &[PORT, TARGET_ID, TARGET_URL, TARGET_TITLE, CDP_SELECTOR, CDP_NODE,
+            ArgSpec { flag: "FILE...", value: "", help: "1..=16 absolute regular non-symlink files on the browser host" },
+        ],
+        details: r#"Resolves exactly one enabled input[type=file], refuses more
+than one file unless the control has `multiple`, validates bounded regular
+non-symlink local files, then calls DOM.setFileInputFiles on the selected CDP
+target. FileList basename and size are read back exactly. Replies and persistent
+receipts never contain local paths. The tab/window stays backgrounded and no
+native file-picker is opened."#,
+    },
+    VerbSpec {
         name: "page-fill",
         command: "page-fill",
         aliases: &["page fill"],
@@ -3002,6 +3022,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 32, "{actuate:?}");
+        assert_eq!(actuate.len(), 33, "{actuate:?}");
     }
 }

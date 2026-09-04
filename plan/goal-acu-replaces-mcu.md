@@ -302,7 +302,8 @@ Q4 browser and platform depth
 ├─ [~] CDP core live
 │  ├─ [x] page hover: trusted mousemove target read-back; MCU positional shape routed
 │  ├─ [x] page scroll: owned-container scroll event + offset read-back; MCU positional shape routed
-│  └─ [ ] page drag/dialog/files and MCU auto-pick/--match shapes remain
+│  ├─ [x] page files: exact FileList read-back; bounded regular non-symlink inputs; paths redacted
+│  └─ [ ] page drag/dialog and MCU auto-pick/--match shapes remain
 ├─ [ ] MV3/Native Messaging + managed-profile ownership
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity

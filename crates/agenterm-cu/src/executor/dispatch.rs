@@ -328,6 +328,23 @@ impl Executor {
                 dy.unwrap_or(120.0),
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PageFiles {
+                port,
+                target_id,
+                target_url,
+                target_title,
+                selector,
+                node,
+                files,
+                ..
+            } => page_files_payload(
+                *port,
+                cdp_selector(target_id, target_url, target_title),
+                selector.as_deref(),
+                *node,
+                files,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PageFill {
                 port,
                 target_id,

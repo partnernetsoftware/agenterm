@@ -613,6 +613,31 @@ pub(super) fn page_scroll_payload(
     complete_cdp_receipt(receipts, &ticket, "page-scroll", outcome)
 }
 
+pub(super) fn page_files_payload(
+    port: Option<u16>,
+    selector: crate::cdp::TargetSelector,
+    css: Option<&str>,
+    node: Option<u64>,
+    files: &[String],
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let query = cdp_node_query("page files", css, None, None, None, node)?;
+    let (ctx, mut session) = cdp_connect(port, selector)?;
+    let plan = crate::cdp::page::plan_files(&mut session, &query, files)?;
+    let ticket = receipts.reserve(
+        "page-files",
+        0,
+        serde_json::json!({
+            "cdp_target": ctx.target.identity_json(),
+            "query": query.json(),
+            "action": "files",
+            "plan": plan.json(),
+        }),
+    )?;
+    let outcome = crate::cdp::page::perform_files(&mut session, &ctx, &plan);
+    complete_cdp_receipt(receipts, &ticket, "page-files", outcome)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn page_fill_payload(
     port: Option<u16>,

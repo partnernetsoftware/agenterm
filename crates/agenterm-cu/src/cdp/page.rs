@@ -34,6 +34,8 @@ pub const MAX_FILL_BYTES: usize = 64 * 1024;
 pub const MAX_POINTER_COORD: f64 = 1_000_000.0;
 /// Bound one CDP wheel request while retaining high-resolution deltas.
 pub const MAX_SCROLL_DELTA: f64 = 1_000_000.0;
+pub const MAX_FILES: usize = 16;
+pub const MAX_FILE_PATH_BYTES: usize = 4096;
 static HOVER_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SCROLL_PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -250,6 +252,16 @@ const SELECT_ALL_FN: &str = r#"function() {
 /// The node's current text: `value` for a field, text for contenteditable.
 const VALUE_FN: &str = r#"function() {
   return this.value !== undefined ? String(this.value) : (this.textContent || '');
+}"#;
+
+const FILE_INPUT_STATE_FN: &str = r#"function() {
+  const files = Array.from(this.files || []).map(f => ({ name: f.name, size: f.size }));
+  return {
+    is_file_input: this.tagName === 'INPUT' && String(this.type).toLowerCase() === 'file',
+    enabled: !this.disabled,
+    multiple: !!this.multiple,
+    files: files
+  };
 }"#;
 
 /// Fallback reader when the Accessibility domain is unavailable: one row
@@ -1122,6 +1134,155 @@ pub fn perform_scroll<T: Transport>(
                 "container": selector,
                 "changed": changed,
                 "reason": if verified { Value::Null } else { json!("no_observable_scroll_change") },
+            },
+            "before": plan.before,
+            "after": after,
+        }),
+    );
+    Ok(ActuationOutcome {
+        performed: true,
+        verified,
+        payload,
+    })
+}
+
+// ------------------------------------------------------------------ files
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocalFile {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+}
+
+impl LocalFile {
+    fn json(&self) -> Value {
+        // Persistent receipts never contain the local path. The basename and
+        // size are enough to verify the browser FileList without leaking it.
+        json!({ "name": self.name, "size": self.size })
+    }
+}
+
+pub fn validate_local_files(paths: &[String]) -> Result<Vec<LocalFile>, String> {
+    if paths.is_empty() || paths.len() > MAX_FILES {
+        return Err(format!("page files requires 1..={MAX_FILES} local files"));
+    }
+    paths
+        .iter()
+        .map(|raw| {
+            if raw.is_empty() || raw.len() > MAX_FILE_PATH_BYTES || raw.contains('\0') {
+                return Err(format!(
+                    "page files paths must be 1..={MAX_FILE_PATH_BYTES} bytes without NUL"
+                ));
+            }
+            let path = std::path::Path::new(raw);
+            if !path.is_absolute() {
+                return Err("page files paths must be absolute on the browser host".into());
+            }
+            let metadata = std::fs::symlink_metadata(path)
+                .map_err(|_| "page files cannot inspect one local path".to_owned())?;
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err("page files accepts regular non-symlink files only".into());
+            }
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| "page files requires a UTF-8 basename".to_owned())?;
+            Ok(LocalFile {
+                path: raw.clone(),
+                name: name.to_owned(),
+                size: metadata.len(),
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug)]
+pub struct FilesPlan {
+    pub node: FoundNode,
+    pub files: Vec<LocalFile>,
+    pub before: Value,
+}
+
+impl FilesPlan {
+    pub fn json(&self) -> Value {
+        json!({
+            "node": self.node.json(),
+            "files": self.files.iter().map(LocalFile::json).collect::<Vec<_>>(),
+            "before": self.before,
+        })
+    }
+}
+
+pub fn plan_files<T: Transport>(
+    session: &mut Session<T>,
+    query: &NodeQuery,
+    paths: &[String],
+) -> Result<FilesPlan, CdpError> {
+    let files =
+        validate_local_files(paths).map_err(|message| CdpError::typed("invalid_input", message))?;
+    let node = resolve_one(session, query)?;
+    let before = call_on_node(session, node.node, FILE_INPUT_STATE_FN)?;
+    if before["is_file_input"] != true {
+        return Err(CdpError::typed(
+            "cdp_node_not_file_input",
+            format!("node {} is not an input[type=file]", node.node),
+        )
+        .with_detail(json!({ "node": node.json(), "effect": "not_performed" })));
+    }
+    if before["enabled"] != true {
+        return Err(CdpError::typed(
+            "cdp_node_not_editable",
+            format!("file input node {} is disabled", node.node),
+        )
+        .with_detail(json!({ "node": node.json(), "effect": "not_performed" })));
+    }
+    if files.len() > 1 && before["multiple"] != true {
+        return Err(CdpError::typed(
+            "cdp_file_input_not_multiple",
+            format!(
+                "file input node {} does not accept multiple files",
+                node.node
+            ),
+        )
+        .with_detail(
+            json!({ "node": node.json(), "count": files.len(), "effect": "not_performed" }),
+        ));
+    }
+    Ok(FilesPlan {
+        node,
+        files,
+        before,
+    })
+}
+
+pub fn perform_files<T: Transport>(
+    session: &mut Session<T>,
+    ctx: &Ctx,
+    plan: &FilesPlan,
+) -> Result<ActuationOutcome, CdpError> {
+    let paths: Vec<&str> = plan.files.iter().map(|file| file.path.as_str()).collect();
+    session.call(
+        "DOM.setFileInputFiles",
+        json!({ "backendNodeId": plan.node.node, "files": paths }),
+    )?;
+    let after = call_on_node(session, plan.node.node, FILE_INPUT_STATE_FN)?;
+    let expected: Vec<Value> = plan.files.iter().map(LocalFile::json).collect();
+    let verified = after["files"] == json!(expected);
+    let payload = with(
+        ctx.envelope("DOM.setFileInputFiles"),
+        json!({
+            "action": "files",
+            "node": plan.node.json(),
+            "file_count": plan.files.len(),
+            "performed": true,
+            "verified": verified,
+            "verification": {
+                "method": "FileList-name-size-readback",
+                "expected": expected,
+                "observed": after["files"],
+                "reason": if verified { Value::Null } else { json!("file_list_mismatch") },
             },
             "before": plan.before,
             "after": after,
@@ -2019,6 +2180,75 @@ mod tests {
             "invalid_input"
         );
         assert_eq!(session.calls_made(), 0);
+    }
+
+    #[test]
+    fn files_validate_the_control_and_read_file_list_back_without_leaking_paths() {
+        let path = std::env::temp_dir().join(format!(
+            "agenterm-cu-files-{}-{}.txt",
+            std::process::id(),
+            HOVER_PROBE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, b"hello").expect("fixture");
+        let raw = path.to_string_lossy().into_owned();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let expected_name = name.clone();
+        let mut selected = false;
+        let mut session = fake::session(move |method, params| match method {
+            "DOM.describeNode" => Ok(json!({ "node": { "backendNodeId": 7 } })),
+            "DOM.resolveNode" => Ok(json!({ "object": { "objectId": "file7" } })),
+            "DOM.getBoxModel" => Ok(box_model(10.0, 10.0)),
+            "Runtime.callFunctionOn" => {
+                let declaration = params["functionDeclaration"].as_str().unwrap();
+                if declaration.contains("is_file_input") {
+                    Ok(json!({ "result": { "value": {
+                        "is_file_input": true, "enabled": true, "multiple": false,
+                        "files": if selected { json!([{ "name": expected_name, "size": 5 }]) } else { json!([]) }
+                    } } }))
+                } else {
+                    Ok(json!({ "result": { "value": {
+                        "path": "input#upload", "tag": "input", "text": "", "role": null,
+                        "name": null, "value": "", "checked": null, "attrs": "type=file",
+                        "editable": true, "text_node": false
+                    } } }))
+                }
+            }
+            "DOM.setFileInputFiles" => {
+                assert_eq!(params["backendNodeId"], 7);
+                assert_eq!(params["files"].as_array().map(Vec::len), Some(1));
+                selected = true;
+                Ok(json!({}))
+            }
+            other => Err(format!("unexpected {other}")),
+        });
+        let plan = plan_files(
+            &mut session,
+            &NodeQuery::Node(7),
+            std::slice::from_ref(&raw),
+        )
+        .expect("plan");
+        let plan_json = plan.json().to_string();
+        assert!(
+            !plan_json.contains(&raw),
+            "receipt plan must redact local path"
+        );
+        assert!(plan_json.contains(&name));
+        let outcome = perform_files(&mut session, &ctx(), &plan).expect("files");
+        assert!(outcome.performed);
+        assert!(outcome.verified, "{}", outcome.payload);
+        assert!(!outcome.payload.to_string().contains(&raw));
+        std::fs::remove_file(path).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn files_reject_missing_and_relative_paths_without_a_cdp_call() {
+        assert!(validate_local_files(&[]).is_err());
+        assert!(validate_local_files(&["relative.txt".into()]).is_err());
+        let missing = std::env::temp_dir()
+            .join("agenterm-cu-file-that-does-not-exist")
+            .to_string_lossy()
+            .into_owned();
+        assert!(validate_local_files(&[missing]).is_err());
     }
 
     #[test]

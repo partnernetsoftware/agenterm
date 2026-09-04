@@ -27,6 +27,7 @@ pub fn parse(
             "page-click" => page_click(target, args),
             "page-hover" => page_hover(target, args),
             "page-scroll" => page_scroll(target, args),
+            "page-files" => page_files(target, args),
             "page-fill" => page_fill(target, args),
             "page-nav" => page_nav(target, args),
             "page-screenshot" => page_screenshot(target, args),
@@ -71,6 +72,10 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         Some("scroll") => {
             args.remove(0);
             return page_scroll(target, args);
+        }
+        Some("files") => {
+            args.remove(0);
+            return page_files(target, args);
         }
         Some("fill") => {
             args.remove(0);
@@ -380,6 +385,59 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
         y,
         dx,
         dy,
+    })
+}
+
+fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let (port, target_id, target_url, target_title) = cdp_target_flags("page files", args)?;
+    let selector = flag_text(args, "--selector")?;
+    let mut node = flag_parsed::<u64>(args, "--node")?;
+    if selector.is_some() && node.is_some() {
+        return Err("page files accepts exactly one of --selector CSS | --node ID".into());
+    }
+    if selector.is_none() && node.is_none() {
+        node = args.first().and_then(|value| value.parse::<u64>().ok());
+        if node.is_some() {
+            args.remove(0);
+        }
+    }
+    if selector
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+        || node == Some(0)
+    {
+        return Err("page files requires a non-empty --selector or positive --node".into());
+    }
+    if selector.is_none() && node.is_none() {
+        return Err(
+            "page files requires --selector CSS | --node ID (MCU positional NODE is accepted)"
+                .into(),
+        );
+    }
+    let files = std::mem::take(args);
+    if files.is_empty() || files.len() > agenterm_cu::cdp::page::MAX_FILES {
+        return Err(format!(
+            "page files requires 1..={} local files",
+            agenterm_cu::cdp::page::MAX_FILES
+        ));
+    }
+    if files.iter().any(|path| {
+        path.is_empty()
+            || path.len() > agenterm_cu::cdp::page::MAX_FILE_PATH_BYTES
+            || path.contains('\0')
+            || !std::path::Path::new(path).is_absolute()
+    }) {
+        return Err("page files requires bounded absolute paths on the browser host".into());
+    }
+    Ok(Command::PageFiles {
+        target,
+        port,
+        target_id,
+        target_url,
+        target_title,
+        selector,
+        node,
+        files,
     })
 }
 

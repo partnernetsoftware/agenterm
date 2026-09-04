@@ -19,8 +19,9 @@
 #               listed page-nav / page-fill / page-click completed.
 #   2026-09-04  PASS  Google Chrome headless (macOS): the same background-tab
 #               court plus page-hover trusted-event target read-back and
-#               page-scroll exact-container event/offset read-back; 12
-#               active-target + front-window invariants stayed green; five
+#               page-scroll exact-container event/offset read-back and
+#               page-files exact FileList read-back; 13 active-target +
+#               front-window invariants stayed green; six
 #               actuator receipt kinds completed.
 #
 # What it proves, in order (all on 127.0.0.1:<free port>):
@@ -30,7 +31,7 @@
 #   3. `page text --target-id B` returns backend "cdp" rows with the page's
 #      words and node ids, focus_changed false.
 #   4. `page find` by --text (lifted to the button), --selector, --role;
-#      cdp_node_not_found on a miss; cdp_node_ambiguous when three nodes
+#      cdp_node_not_found on a miss; cdp_node_ambiguous when four nodes
 #      match a click selector (nothing dispatched).
 #   5. `page fill --selector '#q' --text hello --clear` verified by .value
 #      read-back.
@@ -38,14 +39,16 @@
 #      rewrote #out, which page-js reads back as "clicked:hello".
 #   7. `page hover` verifies the trusted mousemove event target; `page
 #      scroll` verifies the exact container offset changed.
-#   8. `page fill --node N --text ' world' --submit` appends and submits
+#   8. `page files` sets one local fixture without a picker and verifies its
+#      basename/size without persisting the path.
+#   9. `page fill --node N --text ' world' --submit` appends and submits
 #      (the form's onsubmit rewrites #out -> "submitted:hello world").
-#   9. `page screenshot --target-id B --out` writes a PNG, or answers the
+#  10. `page screenshot --target-id B --out` writes a PNG, or answers the
 #      typed cdp_screenshot_unavailable -- either way without activating.
-#  10. After EVERY verb: /json lists A first (B never became active) and
+#  11. After EVERY verb: /json lists A first (B never became active) and
 #      `windows --focused` reports the same front window as before the run
 #      (or "none" both times on an unattended session).
-#  11. `receipts` lists every actuation as completed lines.
+#  12. `receipts` lists every actuation as completed lines.
 #
 # Browser: $CU_CDP_BROWSER (an executable), else /Applications/Brave Origin.app,
 # else /Applications/Google Chrome.app; none present is a typed SKIP.
@@ -196,7 +199,7 @@ import urllib.parse
 html = """<!doctype html><title>cu-actuate-B</title><h1>Hello B</h1>
 <form onsubmit="document.getElementById(&quot;out&quot;).textContent=&quot;submitted:&quot;+document.getElementById(&quot;q&quot;).value;return false">
 <input id="q" placeholder="Query"><button id="go" type="button" onclick="document.getElementById(&quot;out&quot;).textContent=&quot;clicked:&quot;+document.getElementById(&quot;q&quot;).value">Go</button>
-</form><p id="out">idle</p><div id="scroll" style="height:120px;overflow:auto"><div style="height:1000px">Tall</div></div>"""
+</form><p id="out">idle</p><input id="upload" type="file"><div id="scroll" style="height:120px;overflow:auto"><div style="height:1000px">Tall</div></div>"""
 print("data:text/html," + urllib.parse.quote(html, safe=""))')"
 OUT="$(act page nav --port "$PORT" --target-id "$ID_B" --url "$FIXTURE" --wait-ms 5000)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page nav: $OUT"
@@ -231,9 +234,9 @@ OUT="$(obs page find --port "$PORT" --target-id "$ID_B" --text nowhere-at-all)" 
 [[ "$(jf "$OUT" ok)" == "False" && "$(jf "$OUT" error.code)" == "cdp_node_not_found" ]] || fail "expected cdp_node_not_found: $OUT"
 OUT="$(act page click --port "$PORT" --target-id "$ID_B" --selector 'p,button,input')" || true
 [[ "$(jf "$OUT" ok)" == "False" && "$(jf "$OUT" error.code)" == "cdp_node_ambiguous" ]] || fail "expected cdp_node_ambiguous: $OUT"
-[[ "$(jf "$OUT" error.detail.count)" == "3" ]] || fail "cdp_node_ambiguous should count 3: $OUT"
+[[ "$(jf "$OUT" error.detail.count)" == "4" ]] || fail "cdp_node_ambiguous should count 4: $OUT"
 still_background "page click (ambiguous)" "$OUT"
-echo "STEP 5 page find: --text Go -> button node=$NODE_GO (box), --selector #q -> node=$NODE_Q editable, --role button -> same node; miss -> cdp_node_not_found; 3 hits -> cdp_node_ambiguous"
+echo "STEP 5 page find: --text Go -> button node=$NODE_GO (box), --selector #q -> node=$NODE_Q editable, --role button -> same node; miss -> cdp_node_not_found; 4 hits -> cdp_node_ambiguous"
 
 # 4. page fill --clear, verified by the value read-back.
 OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --selector '#q' --text hello --clear)"
@@ -265,7 +268,17 @@ OUT="$(act page scroll --port "$PORT" --target-id "$ID_B" --x "${XY_SCROLL%% *}"
 still_background "page scroll" "$OUT"
 echo "STEP 8 page hover -> trusted target verified; page scroll -> container top changed; A still active"
 
-# 7. page fill by node id, appended, then --submit runs the form's onsubmit.
+# 7. File input is exact and path-redacted in the public reply/receipt.
+UPLOAD="$UD/upload.txt"
+printf 'hello' >"$UPLOAD"
+OUT="$(act page files --port "$PORT" --target-id "$ID_B" --selector '#upload' "$UPLOAD")"
+[[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page files: $OUT"
+[[ "$(jf "$OUT" data.verification.observed.0.name)" == "upload.txt" && "$(jf "$OUT" data.verification.observed.0.size)" == "5" ]] || fail "page files read-back: $OUT"
+[[ "$OUT" != *"$UPLOAD"* ]] || fail "page files leaked the local path"
+still_background "page files" "$OUT"
+echo "STEP 9 page files --selector #upload -> verified basename=upload.txt size=5; no picker/path leak"
+
+# 8. page fill by node id, appended, then --submit runs the form's onsubmit.
 OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text ' world' --submit)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.verified)" == "True" ]] || fail "page fill --node --submit: $OUT"
 [[ "$(jf "$OUT" data.verification.after_value)" == "hello world" ]] || fail "page fill append read-back: $(jf "$OUT" data.verification)"
@@ -273,9 +286,9 @@ OUT="$(act page fill --port "$PORT" --target-id "$ID_B" --node "$NODE_Q" --text 
 still_background "page fill --submit" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('out').textContent")"
 [[ "$(jf "$READ" data.value)" == "submitted:hello world" ]] || fail "Enter did not submit the form: $READ"
-echo "STEP 9 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
+echo "STEP 10 page fill --node $NODE_Q --text ' world' --submit -> verified (hello world); page-js reads #out = submitted:hello world"
 
-# 8. page screenshot: a PNG, or the typed refusal -- never an activation.
+# 9. page screenshot: a PNG, or the typed refusal -- never an activation.
 SHOT="$UD/b.png"
 OUT="$(obs page screenshot --port "$PORT" --target-id "$ID_B" --out "$SHOT")" || true
 if [[ "$(jf "$OUT" ok)" == "True" ]]; then
@@ -288,18 +301,18 @@ else
   SHOT_NOTE="typed cdp_screenshot_unavailable (background tab not painted)"
 fi
 still_background "page screenshot" "$OUT"
-echo "STEP 10 page screenshot --target-id B -> $SHOT_NOTE; A still active"
+echo "STEP 11 page screenshot --target-id B -> $SHOT_NOTE; A still active"
 
-# 9. Receipts: every actuation was reserved and completed.
+# 10. Receipts: every actuation was reserved and completed.
 OUT="$(obs receipts --max 20)"
 [[ "$(jf "$OUT" ok)" == "True" ]] || fail "receipts: $OUT"
 verbs="$(jf "$OUT" data.receipts | python3 -c '
 import json,sys
 lines = json.load(sys.stdin)
 print(" ".join(sorted({l["verb"] for l in lines if l.get("phase") == "completed"})))')"
-for verb in page-nav page-fill page-click page-hover page-scroll; do
+for verb in page-nav page-fill page-click page-hover page-scroll page-files; do
   [[ "$verbs" == *"$verb"* ]] || fail "receipts lack a completed $verb line: $verbs"
 done
-echo "STEP 11 receipts: completed [$verbs]"
+echo "STEP 12 receipts: completed [$verbs]"
 
 echo "PASS: cu-cdp-actuate-smoke ($BROWSER_NAME headless, port $PORT, every CDP verb on the background tab; $CHECKS active-target + front-window checks; front window before/after: [$FRONT0])"

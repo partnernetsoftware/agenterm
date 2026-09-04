@@ -167,7 +167,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `:hover`), `page scroll --x X --y Y [--dx DX] [--dy DY]` (actuate; nearest
   scrollable container frozen during planning, wheel dispatched there, then an
   event-driven bounded wait reads its exact offsets; a boundary is performed
-  but `no_observable_scroll_change`), `page fill
+  but `no_observable_scroll_change`), `page files (--selector | --node)
+  FILE...` (actuate; 1..16 absolute browser-host paths, regular non-symlink
+  files only, exact enabled `input[type=file]`, `multiple` preflight,
+  `DOM.setFileInputFiles`, then exact FileList basename/size read-back; public
+  results and receipts never retain the local paths), `page fill
   (--selector | --node) --text T [--clear] [--submit]` (actuate;
   `DOM.focus`, select-all, `Input.insertText`, `.value` read back ==
   text, Enter key events; focus emulation on for the write and off
@@ -184,10 +188,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   form `onsubmit` mutate the DOM, read back through `page-js`; after each
   verb `/json` still listed A first and `windows --focused` was
   unchanged). The expanded 2026-09-04 throwaway headless Google Chrome court
-  verified `page-hover` by the received event target and `page-scroll` by a
-  `scrollTop` change from 360 to 480; both retained `focus_changed: false`.
-  MCU-shaped positional hover/scroll now route through the sibling compatibility
-  shim instead of staying on MCU; `--match` remains typed because its
+  verified `page-hover` by the received event target, `page-scroll` by a
+  `scrollTop` change from 360 to 480, and `page-files` by exact FileList
+  basename/size while its absolute fixture path was absent from public output;
+  all retained `focus_changed: false`. MCU-shaped positional hover/scroll/files
+  now route through the sibling compatibility shim instead of staying on MCU;
+  `--match` remains typed because its
   title+url+description search is not the same selector contract. Still open:
   the same run on the owner's real instance needs
   it relaunched with `--remote-debugging-port=9222`.
