@@ -14,6 +14,7 @@ pub enum Family {
     Windows,
     Process,
     Network,
+    File,
     Terminal,
     A11yObserve,
     A11yActuate,
@@ -64,7 +65,6 @@ pub fn cold_verbs() -> &'static [Value] {
         .expect("embedded verb catalog verbs must be an array")
 }
 
-#[cfg(test)]
 pub fn cold_verb(name: &str) -> &'static Value {
     cold_verbs()
         .iter()

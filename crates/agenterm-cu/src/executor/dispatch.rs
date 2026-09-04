@@ -121,6 +121,7 @@ impl Executor {
                 timeout_ms,
                 ..
             } => network_probe::payload(host, *port, *attempts, *timeout_ms),
+            Command::FileInspect { path, .. } => file_inspect_payload(path),
             Command::TerminalList { .. } => terminal_list_payload(),
             Command::TerminalRead { tab, max_bytes, .. } => terminal_read_payload(tab, *max_bytes),
             Command::TerminalSend { tab, text, .. } => {

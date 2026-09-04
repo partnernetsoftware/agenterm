@@ -415,6 +415,12 @@ pub enum Command {
         attempts: u8,
         timeout_ms: u64,
     },
+    /// Inspect one final filesystem entry without following a link-like final
+    /// component. Wide counters are serialized losslessly by the executor.
+    FileInspect {
+        target: TargetRef,
+        path: String,
+    },
     /// Inventory AgenTerm-owned tabs using stable epoch-scoped `@N` ids.
     TerminalList {
         target: TargetRef,
@@ -1637,6 +1643,7 @@ impl Command {
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
+            Self::FileInspect { .. } => "file-inspect".into(),
             Self::TerminalList { .. } => "terminal-list".into(),
             Self::TerminalRead { .. } => "terminal-read".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
@@ -1725,6 +1732,7 @@ impl Command {
             | Self::ProcessKill { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::NetworkProbe { target, .. }
+            | Self::FileInspect { target, .. }
             | Self::TerminalList { target, .. }
             | Self::TerminalRead { target, .. }
             | Self::TerminalSend { target, .. }
@@ -2928,6 +2936,27 @@ mod tests {
                 timeout_ms: 750,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn file_inspect_is_observe_only_and_keeps_its_remote_path_literal() {
+        let command = Command::FileInspect {
+            target: TargetRef::Ssh,
+            path: "a path/with spaces".into(),
+        };
+        assert_eq!(command.verb(), "file-inspect");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(json["path"], "a path/with spaces");
+        let round_trip: Command = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::FileInspect {
+                target: TargetRef::Ssh,
+                path,
+            } if path == "a path/with spaces"
         ));
     }
 }

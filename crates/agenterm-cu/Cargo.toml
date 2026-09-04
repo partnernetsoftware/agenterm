@@ -26,7 +26,7 @@ miniz_oxide = "0.8"
 # actuation continues to load libagenterm dynamically.
 libloading = "0.8"
 sha2 = { version = "0.11", default-features = false }
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "locking", "process"] }
+agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "locking", "process", "filesystem-entry", "file-identity"] }
 
 # These feature lists must stay complete on their own. Until milestone 46 the
 # crate also depended on `agenterm-platform`, whose winit tree enabled

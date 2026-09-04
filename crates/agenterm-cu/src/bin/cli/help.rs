@@ -55,7 +55,9 @@ Live RDP session + UIA-over-RDP evidence is not claimed on this cut.
 
 /// The grouped, one-line-per-verb list behind `--help`.
 pub fn top_level_text() -> String {
-    verbs::cold_text("top_level_text").to_owned()
+    let mut text = verbs::cold_text("top_level_text").to_owned();
+    append_missing_top_level_rows(&mut text);
+    text
 }
 
 pub fn eprint_top_level() {
@@ -136,7 +138,57 @@ pub fn verbs_json() -> String {
 }
 
 pub fn verbs_text() -> String {
-    verbs::cold_text("verbs_text").to_owned()
+    let mut text = verbs::cold_text("verbs_text").to_owned();
+    for spec in verbs::VERBS {
+        if text.lines().any(|line| line.starts_with(spec.name)) {
+            continue;
+        }
+        let row = verbs::cold_verb(spec.name);
+        let aliases = row["aliases"]
+            .as_array()
+            .expect("validated aliases")
+            .iter()
+            .map(|alias| alias.as_str().expect("validated alias"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        text.push_str(&format!(
+            "{:<21} {:<31} {:<8} {:<13} {}\n",
+            spec.name,
+            aliases,
+            row["grant"].as_str().expect("validated grant"),
+            row["family"].as_str().expect("validated family"),
+            row["summary"].as_str().expect("validated summary"),
+        ));
+    }
+    text
+}
+
+/// The two human projections predate the machine verb catalog. Keep them
+/// readable, but default toward truthful discovery when a newly registered
+/// verb has not yet been manually placed into those prose blocks.
+fn append_missing_top_level_rows(text: &mut String) {
+    let missing = verbs::VERBS
+        .iter()
+        .filter(|spec| !text.contains(&format!("  {}", spec.name)))
+        .map(|spec| {
+            let row = verbs::cold_verb(spec.name);
+            format!(
+                "  {:<33} {:<8} {}",
+                spec.name,
+                row["grant"].as_str().expect("validated grant"),
+                row["summary"].as_str().expect("validated summary"),
+            )
+        })
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return;
+    }
+    let block = format!("\n{}", missing.join("\n"));
+    if let Some(at) = text.find("\nMCU-aligned verbs") {
+        text.insert_str(at, &block);
+    } else {
+        text.push_str(&block);
+    }
 }
 
 #[cfg(test)]

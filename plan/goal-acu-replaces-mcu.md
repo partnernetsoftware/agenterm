@@ -319,7 +319,10 @@ Q3 owned runtime facades
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe
-   ├─ [ ] next slice: file-inspect over platform entry identity + bounded metadata
+   ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
+   │  ├─ [x] macOS public CLI + regular/directory/link/typed-missing evidence
+   │  ├─ [x] Windows x86_64 cargo-xwin compile
+   │  └─ [ ] Linux + Windows native public journeys
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

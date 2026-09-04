@@ -86,6 +86,7 @@ fn build_verb_catalog() {
                 | "windows"
                 | "process"
                 | "network"
+                | "file"
                 | "terminal"
                 | "a11y-observe"
                 | "a11y-actuate"
@@ -174,6 +175,7 @@ fn family_variant(family: &str) -> &'static str {
         "windows" => "Windows",
         "process" => "Process",
         "network" => "Network",
+        "file" => "File",
         "terminal" => "Terminal",
         "a11y-observe" => "A11yObserve",
         "a11y-actuate" => "A11yActuate",

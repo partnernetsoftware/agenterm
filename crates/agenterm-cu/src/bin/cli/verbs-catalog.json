@@ -69,6 +69,24 @@
       ]
     },
     {
+      "name": "file-inspect",
+      "command": "file-inspect",
+      "aliases": [
+        "file inspect"
+      ],
+      "grant": "observe",
+      "family": "file",
+      "summary": "inspect one final filesystem entry without following it",
+      "usage": "file-inspect PATH\nfile inspect PATH",
+      "args": [
+        {
+          "flag": "PATH",
+          "value": "",
+          "help": "one file, directory, or link-like entry"
+        }
+      ]
+    },
+    {
       "name": "windows",
       "command": "windows",
       "aliases": [
@@ -3100,6 +3118,10 @@
     {
       "name": "network-probe",
       "text": "agenterm-cu network-probe    (also: network probe)\n  scope: observe    family: Network\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  network-probe HOST [--port N] [--attempts N] [--timeout-ms N]\n  network probe HOST [--port N] [--attempts N] [--timeout-ms N]\n\narguments:\n  HOST                          bare hostname or IP address\n  --port N                      TCP port, 1..=65535 (default 443)\n  --attempts N                  exact attempts, 1..=20 (default 3)\n  --timeout-ms N                resolver and per-connect bound, 100..=60000 (default 3000)\n\nResolves through the host resolver once, deduplicates and freezes the\naddress set, then makes the exact requested number of TCP attempts round-robin.\nThe blocking resolver lives in an invocation-owned internal child; the parent\nenforces the overall deadline and kills and reaps that child on expiry. A TCP\nrefusal or timeout is a successful unreachable observation. Resolver, worker\nand protocol failures stay typed. This is reachability evidence, not HTTP/TLS.\n"
+    },
+    {
+      "name": "file-inspect",
+      "text": "agenterm-cu file-inspect    (also: file inspect)\n  scope: observe    family: Filesystem\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  file-inspect PATH\n  file inspect PATH\n\narguments:\n  PATH                          one file, directory, or link-like entry\n\nReads bounded metadata for exactly the final entry without following a final\nlink. The reply carries kind, lossless decimal size and timestamps, readonly\nstate, platform metadata, and a stable opened-object identity for ordinary\nfiles and directories. Link-object identity is available from Unix metadata;\nWindows reports that identity as typed unavailable instead of following the\nlink. No file contents are read.\n"
     },
     {
       "name": "windows",

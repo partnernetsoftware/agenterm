@@ -432,6 +432,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "cleanup": "deadline-kill-and-reap",
             }),
         );
+        verbs.insert(
+            "file-inspect".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "file",
+                "grant": "observe",
+                "mode": "final-entry-metadata-plus-stable-object-identity",
+                "link_policy": "never-follow-final-link",
+                "wide_values": "decimal-strings",
+            }),
+        );
         for (verb, grant, mode) in [
             ("terminal-list", "observe", "structured-ui-bootstrap"),
             ("terminal-read", "observe", "bounded-screen-snapshot"),
