@@ -237,6 +237,7 @@ cu page targets --port 9222 --browser-profile X             # only targets whose
 cu page-js --port 9222 --target-title "Inbox" --expression document.title   # runs in the background tab
 cu page-js --port 9222 --target-url "mail.example" --expression 'location.href'
 cu page-js --port 9222 --target-id "A1B2..." --expression document.title
+cu page-js --port 9222 --match "Inbox" --expression document.title          # title + URL + description
 # one selector; no match -> cdp_target_not_found, more than one -> cdp_target_ambiguous
 # (candidates in error.detail); no selector keeps the first page
 ```
@@ -252,6 +253,7 @@ Read, locate, then act:
 
 ```bash
 cu page targets --port 9222 --browser-profile X                       # pick the tab: id, url, title
+cu page text --port 9222 --match "Inbox"                              # MCU-compatible broad selector; exactly one hit
 cu page text --port 9222 --target-title "Inbox"                       # same {id, role, text} rows as the AX page text,
                                                                       # backend "cdp"; id = backend DOM node id
 cu page find --port 9222 --target-title "Inbox" --text "Archive"      # {node, path, tag, role, name, text, box};
