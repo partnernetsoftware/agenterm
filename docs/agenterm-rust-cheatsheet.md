@@ -1367,6 +1367,12 @@ interpret backslashes as escapes. Canonicalize only where identity/security
 requires it; for a newly created Windows test scratch directory passed to both
 native and MSYS children, retain the ordinary absolute path instead.
 
+Script path helpers still need to remove a leading lexical current-directory
+segment before comparing against a native identity result: `.` is the current
+directory, and `./child` must not become `<cwd>/./child`. Strip `.\child` only
+when the current host path is Windows-shaped; on POSIX, backslash is an ordinary
+filename character. This is normalization, not permission or canonicalization.
+
 ## Unix IPC may resolve only platform-owned aliases
 
 Do not canonicalize arbitrary symlink ancestry while validating a Unix socket

@@ -467,7 +467,7 @@
           "mcu_shape": "pty start|split|kill-pane|stop for an owned terminal hierarchy",
           "acu_shape": "terminal-new over new-window plus terminal-close over kill-window; same-scope epoch inventory verifies exact @tab creation, parent binding and disappearance",
           "state": "native",
-          "qualification": "macos-local-black-box-green-public-journey-updated-pending-rerun",
+          "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
           "next": "run the registered lifecycle step on Linux and Windows courts; keep arbitrary background PTY/job lifecycle as a separate gap",
           "note": "Both mutations reserve crash-persistent receipts before touching the product control plane. The receipt stores only command/title byte counts, not values. AgenTerm remains the sole tree/shutdown owner, so child promotion, remain-on-exit and the last-tab empty-window invariant are preserved instead of pretending tmux session parity."
         },

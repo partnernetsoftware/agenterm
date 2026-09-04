@@ -52,7 +52,11 @@ export function is_absolute(p) {
 export function absolute(p) {
   if (is_absolute(p)) { return p; }
   const c = cwd();
-  return c.endsWith("/") || c.endsWith("\\") ? c + p : c + "/" + p;
+  if (p === ".") { return c; }
+  const windows_cwd = c.startsWith("\\\\") || (c.length >= 2 && c.charAt(1) === ":");
+  const relative = p.startsWith("./") || (windows_cwd && p.startsWith(".\\")) ? p.slice(2) : p;
+  if (relative === "") { return c; }
+  return c.endsWith("/") || c.endsWith("\\") ? c + relative : c + "/" + relative;
 }
 
 export function join(a, b) {

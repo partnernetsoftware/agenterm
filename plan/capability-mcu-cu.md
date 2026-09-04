@@ -26,7 +26,7 @@ scope + epoch + `@tab`。读明确是 bounded screen snapshot，不冒充增量 
 写与生命周期由 ACU receipt + 同 epoch inventory 验证；关闭必须显式
 `--expect closed`，创建只把 title/argv 长度写入收据。macOS 本机黑盒已证明
 parent 关系、detached 子进程输出、精确关闭和最后 tab 后空 server 存活；注册旅程
-已接入同一断言，待正式复跑。此前 macOS 旅程已全绿；Linux 新 STEP
+已以 44 STEP / 45 evidence 全绿。Linux 新 STEP
 全过，但同套件后续旧 observe 段红而没有签出整套 evidence；Windows court
 在投送产品前被 interactive nonce 阻断。任意 headless PTY/job、进程树管理与
 loss-aware 增量输出 cursor 仍是下一层 gap。

@@ -57,6 +57,12 @@ function api_contract(context, cli, runtime_dir, audit_path) {
   );
 
   const repo = rh.absolute(".");
+  require(
+    !repo.endsWith("/.")
+      && !repo.endsWith("\\.")
+      && rh.absolute("./scripts") === rh.join(repo, "scripts"),
+    "script_qjs_absolute_dot_normalization"
+  );
   const verified = smoke.cli_text(
     context,
     cli,

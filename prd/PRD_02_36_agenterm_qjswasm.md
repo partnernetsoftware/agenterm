@@ -45,7 +45,8 @@ agenterm-qjswasm
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
-│  └─ [x] check-many entry + recursive imports share bytes/modules/deadline budgets
+│  ├─ [x] check-many entry + recursive imports share bytes/modules/deadline budgets
+│  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
 │  ├─ [x] cached-length/all-ASCII experiment rejected: 166 > 160-step hard gate
@@ -83,6 +84,7 @@ flowchart LR
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
+  PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
   UP["tinyvm repository<br/>generic engine write knife"]
@@ -115,6 +117,7 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
   PRODUCT -. child process .-> CAPTURE --> RECEIPT
+  PRODUCT -. native path identity .-> PATHS --> RECEIPT
   LOAD -->|no| REJECT
   SLOT -. budget / throw / host error .-> REJECT
   SLOT -. persistent heap high-water .-> REGION --> REGION_GATE
@@ -214,6 +217,12 @@ second route around ACU/AgenTerm product contracts.
   module, caps resolved modules at 1024 and checks the same wall deadline during
   resolution and after compilation. Budget failures keep the public `limit`
   exit class; unresolved modules remain ordinary script diagnostics.
+- [x] The shared qjswasm task compatibility helper maps `.` to the exact
+  current directory and strips only the host-valid leading dot segment from
+  `./...` (plus `.\...` on Windows). Native path identity can therefore be
+  compared without a false `/./` mismatch, while POSIX backslashes remain
+  ordinary filename characters. The Script smoke owns the lexical regression;
+  the macOS ACU journey proved the native `process-cwd` comparison end to end.
 - [x] qjswasm tool process reports a missing child as a typed failure.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.

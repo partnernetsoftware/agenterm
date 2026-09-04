@@ -438,10 +438,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   exact `@N` disappeared. Receipt metadata retains only title/argv byte counts,
   not their values. A local macOS black-box run proved detached child output,
   parent identity, exact close and that closing the final tab leaves the server
-  alive with an empty inventory. The registered qjswasm journey now owns the
-  same assertions; its next three-host court run remains required before this
-  leaf can claim release qualification. Arbitrary background PTY/job ownership
-  is deliberately still a different gap.
+  alive with an empty inventory. After correcting the shared qjswasm `.` path
+  normalization, the registered macOS journey passes 44 STEP / 45 declared
+  evidence with these same assertions. Linux and Windows courts remain
+  required before this leaf can claim three-host release qualification.
+  Arbitrary background PTY/job ownership is deliberately still a different
+  gap.
 
   The same macOS journey's opt-in qjswasm attribution receipt reported
   135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
