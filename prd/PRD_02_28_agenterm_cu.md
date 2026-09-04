@@ -501,8 +501,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `HOME`, so the journey now supplies an isolated `HOME`, `XDG_DATA_HOME` and
   `XDG_CONFIG_HOME` to every ACU child instead of inheriting a login session or
   writing guest user state. The Linux aarch64 UTM desktop court then passed
-  the same exact public journey and cleanup contract. Native Windows runs
-  remain open.
+  the same exact public journey and cleanup contract. Windows x86_64 is also
+  green through the logged-in UTM desktop job agent and the public
+  `agenterm.com` trampoline: qjswasm drove the native ConPTY job through the
+  same five stages and exited zero. Windows aarch64 remains open.
   Reuse/list/prune, event/screen projection, stale reclamation, process-tree control and native
   Linux/Windows lifecycle courts remain open.
   The frozen court and kill criterion are
@@ -534,7 +536,7 @@ flowchart LR
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/status/read/send/wait/wait-exit/stop ✓<br/>exact job + epoch + @tab"]
-  J --> J1["qjswasm public PTY court<br/>macOS ✓ · Linux x86_64/arm64 ✓<br/>Windows pending"]
+  J --> J1["qjswasm public PTY court<br/>macOS ✓ · Linux x86_64/arm64 ✓<br/>Windows x86_64 ✓ · arm64 pending"]
   J1 --> J2["reuse/list/prune + stale/process-tree cleanup"]
   J2 --> Q
   Q -->|macOS green| M1["public evidence live"]

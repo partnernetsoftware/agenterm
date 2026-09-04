@@ -237,7 +237,9 @@ second route around ACU/AgenTerm product contracts.
   that a QGA/system execution session has `HOME`: every ACU child receives a
   private `HOME`/XDG tree rooted in the journey directory. The same public
   journey is also green in the native Linux aarch64 UTM desktop court. Windows
-  native execution remains required before three-host promotion.
+  x86_64 is green through the interactive UTM job agent and public
+  `agenterm.com` route, including native ConPTY execution and verified cleanup.
+  Windows aarch64 remains required for the complete six-cell projection.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
