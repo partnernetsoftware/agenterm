@@ -130,7 +130,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   `observe::page_js_backend()`.
 - [x] `page-js` addresses one tab: at most one of `--target-id ID` (exact
   CDP id), `--target-url SUB` / `--target-title SUB` (case-insensitive
-  substring) filters the `/json` page targets; none keeps the first page.
+  substring), or MCU-compatible `--match SUB` across title + URL +
+  description filters the `/json` page/webview/other targets; none keeps the
+  first eligible page.
   No match is typed `cdp_target_not_found`, more than one
   `cdp_target_ambiguous`, both with the candidates (id, url, title) in
   `error.detail`; the reply echoes the chosen `target`. `Runtime.evaluate`
@@ -202,10 +204,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   the trusted held-event sequence and a page-owned business state change, and
   accepted a real prompt through `page-dialog`, reading its page-owned result
   back while proving the response was absent from reply/receipt. All retained
-  `focus_changed: false`. MCU-shaped positional hover/scroll/drag/dialog/files
-  now route through the sibling compatibility shim instead of staying on MCU;
-  `--match` remains typed because its
-  title+url+description search is not the same selector contract. Still open:
+  `focus_changed: false`. MCU-shaped positional read/nav/hover/scroll/drag/dialog/files
+  now route through the sibling compatibility shim instead of staying on MCU.
+  The court also proves a unique `--match` selects B and a pattern spanning A+B
+  is typed `cdp_target_ambiguous` rather than silently choosing the first. Still open:
   the same run on the owner's real instance needs
   it relaunched with `--remote-debugging-port=9222`.
 - [x] `page text --window H [--max-bytes N] [--within X,Y,W,H] [--depth N]

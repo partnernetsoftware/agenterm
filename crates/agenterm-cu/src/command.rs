@@ -911,6 +911,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
     },
     /// The CDP target inventory (`/json`) on `port`: id, url, title, type,
     /// attached, and whether a websocket is offered. No listener is typed
@@ -963,6 +965,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
     },
     /// `page find` over CDP: the nodes of one page target (background
     /// tabs included) that a CSS `selector`, a `text` substring, or a
@@ -980,6 +984,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1007,6 +1013,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
@@ -1033,6 +1041,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         x: f64,
         y: f64,
     },
@@ -1049,6 +1059,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         x: f64,
         y: f64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1068,6 +1080,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         x1: f64,
         y1: f64,
         x2: f64,
@@ -1086,6 +1100,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         #[serde(default)]
         dismiss: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1106,6 +1122,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1130,6 +1148,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         node: Option<u64>,
@@ -1153,6 +1173,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         wait_ms: Option<u64>,
@@ -1172,6 +1194,8 @@ pub enum Command {
         target_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_match: Option<String>,
         out: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replace: bool,
@@ -1863,6 +1887,7 @@ mod tests {
             target_id: Some("B2".into()),
             target_url: None,
             target_title: None,
+            target_match: None,
             selector: None,
             text: Some("Go".into()),
             role: None,
@@ -1900,6 +1925,7 @@ mod tests {
             target_id: None,
             target_url: Some("docs".into()),
             target_title: None,
+            target_match: None,
             x: 10.0,
             y: 20.0,
             dx: None,
@@ -1917,6 +1943,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("B".into()),
+            target_match: None,
             selector: Some("#q".into()),
             node: None,
             text: "hello".into(),
@@ -1937,6 +1964,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("B".into()),
+            target_match: None,
             url: "https://docs.example/".into(),
             wait_ms: Some(500),
         };
@@ -1948,6 +1976,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("B".into()),
+            target_match: None,
             out: "shot.png".into(),
             replace: false,
             activate: false,
@@ -1961,6 +1990,7 @@ mod tests {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 out,
                 replace,
                 ..
@@ -1970,6 +2000,7 @@ mod tests {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 out,
                 replace,
                 activate: true,
@@ -2340,6 +2371,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("Nepal".into()),
+            target_match: None,
         };
         assert_eq!(page_js.verb(), "page-js");
         assert_eq!(page_js.required_grant(), Grant::Observe);
@@ -2394,6 +2426,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: None,
+            target_match: None,
         };
         assert_eq!(text.verb(), "page-text");
         assert_eq!(text.required_grant(), Grant::Observe);

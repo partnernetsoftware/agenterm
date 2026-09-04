@@ -224,11 +224,12 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 ..
             } => page_js_payload(
                 expression.as_deref(),
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
             ),
             Command::PageTargets {
                 port,
@@ -245,6 +246,7 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 ..
             } => page_text_payload(
                 *window,
@@ -253,13 +255,14 @@ impl Executor {
                 *depth,
                 *max_nodes,
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
             ),
             Command::PageFind {
                 port,
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 selector,
                 text,
                 role,
@@ -267,7 +270,7 @@ impl Executor {
                 ..
             } => page_find_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 text.as_deref(),
                 role.as_deref(),
@@ -278,6 +281,7 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 selector,
                 text,
                 node,
@@ -286,7 +290,7 @@ impl Executor {
                 ..
             } => page_click_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 text.as_deref(),
                 *node,
@@ -299,12 +303,13 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 x,
                 y,
                 ..
             } => page_hover_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 *x,
                 *y,
                 &mut self.open_receipts(command.target())?,
@@ -314,6 +319,7 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 x,
                 y,
                 dx,
@@ -321,7 +327,7 @@ impl Executor {
                 ..
             } => page_scroll_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 *x,
                 *y,
                 dx.unwrap_or(0.0),
@@ -333,6 +339,7 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 x1,
                 y1,
                 x2,
@@ -340,7 +347,7 @@ impl Executor {
                 ..
             } => page_drag_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 *x1,
                 *y1,
                 *x2,
@@ -352,13 +359,14 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 dismiss,
                 text,
                 wait_ms,
                 ..
             } => page_dialog_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 *dismiss,
                 text.as_deref(),
                 *wait_ms,
@@ -369,13 +377,14 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 selector,
                 node,
                 files,
                 ..
             } => page_files_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 *node,
                 files,
@@ -386,6 +395,7 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 selector,
                 node,
                 text,
@@ -394,7 +404,7 @@ impl Executor {
                 ..
             } => page_fill_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 selector.as_deref(),
                 *node,
                 text,
@@ -407,12 +417,13 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 url,
                 wait_ms,
                 ..
             } => page_nav_payload(
                 *port,
-                cdp_selector(target_id, target_url, target_title),
+                cdp_selector(target_id, target_url, target_title, target_match),
                 url,
                 *wait_ms,
                 &mut self.open_receipts(command.target())?,
@@ -422,6 +433,7 @@ impl Executor {
                 target_id,
                 target_url,
                 target_title,
+                target_match,
                 out,
                 replace,
                 activate,
@@ -434,7 +446,7 @@ impl Executor {
                 };
                 page_screenshot_payload(
                     *port,
-                    cdp_selector(target_id, target_url, target_title),
+                    cdp_selector(target_id, target_url, target_title, target_match),
                     out,
                     *replace,
                     *activate,

@@ -292,16 +292,18 @@ pub(super) fn truncation_next_actions(tree: &mechanism::A11yTree, verb: &str) ->
     ]
 }
 
-/// The `--target-id | --target-url | --target-title` triple as one selector.
+/// The mutually exclusive CDP target flags as one selector.
 pub(super) fn cdp_selector(
     id: &Option<String>,
     url: &Option<String>,
     title: &Option<String>,
+    match_any: &Option<String>,
 ) -> crate::cdp::TargetSelector {
     crate::cdp::TargetSelector {
         id: id.clone(),
         url: url.clone(),
         title: title.clone(),
+        match_any: match_any.clone(),
     }
 }
 
@@ -351,12 +353,12 @@ pub(super) fn page_text_payload(
     let window = match (window, cdp) {
         (Some(_), true) => {
             return Err(invalid_input(
-                "page text reads one backend per call: --window HANDLE (a11y tree) or a CDP target (--target-id | --target-url | --target-title [--port N]), not both".into(),
+                "page text reads one backend per call: --window HANDLE (a11y tree) or a CDP target (--target-id | --target-url | --target-title | --match [--port N]), not both".into(),
             ));
         }
         (None, false) => {
             return Err(invalid_input(
-                "page text needs --window HANDLE (a11y tree of the active tab) or a CDP target (--target-id | --target-url | --target-title [--port N]; reaches background tabs)".into(),
+                "page text needs --window HANDLE (a11y tree of the active tab) or a CDP target (--target-id | --target-url | --target-title | --match [--port N]; reaches background tabs)".into(),
             ));
         }
         (None, true) => {
@@ -1831,6 +1833,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: None,
+            target_match: None,
         });
         assert!(!page.ok);
         assert_eq!(page.command, "page-js");
@@ -1863,6 +1866,7 @@ mod tests {
             target_id: Some("A1".into()),
             target_url: Some("mail".into()),
             target_title: None,
+            target_match: None,
         });
         assert!(!page.ok);
         // Port 1 has no listener; the selector shape is still judged first
@@ -1886,6 +1890,7 @@ mod tests {
                 target_id: None,
                 target_url: None,
                 target_title: title.map(str::to_owned),
+                target_match: None,
             })
         };
         let none = page_text(Some(0), None, None, None, None);
@@ -1952,6 +1957,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
+            target_match: None,
             selector: Some("#go".into()),
             text: None,
             node: None,
@@ -1976,6 +1982,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
+            target_match: None,
             selector: None,
             text: None,
             node: None,
@@ -1989,6 +1996,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
+            target_match: None,
             selector: Some("#q".into()),
             node: None,
             text: "hi".into(),
@@ -2003,6 +2011,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: Some("Inbox".into()),
+            target_match: None,
             url: "no-scheme".into(),
             wait_ms: None,
         });
@@ -2017,6 +2026,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: None,
+            target_match: None,
             out: existing.to_string_lossy().into_owned(),
             replace: false,
             activate: false,
@@ -2032,6 +2042,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: None,
+            target_match: None,
             out: shot_dir.join("new.png").to_string_lossy().into_owned(),
             replace: false,
             activate: true,
@@ -2043,6 +2054,7 @@ mod tests {
             target_id: None,
             target_url: None,
             target_title: None,
+            target_match: None,
             selector: None,
             text: Some("Go".into()),
             role: None,

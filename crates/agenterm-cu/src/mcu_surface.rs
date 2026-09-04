@@ -594,7 +594,7 @@ pub fn verb_declaration(verb: &str) -> Value {
             "mode": "cdp",
             "grant": grant,
             "reason": reason,
-            "target_selectors": ["--target-id", "--target-url", "--target-title"],
+            "target_selectors": ["--target-id", "--target-url", "--target-title", "--match"],
             "focus_changed": false,
             "group": group,
             "os": os,
@@ -605,7 +605,7 @@ pub fn verb_declaration(verb: &str) -> Value {
         let (status, reason) = if tree_live(os) {
             (
                 "available",
-                "visible text in reading order as {id, role, text} rows: --window reads the a11y tree (bounds; the active tab's web-area on macOS Chromium), --target-id/--target-url/--target-title reads the CDP page target (backend cdp, background tabs, no focus change; id = backend DOM node id for page click/fill --node); pick a row then act on the node, never --coords or a screenshot",
+                "visible text in reading order as {id, role, text} rows: --window reads the a11y tree (bounds; the active tab's web-area on macOS Chromium), --target-id/--target-url/--target-title/--match reads the CDP page target (backend cdp, background tabs, no focus change; id = backend DOM node id for page click/fill --node); pick a row then act on the node, never --coords or a screenshot",
             )
         } else {
             ("unsupported", "a11y tree not mapped on this OS")

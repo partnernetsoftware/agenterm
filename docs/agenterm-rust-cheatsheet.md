@@ -1451,10 +1451,13 @@ paths, neither of which raises or activates the window:
 
 - CDP `/json` lists every tab as a `page` target and `Runtime.evaluate`
   over that target's websocket runs in a background tab. Address the tab
-  (`page-js --target-id | --target-url | --target-title`, inventory via
-  `page targets`), filter to `type == "page"`, and fail typed on zero
+  (`page-js --target-id | --target-url | --target-title`; MCU compatibility
+  `--match` searches title + URL + description; inventory via `page targets`),
+  filter to `type == page | webview | other`, and fail typed on zero
   (`cdp_target_not_found`) or many (`cdp_target_ambiguous`) with the
   candidates in `error.detail` — never take the first hit of a substring.
+  MCU historically chose its first matching target; ACU deliberately tightens
+  that behavior to exact-one so a reordered tab list cannot redirect an action.
 - Without a CDP port, switch the window's active tab through the strip:
   `tab select` presses the matching `radio-button` whose direct parent is
   the `tab-group` (a form's radio buttons are not tabs) and verifies by

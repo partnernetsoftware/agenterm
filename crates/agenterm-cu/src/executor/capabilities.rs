@@ -364,7 +364,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "backend": observe::page_js_backend(),
                 "mode": "cdp",
                 "reason": observe::page_js_unsupported_reason(),
-                "target_selectors": ["--target-id", "--target-url", "--target-title"],
+                "target_selectors": ["--target-id", "--target-url", "--target-title", "--match"],
                 "background_tabs": "Runtime.evaluate reaches a background tab by target; no focus change",
             },
             "spaces": crate::mcu_surface::verb_declaration("spaces"),

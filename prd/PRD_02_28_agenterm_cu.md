@@ -184,6 +184,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   after press, and verifies the trusted down/held-move/up sequence.
   Dialog handling first observes an opening event, then verifies the close event;
   prompt/message contents never enter public or persistent evidence.
+  MCU-compatible `--match` now searches title + URL + description but tightens
+  first-hit guessing into an exact-one contract: zero and ambiguity are typed
+  before any page effect.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
   real-profile and three-host journeys remain promotion evidence.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded

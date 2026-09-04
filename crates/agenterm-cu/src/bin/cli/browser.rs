@@ -122,43 +122,52 @@ fn page_group(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     page_js(target, args)
 }
 
-/// `(port, target_id, target_url, target_title)`: the CDP target
-/// selector every CDP verb takes. At most one of the three selectors,
+/// `(port, target_id, target_url, target_title, target_match)`: the CDP target
+/// selector every CDP verb takes. At most one of the four selectors,
 /// none of them empty.
-type CdpTargetFlags = (Option<u16>, Option<String>, Option<String>, Option<String>);
+type CdpTargetFlags = (
+    Option<u16>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 fn cdp_target_flags(verb: &str, args: &mut Vec<String>) -> Result<CdpTargetFlags, String> {
     let port = flag_parsed::<u16>(args, "--port")?;
     let target_id = flag_text(args, "--target-id")?;
     let target_url = flag_text(args, "--target-url")?;
     let target_title = flag_text(args, "--target-title")?;
+    let target_match = flag_text(args, "--match")?;
     let selectors = usize::from(target_id.is_some())
         + usize::from(target_url.is_some())
-        + usize::from(target_title.is_some());
+        + usize::from(target_title.is_some())
+        + usize::from(target_match.is_some());
     if selectors > 1 {
         return Err(format!(
-            "{verb} takes at most one of --target-id ID, --target-url SUB, --target-title SUB"
+            "{verb} takes at most one of --target-id ID, --target-url SUB, --target-title SUB, --match SUB"
         ));
     }
-    if [&target_id, &target_url, &target_title]
+    if [&target_id, &target_url, &target_title, &target_match]
         .iter()
         .any(|value| value.as_deref().is_some_and(|raw| raw.trim().is_empty()))
     {
         return Err(format!(
-            "{verb} --target-id / --target-url / --target-title must not be empty"
+            "{verb} --target-id / --target-url / --target-title / --match must not be empty"
         ));
     }
-    Ok((port, target_id, target_url, target_title))
+    Ok((port, target_id, target_url, target_title, target_match))
 }
 
 fn page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let window = flag_window(args)?;
     let expression = flag_text(args, "--expression")?;
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page-js", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page-js", args)?;
     if !args.is_empty() {
         return Err(format!(
             "page-js accepts only --window H --expression EXPR --port N \
-             [--target-id ID | --target-url SUB | --target-title SUB]; unexpected {:?}",
+             [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]; unexpected {:?}",
             args[0]
         ));
     }
@@ -170,6 +179,7 @@ fn page_js(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String>
         target_id,
         target_url,
         target_title,
+        target_match,
     })
 }
 
@@ -184,20 +194,24 @@ fn page_text(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     let depth = flag_parsed::<u32>(args, "--depth")?;
     let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
     agenterm_cu::observe::validate_budget(depth, max_nodes)?;
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page text", args)?;
-    let cdp =
-        port.is_some() || target_id.is_some() || target_url.is_some() || target_title.is_some();
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page text", args)?;
+    let cdp = port.is_some()
+        || target_id.is_some()
+        || target_url.is_some()
+        || target_title.is_some()
+        || target_match.is_some();
     if window.is_none() && !cdp {
         return Err(
             "page text needs --window HANDLE (a11y tree of the active tab) or a CDP target \
-             (--target-id ID | --target-url SUB | --target-title SUB [--port N]; reaches background tabs)"
+             (--target-id ID | --target-url SUB | --target-title SUB | --match SUB [--port N]; reaches background tabs)"
                 .into(),
         );
     }
     if !args.is_empty() {
         return Err(format!(
             "page text accepts only --window H --max-bytes N --within X,Y,W,H --depth N --max-nodes N, \
-             or --max-bytes N with --port N [--target-id ID | --target-url SUB | --target-title SUB]; unexpected {:?}",
+             or --max-bytes N with --port N [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]; unexpected {:?}",
             args[0]
         ));
     }
@@ -212,6 +226,7 @@ fn page_text(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         target_id,
         target_url,
         target_title,
+        target_match,
     })
 }
 
@@ -277,11 +292,12 @@ fn node_flags(verb: &str, args: &mut Vec<String>, allowed: &[&str]) -> Result<No
 }
 
 fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page find", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page find", args)?;
     let node = node_flags("page find", args, &["--selector", "--text", "--role"])?;
     if !args.is_empty() {
         return Err(format!(
-            "page find accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] \
+            "page find accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] \
              (--selector CSS | --text SUB | --role R [--name SUB]); unexpected {:?}",
             args[0]
         ));
@@ -292,6 +308,7 @@ fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         target_id,
         target_url,
         target_title,
+        target_match,
         selector: node.selector,
         text: node.text,
         role: node.role,
@@ -300,7 +317,8 @@ fn page_find(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page click", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page click", args)?;
     let node = node_flags("page click", args, &["--selector", "--text", "--node"])?;
     let button = flag_text(args, "--button")?;
     if let Some(button) = button.as_deref()
@@ -316,7 +334,7 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     }
     if !args.is_empty() {
         return Err(format!(
-            "page click accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] \
+            "page click accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] \
              (--selector CSS | --text SUB | --node ID) [--button left|right|middle] [--clicks N]; unexpected {:?}",
             args[0]
         ));
@@ -327,6 +345,7 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         target_id,
         target_url,
         target_title,
+        target_match,
         selector: node.selector,
         text: node.text,
         node: node.node,
@@ -336,7 +355,8 @@ fn page_click(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
 }
 
 fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page hover", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page hover", args)?;
     let Some(x) = flag_parsed::<f64>(args, "--x")? else {
         return Err("page hover requires --x X --y Y".into());
     };
@@ -347,7 +367,7 @@ fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     agenterm_cu::cdp::page::validate_pointer_coordinate("page hover --y", y)?;
     if !args.is_empty() {
         return Err(format!(
-            "page hover accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] --x X --y Y; unexpected {:?}",
+            "page hover accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] --x X --y Y; unexpected {:?}",
             args[0]
         ));
     }
@@ -357,13 +377,15 @@ fn page_hover(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         target_id,
         target_url,
         target_title,
+        target_match,
         x,
         y,
     })
 }
 
 fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page scroll", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page scroll", args)?;
     let Some(x) = flag_parsed::<f64>(args, "--x")? else {
         return Err("page scroll requires --x X --y Y [--dx DX] [--dy DY]".into());
     };
@@ -381,7 +403,7 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
     }
     if !args.is_empty() {
         return Err(format!(
-            "page scroll accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] --x X --y Y [--dx DX] [--dy DY]; unexpected {:?}",
+            "page scroll accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] --x X --y Y [--dx DX] [--dy DY]; unexpected {:?}",
             args[0]
         ));
     }
@@ -391,6 +413,7 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
         target_id,
         target_url,
         target_title,
+        target_match,
         x,
         y,
         dx,
@@ -399,7 +422,8 @@ fn page_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
 }
 
 fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page drag", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page drag", args)?;
     let mut coordinates = Vec::with_capacity(4);
     for flag in ["--x1", "--y1", "--x2", "--y2"] {
         let value = flag_parsed::<f64>(args, flag)?;
@@ -440,6 +464,7 @@ fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         target_id,
         target_url,
         target_title,
+        target_match,
         x1: *x1,
         y1: *y1,
         x2: *x2,
@@ -448,7 +473,8 @@ fn page_drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page dialog", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page dialog", args)?;
     let dismiss = take_switch(args, "--dismiss");
     let text = flag_text(args, "--text")?;
     let wait_ms = flag_parsed::<u64>(args, "--wait-ms")?;
@@ -483,6 +509,7 @@ fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
         target_id,
         target_url,
         target_title,
+        target_match,
         dismiss,
         text,
         wait_ms,
@@ -490,7 +517,8 @@ fn page_dialog(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
 }
 
 fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page files", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page files", args)?;
     let selector = flag_text(args, "--selector")?;
     let mut node = flag_parsed::<u64>(args, "--node")?;
     if selector.is_some() && node.is_some() {
@@ -536,6 +564,7 @@ fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         target_id,
         target_url,
         target_title,
+        target_match,
         selector,
         node,
         files,
@@ -543,7 +572,8 @@ fn page_files(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
 }
 
 fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page fill", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page fill", args)?;
     // `--text` is the payload here, not an addressing form.
     let Some(text) = flag_text(args, "--text")? else {
         return Err("page fill requires --text TEXT (may be empty only with --clear)".into());
@@ -556,7 +586,7 @@ fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
     let node = node_flags("page fill", args, &["--selector", "--node"])?;
     if !args.is_empty() {
         return Err(format!(
-            "page fill accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] \
+            "page fill accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] \
              (--selector CSS | --node ID) --text TEXT [--clear] [--submit]; unexpected {:?}",
             args[0]
         ));
@@ -567,6 +597,7 @@ fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         target_id,
         target_url,
         target_title,
+        target_match,
         selector: node.selector,
         node: node.node,
         text,
@@ -576,7 +607,8 @@ fn page_fill(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
 }
 
 fn page_nav(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page nav", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page nav", args)?;
     let Some(url) = flag_text(args, "--url")? else {
         return Err("page nav requires --url URL".into());
     };
@@ -585,7 +617,7 @@ fn page_nav(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String
     agenterm_cu::cdp::page::validate_nav_wait(wait_ms)?;
     if !args.is_empty() {
         return Err(format!(
-            "page nav accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] \
+            "page nav accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] \
              --url URL [--wait-ms N]; unexpected {:?}",
             args[0]
         ));
@@ -596,13 +628,15 @@ fn page_nav(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String
         target_id,
         target_url,
         target_title,
+        target_match,
         url,
         wait_ms,
     })
 }
 
 fn page_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
-    let (port, target_id, target_url, target_title) = cdp_target_flags("page screenshot", args)?;
+    let (port, target_id, target_url, target_title, target_match) =
+        cdp_target_flags("page screenshot", args)?;
     let Some(out) = flag_text(args, "--out")? else {
         return Err("page screenshot requires --out PATH (PNG)".into());
     };
@@ -613,7 +647,7 @@ fn page_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
     let activate = take_switch(args, "--activate");
     if !args.is_empty() {
         return Err(format!(
-            "page screenshot accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB] \
+            "page screenshot accepts only [--port N] [--target-id ID | --target-url SUB | --target-title SUB | --match SUB] \
              --out PATH [--replace] [--activate]; unexpected {:?}",
             args[0]
         ));
@@ -624,6 +658,7 @@ fn page_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
         target_id,
         target_url,
         target_title,
+        target_match,
         out,
         replace,
         activate,

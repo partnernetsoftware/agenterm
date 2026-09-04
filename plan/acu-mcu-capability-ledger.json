@@ -302,22 +302,22 @@
         {
           "id": "browser.cdp.targets-eval",
           "mcu_shape": "page targets and page read --js with automatic or explicit target selection",
-          "acu_shape": "page-targets and page-js with explicit port/profile and target id/url/title",
+          "acu_shape": "page-targets and page-js with target id/url/title or MCU-compatible match across title+URL+description",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-smoke.sh"],
-          "note": "ACU requires unambiguous target addressing and preserves typed not-found/ambiguous failures; MCU auto-pick shapes remain an adapter gap."
+          "note": "ACU improves MCU auto-pick: --match preserves the same three metadata fields but requires one unambiguous eligible target; zero/many are typed failures instead of first-hit guessing."
         },
         {
           "id": "browser.cdp.semantic-read",
           "mcu_shape": "page read plus browser debug-read over DOM/accessibility content",
-          "acu_shape": "page-text and page-find over explicit CDP target, or native accessibility window",
+          "acu_shape": "page-text and page-find over explicit or --match-selected CDP target, or native accessibility window",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-actuate-smoke.sh", "cu.windows-browser-page-text"]
         },
         {
           "id": "browser.cdp.actuate",
           "mcu_shape": "page click/type/nav and browser click/type/nav",
-          "acu_shape": "page-click/page-fill/page-nav with exact target and node/selector plus receipts",
+          "acu_shape": "page-click/page-fill/page-nav with exact or --match-selected target and node/selector plus receipts",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
           "note": "Background-tab focus preservation and post-state readback are proved on the throwaway macOS court; Windows journey is declared but not yet promoted to evidence."
@@ -335,7 +335,7 @@
           "acu_shape": "page-click supports button/click count; page-hover verifies the trusted event target; page-scroll verifies the owned container event and offset; page-drag verifies trusted down/held-move/up and always attempts release after press; page-dialog verifies opening/closed events and redacts contents; page-files verifies the exact FileList while redacting local paths",
           "state": "delegated",
           "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
-          "next": "promote the current throwaway-Chrome proof through real-profile and three-host browser courts; auto-pick/--match is tracked as target-addressing compatibility"
+          "next": "promote the current throwaway-Chrome proof through real-profile and three-host browser courts"
         },
         {
           "id": "browser.tab.accessibility",

@@ -2066,6 +2066,7 @@ mod tests {
                 id: "B2".into(),
                 url: "data:text/html,B".into(),
                 title: "cu-smoke-B".into(),
+                description: String::new(),
                 kind: "page".into(),
                 attached: Some(false),
                 ws_url: Some("ws://127.0.0.1:9222/devtools/page/B2".into()),

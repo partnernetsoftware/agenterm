@@ -420,6 +420,19 @@ mod tests {
         let err = one.error.expect("typed unsupported");
         assert_eq!(err.code, "unsupported");
         assert!(err.message.contains("remote-debugging-port"));
+
+        // MCU-compatible --match is a first-class selector, but ACU preserves
+        // its exact-one rule instead of inheriting MCU's first-hit behavior.
+        let matched = base(&["--match", "docs"]);
+        assert_eq!(matched.command, "page-js");
+        let err = matched.error.expect("typed unsupported");
+        assert_eq!(err.code, "unsupported");
+        assert!(err.message.contains("remote-debugging-port"));
+
+        let mixed = base(&["--target-id", "A1", "--match", "docs"]);
+        let err = mixed.error.expect("exclusive selector usage");
+        assert_eq!(err.code, "usage");
+        assert!(err.message.contains("at most one"), "{}", err.message);
     }
 
     #[test]

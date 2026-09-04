@@ -1,6 +1,6 @@
 //! The `/json` target inventory and the one-tab selector every CDP verb
-//! takes (`--target-id | --target-url | --target-title`). Picking a tab
-//! here never selects or raises anything — unlike the AX tree, where
+//! takes (`--target-id | --target-url | --target-title | --match`). Picking a
+//! tab here never selects or raises anything — unlike the AX tree, where
 //! macOS Chromium exposes only the active tab's `web-area` (see
 //! `tab_strip`).
 
@@ -16,6 +16,9 @@ pub struct PageTarget {
     pub id: String,
     pub url: String,
     pub title: String,
+    /// Optional debugger-provided description; used by MCU-compatible
+    /// `--match` but not repeated in the selected-target identity.
+    pub description: String,
     /// CDP `type` (`page`, `iframe`, `service_worker`, ...).
     pub kind: String,
     /// CDP `attached` when the listener reports it.
@@ -25,7 +28,7 @@ pub struct PageTarget {
 
 impl PageTarget {
     pub fn is_page(&self) -> bool {
-        self.kind == "page"
+        matches!(self.kind.as_str(), "page" | "webview" | "other")
     }
 
     /// The listing row: identity plus whether a websocket is offered
@@ -35,6 +38,7 @@ impl PageTarget {
             "id": self.id,
             "url": self.url,
             "title": self.title,
+            "description": self.description,
             "type": self.kind,
             "attached": self.attached,
             "websocket": self.ws_url.is_some(),
@@ -60,6 +64,7 @@ pub fn parse_targets(list: &Value) -> Vec<PageTarget> {
             id: item["id"].as_str().unwrap_or_default().to_owned(),
             url: item["url"].as_str().unwrap_or_default().to_owned(),
             title: item["title"].as_str().unwrap_or_default().to_owned(),
+            description: item["description"].as_str().unwrap_or_default().to_owned(),
             kind: item["type"].as_str().unwrap_or_default().to_owned(),
             attached: item["attached"].as_bool(),
             ws_url: item["webSocketDebuggerUrl"]
@@ -80,21 +85,25 @@ pub struct TargetSelector {
     pub url: Option<String>,
     /// Case-insensitive substring of the target title.
     pub title: Option<String>,
+    /// Case-insensitive substring across title + URL + description. This is
+    /// the MCU compatibility selector, but ambiguity now fails closed.
+    pub match_any: Option<String>,
 }
 
 impl TargetSelector {
     pub fn is_empty(&self) -> bool {
-        self.id.is_none() && self.url.is_none() && self.title.is_none()
+        self.id.is_none() && self.url.is_none() && self.title.is_none() && self.match_any.is_none()
     }
 
     fn count(&self) -> usize {
         usize::from(self.id.is_some())
             + usize::from(self.url.is_some())
             + usize::from(self.title.is_some())
+            + usize::from(self.match_any.is_some())
     }
 
     pub fn json(&self) -> Value {
-        json!({ "id": self.id, "url": self.url, "title": self.title })
+        json!({ "id": self.id, "url": self.url, "title": self.title, "match": self.match_any })
     }
 
     fn matches(&self, target: &PageTarget) -> bool {
@@ -106,6 +115,12 @@ impl TargetSelector {
         }
         if let Some(title) = &self.title {
             return target.title.to_lowercase().contains(&title.to_lowercase());
+        }
+        if let Some(pattern) = &self.match_any {
+            let pattern = pattern.to_lowercase();
+            return target.title.to_lowercase().contains(&pattern)
+                || target.url.to_lowercase().contains(&pattern)
+                || target.description.to_lowercase().contains(&pattern);
         }
         true
     }
@@ -123,7 +138,7 @@ pub fn select_target<'a>(
     if selector.count() > 1 {
         return Err(CdpError::typed(
             "invalid_input",
-            "a CDP verb takes at most one of --target-id, --target-url, --target-title",
+            "a CDP verb takes at most one of --target-id, --target-url, --target-title, --match",
         ));
     }
     if selector.is_empty() {
@@ -196,6 +211,8 @@ fn selector_scope(selector: &TargetSelector) -> String {
         format!("--target-url {url:?}")
     } else if let Some(title) = &selector.title {
         format!("--target-title {title:?}")
+    } else if let Some(pattern) = &selector.match_any {
+        format!("--match {pattern:?} across title, URL and description")
     } else {
         "the default (first page)".to_owned()
     }
@@ -310,6 +327,7 @@ mod tests {
             id: "D4".into(),
             url: "https://mail.example/other".into(),
             title: "Inbox - Mail".into(),
+            description: String::new(),
             kind: "page".into(),
             attached: Some(false),
             ws_url: None,
@@ -344,7 +362,7 @@ mod tests {
              "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/F1"},
             {"type": "page", "id": "A1", "url": "https://mail.example/inbox", "title": "Inbox - Mail",
              "attached": false, "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/A1"},
-            {"type": "page", "id": "B2", "url": "https://docs.example/Spec", "title": "Spec - Docs",
+            {"type": "page", "id": "B2", "url": "https://docs.example/Spec", "title": "Spec - Docs", "description": "Blue project editor",
              "attached": false, "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/B2"},
             {"type": "page", "id": "C3", "url": "https://docs.example/notes", "title": "Notes - Docs",
              "attached": true, "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/C3"},
@@ -431,6 +449,24 @@ mod tests {
             select_target(&targets, &by_title).expect("title hit").id,
             "C3"
         );
+        let by_any_description = TargetSelector {
+            match_any: Some("BLUE PROJECT".into()),
+            ..TargetSelector::default()
+        };
+        assert_eq!(
+            select_target(&targets, &by_any_description)
+                .expect("description hit")
+                .id,
+            "B2"
+        );
+        let by_any_url = TargetSelector {
+            match_any: Some("mail.example".into()),
+            ..TargetSelector::default()
+        };
+        assert_eq!(
+            select_target(&targets, &by_any_url).expect("url hit").id,
+            "A1"
+        );
     }
 
     #[test]
@@ -461,10 +497,19 @@ mod tests {
         assert_eq!(ids, ["B2", "C3"]);
         assert!(err.detail["candidates"][0]["url"].is_string());
         assert!(err.detail["candidates"][0]["title"].is_string());
+        let match_many = TargetSelector {
+            match_any: Some("docs".into()),
+            ..TargetSelector::default()
+        };
+        let err = select_target(&targets, &match_many).expect_err("match ambiguity");
+        assert_eq!(err.code, "cdp_target_ambiguous");
+        assert_eq!(err.detail["selector"]["match"], "docs");
+        assert_eq!(err.detail["count"], 2);
         let both = TargetSelector {
             id: Some("A1".into()),
             url: Some("mail".into()),
             title: None,
+            match_any: None,
         };
         assert_eq!(
             select_target(&targets, &both).expect_err("exclusive").code,

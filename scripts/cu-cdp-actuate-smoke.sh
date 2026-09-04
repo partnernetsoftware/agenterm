@@ -22,7 +22,8 @@
 #               page-scroll exact-container event/offset read-back and
 #               page-drag trusted held-sequence/business read-back and
 #               page-dialog closed-event/redaction and page-files exact
-#               FileList read-back; 15 active-target + front-window
+#               FileList read-back; `--match` unique selection plus typed
+#               ambiguity; 16 active-target + front-window
 #               invariants stayed green; eight
 #               actuator receipt kinds completed.
 #
@@ -30,8 +31,8 @@
 #   1. Two tabs: A (active, first /json page) and B (background).
 #   2. `page nav --target-id B --url data:...` loads the fixture page in B
 #      (verified by Page.loadEventFired, final_title read back).
-#   3. `page text --target-id B` returns backend "cdp" rows with the page's
-#      words and node ids, focus_changed false.
+#   3. `page text --match cu-actuate-B` selects B across title/URL/description,
+#      returns backend "cdp" rows and fails typed when a pattern hits both tabs.
 #   4. `page find` by --text (lifted to the button), --selector, --role;
 #      cdp_node_not_found on a miss; cdp_node_ambiguous when four nodes
 #      match a click selector (nothing dispatched).
@@ -218,12 +219,15 @@ still_background "page nav" "$OUT"
 echo "STEP 3 page nav --target-id B -> verified (load event), final_title=cu-actuate-B; A still active"
 
 # 2. page text over CDP: the same row shape, backend cdp, node ids.
-OUT="$(obs page text --port "$PORT" --target-id "$ID_B")"
+OUT="$(obs page text --port "$PORT" --match cu-actuate-B)"
 [[ "$(jf "$OUT" ok)" == "True" && "$(jf "$OUT" data.backend)" == "cdp" ]] || fail "page text: $OUT"
 texts="$(jf "$OUT" data.rows | python3 -c 'import json,sys; print("|".join(r["text"] for r in json.load(sys.stdin)))')"
 [[ "$texts" == *"Hello B"* && "$texts" == *"Go"* && "$texts" == *"idle"* ]] || fail "page text rows missed the page: $texts"
 still_background "page text" "$OUT"
-echo "STEP 4 page text --target-id B -> backend=cdp via=$(jf "$OUT" data.via) rows=$(jf "$OUT" data.returned) [$texts]"
+AMBIG="$(obs page text --port "$PORT" --match cu- 2>/dev/null || true)"
+[[ "$(jf "$AMBIG" ok)" == "False" && "$(jf "$AMBIG" error.code)" == "cdp_target_ambiguous" ]] || fail "page --match ambiguity: $AMBIG"
+still_background "page text (ambiguous match)" "$AMBIG"
+echo "STEP 4 page text --match cu-actuate-B -> B; --match cu- -> typed cdp_target_ambiguous; rows=$(jf "$OUT" data.returned) [$texts]"
 
 # 3. page find: by text (lifted to the button), by selector, by role; a
 #    miss and an ambiguity are typed.

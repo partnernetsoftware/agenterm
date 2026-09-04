@@ -299,13 +299,13 @@ Q3 owned runtime facades
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [ ] file/network/storage/device/audio/resource/power/privilege
 Q4 browser and platform depth
-├─ [~] CDP core live
+├─ [x] CDP core live
 │  ├─ [x] page hover: trusted mousemove target read-back; MCU positional shape routed
 │  ├─ [x] page scroll: owned-container scroll event + offset read-back; MCU positional shape routed
 │  ├─ [x] page drag: trusted down/held-move/up read-back; release cleanup; MCU positional shape routed
 │  ├─ [x] page dialog: opening/closed event proof; prompt contents redacted; MCU shape routed
 │  ├─ [x] page files: exact FileList read-back; bounded regular non-symlink inputs; paths redacted
-│  └─ [ ] MCU auto-pick/--match shapes remain
+│  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [ ] MV3/Native Messaging + managed-profile ownership
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity
