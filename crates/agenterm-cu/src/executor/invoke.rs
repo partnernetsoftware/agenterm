@@ -153,6 +153,9 @@ pub(super) fn invoke_payload(
         None
     };
     let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let before_inventory_present = mechanism::window_enumerate::enumerate_top_level()
+        .map(|rows| rows.iter().any(|row| row.handle == window))
+        .unwrap_or(false);
     let target = match &focused_identity {
         Some(focused) => {
             let Some(now) = observe::node_by_id(&before, &focused.id) else {
@@ -225,7 +228,63 @@ pub(super) fn invoke_payload(
             mechanism_error = Some(map_mechanism_err(error));
         }
     }
-    let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let after = match mechanism::tree_for_window(Some(window)) {
+        Ok(after) => after,
+        Err(error) => {
+            let error = map_mechanism_err(error);
+            let after_inventory_absent = mechanism::window_enumerate::enumerate_top_level()
+                .map(|rows| rows.iter().all(|row| row.handle != window))
+                .unwrap_or(false);
+            let disappeared = disappearance_is_verified(
+                action,
+                performed,
+                mechanism_error.is_none(),
+                before_inventory_present,
+                after_inventory_absent,
+                &error.code,
+            );
+            let verification = serde_json::json!({
+                "method": "window-disappeared",
+                "reason": if disappeared { None::<&str> } else { Some("after_tree_failed") },
+                "before_inventory_present": before_inventory_present,
+                "after_inventory_absent": after_inventory_absent,
+                "after_tree_error": error_payload(&error),
+            });
+            let receipt = serde_json::json!({
+                "addressing": "accessibility-tree",
+                "mechanism": "libagenterm",
+                "backend": before.backend,
+                "window": window,
+                "target": spec.json(),
+                "node": node_json,
+                "action": action.as_str(),
+                "value": value,
+                "performed": performed,
+                "verified": disappeared,
+                "verification": verification,
+                "before": observe::node_state_json(&target),
+                "after": serde_json::Value::Null,
+                "tree_changed": disappeared,
+                "receipt": ticket.json(),
+            });
+            receipts.complete(
+                &ticket,
+                "invoke",
+                window,
+                disappeared,
+                serde_json::json!({
+                    "after": serde_json::Value::Null,
+                    "verification": verification,
+                    "tree_changed": disappeared,
+                    "error": if disappeared { None } else { Some(error_payload(&error)) },
+                }),
+            )?;
+            if disappeared {
+                return Ok(receipt);
+            }
+            return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
+        }
+    };
     let after_node = observe::node_by_id(&after, &target.id).cloned();
     if action == InvokeAction::SetSelection {
         let verified = mechanism_error.is_none();
@@ -360,6 +419,25 @@ pub(super) fn invoke_payload(
         return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
     }
     Ok(receipt)
+}
+
+fn disappearance_is_verified(
+    action: InvokeAction,
+    performed: bool,
+    mechanism_succeeded: bool,
+    before_inventory_present: bool,
+    after_inventory_absent: bool,
+    after_tree_error: &str,
+) -> bool {
+    matches!(action, InvokeAction::Press | InvokeAction::Cancel)
+        && performed
+        && mechanism_succeeded
+        && before_inventory_present
+        && after_inventory_absent
+        && matches!(
+            after_tree_error,
+            "a11y_window_gone" | "a11y_window_not_addressable"
+        )
 }
 
 /// Refuse to press what the node does not offer -- but only where an
@@ -543,5 +621,81 @@ mod tests {
             assert_ne!(reason, "node_action_unmapped");
         }
         assert!(!err.message.contains("not mapped on the libagenterm"));
+    }
+
+    #[test]
+    fn a_successful_press_may_be_verified_by_exact_window_disappearance() {
+        assert!(disappearance_is_verified(
+            InvokeAction::Press,
+            true,
+            true,
+            true,
+            true,
+            "a11y_window_not_addressable",
+        ));
+        assert!(disappearance_is_verified(
+            InvokeAction::Cancel,
+            true,
+            true,
+            true,
+            true,
+            "a11y_window_gone",
+        ));
+    }
+
+    #[test]
+    fn disappearance_never_hides_a_failed_or_unrelated_action() {
+        for accepted in [
+            disappearance_is_verified(
+                InvokeAction::SetValue,
+                true,
+                true,
+                true,
+                true,
+                "a11y_window_gone",
+            ),
+            disappearance_is_verified(
+                InvokeAction::Press,
+                false,
+                true,
+                true,
+                true,
+                "a11y_window_gone",
+            ),
+            disappearance_is_verified(
+                InvokeAction::Press,
+                true,
+                false,
+                true,
+                true,
+                "a11y_window_gone",
+            ),
+            disappearance_is_verified(
+                InvokeAction::Press,
+                true,
+                true,
+                false,
+                true,
+                "a11y_window_gone",
+            ),
+            disappearance_is_verified(
+                InvokeAction::Press,
+                true,
+                true,
+                true,
+                false,
+                "a11y_window_gone",
+            ),
+            disappearance_is_verified(
+                InvokeAction::Press,
+                true,
+                true,
+                true,
+                true,
+                "a11y_backend_failed",
+            ),
+        ] {
+            assert!(!accepted);
+        }
     }
 }

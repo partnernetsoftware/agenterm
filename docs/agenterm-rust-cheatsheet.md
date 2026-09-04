@@ -1606,6 +1606,14 @@ of them has to bring the tab forward. What the throwaway headless gate
   addressability are different facts. Do not invent an `AXSheets` attribute;
   the SDK exposes the `AXSheet` role and sheet-created notification, while the
   parent/child relation remains `AXChildren`.
+- **A successful dialog action can invalidate its own read-back root.** After
+  `AXPress`/`AXCancel` closes a sheet, a second tree lookup should fail because
+  the CGWindowID is gone. Do not turn that expected invalidation into an
+  `a11y_window_not_addressable` false negative. Freeze that the exact handle
+  existed in the native inventory before the action; when the AX action itself
+  succeeded, accept disappearance only for Press/Cancel and only when a fresh
+  native inventory proves that exact handle absent. Any inventory read failure,
+  surviving handle, other action, or mechanism error remains a typed failure.
 - **A drag owns its release.** Freeze both distinct rendered endpoints before
   reserving the effect, then dispatch move/down/held-move/up on one target. Once
   press is accepted, attempt mouse-up even if the held move fails; preserve the

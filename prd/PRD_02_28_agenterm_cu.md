@@ -259,6 +259,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   timeout`, and permit Save/Cancel only under explicit actuation with semantic
   read-back. A controlled non-sensitive panel fixture owns that evidence; a
   live credential panel is never the test fixture.
+  Live evidence then closed the first read/action loop: the mapped sheet
+  exposed 12 nodes, including identifier `save-panel`, a filename field, a
+  location pop-up and unique Cancel/OK buttons; semantic Cancel removed the
+  exact panel and created no file. That run also found and fixed an effect
+  receipt false negative: a successful Press invalidated the sheet before the
+  generic post-action tree read. Invoke now treats exact before-present /
+  after-absent inventory evidence as verified only for a mechanism-successful
+  Press/Cancel. It cannot excuse another action or a surviving/unreadable
+  window. The controlled fixture remains required before this leaf becomes
+  shipped.
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
   PID/parent/name inventory through `agenterm-platform::process::list`, shared
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
