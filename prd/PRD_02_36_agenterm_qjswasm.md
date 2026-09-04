@@ -235,8 +235,9 @@ second route around ACU/AgenTerm product contracts.
   steps, 44 host operations, 12,279 host bytes and 3 heap pages. Native Linux
   x86_64 is also green in the UTM desktop court after the task stopped assuming
   that a QGA/system execution session has `HOME`: every ACU child receives a
-  private `HOME`/XDG tree rooted in the journey directory. Linux aarch64 and
-  Windows native executions remain required before three-host promotion.
+  private `HOME`/XDG tree rooted in the journey directory. The same public
+  journey is also green in the native Linux aarch64 UTM desktop court. Windows
+  native execution remains required before three-host promotion.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and
