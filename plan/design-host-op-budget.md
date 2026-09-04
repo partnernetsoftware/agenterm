@@ -293,3 +293,6 @@ steps/element**（门 `<260`），`split` 回到 **34.5 steps/character**（门
 search court 的固定派发、循环控制、码元读取、比较和 miss-return 分项计数，判断
 剩余 0.5 steps/character 属于哪一层；只有某个正交改动同时能解释该成本、且不会
 重新引入 eager scan，才为它另写冻结实验。不得把 near miss 当作调低门槛的理由。
+实验规格已在 tinyvm `plan/design-string-search-cost-attribution-experiment.md`
+冻结（`ebee5a1`）：四个以上长度点、斜率闭合、固定/线性成本分账；只出归因和下一
+实验的 owner，不在同一轮偷做优化，也不改变当前 tinyvm pin。
