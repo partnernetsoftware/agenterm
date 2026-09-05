@@ -22,6 +22,8 @@ const MAX_ARGV_LIMIT: usize = 4_096;
 const DEFAULT_ENVIRONMENT_LIMIT: usize = 256;
 const MAX_ENVIRONMENT_LIMIT: usize = 5_000;
 const MAX_ENVIRONMENT_ENTRIES: usize = 100_001;
+const DEFAULT_INSPECTION_LIMIT: usize = 256;
+const DEFAULT_INSPECTION_MAX_VISITED: usize = 4_096;
 const DEFAULT_USAGE_INTERVAL_MS: u64 = 1_000;
 const DEFAULT_USAGE_MAX_SAMPLES: usize = 120;
 const MAX_USAGE_WATCH_MS: u64 = 86_400_000;
@@ -314,6 +316,341 @@ pub(super) fn process_environment_payload(
         "entries": rows,
         "verified": true,
     }))
+}
+
+fn inspection_bounds(
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+) -> Result<(usize, usize, usize), CuError> {
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(DEFAULT_INSPECTION_LIMIT);
+    let max_visited = max_visited.unwrap_or(DEFAULT_INSPECTION_MAX_VISITED);
+    if offset > 100_000
+        || !(1..=MAX_RESULTS).contains(&limit)
+        || !(1..=10_000).contains(&max_visited)
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "process inspection requires offset 0..=100000, limit 1..=5000 and max-visited 1..=10000",
+        ));
+    }
+    Ok((offset, limit, max_visited))
+}
+
+fn identity_bracket<T>(
+    pid: u32,
+    subject: &str,
+    read: impl FnOnce() -> Result<T, agenterm_platform::process::ProcessError>,
+) -> Result<(String, T), CuError> {
+    let identity = live_start_identity(pid)?;
+    let value = read().map_err(|error| process_inspection_error(subject, error))?;
+    if live_start_identity(pid)? != identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            format!("process start identity changed while {subject} were read"),
+        ));
+    }
+    Ok((identity, value))
+}
+
+fn process_inspection_error(
+    subject: &str,
+    error: agenterm_platform::process::ProcessError,
+) -> CuError {
+    use agenterm_platform::process::ProcessErrorKind;
+    let code = match error.kind() {
+        ProcessErrorKind::IdOutOfRange => "invalid_input",
+        ProcessErrorKind::NotFound => "process_not_found",
+        ProcessErrorKind::PermissionDenied => "process_inspection_permission_denied",
+        ProcessErrorKind::InventoryTooLarge => "process_inspection_too_large",
+        ProcessErrorKind::InvalidData => "process_inspection_invalid_data",
+        ProcessErrorKind::Unsupported => "process_inspection_unsupported",
+        _ => "process_inspection_failed",
+    };
+    CuError::new(code, error.to_string()).with_detail(json!({
+        "subject": subject,
+        "kind": format!("{:?}", error.kind()),
+    }))
+}
+
+fn raw_contains_ascii_case_insensitive(value: &[u8], needle: Option<&str>) -> bool {
+    let Some(needle) = needle else { return true };
+    let needle = needle.as_bytes().to_ascii_lowercase();
+    value
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(&needle))
+}
+
+pub(super) fn process_fds_payload(
+    pid: u32,
+    kind: Option<&str>,
+    target_filter: Option<&str>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+) -> Result<Value, CuError> {
+    let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
+    let (start_identity, snapshot) = identity_bracket(pid, "file descriptors", || {
+        agenterm_platform::process::file_descriptors(pid, max_visited)
+    })?;
+    let matching = snapshot
+        .items
+        .iter()
+        .filter(|row| kind.is_none_or(|kind| row.kind.eq_ignore_ascii_case(kind)))
+        .filter(|row| {
+            target_filter.is_none()
+                || row.target.as_deref().is_some_and(|target| {
+                    raw_contains_ascii_case_insensitive(target, target_filter)
+                })
+        })
+        .collect::<Vec<_>>();
+    let matched = matching.len();
+    let rows = matching
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|row| {
+            let mut value = serde_json::Map::from_iter([
+                ("fd".to_owned(), json!(row.descriptor)),
+                ("type".to_owned(), json!(row.kind)),
+                ("open_flags".to_owned(), json!(row.open_flags)),
+                ("status_flags".to_owned(), json!(row.status_flags)),
+                (
+                    "offset_bytes".to_owned(),
+                    json!(row.offset_bytes.map(|value| value.to_string())),
+                ),
+                ("file_type".to_owned(), json!(row.file_type)),
+                ("guard_flags".to_owned(), json!(row.guard_flags)),
+            ]);
+            if let Some(target) = row.target.as_deref() {
+                insert_raw_text(&mut value, "target", target, true);
+            }
+            Value::Object(value)
+        })
+        .collect::<Vec<_>>();
+    let returned = rows.len();
+    let next_offset = offset.checked_add(returned).filter(|next| *next < matched);
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "provider": process_inspection_provider("fds"),
+        "descriptors": rows,
+        "visited_count": snapshot.visited_count,
+        "matched_count": matched,
+        "returned_count": returned,
+        "read_errors": snapshot.read_errors,
+        "offset": offset,
+        "limit": limit,
+        "max_visited": max_visited,
+        "truncated_results": next_offset.is_some(),
+        "truncated_scan": snapshot.truncated_scan,
+        "next_offset": next_offset,
+        "verified": true,
+    }))
+}
+
+pub(super) fn process_maps_payload(
+    pid: u32,
+    path: Option<&str>,
+    permissions: Option<&str>,
+    executable_only: bool,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+) -> Result<Value, CuError> {
+    let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
+    let (start_identity, snapshot) = identity_bracket(pid, "memory regions", || {
+        agenterm_platform::process::memory_regions(pid, max_visited)
+    })?;
+    let required = permissions.unwrap_or("").as_bytes();
+    let matching = snapshot
+        .items
+        .iter()
+        .filter(|row| !executable_only || row.permissions.contains('x'))
+        .filter(|row| {
+            required
+                .iter()
+                .all(|byte| row.permissions.as_bytes().contains(byte))
+        })
+        .filter(|row| {
+            path.is_none()
+                || row
+                    .path
+                    .as_deref()
+                    .is_some_and(|mapped| raw_contains_ascii_case_insensitive(mapped, path))
+        })
+        .collect::<Vec<_>>();
+    let matched = matching.len();
+    let rows = matching
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|row| {
+            let end = row
+                .start_address
+                .checked_add(row.size_bytes)
+                .ok_or_else(|| {
+                    CuError::new(
+                        "process_inspection_invalid_data",
+                        "memory-region range overflows its address space",
+                    )
+                })?;
+            let mut value = serde_json::Map::from_iter([
+                (
+                    "start_address".to_owned(),
+                    json!(format!("0x{:x}", row.start_address)),
+                ),
+                ("end_address".to_owned(), json!(format!("0x{end:x}"))),
+                ("size_bytes".to_owned(), json!(row.size_bytes.to_string())),
+                (
+                    "offset_bytes".to_owned(),
+                    json!(row.offset_bytes.to_string()),
+                ),
+                ("permissions".to_owned(), json!(row.permissions)),
+                ("max_permissions".to_owned(), json!(row.max_permissions)),
+                ("sharing".to_owned(), json!(row.sharing)),
+                ("device".to_owned(), json!(row.device)),
+                (
+                    "inode".to_owned(),
+                    json!(row.inode.map(|value| value.to_string())),
+                ),
+                ("flags".to_owned(), json!(row.flags)),
+                ("user_tag".to_owned(), json!(row.user_tag)),
+                ("depth".to_owned(), json!(row.depth)),
+                ("resident_pages".to_owned(), json!(row.resident_pages)),
+                (
+                    "private_resident_pages".to_owned(),
+                    json!(row.private_resident_pages),
+                ),
+                (
+                    "shared_resident_pages".to_owned(),
+                    json!(row.shared_resident_pages),
+                ),
+                ("swapped_pages".to_owned(), json!(row.swapped_pages)),
+                ("dirtied_pages".to_owned(), json!(row.dirtied_pages)),
+            ]);
+            if let Some(path) = row.path.as_deref() {
+                insert_raw_text(&mut value, "path", path, true);
+            }
+            Ok(Value::Object(value))
+        })
+        .collect::<Result<Vec<_>, CuError>>()?;
+    let returned = rows.len();
+    let next_offset = offset.checked_add(returned).filter(|next| *next < matched);
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "provider": process_inspection_provider("maps"),
+        "regions": rows,
+        "visited_count": snapshot.visited_count,
+        "matched_count": matched,
+        "returned_count": returned,
+        "read_errors": snapshot.read_errors,
+        "offset": offset,
+        "limit": limit,
+        "max_visited": max_visited,
+        "truncated_results": next_offset.is_some(),
+        "truncated_scan": snapshot.truncated_scan,
+        "next_offset": next_offset,
+        "verified": true,
+    }))
+}
+
+pub(super) fn process_threads_payload(
+    pid: u32,
+    name: Option<&str>,
+    state: Option<&str>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+) -> Result<Value, CuError> {
+    let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
+    let (start_identity, snapshot) = identity_bracket(pid, "threads", || {
+        agenterm_platform::process::threads(pid, max_visited)
+    })?;
+    let matching = snapshot
+        .items
+        .iter()
+        .filter(|row| state.is_none_or(|state| row.state.eq_ignore_ascii_case(state)))
+        .filter(|row| {
+            name.is_none()
+                || row.name.as_deref().is_some_and(|thread_name| {
+                    raw_contains_ascii_case_insensitive(thread_name, name)
+                })
+        })
+        .collect::<Vec<_>>();
+    let matched = matching.len();
+    let rows = matching
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|row| {
+            let mut value = serde_json::Map::from_iter([
+                ("id".to_owned(), json!(row.id.to_string())),
+                ("state".to_owned(), json!(row.state)),
+                ("state_raw".to_owned(), json!(row.state_raw)),
+                (
+                    "user_time_raw".to_owned(),
+                    json!(row.user_time_raw.to_string()),
+                ),
+                (
+                    "system_time_raw".to_owned(),
+                    json!(row.system_time_raw.to_string()),
+                ),
+                ("time_unit".to_owned(), json!(row.time_unit)),
+                (
+                    "cpu_usage_pct".to_owned(),
+                    json!(
+                        row.cpu_usage_tenths_percent
+                            .map(|value| f64::from(value) / 10.0)
+                    ),
+                ),
+                ("policy".to_owned(), json!(row.policy)),
+                ("flags".to_owned(), json!(row.flags)),
+                ("sleep_seconds".to_owned(), json!(row.sleep_seconds)),
+                ("current_priority".to_owned(), json!(row.current_priority)),
+                ("priority".to_owned(), json!(row.priority)),
+                ("max_priority".to_owned(), json!(row.max_priority)),
+                ("nice".to_owned(), json!(row.nice)),
+                ("processor".to_owned(), json!(row.processor)),
+            ]);
+            if let Some(name) = row.name.as_deref() {
+                insert_raw_text(&mut value, "name", name, true);
+            }
+            Value::Object(value)
+        })
+        .collect::<Vec<_>>();
+    let returned = rows.len();
+    let next_offset = offset.checked_add(returned).filter(|next| *next < matched);
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "provider": process_inspection_provider("threads"),
+        "threads": rows,
+        "visited_count": snapshot.visited_count,
+        "matched_count": matched,
+        "returned_count": returned,
+        "read_errors": snapshot.read_errors,
+        "offset": offset,
+        "limit": limit,
+        "max_visited": max_visited,
+        "truncated_results": next_offset.is_some(),
+        "truncated_scan": snapshot.truncated_scan,
+        "next_offset": next_offset,
+        "verified": true,
+    }))
+}
+
+fn process_inspection_provider(subject: &str) -> String {
+    let host = if cfg!(target_os = "macos") {
+        "darwin-libproc"
+    } else if cfg!(target_os = "linux") {
+        "linux-proc"
+    } else {
+        "windows-unsupported"
+    };
+    format!("{host}-{subject}")
 }
 
 fn split_environment_entry(bytes: &[u8]) -> (&[u8], Option<&[u8]>) {

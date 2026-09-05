@@ -4120,3 +4120,26 @@ ordinary process cannot prevent a duplicate root effect after a transport
 break. Likewise, reading the same process identity before and after a PID-only
 Unix syscall does not turn that syscall into exact-object authority; retain the
 typed platform gap until the native mutation primitive itself is identity-safe.
+
+## Bracket native process inventories and preserve native bytes
+
+Process-local inventories such as file descriptors, memory maps and threads
+must be sampled between two equal native start-identity observations. A PID is
+only a lookup key; if either identity is missing or they differ, discard the
+snapshot instead of attaching it to a recycled process. Keep the native scan
+ceiling independent from caller-facing offset/limit pagination, and expose
+truncation plus read-error counts rather than silently presenting partial data
+as complete.
+
+Native paths and thread names are byte sequences until the public encoding
+boundary. Preserve invalid UTF-8 with the shared lossless byte representation;
+do not use lossy replacement in an identity or filter path. Emit addresses and
+wide counters as decimal or hexadecimal strings at JSON boundaries, validate
+address-range addition rather than saturating it, and keep filtering bounded
+over the already-captured snapshot.
+
+On macOS, link a small fixed-layout C adapter at build time when a system API is
+not directly bindgen-backed. The C side fills caller-owned bounded records; the
+Rust side validates return codes, counts, lengths and ranges before constructing
+neutral platform types. Do not compile a helper at runtime or expose `libproc`
+records directly to product code.

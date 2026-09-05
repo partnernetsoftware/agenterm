@@ -545,6 +545,15 @@ flowchart LR
   to this shape without a Bun-owned sampler; richer I/O remains an explicit
   gap. macOS has live evidence; Linux and Windows declare the same leaf and
   await their updated native-court runs.
+- [~] One-shot `process-fds`, `process-maps`, and `process-threads` inventories
+  are live through the shared platform boundary. Every snapshot is bounded
+  independently from result pagination and bracketed by the same native start
+  identity; native non-UTF-8 names and paths remain lossless in the typed JSON
+  reply. macOS uses a build-linked `libproc` adapter and has public qjswasm
+  evidence `cu.process-inspection`; Linux uses procfs and is cross-built for
+  both ISAs. Windows refuses with `process_inspection_unsupported` instead of
+  parsing undocumented remote-process structures. Linux native execution,
+  Windows refusal courts, sockets, and MCU-compatible watch/diff remain open.
 - [~] `process-wait` is the first process capability that deliberately exceeds
   MCU's implementation: the caller supplies the `process-state` start identity,
   ACU opens and waits on a native stable process object, and PID reuse is a

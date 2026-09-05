@@ -4,7 +4,8 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{
     PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
-    ProcessInfo, ProcessObservation,
+    ProcessFileDescriptor, ProcessInfo, ProcessInspection, ProcessMemoryRegion, ProcessObservation,
+    ProcessThreadInfo,
 };
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::process_observation::observe;
@@ -55,6 +56,339 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
         });
     }
     Ok(processes)
+}
+
+fn inspection_error(error: std::io::Error) -> ProcessError {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => ProcessErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => ProcessErrorKind::PermissionDenied,
+        _ => ProcessErrorKind::Inspect,
+    };
+    ProcessError::new(kind, error.to_string())
+}
+
+pub(crate) fn file_descriptors(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessFileDescriptor>, ProcessError> {
+    use std::os::unix::ffi::OsStringExt as _;
+
+    let directory = format!("/proc/{pid}/fd");
+    let entries = std::fs::read_dir(&directory).map_err(inspection_error)?;
+    let mut descriptors = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<i32>().ok())
+                .map(|descriptor| (descriptor, entry.path()))
+        })
+        .collect::<Vec<_>>();
+    descriptors.sort_unstable_by_key(|(descriptor, _)| *descriptor);
+    let truncated_scan = descriptors.len() > max_visited;
+    descriptors.truncate(max_visited);
+    let visited_count = descriptors.len();
+    let mut read_errors = 0usize;
+    let items = descriptors
+        .into_iter()
+        .filter_map(|(descriptor, path)| match std::fs::read_link(path) {
+            Ok(target) => {
+                let target = target.into_os_string().into_vec();
+                let kind = if target.starts_with(b"socket:[") {
+                    "socket"
+                } else if target.starts_with(b"pipe:[") {
+                    "pipe"
+                } else if target.starts_with(b"anon_inode:") {
+                    "anonymous-inode"
+                } else if target.starts_with(b"memfd:") {
+                    "memory-file"
+                } else if target.starts_with(b"/") {
+                    "file"
+                } else {
+                    "other"
+                };
+                Some(ProcessFileDescriptor {
+                    descriptor,
+                    kind: kind.to_owned(),
+                    target: Some(target),
+                    open_flags: None,
+                    status_flags: None,
+                    offset_bytes: None,
+                    file_type: None,
+                    guard_flags: None,
+                })
+            }
+            Err(_) => {
+                read_errors += 1;
+                None
+            }
+        })
+        .collect();
+    Ok(ProcessInspection {
+        items,
+        visited_count,
+        read_errors,
+        truncated_scan,
+    })
+}
+
+pub(crate) fn memory_regions(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessMemoryRegion>, ProcessError> {
+    use std::io::Read as _;
+
+    const MAX_BYTES: u64 = 8 * 1024 * 1024;
+    let file = std::fs::File::open(format!("/proc/{pid}/maps")).map_err(inspection_error)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(inspection_error)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "process maps exceed 8 MiB",
+        ));
+    }
+    let mut items = Vec::new();
+    let mut truncated_scan = false;
+    for line in bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        if items.len() == max_visited {
+            truncated_scan = true;
+            break;
+        }
+        items.push(parse_linux_map_line(line)?);
+    }
+    let visited_count = items.len();
+    Ok(ProcessInspection {
+        items,
+        visited_count,
+        read_errors: 0,
+        truncated_scan,
+    })
+}
+
+fn parse_linux_map_line(line: &[u8]) -> Result<ProcessMemoryRegion, ProcessError> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let mut cursor = 0usize;
+    let range = take_map_token(line, &mut cursor)?;
+    let permissions = take_map_token(line, &mut cursor)?;
+    let offset = take_map_token(line, &mut cursor)?;
+    let device = take_map_token(line, &mut cursor)?;
+    let inode = take_map_token(line, &mut cursor)?;
+    while cursor < line.len() && line[cursor].is_ascii_whitespace() {
+        cursor += 1;
+    }
+    let path = (cursor < line.len()).then(|| line[cursor..].to_vec());
+    let separator = range.iter().position(|byte| *byte == b'-').ok_or_else(|| {
+        ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process map range is malformed",
+        )
+    })?;
+    let (start, end_with_separator) = range.split_at(separator);
+    let end = &end_with_separator[1..];
+    let start_address = parse_hex(start, "map start")?;
+    let end_address = parse_hex(end, "map end")?;
+    if end_address <= start_address || permissions.len() != 4 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process map range or permissions are malformed",
+        ));
+    }
+    let sharing = match permissions[3] {
+        b'p' => "private",
+        b's' => "shared",
+        _ => {
+            return Err(ProcessError::new(
+                ProcessErrorKind::InvalidData,
+                "process map sharing mode is malformed",
+            ));
+        }
+    };
+    Ok(ProcessMemoryRegion {
+        start_address,
+        size_bytes: end_address - start_address,
+        offset_bytes: parse_hex(offset, "map offset")?,
+        permissions: std::str::from_utf8(&permissions[..3])
+            .map_err(|error| ProcessError::new(ProcessErrorKind::InvalidData, error.to_string()))?
+            .to_owned(),
+        max_permissions: None,
+        sharing: sharing.to_owned(),
+        path,
+        device: Some(
+            std::ffi::OsStr::from_bytes(device)
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        inode: Some(parse_decimal(inode, "map inode")?),
+        flags: None,
+        user_tag: None,
+        depth: None,
+        resident_pages: None,
+        private_resident_pages: None,
+        shared_resident_pages: None,
+        swapped_pages: None,
+        dirtied_pages: None,
+    })
+}
+
+fn take_map_token<'a>(line: &'a [u8], cursor: &mut usize) -> Result<&'a [u8], ProcessError> {
+    while *cursor < line.len() && line[*cursor].is_ascii_whitespace() {
+        *cursor += 1;
+    }
+    let start = *cursor;
+    while *cursor < line.len() && !line[*cursor].is_ascii_whitespace() {
+        *cursor += 1;
+    }
+    if start == *cursor {
+        Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process map row has too few fields",
+        ))
+    } else {
+        Ok(&line[start..*cursor])
+    }
+}
+
+fn parse_hex(bytes: &[u8], field: &str) -> Result<u64, ProcessError> {
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|value| u64::from_str_radix(value, 16).ok())
+        .ok_or_else(|| {
+            ProcessError::new(ProcessErrorKind::InvalidData, format!("{field} is invalid"))
+        })
+}
+
+fn parse_decimal(bytes: &[u8], field: &str) -> Result<u64, ProcessError> {
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| {
+            ProcessError::new(ProcessErrorKind::InvalidData, format!("{field} is invalid"))
+        })
+}
+
+pub(crate) fn threads(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessThreadInfo>, ProcessError> {
+    let directory = format!("/proc/{pid}/task");
+    let entries = std::fs::read_dir(&directory).map_err(inspection_error)?;
+    let mut ids = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u64>().ok())
+        })
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    let truncated_scan = ids.len() > max_visited;
+    ids.truncate(max_visited);
+    let visited_count = ids.len();
+    let mut read_errors = 0usize;
+    let items = ids
+        .into_iter()
+        .filter_map(|id| {
+            let stat = match std::fs::read(format!("{directory}/{id}/stat")) {
+                Ok(stat) => stat,
+                Err(_) => {
+                    read_errors += 1;
+                    return None;
+                }
+            };
+            match parse_linux_thread_stat(id, &stat) {
+                Ok(thread) => Some(thread),
+                Err(_) => {
+                    read_errors += 1;
+                    None
+                }
+            }
+        })
+        .collect();
+    Ok(ProcessInspection {
+        items,
+        visited_count,
+        read_errors,
+        truncated_scan,
+    })
+}
+
+fn parse_linux_thread_stat(id: u64, stat: &[u8]) -> Result<ProcessThreadInfo, ProcessError> {
+    let open = stat.iter().position(|byte| *byte == b'(').ok_or_else(|| {
+        ProcessError::new(ProcessErrorKind::InvalidData, "thread stat has no name")
+    })?;
+    let close = stat.iter().rposition(|byte| *byte == b')').ok_or_else(|| {
+        ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "thread stat has no closing name",
+        )
+    })?;
+    if close <= open || close + 2 >= stat.len() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "thread stat name is malformed",
+        ));
+    }
+    let fields = stat[close + 2..]
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
+    if fields.len() < 37 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "thread stat has too few fields",
+        ));
+    }
+    let state_raw = std::str::from_utf8(fields[0])
+        .map_err(|error| ProcessError::new(ProcessErrorKind::InvalidData, error.to_string()))?;
+    let state = match state_raw {
+        "R" => "running",
+        "S" => "sleeping",
+        "D" => "uninterruptible",
+        "T" => "stopped",
+        "t" => "tracing-stop",
+        "Z" => "zombie",
+        "X" | "x" => "dead",
+        "I" => "idle",
+        "W" => "paging",
+        "P" => "parked",
+        _ => "unknown",
+    };
+    Ok(ProcessThreadInfo {
+        id,
+        name: Some(stat[open + 1..close].to_vec()),
+        state: state.to_owned(),
+        state_raw: state_raw.to_owned(),
+        user_time_raw: parse_decimal(fields[11], "thread user time")?,
+        system_time_raw: parse_decimal(fields[12], "thread system time")?,
+        time_unit: "linux-clock-ticks",
+        cpu_usage_tenths_percent: None,
+        policy: None,
+        flags: None,
+        sleep_seconds: None,
+        current_priority: None,
+        priority: Some(parse_signed(fields[15], "thread priority")?),
+        max_priority: None,
+        nice: Some(parse_signed(fields[16], "thread nice")?),
+        processor: Some(parse_signed(fields[36], "thread processor")?),
+    })
+}
+
+fn parse_signed(bytes: &[u8], field: &str) -> Result<i32, ProcessError> {
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| {
+            ProcessError::new(ProcessErrorKind::InvalidData, format!("{field} is invalid"))
+        })
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {

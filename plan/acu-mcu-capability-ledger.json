@@ -182,9 +182,20 @@
         {
           "id": "process.fds-maps-threads",
           "mcu_shape": "process fds|maps|threads PID [--watch]",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "platform observation facades, then qjswasm bounded stream composition"
+          "acu_shape": "process-fds|process-maps|process-threads --pid N with typed filters, independent native-scan and result-page bounds",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "native-libproc",
+            "linux": "native-procfs",
+            "windows": "typed-unsupported"
+          },
+          "qualification": "macos-public-qjswasm-live-linux-runtime-and-windows-refusal-courts-pending",
+          "evidence": [
+            "cu.process-inspection",
+            "agenterm-platform process inspection unit tests"
+          ],
+          "note": "One-shot inventories are identity-bracketed and preserve non-UTF-8 native names/paths without lossy replacement. MCU watch/diff shapes remain a gap until the same bounded snapshots gain a shared event court.",
+          "next": "bounded watch/diff over the same snapshots, then Linux native and Windows typed-refusal courts"
         },
         {
           "id": "process.sockets",

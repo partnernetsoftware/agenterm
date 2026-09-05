@@ -481,7 +481,9 @@ Q2 fast delegated facades
    ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
    ├─ [x] process-watch: bounded baseline + identity-safe started/exited diff
    ├─ [x] exact-object process signal/tree: closed names + typed postcondition semantics
-   └─ [ ] rich filters, process detail and privileged mutation
+   ├─ [~] process fds/maps/threads: native one-shot + public qjswasm macOS court ✓
+   │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
+   └─ [ ] process sockets, remaining rich filters and privileged mutation
 Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity

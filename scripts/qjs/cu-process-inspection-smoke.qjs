@@ -1,0 +1,95 @@
+// Public black-box journey for identity-bound process descriptors, maps and threads.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-inspection"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, args, expected_error) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_process_inspection_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_process_inspection_wrong_error:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_process_inspection_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_inspection_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-inspection");
+let succeeded = 0;
+let failure = "";
+try {
+  const pid = rh.pid();
+  if (harness.host_is_windows()) {
+    print("STEP Windows refuses private arbitrary-process inspection mechanisms by type");
+    invoke(context.run_directory, executable, ["process-fds", "--pid", "" + pid], "process_inspection_unsupported");
+    invoke(context.run_directory, executable, ["process-maps", "--pid", "" + pid], "process_inspection_unsupported");
+    invoke(context.run_directory, executable, ["process-threads", "--pid", "" + pid], "process_inspection_unsupported");
+  } else {
+    print("STEP descriptor inventory is identity-bound, bounded and explicitly complete");
+    const fds = invoke(context.run_directory, executable, [
+      "process", "fds", "" + pid, "--limit", "16", "--max-visited", "256"
+    ]);
+    ensure(fds.start_identity.length > 0 && fds.verified === true, "cu_process_fds_identity");
+    ensure(fds.visited_count >= fds.returned_count, "cu_process_fds_counts");
+    ensure(fds.truncated_scan === false, "cu_process_fds_scan_truncated");
+
+    print("STEP executable map filtering preserves exact ranges and lossless counters");
+    const maps = invoke(context.run_directory, executable, [
+      "process-maps", "--pid", "" + pid, "--executable-only", "--limit", "32", "--max-visited", "4096"
+    ]);
+    ensure(maps.start_identity.length > 0 && maps.verified === true, "cu_process_maps_identity");
+    ensure(maps.regions.length > 0, "cu_process_maps_empty");
+    ensure(maps.regions[0].start_address.indexOf("0x") === 0, "cu_process_maps_address");
+    ensure(maps.regions[0].permissions.indexOf("x") >= 0, "cu_process_maps_filter");
+
+    print("STEP native thread inventory is identity-bound and names its counter domain");
+    const threads = invoke(context.run_directory, executable, [
+      "process-threads", "--pid", "" + pid, "--limit", "32", "--max-visited", "256"
+    ]);
+    ensure(threads.start_identity.length > 0 && threads.verified === true, "cu_process_threads_identity");
+    ensure(threads.threads.length > 0, "cu_process_threads_empty");
+    ensure(threads.threads[0].id.length > 0, "cu_process_threads_id");
+    ensure(threads.threads[0].time_unit.length > 0, "cu_process_threads_time_unit");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.process-inspection");
+  harness.remove_run(context);
+  print("PASS: process descriptors, maps and threads are bounded and identity-safe");
+}
+if (failure !== "") { throw failure; }
+return;

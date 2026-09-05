@@ -8,6 +8,12 @@ use agenterm_cu::{
 use super::verbs::VerbSpec;
 use super::{flag_parsed, flag_text, take_switch};
 
+struct InspectionBounds {
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+}
+
 pub fn parse(
     spec: &VerbSpec,
     spelled: &str,
@@ -31,6 +37,9 @@ pub fn parse(
         "process-argv" => process_argv(target, args),
         "process-cwd" => process_cwd(target, args),
         "process-environment" => process_environment(target, args),
+        "process-fds" => process_fds(target, args),
+        "process-maps" => process_maps(target, args),
+        "process-threads" => process_threads(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
@@ -40,6 +49,140 @@ pub fn parse(
         "shell-exec" => shell_exec(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn inspection_pid(args: &mut Vec<String>, verb: &str) -> Result<u32, String> {
+    let pid = match flag_parsed::<u32>(args, "--pid")? {
+        Some(pid) => pid,
+        None if !args.is_empty() && !args[0].starts_with('-') => args
+            .remove(0)
+            .parse::<u32>()
+            .map_err(|_| format!("{verb} PID must be a positive integer"))?,
+        None => return Err(format!("{verb} requires --pid N (or positional PID)")),
+    };
+    if pid == 0 {
+        return Err(format!("{verb} pid must be greater than zero"));
+    }
+    Ok(pid)
+}
+
+fn inspection_bounds(args: &mut Vec<String>) -> Result<InspectionBounds, String> {
+    let offset = flag_parsed::<usize>(args, "--offset")?;
+    let limit = flag_parsed::<usize>(args, "--limit")?;
+    let max_visited = flag_parsed::<usize>(args, "--max-visited")?;
+    if offset.is_some_and(|value| value > 100_000) {
+        return Err("process inspection --offset must be in 0..=100000".into());
+    }
+    if limit.is_some_and(|value| !(1..=5_000).contains(&value)) {
+        return Err("process inspection --limit must be in 1..=5000".into());
+    }
+    if max_visited.is_some_and(|value| !(1..=10_000).contains(&value)) {
+        return Err("process inspection --max-visited must be in 1..=10000".into());
+    }
+    Ok(InspectionBounds {
+        offset,
+        limit,
+        max_visited,
+    })
+}
+
+fn bounded_filter(value: Option<String>, name: &str, max: usize) -> Result<Option<String>, String> {
+    if value.as_ref().is_some_and(|value| {
+        value.is_empty()
+            || value.len() > max
+            || value.bytes().any(|byte| matches!(byte, 0 | b'\r' | b'\n'))
+    }) {
+        return Err(format!(
+            "{name} must be 1..={max} UTF-8 bytes without NUL/CR/LF"
+        ));
+    }
+    Ok(value)
+}
+
+fn process_fds(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = inspection_pid(args, "process-fds")?;
+    let kind = bounded_filter(flag_text(args, "--type")?, "process-fds --type", 64)?;
+    let target_filter = bounded_filter(
+        flag_text(args, "--target-text")?,
+        "process-fds --target-text",
+        1024,
+    )?;
+    let InspectionBounds {
+        offset,
+        limit,
+        max_visited,
+    } = inspection_bounds(args)?;
+    if !args.is_empty() {
+        return Err(format!("process-fds received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessFds {
+        target,
+        pid,
+        kind,
+        target_filter,
+        offset,
+        limit,
+        max_visited,
+    })
+}
+
+fn process_maps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = inspection_pid(args, "process-maps")?;
+    let path = bounded_filter(flag_text(args, "--path")?, "process-maps --path", 1024)?;
+    let permissions = bounded_filter(
+        flag_text(args, "--permissions")?,
+        "process-maps --permissions",
+        3,
+    )?;
+    if permissions.as_ref().is_some_and(|value| {
+        value
+            .bytes()
+            .any(|byte| !matches!(byte, b'r' | b'w' | b'x'))
+    }) {
+        return Err("process-maps --permissions accepts only r/w/x".into());
+    }
+    let executable_only = take_switch(args, "--executable-only");
+    let InspectionBounds {
+        offset,
+        limit,
+        max_visited,
+    } = inspection_bounds(args)?;
+    if !args.is_empty() {
+        return Err(format!("process-maps received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessMaps {
+        target,
+        pid,
+        path,
+        permissions,
+        executable_only,
+        offset,
+        limit,
+        max_visited,
+    })
+}
+
+fn process_threads(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = inspection_pid(args, "process-threads")?;
+    let name = bounded_filter(flag_text(args, "--name")?, "process-threads --name", 256)?;
+    let state = bounded_filter(flag_text(args, "--state")?, "process-threads --state", 32)?;
+    let InspectionBounds {
+        offset,
+        limit,
+        max_visited,
+    } = inspection_bounds(args)?;
+    if !args.is_empty() {
+        return Err(format!("process-threads received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessThreads {
+        target,
+        pid,
+        name,
+        state,
+        offset,
+        limit,
+        max_visited,
+    })
 }
 
 fn process_signal(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {

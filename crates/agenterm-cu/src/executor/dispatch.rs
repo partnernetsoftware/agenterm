@@ -328,6 +328,56 @@ impl Executor {
                 limit,
                 ..
             } => process_environment_payload(*pid, prefix.as_deref(), *values, *offset, *limit),
+            Command::ProcessFds {
+                pid,
+                kind,
+                target_filter,
+                offset,
+                limit,
+                max_visited,
+                ..
+            } => process_fds_payload(
+                *pid,
+                kind.as_deref(),
+                target_filter.as_deref(),
+                *offset,
+                *limit,
+                *max_visited,
+            ),
+            Command::ProcessMaps {
+                pid,
+                path,
+                permissions,
+                executable_only,
+                offset,
+                limit,
+                max_visited,
+                ..
+            } => process_maps_payload(
+                *pid,
+                path.as_deref(),
+                permissions.as_deref(),
+                *executable_only,
+                *offset,
+                *limit,
+                *max_visited,
+            ),
+            Command::ProcessThreads {
+                pid,
+                name,
+                state,
+                offset,
+                limit,
+                max_visited,
+                ..
+            } => process_threads_payload(
+                *pid,
+                name.as_deref(),
+                state.as_deref(),
+                *offset,
+                *limit,
+                *max_visited,
+            ),
             Command::ProcessUsage {
                 pid,
                 watch_ms,

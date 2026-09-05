@@ -193,6 +193,9 @@ fn append_missing_top_level_rows(text: &mut String) {
         "process-argv",
         "process-cwd",
         "process-environment",
+        "process-fds",
+        "process-maps",
+        "process-threads",
         "process-set-state",
     ];
     let compact_terminal = [
@@ -275,7 +278,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd\n  process-environment  process-set-state"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd\n  process-environment  process-fds  process-maps  process-threads  process-set-state"
                 .to_owned(),
         );
     }

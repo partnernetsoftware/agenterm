@@ -4,7 +4,8 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{
     PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
-    ProcessInfo, ProcessObservation,
+    ProcessFileDescriptor, ProcessInfo, ProcessInspection, ProcessMemoryRegion, ProcessObservation,
+    ProcessThreadInfo,
 };
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::process_observation::observe;
@@ -91,6 +92,340 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
         }
     }
     Ok(processes)
+}
+
+const NATIVE_PATH_MAX: usize = 1024;
+const NATIVE_THREAD_NAME_MAX: usize = 64;
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct NativeFd {
+    descriptor: i32,
+    kind: u32,
+    has_vnode: u32,
+    open_flags: u32,
+    status_flags: u32,
+    offset_bytes: i64,
+    file_type: u32,
+    guard_flags: u32,
+    target_len: u32,
+    target: [u8; NATIVE_PATH_MAX],
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct NativeRegion {
+    start_address: u64,
+    size_bytes: u64,
+    offset_bytes: u64,
+    protection: u32,
+    max_protection: u32,
+    flags: u32,
+    sharing: u32,
+    resident_pages: u32,
+    private_resident_pages: u32,
+    shared_resident_pages: u32,
+    swapped_pages: u32,
+    dirtied_pages: u32,
+    user_tag: u32,
+    depth: u32,
+    path_len: u32,
+    path: [u8; NATIVE_PATH_MAX],
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct NativeThread {
+    id: u64,
+    user_time: u64,
+    system_time: u64,
+    cpu_usage: i32,
+    policy: i32,
+    run_state: i32,
+    flags: i32,
+    sleep_seconds: i32,
+    current_priority: i32,
+    priority: i32,
+    max_priority: i32,
+    name_len: u32,
+    name: [u8; NATIVE_THREAD_NAME_MAX],
+}
+
+unsafe extern "C" {
+    fn agt_process_fds(
+        pid: u32,
+        out: *mut NativeFd,
+        capacity: usize,
+        visited: *mut usize,
+        written: *mut usize,
+        read_errors: *mut usize,
+        truncated: *mut i32,
+    ) -> i32;
+    fn agt_process_regions(
+        pid: u32,
+        out: *mut NativeRegion,
+        capacity: usize,
+        visited: *mut usize,
+        written: *mut usize,
+        truncated: *mut i32,
+    ) -> i32;
+    fn agt_process_threads(
+        pid: u32,
+        out: *mut NativeThread,
+        capacity: usize,
+        visited: *mut usize,
+        written: *mut usize,
+        read_errors: *mut usize,
+        truncated: *mut i32,
+    ) -> i32;
+}
+
+fn native_inspection_error(code: i32, subject: &str) -> ProcessError {
+    let kind = match code {
+        1 | 4 => ProcessErrorKind::InvalidData,
+        2 => ProcessErrorKind::PermissionDenied,
+        _ => ProcessErrorKind::Inspect,
+    };
+    ProcessError::new(
+        kind,
+        format!("native {subject} provider failed with code {code}"),
+    )
+}
+
+fn native_bytes(bytes: &[u8], length: u32, subject: &str) -> Result<Option<Vec<u8>>, ProcessError> {
+    let length = usize::try_from(length).map_err(|_| {
+        ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            format!("{subject} length overflows"),
+        )
+    })?;
+    if length > bytes.len() {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            format!("{subject} length exceeds native buffer"),
+        ));
+    }
+    Ok((length != 0).then(|| bytes[..length].to_vec()))
+}
+
+pub(crate) fn file_descriptors(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessFileDescriptor>, ProcessError> {
+    let empty = unsafe { std::mem::zeroed::<NativeFd>() };
+    let mut raw = vec![empty; max_visited];
+    let (mut visited, mut written, mut read_errors, mut truncated) = (0, 0, 0, 0);
+    let code = unsafe {
+        agt_process_fds(
+            pid,
+            raw.as_mut_ptr(),
+            raw.len(),
+            &raw mut visited,
+            &raw mut written,
+            &raw mut read_errors,
+            &raw mut truncated,
+        )
+    };
+    if code != 0 {
+        return Err(native_inspection_error(code, "descriptor"));
+    }
+    if written > raw.len() || visited > max_visited || written > visited {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "native descriptor counts exceed their buffers",
+        ));
+    }
+    raw.truncate(written);
+    let items = raw
+        .into_iter()
+        .map(|row| {
+            let kind = match row.kind {
+                0 => "appletalk".to_owned(),
+                1 => "vnode".to_owned(),
+                2 => "socket".to_owned(),
+                3 => "shared-memory".to_owned(),
+                4 => "semaphore".to_owned(),
+                5 => "kqueue".to_owned(),
+                6 => "pipe".to_owned(),
+                7 => "fsevents".to_owned(),
+                9 => "network-policy".to_owned(),
+                10 => "channel".to_owned(),
+                11 => "nexus".to_owned(),
+                other => format!("unknown-{other}"),
+            };
+            Ok(ProcessFileDescriptor {
+                descriptor: row.descriptor,
+                kind,
+                target: native_bytes(&row.target, row.target_len, "descriptor target")?,
+                open_flags: (row.has_vnode != 0).then_some(row.open_flags),
+                status_flags: (row.has_vnode != 0).then_some(row.status_flags),
+                offset_bytes: (row.has_vnode != 0).then_some(row.offset_bytes),
+                file_type: (row.has_vnode != 0).then_some(row.file_type),
+                guard_flags: (row.has_vnode != 0).then_some(row.guard_flags),
+            })
+        })
+        .collect::<Result<Vec<_>, ProcessError>>()?;
+    Ok(ProcessInspection {
+        items,
+        visited_count: visited,
+        read_errors,
+        truncated_scan: truncated != 0,
+    })
+}
+
+fn protection(bits: u32) -> String {
+    [
+        if bits & 1 != 0 { 'r' } else { '-' },
+        if bits & 2 != 0 { 'w' } else { '-' },
+        if bits & 4 != 0 { 'x' } else { '-' },
+    ]
+    .into_iter()
+    .collect()
+}
+
+pub(crate) fn memory_regions(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessMemoryRegion>, ProcessError> {
+    let empty = unsafe { std::mem::zeroed::<NativeRegion>() };
+    let mut raw = vec![empty; max_visited];
+    let (mut visited, mut written, mut truncated) = (0, 0, 0);
+    let code = unsafe {
+        agt_process_regions(
+            pid,
+            raw.as_mut_ptr(),
+            raw.len(),
+            &raw mut visited,
+            &raw mut written,
+            &raw mut truncated,
+        )
+    };
+    if code != 0 {
+        return Err(native_inspection_error(code, "memory-region"));
+    }
+    if written > raw.len() || visited > max_visited || written != visited {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "native memory-region counts exceed their buffers",
+        ));
+    }
+    raw.truncate(written);
+    let items = raw
+        .into_iter()
+        .map(|row| {
+            row.start_address
+                .checked_add(row.size_bytes)
+                .ok_or_else(|| {
+                    ProcessError::new(
+                        ProcessErrorKind::InvalidData,
+                        "native memory-region range overflows its address space",
+                    )
+                })?;
+            let sharing = match row.sharing {
+                1 => "copy-on-write".to_owned(),
+                2 => "private".to_owned(),
+                3 => "empty".to_owned(),
+                4 => "shared".to_owned(),
+                5 => "true-shared".to_owned(),
+                6 => "private-aliased".to_owned(),
+                7 => "shared-aliased".to_owned(),
+                8 => "large-page".to_owned(),
+                other => format!("unknown-{other}"),
+            };
+            Ok(ProcessMemoryRegion {
+                start_address: row.start_address,
+                size_bytes: row.size_bytes,
+                offset_bytes: row.offset_bytes,
+                permissions: protection(row.protection),
+                max_permissions: Some(protection(row.max_protection)),
+                sharing,
+                path: native_bytes(&row.path, row.path_len, "memory-region path")?,
+                device: None,
+                inode: None,
+                flags: Some(row.flags),
+                user_tag: Some(row.user_tag),
+                depth: Some(row.depth),
+                resident_pages: Some(row.resident_pages),
+                private_resident_pages: Some(row.private_resident_pages),
+                shared_resident_pages: Some(row.shared_resident_pages),
+                swapped_pages: Some(row.swapped_pages),
+                dirtied_pages: Some(row.dirtied_pages),
+            })
+        })
+        .collect::<Result<Vec<_>, ProcessError>>()?;
+    Ok(ProcessInspection {
+        items,
+        visited_count: visited,
+        read_errors: 0,
+        truncated_scan: truncated != 0,
+    })
+}
+
+pub(crate) fn threads(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessThreadInfo>, ProcessError> {
+    let empty = unsafe { std::mem::zeroed::<NativeThread>() };
+    let mut raw = vec![empty; max_visited];
+    let (mut visited, mut written, mut read_errors, mut truncated) = (0, 0, 0, 0);
+    let code = unsafe {
+        agt_process_threads(
+            pid,
+            raw.as_mut_ptr(),
+            raw.len(),
+            &raw mut visited,
+            &raw mut written,
+            &raw mut read_errors,
+            &raw mut truncated,
+        )
+    };
+    if code != 0 {
+        return Err(native_inspection_error(code, "thread"));
+    }
+    if written > raw.len() || visited > max_visited || written + read_errors != visited {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "native thread counts exceed their buffers",
+        ));
+    }
+    raw.truncate(written);
+    let items = raw
+        .into_iter()
+        .map(|row| {
+            let state = match row.run_state {
+                1 => "running".to_owned(),
+                2 => "stopped".to_owned(),
+                3 => "waiting".to_owned(),
+                4 => "uninterruptible".to_owned(),
+                5 => "halted".to_owned(),
+                other => format!("unknown-{other}"),
+            };
+            Ok(ProcessThreadInfo {
+                id: row.id,
+                name: native_bytes(&row.name, row.name_len, "thread name")?,
+                state,
+                state_raw: row.run_state.to_string(),
+                user_time_raw: row.user_time,
+                system_time_raw: row.system_time,
+                time_unit: "darwin-thread-time",
+                cpu_usage_tenths_percent: Some(row.cpu_usage),
+                policy: Some(row.policy),
+                flags: Some(row.flags),
+                sleep_seconds: Some(row.sleep_seconds),
+                current_priority: Some(row.current_priority),
+                priority: Some(row.priority),
+                max_priority: Some(row.max_priority),
+                nice: None,
+                processor: None,
+            })
+        })
+        .collect::<Result<Vec<_>, ProcessError>>()?;
+    Ok(ProcessInspection {
+        items,
+        visited_count: visited,
+        read_errors,
+        truncated_scan: truncated != 0,
+    })
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {

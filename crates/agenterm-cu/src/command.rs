@@ -942,6 +942,54 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<usize>,
     },
+    /// Inspect one identity-bracketed descriptor snapshot. Result pagination
+    /// and native scan completeness are reported independently.
+    ProcessFds {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_filter: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_visited: Option<usize>,
+    },
+    /// Inspect one identity-bracketed virtual-memory region snapshot.
+    ProcessMaps {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permissions: Option<String>,
+        #[serde(default)]
+        executable_only: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_visited: Option<usize>,
+    },
+    /// Inspect one identity-bracketed native-thread snapshot.
+    ProcessThreads {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_visited: Option<usize>,
+    },
     /// One cumulative resource sample for an exact, identity-bound process.
     ProcessUsage {
         target: TargetRef,
@@ -2561,6 +2609,9 @@ impl Command {
             Self::ProcessArgv { .. } => "process-argv".into(),
             Self::ProcessCwd { .. } => "process-cwd".into(),
             Self::ProcessEnvironment { .. } => "process-environment".into(),
+            Self::ProcessFds { .. } => "process-fds".into(),
+            Self::ProcessMaps { .. } => "process-maps".into(),
+            Self::ProcessThreads { .. } => "process-threads".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
@@ -2707,6 +2758,9 @@ impl Command {
             | Self::ProcessArgv { target, .. }
             | Self::ProcessCwd { target, .. }
             | Self::ProcessEnvironment { target, .. }
+            | Self::ProcessFds { target, .. }
+            | Self::ProcessMaps { target, .. }
+            | Self::ProcessThreads { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }

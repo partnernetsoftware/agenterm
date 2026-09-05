@@ -12,6 +12,76 @@ pub struct ProcessInfo {
     pub executable_name: String,
 }
 
+/// One bounded native inventory with scan completeness kept separate from
+/// caller-side result pagination.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessInspection<T> {
+    pub items: Vec<T>,
+    pub visited_count: usize,
+    pub read_errors: usize,
+    pub truncated_scan: bool,
+}
+
+/// One process-local descriptor. Native path bytes are retained without lossy
+/// decoding so the product boundary can refuse or encode them deliberately.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessFileDescriptor {
+    pub descriptor: i32,
+    pub kind: String,
+    pub target: Option<Vec<u8>>,
+    pub open_flags: Option<u32>,
+    pub status_flags: Option<u32>,
+    pub offset_bytes: Option<i64>,
+    pub file_type: Option<u32>,
+    pub guard_flags: Option<u32>,
+}
+
+/// One virtual-memory region. Addresses and sizes stay integers inside the
+/// mechanism layer; JSON callers may render them as strings without precision
+/// loss.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessMemoryRegion {
+    pub start_address: u64,
+    pub size_bytes: u64,
+    pub offset_bytes: u64,
+    pub permissions: String,
+    pub max_permissions: Option<String>,
+    pub sharing: String,
+    pub path: Option<Vec<u8>>,
+    pub device: Option<String>,
+    pub inode: Option<u64>,
+    pub flags: Option<u32>,
+    pub user_tag: Option<u32>,
+    pub depth: Option<u32>,
+    pub resident_pages: Option<u32>,
+    pub private_resident_pages: Option<u32>,
+    pub shared_resident_pages: Option<u32>,
+    pub swapped_pages: Option<u32>,
+    pub dirtied_pages: Option<u32>,
+}
+
+/// One native thread snapshot. Time counters deliberately remain raw and name
+/// bytes remain lossless; `time_unit` states how to interpret the counters.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessThreadInfo {
+    pub id: u64,
+    pub name: Option<Vec<u8>>,
+    pub state: String,
+    pub state_raw: String,
+    pub user_time_raw: u64,
+    pub system_time_raw: u64,
+    pub time_unit: &'static str,
+    pub cpu_usage_tenths_percent: Option<i32>,
+    pub policy: Option<i32>,
+    pub flags: Option<i32>,
+    pub sleep_seconds: Option<i32>,
+    pub current_priority: Option<i32>,
+    pub priority: Option<i32>,
+    pub max_priority: Option<i32>,
+    pub nice: Option<i32>,
+    pub processor: Option<i32>,
+}
+
 /// One raw, NUL-delimited entry from a process's initial environment block.
 ///
 /// The bytes are deliberately not decoded here: Unix environment names and

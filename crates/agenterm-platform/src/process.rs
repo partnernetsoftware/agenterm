@@ -12,7 +12,8 @@ use crate::{contract::process::ProcessInfo, selected::process as adapter};
 
 pub use crate::contract::process::{
     PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentEntry, ProcessEnvironmentSnapshot,
-    ProcessError, ProcessErrorKind,
+    ProcessError, ProcessErrorKind, ProcessFileDescriptor, ProcessInspection, ProcessMemoryRegion,
+    ProcessThreadInfo,
 };
 pub use crate::contract::process::{PipeProbeError, PipeProbeToken};
 pub use crate::process_observation::{ProcessObservation, observe, start_identity};
@@ -68,6 +69,49 @@ pub fn current_directory(pid: u32) -> Result<PathBuf, ProcessError> {
         ));
     }
     adapter::current_directory(pid)
+}
+
+fn validate_inspection(pid: u32, max_visited: usize) -> Result<(), ProcessError> {
+    if pid == 0 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::IdOutOfRange,
+            "process id must be greater than zero",
+        ));
+    }
+    if !(1..=10_000).contains(&max_visited) {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "max_visited must be in 1..=10000",
+        ));
+    }
+    Ok(())
+}
+
+/// Read one bounded process-local file-descriptor inventory.
+pub fn file_descriptors(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessFileDescriptor>, ProcessError> {
+    validate_inspection(pid, max_visited)?;
+    adapter::file_descriptors(pid, max_visited)
+}
+
+/// Read one bounded virtual-memory map inventory.
+pub fn memory_regions(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessMemoryRegion>, ProcessError> {
+    validate_inspection(pid, max_visited)?;
+    adapter::memory_regions(pid, max_visited)
+}
+
+/// Read one bounded native thread inventory.
+pub fn threads(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessThreadInfo>, ProcessError> {
+    validate_inspection(pid, max_visited)?;
+    adapter::threads(pid, max_visited)
 }
 
 pub fn kill(pid: u32) -> Result<(), ProcessError> {
@@ -155,6 +199,31 @@ mod tests {
             super::environment_snapshot(0).unwrap_err().kind(),
             super::ProcessErrorKind::IdOutOfRange
         );
+    }
+
+    #[test]
+    fn process_inspection_rejects_zero_and_unbounded_scans() {
+        assert_eq!(
+            super::file_descriptors(0, 1).unwrap_err().kind(),
+            super::ProcessErrorKind::IdOutOfRange
+        );
+        assert_eq!(
+            super::threads(std::process::id(), 10_001)
+                .unwrap_err()
+                .kind(),
+            super::ProcessErrorKind::InventoryTooLarge
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn current_process_inspection_is_bounded() {
+        let fds = super::file_descriptors(std::process::id(), 256).expect("current fds");
+        assert!(fds.visited_count <= 256);
+        let maps = super::memory_regions(std::process::id(), 10_000).expect("current maps");
+        assert!(!maps.items.is_empty());
+        let threads = super::threads(std::process::id(), 256).expect("current threads");
+        assert!(!threads.items.is_empty());
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

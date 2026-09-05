@@ -709,6 +709,58 @@
       ]
     },
     {
+      "name": "process-fds",
+      "command": "process-fds",
+      "aliases": ["process fds"],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity-bound bounded descriptor inventory",
+      "usage": "process-fds --pid N [--type KIND] [--target-text SUB] [--offset N] [--limit N] [--max-visited N]\nprocess fds PID [filters]",
+      "args": [
+        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
+        {"flag": "--type", "value": "KIND", "help": "exact descriptor kind"},
+        {"flag": "--target-text", "value": "SUB", "help": "case-insensitive target substring"},
+        {"flag": "--offset", "value": "N", "help": "first matching descriptor (default 0)"},
+        {"flag": "--limit", "value": "N", "help": "returned descriptors, 1..=5000 (default 256)"},
+        {"flag": "--max-visited", "value": "N", "help": "native scan ceiling, 1..=10000 (default 4096)"}
+      ]
+    },
+    {
+      "name": "process-maps",
+      "command": "process-maps",
+      "aliases": ["process maps"],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity-bound bounded memory-region inventory",
+      "usage": "process-maps --pid N [--path SUB] [--permissions rwx] [--executable-only] [--offset N] [--limit N] [--max-visited N]\nprocess maps PID [filters]",
+      "args": [
+        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
+        {"flag": "--path", "value": "SUB", "help": "case-insensitive mapped-path substring"},
+        {"flag": "--permissions", "value": "rwx", "help": "required permission letters"},
+        {"flag": "--executable-only", "value": "", "help": "only executable mappings"},
+        {"flag": "--offset", "value": "N", "help": "first matching region (default 0)"},
+        {"flag": "--limit", "value": "N", "help": "returned regions, 1..=5000 (default 256)"},
+        {"flag": "--max-visited", "value": "N", "help": "native scan ceiling, 1..=10000 (default 4096)"}
+      ]
+    },
+    {
+      "name": "process-threads",
+      "command": "process-threads",
+      "aliases": ["process threads"],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity-bound bounded native-thread inventory",
+      "usage": "process-threads --pid N [--name SUB] [--state STATE] [--offset N] [--limit N] [--max-visited N]\nprocess threads PID [filters]",
+      "args": [
+        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
+        {"flag": "--name", "value": "SUB", "help": "case-insensitive native thread-name substring"},
+        {"flag": "--state", "value": "STATE", "help": "exact normalized thread state"},
+        {"flag": "--offset", "value": "N", "help": "first matching thread (default 0)"},
+        {"flag": "--limit", "value": "N", "help": "returned threads, 1..=5000 (default 256)"},
+        {"flag": "--max-visited", "value": "N", "help": "native scan ceiling, 1..=10000 (default 4096)"}
+      ]
+    },
+    {
       "name": "process-wait",
       "command": "process-wait",
       "aliases": [
@@ -4212,6 +4264,18 @@
     }
   ],
   "help": [
+    {
+      "name": "process-fds",
+      "text": "agenterm-cu process-fds    (also: process fds)\n  scope: observe    family: Processes\n\nusage:\n  process-fds --pid N [--type KIND] [--target-text SUB] [--offset N] [--limit N] [--max-visited N]\n  process fds PID [filters]\n\nReads one bounded native descriptor inventory between matching process-start identities. Native scan truncation, read errors, filter matches and caller pagination are reported separately. Darwin uses linked libproc code; Linux reads procfs; Windows returns a typed unsupported result rather than using private handle-table layouts.\n"
+    },
+    {
+      "name": "process-maps",
+      "text": "agenterm-cu process-maps    (also: process maps)\n  scope: observe    family: Processes\n\nusage:\n  process-maps --pid N [--path SUB] [--permissions rwx] [--executable-only] [--offset N] [--limit N] [--max-visited N]\n  process maps PID [filters]\n\nReads one bounded native virtual-memory inventory between matching process-start identities. Addresses and counters are emitted as decimal/hex strings so JavaScript retains full precision. Non-UTF-8 native paths remain explicitly encoded instead of lossily replaced.\n"
+    },
+    {
+      "name": "process-threads",
+      "text": "agenterm-cu process-threads    (also: process threads)\n  scope: observe    family: Processes\n\nusage:\n  process-threads --pid N [--name SUB] [--state STATE] [--offset N] [--limit N] [--max-visited N]\n  process threads PID [filters]\n\nReads one bounded native thread inventory between matching process-start identities. Thread ids and time counters are lossless strings, and time_unit names the platform counter domain. Scan errors and truncation remain visible.\n"
+    },
     {
       "name": "process-signal",
       "text": "agenterm-cu process-signal    (also: process signal, signal)\n  scope: actuate    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\n  process signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\n  signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\n\nSIGNAL is one of HUP, INT, TERM, KILL, STOP, CONT, USR1 or USR2 (the SIG prefix is optional). The executor opens mutation-capable native process references before binding live start identities and never uses a naked PID as effect authority. TERM/KILL require exact-object exit read-back; STOP/CONT require scheduler-state read-back. HUP/INT/USR1/USR2 prove exact native delivery but remain verified=false because only the target application can acknowledge their meaning. SIGKILL requires --force. --tree freezes the root and every bounded descendant until two complete snapshots agree, delivers deepest-first, and restores only members it found running; pre-stopped members stay stopped. Linux uses pidfd_send_signal, macOS uses retained audit tokens, and Windows refuses arbitrary trees because it has no retained containment object for pre-existing processes. Privileged signal shapes remain a separate consent-provider gap.\n"

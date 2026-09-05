@@ -4,7 +4,8 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::contract::process::{
-    ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind, ProcessInfo,
+    ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind, ProcessFileDescriptor, ProcessInfo,
+    ProcessInspection, ProcessMemoryRegion, ProcessThreadInfo,
 };
 
 pub(crate) fn stdout_probe_token(reader: &ChildStdout) -> Option<PipeProbeToken> {
@@ -84,6 +85,34 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
     }
     unsafe { CloseHandle(snapshot) };
     Ok(processes)
+}
+
+fn inspection_unsupported<T>(subject: &str) -> Result<ProcessInspection<T>, ProcessError> {
+    Err(ProcessError::new(
+        ProcessErrorKind::Unsupported,
+        format!("arbitrary-process {subject} inventory has no stable Windows provider"),
+    ))
+}
+
+pub(crate) fn file_descriptors(
+    _pid: u32,
+    _max_visited: usize,
+) -> Result<ProcessInspection<ProcessFileDescriptor>, ProcessError> {
+    inspection_unsupported("descriptor")
+}
+
+pub(crate) fn memory_regions(
+    _pid: u32,
+    _max_visited: usize,
+) -> Result<ProcessInspection<ProcessMemoryRegion>, ProcessError> {
+    inspection_unsupported("memory-region")
+}
+
+pub(crate) fn threads(
+    _pid: u32,
+    _max_visited: usize,
+) -> Result<ProcessInspection<ProcessThreadInfo>, ProcessError> {
+    inspection_unsupported("thread")
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {
