@@ -5,13 +5,15 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`e77d668`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`930dec0`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 The earlier opt-in allocation attribution remains diagnostic-only: D0 rejected
 the recovery specialization and no allocator rewind/reuse landed. This revision
-also closes one host-effect ambiguity: under the declared product door, a bare
-host name in value position now fails at compile time by function name instead
-of silently becoming a zero-argument host call.
+adds the exact first optional-property slice `base?.prop` / `base?.[key]` with
+single base evaluation and skipped computed-key effects on nullish input. It
+adds no VM opcode and keeps the 101,256-byte static core exact; the public
+network-probe journey now consumes the computed-key form. Optional calls and
+continuation chains remain named gaps rather than approximate semantics.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in

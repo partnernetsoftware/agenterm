@@ -26,7 +26,7 @@ function text_of(value) {
 
 function at(value, dotted) {
   let current = value;
-  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  for (const key of dotted.split(".")) { current = current?.[key]; }
   return current;
 }
 
