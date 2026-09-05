@@ -1138,3 +1138,25 @@ costs a full candidate cycle:
   the Candidate manifest. Runtime runners still perform no checkout, Cargo,
   packaging or signing. Local fixture validation is green; the leaf remains
   partial until one exact-SHA remote Candidate proves all six native runners.
+- [x] Local UTM lifecycle belongs to the sibling `utm-court` service. Every
+  status and lifecycle RPC is process-tree bounded: a wedged `utmctl` becomes
+  typed unavailable/BLOCKED instead of retaining the single-active lease.
+  Product court scripts only lease, transfer exact bytes, execute and release.
+- [x] Windows guest logs are an encoding boundary. Windows PowerShell 5 may
+  redirect native output as UTF-16LE while Linux and newer shells emit UTF-8;
+  the host normalizes the pulled text copy before exact `EVIDENCE`/`PASS`
+  matching. It never decodes payloads or manifests, and malformed text fails
+  closed. This repaired a real false-negative where the Windows ARM64 journey
+  had fully passed but byte-oriented UTF-8 matching rejected its transcript.
+
+```mermaid
+flowchart LR
+  B["exact-SHA cross-build"] --> L["utm-court lease<br/>bounded lifecycle RPC"]
+  L --> X["push + manifest verify<br/>execute only"]
+  X --> G{"guest log encoding"}
+  G -->|UTF-8| N["canonical UTF-8 evidence"]
+  G -->|PowerShell UTF-16LE| N
+  N --> V{"exact EVIDENCE + PASS<br/>typed exit receipt"}
+  V -->|green| R["release VM + retain receipt"]
+  V -->|red| F["fail closed + retain diagnostics"]
+```

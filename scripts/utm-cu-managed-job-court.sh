@@ -128,6 +128,29 @@ RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 LOCAL_LOG="$SCRATCH/run.log"
 LOCAL_EXIT="$SCRATCH/run.exit"
 EVIDENCE_DIR="$REPO_ROOT/target/utm-court-evidence/$SOURCE_SHA/$COURT/$TASK"
+
+# Windows PowerShell 5 native redirection writes UTF-16LE, while Linux guests
+# and newer shells write UTF-8. Evidence is a text protocol, so normalize only
+# the pulled copy before exact EVIDENCE/PASS matching; never reinterpret the
+# executable payload or its digest manifest.
+normalize_pulled_log() {
+  log_path="$1"
+  python3 - "$log_path" <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = path.read_bytes()
+if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+    text = data.decode("utf-16")
+elif data.startswith(b"\xef\xbb\xbf"):
+    text = data.decode("utf-8-sig")
+else:
+    text = data.decode("utf-8")
+temporary = path.with_name(path.name + ".utf8.tmp")
+temporary.write_text(text, encoding="utf-8", newline="")
+os.replace(temporary, path)
+PY
+}
+
 if [ "$GUEST_OS" = linux ]; then
   GUEST_ARCHIVE="/tmp/agenterm-$RUN_ID.tar.gz"
   GUEST_ROOT="/tmp/agenterm-$RUN_ID"
@@ -195,6 +218,7 @@ while :; do
   if [ "$SECONDS" -ge "$deadline" ]; then
     mkdir -p "$EVIDENCE_DIR"
     if "$COURT_CLI" pull "$COURT" "$GUEST_LOG" "$LOCAL_LOG" >/dev/null 2>&1; then
+      normalize_pulled_log "$LOCAL_LOG"
       cp "$LOCAL_LOG" "$EVIDENCE_DIR/timeout.log"
       cat "$LOCAL_LOG" >&2
     fi
@@ -227,15 +251,29 @@ PY
   sleep 1
 done
 "$COURT_CLI" pull "$COURT" "$GUEST_LOG" "$LOCAL_LOG"
+normalize_pulled_log "$LOCAL_LOG"
 cat "$LOCAL_LOG"
 RUN_RC="$(tr -d '\r\n ' <"$LOCAL_EXIT")"
 case "$RUN_RC" in ''|*[!0-9]*) echo "invalid guest exit receipt" >&2; exit 1 ;; esac
+
+FINAL_RC="$RUN_RC"
+OUTCOME=failed
+if [ "$RUN_RC" -eq 0 ] &&
+   grep -Fqx "EVIDENCE $EVIDENCE" "$LOCAL_LOG" &&
+   grep -Fqx "$PASS_LINE" "$LOCAL_LOG"; then
+  FINAL_RC=0
+  OUTCOME=passed
+elif [ "$RUN_RC" -eq 0 ]; then
+  # A zero guest exit without both exact protocol lines is a court failure,
+  # not a successful receipt followed by an incidental grep error.
+  FINAL_RC=1
+fi
 
 mkdir -p "$EVIDENCE_DIR"
 cp "$LOCAL_LOG" "$EVIDENCE_DIR/run.log"
 cp "$LOCAL_EXIT" "$EVIDENCE_DIR/run.exit"
 cp "$PAYLOAD/MANIFEST.sha256" "$EVIDENCE_DIR/MANIFEST.sha256"
-python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$RUN_RC" "$EVIDENCE" <<'PY'
+python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$FINAL_RC" "$RUN_RC" "$OUTCOME" "$EVIDENCE" <<'PY'
 import datetime, json, sys
 receipt = {
     "schema": 1,
@@ -243,7 +281,9 @@ receipt = {
     "court": sys.argv[3],
     "bundle_sha256": sys.argv[4],
     "exit_code": int(sys.argv[5]),
-    "evidence": sys.argv[6],
+    "guest_exit_code": int(sys.argv[6]),
+    "outcome": sys.argv[7],
+    "evidence": sys.argv[8],
     "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
 with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
@@ -253,6 +293,4 @@ import os
 os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 PY
 
-[ "$RUN_RC" -eq 0 ] || exit "$RUN_RC"
-grep -Fqx "EVIDENCE $EVIDENCE" "$LOCAL_LOG"
-grep -Fqx "$PASS_LINE" "$LOCAL_LOG"
+[ "$FINAL_RC" -eq 0 ] || exit "$FINAL_RC"
