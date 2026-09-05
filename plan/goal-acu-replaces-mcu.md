@@ -160,7 +160,7 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **22 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **21 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
@@ -192,6 +192,10 @@ tree and pointer position without a screenshot. It refuses ambiguous focus,
 unknown handles, inventories over 512 windows, and target drift during capture;
 tree truncation remains explicit. The macOS public CLI is live; Linux and
 Windows journey evidence is still required before the row is three-host green.
+
+The legacy `acu caps` spelling now projects directly onto ACU `capabilities`.
+It no longer keeps MCU's private capability manifest alive; live mechanism
+depth that ACU has not proved remains explicit in the replacement truth table.
 
 ## Historical observed frontier (2026-09-04)
 

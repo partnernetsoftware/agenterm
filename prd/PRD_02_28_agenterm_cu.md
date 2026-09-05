@@ -213,6 +213,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   remaining native courts.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
+- [~] The compatibility spelling `acu caps` now returns the replacement ACU
+  per-target capability matrix. It does not preserve MCU's private manifest as
+  a second source of truth; declared, live, unavailable and unsupported states
+  must instead become more precise in the ACU catalog and its native courts.
   Managed-job implementation has entered an internal, deliberately unshipped
   cohort: a private crash-safe registry seals start intent, generation, owner
   and exact child identity without accepting command, environment or lease

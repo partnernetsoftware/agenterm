@@ -964,6 +964,8 @@
           "acu_shape": "capabilities returns the ACU verb/target/mechanism matrix",
           "state": "delegated",
           "qualification": "live-depth-inventory-incomplete",
+          "evidence": ["MCU-shaped acu caps routing suite"],
+          "note": "The compatibility spelling now projects to the replacement ACU truth table instead of keeping the retired MCU-private manifest alive.",
           "next": "add bounded live probe evidence where declaration alone cannot establish mechanism health; keep unsupported distinct from unavailable"
         }
       ]
