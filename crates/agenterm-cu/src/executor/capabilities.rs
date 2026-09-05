@@ -550,6 +550,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             ("job-spawn", "actuate", "resident-contained-process-start"),
             ("job-list", "observe", "durable-bounded-inventory"),
             ("job-status", "observe", "durable-plus-live-status"),
+            (
+                "job-resources",
+                "observe",
+                "identity-bracketed-root-only-resources",
+            ),
             ("job-events", "observe", "loss-aware-dual-output-cursors"),
             ("job-output", "observe", "loss-aware-single-output-cursor"),
             ("job-write", "actuate", "bounded-atomic-stdin-write"),
@@ -567,6 +572,8 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                     "transport": "authenticated-native-ipc",
                     "owner": "independent-resident-process",
                     "request_identity": matches!(verb, "job-spawn" | "job-write" | "job-stop" | "job-renew"),
+                    "scope": (verb == "job-resources").then_some("root-only"),
+                    "tree_complete": (verb == "job-resources").then_some(false),
                 }),
             );
         }
@@ -998,6 +1005,7 @@ mod tests {
         assert_eq!(data["verbs"]["job-spawn"]["status"], "available");
         assert_eq!(data["verbs"]["job-events"]["grant"], "observe");
         assert_eq!(data["verbs"]["job-output"]["grant"], "observe");
+        assert_eq!(data["verbs"]["job-resources"]["scope"], "root-only");
         assert!(!tsv.contains("still-gap"));
         assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
         assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");

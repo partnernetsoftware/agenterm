@@ -160,6 +160,14 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
             target,
             job_id: positional(args, "JOB_ID")?,
         },
+        "job-resources" => Command::JobResources {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            watch_ms: flag_parsed(args, "--watch-ms")?,
+        },
         "job-events" => Command::JobEvents {
             target,
             job_id: positional(args, "JOB_ID")?,
@@ -554,6 +562,18 @@ mod tests {
         assert_eq!(stream, JobOutputStream::Stderr);
         assert_eq!(cursor.as_str(), "11");
         assert_eq!(max_bytes, 1);
+        let Command::JobResources {
+            generation,
+            watch_ms,
+            ..
+        } = parse("job", &["resources", id, "2", "--watch-ms", "25"]).unwrap()
+        else {
+            panic!("job-resources command")
+        };
+        assert_eq!(generation, 2);
+        assert_eq!(watch_ms, Some(25));
+        assert!(parse("job-resources", &[id, "1", "--watch-ms", "0"]).is_err());
+        assert!(parse("job-resources", &[id, "1", "--watch-ms", "300001"]).is_err());
         assert!(parse("job-output", &[id, "1", "--stream", "merged"]).is_err());
         assert!(parse("job-events", &[id, "0"]).is_err());
         assert!(parse("job-write", &[id, "1"]).is_err());

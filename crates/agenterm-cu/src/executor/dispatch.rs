@@ -126,6 +126,12 @@ impl Executor {
                 state, offset, max, ..
             } => job_list_payload(*state, *offset, *max),
             Command::JobStatus { job_id, .. } => job_status_payload(job_id),
+            Command::JobResources {
+                job_id,
+                generation,
+                watch_ms,
+                ..
+            } => job_resources_payload(job_id, *generation, *watch_ms),
             Command::JobEvents {
                 job_id,
                 generation,

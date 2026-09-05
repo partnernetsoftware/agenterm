@@ -31,6 +31,7 @@ const START_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const START_POLL: Duration = Duration::from_millis(20);
 const OUTPUT_CAPACITY_BYTES: usize = 1024 * 1024;
 const IPC_PAGE_BYTES: usize = 64 * 1024;
+const JOB_RESOURCE_MAX_SAMPLES: usize = 256;
 
 pub(super) struct JobRequestContext<'a> {
     pub session_id: &'a str,
@@ -359,6 +360,151 @@ pub(super) fn job_status_payload(job_id: &str) -> Result<Value, CuError> {
         None
     };
     Ok(record_payload(&record, live.as_ref()))
+}
+
+pub(super) fn job_resources_payload(
+    job_id: &str,
+    generation: u64,
+    watch_ms: Option<u64>,
+) -> Result<Value, CuError> {
+    let record = checked_record(job_id, generation)?;
+    let expected = record.process.clone().ok_or_else(|| {
+        CuError::new(
+            "managed_job_process_identity_unavailable",
+            "managed-job has no published exact child process identity",
+        )
+        .with_detail(json!({
+            "job_id": job_id,
+            "generation": generation,
+            "state": record.state,
+        }))
+    })?;
+    let usage = match watch_ms {
+        Some(duration_ms) => {
+            let intervals = (JOB_RESOURCE_MAX_SAMPLES - 1) as u64;
+            let interval_ms = duration_ms.div_ceil(intervals).max(1);
+            super::process_usage_watch_payload(
+                expected.pid,
+                duration_ms,
+                Some(interval_ms),
+                Some(JOB_RESOURCE_MAX_SAMPLES),
+            )?
+        }
+        None => super::process_usage_payload(expected.pid)?,
+    };
+    let after_record = checked_record(job_id, generation)?;
+    if after_record.process.as_ref() != Some(&expected) {
+        return Err(CuError::new(
+            "managed_job_process_identity_changed",
+            "managed-job durable child identity changed while metrics were sampled",
+        )
+        .with_detail(json!({
+            "job_id": job_id,
+            "generation": generation,
+            "expected_pid": expected.pid,
+            "expected_start_identity": expected.start_identity,
+        })));
+    }
+    let observed_identity = usage["start_identity"].as_str().ok_or_else(|| {
+        CuError::new(
+            "process_metrics_contract_invalid",
+            "identity-bracketed process metrics omitted start_identity",
+        )
+    })?;
+    if observed_identity != expected.start_identity {
+        return Err(CuError::new(
+            "managed_job_process_identity_changed",
+            "managed-job child identity no longer matches its durable record",
+        )
+        .with_detail(json!({
+            "job_id": job_id,
+            "generation": generation,
+            "pid": expected.pid,
+            "expected_start_identity": expected.start_identity,
+            "actual_start_identity": observed_identity,
+        })));
+    }
+
+    if let Some(duration_ms) = watch_ms {
+        let samples = usage["samples"]
+            .as_array()
+            .ok_or_else(metrics_contract_error)?
+            .iter()
+            .map(|sample| {
+                Ok(json!({
+                    "t_ms": sample["t_ms"],
+                    "members": [resource_member(expected.pid, &expected.start_identity, sample)?],
+                }))
+            })
+            .collect::<Result<Vec<_>, CuError>>()?;
+        let members = samples
+            .last()
+            .and_then(|sample| sample["members"].as_array())
+            .cloned()
+            .unwrap_or_default();
+        return Ok(json!({
+            "job_id": job_id,
+            "generation": generation,
+            "scope": "root-only",
+            "tree_complete": false,
+            "mode": "bounded-series",
+            "duration_ms": duration_ms,
+            "interval_ms": usage["interval_ms"],
+            "max_samples": usage["max_samples"],
+            "emitted": usage["emitted"],
+            "completed": usage["completed"],
+            "truncated": usage["truncated"],
+            "members": members,
+            "samples": samples,
+            "verified": true,
+        }));
+    }
+
+    Ok(json!({
+        "job_id": job_id,
+        "generation": generation,
+        "scope": "root-only",
+        "tree_complete": false,
+        "mode": "point",
+        "members": [resource_member(expected.pid, &expected.start_identity, &usage)?],
+        "verified": true,
+    }))
+}
+
+fn resource_member(pid: u32, start_identity: &str, sample: &Value) -> Result<Value, CuError> {
+    let cpu_time_ns = sample["cpu_time_ns"]
+        .as_str()
+        .ok_or_else(metrics_contract_error)?;
+    let resident_bytes = sample["resident_bytes"]
+        .as_str()
+        .ok_or_else(metrics_contract_error)?;
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "cpu_time_ns": cpu_time_ns,
+        "cpu_ms": cpu_ms_decimal(cpu_time_ns)?,
+        "rss_bytes": resident_bytes,
+        "page_faults": sample["page_faults"],
+        "verified": true,
+    }))
+}
+
+fn cpu_ms_decimal(nanoseconds: &str) -> Result<String, CuError> {
+    let nanoseconds = nanoseconds
+        .parse::<u128>()
+        .map_err(|_| metrics_contract_error())?;
+    Ok(format!(
+        "{}.{:06}",
+        nanoseconds / 1_000_000,
+        nanoseconds % 1_000_000
+    ))
+}
+
+fn metrics_contract_error() -> CuError {
+    CuError::new(
+        "process_metrics_contract_invalid",
+        "identity-bracketed process metrics returned an invalid payload",
+    )
 }
 
 pub(super) fn job_write_payload(
@@ -1044,5 +1190,12 @@ mod tests {
                 .code,
             "managed_job_session_mismatch"
         );
+    }
+
+    #[test]
+    fn resource_cpu_milliseconds_preserve_the_exact_nanosecond_counter() {
+        assert_eq!(cpu_ms_decimal("0").unwrap(), "0.000000");
+        assert_eq!(cpu_ms_decimal("1000001").unwrap(), "1.000001");
+        assert!(cpu_ms_decimal("1.5").is_err());
     }
 }

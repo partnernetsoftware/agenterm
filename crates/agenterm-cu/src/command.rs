@@ -18,6 +18,7 @@ const JOB_CWD_BYTES_MAX: usize = 8 * 1024;
 const JOB_TTL_SECONDS_MAX: u64 = 86_400;
 const JOB_LIST_MAX: usize = 1_024;
 const JOB_EVENTS_TIMEOUT_MS_MAX: u64 = 300_000;
+const JOB_RESOURCES_WATCH_MS_MAX: u64 = 300_000;
 const JOB_EVENTS_BYTES_MAX: usize = 1024 * 1024;
 const JOB_WRITE_DECODED_BYTES_MAX: usize = 64 * 1024;
 const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
@@ -799,6 +800,14 @@ pub enum Command {
     JobStatus {
         target: TargetRef,
         job_id: String,
+    },
+    JobResources {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watch_ms: Option<u64>,
     },
     JobEvents {
         target: TargetRef,
@@ -2646,6 +2655,7 @@ impl Command {
             Self::JobSpawn { .. } => "job-spawn".into(),
             Self::JobList { .. } => "job-list".into(),
             Self::JobStatus { .. } => "job-status".into(),
+            Self::JobResources { .. } => "job-resources".into(),
             Self::JobEvents { .. } => "job-events".into(),
             Self::JobOutput { .. } => "job-output".into(),
             Self::JobWrite { .. } => "job-write".into(),
@@ -2797,6 +2807,7 @@ impl Command {
             | Self::JobSpawn { target, .. }
             | Self::JobList { target, .. }
             | Self::JobStatus { target, .. }
+            | Self::JobResources { target, .. }
             | Self::JobEvents { target, .. }
             | Self::JobOutput { target, .. }
             | Self::JobWrite { target, .. }
@@ -3039,6 +3050,20 @@ impl Command {
                 Ok(())
             }
             Self::JobStatus { job_id, .. } => validate_job_id(job_id),
+            Self::JobResources {
+                job_id,
+                generation,
+                watch_ms,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if watch_ms.is_some_and(|value| !(1..=JOB_RESOURCES_WATCH_MS_MAX).contains(&value))
+                {
+                    return Err("managed-job resources watch_ms must be in 1..=300000");
+                }
+                Ok(())
+            }
             Self::JobEvents {
                 job_id,
                 generation,
@@ -3228,6 +3253,32 @@ mod tests {
             serde_json::to_value(output_command).expect("serialize output"),
             output
         );
+
+        let resources = serde_json::json!({
+            "verb": "job-resources",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "watch_ms": 300_000
+        });
+        let resources_command: Command =
+            serde_json::from_value(resources.clone()).expect("resources");
+        assert_eq!(resources_command.verb(), "job-resources");
+        assert_eq!(resources_command.required_grant(), Grant::Observe);
+        resources_command.validate().expect("valid resources");
+        assert_eq!(
+            serde_json::to_value(resources_command).expect("serialize resources"),
+            resources
+        );
+        let invalid_resources: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-resources",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "watch_ms": 300_001
+        }))
+        .expect("structurally valid resources");
+        assert!(invalid_resources.validate().is_err());
 
         let write: Command = serde_json::from_value(serde_json::json!({
             "verb": "job-write",

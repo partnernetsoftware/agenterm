@@ -217,6 +217,16 @@
       "args": []
     },
     {
+      "name": "job-resources",
+      "command": "job-resources",
+      "aliases": ["job resources"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "sample the exact managed-job root process without claiming tree coverage",
+      "usage": "job-resources JOB_ID GENERATION [--watch-ms N]\njob resources JOB_ID GENERATION [--watch-ms N]",
+      "args": []
+    },
+    {
       "name": "job-output",
       "command": "job-output",
       "aliases": ["job output"],
@@ -4388,6 +4398,10 @@
     {
       "name": "job-events",
       "text": "agenterm-cu job-events    (also: job events)\n  scope: observe    family: Managed jobs\n\nusage: job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]\n\nReads independent bounded stdout/stderr rings. Cursors are canonical decimal byte positions; truncation and native read failures stay explicit.\n"
+    },
+    {
+      "name": "job-resources",
+      "text": "agenterm-cu job-resources    (also: job resources)\n  scope: observe    family: Managed jobs\n\nusage: job-resources JOB_ID GENERATION [--watch-ms N]\n\nSamples the durable record's exact root child identity once or as a bounded series for 1..=300000 ms. Each sample reuses process-usage start-identity bracketing and the observed identity must match the job record. Results include members, rss_bytes, exact decimal cpu_ms plus cpu_time_ns, and page faults. scope=root-only and tree_complete=false are deliberate: descendants are not enumerated or aggregated.\n"
     },
     {
       "name": "job-output",

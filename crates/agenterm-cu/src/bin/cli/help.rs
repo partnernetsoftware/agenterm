@@ -242,6 +242,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "job-spawn",
         "job-list",
         "job-status",
+        "job-resources",
         "job-events",
         "job-output",
         "job-write",
@@ -298,7 +299,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  host-open  host-notify  audit-query  audit-compact\n  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-events  job-output  job-write  job-wait  job-stop  job-renew\n  file-copy  file-move  file-transaction  privilege-plan"
+            "  host-open  host-notify  audit-query  audit-compact\n  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-resources  job-events  job-output\n  job-write  job-wait  job-stop  job-renew  file-copy  file-move  file-transaction  privilege-plan"
                 .to_owned(),
         );
     }

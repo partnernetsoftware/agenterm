@@ -9,7 +9,11 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.managed-job-lifecycle", "cu.audit-retention"];
+const declared_evidence = [
+  "cu.managed-job-lifecycle",
+  "cu.managed-job-resources",
+  "cu.audit-retention"
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -190,6 +194,38 @@ try {
       && public_observation.indexOf("SMOKE_LINE") < 0
       && public_observation.indexOf("IFS= read") < 0,
     "cu_managed_job_status_privacy_contract"
+  );
+
+  print("STEP sample the exact root child once and with one bounded watch without claiming tree coverage");
+  const resources = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-resources", first_job.job_id, "" + first_job.generation
+  ], "job-resources");
+  ensure(
+    resources.scope === "root-only" && resources.tree_complete === false
+      && resources.mode === "point" && resources.verified === true
+      && resources.members.length === 1
+      && resources.members[0].pid === status.process_pid
+      && text_of(resources.members[0].start_identity) !== ""
+      && text_of(resources.members[0].rss_bytes) !== ""
+      && text_of(resources.members[0].cpu_ms) !== ""
+      && text_of(resources.members[0].cpu_time_ns) !== "",
+    "cu_managed_job_resources_point_contract"
+  );
+  const watched_resources = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job", "resources", first_job.job_id, "" + first_job.generation,
+    "--watch-ms", "5"
+  ], "job-resources");
+  ensure(
+    watched_resources.scope === "root-only" && watched_resources.tree_complete === false
+      && watched_resources.mode === "bounded-series" && watched_resources.verified === true
+      && watched_resources.duration_ms === 5 && watched_resources.completed === true
+      && watched_resources.truncated === false && watched_resources.emitted > 0
+      && watched_resources.samples.length === watched_resources.emitted
+      && watched_resources.members.length === 1
+      && watched_resources.members[0].pid === status.process_pid,
+    "cu_managed_job_resources_watch_contract"
   );
 
   print("STEP renew the resident lease, then atomically write five bytes and close stdin");
@@ -483,9 +519,10 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.remove_run(context);
-  print("PASS: agenterm-cu platform-neutral managed-job lifecycle and bounded audit retention");
+  print("PASS: agenterm-cu platform-neutral managed-job lifecycle, root-only resources and bounded audit retention");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

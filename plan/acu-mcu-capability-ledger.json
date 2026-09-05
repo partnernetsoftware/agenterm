@@ -642,9 +642,12 @@
         {
           "id": "job.context-resources",
           "mcu_shape": "job env|resources [--watch]",
-          "acu_shape": "process-usage covers one identity-bound process only",
-          "state": "gap",
-          "next": "owned process-group environment and aggregate resource views; never label single-process metrics as group coverage"
+          "acu_shape": "job-resources JOB_ID GENERATION [--watch-ms N] samples the record's exact root child only; environment and tree aggregation remain absent",
+          "state": "platform-limited",
+          "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
+          "evidence": ["cu.managed-job-resources"],
+          "next": "add an identity-complete owned process-tree inventory and aggregation plus an explicit environment contract before routing MCU's tree-wide argument shape",
+          "note": "Point and bounded-series replies carry members, rss_bytes, exact decimal cpu_ms/cpu_time_ns and page faults. Every process-usage sample brackets start identity and must match the durable job record. scope=root-only and tree_complete=false prevent this native subset from masquerading as MCU's process-group view; MCU job resources and job env therefore remain typed compatibility gaps."
         },
         {
           "id": "job.policy-priority-state",

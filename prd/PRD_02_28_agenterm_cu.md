@@ -678,7 +678,7 @@ flowchart LR
   not be simulated by a visible tab or by single-process metrics.
 
 - [~] The arbitrary managed-job facade is now public as
-  `job-spawn/list/status/events/output/write/wait/renew/stop`. It is distinct from an
+  `job-spawn/list/status/resources/events/output/write/wait/renew/stop`. It is distinct from an
   AgenTerm tab and from the bounded synchronous `shell-exec`: an independent
   resident owner contains the exact child tree, retains separate bounded
   stdout/stderr cursor rings, exposes either a dual-stream long poll or one
@@ -702,6 +702,17 @@ flowchart LR
   currently fails before product delivery in the court's interactive-worker
   nonce recovery; that lifecycle mechanism belongs to the independent
   `utm-court` repository and must not be copied into AgenTerm.
+  `job-resources JOB_ID GENERATION [--watch-ms N]` additionally exposes a
+  point sample or an adaptively spaced, at-most-300-second bounded series for
+  the one exact root child stored by that record. It reuses process-usage's
+  start-identity bracket on every sample and refuses any identity that differs
+  from the durable record. Replies carry `members`, lossless decimal
+  `rss_bytes`, `cpu_ms`/`cpu_time_ns`, page faults, `scope=root-only`, and
+  `tree_complete=false`. Descendant enumeration, aggregate tree accounting,
+  and stored job environment remain gaps; the MCU tree-wide `job resources`
+  and `job env` shapes must not route to this narrower view. The same macOS
+  public qjswasm court now proves both the point and bounded-watch resource
+  projections; Linux and Windows native evidence remains pending.
 
 - [~] Privilege is now split at the real authority boundary. The public
   `privilege plan process.set-priority` command is read-only on macOS/Linux:
