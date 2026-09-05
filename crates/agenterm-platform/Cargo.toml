@@ -179,6 +179,7 @@ native-messaging-registry = [
     "windows-sys/Win32_Security",
     "windows-sys/Win32_System_Registry",
 ]
+simulator = ["contained-process-spawn"]
 contained-process-spawn = [
     "process",
     "windows-sys/Win32_System_JobObjects",
