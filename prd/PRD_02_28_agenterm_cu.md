@@ -815,9 +815,14 @@ flowchart LR
   `--expect accepted` and remains `verified=false`. The registered
   `cu.simulator-readonly` qjswasm court enumerates real devices and apps on an
   already-booted exact device without exposing container paths or performing a
-  mutation. No test booted a device or launched/terminated an app. Controlled
-  mutation courts, shutdown, app deployment, guest foreground and guest
-  screenshot remain open.
+  mutation. The transitional MCU adapter now routes its exact `simulator boot
+  --device UDID` shape to that verified ACU boot contract; state filters,
+  shutdown and lifecycle shapes without equivalent verification remain typed
+  fallbacks rather than being silently weakened. The court still needs a
+  controlled boot mutation before this row can be promoted.
+  No existing court has yet booted a device or launched/terminated an app.
+  Controlled mutation courts, shutdown, app deployment, guest foreground and
+  guest screenshot remain open.
 
 - [~] `resource status` now has a native platform-neutral ACU owner. Its closed
   snapshot includes host identity, uptime, CPU count/model, all three load

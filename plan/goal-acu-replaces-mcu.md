@@ -196,7 +196,8 @@ MCU retirement blockers
 │  └─ [~] CoreSimulator plus required device/service operations
 │     ├─ [x] bounded device/app inventory + exact boot/app lifecycle platform facade
 │     ├─ [x] read-only live device and installed-app inventory
-│     └─ [ ] public ACU commands, mutation courts, deployment/foreground/screenshot
+│     ├─ [x] exact MCU boot shape routes to ACU's verified Booted read-back
+│     └─ [ ] mutation courts, shutdown, deployment/foreground/screenshot
 ├─ [ ] classify and remove every remaining argument-shape fallback
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```

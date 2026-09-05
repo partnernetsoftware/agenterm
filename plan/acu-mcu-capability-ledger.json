@@ -1189,7 +1189,8 @@
           "acu_shape": "simulator boot UDID --expect booted with exact Booted read-back; shutdown pending",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
-          "next": "controlled boot court, exact shutdown transaction and host-foreground invariant evidence"
+          "next": "controlled boot court, exact shutdown transaction and host-foreground invariant evidence",
+          "note": "The MCU compatibility adapter now routes the exact simulator boot --device UDID shape to simulator-boot UDID --expect booted. This removes that argument-shape fallback because ACU polls the exact device to Booted; it does not promote the lifecycle row before the controlled mutation court."
         },
         {
           "id": "simulator.app-inventory-lifecycle",
