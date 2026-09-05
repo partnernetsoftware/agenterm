@@ -1,0 +1,134 @@
+// Public black-box court for bounded, privacy-preserving device watch.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.device-watch"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory, prefix) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+  };
+}
+
+function setup(run_directory, executable) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "actuate", "setup",
+    "--bin-dir", rh.join(run_directory, "bin")
+  ], { cwd: run_directory, env: isolated_env(run_directory, "setup"), timeout_ms: 30000 });
+  ensure(output.success === true, "cu_device_watch_setup_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.data.installation_identity.status === "ready",
+         "cu_device_watch_setup_identity");
+}
+
+function invoke(run_directory, executable, args) {
+  const receipt_path = rh.join(run_directory, "watch-receipts.jsonl");
+  const output = rh.command(executable, args, {
+    cwd: run_directory,
+    env: isolated_env(run_directory, "watch"),
+    timeout_ms: 15000
+  });
+  ensure(output.success === true,
+         "cu_device_watch_exit:" + output.exit_code + ":" + output.stdout + ":" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_device_watch_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+         "cu_device_watch_effect_receipt_created");
+  return reply;
+}
+
+function assert_public_event(row) {
+  ensure(["added", "removed", "changed"].includes(row.event), "cu_device_watch_event_kind");
+  ensure(typeof row.at_ms === "number", "cu_device_watch_event_time");
+  const device = row.device;
+  ensure(typeof device.id === "string" && device.id.startsWith("agt-device-v1-"),
+         "cu_device_watch_event_id");
+  ensure(device.serial === undefined && device.address === undefined && device.path === undefined,
+         "cu_device_watch_private_identity");
+  ensure(device.instance_id === undefined && device.location_id === undefined,
+         "cu_device_watch_native_locator");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_device_watch_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-device-watch");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP explicit setup enrolls the private installation identity");
+  setup(context.run_directory, executable);
+
+  print("STEP bounded watch reports honest provider coverage and pseudonymous events");
+  const reply = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "device", "watch", "--type", "camera", "--max", "50",
+    "--duration-ms", "5000", "--interval-ms", "500", "--event-max", "8"
+  ]);
+  ensure(reply.command === "device-watch" && reply.target === "current", "cu_device_watch_identity");
+  const data = reply.data;
+  ensure(data.selector === "camera" && data.max === 50, "cu_device_watch_selector");
+  ensure(data.duration_ms === 5000 && data.interval_ms === 500 && data.event_max === 8,
+         "cu_device_watch_bounds");
+  ensure(typeof data.elapsed_ms === "number" && data.elapsed_ms <= 6000,
+         "cu_device_watch_deadline");
+  ensure(typeof data.samples === "number" && data.samples >= 1, "cu_device_watch_samples");
+  ensure(Array.isArray(data.events) && data.returned === data.events.length && data.returned <= 8,
+         "cu_device_watch_events");
+  ensure(Array.isArray(data.providers) && data.providers.length === 1
+         && data.providers[0].kind === "camera", "cu_device_watch_provider");
+  ensure(typeof data.coverage_complete === "boolean"
+         && typeof data.suppressed_provider_samples === "number"
+         && typeof data.truncated === "boolean", "cu_device_watch_coverage");
+  ensure(["duration", "event-limit"].includes(data.termination), "cu_device_watch_termination");
+  ensure(data.identity_scope === "installation" && data.response_ceiling_bytes === 1048576,
+         "cu_device_watch_privacy_scope");
+  if (data.coverage_complete) {
+    ensure(data.suppressed_provider_samples === 0, "cu_device_watch_complete_suppression");
+  }
+  for (const event of data.events) { assert_public_event(event); }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.device-watch");
+  harness.remove_run(context);
+  print("PASS: device watch is bounded, privacy-preserving and suppresses unprovable events");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

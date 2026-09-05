@@ -2414,6 +2414,44 @@
       ]
     },
     {
+      "name": "device-watch",
+      "command": "device-watch",
+      "aliases": [
+        "device watch"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "watch bounded pseudonymous peripheral changes without false events from incomplete providers",
+      "usage": "device watch [--type usb|bluetooth|audio|camera|gpu|all] [--max N] [--duration-ms N] [--interval-ms N] [--event-max N]\ndevice-watch [--type usb|bluetooth|audio|camera|gpu|all] [--max N] [--duration-ms N] [--interval-ms N] [--event-max N]",
+      "args": [
+        {
+          "flag": "--type",
+          "value": "KIND",
+          "help": "usb|bluetooth|audio|camera|gpu|all (default all)"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "inventory bound per sample, 1..5000 (default 500)"
+        },
+        {
+          "flag": "--duration-ms",
+          "value": "N",
+          "help": "overall monotonic duration, 1000..3600000 (default 10000)"
+        },
+        {
+          "flag": "--interval-ms",
+          "value": "N",
+          "help": "poll interval, 250..60000 (default 2000)"
+        },
+        {
+          "flag": "--event-max",
+          "value": "N",
+          "help": "returned event ceiling, 1..5000 (default 1000)"
+        }
+      ]
+    },
+    {
       "name": "simulator-boot",
       "command": "simulator-boot",
       "aliases": [
@@ -5042,6 +5080,10 @@
     {
       "name": "device-list",
       "text": "agenterm-cu device-list    (also: device list)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  device list [--type usb|bluetooth|audio|camera|gpu|all] [--max N]\n  device-list [--type usb|bluetooth|audio|camera|gpu|all] [--max N]\n\narguments:\n  --type KIND                   usb|bluetooth|audio|camera|gpu|all (default all)\n  --max N                       result bound, 1..5000 (default 500)\n\nReturns bounded native USB, Bluetooth, audio, camera and GPU inventory. Every\nrow uses an installation-scoped opaque id; identity_continuity says whether\nthe provider identity should survive ordinary reconnect or is topology-bound.\nSerial numbers, hardware addresses, provider instance ids and raw native paths\nare never returned. Provider status is explicit as complete, partial or\nunavailable. Observation never creates or rotates the installation identity;\nan unenrolled installation fails typed.\n"
+    },
+    {
+      "name": "device-watch",
+      "text": "agenterm-cu device-watch    (also: device watch)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  device watch [--type usb|bluetooth|audio|camera|gpu|all] [--max N]\n               [--duration-ms N] [--interval-ms N] [--event-max N]\n  device-watch [same options]\n\narguments:\n  --type KIND                   usb|bluetooth|audio|camera|gpu|all (default all)\n  --max N                       inventory bound per sample, 1..5000 (default 500)\n  --duration-ms N               overall duration, 1000..3600000 (default 10000)\n  --interval-ms N               poll interval, 250..60000 (default 2000)\n  --event-max N                 event ceiling, 1..5000 (default 1000)\n\nPolls the same privacy-preserving native inventory as device-list under one\nmonotonic deadline. Only two consecutive complete, non-truncated provider\nsnapshots may emit added, removed or changed events. Partial or unavailable\nproviders suppress inferred events and report incomplete coverage instead of\nfabricating device changes. Returned identities remain installation-scoped\npseudonyms; serials, addresses, instance ids and native paths never appear.\n"
     },
     {
       "name": "simulator-boot",

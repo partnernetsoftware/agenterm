@@ -848,9 +848,17 @@
         {
           "id": "device.watch",
           "mcu_shape": "device watch with type, duration, interval, inventory and event ceilings",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "native notifications where reliable and explicit poll-diff otherwise; report provider truncation separately from event truncation"
+          "acu_shape": "agenterm-cu device-watch --type usb|bluetooth|audio|camera|gpu|all --max N --duration-ms N --interval-ms N --event-max N (alias: device watch)",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "native-public-qjswasm-green",
+            "linux": "native-cross-build-only",
+            "windows": "native-cross-build-only"
+          },
+          "qualification": "macos-public-qjswasm-live-linux-windows-native-courts-pending",
+          "evidence": ["cu.device-watch"],
+          "note": "The observer reuses device.inventory and its installation-scoped pseudonyms. Only two consecutive complete non-truncated provider snapshots can emit added, removed or changed. Partial, unavailable or projection-truncated samples suppress inferred events and increment explicit incomplete coverage. Duration, interval, rows, events and final JSON are independently bounded by one monotonic deadline.",
+          "next": "run the public qjswasm journey on Linux and Windows native courts, then keep claim/lease and byte I/O as separate blockers"
         },
         {
           "id": "device.claim.lifecycle",

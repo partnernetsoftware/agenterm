@@ -1218,6 +1218,14 @@ impl Executor {
             Command::ResourceStatus { .. } => resource_status_payload(),
             Command::StorageDevices { max, .. } => storage_devices_payload(*max),
             Command::DeviceList { selector, max, .. } => device_inventory_payload(*selector, *max),
+            Command::DeviceWatch {
+                selector,
+                max,
+                duration_ms,
+                interval_ms,
+                event_max,
+                ..
+            } => device_watch_payload(*selector, *max, *duration_ms, *interval_ms, *event_max),
             Command::SimulatorDevices { max, .. } => simulator_devices_payload(*max),
             Command::SimulatorBoot {
                 udid,

@@ -47,6 +47,27 @@ pub fn enumerate(
     selector: DeviceSelector,
     max_rows: usize,
 ) -> Result<DeviceInventory, DeviceInventoryError> {
+    enumerate_with_timeout(private_state_dir, selector, max_rows, INVENTORY_TIMEOUT)
+}
+
+/// Enumerate under the caller's remaining monotonic budget.
+///
+/// The platform provider is still capped at its ordinary inventory timeout;
+/// the shorter caller budget is used by bounded polling surfaces so one sample
+/// cannot silently overrun the whole watch.
+pub fn enumerate_with_timeout(
+    private_state_dir: &Path,
+    selector: DeviceSelector,
+    max_rows: usize,
+    timeout: Duration,
+) -> Result<DeviceInventory, DeviceInventoryError> {
+    if timeout.is_zero() {
+        return Err(error(
+            DeviceInventoryErrorKind::Timeout,
+            "device-inventory-timeout",
+            "inventory has no remaining time budget",
+        ));
+    }
     if !(1..=DEVICE_INVENTORY_MAX_ROWS).contains(&max_rows) {
         return Err(error(
             DeviceInventoryErrorKind::InvalidLimit,
@@ -67,7 +88,7 @@ pub fn enumerate(
     let _ = current_target_binding::load_provider_identity(private_state_dir)
         .map_err(map_identity_error)?;
     let deadline = Instant::now()
-        .checked_add(INVENTORY_TIMEOUT)
+        .checked_add(timeout.min(INVENTORY_TIMEOUT))
         .ok_or_else(|| {
             error(
                 DeviceInventoryErrorKind::Timeout,

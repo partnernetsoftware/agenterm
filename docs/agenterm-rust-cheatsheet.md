@@ -4303,6 +4303,16 @@ or rotate it. Bound provider scan count, provider output, public rows and final
 JSON independently, and report each requested provider as complete, partial or
 unavailable rather than treating an empty class as a global success.
 
+Polling an inventory does not make an incomplete snapshot authoritative. Emit
+`added`, `removed` or `changed` only when both the previous and current sample
+for that provider are complete and non-truncated. An unavailable, partial or
+projection-truncated sample breaks the comparison chain: report incomplete
+coverage, suppress inferred events, and require two later consecutive complete
+samples before diffing again. Reuse one overall monotonic deadline and pass its
+remaining budget into each provider call so a final poll cannot overrun the
+watch. Bound sample rows, accumulated events and the encoded response
+independently.
+
 ## Install stable CLI entrypoints without forking package identity
 
 A PATH setup command should publish a tiny owned launcher that points to the

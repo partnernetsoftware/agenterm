@@ -709,6 +709,18 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "device-watch".into(),
+            serde_json::json!({
+                "status": "available",
+                "grant": "observe",
+                "group": "device",
+                "mode": "bounded-complete-snapshot-poll-diff",
+                "identity_scope": "installation",
+                "provider_states": ["complete", "partial", "unavailable"],
+                "incomplete_sample_behavior": "suppress-events",
+            }),
+        );
+        verbs.insert(
             "doctor".into(),
             serde_json::json!({
                 "status": "available",
@@ -1095,6 +1107,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("screenshot", "observe"),
             ("device-screenshot", "observe"),
             ("device-list", "observe"),
+            ("device-watch", "observe"),
             ("pointer-position", "observe"),
             ("clipboard-read", "observe"),
             ("get-text", "observe"),

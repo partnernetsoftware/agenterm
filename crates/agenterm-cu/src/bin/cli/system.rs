@@ -3,8 +3,9 @@
 use agenterm_cu::{
     Command, DeviceInventorySelector, PermissionAction, PermissionKind, SetupAction, TargetRef,
     command::{
-        DEVICE_INVENTORY_MAX, JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter,
-        STORAGE_DEVICES_MAX,
+        DEVICE_INVENTORY_MAX, DEVICE_WATCH_DURATION_MS_MAX, DEVICE_WATCH_EVENTS_MAX,
+        DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN, JobEnvironment,
+        JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
     },
 };
 
@@ -102,6 +103,37 @@ pub fn parse(
             selector,
             max,
         });
+    }
+    if spec.name == "device-watch" {
+        if args.first().is_some_and(|arg| arg == "watch") {
+            args.remove(0);
+        }
+        let selector =
+            DeviceInventorySelector::parse(flag_text(args, "--type")?.as_deref().unwrap_or("all"))?;
+        let max = flag_parsed::<usize>(args, "--max")?.unwrap_or(500);
+        let duration_ms = flag_parsed::<u64>(args, "--duration-ms")?.unwrap_or(10_000);
+        let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?.unwrap_or(2_000);
+        let event_max = flag_parsed::<usize>(args, "--event-max")?.unwrap_or(1_000);
+        if !(1..=DEVICE_INVENTORY_MAX).contains(&max)
+            || !(1_000..=DEVICE_WATCH_DURATION_MS_MAX).contains(&duration_ms)
+            || !(DEVICE_WATCH_INTERVAL_MS_MIN..=DEVICE_WATCH_INTERVAL_MS_MAX).contains(&interval_ms)
+            || !(1..=DEVICE_WATCH_EVENTS_MAX).contains(&event_max)
+        {
+            return Err("device watch requires --max 1..=5000, --duration-ms 1000..=3600000, --interval-ms 250..=60000 and --event-max 1..=5000".to_owned());
+        }
+        if !args.is_empty() {
+            return Err(format!("device-watch received unexpected {:?}", args[0]));
+        }
+        let command = Command::DeviceWatch {
+            target,
+            selector,
+            max,
+            duration_ms,
+            interval_ms,
+            event_max,
+        };
+        command.validate().map_err(str::to_owned)?;
+        return Ok(command);
     }
     if spec.name == "audit-compact" && args.first().is_some_and(|arg| arg == "compact") {
         args.remove(0);
@@ -715,6 +747,50 @@ mod tests {
         assert!(parse("device-list", &["--type", "serial"]).is_err());
         assert!(parse("device", &["list", "--max", "0"]).is_err());
         assert!(parse("device", &["list", "extra"]).is_err());
+    }
+
+    #[test]
+    fn device_watch_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse(
+                "device-watch",
+                &[
+                    "--type",
+                    "usb",
+                    "--max",
+                    "7",
+                    "--duration-ms",
+                    "1000",
+                    "--interval-ms",
+                    "250",
+                    "--event-max",
+                    "9",
+                ],
+            )
+            .unwrap(),
+            Command::DeviceWatch {
+                target: TargetRef::Current,
+                selector: DeviceInventorySelector::Usb,
+                max: 7,
+                duration_ms: 1_000,
+                interval_ms: 250,
+                event_max: 9,
+            }
+        ));
+        assert!(matches!(
+            parse("device", &["watch"]).unwrap(),
+            Command::DeviceWatch {
+                selector: DeviceInventorySelector::All,
+                max: 500,
+                duration_ms: 10_000,
+                interval_ms: 2_000,
+                event_max: 1_000,
+                ..
+            }
+        ));
+        assert!(parse("device-watch", &["--duration-ms", "999"]).is_err());
+        assert!(parse("device-watch", &["--interval-ms", "249"]).is_err());
+        assert!(parse("device-watch", &["--event-max", "5001"]).is_err());
     }
 
     #[test]

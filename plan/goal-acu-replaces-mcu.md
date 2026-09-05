@@ -503,8 +503,9 @@ shapes fail typed instead of being ignored.
   than a naive poller: only two consecutive complete provider snapshots may
   yield `added`, `removed` or `changed`; partial/unavailable samples publish
   incomplete coverage and suppress inferred events. It must reuse the same
-  platform inventory and private pseudonym owner, remain bounded by one
-  monotonic deadline, and pass a public qjswasm court before leaving `[~]`.
+  platform inventory and private pseudonym owner and remains bounded by one
+  monotonic deadline. Its macOS arm64 public qjswasm court is green and all six
+  target cells compile; Linux and Windows native runtime courts keep it `[~]`.
 - R0 accounting is complete across all 13 families. Runtime/service/session/
   audit contains user/system services, native coordinator, login service,
   leases, target locks, request idempotency, desktop delivery, audit

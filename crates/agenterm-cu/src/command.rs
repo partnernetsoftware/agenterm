@@ -27,6 +27,10 @@ pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
 pub const STORAGE_DEVICES_MAX: usize = 5_000;
 pub const DEVICE_INVENTORY_MAX: usize = 5_000;
+pub const DEVICE_WATCH_DURATION_MS_MAX: u64 = 3_600_000;
+pub const DEVICE_WATCH_INTERVAL_MS_MIN: u64 = 250;
+pub const DEVICE_WATCH_INTERVAL_MS_MAX: u64 = 60_000;
+pub const DEVICE_WATCH_EVENTS_MAX: usize = 5_000;
 
 pub fn validate_simulator_udid(udid: &str) -> Result<(), &'static str> {
     let bytes = udid.as_bytes();
@@ -118,6 +122,45 @@ where
     if !(1..=DEVICE_INVENTORY_MAX).contains(&value) {
         return Err(serde::de::Error::custom(
             "device inventory max must be in 1..=5000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_device_watch_duration_ms<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if !(1_000..=DEVICE_WATCH_DURATION_MS_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "device watch duration_ms must be in 1000..=3600000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_device_watch_interval_ms<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if !(DEVICE_WATCH_INTERVAL_MS_MIN..=DEVICE_WATCH_INTERVAL_MS_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "device watch interval_ms must be in 250..=60000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_device_watch_event_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=DEVICE_WATCH_EVENTS_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "device watch event_max must be in 1..=5000",
         ));
     }
     Ok(value)
@@ -1760,6 +1803,18 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_device_inventory_max")]
         max: usize,
     },
+    DeviceWatch {
+        target: TargetRef,
+        selector: DeviceInventorySelector,
+        #[serde(deserialize_with = "deserialize_device_inventory_max")]
+        max: usize,
+        #[serde(deserialize_with = "deserialize_device_watch_duration_ms")]
+        duration_ms: u64,
+        #[serde(deserialize_with = "deserialize_device_watch_interval_ms")]
+        interval_ms: u64,
+        #[serde(deserialize_with = "deserialize_device_watch_event_max")]
+        event_max: usize,
+    },
     SimulatorDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_max")]
@@ -3032,6 +3087,7 @@ impl Command {
             Self::ResourceStatus { .. } => "resource-status".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::DeviceList { .. } => "device-list".into(),
+            Self::DeviceWatch { .. } => "device-watch".into(),
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
@@ -3200,6 +3256,7 @@ impl Command {
             | Self::ResourceStatus { target }
             | Self::StorageDevices { target, .. }
             | Self::DeviceList { target, .. }
+            | Self::DeviceWatch { target, .. }
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
             | Self::SimulatorApps { target, .. }
@@ -3521,6 +3578,25 @@ impl Command {
             Self::DeviceList { max, .. } => {
                 if !(1..=DEVICE_INVENTORY_MAX).contains(max) {
                     return Err("device inventory max must be in 1..=5000");
+                }
+                Ok(())
+            }
+            Self::DeviceWatch {
+                max,
+                duration_ms,
+                interval_ms,
+                event_max,
+                ..
+            } => {
+                if !(1..=DEVICE_INVENTORY_MAX).contains(max)
+                    || !(1_000..=DEVICE_WATCH_DURATION_MS_MAX).contains(duration_ms)
+                    || !(DEVICE_WATCH_INTERVAL_MS_MIN..=DEVICE_WATCH_INTERVAL_MS_MAX)
+                        .contains(interval_ms)
+                    || !(1..=DEVICE_WATCH_EVENTS_MAX).contains(event_max)
+                {
+                    return Err(
+                        "device watch requires max in 1..=5000, duration_ms in 1000..=3600000, interval_ms in 250..=60000 and event_max in 1..=5000",
+                    );
                 }
                 Ok(())
             }
@@ -5625,6 +5701,53 @@ mod tests {
             "connection_id": "ABC"
         });
         assert!(serde_json::from_value::<Command>(invalid).is_err());
+    }
+
+    #[test]
+    fn device_watch_keeps_bounds_selector_and_observe_grant_on_the_wire() {
+        let command = Command::DeviceWatch {
+            target: TargetRef::Current,
+            selector: DeviceInventorySelector::Camera,
+            max: 50,
+            duration_ms: 5_000,
+            interval_ms: 500,
+            event_max: 20,
+        };
+        assert_eq!(command.verb(), "device-watch");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let encoded = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(encoded["selector"], "camera");
+        assert_eq!(encoded["duration_ms"], 5_000);
+        assert_eq!(encoded["interval_ms"], 500);
+        assert_eq!(encoded["event_max"], 20);
+        let decoded: Command = serde_json::from_value(encoded).expect("deserialize");
+        assert!(matches!(
+            decoded,
+            Command::DeviceWatch {
+                target: TargetRef::Current,
+                selector: DeviceInventorySelector::Camera,
+                max: 50,
+                duration_ms: 5_000,
+                interval_ms: 500,
+                event_max: 20,
+            }
+        ));
+        for invalid in [
+            serde_json::json!({
+                "verb": "device-watch", "target": "current", "selector": "all",
+                "max": 50, "duration_ms": 999, "interval_ms": 500, "event_max": 20
+            }),
+            serde_json::json!({
+                "verb": "device-watch", "target": "current", "selector": "all",
+                "max": 50, "duration_ms": 5000, "interval_ms": 249, "event_max": 20
+            }),
+            serde_json::json!({
+                "verb": "device-watch", "target": "current", "selector": "all",
+                "max": 50, "duration_ms": 5000, "interval_ms": 500, "event_max": 5001
+            }),
+        ] {
+            assert!(serde_json::from_value::<Command>(invalid).is_err());
+        }
     }
 
     #[test]

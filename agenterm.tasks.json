@@ -824,6 +824,23 @@
         "task.cu-device-inventory-smoke"
       ]
     },
+    "cu-device-watch-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-device-watch-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-device-watch-smoke"
+      ]
+    },
     "cu-privilege-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2796,6 +2813,27 @@
       "id": "cu-device-inventory-smoke",
       "description": "Prove native peripheral inventory is bounded, read-only, provider-explicit and uses stable installation-scoped opaque identities without disclosing serials, addresses or native paths.",
       "entry": "scripts/qjs/cu-device-inventory-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-device-watch-smoke",
+      "description": "Prove device watch uses bounded complete-snapshot diffs, suppresses unprovable provider transitions and exposes only installation-scoped pseudonymous events.",
+      "entry": "scripts/qjs/cu-device-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

@@ -94,7 +94,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-list  storage-devices  resource-status  runtime-status  observe host inventory",
+            "  device-watch  device-list  storage-devices  resource-status  runtime-status  observe host inventory",
             1,
         );
     }
@@ -219,6 +219,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "setup",
         "storage-devices",
         "device-list",
+        "device-watch",
     ];
     let compact_process = [
         "process-argv",

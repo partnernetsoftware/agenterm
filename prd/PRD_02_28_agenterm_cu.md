@@ -1324,9 +1324,11 @@ flowchart LR
   Partial or unavailable provider samples suppress events and publish explicit
   incomplete coverage instead of inventing `added` or `removed` rows. The
   public result remains pseudonymous, bounded by duration, interval, row and
-  event ceilings, and preserves an overall monotonic deadline. This leaf stays
-  `[~]` until its qjswasm black-box and native host courts are green; device
-  claim/lease and byte I/O remain separate retirement blockers.
+  event ceilings, and preserves an overall monotonic deadline. The registered
+  `cu.device-watch` qjswasm court is green on macOS arm64; both Windows targets,
+  both Linux targets and macOS x86_64 cross-build. Linux and Windows native
+  runtime courts remain open, so this leaf stays `[~]`. Device claim/lease and
+  byte I/O remain separate retirement blockers.
 
 ```text
 device.inventory
@@ -1342,8 +1344,9 @@ device.watch
 ├─ [~] complete→complete snapshots may emit added/removed/changed
 ├─ [~] partial/unavailable samples suppress inferred events
 ├─ [~] bounded duration/interval/rows/events + monotonic deadline
-├─ [ ] public qjswasm black-box
-└─ [ ] macOS/Linux/Windows native courts
+├─ [x] macOS arm64 public qjswasm black-box
+├─ [x] six target cells compile
+└─ [ ] Linux/Windows native runtime courts
 ```
 
 ```mermaid
