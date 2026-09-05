@@ -164,8 +164,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   a shared durable request envelope (`request-id` + active session id/lease):
   same request/session/command replays terminal metadata without redispatch,
   a changed fingerprint conflicts, and a reserved or outcome-unknown retry
-  fails closed. Remote-worker admission and audit-query correlation remain
-  open, so this is not yet universal.
+  fails closed. SSH/VNC worker admission now carries that identity only in a
+  bounded, versioned stdin envelope and binds the rewritten command to an
+  opaque endpoint scope. The effect-side worker owns reserve, audit, execution
+  and finalization; unknown schemas, oversized envelopes and non-current inner
+  targets fail closed. Public remote mutation journeys and audit-query
+  correlation remain open, so this is not yet universal.
 - [~] the versioned JSONL audit is machine-readable, cross-process append
   serialized, durably flushed and survives the session that produced it.
 - [x] failure to record is failure to act: if the audit path is unavailable, the

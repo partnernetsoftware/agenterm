@@ -71,6 +71,7 @@ use std::{
 use crate::{
     auth::Authorization,
     command::Command as CuCommand,
+    executor::RequestIdentity,
     reply::{CuError, CuReply},
 };
 
@@ -194,14 +195,9 @@ pub fn run_remote(
     endpoint: &SshEndpoint,
     command: &CuCommand,
     auth: &Authorization,
+    request_identity: Option<&RequestIdentity>,
 ) -> Result<CuReply, CuError> {
-    let remote_command = rewrite_command_target_current(command)?;
-    let payload = serde_json::to_string(&remote_command).map_err(|error| {
-        CuError::new(
-            "serialize",
-            format!("ssh transport could not serialize command: {error}"),
-        )
-    })?;
+    let payload = worker_payload(endpoint, command, request_identity)?;
     let grant = auth.grant_cli_arg();
     if grant.is_empty() {
         return Err(CuError::new(
@@ -318,6 +314,22 @@ pub fn run_remote(
         ));
     }
     Ok(reply)
+}
+
+fn worker_payload(
+    endpoint: &SshEndpoint,
+    command: &CuCommand,
+    request_identity: Option<&RequestIdentity>,
+) -> Result<String, CuError> {
+    let remote_command = rewrite_command_target_current(command)?;
+    let port = endpoint.port.unwrap_or(22).to_string();
+    let scope =
+        crate::worker_wire::effect_scope("ssh", &[endpoint.destination.as_str(), port.as_str()]);
+    crate::worker_wire::encode(
+        &remote_command,
+        request_identity,
+        request_identity.map(|_| scope.as_str()),
+    )
 }
 
 fn reject_reserved_authority_env(key: &str, transport: &str) -> Result<(), CuError> {
@@ -480,7 +492,44 @@ pub fn remote_cu_exists(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{command::WaitCondition, target::TargetRef};
+    use crate::{command::WaitCondition, executor::RequestIdentity, target::TargetRef};
+
+    #[test]
+    fn request_identity_is_in_stdin_payload_with_current_target_and_opaque_scope() {
+        let endpoint = SshEndpoint {
+            destination: "fixture.example".into(),
+            port: Some(2222),
+            identity_file: None,
+            remote_cu: PathBuf::from("agenterm-cu"),
+            remote_env: Vec::new(),
+            connect_timeout_secs: 1,
+            insecure_host_key: false,
+            known_hosts_file: None,
+        };
+        let identity = RequestIdentity {
+            request_id: "request-ssh".into(),
+            session_id: "session-ssh".into(),
+            session_lease: "fixture-ssh-bearer".into(),
+        };
+        let command = CuCommand::ClipboardClear {
+            target: TargetRef::Ssh,
+            apply: true,
+        };
+        let payload = worker_payload(&endpoint, &command, Some(&identity)).expect("payload");
+        assert!(payload.contains("fixture-ssh-bearer"));
+        let (remote, decoded) = crate::worker_wire::decode(&payload).expect("decode");
+        assert_eq!(remote.target(), TargetRef::Current);
+        let (decoded, scope) = decoded.expect("identity envelope");
+        assert_eq!(decoded.request_id, "request-ssh");
+        assert!(scope.starts_with("ssh:"));
+        assert!(!scope.contains("fixture.example"));
+        assert!(
+            endpoint
+                .ssh_prefix_args()
+                .iter()
+                .all(|arg| !arg.contains("fixture-ssh-bearer"))
+        );
+    }
 
     #[test]
     fn pointer_move_survives_ssh_target_rewrite() {

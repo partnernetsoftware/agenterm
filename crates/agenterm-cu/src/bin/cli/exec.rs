@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use agenterm_cu::{Command, CuReply};
+use agenterm_cu::{CuReply, worker_wire};
 
 use super::global::{authority_environment_flags, authorize};
 use super::usage_err;
@@ -78,7 +78,11 @@ pub fn dispatch_json(args: &[String]) -> CuReply {
     }
     let raw = if read_stdin {
         let mut buf = String::new();
-        if let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf) {
+        let mut input = std::io::Read::take(
+            std::io::stdin(),
+            (worker_wire::MAX_WORKER_REQUEST_BYTES + 1) as u64,
+        );
+        if let Err(error) = std::io::Read::read_to_string(&mut input, &mut buf) {
             return usage_err(format!("could not read JSON command from stdin: {error}"));
         }
         buf
@@ -90,12 +94,20 @@ pub fn dispatch_json(args: &[String]) -> CuReply {
         };
         raw
     };
-    let command: Command = match serde_json::from_str(&raw) {
-        Ok(command) => command,
-        Err(error) => return usage_err(format!("invalid JSON command: {error}")),
+    let (command, request_identity) = match worker_wire::decode(&raw) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            return CuReply {
+                ok: false,
+                target: "current".to_owned(),
+                command: "exec".to_owned(),
+                data: None,
+                error: Some(error),
+            };
+        }
     };
     let (ambient, unsupported_authority_environment) = authority_environment_flags();
-    let executor = match authorize(
+    let mut executor = match authorize(
         grant.as_deref(),
         grant_id,
         grant_store,
@@ -106,5 +118,10 @@ pub fn dispatch_json(args: &[String]) -> CuReply {
         Ok(executor) => executor,
         Err(reply) => return *reply,
     };
+    if let Some((request_identity, effect_scope)) = request_identity {
+        executor = executor
+            .with_request_identity(request_identity)
+            .with_request_effect_scope(effect_scope);
+    }
     executor.execute(&command)
 }

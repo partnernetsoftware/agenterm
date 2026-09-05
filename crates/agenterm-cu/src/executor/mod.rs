@@ -118,6 +118,7 @@ pub struct Executor {
     rdp: Option<RdpEndpoint>,
     persisted: Option<PersistedAuthorization>,
     request_identity: Option<RequestIdentity>,
+    request_effect_scope: Option<String>,
     #[cfg(test)]
     audit_path: Option<PathBuf>,
     #[cfg(test)]
@@ -132,7 +133,7 @@ pub struct Executor {
 
 /// Caller-owned at-most-once identity for one mutating command. The lease is a
 /// bearer secret and is never serialized into command, audit or request state.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RequestIdentity {
     pub request_id: String,
     pub session_id: String,
@@ -153,6 +154,7 @@ impl Executor {
             rdp: None,
             persisted: None,
             request_identity: None,
+            request_effect_scope: None,
             #[cfg(test)]
             audit_path: None,
             #[cfg(test)]
@@ -168,6 +170,12 @@ impl Executor {
 
     pub fn with_request_identity(mut self, identity: RequestIdentity) -> Self {
         self.request_identity = Some(identity);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_request_effect_scope(mut self, effect_scope: String) -> Self {
+        self.request_effect_scope = Some(effect_scope);
         self
     }
 
@@ -310,15 +318,6 @@ impl Executor {
                 ),
             );
         }
-        if command.target() != TargetRef::Current {
-            return CuReply::err(
-                command,
-                CuError::new(
-                    "request_identity_remote_unavailable",
-                    "remote request identity must be admitted by the remote worker; transport projection is not implemented yet",
-                ),
-            );
-        }
         if self.persisted.is_some() {
             return CuReply::err(
                 command,
@@ -336,6 +335,13 @@ impl Executor {
                     "command requires Actuate grant; pass --grant or set AGENTERM_CU_GRANT",
                 ),
             );
+        }
+
+        match command.target() {
+            TargetRef::Ssh => return self.execute_ssh_with_request_identity(command, identity),
+            TargetRef::Vnc => return self.execute_vnc_with_request_identity(command, identity),
+            TargetRef::Rdp => return self.execute_rdp(command),
+            TargetRef::Current => {}
         }
 
         let now_ms = match now_utc_ms() {
@@ -356,6 +362,7 @@ impl Executor {
 
         let canonical = match serde_json::to_vec(&serde_json::json!({
             "session_id": identity.session_id,
+            "effect_scope": self.request_effect_scope.as_deref().unwrap_or("current"),
             "command": command,
         })) {
             Ok(bytes) => bytes,
@@ -531,7 +538,27 @@ impl Executor {
                 ),
             );
         };
-        match ssh_transport::run_remote(endpoint, command, &self.auth) {
+        match ssh_transport::run_remote(endpoint, command, &self.auth, None) {
+            Ok(reply) => reply,
+            Err(error) => CuReply::err(command, error),
+        }
+    }
+
+    fn execute_ssh_with_request_identity(
+        &self,
+        command: &Command,
+        identity: &RequestIdentity,
+    ) -> CuReply {
+        let Some(endpoint) = self.ssh.as_ref() else {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "invalid_input",
+                    "ssh target requires --ssh <user@host> (or AGENTERM_CU_SSH)",
+                ),
+            );
+        };
+        match ssh_transport::run_remote(endpoint, command, &self.auth, Some(identity)) {
             Ok(reply) => reply,
             Err(error) => CuReply::err(command, error),
         }
@@ -547,7 +574,27 @@ impl Executor {
                 ),
             );
         };
-        match vnc_transport::run_session(endpoint, command, &self.auth) {
+        match vnc_transport::run_session(endpoint, command, &self.auth, None) {
+            Ok(reply) => reply,
+            Err(error) => CuReply::err(command, error),
+        }
+    }
+
+    fn execute_vnc_with_request_identity(
+        &self,
+        command: &Command,
+        identity: &RequestIdentity,
+    ) -> CuReply {
+        let Some(endpoint) = self.vnc.as_ref() else {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "invalid_input",
+                    "vnc target requires --vnc <host[:port]> (or AGENTERM_CU_VNC)",
+                ),
+            );
+        };
+        match vnc_transport::run_session(endpoint, command, &self.auth, Some(identity)) {
             Ok(reply) => reply,
             Err(error) => CuReply::err(command, error),
         }
@@ -727,6 +774,45 @@ mod tests {
         assert_eq!(conflict.error.as_ref().unwrap().code, "request_id_conflict");
         let state = std::fs::read_to_string(request_path).unwrap();
         assert!(!state.contains(&session.lease));
+        remove_audit_scratch(&audit_path);
+    }
+
+    #[test]
+    fn request_identity_conflicts_when_transport_effect_scope_changes() {
+        let audit_path = audit_scratch("request-effect-scope");
+        let root = audit_path.parent().expect("scratch root");
+        let runtime_path = root.join("runtime.json");
+        let request_path = root.join("requests.json");
+        let now_ms = now_utc_ms().expect("test clock");
+        let session = RuntimeCoordinator::open_at(&runtime_path)
+            .unwrap()
+            .session_start(Some("scope fixture"), 60, now_ms / 1_000)
+            .unwrap();
+        let identity = RequestIdentity {
+            request_id: "fixture.scope-request".into(),
+            session_id: session.session_id,
+            session_lease: session.lease,
+        };
+        let command = Command::ClipboardClear {
+            target: TargetRef::Current,
+            apply: false,
+        };
+        let first = actuate_executor()
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path.clone(), runtime_path.clone())
+            .with_request_identity(identity.clone())
+            .with_request_effect_scope(crate::worker_wire::effect_scope("vnc", &["fixture:5900"]))
+            .execute(&command);
+        assert!(first.ok, "{first:?}");
+
+        let conflict = actuate_executor()
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path, runtime_path)
+            .with_request_identity(identity)
+            .with_request_effect_scope(crate::worker_wire::effect_scope("vnc", &["fixture:5901"]))
+            .execute(&command);
+        assert!(!conflict.ok);
+        assert_eq!(conflict.error.as_ref().unwrap().code, "request_id_conflict");
         remove_audit_scratch(&audit_path);
     }
 

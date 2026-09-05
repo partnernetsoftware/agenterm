@@ -3918,3 +3918,22 @@ and join them afterward by a stable native identity/name. Do not assume native
 record order merely to avoid that join. Keep caller result truncation separate
 from native scan truncation so a short response cannot masquerade as a complete
 system view.
+
+## Admit remote at-most-once requests at the effect-owning worker
+
+Do not reserve a remote mutation on the calling host: a transport break after
+the remote effect would leave the wrong machine holding the only replay truth.
+Send one bounded, versioned envelope over worker stdin, then let the worker that
+owns the effect re-authorize, verify its local session lease, durably reserve,
+audit, execute and finalize. Bearer leases never belong in argv, environment,
+`Debug`, audit rows, request state, replies or errors. Reject oversized input,
+unknown schemas/fields and any request-bearing inner command that is not
+`target=current` before admission.
+
+Transport rewriting must not erase effect identity. Include an opaque digest of
+the original SSH/VNC endpoint in the canonical request fingerprint; otherwise
+two VNC desktops sharing one local worker store can mistake a changed target for
+an exact retry. The digest is not a target lock: migrated mutation cohorts still
+derive and hold their exact target lock separately. Prove the wire through a
+real worker process: first delivery audits once, exact replay does not dispatch
+again, a changed effect scope conflicts, and no durable file contains the lease.

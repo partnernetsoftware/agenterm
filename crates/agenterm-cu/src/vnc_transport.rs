@@ -51,6 +51,7 @@ use std::{
 use crate::{
     auth::Authorization,
     command::Command as CuCommand,
+    executor::RequestIdentity,
     reply::{CuError, CuReply},
 };
 
@@ -144,18 +145,13 @@ pub fn run_session(
     endpoint: &VncEndpoint,
     command: &CuCommand,
     auth: &Authorization,
+    request_identity: Option<&RequestIdentity>,
 ) -> Result<CuReply, CuError> {
     for (key, _) in &endpoint.session_env {
         reject_reserved_authority_env(key, "vnc")?;
     }
     rfb_handshake(endpoint)?;
-    let session_command = rewrite_command_target_current(command)?;
-    let payload = serde_json::to_string(&session_command).map_err(|error| {
-        CuError::new(
-            "serialize",
-            format!("vnc transport could not serialize command: {error}"),
-        )
-    })?;
+    let payload = worker_payload(endpoint, command, request_identity)?;
     let grant = auth.grant_cli_arg();
     if grant.is_empty() {
         return Err(CuError::new(
@@ -268,6 +264,21 @@ pub fn run_session(
         ));
     }
     Ok(reply)
+}
+
+fn worker_payload(
+    endpoint: &VncEndpoint,
+    command: &CuCommand,
+    request_identity: Option<&RequestIdentity>,
+) -> Result<String, CuError> {
+    let session_command = rewrite_command_target_current(command)?;
+    let address = endpoint.address();
+    let scope = crate::worker_wire::effect_scope("vnc", &[address.as_str()]);
+    crate::worker_wire::encode(
+        &session_command,
+        request_identity,
+        request_identity.map(|_| scope.as_str()),
+    )
 }
 
 fn reject_reserved_authority_env(key: &str, transport: &str) -> Result<(), CuError> {
@@ -622,7 +633,42 @@ pub fn worker_cu_exists(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{command::WaitCondition, target::TargetRef};
+    use crate::{command::WaitCondition, executor::RequestIdentity, target::TargetRef};
+
+    #[test]
+    fn request_identity_is_bound_to_the_exact_vnc_endpoint() {
+        let endpoint = VncEndpoint {
+            host: "fixture.example".into(),
+            port: 5907,
+            worker_cu: PathBuf::from("agenterm-cu"),
+            session_env: Vec::new(),
+            connect_timeout_secs: 1,
+        };
+        let identity = RequestIdentity {
+            request_id: "request-vnc".into(),
+            session_id: "session-vnc".into(),
+            session_lease: "fixture-vnc-bearer".into(),
+        };
+        let command = CuCommand::ClipboardClear {
+            target: TargetRef::Vnc,
+            apply: true,
+        };
+        let payload = worker_payload(&endpoint, &command, Some(&identity)).expect("payload");
+        let (remote, decoded) = crate::worker_wire::decode(&payload).expect("decode");
+        assert_eq!(remote.target(), TargetRef::Current);
+        let (decoded, scope) = decoded.expect("identity envelope");
+        assert_eq!(decoded.session_id, "session-vnc");
+        assert!(scope.starts_with("vnc:"));
+        assert!(!scope.contains("fixture.example"));
+
+        let other = VncEndpoint {
+            port: 5908,
+            ..endpoint
+        };
+        let other_payload = worker_payload(&other, &command, Some(&identity)).expect("payload");
+        let (_, other_decoded) = crate::worker_wire::decode(&other_payload).expect("decode");
+        assert_ne!(scope, other_decoded.expect("identity envelope").1);
+    }
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;

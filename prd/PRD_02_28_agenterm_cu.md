@@ -187,8 +187,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   effect, returns terminal metadata on exact retry, and refuses an uncertain
   retry rather than executing twice. A changed command or session under the
   same request id is a typed conflict; command and lease plaintext never enter
-  the request store. Remote worker projection, exact target-lock derivation,
-  three-host evidence, retention compaction and daemon ownership remain open.
+  the request store. SSH and VNC now project a versioned, 1 MiB-bounded worker
+  envelope over stdin: the effect-owning worker re-authorizes, verifies its own
+  session, reserves before effect, audits and finalizes. The bearer lease never
+  enters argv/environment, and target-to-current rewriting retains an opaque
+  effect-scope digest so another endpoint conflicts instead of receiving a
+  false replay. Unit and process-boundary worker courts are green; public
+  SSH/VNC mutation journeys, exact target-lock derivation, three-host evidence,
+  retention compaction and daemon ownership remain open.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
 - [~] absorbed from that skill on 2026-08-30 (review and slices in

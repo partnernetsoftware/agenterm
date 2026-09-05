@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn request_identity_is_all_or_none_and_remote_projection_fails_before_transport() {
+    fn request_identity_is_all_or_none() {
         let incomplete = dispatch(
             [
                 "--target",
@@ -243,28 +243,6 @@ mod tests {
         assert_eq!(
             incomplete.error.as_ref().unwrap().code,
             "request_identity_incomplete"
-        );
-
-        let remote = dispatch(
-            [
-                "--ssh",
-                "fixture@invalid.example",
-                "--grant",
-                "actuate",
-                "--request-id",
-                "req-1",
-                "--session",
-                "session-1",
-                "--session-lease",
-                "lease-1",
-                "clipboard-clear",
-            ]
-            .map(str::to_owned)
-            .to_vec(),
-        );
-        assert_eq!(
-            remote.error.as_ref().unwrap().code,
-            "request_identity_remote_unavailable"
         );
     }
 

@@ -42,6 +42,8 @@ pub mod tab_strip;
 pub mod target;
 pub mod target_binding;
 pub mod vnc_transport;
+#[doc(hidden)]
+pub mod worker_wire;
 
 pub use auth::{Authorization, Grant};
 pub use command::{Command, OrderRelation, PointerButton, TerminalWaitCondition, WaitCondition};

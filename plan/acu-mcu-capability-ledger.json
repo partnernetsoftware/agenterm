@@ -848,11 +848,11 @@
         {
           "id": "runtime.request-idempotency",
           "mcu_shape": "--request-id reserve then completed|failed|uncertain receipt across mutations",
-          "acu_shape": "current-target mutations accept one all-or-none request-id/session/session-lease envelope backed by a private durable reserved|finalized|outcome_unknown store",
+          "acu_shape": "current, SSH and VNC mutations accept one all-or-none request-id/session/session-lease envelope; remote identity travels only in a bounded versioned stdin envelope and is admitted by the effect-owning worker",
           "state": "platform-limited",
-          "platforms": {"macos": "native-current", "linux": "native-current", "windows": "native-current", "ssh": "gap", "vnc": "gap", "rdp": "gap"},
-          "evidence": ["agenterm-cu request store reopen/conflict/uncertain/bounds suite", "agenterm-cu executor exact-replay integration test"],
-          "next": "project the envelope into each remote worker, derive exact target locks for migrated consumer cohorts, then add public three-host black-box evidence"
+          "platforms": {"macos": "native-current", "linux": "native-current", "windows": "native-current", "ssh": "native-worker-wire-public-journey-pending", "vnc": "native-worker-wire-public-journey-pending", "rdp": "gap"},
+          "evidence": ["agenterm-cu request store reopen/conflict/uncertain/bounds suite", "agenterm-cu effect-worker process-boundary replay/scope-conflict test", "agenterm-cu SSH/VNC stdin-envelope projection tests"],
+          "next": "derive exact target locks for migrated consumer cohorts, then prove one non-destructive mutation and exact replay through public SSH and VNC courts on all applicable hosts"
         },
         {
           "id": "runtime.desktop-delivery",
