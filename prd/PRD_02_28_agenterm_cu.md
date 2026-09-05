@@ -777,6 +777,19 @@ flowchart LR
   Provider installation, native consent and real apply remain explicit gaps;
   no shell, password capture or hidden elevation substitutes for them.
 
+- [~] CoreSimulator now has a bounded macOS platform foundation rather than a
+  shell-shaped MCU exception. It lists at most 200 devices by exact UDID,
+  runtime, device type and state, and lists installed apps on one exact already
+  booted device while discarding simulator container/data paths. Both real
+  read-only inventories are green. Exact boot polls the same device identity
+  to `Booted`; exact app launch/terminate require an installed bundle id and
+  verify the device stayed identical and booted. The public `simctl` exit and
+  launch PID are only provider acknowledgement, so app lifecycle receipts say
+  `accepted=true, verified=false` until a stable public app-state oracle exists.
+  No test booted a device or launched/terminated an app. Public ACU routing,
+  controlled mutation courts, app deployment, guest foreground and guest
+  screenshot remain open.
+
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old
   meaning. Commands are UTF-8/no-NUL and bounded before spawn. The shell is

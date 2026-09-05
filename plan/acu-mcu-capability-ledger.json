@@ -1092,7 +1092,7 @@
         {
           "id": "simulator.device-inventory",
           "mcu_shape": "simulator devices|status with runtime, device type, exact UDID and boot state",
-          "acu_shape": null,
+          "acu_shape": "agenterm-platform bounded CoreSimulator list_devices foundation; public ACU route pending",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
           "next": "bounded CoreSimulator inventory preserving runtime and device identity"
@@ -1100,7 +1100,7 @@
         {
           "id": "simulator.device-lifecycle",
           "mcu_shape": "simulator boot|shutdown UDID with stable request identity and settled-state readback",
-          "acu_shape": null,
+          "acu_shape": "agenterm-platform exact-UDID boot foundation with Booted read-back; public ACU route and controlled mutation court pending",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
           "next": "target-locked device state transaction; boot waits for bootstatus and both directions verify host foreground invariants"
@@ -1108,7 +1108,7 @@
         {
           "id": "simulator.app-inventory-lifecycle",
           "mcu_shape": "simulator apps|launch|terminate with UDID, bundle identity, executable and guest PID",
-          "acu_shape": null,
+          "acu_shape": "agenterm-platform bounded exact-device app inventory plus exact bundle launch/terminate acknowledgements; public ACU route pending",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
           "next": "exact device+bundle control object with process start identity, target lock, receipt and appearance/disappearance readback"
