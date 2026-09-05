@@ -3793,6 +3793,99 @@
       ]
     },
     {
+      "name": "browser-bridge-setup",
+      "command": "browser-bridge-setup",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "install the fixed current-user MV3 and Native Messaging bundle",
+      "usage": "browser-bridge-setup\nbrowser bridge setup",
+      "args": []
+    },
+    {
+      "name": "browser-bridge-connections",
+      "command": "browser-bridge-connections",
+      "aliases": [],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "list exact live current-user bridge connections",
+      "usage": "browser-bridge-connections\nbrowser bridge connections",
+      "args": []
+    },
+    {
+      "name": "browser-bridge-status",
+      "command": "browser-bridge-status",
+      "aliases": [],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "read protocol status from one exact bridge connection",
+      "usage": "browser-bridge-status CONNECTION_ID\nbrowser bridge status CONNECTION_ID",
+      "args": [
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact 64-character lowercase hexadecimal id from browser-bridge-connections"
+        }
+      ]
+    },
+    {
+      "name": "browser-bridge-tabs",
+      "command": "browser-bridge-tabs",
+      "aliases": [],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "read bounded tabs from one exact bridge connection",
+      "usage": "browser-bridge-tabs CONNECTION_ID\nbrowser bridge tabs CONNECTION_ID",
+      "args": [
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact 64-character lowercase hexadecimal id from browser-bridge-connections"
+        }
+      ]
+    },
+    {
+      "name": "browser-bridge-debug-read",
+      "command": "browser-bridge-debug-read",
+      "aliases": [],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "read bounded AX facts from one exact background tab",
+      "usage": "browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N] [--max-scan N] [--max-results N]\nbrowser bridge debug-read ...",
+      "args": [
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact 64-character lowercase hexadecimal id from browser-bridge-connections"
+        },
+        {
+          "flag": "--tab-id",
+          "value": "N",
+          "help": "exact positive Chromium tab id from browser-bridge-tabs"
+        },
+        {
+          "flag": "--max-frames",
+          "value": "N",
+          "help": "cross-frame bound, 1..=64 (default 64)"
+        },
+        {
+          "flag": "--max-depth",
+          "value": "N",
+          "help": "AX depth bound, 1..=20 (default 20)"
+        },
+        {
+          "flag": "--max-scan",
+          "value": "N",
+          "help": "AX nodes scanned, 1..=5000 (default 5000)"
+        },
+        {
+          "flag": "--max-results",
+          "value": "N",
+          "help": "AX rows returned, 1..=1000 (default 1000)"
+        }
+      ]
+    },
+    {
       "name": "browser-session-start",
       "command": "browser-session-start",
       "aliases": [
@@ -4844,6 +4937,26 @@
     {
       "name": "browser-open",
       "text": "agenterm-cu browser-open    (also: browser open)\n  scope: actuate    family: Browser page & tabs\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  browser-open --profile NAME [--url URL] [--app SUB] [--timeout-ms N]\n  browser open ...                                    (MCU spelling)\n\narguments:\n  --profile NAME                profile name from browser-profiles (exact, else unique case-insensitive substring)\n  --url URL                     open this URL in the profile (a tab of its window when it has one)\n  --app SUB                     Brave Origin | Brave Browser | Google Chrome (substring; default: the one running)\n  --timeout-ms N                how long to wait for the window (default 8000, max 120000)\n\nResolves NAME to its profile directory (exact name first, then a unique\ncase-insensitive substring; browser_profile_not_found /\nbrowser_profile_ambiguous carry the candidates) and runs macOS `open -na\n<app> --args --profile-directory=<dir> [URL]`: the Chromium process\nsingleton hands that command line to the running instance, which opens a\nwindow of the profile (or, with a URL, a tab in the profile's existing\nwindow) and the user's browser is never quit or restarted. Then polls the\nwindow inventory (default 8000 ms) until a window with that\nbrowser_profile appears that was not in the before snapshot, or -- when\nthe profile already had a window and a URL was given -- until that\nwindow's title changes. Reply: {handle, browser_profile, title, created,\ntab_index, tab_title, tabs: {before, after}} -- the new tab is the\nselected row the window's strip gained (diffed against the strip read\nbefore the launch; null when none can be told apart) -- plus the receipt\n(reserved before `open`, completed / failed after the read-back); timeout\n-> browser_window_not_found. `open` activates the browser, so this is\nactuation; nothing here needs a CDP port. Without --url the profile's own\nlast session is restored: after a browser restart only the last-used\nprofile comes back by itself, and `browser open --profile X` is how the\nother profiles' windows are brought back.\n"
+    },
+    {
+      "name": "browser-bridge-setup",
+      "text": "agenterm-cu browser-bridge-setup\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-setup\n  browser bridge setup\n\nMaterializes the fixed ACU MV3 extension and registers this exact agenterm-cu executable as its current-user Native Messaging host for supported existing Chromium-family profiles. The receipt always reports extension_loaded=false and manual_activation_required=true: setup does not launch a browser or claim that Chromium loaded the unpacked extension.\n"
+    },
+    {
+      "name": "browser-bridge-connections",
+      "text": "agenterm-cu browser-bridge-connections\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-connections\n  browser bridge connections\n\nLists a bounded inventory of current-user bridge connections only after each record's exact process-start identity and fixed extension/native-host endpoint are validated. Stale or foreign records are not returned.\n"
+    },
+    {
+      "name": "browser-bridge-status",
+      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v1 status request only to that exact current-user and process-identity-bound connection. A missing, stale, foreign or malformed identity fails typed.\n"
+    },
+    {
+      "name": "browser-bridge-tabs",
+      "text": "agenterm-cu browser-bridge-tabs\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-tabs CONNECTION_ID\n  browser bridge tabs CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nReturns the extension's independently bounded tab inventory for one exact live connection. It does not select, activate or focus a tab or window.\n"
+    },
+    {
+      "name": "browser-bridge-debug-read",
+      "text": "agenterm-cu browser-bridge-debug-read\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N]\n      [--max-scan N] [--max-results N]\n  browser bridge debug-read ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --tab-id N                    exact positive Chromium tab id from browser-bridge-tabs\n  --max-frames N                cross-frame bound, 1..=64 (default 64)\n  --max-depth N                 AX depth bound, 1..=20 (default 20)\n  --max-scan N                  AX nodes scanned, 1..=5000 (default 5000)\n  --max-results N               AX rows returned, 1..=1000 (default 1000)\n\nReads only bounded AX frame/node identity, role and name facts. Form/control values and arbitrary DOM attributes are excluded. Success requires unchanged tab activation and window focus plus proven debugger detach; every violation fails typed.\n"
     },
     {
       "name": "browser-session-start",

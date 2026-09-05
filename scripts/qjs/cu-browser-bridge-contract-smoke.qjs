@@ -1,0 +1,102 @@
+// Public black-box contract for the fixed-identity browser bridge CLI.
+// This court does not install or load an extension; the live closed-shadow
+// journey is a separate promotion gate.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.browser-bridge-cli-contract"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run(executable, cwd, arguments) {
+  return rh.command(executable, arguments, {
+    cwd: cwd,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(cwd, "audit.jsonl") },
+    timeout_ms: 30000
+  });
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) {
+  executable = executable + ".exe";
+}
+ensure(direct_file(executable), "cu_browser_bridge_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-browser-bridge-contract");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP exact live connection inventory is bounded and observe-only");
+  const inventory_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe", "browser-bridge-connections"
+  ]);
+  ensure(inventory_output.success === true, "cu_browser_bridge_inventory_exit");
+  const inventory = JSON.parse(inventory_output.stdout.trim());
+  ensure(inventory.ok === true, "cu_browser_bridge_inventory_reply");
+  ensure(inventory.command === "browser-bridge-connections", "cu_browser_bridge_inventory_command");
+  ensure(Array.isArray(inventory.data.connections), "cu_browser_bridge_inventory_rows");
+  ensure(inventory.data.visited >= inventory.data.connections.length, "cu_browser_bridge_inventory_visited");
+  ensure(typeof inventory.data.truncated === "boolean", "cu_browser_bridge_inventory_truncated");
+
+  print("STEP an exact but absent connection fails typed");
+  const missing_id = "1111111111111111111111111111111111111111111111111111111111111111";
+  const missing_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe", "browser-bridge-status", missing_id
+  ]);
+  ensure(missing_output.success !== true, "cu_browser_bridge_missing_false_success");
+  const missing = JSON.parse(missing_output.stdout.trim());
+  ensure(missing.ok === false, "cu_browser_bridge_missing_reply");
+  ensure(missing.error.code === "browser_bridge_connection_not_found", "cu_browser_bridge_missing_code");
+
+  print("STEP malformed identities and missing actuation fail before setup effects");
+  const malformed_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe", "browser-bridge-status", "ABC"
+  ]);
+  ensure(malformed_output.success !== true, "cu_browser_bridge_malformed_false_success");
+  const malformed = JSON.parse(malformed_output.stdout.trim());
+  ensure(malformed.error.code === "usage", "cu_browser_bridge_malformed_code");
+  const setup_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe", "browser-bridge-setup"
+  ]);
+  ensure(setup_output.success !== true, "cu_browser_bridge_setup_false_success");
+  const setup = JSON.parse(setup_output.stdout.trim());
+  ensure(setup.error.code === "refused", "cu_browser_bridge_setup_grant");
+
+  print("STEP foreign extension origin cannot contaminate Native Messaging stdout");
+  const foreign_output = run(executable, context.run_directory, [
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
+  ]);
+  ensure(foreign_output.success !== true, "cu_browser_bridge_foreign_false_success");
+  ensure(foreign_output.stdout === "", "cu_browser_bridge_foreign_stdout");
+  ensure(foreign_output.stderr.trim() === "browser_bridge_origin_invalid", "cu_browser_bridge_foreign_stderr");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.browser-bridge-cli-contract");
+  harness.remove_run(context);
+  print("PASS: fixed-identity browser bridge CLI is bounded and fail-closed");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

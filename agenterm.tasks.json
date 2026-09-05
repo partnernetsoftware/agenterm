@@ -669,6 +669,23 @@
         "task.cu-file-move-transaction-smoke"
       ]
     },
+    "cu-browser-bridge-contract-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-browser-bridge-contract-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-browser-bridge-contract-smoke"
+      ]
+    },
     "cu-privilege-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2453,6 +2470,27 @@
       "id": "cu-file-move-transaction-smoke",
       "description": "Prove plan-only default, exact move apply (source absent, destination digest preserved), durable status, exact rollback, replace-backup finalize, installed-before-retire crash recovery, and changed-destination refusal through the public agenterm-cu CLI.",
       "entry": "scripts/qjs/cu-file-move-transaction-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-browser-bridge-contract-smoke",
+      "description": "Prove the fixed browser bridge public CLI has bounded exact-connection inventory, typed missing/malformed identity refusal, an actuation gate, and stdout-clean foreign-origin rejection without installing an extension.",
+      "entry": "scripts/qjs/cu-browser-bridge-contract-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

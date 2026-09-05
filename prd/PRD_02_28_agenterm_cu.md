@@ -370,12 +370,21 @@ flowchart LR
   closed `status|tabs|debug-read` catalog, bounded request ids and typed
   malformed/oversize refusal. A fixed new ACU extension identity, embedded MV3
   assets, same-binary native-host manifest plan and current-user/exact-process
-  connection registry are present as library foundations. `debug-read` walks a
+  connection registry are present. The same `agenterm-cu` executable now
+  intercepts only that fixed extension origin before any ordinary CLI output,
+  so Native Messaging stdout contains frames only; a foreign or malformed
+  host invocation fails without stdout. Public typed commands install the
+  current-user bundle, list bounded exact-process connections, and route
+  `status`, `tabs`, or `debug-read` only through an exact 256-bit connection
+  id. Setup truthfully reports `extension_loaded=false` and
+  `manual_activation_required=true`; it never claims Chromium loaded the
+  unpacked extension. `debug-read` walks a
   bounded cross-frame AX tree without exporting form values, proves tab/window
   presentation did not change, and treats debugger detach failure as failure;
-  tab inventory is independently bounded. Atomic installer publication,
-  same-binary host/IPC dispatch, profile-instance routing and live closed-shadow
-  evidence remain gaps; library tests do not promote the route.
+  tab inventory is independently bounded. Unit, CLI, both Windows-ISA compile,
+  foreign-origin stdout, and empty exact-connection inventory evidence are
+  green. A loaded-extension real-profile closed-shadow journey is still the
+  promotion boundary; setup/catalog presence alone does not promote the route.
 
 ```mermaid
 flowchart LR
@@ -389,6 +398,7 @@ flowchart LR
   E --> W["Win ARM64 managed-Job Edge lifecycle ✓<br/>caller-job-fallback is explicit"]
   W --> P["pending: Linux lifecycle<br/>descendant cleanup courts"]
   X --> R["versioned request + at-most-once receipt"]
+  R --> Y["exact-connection public CLI ✓<br/>loaded-extension court pending"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical
   slice rather than a successful `page-js` / `page-click` acknowledgement.

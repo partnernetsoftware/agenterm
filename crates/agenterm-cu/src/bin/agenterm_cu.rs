@@ -13,6 +13,21 @@ use cli::verbs;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Chromium owns stdout in Native Messaging mode. Detect its origin argv
+    // before version/help/usage can emit ordinary text or JSON into the framed
+    // channel. An untrusted extension-shaped invocation is intercepted too,
+    // then rejected without writing stdout.
+    if let Some(invocation) = native_host_invocation(&args) {
+        let result = invocation.and_then(|()| {
+            agenterm_cu::browser_bridge::run_native_host(browser_bridge_origin())
+                .map_err(|error| error.code)
+        });
+        if let Err(code) = result {
+            eprintln!("{code}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if matches!(args.as_slice(), [arg] if arg == "--version" || arg == "-V") {
         println!("agenterm-cu {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -50,6 +65,42 @@ fn main() {
         std::process::exit(run_x11_clipboard_owner());
     }
     std::process::exit(print_reply(&dispatch(args)));
+}
+
+fn browser_bridge_origin() -> &'static str {
+    static ORIGIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ORIGIN.get_or_init(|| {
+        format!(
+            "chrome-extension://{}/",
+            agenterm_cu::browser_bridge::ACU_EXTENSION_ID
+        )
+    })
+}
+
+fn native_host_invocation(args: &[String]) -> Option<Result<(), String>> {
+    let origin = args.first()?;
+    if !origin.starts_with("chrome-extension://") {
+        return None;
+    }
+    if origin != browser_bridge_origin() {
+        return Some(Err("browser_bridge_origin_invalid".to_owned()));
+    }
+    match args.get(1..) {
+        Some([]) => Some(Ok(())),
+        #[cfg(windows)]
+        Some([parent]) if valid_parent_window_arg(parent) => Some(Ok(())),
+        _ => Some(Err("browser_bridge_invocation_invalid".to_owned())),
+    }
+}
+
+#[cfg(windows)]
+fn valid_parent_window_arg(argument: &str) -> bool {
+    let Some(value) = argument.strip_prefix("--parent-window=") else {
+        return false;
+    };
+    !value.is_empty()
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && value.parse::<usize>().is_ok()
 }
 
 fn reply_exit_code(reply: &CuReply) -> i32 {
@@ -226,6 +277,51 @@ mod tests {
         assert_eq!(reply_exit_code(&success), 0);
         assert_eq!(reply_exit_code(&failure), 1);
         assert_eq!(reply_exit_code(&usage), 2);
+    }
+
+    #[test]
+    fn native_host_origin_is_intercepted_before_cli_dispatch() {
+        let valid = vec![browser_bridge_origin().to_owned()];
+        assert_eq!(native_host_invocation(&valid), Some(Ok(())));
+        let foreign = vec!["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/".to_owned()];
+        assert_eq!(
+            native_host_invocation(&foreign),
+            Some(Err("browser_bridge_origin_invalid".to_owned()))
+        );
+        assert_eq!(native_host_invocation(&["--version".to_owned()]), None);
+    }
+
+    #[test]
+    fn native_host_invocation_has_a_closed_platform_argv_shape() {
+        let mut trailing = vec![browser_bridge_origin().to_owned(), "unexpected".to_owned()];
+        assert_eq!(
+            native_host_invocation(&trailing),
+            Some(Err("browser_bridge_invocation_invalid".to_owned()))
+        );
+        trailing.push("more".to_owned());
+        assert_eq!(
+            native_host_invocation(&trailing),
+            Some(Err("browser_bridge_invocation_invalid".to_owned()))
+        );
+
+        #[cfg(windows)]
+        {
+            let parent = vec![
+                browser_bridge_origin().to_owned(),
+                "--parent-window=0".to_owned(),
+            ];
+            assert_eq!(native_host_invocation(&parent), Some(Ok(())));
+            assert!(!valid_parent_window_arg("--parent-window="));
+            assert!(!valid_parent_window_arg("--parent-window=+1"));
+        }
+        #[cfg(not(windows))]
+        assert_eq!(
+            native_host_invocation(&[
+                browser_bridge_origin().to_owned(),
+                "--parent-window=0".to_owned(),
+            ]),
+            Some(Err("browser_bridge_invocation_invalid".to_owned()))
+        );
     }
 
     #[test]

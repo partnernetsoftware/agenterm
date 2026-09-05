@@ -3,7 +3,7 @@
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
 //! profiles|open`), browser-session lifecycle verbs, and the MCU `page`
-//! group word.
+//! group word, and the fixed-identity MV3 Native Messaging bridge.
 
 use agenterm_cu::{Command, TargetRef};
 
@@ -46,6 +46,11 @@ pub fn parse(
             "browser-session-status" => browser(target, Some("session-status"), args),
             "browser-session-stop" => browser(target, Some("session-stop"), args),
             "browser-session-remove" => browser(target, Some("session-remove"), args),
+            "browser-bridge-setup" => browser_bridge(target, Some("setup"), args),
+            "browser-bridge-connections" => browser_bridge(target, Some("connections"), args),
+            "browser-bridge-status" => browser_bridge(target, Some("status"), args),
+            "browser-bridge-tabs" => browser_bridge(target, Some("tabs"), args),
+            "browser-bridge-debug-read" => browser_bridge(target, Some("debug-read"), args),
             other => Err(format!("unknown command '{other}'")),
         },
     }
@@ -823,8 +828,8 @@ fn page_targets(target: TargetRef, args: &mut Vec<String>) -> Result<Command, St
     })
 }
 
-/// `browser profiles` / `browser open` and the named browser-session lifecycle
-/// verbs. The flat spellings pass their sub-command in.
+/// `browser profiles` / `browser open`, named browser-session lifecycle, and
+/// `browser bridge ACTION`. The flat spellings pass their sub-command in.
 fn browser(
     target: TargetRef,
     sub: Option<&str>,
@@ -835,7 +840,7 @@ fn browser(
         None => {
             let Some(sub) = args.first().cloned() else {
                 return Err(
-                    "browser requires a subcommand: profiles | open | session-start | session-list | session-status | session-stop | session-remove"
+                    "browser requires a subcommand: profiles | open | session-start | session-list | session-status | session-stop | session-remove | bridge"
                         .into(),
                 );
             };
@@ -950,10 +955,117 @@ fn browser(
                 expect_failed,
             })
         }
+        "bridge" => browser_bridge(target, None, args),
         other => Err(format!(
-            "unknown browser subcommand {other:?}; expected profiles | open | session-start | session-list | session-status | session-stop | session-remove"
+            "unknown browser subcommand {other:?}; expected profiles | open | session-start | session-list | session-status | session-stop | session-remove | bridge"
         )),
     }
+}
+
+fn browser_bridge(
+    target: TargetRef,
+    action: Option<&str>,
+    args: &mut Vec<String>,
+) -> Result<Command, String> {
+    let action = match action {
+        Some(action) => action,
+        None => args.first().map(String::as_str).ok_or_else(|| {
+            "browser bridge requires setup | connections | status | tabs | debug-read".to_owned()
+        })?,
+    }
+    .to_owned();
+    if action != "setup"
+        && action != "connections"
+        && action != "status"
+        && action != "tabs"
+        && action != "debug-read"
+    {
+        return Err(format!(
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | debug-read"
+        ));
+    }
+    if action.is_empty() {
+        unreachable!("the closed action check rejects an empty action")
+    }
+    if args.first().is_some_and(|value| value == &action) {
+        args.remove(0);
+    }
+    match action.as_str() {
+        "setup" => {
+            no_browser_bridge_args("browser bridge setup", args)?;
+            Ok(Command::BrowserBridgeSetup { target })
+        }
+        "connections" => {
+            no_browser_bridge_args("browser bridge connections", args)?;
+            Ok(Command::BrowserBridgeConnections { target })
+        }
+        "status" => Ok(Command::BrowserBridgeStatus {
+            target,
+            connection_id: exact_connection_id("browser bridge status", args)?,
+        }),
+        "tabs" => Ok(Command::BrowserBridgeTabs {
+            target,
+            connection_id: exact_connection_id("browser bridge tabs", args)?,
+        }),
+        "debug-read" => {
+            let tab_id = flag_parsed::<u32>(args, "--tab-id")?
+                .ok_or_else(|| "browser bridge debug-read requires --tab-id N".to_owned())?;
+            let max_frames = flag_parsed::<u16>(args, "--max-frames")?
+                .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_MAX_FRAMES);
+            let max_depth = flag_parsed::<u8>(args, "--max-depth")?
+                .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_MAX_DEPTH);
+            let max_scan = flag_parsed::<u32>(args, "--max-scan")?
+                .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_MAX_SCAN);
+            let max_results = flag_parsed::<u16>(args, "--max-results")?
+                .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_MAX_RESULTS);
+            let connection_id = exact_connection_id("browser bridge debug-read", args)?;
+            let request = agenterm_cu::browser_bridge::DebugReadRequest {
+                tab_id,
+                max_frames,
+                max_depth,
+                max_scan,
+                max_results,
+            };
+            request.validate().map_err(|error| error.message)?;
+            Ok(Command::BrowserBridgeDebugRead {
+                target,
+                connection_id,
+                tab_id,
+                max_frames,
+                max_depth,
+                max_scan,
+                max_results,
+            })
+        }
+        _ => unreachable!("action was checked against the closed bridge catalog"),
+    }
+}
+
+fn no_browser_bridge_args(verb: &str, args: &[String]) -> Result<(), String> {
+    if let Some(unexpected) = args.first() {
+        Err(format!(
+            "{verb} takes no arguments; unexpected {unexpected:?}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn exact_connection_id(
+    verb: &str,
+    args: &mut Vec<String>,
+) -> Result<agenterm_cu::browser_bridge::ConnectionId, String> {
+    if args.len() != 1 || args[0].starts_with('-') {
+        return Err(format!(
+            "{verb} requires exactly one CONNECTION_ID positional"
+        ));
+    }
+    let encoded = args.remove(0);
+    agenterm_cu::browser_bridge::ConnectionId::parse(&encoded).map_err(|_| {
+        format!(
+            "{verb} CONNECTION_ID must be exactly 64 lowercase hexadecimal characters and nonzero"
+        )
+    })
 }
 
 fn one_session_name(verb: &str, args: &mut Vec<String>) -> Result<String, String> {
@@ -1183,5 +1295,62 @@ mod tests {
                 "accepted {input:?}"
             );
         }
+    }
+
+    #[test]
+    fn browser_bridge_parses_grouped_and_flat_exact_id_commands() {
+        let id = "1".repeat(64);
+        let mut grouped = words(&["bridge", "status", &id]);
+        assert!(matches!(
+            browser(TargetRef::Current, None, &mut grouped),
+            Ok(Command::BrowserBridgeStatus { connection_id, .. })
+                if connection_id.as_str() == id
+        ));
+
+        let mut debug = words(&[
+            &id,
+            "--tab-id",
+            "7",
+            "--max-frames",
+            "4",
+            "--max-depth",
+            "9",
+            "--max-scan",
+            "300",
+            "--max-results",
+            "80",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Ssh, Some("debug-read"), &mut debug),
+            Ok(Command::BrowserBridgeDebugRead {
+                target: TargetRef::Ssh,
+                tab_id: 7,
+                max_frames: 4,
+                max_depth: 9,
+                max_scan: 300,
+                max_results: 80,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn browser_bridge_rejects_inexact_ids_limits_and_extra_arguments() {
+        let valid = "1".repeat(64);
+        let zero = "0".repeat(64);
+        for input in [
+            vec!["ABC"],
+            vec![valid.as_str(), "extra"],
+            vec![zero.as_str()],
+        ] {
+            let mut args = words(&input);
+            assert!(browser_bridge(TargetRef::Current, Some("status"), &mut args).is_err());
+        }
+        let mut invalid_limit = words(&[valid.as_str(), "--tab-id", "0"]);
+        assert!(
+            browser_bridge(TargetRef::Current, Some("debug-read"), &mut invalid_limit).is_err()
+        );
+        let mut setup_extra = words(&["unexpected"]);
+        assert!(browser_bridge(TargetRef::Current, Some("setup"), &mut setup_extra).is_err());
     }
 }

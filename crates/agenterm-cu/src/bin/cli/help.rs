@@ -233,6 +233,11 @@ fn append_missing_top_level_rows(text: &mut String) {
         "terminal-output",
     ];
     let compact_browser_session = [
+        "browser-bridge-setup",
+        "browser-bridge-connections",
+        "browser-bridge-status",
+        "browser-bridge-tabs",
+        "browser-bridge-debug-read",
         "browser-session-start",
         "browser-session-list",
         "browser-session-status",
@@ -304,7 +309,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
+            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-debug-read\n  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
                 .to_owned(),
         );
     }
@@ -330,7 +335,7 @@ fn append_missing_top_level_rows(text: &mut String) {
     } else {
         text.push_str(&block);
     }
-    while text.lines().count() > 160 {
+    while text.lines().count() > 165 {
         let Some(blank) = text.find("\n\n") else {
             break;
         };
@@ -346,7 +351,7 @@ mod tests {
     fn top_level_help_is_scannable() {
         let text = top_level_text();
         let lines = text.lines().count();
-        assert!(lines <= 160, "--help is {lines} lines; keep it under 160");
+        assert!(lines <= 165, "--help is {lines} lines; keep it under 165");
         for header in [
             "System & permissions",
             "Windows & apps",

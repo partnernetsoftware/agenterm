@@ -1574,6 +1574,15 @@ closed command catalog and object-shaped arguments before routing. Keep this
 pure protocol core independent from the extension installer and browser host so
 all three platform installers share the same truth.
 
+The same executable may be both the ordinary JSON CLI and the Native Messaging
+host, but the entry boundary must recognize Chromium's exact extension-origin
+argv before version, help, logging, or normal dispatch can write to stdout.
+Once that shape is seen, stdout belongs exclusively to length-prefixed native
+frames. A foreign extension origin or malformed platform suffix fails without
+writing stdout; diagnostic text may use stderr. On Windows, accept only the
+documented single decimal `--parent-window=` suffix in addition to the exact
+origin, rather than passing arbitrary trailing arguments into host mode.
+
 An authenticated-profile bridge needs its own fixed extension/native-host
 identity; never reuse or overwrite the retiring tool's identity. Embed the
 reviewed MV3 assets and materialize them through a same-directory atomic staging

@@ -1150,6 +1150,30 @@ impl Executor {
                 expect_failed,
                 ..
             } => browser_session_remove_payload(name, *expect_stopped, *expect_failed),
+            Command::BrowserBridgeSetup { .. } => browser_bridge_setup_payload(),
+            Command::BrowserBridgeConnections { .. } => browser_bridge_connections_payload(),
+            Command::BrowserBridgeStatus { connection_id, .. } => {
+                browser_bridge_request_payload(connection_id, "status", serde_json::Map::new())
+            }
+            Command::BrowserBridgeTabs { connection_id, .. } => {
+                browser_bridge_request_payload(connection_id, "tabs", serde_json::Map::new())
+            }
+            Command::BrowserBridgeDebugRead {
+                connection_id,
+                tab_id,
+                max_frames,
+                max_depth,
+                max_scan,
+                max_results,
+                ..
+            } => browser_bridge_debug_read_payload(
+                connection_id,
+                *tab_id,
+                *max_frames,
+                *max_depth,
+                *max_scan,
+                *max_results,
+            ),
             Command::App {
                 window,
                 action,

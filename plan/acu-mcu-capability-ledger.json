@@ -466,14 +466,14 @@
         {
           "id": "browser.mv3-native-bridge",
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
-          "acu_shape": "fixed-identity embedded MV3 asset plus bounded status|tabs|debug-read protocol and exact-process connection-registry library core; no public host/installer yet",
+          "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/debug-read over the fixed-identity embedded MV3 asset, same-binary Native Messaging host and current-user installer",
           "state": "gap",
-          "next": "wire the same agenterm-cu binary as Native Messaging host, atomically install the embedded asset and host manifest, route profile instances through current-user IPC, add at-most-once receipts, then run the background closed-shadow public court"
+          "next": "load the exact materialized extension in a controlled authenticated-profile court and prove background closed-shadow traversal, focus preservation, detach cleanup and host EOF cleanup"
         },
         {
           "id": "browser.closed-tree",
           "mcu_shape": "browser debug-read/debug-type/debug-invoke/debug-files across frames and closed shadow DOM",
-          "acu_shape": "library contract for exact-tab, bounded cross-frame Accessibility.getFullAXTree projection with no form values, presentation invariance and mandatory detach evidence; public bridge route absent",
+          "acu_shape": "browser-bridge-debug-read exact-connection route for exact-tab bounded cross-frame Accessibility.getFullAXTree projection with no form values, presentation invariance and mandatory detach evidence",
           "state": "gap",
           "next": "connect the library contract to the Native Messaging host and prove exact tab/frame/node identity, closed-shadow traversal, detach cleanup and secret-free receipts in a public black-box"
         },

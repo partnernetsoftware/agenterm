@@ -254,12 +254,13 @@ mod tests {
             "close",
             "page-click",
             "app",
+            "browser-bridge-setup",
         ] {
             assert!(actuate.contains(expected), "{expected} must be actuate");
         }
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 68, "{actuate:?}");
+        assert_eq!(actuate.len(), 69, "{actuate:?}");
     }
 }

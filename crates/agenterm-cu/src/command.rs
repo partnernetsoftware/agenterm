@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::target::TargetRef;
+use crate::{browser_bridge::ConnectionId, target::TargetRef};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -2430,6 +2430,33 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "is_false")]
         expect_failed: bool,
     },
+    /// Materialize the fixed ACU MV3 bundle and register this exact executable
+    /// as its current-user Native Messaging host. Chromium still requires the
+    /// user to load the unpacked extension; setup never claims that activation.
+    BrowserBridgeSetup {
+        target: TargetRef,
+    },
+    /// List bounded, current-user and exact-process-validated bridge hosts.
+    BrowserBridgeConnections {
+        target: TargetRef,
+    },
+    BrowserBridgeStatus {
+        target: TargetRef,
+        connection_id: ConnectionId,
+    },
+    BrowserBridgeTabs {
+        target: TargetRef,
+        connection_id: ConnectionId,
+    },
+    BrowserBridgeDebugRead {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        max_frames: u16,
+        max_depth: u8,
+        max_scan: u32,
+        max_results: u16,
+    },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
     Unlock {
@@ -2815,6 +2842,11 @@ impl Command {
             Self::BrowserSessionStatus { .. } => "browser-session-status".into(),
             Self::BrowserSessionStop { .. } => "browser-session-stop".into(),
             Self::BrowserSessionRemove { .. } => "browser-session-remove".into(),
+            Self::BrowserBridgeSetup { .. } => "browser-bridge-setup".into(),
+            Self::BrowserBridgeConnections { .. } => "browser-bridge-connections".into(),
+            Self::BrowserBridgeStatus { .. } => "browser-bridge-status".into(),
+            Self::BrowserBridgeTabs { .. } => "browser-bridge-tabs".into(),
+            Self::BrowserBridgeDebugRead { .. } => "browser-bridge-debug-read".into(),
             Self::Unlock { .. } => "unlock".into(),
             Self::Activate { .. } => "activate".into(),
             Self::Raise { .. } => "raise".into(),
@@ -2968,6 +3000,11 @@ impl Command {
             | Self::BrowserSessionStatus { target, .. }
             | Self::BrowserSessionStop { target, .. }
             | Self::BrowserSessionRemove { target, .. }
+            | Self::BrowserBridgeSetup { target, .. }
+            | Self::BrowserBridgeConnections { target, .. }
+            | Self::BrowserBridgeStatus { target, .. }
+            | Self::BrowserBridgeTabs { target, .. }
+            | Self::BrowserBridgeDebugRead { target, .. }
             | Self::Unlock { target, .. }
             | Self::Activate { target, .. }
             | Self::Raise { target, .. }
@@ -3045,6 +3082,7 @@ impl Command {
             | Self::BrowserSessionStart { .. }
             | Self::BrowserSessionStop { .. }
             | Self::BrowserSessionRemove { .. }
+            | Self::BrowserBridgeSetup { .. }
             | Self::PageClick { .. }
             | Self::PageDownload { .. }
             | Self::PageHover { .. }
@@ -5124,5 +5162,66 @@ mod tests {
             };
             assert_eq!(command.required_grant(), grant);
         }
+    }
+
+    #[test]
+    fn browser_bridge_commands_keep_exact_identity_and_grant_on_the_wire() {
+        let connection_id = ConnectionId::parse(&"1".repeat(64)).unwrap();
+        let setup = Command::BrowserBridgeSetup {
+            target: TargetRef::Current,
+        };
+        assert_eq!(setup.required_grant(), Grant::Actuate);
+        assert_eq!(setup.verb(), "browser-bridge-setup");
+
+        for observe in [
+            Command::BrowserBridgeConnections {
+                target: TargetRef::Current,
+            },
+            Command::BrowserBridgeStatus {
+                target: TargetRef::Current,
+                connection_id: connection_id.clone(),
+            },
+            Command::BrowserBridgeTabs {
+                target: TargetRef::Current,
+                connection_id: connection_id.clone(),
+            },
+        ] {
+            assert_eq!(observe.required_grant(), Grant::Observe);
+        }
+
+        let debug = Command::BrowserBridgeDebugRead {
+            target: TargetRef::Ssh,
+            connection_id,
+            tab_id: 7,
+            max_frames: 4,
+            max_depth: 9,
+            max_scan: 300,
+            max_results: 80,
+        };
+        assert_eq!(debug.required_grant(), Grant::Observe);
+        assert_eq!(debug.target(), TargetRef::Ssh);
+        assert_eq!(debug.verb(), "browser-bridge-debug-read");
+        let encoded = serde_json::to_value(&debug).unwrap();
+        assert_eq!(encoded["connection_id"], "1".repeat(64));
+        let decoded: Command = serde_json::from_value(encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            Command::BrowserBridgeDebugRead {
+                target: TargetRef::Ssh,
+                tab_id: 7,
+                max_frames: 4,
+                max_depth: 9,
+                max_scan: 300,
+                max_results: 80,
+                ..
+            }
+        ));
+
+        let invalid = serde_json::json!({
+            "verb": "browser-bridge-status",
+            "target": "current",
+            "connection_id": "ABC"
+        });
+        assert!(serde_json::from_value::<Command>(invalid).is_err());
     }
 }
