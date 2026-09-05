@@ -302,6 +302,46 @@ fn process_pid_is_stable_across_the_wait_and_a_second_wait_replays() {
     assert_eq!(string_of(&out), "true|true|0|0|true|4|hi\n", "{out:?}");
 }
 
+#[cfg(unix)]
+#[test]
+fn process_spawn_refuses_before_the_thirty_third_native_child() {
+    let scratch = Scratch::new("child-handle-limit");
+    let marker = scratch.path("forbidden-spawn");
+    let out = run_tool(&format!(
+        r#"
+        const handles = [];
+        const spec = JSON.stringify({{ program: "sh", args: ["-c", "exit 0"] }});
+        for (let i = 0; i < 32; i = i + 1) {{
+            const h = process_spawn(spec);
+            if (h < 0) {{ return "early:" + i + ":" + tool_result(); }}
+            handles.push(h);
+        }}
+        const refused = process_spawn(JSON.stringify({{
+            program: "/usr/bin/touch", args: [{marker}]
+        }}));
+        const refusal = tool_result();
+        let cleaned = 0;
+        for (const h of handles) {{
+            if (process_wait(h, 5000) === 0) {{ cleaned = cleaned + 1; }}
+        }}
+        return "" + refused + "|" + refusal + "|" + cleaned + "|" + fs_exists({marker});
+        "#,
+        marker = js(&marker),
+    ));
+    assert_eq!(
+        string_of(&out),
+        "-1|process.spawn: child handle limit 32 reached|32|0",
+        "{out:?}"
+    );
+    assert_eq!(
+        out.tool_calls
+            .iter()
+            .filter(|call| call.as_str() == "tool.process.spawn")
+            .count(),
+        33
+    );
+}
+
 #[test]
 fn process_list_and_tree_contain_the_tool_host_identity() {
     let out = run_tool(

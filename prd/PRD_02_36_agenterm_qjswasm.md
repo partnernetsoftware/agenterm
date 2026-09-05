@@ -46,6 +46,7 @@ agenterm-qjswasm
 │  ├─ [x] steps, pages, table, call-depth and activation-slot limits
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
+│  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
@@ -86,6 +87,7 @@ flowchart LR
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
+  HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
@@ -119,7 +121,7 @@ flowchart LR
   MANY -. bytes · modules · deadline .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
-  PRODUCT -. child process .-> CAPTURE --> RECEIPT
+  PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT
   LOAD -->|no| REJECT
@@ -201,6 +203,12 @@ second route around ACU/AgenTerm product contracts.
   public `script` failure class through direct run, task run, and check-many;
   loader, signature, and host-door setup failures remain `configuration`.
 - [x] qjswasm tool profile executes bounded child processes with typed failures.
+- [x] One qjswasm slot retains at most 32 `process.spawn` handles, including
+  completed handles whose first wait answer remains replayable. The 33rd call
+  is rejected before parsing into a host command, spawning an OS process, or
+  creating stdout/stderr drain threads. Current public scripts need at most
+  nine, so the ceiling leaves measured headroom without turning the general
+  host-operation budget into thousands of native resources.
 - [x] child-process wait and incremental-read limits reject negative values
   before consuming or mutating the owned handle. A negative timeout is not an
   alias for an unbounded wait, and a negative capture size is not an alias for

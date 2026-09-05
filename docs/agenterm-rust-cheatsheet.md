@@ -3795,3 +3795,13 @@ sidecar lock and waits for that exact generation for a short bounded interval
 before launching the owned child. Never let the child launch merely because an
 intent file exists. Bind stop requests to both owner and child identities so a
 stale request cannot terminate a replacement generation.
+
+## Reject retained-child exhaustion before spawning native resources
+
+A general host-operation budget is not a process/thread/memory budget. If a
+script slot retains child handles for replayable waits, cap the retained ledger
+independently and check the cap before parsing into a host command, spawning the
+child, or starting pipe-drain threads. Completed handles still count while they
+retain captured output. Choose the ceiling from measured public-journey demand
+with explicit headroom, then test that the first refused call creates no handle
+and leaves every earlier handle waitable and cleanable.

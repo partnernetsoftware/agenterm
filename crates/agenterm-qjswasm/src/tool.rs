@@ -428,6 +428,13 @@ pub(crate) struct ToolState {
     env_allow: Vec<String>,
 }
 
+/// One invocation may retain this many owned child handles. The repository's
+/// public journeys need at most nine; 32 leaves headroom without allowing the
+/// ordinary host-operation budget to become thousands of processes and twice
+/// as many pipe-drain threads. Completed handles still count because they keep
+/// their replay answer until the slot ends.
+const PROCESS_CHILD_HANDLE_LIMIT: usize = 32;
+
 /// One spawned child, by handle index. A waited child keeps its pid and
 /// replays its first answer: rh scripts `wait_with_output` a child they
 /// already reaped, and `complete` re-waits every owned handle -- wave 2 met
@@ -1036,6 +1043,11 @@ pub(crate) fn install(
         move |args, memory| {
             let spec = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             direct(&state, "process.spawn", || {
+                if state.borrow().children.len() >= PROCESS_CHILD_HANDLE_LIMIT {
+                    return Err(format!(
+                        "process.spawn: child handle limit {PROCESS_CHILD_HANDLE_LIMIT} reached"
+                    ));
+                }
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
                 let (mut child, tree) = spawn_command(&spec, true)?;
@@ -1053,7 +1065,7 @@ pub(crate) fn install(
                     read_stderr: 0,
                 }));
                 i32::try_from(s.children.len() - 1)
-                    .map_err(|_| "process.spawn: too many children".to_string())
+                    .map_err(|_| "process.spawn: child handle index overflow".to_string())
             })
         },
     )?;
