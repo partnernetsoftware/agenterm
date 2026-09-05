@@ -186,7 +186,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   session and lock operation plus `audit query|compact` onto these same ACU
   commands, removing the top-level `audit` fallback. The platform-neutral
   public qjswasm journey covers the full create/status/acquire/reacquire/
-  release/end/query/retention loop on macOS. Current-target
+  release/end/query/retention loop on macOS, including expiry sweeping the
+  session's target lock from public state. Current-target
   mutations can now carry the all-or-none `--request-id`, `--session` and
   `--session-lease` envelope: admission verifies the active lease without
   renewing it, reserves a private crash-persistent request record before the

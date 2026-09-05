@@ -295,6 +295,30 @@ try {
     "cu_managed_job_session_end_contract"
   );
 
+  print("STEP expire a short session and prove its owned target lock is swept from public state");
+  const expiring = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "expiry-smoke", "--ttl-seconds", "1"
+  ], "session-start");
+  const expiring_id = text_of(expiring.session_id);
+  const expiring_lease = text_of(expiring.lease);
+  const expiring_lock = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "lock-acquire", expiring_id, expiring_lease, "court:expiry", "--ttl-seconds", "1"
+  ], "lock-acquire");
+  ensure(expiring_lock.lock.session_id === expiring_id, "cu_runtime_expiring_lock_contract");
+  harness.sleep_ms(2200);
+  const expired = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "session-status", expiring_id
+  ], "session-status");
+  const active_locks = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "lock-list"
+  ], "lock-list");
+  ensure(
+    expired.state === "expired" && active_locks.locks.length === 0,
+    "cu_runtime_expiry_cleanup_contract"
+  );
+
   print("STEP plan and atomically apply bounded audit retention without hiding malformed or expired drops");
   rh.write_text(
     audit_path,

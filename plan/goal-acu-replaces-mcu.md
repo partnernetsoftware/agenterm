@@ -126,7 +126,7 @@ product branches do not pre-empt these blockers.
 MCU retirement blockers
 ├─ [x] desktop state: bounded native desktop-state + state alias
 ├─ [~] shared runtime spine
-│  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release
+│  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release/expiry sweep
 │  ├─ [x] audit query with bounded result/scan/byte budgets
 │  ├─ [x] audit retention: plan/apply + atomic bounded compact + qjswasm court
 │  ├─ [x] MCU-shaped session/lock/audit-query/compact compatibility routes to ACU
