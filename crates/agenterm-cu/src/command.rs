@@ -774,6 +774,16 @@ pub enum Command {
     Capabilities {
         target: TargetRef,
     },
+    /// Inspect or atomically publish the stable current-user launcher for the
+    /// exact packaged `agenterm-cu` executable. Runtime refresh and permission
+    /// repair remain separate commands.
+    Setup {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "SetupAction::is_apply")]
+        action: SetupAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bin_dir: Option<String>,
+    },
     /// Read-only projection of the permission declaration embedded in
     /// `capabilities`. This is a first-class wire command so current, SSH and
     /// VNC workers all receive the same stable shape.
@@ -2846,6 +2856,20 @@ pub enum PermissionAction {
     Open,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SetupAction {
+    Check,
+    #[default]
+    Apply,
+}
+
+impl SetupAction {
+    fn is_apply(&self) -> bool {
+        *self == Self::Apply
+    }
+}
+
 impl PermissionAction {
     fn is_status(&self) -> bool {
         *self == Self::Status
@@ -2873,6 +2897,7 @@ impl Command {
     pub fn verb(&self) -> String {
         match self {
             Self::Capabilities { .. } => "capabilities".into(),
+            Self::Setup { .. } => "setup".into(),
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
             Self::RuntimeStatus { .. } => "runtime-status".into(),
@@ -3039,6 +3064,7 @@ impl Command {
     pub fn target(&self) -> TargetRef {
         match self {
             Self::Capabilities { target, .. }
+            | Self::Setup { target, .. }
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
             | Self::RuntimeStatus { target, .. }
@@ -3204,7 +3230,11 @@ impl Command {
 
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
-            Self::Permissions {
+            Self::Setup {
+                action: SetupAction::Apply,
+                ..
+            }
+            | Self::Permissions {
                 action: PermissionAction::Open,
                 ..
             }
@@ -3294,6 +3324,19 @@ impl Command {
     /// the same field bounds before constructing managed-job variants.
     pub fn validate(&self) -> Result<(), &'static str> {
         match self {
+            Self::Setup {
+                target, bin_dir, ..
+            } => {
+                if *target != TargetRef::Current {
+                    return Err("setup supports only target=current");
+                }
+                if bin_dir.as_ref().is_some_and(|path| {
+                    path.is_empty() || path.len() > 8192 || path.as_bytes().contains(&0)
+                }) {
+                    return Err("setup bin_dir must contain 1..=8192 non-NUL UTF-8 bytes");
+                }
+                Ok(())
+            }
             Self::JobSpawn {
                 command,
                 environment,
@@ -3789,6 +3832,46 @@ mod tests {
                 "max_output_bytes": 1_048_576,
             })
         );
+    }
+
+    #[test]
+    fn setup_has_distinct_read_only_check_and_current_only_apply_shapes() {
+        let check = Command::Setup {
+            target: TargetRef::Current,
+            action: SetupAction::Check,
+            bin_dir: Some("fixture-bin".into()),
+        };
+        assert_eq!(check.verb(), "setup");
+        assert_eq!(check.required_grant(), Grant::Observe);
+        assert_eq!(check.validate(), Ok(()));
+        let value = serde_json::to_value(&check).expect("serialize");
+        assert_eq!(value["action"], "check");
+        assert_eq!(value["bin_dir"], "fixture-bin");
+        let back: Command = serde_json::from_value(value).expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::Setup {
+                target: TargetRef::Current,
+                action: SetupAction::Check,
+                ..
+            }
+        ));
+
+        let apply = Command::Setup {
+            target: TargetRef::Current,
+            action: SetupAction::Apply,
+            bin_dir: None,
+        };
+        assert_eq!(apply.required_grant(), Grant::Actuate);
+        let value = serde_json::to_value(&apply).expect("serialize default action");
+        assert!(value.get("action").is_none());
+
+        let remote = Command::Setup {
+            target: TargetRef::Ssh,
+            action: SetupAction::Check,
+            bin_dir: None,
+        };
+        assert_eq!(remote.validate(), Err("setup supports only target=current"));
     }
 
     #[test]

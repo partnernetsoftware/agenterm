@@ -220,7 +220,6 @@ pub const GROUPS: &[Group] = &[
 
 /// CLI verbs that this binary accepts and answers typed (not unknown).
 pub const ALIGN_VERBS: &[&str] = &[
-    "setup",
     "doctor",
     "permissions",
     "unlock",
@@ -305,8 +304,8 @@ fn tree_live(os: &str) -> bool {
 pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
     match group_id {
         "setup" => (
-            "unsupported",
-            "ACU migration gap: setup/repair workflow pending; capabilities reports permission repair",
+            "available",
+            "setup/check atomically owns the stable current-user launcher; doctor and permission status/open are live, while runtime refresh remains a separate typed gap",
         ),
         "discover" => {
             if tree_live(os) {

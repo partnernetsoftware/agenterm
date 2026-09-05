@@ -58,7 +58,7 @@ pub fn top_level_text() -> String {
     let mut text = verbs::cold_text("top_level_text").to_owned();
     text = text.replace(
         "  permissions                       observe  permission state, affected verbs and repair guidance",
-        "  permissions                       mixed    status observes; open dispatches one exact settings pane",
+        "  setup  mixed  launcher check/apply;  permissions  mixed  status/open exact settings pane",
     );
     text = text.replace(
         "MCU-aligned verbs with no mechanism here (pty, simulator, drag, ...) answer typed\nunsupported, never unknown; `capabilities` lists them per target.\n",
@@ -212,7 +212,13 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
-    let compact_inline = ["network-routes", "runtime-status", "storage-devices"];
+    let compact_inline = [
+        "network-routes",
+        "permissions",
+        "runtime-status",
+        "setup",
+        "storage-devices",
+    ];
     let compact_process = [
         "process-argv",
         "process-cwd",

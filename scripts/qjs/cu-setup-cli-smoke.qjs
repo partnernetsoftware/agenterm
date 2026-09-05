@@ -1,0 +1,123 @@
+// Platform-neutral black-box journey for the stable native ACU launcher.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.setup-cli-entrypoint"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_setup_invalid_reply"; }
+  ensure(reply.command === "setup", "cu_setup_wrong_command");
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_setup_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_setup_wrong_error");
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_setup_failed");
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_setup_executable_missing");
+
+const context = harness.new_context(repo, "cu-setup-cli-entrypoint");
+const run_directory = context.run_directory;
+const bin_directory = rh.join(run_directory, "bin");
+const launcher = rh.join(bin_directory, harness.host_is_windows() ? "agenterm-cu.cmd" : "agenterm-cu");
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP check diagnoses missing without creating the launcher directory");
+  const missing = invoke(run_directory, executable, "observe", [
+    "setup", "--check", "--bin-dir", bin_directory
+  ]);
+  ensure(missing.mode === "check" && missing.status === "missing", "cu_setup_missing_status");
+  ensure(missing.action.performed === false && missing.effect === "none", "cu_setup_check_mutated");
+  ensure(!rh.exists(bin_directory), "cu_setup_check_created_directory");
+
+  print("STEP apply publishes one exact owned launcher and repeated apply is unchanged");
+  const installed = invoke(run_directory, executable, "actuate", [
+    "setup", "--bin-dir", bin_directory
+  ]);
+  ensure(installed.status === "ready" && installed.action.outcome === "installed", "cu_setup_install_status");
+  ensure(installed.action.performed === true && installed.effect === "committed", "cu_setup_install_effect");
+  ensure(direct_file(launcher), "cu_setup_launcher_missing");
+  const digest = rh.sha256_file(launcher);
+  const unchanged = invoke(run_directory, executable, "actuate", [
+    "setup", "--bin-dir", bin_directory
+  ]);
+  ensure(unchanged.status === "ready" && unchanged.action.outcome === "unchanged", "cu_setup_idempotent_status");
+  ensure(unchanged.action.performed === false && rh.sha256_file(launcher) === digest, "cu_setup_idempotent_bytes");
+
+  print("STEP check reads the installed state and the launcher invokes the exact package binary");
+  const ready = invoke(run_directory, executable, "observe", [
+    "setup", "--check", "--bin-dir", bin_directory
+  ]);
+  ensure(ready.status === "ready" && ready.action.performed === false, "cu_setup_ready_check");
+  const source_version = rh.command(executable, ["--version"], {
+    cwd: run_directory, timeout_ms: 30000
+  });
+  ensure(source_version.success === true, "cu_setup_source_version");
+  let version = null;
+  if (harness.host_is_windows()) {
+    version = rh.command("cmd.exe", ["/d", "/s", "/c", launcher, "--version"], {
+      cwd: run_directory, timeout_ms: 30000
+    });
+  } else {
+    version = rh.command(launcher, ["--version"], { cwd: run_directory, timeout_ms: 30000 });
+  }
+  ensure(version.success === true, "cu_setup_launcher_version");
+  ensure(version.stdout.trim() === source_version.stdout.trim(), "cu_setup_launcher_wrong_binary");
+
+  print("STEP an unowned collision is preserved and refused");
+  rh.remove_file(launcher);
+  rh.write_text(launcher, "foreign-entry\n");
+  const foreign_digest = rh.sha256_file(launcher);
+  invoke(run_directory, executable, "actuate", [
+    "setup", "--bin-dir", bin_directory
+  ], "setup_entrypoint_conflict");
+  ensure(rh.sha256_file(launcher) === foreign_digest, "cu_setup_foreign_changed");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.setup-cli-entrypoint");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu stable CLI entrypoint");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

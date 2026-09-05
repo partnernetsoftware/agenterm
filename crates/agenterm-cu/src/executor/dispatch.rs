@@ -12,6 +12,9 @@ impl Executor {
     ) -> Result<serde_json::Value, CuError> {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
+            Command::Setup {
+                action, bin_dir, ..
+            } => setup_payload(*action, bin_dir.as_deref()),
             Command::Permissions {
                 action, permission, ..
             } => match action {

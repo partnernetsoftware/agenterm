@@ -204,10 +204,13 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **14 static top-level `STAY` spellings**. The exact
-`storage devices` route and truthful `daemon status|caps` observations have
-left the static set; other storage mutation/volume shapes and obsolete daemon
-lifecycle spellings still fail over dynamically until their callers migrate.
+`acu.ts` now has **13 static top-level `STAY` spellings**. Native
+`setup --check|apply` and its `path-install` alias removed launcher filesystem
+effects from the compatibility shell; runtime refresh remains a distinct gap.
+The exact `storage devices` route and truthful `daemon status|caps`
+observations have left the static set; other storage mutation/volume shapes and
+obsolete daemon lifecycle spellings still fail over dynamically until their
+callers migrate.
 The reviewed retirement of the no-authority `ghost` overlay and obsolete
 `desktop-helper` sidecar removed two more fallbacks without inventing replacement
 mechanisms. This is not the remaining capability count: group verbs contain
@@ -540,7 +543,8 @@ Q2 fast delegated facades
 │  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
 │  ├─ [~] permissions open-next: macOS exact pane + granted no-op; denied-pane and two native courts pending
 │  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
-│  └─ [ ] setup: idempotent launcher/runtime repair
+│  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS public qjswasm court green, Linux/Windows and six-cell Candidate binding pending
+│  └─ [ ] setup runtime refresh: coordinator-aware repair that must not disrupt owned jobs or device leases
 ├─ [~] open/notify/state and terminal adoption
 │  ├─ [x] open/notify → typed host adapters; macOS public courts green, Linux/Windows pending
 │  └─ [x] state → bounded native desktop-state; terminal adoption remains separate

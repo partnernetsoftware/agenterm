@@ -126,10 +126,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   automation for Bun/MCU dependencies, and consumes the temporary adapter's
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measures 131 capabilities,
-  including 21 gaps and 50 platform-limited rows, plus 14 static adapter stays
+  including 20 gaps and 50 platform-limited rows, plus 13 static adapter stays
   and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
+- [~] The stable CLI launcher has left `STAY`. Native `setup --check` is a
+  zero-write inspection; `setup` atomically publishes one owned launcher for
+  the exact packaged `agenterm-cu` binary under a path lock, repairs only its
+  own stale bytes, and refuses foreign files or links without changing them.
+  `path-install` is only a compatibility alias. The macOS public qjswasm
+  journey `cu.setup-cli-entrypoint` proves missing/check, install,
+  idempotence, exact binary forwarding and collision preservation. Linux,
+  Windows and exact six-cell Candidate evidence remain open, as does the
+  separate coordinator-aware runtime-refresh leaf.
 - [x] Two MCU-only surfaces are reviewed retirements, not ACU gaps. `ghost X Y`
   drew a decorative cursor with no observation or effect authority; callers
   must use real pointer state, structured hit-testing or screenshots instead.

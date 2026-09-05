@@ -52,6 +52,7 @@ pub mod rdp_transport;
 pub mod receipt;
 pub mod reply;
 pub mod runtime_coordinator;
+pub mod setup_entrypoint;
 pub mod snapshot;
 pub mod ssh_transport;
 #[cfg(target_os = "macos")]
@@ -66,7 +67,7 @@ pub mod worker_wire;
 pub use auth::{Authorization, Grant};
 pub use command::{
     Command, FileTransactionAction, OrderRelation, PermissionAction, PermissionKind, PointerButton,
-    TerminalWaitCondition, WaitCondition,
+    SetupAction, TerminalWaitCondition, WaitCondition,
 };
 pub use executor::{Executor, RequestIdentity};
 pub use rdp_transport::RdpEndpoint;

@@ -1011,9 +1011,11 @@
         {
           "id": "setup.cli-entrypoint",
           "mcu_shape": "setup and setup --check install or inspect the stable CLI entrypoint",
-          "acu_shape": "path-install installs the ACU launcher; no complete check/repair workflow",
-          "state": "gap",
-          "next": "idempotent native launcher install/check with atomic publication and stale-version diagnosis on all three hosts"
+          "acu_shape": "setup [--check] [--bin-dir PATH] and the path-install alias inspect or publish one owned launcher for the exact packaged agenterm-cu binary",
+          "state": "native",
+          "qualification": "public-qjs-macos-green-linux-windows-pending",
+          "evidence": ["cu.setup-cli-entrypoint"],
+          "next": "run the same public qjswasm court against packaged Linux and Windows binaries, then bind it into the exact six-cell Candidate receipt"
         },
         {
           "id": "setup.runtime-refresh",

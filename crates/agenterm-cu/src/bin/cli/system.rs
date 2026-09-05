@@ -1,7 +1,7 @@
 //! Host-level discovery that is independent of the desktop/window family.
 
 use agenterm_cu::{
-    Command, PermissionAction, PermissionKind, TargetRef,
+    Command, PermissionAction, PermissionKind, SetupAction, TargetRef,
     command::{
         JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
     },
@@ -19,6 +19,27 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "setup" {
+        let check = take_switch(args, "--check");
+        let bin_dir = flag_text(args, "--bin-dir")?;
+        if !args.is_empty() {
+            return Err(format!(
+                "setup accepts only --check and --bin-dir PATH; unexpected {:?}",
+                args[0]
+            ));
+        }
+        let command = Command::Setup {
+            target,
+            action: if check {
+                SetupAction::Check
+            } else {
+                SetupAction::Apply
+            },
+            bin_dir,
+        };
+        command.validate().map_err(str::to_owned)?;
+        return Ok(command);
+    }
     if spec.name == "resource-status" {
         if args.first().is_some_and(|arg| arg == "status") {
             args.remove(0);
@@ -554,6 +575,34 @@ mod tests {
             }
         ));
         assert!(parse("daemon", &["status", "extra"]).is_err());
+    }
+
+    #[test]
+    fn setup_apply_check_and_legacy_alias_are_closed() {
+        assert!(matches!(
+            parse("setup", &[]).unwrap(),
+            Command::Setup {
+                action: SetupAction::Apply,
+                bin_dir: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("setup", &["--check", "--bin-dir", "fixture-bin"]).unwrap(),
+            Command::Setup {
+                action: SetupAction::Check,
+                bin_dir: Some(path),
+                ..
+            } if path == "fixture-bin"
+        ));
+        assert!(matches!(
+            parse("path-install", &[]).unwrap(),
+            Command::Setup {
+                action: SetupAction::Apply,
+                ..
+            }
+        ));
+        assert!(parse("setup", &["--check", "extra"]).is_err());
     }
 
     #[test]

@@ -4271,3 +4271,15 @@ does not round values above 2^53. Legitimate provider states such as macOS
 `VirtualOrPhysical=Unknown` mean an unavailable optional field, not a malformed
 snapshot; reserve malformed failures for values outside the provider's real
 vocabulary or structural contract.
+
+## Install stable CLI entrypoints without forking package identity
+
+A PATH setup command should publish a tiny owned launcher that points to the
+packaged executable, not copy the executable into a second location. This keeps
+colocated dynamic-library lookup and package identity intact. Its check mode is
+strictly zero-write; apply serializes on a path lock, publishes complete bytes
+with the platform atomic-file facade, reads them back, and is idempotent.
+Replace only a regular file carrying the exact product marker and schema.
+Foreign files, links and non-files are conflicts and must be preserved. Test
+missing, stale-owned, repeated, collision and exact forwarding behavior through
+the public CLI rather than accepting catalog or unit-test presence as delivery.

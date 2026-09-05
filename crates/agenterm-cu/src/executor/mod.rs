@@ -74,6 +74,7 @@ mod pty_jobs;
 mod receipts;
 mod resource_status;
 mod runtime;
+mod setup;
 mod shell_exec;
 mod simulator;
 mod snapshots;
@@ -117,6 +118,7 @@ use pty_jobs::*;
 use receipts::*;
 use resource_status::*;
 use runtime::*;
+use setup::*;
 use shell_exec::*;
 use simulator::*;
 use snapshots::*;
@@ -250,6 +252,11 @@ impl Executor {
     }
 
     pub fn execute(&self, command: &Command) -> CuReply {
+        if matches!(command, Command::Setup { .. })
+            && let Err(message) = command.validate()
+        {
+            return CuReply::err(command, CuError::new("invalid_input", message));
+        }
         if let Some(identity) = self.request_identity.as_ref() {
             return self.execute_with_request_identity(command, identity);
         }

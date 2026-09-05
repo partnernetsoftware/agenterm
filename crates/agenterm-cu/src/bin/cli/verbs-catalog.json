@@ -16,6 +16,19 @@
       "args": []
     },
     {
+      "name": "setup",
+      "command": "setup",
+      "aliases": ["path-install"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "inspect or atomically publish the stable current-user agenterm-cu launcher",
+      "usage": "setup [--check] [--bin-dir PATH]\npath-install [--bin-dir PATH]",
+      "args": [
+        {"flag": "--check", "value": "", "help": "strictly read-only inspection; requires observe rather than actuate"},
+        {"flag": "--bin-dir", "value": "PATH", "help": "override the user launcher directory for an isolated court"}
+      ]
+    },
+    {
       "name": "permissions",
       "command": "permissions",
       "aliases": [],
@@ -4618,6 +4631,10 @@
     {
       "name": "capabilities",
       "text": "agenterm-cu capabilities    (also: caps)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  capabilities\n\nWhat the selected target can observe and actuate, verb group by verb\ngroup, with a typed reason for anything this host does not support.\n`caps` is the MCU spelling.\n"
+    },
+    {
+      "name": "setup",
+      "text": "agenterm-cu setup    (also: path-install)\n  scope: observe for --check; actuate for apply    family: System & permissions\n\nusage:\n  setup --check [--bin-dir PATH]\n  setup [--bin-dir PATH]\n\nChecks or atomically publishes one ACU-owned launcher for the exact packaged agenterm-cu binary. Check mode performs no filesystem writes. Apply is idempotent, preserves foreign/link-like entries, and refuses non-current targets. Runtime refresh and permission consent are separate capabilities.\n"
     },
     {
       "name": "permissions",
