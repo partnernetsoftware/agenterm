@@ -504,6 +504,26 @@ fn fs_try_lock_exclusive_refuses_a_second_taker_until_unlock() {
 }
 
 #[test]
+fn direct_operation_diagnostics_obey_the_result_cap() {
+    let mut engine = Engine::with_tool_door(Budget {
+        max_bridge_result_bytes: 8,
+        ..Budget::default()
+    });
+    let out = engine
+        .run_once(
+            Guest::Qjs("let status = fs_unlock(-1); return status + ':' + tool_result();"),
+            None,
+            "main",
+            &[],
+        )
+        .expect("a capped direct-operation refusal is a normal result");
+    assert_eq!(
+        string_of(&out),
+        "-1:tool: result exceeds the slot's max_bridge_result_bytes"
+    );
+}
+
+#[test]
 fn fs_try_lock_exclusive_refuses_before_creating_the_thirty_third_file() {
     let scratch = Scratch::new("lock-handle-limit");
     let stem = js(&scratch.path("held-"));

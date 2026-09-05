@@ -1820,7 +1820,7 @@ fn answer_as(
     // The cap applies to whatever the operation produced, answer or
     // diagnostic alike, and replaces it wholesale rather than cutting it.
     let (status, payload) = if payload.len() > s.max_result {
-        (STATUS_ERR, RESULT_TOO_LARGE.as_bytes().to_vec())
+        (STATUS_ERR, oversized_result_payload())
     } else {
         (status, payload)
     };
@@ -1875,8 +1875,14 @@ fn direct_as(
             Err(WasmError::Trap(crate::host::CANCELLED))
         }
         Ok(Err(message)) => {
-            meter.borrow_mut().answered(message.len());
-            state.borrow_mut().result = message.into_bytes();
+            let max_result = state.borrow().max_result;
+            let payload = if message.len() > max_result {
+                oversized_result_payload()
+            } else {
+                message.into_bytes()
+            };
+            meter.borrow_mut().answered(payload.len());
+            state.borrow_mut().result = payload;
             Ok(vec![Val::I32(-1)])
         }
         Err(panic) => {
@@ -1884,6 +1890,10 @@ fn direct_as(
             Err(WasmError::Trap(TOOL_PANICKED))
         }
     }
+}
+
+fn oversized_result_payload() -> Vec<u8> {
+    RESULT_TOO_LARGE.as_bytes().to_vec()
 }
 
 /// What a waiting operation returns when [`Meter::check_cancel`] said stop

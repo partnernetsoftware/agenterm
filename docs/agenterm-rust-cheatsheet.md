@@ -3840,3 +3840,12 @@ kill-on-close Job, then resumes; every failure before resume terminates and
 waits for that suspended object. Unix establishes the process group in
 `pre_exec`, before `exec` transfers control to the requested program. Keep
 arguments as `OsString`/wide units so containment does not cost path fidelity.
+
+## Cap parked diagnostics on every host return shape
+
+A host operation returning `i32` can still park an arbitrarily long diagnostic
+for a later `tool_result()` call. Apply the same result-byte court used by
+text-returning operations before storing and billing that diagnostic; the
+numeric return shape is not evidence that the host-to-guest text path is free.
+Regression-test the smallest configured budget against an error containing a
+path or other caller-controlled detail.

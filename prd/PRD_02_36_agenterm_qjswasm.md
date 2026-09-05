@@ -49,6 +49,7 @@ agenterm-qjswasm
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
 │  ├─ [x] advisory locks retain stable tombstones and refuse a 33rd lifetime handle before file creation
+│  ├─ [x] text and i32-returning host operations apply one parked-result cap to diagnostics
 │  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
