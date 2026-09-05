@@ -47,6 +47,7 @@ agenterm-qjswasm
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
 │  ├─ [ ] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
+│  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
 │  │  ├─ MCU-absent black-box parity precedes switching the default entry
@@ -144,8 +145,10 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> ACUOBJ --> ACUCLI --> RECEIPT
-  TS --> ABSENT --> COMPAT
-  COMPAT -. legacy syntax only .-> ACUOBJ
+  TS --> ABSENT
+  ACUOBJ --> ABSENT
+  ABSENT --> COMPAT
+  COMPAT -. legacy syntax projected to typed calls .-> ACUCLI
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
@@ -224,9 +227,12 @@ The ACU convergence follows the same boundary. `agenterm:acu` is an AgenTerm
 embedder object, not a tinyvm builtin: generic tinyvm validates and executes
 Wasm, while the AgenTerm embedder supplies the versioned machine-control host
 contract. CLI, MCP and qjswasm must enter the same Rust schema and `Executor`;
-none may own a second implementation. `acu.ts` first shrinks to zero useful
-fallbacks, `acu.qjs` then removes Bun while preserving only legacy argument
-mapping, and that shell retires after its callers migrate to the typed object.
+none may own a second implementation. The embedder object must exist and pass
+parity before the compatibility entry switches: `acu.ts` first shrinks to zero
+useful fallbacks, `acu.qjs` then removes Bun while preserving only legacy
+argument mapping against that object, and that shell retires after its callers
+migrate to typed calls. This does not rewrite CU in JavaScript or move native
+machine-control effects into generic qjswasm/tinyvm.
 The owning retirement gates and public behavior remain in
 [PRD 28](PRD_02_28_agenterm_cu.md); this module owns only the qjswasm host-door
 integration.

@@ -76,13 +76,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  ├─ no product mechanism
   │  ├─ no independent authority or postcondition
   │  └─ every STAY is a measured retirement blocker
-  ├─ after zero-STAY + MCU-absent courts: acu.qjs = Bun-free syntax adapter
+  ├─ convergence owner: agenterm:acu = stable typed embedder object
+  │  ├─ implemented before the compatibility-shell switch
+  │  ├─ one schema / Executor / error vocabulary / receipt contract
+  │  └─ consumed directly by CLI, MCP and qjswasm
+  ├─ after object parity + zero-STAY + MCU-absent courts: acu.qjs = Bun-free syntax adapter
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
-  └─ convergence: agenterm:acu = stable typed library surface
-     ├─ one schema / Executor / error vocabulary / receipt contract
-     ├─ consumed by CLI, MCP and qjswasm
-     └─ acu.qjs retires when legacy MCU syntax has no retained callers
+  └─ acu.qjs retires when legacy MCU syntax has no retained callers
   ```
 
   This boundary is enforceable, not aspirational:
@@ -94,7 +95,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   ├─ existing TypeScript-owned effects are migration debt, not accepted architecture
   ├─ acu.qjs may: preserve only the same legacy syntax projection without Bun
   ├─ acu.qjs must not: shell out around a missing typed command or duplicate verification
-  └─ agenterm:acu owns: typed calls into the shared schema + Executor + receipts
+  ├─ agenterm:acu owns: typed calls into the shared schema + Executor + receipts
+  └─ qjswasm/tinyvm must not absorb ACU's native effects; AgenTerm injects the object
   ```
 
   A compatibility route is complete only when the same public command succeeds
@@ -108,15 +110,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   flowchart LR
     TS["acu.ts today<br/>argv projection · binary discovery"]
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
-    GATE{"zero STAY<br/>MCU-absent parity"}
-    QJS["acu.qjs transition<br/>Bun-free legacy mapping"]
     OBJ["agenterm:acu<br/>embedder object library"]
-    USERS["one contract<br/>CLI · MCP · qjs"]
+    GATE{"typed-object parity · zero STAY<br/>MCU-absent black box"}
+    QJS["acu.qjs transition<br/>Bun-free legacy mapping"]
+    USERS["typed consumers<br/>CLI · MCP · qjs"]
+    LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]
+    OWNER --> OBJ --> USERS
     TS --> GATE
     OWNER --> GATE
+    OBJ --> GATE
     GATE -->|red| DEBT --> OWNER
-    GATE -->|green| QJS --> OBJ --> USERS
+    GATE -->|green| QJS --> LEGACY
+    OBJ -->|typed calls only| QJS
   ```
 - [~] Retirement now has one machine-enforced qjswasm court rather than a
   prose checklist. `acu-retirement-readiness` walks all 13 ledger families,

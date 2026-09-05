@@ -138,8 +138,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       每个 `STAY` 都是待消除的下架阻塞，不得在 TypeScript 里新增 effect
 │     ├─ convergence            qjswasm embedder 提供 `agenterm:acu` 对象（qjs 中为 `acu`）
 │     │                       CLI / MCP / qjs 共用 typed schema、Executor、error 与 receipt
-│     ├─ Bun-free bridge         零 `STAY` + MCU-absent 门绿后，才用 `acu.qjs` 接替过渡薄壳
-│     │                       `acu.qjs` 仅保留旧语法兼容，不复制机制、权威或验证
+│     ├─ Bun-free bridge         `agenterm:acu` 先可用；零 `STAY` + MCU-absent 门绿后，
+│     │                       才用 `acu.qjs` 接替过渡薄壳；它只保留旧语法兼容
+│     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；当前推进 device watch/claim/I/O
 │     │                       不完整 provider snapshot 不得伪造设备增删事件
@@ -204,9 +205,10 @@ flowchart LR
   SCRIPT --> CU & CC
   CU & SCRIPT --> ACUOBJ
   TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
-  REFRESH & ACTS --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>Bun-free · MCU absent"}
+  REFRESH & ACTS & ACUOBJ --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>typed object · MCU absent"}
   RETIRE -->|red| CU
-  RETIRE -->|green| ACUQJS --> ACUOBJ --> EVIDENCE
+  RETIRE -->|green| ACUQJS
+  ACUOBJ -->|typed calls| ACUQJS --> EVIDENCE
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE
 ```
 
