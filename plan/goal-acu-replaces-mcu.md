@@ -647,7 +647,10 @@ Q4 browser and platform depth
 │  └─ [ ] controlled mutation courts; shutdown/deployment/guest foreground/screenshot
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement
-└─ [ ] parity corpus + three-host native + six-cell + MCU-absent rehearsal
+├─ [~] six-cell baseline now requires architecture-matched `agenterm-cu`
+│  ├─ [x] local arm64 rehearsal executes public bounded storage inventory
+│  └─ [ ] same qjswasm ACU journey on all six native/emulated userland courts
+└─ [ ] parity corpus + three-host native + MCU-absent rehearsal
 ```
 
 `moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result

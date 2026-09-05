@@ -34,6 +34,13 @@ function binary_name(target) {
   return "agenterm";
 }
 
+function cu_binary_name(target) {
+  if (target.includes("windows")) {
+    return "agenterm-cu.exe";
+  }
+  return "agenterm-cu";
+}
+
 // The identity is named relative to the home directory rather than with a `~/`
 // prefix that would need stripping, so no absolute host path lands in the
 // repository.
@@ -141,18 +148,20 @@ for (const cell of runners.cells) {
   const kind = "" + cell.kind;
   const level = "" + cell.level;
   const binary = binary_name(target);
+  const cu_binary = cu_binary_name(target);
   const local_dir = artifact_dir(repo, target, profile);
   const local_binary = rh.join(local_dir, binary);
+  const local_cu_binary = rh.join(local_dir, cu_binary);
 
-  if (!rh.exists(local_binary)) {
+  if (!rh.exists(local_binary) || !rh.exists(local_cu_binary)) {
     failed = failed + 1;
-    print("qualify: FAIL " + target + " -- artifact missing: " + local_binary);
+    print("qualify: FAIL " + target + " -- product or ACU artifact missing");
     results.push({
       target: target,
       level: level,
       static_check: "MISSING",
       state: "FAIL",
-      detail: "artifact missing: " + local_binary
+      detail: "agenterm and agenterm-cu artifacts are both required"
     });
     continue;
   }
@@ -167,6 +176,7 @@ for (const cell of runners.cells) {
   // Both the description and the verdict come out of one `sh`: `tee`
   // keeps the text for the receipt while `grep -qF` sets the exit status.
   const described_path = rh.join(work_root, target + ".file.txt");
+  const cu_described_path = rh.join(work_root, target + ".cu.file.txt");
   const expected = "" + cell.expect_file;
   const matched = rh.command(
     "sh",
@@ -185,7 +195,19 @@ for (const cell of runners.cells) {
     described = rh.read_text(described_path).replaceAll("\n", " ");
   }
   let static_check = "FAIL";
-  if (matched.success) {
+  const cu_matched = rh.command(
+    "sh",
+    [
+      "-c",
+      "file -b \"$1\" | tee \"$3\" | grep -qF \"$2\"",
+      "_",
+      local_cu_binary,
+      expected,
+      cu_described_path
+    ],
+    { timeout_ms: 60000 }
+  );
+  if (matched.success && cu_matched.success) {
     static_check = "PASS";
   }
   if (static_check === "FAIL") {
@@ -197,7 +219,7 @@ for (const cell of runners.cells) {
       level: level,
       static_check: static_check,
       state: "FAIL",
-      detail: "file(1) says \"" + described + "\", expected \"" + expected + "\""
+      detail: "agenterm or agenterm-cu architecture mismatch; agenterm says \"" + described + "\", expected \"" + expected + "\""
     });
     continue;
   }
@@ -217,11 +239,20 @@ for (const cell of runners.cells) {
 
   const stdout_path = rh.join(work_root, target + ".smoke.stdout");
   const stderr_path = rh.join(work_root, target + ".smoke.stderr");
+  const cu_stdout_path = rh.join(work_root, target + ".cu.smoke.stdout");
+  const cu_stderr_path = rh.join(work_root, target + ".cu.smoke.stderr");
   let smoke_ok = false;
 
   if (kind === "host") {
     const hosted = run(local_binary, ["cli", "--help"], 120000, stdout_path, stderr_path);
-    smoke_ok = hosted.success;
+    const cu_hosted = run(
+      local_cu_binary,
+      ["--target", "current", "--grant", "observe", "storage-devices", "--max", "1"],
+      120000,
+      cu_stdout_path,
+      cu_stderr_path
+    );
+    smoke_ok = hosted.success && cu_hosted.success && cu_hosted.stdout.includes('"ok":true');
   } else if (kind === "ssh") {
     const destination = "" + cell.user + "@" + cell.host;
     const remote_dir = "" + cell.remote_dir;
@@ -255,6 +286,29 @@ for (const cell of runners.cells) {
       continue;
     }
 
+    const cu_push_args = ssh_base(cell);
+    cu_push_args.push("-P");
+    cu_push_args.push(port);
+    cu_push_args.push(local_cu_binary);
+    cu_push_args.push(destination + ":" + remote_dir + "/" + cu_binary + ".new");
+    const cu_pushed = run(
+      "scp", cu_push_args, 900000,
+      rh.join(work_root, target + ".cu.scp.stdout"),
+      rh.join(work_root, target + ".cu.scp.stderr")
+    );
+    if (!cu_pushed.success) {
+      failed = failed + 1;
+      print("qualify: FAIL " + target + " -- ACU artifact transfer failed");
+      results.push({
+        target: target,
+        level: level,
+        static_check: static_check,
+        state: "FAIL",
+        detail: "agenterm-cu scp to " + destination + ":" + port + " failed"
+      });
+      continue;
+    }
+
     const smoke_args = ssh_base(cell);
     smoke_args.push("-p");
     smoke_args.push(port);
@@ -262,8 +316,10 @@ for (const cell of runners.cells) {
     smoke_args.push(
       "cd " + remote_dir
         + " && mv -f " + binary + ".new " + binary
-        + " && chmod +x " + binary
+        + " && mv -f " + cu_binary + ".new " + cu_binary
+        + " && chmod +x " + binary + " " + cu_binary
         + " && ./" + binary + " cli --help"
+        + " && ./" + cu_binary + " --target current --grant observe storage-devices --max 1"
     );
     const remote = run("ssh", smoke_args, 600000, stdout_path, stderr_path);
     smoke_ok = remote.success;
@@ -279,7 +335,7 @@ for (const cell of runners.cells) {
       level: level,
       static_check: static_check,
       state: "FAIL",
-      detail: "cli --help did not succeed; see " + stderr_path
+      detail: "agenterm cli --help or agenterm-cu storage-devices failed; see smoke logs"
     });
   } else {
     print("qualify: PASS " + target + "  [" + level + "]");
@@ -288,7 +344,7 @@ for (const cell of runners.cells) {
       level: level,
       static_check: static_check,
       state: "PASS",
-      detail: "cli --help exit 0"
+      detail: "agenterm cli --help and agenterm-cu storage-devices exit 0"
     });
   }
 }

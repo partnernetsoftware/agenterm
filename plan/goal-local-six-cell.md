@@ -1165,6 +1165,19 @@ Windows arm64 的同旅程又抓到 ConPTY 右边界待换行状态：91 列命�
 区分“PowerShell 冷启动”与“worker 已活”，但 x86 TCG 冷启和重复恢复仍会堆积
 PowerShell task；这是 court 启动性能与单实例回收债，不是产品绿灯。
 
+### 5.26 六格基础 runtime 不再只验 AgenTerm 壳（2026-09-06）
+
+`scripts/qjs/six-cell-qualify.qjs` 现在要求每格同时存在且静态架构匹配
+`agenterm` 与 `agenterm-cu`。可执行 runner 先跑产品 `cli --help`，再通过公开
+`agenterm-cu --target current --grant observe storage-devices --max 1` 执行一个
+真实、只读、有界的 native inventory；任一命令失败都会把该格记为 FAIL。
+本机 arm64 定向 rehearsal 已在 `dev` 产物上通过，证明新 court 自身可执行。
+
+这仍只是六格 ACU 的最小基础门，不替代 `cu-storage-devices-smoke.qjs` 的完整
+schema/privacy/alias/invalid-limit 断言，也没有把旧 runner map 中的 BLOCKED
+Windows 格冒充覆盖。退休门最终必须由 `utm-court`/GitHub native runner 对六格
+运行同一公开 qjswasm journey，并把 BLOCKED 视为未通过。
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。

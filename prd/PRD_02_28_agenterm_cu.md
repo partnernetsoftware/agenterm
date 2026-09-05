@@ -143,8 +143,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `agenterm-cu` plus the colocated `libagenterm` dynamic library on Linux and
   macOS as well as Windows. The macOS release signer signs and strictly verifies
   manifest libraries before executables. Static manifest/build/signing gates
-  own this wiring; native Unix packaging, macOS signing/notarization and sealed
-  Candidate artifact evidence remain open.
+  own this wiring. The local six-cell baseline now also requires an
+  architecture-matched `agenterm-cu` and executes its public bounded
+  `storage-devices` observation after the AgenTerm launcher check; a macOS arm64
+  rehearsal is green. This is stronger than archive membership but remains a
+  minimum court: the same complete qjswasm journey still needs Linux/Windows
+  native evidence and all six sealed Candidate cells. Native Unix packaging,
+  macOS signing/notarization and sealed Candidate artifact evidence remain open.
 - [ ] Candidate and six-cell qualification and release evidence remain open.
   Passing local fixtures and staged public smoke does not promote this subtree
   root to shipped.
