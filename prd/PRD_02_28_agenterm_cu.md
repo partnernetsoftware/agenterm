@@ -179,7 +179,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `session start|list|status|renew|end`, session-bound idempotent
   `lock acquire|list|release`, and newest-first `audit-query` with independent
   result/scan/byte budgets. Lease plaintext is returned once and never reaches
-  durable state or audit. macOS isolated public CLI evidence covers the full
+  durable state or audit. The transitional MCU-shaped entry now rewrites every
+  session and lock operation plus `audit query` onto these same ACU commands;
+  `audit compact` remains explicitly on MCU until retention lands. macOS
+  isolated public CLI evidence covers the full
   create/status/acquire/reacquire/release/end/query loop. Current-target
   mutations can now carry the all-or-none `--request-id`, `--session` and
   `--session-lease` envelope: admission verifies the active lease without

@@ -126,7 +126,10 @@ product branches do not pre-empt these blockers.
 MCU retirement blockers
 ├─ [x] desktop state: bounded native desktop-state + state alias
 ├─ [~] shared runtime spine
-│  └─ daemon → session lease → target lock → request identity → queryable audit
+│  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release
+│  ├─ [x] audit query with bounded result/scan/byte budgets
+│  ├─ [x] MCU-shaped session/lock/audit-query compatibility routes to ACU
+│  └─ [ ] daemon ownership + audit retention/compaction
 ├─ [~] managed job facade
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
@@ -147,11 +150,17 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **25 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **23 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
-The latest removed fallback is `state`. `desktop-state` (also spelled `state`)
+The latest removed fallbacks are `session` and `lock`; all their MCU public
+shapes now rewrite onto the native ACU runtime spine, while `audit query` also
+rewrites losslessly and `audit compact` remains an explicit gap. The adapter
+suite is green at 69 tests, and an isolated macOS public loop proved
+create/status/acquire/list/query/release/end through the MCU-shaped entry.
+
+The preceding removed fallback is `state`. `desktop-state` (also spelled `state`)
 composes one complete bounded window inventory, one exact window accessibility
 tree and pointer position without a screenshot. It refuses ambiguous focus,
 unknown handles, inventories over 512 windows, and target drift during capture;
