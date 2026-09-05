@@ -3771,3 +3771,18 @@ named resource, re-prove the authority is unreachable, reserve a durable
 receipt, allow only the state files the product owns, and verify exact absence.
 Do not recursively remove an unknown subtree merely because its parent has a
 valid job name.
+
+## Bind durable resident owners by generation, nonce, and process start identity
+
+A PID and a directory name are not ownership. For a CLI-launched resident
+resource, keep a stable sidecar registry lock outside atomically replaced
+records; publish one bounded record containing generation, random nonce, owner
+PID and owner start identity. State-only updates retain that identity tuple;
+replacement changes it. Stop and remove must re-read and match the complete
+tuple before acting, and a ready record must carry the owned child identity and
+endpoint together. `Unknown` liveness is not stale. On Unix, do not recover a
+crashed owner's process group with a bare PID signal: until a platform adapter
+can re-acquire an identity-bound process reference, report
+`orphaned_uncertain` and preserve the record for inspection. Atomic JSON keeps
+readers from observing a torn generation; it does not by itself prove process
+ownership or make recursive deletion safe.
