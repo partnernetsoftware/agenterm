@@ -3056,6 +3056,14 @@ a reserve failure after the callback mutates guest memory is not an atomic
 allocation failure. Keep any allocating callback form as an explicit
 compatibility adapter, not the iOS product hot path.
 
+A declared host function is an effect boundary, not an ordinary guest value.
+Only an explicit call expression may invoke it. If the language layer cannot
+materialize a real first-class host-function value, a bare occurrence such as
+`typeof host_fn` or `let f = host_fn` must fail at compile time by function
+name. Never reinterpret that value position as a zero-argument call: doing so
+creates a host effect the source did not request and gives arity diagnostics
+for calls the author never wrote.
+
 Apply ownership reuse to the return door too. When a bounded interpreter frame
 must outlive the call for a later C/Swift copy, let the embedding return its
 cleared `Vec` storage to the next tick and swap the completed bytes back out.

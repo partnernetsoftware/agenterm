@@ -247,16 +247,16 @@ fn a_script_binding_shadows_the_door_rather_than_the_other_way_round() {
     );
 }
 
-/// FINDING 3 (medium) -- mentioning a zero-argument door function calls it.
+/// FINDING 3 (fixed) -- mentioning a door function cannot call it implicitly.
 ///
 /// ```text
 /// reproducer  return typeof fleet_result;
-/// observed    "string"        (the door was called; its answer was typeof'd)
-/// expected    "function"      (ECMA-262 13.5.3 on a callable binding)
+/// old         "string"        (the door was called; its answer was typeof'd)
+/// now         named compile diagnostic; no host effect
 ///
 /// reproducer  let f = fleet_result; return f;
-/// observed    ""              (the door was called at the mention)
-/// expected    a diagnostic, or a function value
+/// old         ""              (the door was called at the mention)
+/// now         the same named diagnostic; no host effect
 /// ```
 ///
 /// The rule behind it is upstream's, in `tinyvm-qjs` `src/emit.rs:857`: "A bare
@@ -273,27 +273,24 @@ fn a_script_binding_shadows_the_door_rather_than_the_other_way_round() {
 /// Both are the same defect seen from two arities, and the second is the one
 /// that will waste an author's afternoon.
 ///
-/// When it is fixed: `typeof fleet_result` becomes `"function"` or a
-/// diagnostic, and the `print` case gets a diagnostic about referencing a host
-/// function rather than an argument count.
+/// Declared host functions are not first-class JavaScript values. The compiler
+/// therefore refuses the value position and tells the author to write an
+/// explicit call instead of inventing a zero-argument effect.
 #[test]
-fn finding_3_a_bare_door_name_is_a_call() {
-    assert_eq!(
-        string_from("return typeof fleet_result;", None),
-        "string",
-        "FIXED if this is now `function` -- update this test",
-    );
-    let bridge = answering("called!");
-    let out = run("let f = fleet_result; return f;", Some(bridge.call)).expect("runs");
-    assert_eq!(out.values, vec![Value::Js(JsValue::Str(String::new()))]);
-
-    // The same shape at arity 1 is a compile error whose text describes a call
-    // the script never wrote.
-    let message = refused("return typeof print;");
-    assert!(
-        message.contains("this call passes 0"),
-        "FIXED if the diagnostic no longer invents a call: {message}"
-    );
+fn finding_3_a_bare_door_name_is_a_named_refusal() {
+    for (source, name) in [
+        ("return typeof fleet_result;", "fleet_result"),
+        ("let f = fleet_result; return f;", "fleet_result"),
+        ("return typeof print;", "print"),
+    ] {
+        let message = refused(source);
+        assert!(
+            message.contains(&format!("cannot use host function `{name}` as a value")),
+            "{message}"
+        );
+        assert!(message.contains("call it with parentheses"), "{message}");
+        assert!(!message.contains("this call passes 0"), "{message}");
+    }
 }
 
 // =========================================================================

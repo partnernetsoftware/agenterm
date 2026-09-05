@@ -5,12 +5,13 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`f303132`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`7b9ee90`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
-This revision adds only the opt-in immediate stringify-to-host allocation
-attribution meter. D0 has now rejected that exact recovery specialization;
-ordinary compilation stays byte-identical and no allocator rewind/reuse was
-implemented.
+The earlier opt-in allocation attribution remains diagnostic-only: D0 rejected
+the recovery specialization and no allocator rewind/reuse landed. This revision
+also closes one host-effect ambiguity: under the declared product door, a bare
+host name in value position now fails at compile time by function name instead
+of silently becoming a zero-argument host call.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
@@ -47,6 +48,7 @@ agenterm-qjswasm
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
+│  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
@@ -86,6 +88,7 @@ flowchart LR
   LOAD{"tinyvm validate<br/>Limits accepted?"}
   SLOT["persistent bounded slot"]
   DOOR["versioned Script host door"]
+  EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
@@ -120,7 +123,7 @@ flowchart LR
   MANY --> SRC --> COMP --> WASM --> LOAD
   MANY -. bytes · modules · deadline .-> COMP
   UP -. exact git rev .-> COMP & LOAD
-  LOAD -->|yes| SLOT --> DOOR --> PRODUCT --> RECEIPT
+  LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT
