@@ -47,7 +47,7 @@ agenterm-qjswasm
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
-│  ├─ [x] check-many entry + recursive imports share bytes/modules/deadline budgets
+│  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
 │  ├─ [x] host-op and string/JSON cost measured before changing limits
@@ -79,7 +79,7 @@ agenterm-qjswasm
 ```mermaid
 flowchart LR
   SRC[".qjs source"]
-  MANY["check-many manifest<br/>entry + recursive import ledger"]
+  MANY["check-many manifest<br/>entry + canonical import ledger"]
   COMP["tinyvm-qjs<br/>parse · lower · encode"]
   WASM["standard .wasm bytes"]
   LOAD{"tinyvm validate<br/>Limits accepted?"}
@@ -219,8 +219,11 @@ second route around ACU/AgenTerm product contracts.
 - [x] `check-many` charges entry files and recursively resolved imports to one
   aggregate source ledger, applies the per-source byte limit to every imported
   module, caps resolved modules at 1024 and checks the same wall deadline during
-  resolution and after compilation. Budget failures keep the public `limit`
-  exit class; unresolved modules remain ordinary script diagnostics.
+  resolution and after compilation. A canonical-path cache charges and counts a
+  shared module once across repeated imports and manifest entries; whitespace-
+  indented `export` declarations still enter the library check path. Budget
+  failures keep the public `limit` exit class; unresolved modules remain ordinary
+  script diagnostics.
 - [x] The shared qjswasm task compatibility helper maps `.` to the exact
   current directory and strips only the host-valid leading dot segment from
   `./...` (plus `.\...` on Windows). Native path identity can therefore be

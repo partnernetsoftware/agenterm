@@ -704,6 +704,13 @@ those bounds are full rather than evicting a still-replayable mutation. Treat
 Windows pipe errors 109/233 and EOF during request write or response read as an
 unknown transport outcome, not proof that product work did or did not run.
 
+A startup readiness probe is not automatically a stable handoff. A Windows
+named-pipe server can accept one query while rotating into its steady accept
+loop, then return error 233 to the next connection. Before the first mutation,
+require at least two consecutive independent read-only readiness transactions;
+reset the streak on any transport failure and keep the whole handshake under one
+wall deadline. Do not retry the mutation itself under a fresh identity.
+
 Every deferred control reply must have an owning cancellation path. Before a
 tab is removed, fail its waits and pending screenshot reply with the stable tab
 ID; before window shutdown, fail all remaining replies. Expose pending counts
@@ -3402,6 +3409,12 @@ ledger. Check metadata before reading and the actual buffer afterward so a
 concurrent file growth cannot escape the limit. Preserve a typed resolver
 failure separately from `Option::None`; otherwise a byte/deadline violation is
 misreported as an ordinary missing module.
+
+Key that import ledger by canonical path and cache the resolved source for the
+whole manifest run. Repeated imports and two entries sharing one module must not
+consume the byte/module budget twice. Library detection is lexical enough to
+recognize leading whitespace before `export`; indentation must not silently
+switch a module into the ordinary script-entry path.
 
 ## Keep native window facts separate from screenshot documents
 

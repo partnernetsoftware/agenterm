@@ -541,8 +541,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   temporary writes. The local macOS public qjswasm journey proved snapshot →
   verified resize/diff → literal output/diff → non-empty event continuation,
   then restarted the same name and proved the prior baseline is refused as a
-  different authority. Six-cell rerun, reuse and orphan process-tree control
-  remain open.
+  different authority. The enlarged artifact pair now passes macOS arm64,
+  macOS x86_64/Rosetta and native Linux arm64/x86_64. Windows x86_64 reached
+  `pty-start` and exposed `ERROR_BROKEN_PIPE (233)` between the first empty
+  startup inventory and the first mutation. Commit `121b76ed` therefore makes
+  startup require two consecutive independent empty-inventory reads before
+  mutation; both Windows targets cross-build and the local public journey is
+  green. Its Windows runtime recheck remains open because the UTM interactive
+  court then exceeded its declared wall budget before claiming a nonce; no
+  product pass is inferred from that infrastructure failure. Windows arm64 is
+  blocked at the same interactive-agent boundary. Reuse and orphan process-tree
+  control remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 
@@ -572,14 +581,14 @@ flowchart LR
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/list/prune/status/read/send/wait/exit/stop ✓<br/>exact job + epoch + @tab"]
-  J --> JE["pty snapshot/diff/events/resize ✓ local<br/>exact authority · grid · detached lease<br/>restart refusal · six-cell pending"]
+  J --> JE["pty snapshot/diff/events/resize<br/>macOS + Linux four cells ✓<br/>Windows runtime recheck pending"]
   J --> J1["qjswasm public PTY court · local six-cell ✓<br/>macOS arm64 + x86_64/Rosetta<br/>Linux + Windows x86_64/arm64 native"]
   J1 --> J2["list/prune + absent/running/stale/absent ✓<br/>reuse + orphan process-tree cleanup"]
   J2 --> Q
   JE --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
-  Q -->|Windows transport blocked| W1["repair court; zero product claim"]
+  Q -->|Windows court budget blocked| W1["repair wall deadline; rerun 121b76ed<br/>zero pass while nonce absent"]
   M1 --> P["promote only after three-host court"]
   L1 --> P
   W1 --> P

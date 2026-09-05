@@ -1131,6 +1131,25 @@ Windows x86_64 首次轮询读到了 `interactive-ready` 留下的旧 `job.exit=
 本作业 marker、旅程 PASS 和匹配 exit receipt 后才晋升。Linux QGA `exec` 同样
 只能先当提交证据；调用者必须轮询本作业原子完成文件，不能提交后立即 pull。
 
+### 5.25 enlarged PTY diff/resize court 与 Windows 启动竞态（2026-09-05）
+
+在 `pty-snapshot/diff/resize/events` 扩大后，本轮重新构建六个 `release-fast`
+产物。macOS arm64、macOS x86_64/Rosetta、Linux arm64 与 Linux x86_64 四格
+用各格自己的 qjswasm worker、AgenTerm product 和 `agenterm-cu` 真执行全绿；
+Linux guest 逐台 lease、完成后均回到 `stopped`。任务不再把测试对象固定成
+`target/debug`，court 必须显式注入本格 exact artifact pair，防止 x86_64 worker
+误驱动 arm64 child 形成架构错配证据。
+
+Windows bundle 还必须包含并从 `agenterm.com` 启动外层 CLI。直接由 PowerShell
+调用 GUI-subsystem `agenterm.exe` 不能提供可靠同步退出语义。Windows x86_64
+随后真执行到 `pty-start`，在首个空 inventory 与首个 mutation 之间返回
+`ERROR_BROKEN_PIPE (233)`；清理已验证，无孤儿。`121b76ed` 把启动门改为连续
+两次独立空 inventory 后才允许 mutation，并已完成本地黑盒与两个 Windows target
+交叉构建。Windows runtime 复核尚未计绿：后续 UTM 轮次在领取作业前耗尽时间，
+而 `interactive-ready SECONDS` 当前按循环次数计数、每次 QGA 调用自身又可等待，
+所以参数不是可信 wall deadline。下一刀先让 court 使用单一单调时钟总期限，再
+复跑 `121b76ed` 的 Windows arm64/x86_64；nonce 未出现时保持 BLOCKED。
+
 ## 6. 已知坑（开工前先读）
 
 1. ~~**`winresource` build-dep 需要 `llvm-rc`**~~ **已证伪（2026-08-25，见 §5.4）**。
