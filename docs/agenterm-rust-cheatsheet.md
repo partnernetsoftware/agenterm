@@ -2456,6 +2456,18 @@ alone: if its durable object identity is absent or changed, fail closed. Lock a
 stable state-directory sidecar derived from the lossless canonical destination,
 not the destination inode that publication replaces.
 
+There is one earlier crash window: the process can die after creating the
+temporary but before persisting its object identity. Persist a digest of a
+random, bounded ownership marker first; create and sync that marker under a
+staging name, then publish it with an atomic **no-replace** primitive. Keep the
+opened marker handle and fill the same object through that handle after its
+identity is persisted. Do not check that a pathname is free and then use a
+replace-capable rename, and do not drop a verified handle and reopen the path
+writable: the first can erase an unrelated object and the second reintroduces a
+link-swap race. Recovery may remove an identity-less file only when its complete
+bounded content matches the persisted marker digest; otherwise preserve it and
+return an ambiguous-state error.
+
 Bounded one-shot authority must be durably reserved before the authorized
 side effect and must not be refunded merely because the downstream mechanism
 fails; refunding makes a failed attempt replayable. Validate target/session,

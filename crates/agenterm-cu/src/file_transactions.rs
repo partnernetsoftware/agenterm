@@ -6,7 +6,7 @@
 
 use std::{
     fs::{self, File},
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -29,6 +29,10 @@ use crate::CuError;
 
 const SCHEMA_VERSION: u32 = 1;
 const MAX_RECEIPT_BYTES: u64 = 128 * 1024;
+/// Upper bound of a published ownership marker. A candidate temporary larger
+/// than this can never be an unbound marker file of this transaction.
+const MAX_MARKER_BYTES: u64 = 256;
+const MARKER_PREFIX: &str = "agenterm-cu file.copy ownership marker";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +84,13 @@ pub struct FileTransactionReceipt {
     pub source_snapshot: FileSnapshot,
     pub destination_snapshot: Option<FileSnapshot>,
     pub temporary: PathBuf,
+    /// SHA-256 of the random ownership marker that is atomically published at
+    /// the temporary path before any data is written there. The marker bytes
+    /// are never stored or returned; recovery uses this digest to prove that a
+    /// temporary without a persisted object identity belongs to this
+    /// transaction instead of deleting by name.
+    #[serde(default)]
+    pub temporary_marker_sha256: Option<String>,
     pub temporary_identity: Option<ObjectIdentity>,
     pub prepared_snapshot: Option<FileSnapshot>,
     pub backup: Option<PathBuf>,
@@ -100,6 +111,21 @@ pub struct ObjectIdentity {
 #[derive(Clone, Debug)]
 pub struct FileTransactionStore {
     directory: PathBuf,
+}
+
+/// Crash points inside `apply` that tests use to leave the exact on-disk state
+/// an interrupted process would leave. Production always passes [`Self::NONE`].
+#[derive(Clone, Copy, Debug, Default)]
+struct Interruptions {
+    after_marker_staged: bool,
+    after_marker_published: bool,
+}
+
+impl Interruptions {
+    const NONE: Self = Self {
+        after_marker_staged: false,
+        after_marker_published: false,
+    };
 }
 
 impl FileTransactionStore {
@@ -159,6 +185,14 @@ impl FileTransactionStore {
     }
 
     pub fn apply(&self, plan: &FileCopyPlan) -> Result<FileTransactionReceipt, CuError> {
+        self.apply_with(plan, Interruptions::NONE)
+    }
+
+    fn apply_with(
+        &self,
+        plan: &FileCopyPlan,
+        interrupt: Interruptions,
+    ) -> Result<FileTransactionReceipt, CuError> {
         validate_plan(plan)?;
         let _lock = self.destination_lock(&plan.destination)?;
         let fresh = self.plan(&plan.source, &plan.destination, plan.replace)?;
@@ -186,6 +220,7 @@ impl FileTransactionStore {
             source_snapshot: plan.source_snapshot.clone(),
             destination_snapshot: plan.destination_snapshot.clone(),
             temporary,
+            temporary_marker_sha256: None,
             temporary_identity: None,
             prepared_snapshot: None,
             backup,
@@ -194,12 +229,26 @@ impl FileTransactionStore {
             created_unix_ms: now_unix_ms()?.to_string(),
             recovery: None,
         };
+        let marker = ownership_marker(&receipt.transaction_id)?;
+        receipt.temporary_marker_sha256 = Some(hex_sha256(&marker));
         self.persist(&receipt)?;
 
         let result = (|| {
-            let mut temporary = create_owned_temporary(&receipt.temporary)?;
+            let staging = marker_staging_path(&receipt);
+            let mut temporary = stage_marker(&staging, &marker)?;
+            if interrupt.after_marker_staged {
+                return Err(interrupted());
+            }
+            publish_marker(&staging, &receipt.temporary, parent)?;
+            if interrupt.after_marker_published {
+                return Err(interrupted());
+            }
             receipt.temporary_identity = Some(identity_of(&temporary)?);
             self.persist(&receipt)?;
+            temporary
+                .set_len(0)
+                .and_then(|()| temporary.seek(SeekFrom::Start(0)).map(|_| ()))
+                .map_err(|error| failure("file_transaction_prepare_failed", error.to_string()))?;
 
             let mut source = open_regular(&receipt.source, "source")?;
             ensure_snapshot(&mut source, &receipt.source_snapshot, "source")?;
@@ -673,23 +722,75 @@ fn identity_of(file: &File) -> Result<ObjectIdentity, CuError> {
     })
 }
 
-fn create_owned_temporary(path: &Path) -> Result<File, CuError> {
-    private_create_new_options()
+fn ownership_marker(transaction_id: &str) -> Result<Vec<u8>, CuError> {
+    let nonce = secure_random_array::<32>()
+        .map_err(|error| failure("file_transaction_entropy_failed", error.to_string()))?;
+    let nonce: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!("{MARKER_PREFIX} {transaction_id} {nonce}\n").into_bytes())
+}
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn marker_staging_path(receipt: &FileTransactionReceipt) -> PathBuf {
+    receipt
+        .destination
+        .parent()
+        .expect("normalized destination")
+        .join(format!(".agenterm-copy-{}.marker", receipt.transaction_id))
+}
+
+/// Exclusively creates the marker beside the destination and makes it durable
+/// before it is published at the temporary path.
+fn stage_marker(staging: &Path, marker: &[u8]) -> Result<File, CuError> {
+    let mut file = private_create_new_options()
         .read(true)
         .write(true)
-        .open(path)
+        .open(staging)
+        .map_err(|error| failure("file_transaction_prepare_failed", error.to_string()))?;
+    file.write_all(marker)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| failure("file_transaction_prepare_failed", error.to_string()))?;
+    Ok(file)
+}
+
+/// Publishes the complete marker at the temporary path with a same-directory
+/// hard link. Link creation is atomic and refuses an occupied destination, so
+/// there is no check-then-rename window that could replace an unrelated file.
+/// A crash may leave both names, but recovery proves and removes each by the
+/// same persisted marker digest.
+fn publish_marker(staging: &Path, temporary: &Path, parent: &Path) -> Result<(), CuError> {
+    fs::hard_link(staging, temporary)
+        .and_then(|()| fs::remove_file(staging))
+        .and_then(|()| sync_parent(parent))
         .map_err(|error| failure("file_transaction_prepare_failed", error.to_string()))
 }
 
+/// True only when the opened file is small enough to be a marker and its
+/// complete content hashes to the persisted marker digest.
+fn marker_matches(file: &mut File, digest_hex: &str) -> Result<bool, CuError> {
+    let length = file
+        .metadata()
+        .map_err(|error| failure("file_transaction_inspect_failed", error.to_string()))?
+        .len();
+    if length > MAX_MARKER_BYTES {
+        return Ok(false);
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.seek(SeekFrom::Start(0))
+        .and_then(|_| file.take(MAX_MARKER_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|error| failure("file_transaction_read_failed", error.to_string()))?;
+    Ok(bytes.len() as u64 <= MAX_MARKER_BYTES && hex_sha256(&bytes) == digest_hex)
+}
+
 fn remove_owned_temporary(receipt: &FileTransactionReceipt) -> Result<(), CuError> {
+    remove_marker_owned(receipt, &marker_staging_path(receipt), "marker staging")?;
     let Some(expected) = &receipt.temporary_identity else {
-        if receipt.temporary.exists() {
-            return Err(failure(
-                "file_transaction_state_ambiguous",
-                "temporary exists without a durable ownership identity",
-            ));
-        }
-        return Ok(());
+        return remove_marker_owned(receipt, &receipt.temporary, "temporary");
     };
     let Some(snapshot) = optional_snapshot(&receipt.temporary, "temporary")? else {
         return Ok(());
@@ -698,6 +799,45 @@ fn remove_owned_temporary(receipt: &FileTransactionReceipt) -> Result<(), CuErro
         return Err(changed("temporary"));
     }
     fs::remove_file(&receipt.temporary)
+        .and_then(|()| sync_parent(receipt.destination.parent().unwrap()))
+        .map_err(|error| failure("file_transaction_recovery_failed", error.to_string()))
+}
+
+/// Removes a transaction file that never reached a persisted object identity,
+/// but only when its complete content is this transaction's marker. Anything
+/// else at that derived path is preserved and reported as ambiguous.
+fn remove_marker_owned(
+    receipt: &FileTransactionReceipt,
+    path: &Path,
+    label: &str,
+) -> Result<(), CuError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(failure(
+                "file_transaction_inspect_failed",
+                error.to_string(),
+            ));
+        }
+    }
+    let Some(digest) = &receipt.temporary_marker_sha256 else {
+        return Err(ambiguous(format!(
+            "{label} exists without a durable ownership identity or marker"
+        )));
+    };
+    let mut file = open_regular(path, label).map_err(|_| {
+        ambiguous(format!(
+            "{label} is not a regular file that this transaction can own"
+        ))
+    })?;
+    if !marker_matches(&mut file, digest)? {
+        return Err(ambiguous(format!(
+            "{label} does not carry this transaction's ownership marker"
+        )));
+    }
+    drop(file);
+    fs::remove_file(path)
         .and_then(|()| sync_parent(receipt.destination.parent().unwrap()))
         .map_err(|error| failure("file_transaction_recovery_failed", error.to_string()))
 }
@@ -756,6 +896,15 @@ fn validate_receipt(receipt: &FileTransactionReceipt) -> Result<(), CuError> {
         (Some(backup), Some(_)) if backup == &expected_backup => {}
         _ => return Err(corrupt("backup path and destination snapshot disagree")),
     }
+    if receipt
+        .temporary_marker_sha256
+        .as_ref()
+        .is_some_and(|digest| {
+            digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        return Err(corrupt("temporary marker digest is malformed"));
+    }
     Ok(())
 }
 
@@ -799,6 +948,17 @@ fn changed(label: &str) -> CuError {
 
 fn corrupt(message: impl Into<String>) -> CuError {
     failure("file_transaction_state_corrupt", message)
+}
+
+fn ambiguous(message: impl Into<String>) -> CuError {
+    failure("file_transaction_state_ambiguous", message)
+}
+
+fn interrupted() -> CuError {
+    failure(
+        "file_transaction_interrupted",
+        "apply stopped at a test-only crash point",
+    )
 }
 
 fn failure(code: &'static str, message: impl Into<String>) -> CuError {
@@ -984,6 +1144,232 @@ mod tests {
             agenterm_platform::locking::LockErrorKind::Contended
         );
         drop(_held);
+        fs::remove_dir_all(root).unwrap();
+    }
+    fn interrupted_apply(
+        store: &FileTransactionStore,
+        source: &Path,
+        destination: &Path,
+        interrupt: Interruptions,
+    ) -> FileTransactionReceipt {
+        let plan = store.plan(source, destination, false).unwrap();
+        let error = store.apply_with(&plan, interrupt).unwrap_err();
+        assert_eq!(error.code, "file_transaction_interrupted");
+        let id = error.detail.unwrap()["transaction_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        store.status(&id).unwrap()
+    }
+
+    fn replaced_fixture(label: &str) -> (PathBuf, FileTransactionStore, FileTransactionReceipt) {
+        let (root, store) = fixture(label);
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        fs::write(&destination, b"old").unwrap();
+        let receipt = store
+            .apply(&store.plan(&source, &destination, true).unwrap())
+            .unwrap();
+        (root, store, receipt)
+    }
+
+    #[test]
+    fn recover_cleans_published_marker_without_persisted_identity() {
+        let (root, store) = fixture("marker-published");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        let receipt = interrupted_apply(
+            &store,
+            &source,
+            &destination,
+            Interruptions {
+                after_marker_published: true,
+                ..Interruptions::default()
+            },
+        );
+        assert_eq!(receipt.state, TransactionState::Reserved);
+        assert!(receipt.temporary_identity.is_none());
+        let digest = receipt.temporary_marker_sha256.clone().unwrap();
+        let marker = fs::read(&receipt.temporary).unwrap();
+        assert!(marker.starts_with(MARKER_PREFIX.as_bytes()));
+        assert_eq!(hex_sha256(&marker), digest);
+        assert!(!marker_staging_path(&receipt).exists());
+        assert!(!destination.exists());
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::RolledBack);
+        assert!(!receipt.temporary.exists());
+        assert!(!destination.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn marker_publication_refuses_an_occupied_temporary_without_replacement() {
+        let (root, _store) = fixture("marker-occupied");
+        let staging = root.join("marker.staged");
+        let temporary = root.join("marker.tmp");
+        fs::write(&staging, b"owned-marker").unwrap();
+        fs::write(&temporary, b"unrelated-object").unwrap();
+        let error = publish_marker(&staging, &temporary, &root).expect_err("occupied temporary");
+        assert_eq!(error.code, "file_transaction_prepare_failed");
+        assert_eq!(fs::read(&temporary).unwrap(), b"unrelated-object");
+        assert_eq!(fs::read(&staging).unwrap(), b"owned-marker");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recover_cleans_staged_marker_before_publication() {
+        let (root, store) = fixture("marker-staged");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        let receipt = interrupted_apply(
+            &store,
+            &source,
+            &destination,
+            Interruptions {
+                after_marker_staged: true,
+                ..Interruptions::default()
+            },
+        );
+        let staging = marker_staging_path(&receipt);
+        assert!(staging.exists());
+        assert!(!receipt.temporary.exists());
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::RolledBack);
+        assert!(!staging.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn altered_marker_is_ambiguous_and_preserved() {
+        let (root, store) = fixture("marker-altered");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        let receipt = interrupted_apply(
+            &store,
+            &source,
+            &destination,
+            Interruptions {
+                after_marker_published: true,
+                ..Interruptions::default()
+            },
+        );
+        fs::write(&receipt.temporary, b"foreign content at the derived path").unwrap();
+
+        let error = store.recover(&receipt.transaction_id).unwrap_err();
+        assert_eq!(error.code, "file_transaction_state_ambiguous");
+        assert_eq!(
+            fs::read(&receipt.temporary).unwrap(),
+            b"foreign content at the derived path"
+        );
+        assert_eq!(
+            store.status(&receipt.transaction_id).unwrap().state,
+            TransactionState::Reserved
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recover_without_temporary_after_marker_phase_is_normal() {
+        let (root, store) = fixture("marker-missing");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        let receipt = interrupted_apply(
+            &store,
+            &source,
+            &destination,
+            Interruptions {
+                after_marker_published: true,
+                ..Interruptions::default()
+            },
+        );
+        fs::remove_file(&receipt.temporary).unwrap();
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::RolledBack);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn completed_receipt_binds_temporary_identity_and_marker_digest() {
+        let (root, store) = fixture("marker-completed");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        let receipt = store
+            .apply(&store.plan(&source, &destination, false).unwrap())
+            .unwrap();
+        assert!(receipt.temporary_identity.is_some());
+        assert!(receipt.temporary_marker_sha256.is_some());
+        assert!(!receipt.temporary.exists());
+        assert!(!marker_staging_path(&receipt).exists());
+        assert_eq!(fs::read(&destination).unwrap(), b"new");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recover_resumes_interrupted_rollback() {
+        let (root, store, mut receipt) = replaced_fixture("resume-rollback");
+        let destination = receipt.destination.clone();
+        let backup = receipt.backup.clone().unwrap();
+        receipt.state = TransactionState::RollingBack;
+        store.persist(&receipt).unwrap();
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::RolledBack);
+        assert_eq!(fs::read(&destination).unwrap(), b"old");
+        assert!(!backup.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recover_accepts_rollback_that_already_restored_the_destination() {
+        let (root, store, mut receipt) = replaced_fixture("resume-rollback-done");
+        let destination = receipt.destination.clone();
+        let backup = receipt.backup.clone().unwrap();
+        receipt.state = TransactionState::RollingBack;
+        store.persist(&receipt).unwrap();
+        fs::rename(&backup, &destination).unwrap();
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::RolledBack);
+        assert_eq!(fs::read(&destination).unwrap(), b"old");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recover_resumes_interrupted_finalize() {
+        let (root, store, mut receipt) = replaced_fixture("resume-finalize");
+        let destination = receipt.destination.clone();
+        let backup = receipt.backup.clone().unwrap();
+        receipt.state = TransactionState::Finalizing;
+        store.persist(&receipt).unwrap();
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::Finalized);
+        assert_eq!(fs::read(&destination).unwrap(), b"new");
+        assert!(!backup.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recover_accepts_finalize_that_already_removed_the_backup() {
+        let (root, store, mut receipt) = replaced_fixture("resume-finalize-done");
+        let destination = receipt.destination.clone();
+        let backup = receipt.backup.clone().unwrap();
+        receipt.state = TransactionState::Finalizing;
+        store.persist(&receipt).unwrap();
+        fs::remove_file(&backup).unwrap();
+
+        let recovered = store.recover(&receipt.transaction_id).unwrap();
+        assert_eq!(recovered.state, TransactionState::Finalized);
+        assert_eq!(fs::read(&destination).unwrap(), b"new");
         fs::remove_dir_all(root).unwrap();
     }
 }
