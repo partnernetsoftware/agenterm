@@ -162,6 +162,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   script runs carry their explicit task-equivalent wall/operation/output
   budgets; relying on the generic run defaults made the slower x86_64 launch
   cancel even though the command itself was healthy.
+  The temporary MCU-shaped adapter now maps `setup refresh` onto this same
+  native command. Obsolete `daemon start|restart|stop` spellings fail as typed
+  retirements and no longer direct callers back to MCU; they are neither
+  successful no-ops nor aliases for destructive owner cleanup. The distinct
+  `daemon service` login-lifecycle family remains an honest native-provider
+  gap.
 
 ```mermaid
 flowchart LR
@@ -367,8 +373,9 @@ flowchart LR
   effective session, lock and managed-job counts without sweeping, advancing
   the durable clock high-water mark or publishing state. The MCU compatibility
   shell maps `daemon status` to this result and `daemon caps` to the ACU
-  capability catalog; `daemon start|restart|stop` remain explicit migration
-  gaps rather than successful no-ops. The public qjswasm evidence is
+  capability catalog. `daemon start|restart|stop` are reviewed typed
+  retirements with no MCU fallback and no successful no-op. Per-user login
+  service installation remains a separate provider gap. The public qjswasm evidence is
   `cu.runtime-status`; exact source `00d22433` passes it on Windows aarch64
   after a ten-file guest manifest match and disposable-court rollback. Linux
   and Windows x86_64 reruns remain open.

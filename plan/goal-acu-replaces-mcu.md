@@ -155,7 +155,8 @@ MCU retirement blockers
 │  ├─ [x] MCU-shaped session/lock/audit-query/compact compatibility routes to ACU
 │  ├─ [x] runtime-status + daemon status/caps aliases report truthful topology without publishing state
 │  ├─ [x] setup refresh: stable admission fence + resident-owner snapshot; never recreate global daemon lifecycle
-│  └─ [~] daemon start/restart/stop callers migrate before the obsolete lifecycle is retired
+│  ├─ [x] daemon start/restart/stop are typed retirements and never fall back to MCU
+│  └─ [ ] daemon service/login lifecycle remains a real native-provider gap
 ├─ [~] managed job facade
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
@@ -213,9 +214,11 @@ future activation when idle, and otherwise returns `deferred` without stopping,
 restarting or releasing anything. Its local public qjswasm owner-preservation
 court is green and its six-cell Candidate court is wired but not yet executed.
 The exact `storage devices` route and truthful `daemon status|caps`
-observations have left the static set; other storage mutation/volume shapes and
-obsolete daemon lifecycle spellings still fail over dynamically until their
-callers migrate.
+observations have left the static set. `setup refresh` now reaches the same
+owner-preserving native setup, and obsolete `daemon start|restart|stop`
+spellings return typed retirements instead of falling back to MCU. The distinct
+`daemon service` login-lifecycle shape remains a real provider gap. Other
+storage mutation/volume shapes still fall over dynamically.
 The reviewed retirement of the no-authority `ghost` overlay and obsolete
 `desktop-helper` sidecar removed two more fallbacks without inventing replacement
 mechanisms. This is not the remaining capability count: group verbs contain
@@ -569,7 +572,8 @@ Q3 owned runtime facades
 ├─ [~] PTY/job/runtime/session/lock/audit/service
 │  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
 │  ├─ [~] daemon status/caps route to ACU; macOS + Windows aarch64 qjswasm green; Linux + Windows x86 pending
-│  ├─ [~] daemon start/restart/stop caller migration pending retirement
+│  ├─ [x] daemon start/restart/stop typed retirement; no MCU fallback and no false no-op
+│  ├─ [ ] per-user login-service install/status/uninstall provider
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
 │  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor

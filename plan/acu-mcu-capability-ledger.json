@@ -392,9 +392,9 @@
         {
           "id": "desktop.setup-doctor-caps",
           "mcu_shape": "setup/doctor/caps with active dependency and permission probes",
-          "acu_shape": "capabilities reports typed status and permission blockers; doctor composes bounded live probes with the same declarations; setup remains absent",
+          "acu_shape": "capabilities reports typed status and permission blockers; doctor composes bounded live probes with the same declarations; setup owns zero-write inspection, stable launcher publication and owner-preserving future-activation refresh",
           "state": "gap",
-          "next": "prove doctor on three hosts, then add explicit setup plans whose mutations remain outside capability discovery"
+          "next": "prove doctor and setup on three hosts, then add the remaining runtime/service/ABI/target-binding health probes without moving mutations into capability discovery"
         },
         {
           "id": "desktop.session-lock-audit",
@@ -929,8 +929,8 @@
           "mcu_shape": "daemon start|restart|stop",
           "acu_shape": null,
           "state": "retired",
-          "next": "migrate remaining compatibility callers, then make these obsolete lifecycle spellings fail with the explicit not-applicable architecture result",
-          "note": "ACU commands start on demand, while jobs and browser sessions own only their required resident processes. Mapping start, restart or stop to successful no-ops would be dishonest and recreating a Bun-style global sidecar would regress the architecture."
+          "evidence": ["MCU-shaped acu adapter typed-retirement suite"],
+          "note": "ACU commands start on demand, while jobs and browser sessions own only their required resident processes. The compatibility spellings now fail as explicit typed retirements rather than falling back to MCU. Mapping start, restart or stop to successful no-ops would be dishonest and recreating a Bun-style global sidecar would regress the architecture."
         },
         {
           "id": "runtime.desktop-helper-sidecar",
