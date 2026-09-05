@@ -17,6 +17,7 @@ pub mod network;
 pub mod placement;
 pub mod privilege;
 pub mod process;
+pub mod simulator;
 pub mod system;
 pub mod terminal;
 pub mod verbs;
@@ -36,6 +37,9 @@ pub fn parse_command(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name.starts_with("simulator-") {
+        return simulator::parse(spec, spelled, target, args);
+    }
     match spec.family {
         Family::System => system::parse(spec, target, args),
         Family::Windows => windows::parse(spec, spelled, target, args),

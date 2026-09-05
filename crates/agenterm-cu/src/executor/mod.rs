@@ -74,6 +74,7 @@ mod pty_jobs;
 mod receipts;
 mod runtime;
 mod shell_exec;
+mod simulator;
 mod snapshots;
 mod terminal;
 #[cfg(test)]
@@ -114,6 +115,7 @@ use pty_jobs::*;
 use receipts::*;
 use runtime::*;
 use shell_exec::*;
+use simulator::*;
 use snapshots::*;
 use terminal::*;
 #[cfg(test)]

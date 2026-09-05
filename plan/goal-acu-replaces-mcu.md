@@ -607,7 +607,11 @@ Q4 browser and platform depth
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
 │  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core + same-binary host/current-user installer + exact-connection public CLI; explicit extension load and closed-shadow court pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
-├─ [~] Simulator facade: device/app platform core + read-only live inventory ✓; public ACU route and mutation courts pending
+├─ [~] Simulator facade: public bounded device/app inventory + exact boot/launch/terminate routes
+│  ├─ [x] macOS qjswasm read-only court `cu.simulator-readonly`; app paths never leave the provider
+│  ├─ [x] boot requires `--expect booted` and exact-state verification
+│  ├─ [x] app lifecycle says accepted, never fabricates running/stopped verification
+│  └─ [ ] controlled mutation courts; shutdown/deployment/guest foreground/screenshot
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement
 └─ [ ] parity corpus + three-host native + six-cell + MCU-absent rehearsal

@@ -433,8 +433,16 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "cu-helper-mac is MCU desktop-helper; this binary uses libagenterm",
         ),
         "simulator" => (
-            "unsupported",
-            "ACU migration gap: CoreSimulator guest accessibility facade pending",
+            if os == "macos" {
+                "available"
+            } else {
+                "unsupported"
+            },
+            if os == "macos" {
+                "bounded CoreSimulator device/app inventory and exact boot/launch/terminate requests are live; shutdown, deployment, guest foreground and guest screenshot remain typed gaps"
+            } else {
+                "CoreSimulator is a macOS-only platform facility"
+            },
         ),
         "browser" => {
             if os == "macos" {

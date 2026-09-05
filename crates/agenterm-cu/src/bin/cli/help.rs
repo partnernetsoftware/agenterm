@@ -244,6 +244,13 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-session-stop",
         "browser-session-remove",
     ];
+    let compact_simulator = [
+        "simulator-devices",
+        "simulator-boot",
+        "simulator-apps",
+        "simulator-launch",
+        "simulator-terminate",
+    ];
     let compact_runtime = [
         "host-open",
         "host-notify",
@@ -277,6 +284,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .filter(|spec| !compact_process.contains(&spec.name))
         .filter(|spec| !compact_terminal.contains(&spec.name))
         .filter(|spec| !compact_browser_session.contains(&spec.name))
+        .filter(|spec| !compact_simulator.contains(&spec.name))
         .filter(|spec| !compact_runtime.contains(&spec.name))
         .filter(|spec| !compact_inline.contains(&spec.name))
         .filter(|spec| {
@@ -310,6 +318,15 @@ fn append_missing_top_level_rows(text: &mut String) {
     {
         missing.push(
             "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-debug-read\n  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
+                .to_owned(),
+        );
+    }
+    if compact_simulator
+        .iter()
+        .any(|name| !text.contains(&format!("  {name}")))
+    {
+        missing.push(
+            "  simulator-devices  simulator-apps  simulator-boot\n  simulator-launch  simulator-terminate"
                 .to_owned(),
         );
     }

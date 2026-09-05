@@ -88,6 +88,12 @@ pub fn cold_verbs_json() -> String {
 }
 
 pub fn lookup(token: &str) -> Option<&'static VerbSpec> {
+    // The simulator group is actionable only with an explicit subcommand.
+    // Keep the bare MCU group on the typed alignment fallback instead of
+    // silently selecting the first alias row.
+    if token == "simulator" {
+        return None;
+    }
     VERBS
         .iter()
         .find(|spec| spec.spellings().any(|spelling| spelling == token))
@@ -204,6 +210,10 @@ mod tests {
             resolve("tab", Some("select")).map(|s| s.name),
             Some("tab-select")
         );
+        assert_eq!(
+            resolve("simulator", Some("apps")).map(|s| s.name),
+            Some("simulator-apps")
+        );
         assert_eq!(resolve("page", Some("zoom")).map(|s| s.name), Some("page"));
         assert!(lookup("no-such-verb").is_none());
     }
@@ -255,12 +265,15 @@ mod tests {
             "page-click",
             "app",
             "browser-bridge-setup",
+            "simulator-boot",
+            "simulator-launch",
+            "simulator-terminate",
         ] {
             assert!(actuate.contains(expected), "{expected} must be actuate");
         }
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 69, "{actuate:?}");
+        assert_eq!(actuate.len(), 72, "{actuate:?}");
     }
 }

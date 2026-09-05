@@ -686,6 +686,23 @@
         "task.cu-browser-bridge-contract-smoke"
       ]
     },
+    "cu-simulator-readonly-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-simulator-readonly-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-simulator-readonly-smoke"
+      ]
+    },
     "cu-privilege-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2501,6 +2518,25 @@
       "platforms": [
         "windows",
         "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-simulator-readonly-smoke",
+      "description": "Prove the macOS public CoreSimulator CLI has bounded device and already-booted app inventories, hides app paths, rejects invalid bounds, and refuses mutation without actuate; the court never boots or changes an app.",
+      "entry": "scripts/qjs/cu-simulator-readonly-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
         "macos"
       ],
       "side_effects": [

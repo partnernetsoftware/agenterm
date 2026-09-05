@@ -1211,6 +1211,40 @@ impl Executor {
                 list,
                 ..
             } => device_screenshot_payload(path.as_deref(), device.as_deref(), *timeout_ms, *list),
+            Command::SimulatorDevices { max, .. } => simulator_devices_payload(*max),
+            Command::SimulatorBoot {
+                udid,
+                timeout_ms,
+                expect_booted,
+                ..
+            } => simulator_boot_payload(udid, *timeout_ms, *expect_booted),
+            Command::SimulatorApps { udid, max, .. } => simulator_apps_payload(udid, *max),
+            Command::SimulatorLaunch {
+                udid,
+                bundle_id,
+                timeout_ms,
+                expect_accepted,
+                ..
+            } => simulator_app_lifecycle_payload(
+                udid,
+                bundle_id,
+                *timeout_ms,
+                *expect_accepted,
+                agenterm_platform::simulator::SimulatorAppAction::Launch,
+            ),
+            Command::SimulatorTerminate {
+                udid,
+                bundle_id,
+                timeout_ms,
+                expect_accepted,
+                ..
+            } => simulator_app_lifecycle_payload(
+                udid,
+                bundle_id,
+                *timeout_ms,
+                *expect_accepted,
+                agenterm_platform::simulator::SimulatorAppAction::Terminate,
+            ),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
             Command::PointerPosition { .. } => pointer_position(),
             Command::Click { .. } => {

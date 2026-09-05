@@ -2318,6 +2318,141 @@
       ]
     },
     {
+      "name": "simulator-devices",
+      "command": "simulator-devices",
+      "aliases": [
+        "simulator devices"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list bounded CoreSimulator device identities and states",
+      "usage": "simulator devices [--max N]\nsimulator-devices [--max N]",
+      "args": [
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "device result bound, 1..200 (default 200)"
+        }
+      ]
+    },
+    {
+      "name": "simulator-boot",
+      "command": "simulator-boot",
+      "aliases": [
+        "simulator boot"
+      ],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "boot one exact simulator and verify its Booted state",
+      "usage": "simulator boot UDID --expect booted [--timeout-ms N]\nsimulator-boot UDID --expect booted [--timeout-ms N]",
+      "args": [
+        {
+          "flag": "UDID",
+          "value": "",
+          "help": "exact 36-character simulator device UDID"
+        },
+        {
+          "flag": "--expect",
+          "value": "booted",
+          "help": "required literal acknowledgement; success is verified Booted"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "operation deadline, 1..600000 (default 120000)"
+        }
+      ]
+    },
+    {
+      "name": "simulator-apps",
+      "command": "simulator-apps",
+      "aliases": [
+        "simulator apps"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list bounded installed apps on one exact simulator",
+      "usage": "simulator apps UDID [--max N]\nsimulator-apps UDID [--max N]",
+      "args": [
+        {
+          "flag": "UDID",
+          "value": "",
+          "help": "exact 36-character simulator device UDID"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "application result bound, 1..200 (default 200)"
+        }
+      ]
+    },
+    {
+      "name": "simulator-launch",
+      "command": "simulator-launch",
+      "aliases": [
+        "simulator launch"
+      ],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "request launch of one exact simulator bundle",
+      "usage": "simulator launch UDID BUNDLE_ID --expect accepted [--timeout-ms N]\nsimulator-launch UDID BUNDLE_ID --expect accepted [--timeout-ms N]",
+      "args": [
+        {
+          "flag": "UDID",
+          "value": "",
+          "help": "exact 36-character simulator device UDID"
+        },
+        {
+          "flag": "BUNDLE_ID",
+          "value": "",
+          "help": "exact dotted application bundle identifier"
+        },
+        {
+          "flag": "--expect",
+          "value": "accepted",
+          "help": "required literal acknowledgement; never a running-state claim"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "operation deadline, 1..600000 (default 120000)"
+        }
+      ]
+    },
+    {
+      "name": "simulator-terminate",
+      "command": "simulator-terminate",
+      "aliases": [
+        "simulator terminate"
+      ],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "request termination of one exact simulator bundle",
+      "usage": "simulator terminate UDID BUNDLE_ID --expect accepted [--timeout-ms N]\nsimulator-terminate UDID BUNDLE_ID --expect accepted [--timeout-ms N]",
+      "args": [
+        {
+          "flag": "UDID",
+          "value": "",
+          "help": "exact 36-character simulator device UDID"
+        },
+        {
+          "flag": "BUNDLE_ID",
+          "value": "",
+          "help": "exact dotted application bundle identifier"
+        },
+        {
+          "flag": "--expect",
+          "value": "accepted",
+          "help": "required literal acknowledgement; never a stopped-state claim"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "operation deadline, 1..600000 (default 120000)"
+        }
+      ]
+    },
+    {
       "name": "zoom",
       "command": "zoom",
       "aliases": [],
@@ -4805,6 +4940,26 @@
     {
       "name": "device-screenshot",
       "text": "agenterm-cu device-screenshot\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  device-screenshot --list\n  device-screenshot --out PATH [--device NAME|UID] [--timeout-ms N]\n\narguments:\n  --list                        inventory sources plus host Camera authorization and usbmux evidence\n  --out PATH                    new PNG path; existing destinations are never overwritten\n  --device NAME|UID             exact published source name or uid (optional for a sole source)\n  --timeout-ms N                first-frame deadline, 1..120000 (default 10000)\n\nThe host capture inventory and usbmux pairing are independent evidence. An\nempty source list never proves the phone is locked or untrusted. Camera TCC\ndenial or undecided consent is reported as a host error; an authorized host\nwith no DAL source is device_source_not_published. Frame bytes are never\nprinted, and a successful capture atomically creates a new output path. This\nuses Camera permission, not Screen Recording.\n"
+    },
+    {
+      "name": "simulator-devices",
+      "text": "agenterm-cu simulator-devices    (also: simulator devices)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  simulator devices [--max N]\n  simulator-devices [--max N]\n\narguments:\n  --max N                       device result bound, 1..200 (default 200)\n\nLists exact CoreSimulator UDIDs and their reported states. The bound is\nvalidated before platform dispatch. On non-macOS hosts this typed-fails as\nsimulator_unsupported.\n"
+    },
+    {
+      "name": "simulator-boot",
+      "text": "agenterm-cu simulator-boot    (also: simulator boot)\n  scope: actuate    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  simulator boot UDID --expect booted [--timeout-ms N]\n  simulator-boot UDID --expect booted [--timeout-ms N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  --expect booted               required literal acknowledgement\n  --timeout-ms N                operation deadline, 1..600000 (default 120000)\n\nSuccess means the exact device was read back in Booted state and reports\nverified=true. It does not claim that Simulator.app was opened or activated.\nOn non-macOS hosts this typed-fails as simulator_unsupported.\n"
+    },
+    {
+      "name": "simulator-apps",
+      "text": "agenterm-cu simulator-apps    (also: simulator apps)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  simulator apps UDID [--max N]\n  simulator-apps UDID [--max N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  --max N                       application result bound, 1..200 (default 200)\n\nLists installed application identities on the exact simulator. Identity and\nbounds are validated before platform dispatch. On non-macOS hosts this\ntyped-fails as simulator_unsupported.\n"
+    },
+    {
+      "name": "simulator-launch",
+      "text": "agenterm-cu simulator-launch    (also: simulator launch)\n  scope: actuate    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  simulator launch UDID BUNDLE_ID --expect accepted [--timeout-ms N]\n  simulator-launch UDID BUNDLE_ID --expect accepted [--timeout-ms N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  BUNDLE_ID                     exact dotted application bundle identifier\n  --expect accepted             required literal acknowledgement\n  --timeout-ms N                operation deadline, 1..600000 (default 120000)\n\nSuccess reports accepted=true and verified=false: CoreSimulator accepted the\nexact launch request, but the receipt never claims that the app is running.\nOn non-macOS hosts this typed-fails as simulator_unsupported.\n"
+    },
+    {
+      "name": "simulator-terminate",
+      "text": "agenterm-cu simulator-terminate    (also: simulator terminate)\n  scope: actuate    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  simulator terminate UDID BUNDLE_ID --expect accepted [--timeout-ms N]\n  simulator-terminate UDID BUNDLE_ID --expect accepted [--timeout-ms N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  BUNDLE_ID                     exact dotted application bundle identifier\n  --expect accepted             required literal acknowledgement\n  --timeout-ms N                operation deadline, 1..600000 (default 120000)\n\nSuccess reports accepted=true and verified=false: CoreSimulator accepted the\nexact termination request, but the receipt never claims that the app stopped.\nOn non-macOS hosts this typed-fails as simulator_unsupported.\n"
     },
     {
       "name": "zoom",

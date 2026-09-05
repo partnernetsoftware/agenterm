@@ -786,8 +786,14 @@ flowchart LR
   verify the device stayed identical and booted. The public `simctl` exit and
   launch PID are only provider acknowledgement, so app lifecycle receipts say
   `accepted=true, verified=false` until a stable public app-state oracle exists.
-  No test booted a device or launched/terminated an app. Public ACU routing,
-  controlled mutation courts, app deployment, guest foreground and guest
+  Public `simulator devices|apps|boot|launch|terminate` routes now preserve
+  those distinctions: inventory is observe-only, boot requires explicit
+  `--expect booted` and exact state read-back, while app lifecycle requires
+  `--expect accepted` and remains `verified=false`. The registered
+  `cu.simulator-readonly` qjswasm court enumerates real devices and apps on an
+  already-booted exact device without exposing container paths or performing a
+  mutation. No test booted a device or launched/terminated an app. Controlled
+  mutation courts, shutdown, app deployment, guest foreground and guest
   screenshot remain open.
 
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU

@@ -23,6 +23,103 @@ const JOB_EVENTS_BYTES_MAX: usize = 1024 * 1024;
 const JOB_WRITE_DECODED_BYTES_MAX: usize = 64 * 1024;
 const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
 const JOB_STOP_GRACE_MS_MAX: u64 = 60_000;
+pub const SIMULATOR_RESULTS_MAX: usize = 200;
+pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
+
+pub fn validate_simulator_udid(udid: &str) -> Result<(), &'static str> {
+    let bytes = udid.as_bytes();
+    if bytes.len() != 36
+        || !bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+    {
+        return Err("simulator UDID must be a 36-byte hyphenated hexadecimal identifier");
+    }
+    Ok(())
+}
+
+pub fn validate_simulator_bundle_id(bundle_id: &str) -> Result<(), &'static str> {
+    let valid = !bundle_id.is_empty()
+        && bundle_id.len() <= 255
+        && bundle_id.split('.').count() >= 2
+        && bundle_id.split('.').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                && segment
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && segment
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        });
+    if !valid {
+        return Err("simulator bundle id must be a bounded dotted ASCII identifier");
+    }
+    Ok(())
+}
+
+fn deserialize_simulator_udid<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    validate_simulator_udid(&value).map_err(serde::de::Error::custom)?;
+    Ok(value)
+}
+
+fn deserialize_simulator_bundle_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    validate_simulator_bundle_id(&value).map_err(serde::de::Error::custom)?;
+    Ok(value)
+}
+
+fn deserialize_simulator_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=SIMULATOR_RESULTS_MAX).contains(&value) {
+        return Err(serde::de::Error::custom("simulator max must be in 1..=200"));
+    }
+    Ok(value)
+}
+
+fn deserialize_simulator_timeout_ms<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if !(1..=SIMULATOR_TIMEOUT_MS_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "simulator timeout_ms must be in 1..=600000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_true<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = bool::deserialize(deserializer)?;
+    if !value {
+        return Err(serde::de::Error::custom(
+            "simulator expectation acknowledgement must be true",
+        ));
+    }
+    Ok(true)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1580,6 +1677,49 @@ pub enum Command {
         #[serde(default)]
         list: bool,
     },
+    SimulatorDevices {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_max")]
+        max: usize,
+    },
+    SimulatorBoot {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_udid")]
+        udid: String,
+        #[serde(deserialize_with = "deserialize_simulator_timeout_ms")]
+        timeout_ms: u64,
+        #[serde(deserialize_with = "deserialize_true")]
+        expect_booted: bool,
+    },
+    SimulatorApps {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_udid")]
+        udid: String,
+        #[serde(deserialize_with = "deserialize_simulator_max")]
+        max: usize,
+    },
+    SimulatorLaunch {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_udid")]
+        udid: String,
+        #[serde(deserialize_with = "deserialize_simulator_bundle_id")]
+        bundle_id: String,
+        #[serde(deserialize_with = "deserialize_simulator_timeout_ms")]
+        timeout_ms: u64,
+        #[serde(deserialize_with = "deserialize_true")]
+        expect_accepted: bool,
+    },
+    SimulatorTerminate {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_udid")]
+        udid: String,
+        #[serde(deserialize_with = "deserialize_simulator_bundle_id")]
+        bundle_id: String,
+        #[serde(deserialize_with = "deserialize_simulator_timeout_ms")]
+        timeout_ms: u64,
+        #[serde(deserialize_with = "deserialize_true")]
+        expect_accepted: bool,
+    },
     /// Move the pointer to absolute target-session screen coordinates without
     /// pressing, releasing, clicking, dragging, or scrolling any button.
     PointerMove {
@@ -2790,6 +2930,11 @@ impl Command {
             Self::Verify { .. } => "verify".into(),
             Self::Screenshot { .. } => "screenshot".into(),
             Self::DeviceScreenshot { .. } => "device-screenshot".into(),
+            Self::SimulatorDevices { .. } => "simulator-devices".into(),
+            Self::SimulatorBoot { .. } => "simulator-boot".into(),
+            Self::SimulatorApps { .. } => "simulator-apps".into(),
+            Self::SimulatorLaunch { .. } => "simulator-launch".into(),
+            Self::SimulatorTerminate { .. } => "simulator-terminate".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
             Self::PointerPosition { .. } => "pointer-position".into(),
             Self::Click { .. } => "click".into(),
@@ -2948,6 +3093,11 @@ impl Command {
             | Self::Verify { target, .. }
             | Self::Screenshot { target, .. }
             | Self::DeviceScreenshot { target, .. }
+            | Self::SimulatorDevices { target, .. }
+            | Self::SimulatorBoot { target, .. }
+            | Self::SimulatorApps { target, .. }
+            | Self::SimulatorLaunch { target, .. }
+            | Self::SimulatorTerminate { target, .. }
             | Self::PointerMove { target, .. }
             | Self::PointerPosition { target, .. }
             | Self::Click { target, .. }
@@ -3083,6 +3233,9 @@ impl Command {
             | Self::BrowserSessionStop { .. }
             | Self::BrowserSessionRemove { .. }
             | Self::BrowserBridgeSetup { .. }
+            | Self::SimulatorBoot { .. }
+            | Self::SimulatorLaunch { .. }
+            | Self::SimulatorTerminate { .. }
             | Self::PageClick { .. }
             | Self::PageDownload { .. }
             | Self::PageHover { .. }
@@ -3234,9 +3387,63 @@ impl Command {
                 }
                 Ok(())
             }
+            Self::SimulatorDevices { max, .. } => validate_simulator_max(*max),
+            Self::SimulatorBoot {
+                udid,
+                timeout_ms,
+                expect_booted,
+                ..
+            } => {
+                validate_simulator_udid(udid)?;
+                validate_simulator_timeout_ms(*timeout_ms)?;
+                if !expect_booted {
+                    return Err("simulator boot requires expect_booted=true");
+                }
+                Ok(())
+            }
+            Self::SimulatorApps { udid, max, .. } => {
+                validate_simulator_udid(udid)?;
+                validate_simulator_max(*max)
+            }
+            Self::SimulatorLaunch {
+                udid,
+                bundle_id,
+                timeout_ms,
+                expect_accepted,
+                ..
+            }
+            | Self::SimulatorTerminate {
+                udid,
+                bundle_id,
+                timeout_ms,
+                expect_accepted,
+                ..
+            } => {
+                validate_simulator_udid(udid)?;
+                validate_simulator_bundle_id(bundle_id)?;
+                validate_simulator_timeout_ms(*timeout_ms)?;
+                if !expect_accepted {
+                    return Err("simulator app lifecycle requires expect_accepted=true");
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
+}
+
+fn validate_simulator_max(max: usize) -> Result<(), &'static str> {
+    if !(1..=SIMULATOR_RESULTS_MAX).contains(&max) {
+        return Err("simulator max must be in 1..=200");
+    }
+    Ok(())
+}
+
+fn validate_simulator_timeout_ms(timeout_ms: u64) -> Result<(), &'static str> {
+    if !(1..=SIMULATOR_TIMEOUT_MS_MAX).contains(&timeout_ms) {
+        return Err("simulator timeout_ms must be in 1..=600000");
+    }
+    Ok(())
 }
 
 fn validate_job_id(job_id: &str) -> Result<(), &'static str> {
@@ -5223,5 +5430,63 @@ mod tests {
             "connection_id": "ABC"
         });
         assert!(serde_json::from_value::<Command>(invalid).is_err());
+    }
+
+    #[test]
+    fn simulator_commands_keep_exact_targets_bounds_and_expectations_on_the_wire() {
+        let udid = "12345678-1234-1234-1234-123456789ABC";
+        let devices = Command::SimulatorDevices {
+            target: TargetRef::Current,
+            max: 25,
+        };
+        assert_eq!(devices.required_grant(), Grant::Observe);
+        assert_eq!(devices.verb(), "simulator-devices");
+
+        let apps = Command::SimulatorApps {
+            target: TargetRef::Ssh,
+            udid: udid.into(),
+            max: 40,
+        };
+        assert_eq!(apps.required_grant(), Grant::Observe);
+        assert_eq!(apps.target(), TargetRef::Ssh);
+
+        for command in [
+            Command::SimulatorBoot {
+                target: TargetRef::Current,
+                udid: udid.into(),
+                timeout_ms: 30_000,
+                expect_booted: true,
+            },
+            Command::SimulatorLaunch {
+                target: TargetRef::Current,
+                udid: udid.into(),
+                bundle_id: "com.example.app".into(),
+                timeout_ms: 30_000,
+                expect_accepted: true,
+            },
+            Command::SimulatorTerminate {
+                target: TargetRef::Current,
+                udid: udid.into(),
+                bundle_id: "com.example.app".into(),
+                timeout_ms: 30_000,
+                expect_accepted: true,
+            },
+        ] {
+            assert_eq!(command.required_grant(), Grant::Actuate);
+            command.validate().unwrap();
+            let encoded = serde_json::to_value(&command).unwrap();
+            assert_eq!(encoded["udid"], udid);
+            let _: Command = serde_json::from_value(encoded).unwrap();
+        }
+
+        for invalid in [
+            serde_json::json!({"verb":"simulator-devices","target":"current","max":0}),
+            serde_json::json!({"verb":"simulator-boot","target":"current","udid":"fuzzy","timeout_ms":10,"expect_booted":true}),
+            serde_json::json!({"verb":"simulator-boot","target":"current","udid":udid,"timeout_ms":10,"expect_booted":false}),
+            serde_json::json!({"verb":"simulator-launch","target":"current","udid":udid,"bundle_id":"not dotted","timeout_ms":10,"expect_accepted":true}),
+            serde_json::json!({"verb":"simulator-terminate","target":"current","udid":udid,"bundle_id":"com.example.app","timeout_ms":600001,"expect_accepted":true}),
+        ] {
+            assert!(serde_json::from_value::<Command>(invalid).is_err());
+        }
     }
 }

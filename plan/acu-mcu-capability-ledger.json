@@ -1099,26 +1099,28 @@
         {
           "id": "simulator.device-inventory",
           "mcu_shape": "simulator devices|status with runtime, device type, exact UDID and boot state",
-          "acu_shape": "agenterm-platform bounded CoreSimulator list_devices foundation; public ACU route pending",
+          "acu_shape": "simulator devices [--max N] and simulator-devices [--max N]",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
-          "next": "bounded CoreSimulator inventory preserving runtime and device identity"
+          "platforms": {"macos": "native", "linux": "not-applicable", "windows": "not-applicable"},
+          "evidence": ["cu.simulator-readonly"],
+          "next": "add status projection only if an MCU caller still needs a distinct status shape"
         },
         {
           "id": "simulator.device-lifecycle",
           "mcu_shape": "simulator boot|shutdown UDID with stable request identity and settled-state readback",
-          "acu_shape": "agenterm-platform exact-UDID boot foundation with Booted read-back; public ACU route and controlled mutation court pending",
+          "acu_shape": "simulator boot UDID --expect booted with exact Booted read-back; shutdown pending",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
-          "next": "target-locked device state transaction; boot waits for bootstatus and both directions verify host foreground invariants"
+          "next": "controlled boot court, exact shutdown transaction and host-foreground invariant evidence"
         },
         {
           "id": "simulator.app-inventory-lifecycle",
           "mcu_shape": "simulator apps|launch|terminate with UDID, bundle identity, executable and guest PID",
-          "acu_shape": "agenterm-platform bounded exact-device app inventory plus exact bundle launch/terminate acknowledgements; public ACU route pending",
+          "acu_shape": "simulator apps|launch|terminate on exact UDID and bundle identity; lifecycle reports accepted=true, verified=false",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
-          "next": "exact device+bundle control object with process start identity, target lock, receipt and appearance/disappearance readback"
+          "evidence": ["cu.simulator-readonly"],
+          "next": "controlled lifecycle court plus a stable public appearance/disappearance oracle before verified may become true"
         },
         {
           "id": "simulator.app-deployment",

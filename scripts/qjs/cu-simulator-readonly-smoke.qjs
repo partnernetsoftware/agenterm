@@ -1,0 +1,131 @@
+// Read-only public CoreSimulator contract. This court never boots a device or
+// changes an installed application lifecycle.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.simulator-readonly"];
+const absent_udid = "11111111-1111-1111-1111-111111111111";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const receipt_path = rh.join(run_directory, "cu-receipts.jsonl");
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success === expect_success, "cu_simulator_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_simulator_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "", "cu_simulator_effect_receipt_created");
+  return reply;
+}
+
+function assert_devices(reply, max) {
+  ensure(reply.command === "simulator-devices" && reply.target === "current", "cu_simulator_device_identity");
+  const data = reply.data;
+  ensure(
+    Array.isArray(data.devices)
+      && data.devices.length <= max
+      && data.visited >= data.devices.length
+      && typeof data.truncated === "boolean",
+    "cu_simulator_device_counts"
+  );
+  for (const row of data.devices) {
+    ensure(
+      typeof row.udid === "string" && row.udid.length === 36
+        && typeof row.runtime === "string" && row.runtime.length > 0
+        && typeof row.device_type === "string" && row.device_type.length > 0
+        && typeof row.state === "string" && row.state.length > 0
+        && typeof row.booted === "boolean",
+      "cu_simulator_device_row"
+    );
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_simulator_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-simulator-readonly");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP exact bounded device inventory is read-only");
+  const devices = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "simulator-devices", "--max", "20"
+  ], true);
+  assert_devices(devices, 20);
+
+  print("STEP grouped alias preserves the public inventory contract");
+  const grouped = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "simulator", "devices", "--max", "1"
+  ], true);
+  assert_devices(grouped, 1);
+
+  let booted = undefined;
+  for (const row of devices.data.devices) {
+    if (booted === undefined && row.booted === true) { booted = row; }
+  }
+  if (booted !== undefined) {
+    print("STEP installed apps on an already-booted exact device are bounded and path-free");
+    const apps = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe", "simulator-apps", booted.udid, "--max", "20"
+    ], true);
+    ensure(apps.command === "simulator-apps", "cu_simulator_apps_identity");
+    ensure(apps.data.device_udid === booted.udid, "cu_simulator_apps_device");
+    ensure(Array.isArray(apps.data.apps) && apps.data.apps.length <= 20, "cu_simulator_apps_count");
+    for (const app of apps.data.apps) {
+      ensure(typeof app.bundle_id === "string" && app.bundle_id.includes("."), "cu_simulator_app_bundle");
+      ensure(app.path === undefined && app.data_path === undefined, "cu_simulator_app_path_leak");
+    }
+  } else {
+    print("STEP no device is already booted; mutation remains intentionally untested");
+  }
+
+  print("STEP malformed inputs and mutation without actuate fail before provider effects");
+  const invalid = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "simulator-devices", "--max", "0"
+  ], false);
+  ensure(invalid.error.code === "usage", "cu_simulator_invalid_limit_code");
+  const refused = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "simulator-boot", absent_udid,
+    "--expect", "booted", "--timeout-ms", "1"
+  ], false);
+  ensure(refused.error.code === "refused", "cu_simulator_mutation_grant_code");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.simulator-readonly");
+  harness.remove_run(context);
+  print("PASS: bounded read-only CoreSimulator public contract");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
