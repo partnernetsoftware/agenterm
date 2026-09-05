@@ -687,9 +687,11 @@
         {
           "id": "file.move.transaction",
           "mcu_shape": "file move SOURCE DEST [--replace --apply] plus status|rollback|recover|finalize",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "separate same-volume rename from cross-volume copy-and-remove and prove rollback/finalize for both"
+          "acu_shape": "file-move SOURCE DEST [--replace --apply] plus file-transaction status|rollback|recover|finalize ID",
+          "state": "platform-limited",
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
+          "next": "run the same public qjswasm journey in Linux and Windows courts through the independent utm-court service",
+          "note": "Default invocation is plan-only. Apply uses one copy-then-retire state machine on same-volume and cross-volume paths, atomically refuses occupied marker/backup names, locks both exact path namespaces in stable order, retains source and replaced-destination backups until finalize, and recovers the two-name hard-link crash window without deleting an unknown object. The MCU compatibility adapter routes move and the shared applied transaction actions. macOS public evidence cu.file-move-transaction is green; Linux/Windows are not claimed yet."
         }
       ]
     },

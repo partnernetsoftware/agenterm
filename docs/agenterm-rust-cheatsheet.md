@@ -2468,6 +2468,19 @@ link-swap race. Recovery may remove an identity-less file only when its complete
 bounded content matches the persisted marker digest; otherwise preserve it and
 return an ambiguous-state error.
 
+Backup retirement has the same no-replace requirement. A prior
+`symlink_metadata` check followed by ordinary `rename` is unsafe on Unix because
+rename may overwrite a name created in between. For same-directory regular
+files, publish the backup with `hard_link(source, backup)` so occupancy is an
+atomic refusal; prove both names still identify the complete expected object,
+then unlink the source and sync the parent. The receipt state preceding this
+step must recover all three durable shapes: source-only, backup-only, and both
+names as hard links to the same expected object. The two-name shape is an
+interrupted owned operation, not ambiguity; different identity or content is
+ambiguity and must be preserved. Use the same primitive in reverse when
+restoring a retired source. This rule applies to both a replaced destination
+and the source-retirement half of a cross-volume move.
+
 Atomic audit-log compaction changes the inode behind the pathname. All
 cooperating appenders and compactors need one stable sidecar lock, and an
 appender that retained an earlier file handle must reopen the pathname while

@@ -820,7 +820,16 @@ flowchart LR
   `cu.file-copy-transaction` journey proves plan/apply/status/rollback/finalize
   and refusal without disclosing contents on macOS; Linux and Windows native
   court evidence is still pending through the independent `utm-court` service.
-  Physical-device inventory and recoverable move remain open.
+  `file-move SOURCE DEST [--replace --apply]` now composes the same hardened
+  copy publication with a recoverable source retirement. It atomically refuses
+  occupied backup names, locks source and destination path namespaces in
+  stable order, uses one copy-then-retire path across volumes, and retains the
+  source plus any replaced destination until finalize. Recovery handles the
+  crash window where a no-replace hard link exposes both names for one exact
+  object; unknown or changed objects are preserved with a typed refusal. The
+  public `cu.file-move-transaction` qjswasm journey is green on macOS and the
+  MCU adapter routes the lossless move shapes; Linux and Windows native courts
+  remain open. Physical-device inventory remains open.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
   The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,

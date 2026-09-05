@@ -290,7 +290,7 @@
       "aliases": [
         "file copy"
       ],
-      "grant": "observe",
+      "grant": "actuate",
       "family": "file",
       "summary": "plan or apply one recoverable regular-file copy",
       "usage": "file-copy SOURCE DESTINATION [--replace] [--apply]\nfile copy SOURCE DESTINATION [--replace] [--apply]",
@@ -318,6 +318,39 @@
       ]
     },
     {
+      "name": "file-move",
+      "command": "file-move",
+      "aliases": [
+        "file move"
+      ],
+      "grant": "actuate",
+      "family": "file",
+      "summary": "plan or apply one recoverable regular-file move",
+      "usage": "file-move SOURCE DESTINATION [--replace] [--apply]\nfile move SOURCE DESTINATION [--replace] [--apply]",
+      "args": [
+        {
+          "flag": "SOURCE",
+          "value": "",
+          "help": "existing non-symlink regular file; retired into a same-directory backup until finalize"
+        },
+        {
+          "flag": "DESTINATION",
+          "value": "",
+          "help": "regular-file destination under an existing directory (same or different volume)"
+        },
+        {
+          "flag": "--replace",
+          "value": "",
+          "help": "explicitly permit replacement of an existing regular file"
+        },
+        {
+          "flag": "--apply",
+          "value": "",
+          "help": "execute the planned transaction; requires actuate grant"
+        }
+      ]
+    },
+    {
       "name": "file-transaction",
       "command": "file-transaction",
       "aliases": [
@@ -326,9 +359,9 @@
         "file recover",
         "file finalize"
       ],
-      "grant": "observe",
+      "grant": "actuate",
       "family": "file",
-      "summary": "inspect or advance one recoverable file-copy transaction",
+      "summary": "inspect or advance one recoverable file-copy or file-move transaction",
       "usage": "file-transaction status|rollback|recover|finalize TRANSACTION_ID\nfile status|rollback|recover|finalize TRANSACTION_ID",
       "args": [
         {
@@ -339,7 +372,7 @@
         {
           "flag": "TRANSACTION_ID",
           "value": "",
-          "help": "opaque id returned by file-copy --apply"
+          "help": "opaque id returned by file-copy --apply or file-move --apply"
         }
       ]
     },
@@ -4124,8 +4157,12 @@
       "text": "agenterm-cu file-copy    (also: file copy)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage (after the global flags):\n  file-copy SOURCE DESTINATION [--replace] [--apply]\n  file copy SOURCE DESTINATION [--replace] [--apply]\n\nThe default is a mutation-free plan. It snapshots an opened, non-symlink regular source and any existing regular destination by identity, size, modification time, permissions and SHA-256. --apply reserves a private recovery receipt before mutation, serializes the exact destination across processes, publishes a verified same-directory temporary with source permissions, and keeps a replaced destination as a backup until finalize. The receipt reports destination_durable=false if publication became visible but parent-directory durability could not be confirmed. --replace is mandatory when the destination exists. File contents are never returned.\n"
     },
     {
+      "name": "file-move",
+      "text": "agenterm-cu file-move    (also: file move)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage (after the global flags):\n  file-move SOURCE DESTINATION [--replace] [--apply]\n  file move SOURCE DESTINATION [--replace] [--apply]\n\nThe default is a mutation-free plan with the same identity, size, modification time, permissions and SHA-256 snapshots as file-copy. --apply reserves a private recovery receipt before mutation, takes the cross-process locks for both exact paths, publishes a verified same-directory temporary at the destination, retains a replaced destination as a backup, then retires the source into a same-directory source backup. Both backups stay until finalize, so rollback restores the exact recorded source and destination objects. Copying then retiring keeps one recoverable path for same-volume and cross-volume moves. --replace is mandatory when the destination exists. File contents are never returned.\n"
+    },
+    {
       "name": "file-transaction",
-      "text": "agenterm-cu file-transaction    (also: file status|rollback|recover|finalize)\n  scope: observe for status; actuate for mutation    family: Filesystem\n\nusage (after the global flags):\n  file-transaction status|rollback|recover|finalize TRANSACTION_ID\n  file status|rollback|recover|finalize TRANSACTION_ID\n\nstatus returns the durable receipt without file content. rollback restores the exact recorded prior destination or removes a newly installed destination. recover reconciles reserved, partial-copy, backup-moved and installed-before-receipt crash windows. finalize verifies the completed post-state and deletes the retained backup. Every operation takes the same destination lock and refuses changed or ambiguous state with a typed error.\n"
+      "text": "agenterm-cu file-transaction    (also: file status|rollback|recover|finalize)\n  scope: observe for status; actuate for mutation    family: Filesystem\n\nusage (after the global flags):\n  file-transaction status|rollback|recover|finalize TRANSACTION_ID\n  file status|rollback|recover|finalize TRANSACTION_ID\n\nThe receipt operation (file.copy or file.move) selects the owner. status returns the durable receipt without file content. rollback restores the exact recorded prior destination (and, for a move, the retired source) or removes a newly installed destination. recover reconciles reserved, partial-copy, backup-moved, installed-before-receipt and installed-before-retire crash windows. finalize verifies the completed post-state and deletes the retained backups. Every operation takes the same path locks as apply and refuses changed or ambiguous state with a typed error.\n"
     },
     {
       "name": "windows",

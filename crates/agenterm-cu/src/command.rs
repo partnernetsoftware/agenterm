@@ -936,7 +936,20 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "is_false")]
         apply: bool,
     },
-    /// Inspect or advance one previously reserved file-copy transaction.
+    /// Plan or apply one recoverable regular-file move: the hardened copy
+    /// transaction followed by retiring the source into a same-directory
+    /// backup that is kept until finalize. Planning is observation-only.
+    FileMove {
+        target: TargetRef,
+        source: String,
+        destination: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        replace: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
+    },
+    /// Inspect or advance one previously reserved file-copy or file-move
+    /// transaction; the durable receipt's operation selects the owner.
     FileTransaction {
         target: TargetRef,
         action: FileTransactionAction,
@@ -2419,6 +2432,7 @@ impl Command {
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::FileCopy { .. } => "file-copy".into(),
+            Self::FileMove { .. } => "file-move".into(),
             Self::FileTransaction { .. } => "file-transaction".into(),
             Self::PtyStart { .. } => "pty-start".into(),
             Self::PtyList { .. } => "pty-list".into(),
@@ -2559,6 +2573,7 @@ impl Command {
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::FileCopy { target, .. }
+            | Self::FileMove { target, .. }
             | Self::FileTransaction { target, .. }
             | Self::PtyStart { target, .. }
             | Self::PtyList { target, .. }
@@ -2675,6 +2690,7 @@ impl Command {
             | Self::ProcessKill { .. }
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
+            | Self::FileMove { apply: true, .. }
             | Self::FileTransaction {
                 action:
                     FileTransactionAction::Rollback
@@ -4539,6 +4555,35 @@ mod tests {
             Command::FileCopy {
                 target: TargetRef::Ssh,
                 replace: true,
+                apply: true,
+                ..
+            }
+        ));
+        let move_plan = Command::FileMove {
+            target: TargetRef::Current,
+            source: "source".into(),
+            destination: "destination".into(),
+            replace: false,
+            apply: false,
+        };
+        assert_eq!(move_plan.required_grant(), Grant::Observe);
+        assert_eq!(move_plan.verb(), "file-move");
+        let mut move_apply = move_plan.clone();
+        if let Command::FileMove { apply, .. } = &mut move_apply {
+            *apply = true;
+        }
+        assert_eq!(move_apply.required_grant(), Grant::Actuate);
+        let json = serde_json::to_value(&move_apply).unwrap();
+        assert_eq!(
+            json.get("replace"),
+            None,
+            "false switches stay off the wire"
+        );
+        let round_trip: Command = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::FileMove {
+                replace: false,
                 apply: true,
                 ..
             }

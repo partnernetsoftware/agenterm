@@ -16,6 +16,7 @@ pub mod cdp;
 pub mod command;
 pub mod dynlib;
 pub mod executor;
+pub mod file_move_transactions;
 pub mod file_transactions;
 pub mod grant_management;
 pub mod host_actions;

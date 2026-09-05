@@ -178,19 +178,54 @@ impl Executor {
                     })
                 }
             }
+            Command::FileMove {
+                source,
+                destination,
+                replace,
+                apply,
+                ..
+            } => {
+                let store = crate::file_move_transactions::FileMoveStore::open()?;
+                let plan = store.plan(source, destination, *replace)?;
+                if *apply {
+                    serde_json::to_value(store.apply(&plan)?).map_err(|error| {
+                        CuError::new("file_transaction_reply_failed", error.to_string())
+                    })
+                } else {
+                    serde_json::to_value(plan).map_err(|error| {
+                        CuError::new("file_transaction_reply_failed", error.to_string())
+                    })
+                }
+            }
             Command::FileTransaction {
                 action,
                 transaction_id,
                 ..
             } => {
-                let store = crate::file_transactions::FileTransactionStore::open()?;
-                let receipt = match action {
-                    FileTransactionAction::Status => store.status(transaction_id),
-                    FileTransactionAction::Rollback => store.rollback(transaction_id),
-                    FileTransactionAction::Recover => store.recover(transaction_id),
-                    FileTransactionAction::Finalize => store.finalize(transaction_id),
-                }?;
-                serde_json::to_value(receipt).map_err(|error| {
+                // Both transaction kinds share one private receipt directory
+                // and one id namespace; the durable receipt names its owner.
+                let moves = crate::file_move_transactions::FileMoveStore::open()?;
+                let receipt = if moves.peek_operation(transaction_id)?
+                    == crate::file_move_transactions::OPERATION
+                {
+                    let receipt = match action {
+                        FileTransactionAction::Status => moves.status(transaction_id),
+                        FileTransactionAction::Rollback => moves.rollback(transaction_id),
+                        FileTransactionAction::Recover => moves.recover(transaction_id),
+                        FileTransactionAction::Finalize => moves.finalize(transaction_id),
+                    }?;
+                    serde_json::to_value(receipt)
+                } else {
+                    let store = crate::file_transactions::FileTransactionStore::open()?;
+                    let receipt = match action {
+                        FileTransactionAction::Status => store.status(transaction_id),
+                        FileTransactionAction::Rollback => store.rollback(transaction_id),
+                        FileTransactionAction::Recover => store.recover(transaction_id),
+                        FileTransactionAction::Finalize => store.finalize(transaction_id),
+                    }?;
+                    serde_json::to_value(receipt)
+                };
+                receipt.map_err(|error| {
                     CuError::new("file_transaction_reply_failed", error.to_string())
                 })
             }

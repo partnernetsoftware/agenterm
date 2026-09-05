@@ -144,7 +144,7 @@ MCU retirement blockers
 │  └─ [ ] Linux aarch64 and Windows journeys green
 ├─ [~] machine transactions
 │  ├─ [x] recoverable file copy: marker-owned no-replace publication + crash recovery
-│  ├─ [~] recoverable file move: implementation/review in progress; not evidence-green yet
+│  ├─ [~] recoverable file move: macOS qjswasm green; Linux/Windows courts pending
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ privilege plan/broker/OS consent
 │  └─ CoreSimulator plus required device/service operations
@@ -156,13 +156,12 @@ MCU retirement blockers
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
-The current implementation knife is recoverable `file move`, not a second
-copy mechanism. It must reuse the proven copy-transaction ownership rule:
-publish the random marker with an atomic no-replace operation, retain the same
-opened read/write object through marker verification, identity persistence and
-copying, and never turn a path precheck followed by rename or reopen into
-deletion authority. Linux/Windows native evidence remains required after the
-local qjswasm journey is green.
+Recoverable `file move` is now the same proven copy-transaction ownership rule,
+not a second loose file mechanism: the random marker and both backup names use
+atomic no-replace publication; the temporary stays on one opened read/write
+object through identity persistence and copying; source and destination path
+locks are acquired in stable order. The macOS qjswasm journey is green.
+Linux/Windows native evidence remains required.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
@@ -456,6 +455,11 @@ Q3 owned runtime facades
    │  ├─ [x] retained replacement backup; changed post-state refuses rollback/finalize
    │  ├─ [x] qjswasm public macOS journey `cu.file-copy-transaction`
    │  ├─ [x] MCU adapter routes copy and explicit applied transaction actions
+   │  └─ [ ] Linux + Windows native public journeys through independent `utm-court`
+   ├─ [~] recoverable file-move transaction: copy then retire with two retained backups
+   │  ├─ [x] both path locks + atomic no-replace marker/backup publication
+   │  ├─ [x] rollback/finalize + installed/retirement crash recovery
+   │  ├─ [x] qjswasm public macOS journey `cu.file-move-transaction`
    │  └─ [ ] Linux + Windows native public journeys through independent `utm-court`
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth

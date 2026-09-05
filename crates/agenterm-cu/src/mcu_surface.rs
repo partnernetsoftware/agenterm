@@ -404,7 +404,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "file" => (
             "available",
-            "file-inspect and recoverable file-copy plan/apply/status/rollback/recover/finalize are live; move and metadata mutation remain typed gaps",
+            "file-inspect plus recoverable file-copy/file-move plan/apply/status/rollback/recover/finalize are live; metadata mutation remains a typed gap",
         ),
         "network" => (
             "available",

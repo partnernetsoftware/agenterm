@@ -36,6 +36,21 @@ pub fn parse(
                 apply,
             })
         }
+        "file-move" => {
+            consume_group_subcommand(spelled, args, "move")?;
+            let replace = take_switch(args, "--replace");
+            let apply = take_switch(args, "--apply");
+            if args.len() != 2 || args.iter().any(String::is_empty) {
+                return Err("file-move requires SOURCE DESTINATION [--replace] [--apply]".into());
+            }
+            Ok(Command::FileMove {
+                target,
+                source: args.remove(0),
+                destination: args.remove(0),
+                replace,
+                apply,
+            })
+        }
         "file-transaction" => {
             let action = parse_action(args.first().map(String::as_str))?;
             if args.is_empty() {
@@ -105,6 +120,25 @@ mod tests {
                 ..
             }
         ));
+
+        let spec = crate::cli::verbs::resolve("file", Some("move")).unwrap();
+        let mut moved = vec![
+            "move".into(),
+            "source".into(),
+            "destination".into(),
+            "--replace".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "file", TargetRef::Current, &mut moved).unwrap(),
+            Command::FileMove {
+                apply: false,
+                replace: true,
+                ..
+            }
+        ));
+        let spec = crate::cli::verbs::lookup("file-move").unwrap();
+        let mut short = vec!["only-source".into()];
+        assert!(parse(spec, "file-move", TargetRef::Current, &mut short).is_err());
 
         let spec = crate::cli::verbs::resolve("file", Some("rollback")).unwrap();
         let mut rollback = vec!["rollback".into(), "fixture-id".into()];

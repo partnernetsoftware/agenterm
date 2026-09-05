@@ -1,0 +1,169 @@
+// Platform-neutral public black-box journey for recoverable file moves.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.file-move-transaction"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_command, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_FILE_TRANSACTION_DIR: rh.join(run_directory, "transactions"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_file_move_invalid_reply:" + expected_command; }
+  ensure(reply.command === expected_command, "cu_file_move_wrong_command:" + expected_command);
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_file_move_expected_failure:" + expected_command);
+    ensure(reply.error.code === expected_error, "cu_file_move_wrong_error:" + expected_command);
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_file_move_failed:" + expected_command);
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_file_move_executable_missing");
+
+const context = harness.new_context(repo, "cu-file-move-transaction");
+const run_directory = context.run_directory;
+const source_directory = rh.join(run_directory, "from");
+const destination_directory = rh.join(run_directory, "to");
+rh.create_dir_all(source_directory);
+rh.create_dir_all(destination_directory);
+const source = rh.join(source_directory, "source.bin");
+const destination = rh.join(destination_directory, "destination.bin");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(source, "first-source");
+  const source_digest = rh.sha256_file(source);
+  print("STEP default file-move is a mutation-free plan");
+  const plan = invoke(run_directory, executable, "observe", [
+    "file-move", source, destination
+  ], "file-move");
+  ensure(plan.operation === "file.move" && plan.destination_snapshot === null, "cu_file_move_plan_shape");
+  ensure(plan.source_snapshot.sha256 === source_digest, "cu_file_move_plan_digest");
+  ensure(rh.exists(source) && !rh.exists(destination), "cu_file_move_plan_mutated");
+
+  print("STEP apply retires the source and publishes the exact bytes at the destination");
+  const applied = invoke(run_directory, executable, "actuate", [
+    "file-move", source, destination, "--apply"
+  ], "file-move");
+  ensure(applied.state === "completed" && applied.destination_durable === true, "cu_file_move_apply_state");
+  ensure(!rh.exists(source), "cu_file_move_source_still_present");
+  ensure(rh.sha256_file(destination) === source_digest, "cu_file_move_destination_digest");
+  ensure(applied.result_snapshot.sha256 === source_digest, "cu_file_move_result_snapshot");
+  ensure(rh.exists(applied.source_backup) && rh.sha256_file(applied.source_backup) === source_digest, "cu_file_move_source_backup_retained");
+  const status = invoke(run_directory, executable, "observe", [
+    "file-transaction", "status", applied.transaction_id
+  ], "file-transaction");
+  ensure(status.operation === "file.move" && status.state === "completed", "cu_file_move_status");
+
+  print("STEP rollback restores the exact source object and removes the destination");
+  const rolled = invoke(run_directory, executable, "actuate", [
+    "file-transaction", "rollback", applied.transaction_id
+  ], "file-transaction");
+  ensure(rolled.state === "rolled_back", "cu_file_move_rollback_state");
+  ensure(rh.exists(source) && rh.sha256_file(source) === source_digest, "cu_file_move_rollback_source");
+  ensure(!rh.exists(destination) && !rh.exists(applied.source_backup), "cu_file_move_rollback_cleanup");
+
+  print("STEP replacement retains both backups until finalize");
+  rh.write_text(destination, "old-destination");
+  rh.write_text(source, "replacement");
+  const replacement_digest = rh.sha256_file(source);
+  invoke(run_directory, executable, "observe", [
+    "file-move", source, destination
+  ], "file-move", "file_transaction_replace_required");
+  const replaced = invoke(run_directory, executable, "actuate", [
+    "file-move", source, destination, "--replace", "--apply"
+  ], "file-move");
+  ensure(replaced.state === "completed" && rh.exists(replaced.backup) && rh.exists(replaced.source_backup), "cu_file_move_backups_retained");
+  ensure(rh.read_text(replaced.backup) === "old-destination", "cu_file_move_backup_content");
+  const finalized = invoke(run_directory, executable, "actuate", [
+    "file-transaction", "finalize", replaced.transaction_id
+  ], "file-transaction");
+  ensure(finalized.state === "finalized", "cu_file_move_finalize_state");
+  ensure(!rh.exists(replaced.backup) && !rh.exists(replaced.source_backup) && !rh.exists(source), "cu_file_move_finalize_cleanup");
+  ensure(rh.sha256_file(destination) === replacement_digest, "cu_file_move_finalize_content");
+
+  print("STEP a crash between retiring the source and the completed receipt recovers to the pre-state");
+  rh.write_text(source, "crash-source");
+  const crash_digest = rh.sha256_file(source);
+  const crashed = invoke(run_directory, executable, "actuate", [
+    "file-move", source, destination, "--replace", "--apply"
+  ], "file-move");
+  ensure(crashed.state === "completed", "cu_file_move_crash_setup");
+  // Rewind only the durable receipt: on disk the destination is installed and
+  // the source is already retired, exactly the window before the final persist.
+  const receipt_path = rh.join(rh.join(run_directory, "transactions"), crashed.transaction_id + ".json");
+  const receipt = rh.parse_file(receipt_path);
+  ensure(receipt.state === "completed" && receipt.operation === "file.move", "cu_file_move_receipt_shape");
+  receipt.state = "installed";
+  rh.write_text(receipt_path, JSON.stringify(receipt) + "\n");
+  const recovered = invoke(run_directory, executable, "actuate", [
+    "file-transaction", "recover", crashed.transaction_id
+  ], "file-transaction");
+  ensure(recovered.state === "rolled_back", "cu_file_move_recover_state");
+  ensure(rh.exists(source) && rh.sha256_file(source) === crash_digest, "cu_file_move_recover_source");
+  ensure(rh.sha256_file(destination) === replacement_digest, "cu_file_move_recover_destination");
+  ensure(!rh.exists(crashed.source_backup) && !rh.exists(crashed.backup), "cu_file_move_recover_cleanup");
+  invoke(run_directory, executable, "actuate", [
+    "file-transaction", "recover", crashed.transaction_id
+  ], "file-transaction");
+
+  print("STEP changed post-state refuses rollback rather than deleting unknown bytes");
+  const guarded = invoke(run_directory, executable, "actuate", [
+    "file-move", source, destination, "--replace", "--apply"
+  ], "file-move");
+  rh.write_text(destination, "outside-change");
+  invoke(run_directory, executable, "actuate", [
+    "file-transaction", "rollback", guarded.transaction_id
+  ], "file-transaction", "file_transaction_precondition_changed");
+  ensure(rh.read_text(destination) === "outside-change", "cu_file_move_changed_destination_preserved");
+  ensure(rh.exists(guarded.source_backup), "cu_file_move_changed_source_backup_preserved");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.file-move-transaction");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu recoverable file-move transaction");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
