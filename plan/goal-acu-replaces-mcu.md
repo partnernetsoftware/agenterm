@@ -403,6 +403,10 @@ shapes fail typed instead of being ignored.
   exact exit mismatch, and verified shutdown. Reuse/list/prune, events/screen projection, stale registry
   reclamation and process-group control remain open; one process is not claimed
   as job-group coverage.
+  This does not cover MCU `term read|send|wait <window-handle>`, which adopts
+  an arbitrary Terminal, iTerm or editor terminal through desktop
+  accessibility. That external-window identity remains a separate gap; an
+  AgenTerm scope/epoch/`@tab` must never be substituted for it.
 - `shell-exec` now closes MCU's synchronous `exec <command...>` shape without
   overloading ACU's transport-only `exec --json`. The root is contained before
   its first instruction; stdout and stderr drain concurrently under one shared

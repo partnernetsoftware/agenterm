@@ -527,12 +527,19 @@
         },
         {
           "id": "terminal.agenterm.read-send-wait",
-          "mcu_shape": "pty read|send|wait and term read|send|wait",
+          "mcu_shape": "pty read|send|wait for an AgenTerm-owned terminal",
           "acu_shape": "terminal-read bounded screen snapshot; terminal-send literal bytes with two receipts; terminal-wait contains|exited|finalized",
           "state": "native",
           "qualification": "macos-public-green-linux-step-green-suite-red-windows-infrastructure-blocked",
           "next": "promote only after three-host public qjswasm evidence; add retained output offsets separately if cursor parity is required",
           "note": "Generic desktop accessibility is not substituted. The first read is explicitly a current-screen snapshot and reports incremental_cursor=null because no loss-aware byte cursor exists yet."
+        },
+        {
+          "id": "terminal.desktop-adoption",
+          "mcu_shape": "term read|send|wait <window-handle> for Terminal, iTerm or an editor terminal",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "add an exact-window external-terminal adoption facade; an AgenTerm scope/epoch/@tab identity is not interchangeable with a desktop AX window handle"
         },
         {
           "id": "terminal.agenterm.snapshot-events",
@@ -752,7 +759,7 @@
           "state": "platform-limited",
           "platforms": {"macos": "native", "linux": "pending-runtime-court", "windows": "pending-runtime-court"},
           "next": "execute the same public stable-prefix/schema journey on native Linux and Windows, then promote to native",
-          "note": "The shared platform facade uses getifaddrs plus ifindex on Unix and GetAdaptersAddresses plus adapter LUID on Windows. It returns stable-sorted address rows under a 10000-record scan ceiling and 1 MiB response ceiling; max is validated as 1..5000 before enumeration. Missing MAC/netmask/CIDR fields remain explicit unavailable fields. The MCU compatibility entry routes only interfaces; routes/DNS/sockets stay honest gaps."
+          "note": "The shared platform facade uses getifaddrs plus ifindex on Unix and GetAdaptersAddresses plus adapter LUID on Windows. It returns stable-sorted address rows under a 10000-record scan ceiling and 1 MiB response ceiling; max is validated as 1..5000 before enumeration. Missing MAC/netmask/CIDR fields remain explicit unavailable fields. The MCU compatibility entry routes interfaces, routes and probes; DNS and global sockets remain honest gaps."
         },
         {
           "id": "network.routes",
