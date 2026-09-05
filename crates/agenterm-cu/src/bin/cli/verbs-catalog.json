@@ -275,6 +275,65 @@
       ]
     },
     {
+      "name": "file-copy",
+      "command": "file-copy",
+      "aliases": [
+        "file copy"
+      ],
+      "grant": "observe",
+      "family": "file",
+      "summary": "plan or apply one recoverable regular-file copy",
+      "usage": "file-copy SOURCE DESTINATION [--replace] [--apply]\nfile copy SOURCE DESTINATION [--replace] [--apply]",
+      "args": [
+        {
+          "flag": "SOURCE",
+          "value": "",
+          "help": "existing non-symlink regular file"
+        },
+        {
+          "flag": "DESTINATION",
+          "value": "",
+          "help": "regular-file destination under an existing directory"
+        },
+        {
+          "flag": "--replace",
+          "value": "",
+          "help": "explicitly permit replacement of an existing regular file"
+        },
+        {
+          "flag": "--apply",
+          "value": "",
+          "help": "execute the planned transaction; requires actuate grant"
+        }
+      ]
+    },
+    {
+      "name": "file-transaction",
+      "command": "file-transaction",
+      "aliases": [
+        "file status",
+        "file rollback",
+        "file recover",
+        "file finalize"
+      ],
+      "grant": "observe",
+      "family": "file",
+      "summary": "inspect or advance one recoverable file-copy transaction",
+      "usage": "file-transaction status|rollback|recover|finalize TRANSACTION_ID\nfile status|rollback|recover|finalize TRANSACTION_ID",
+      "args": [
+        {
+          "flag": "status|rollback|recover|finalize",
+          "value": "",
+          "help": "status observes; every state-changing action requires actuate grant"
+        },
+        {
+          "flag": "TRANSACTION_ID",
+          "value": "",
+          "help": "opaque id returned by file-copy --apply"
+        }
+      ]
+    },
+    {
       "name": "windows",
       "command": "windows",
       "aliases": [
@@ -4045,6 +4104,14 @@
     {
       "name": "file-inspect",
       "text": "agenterm-cu file-inspect    (also: file inspect)\n  scope: observe    family: Filesystem\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  file-inspect PATH\n  file inspect PATH\n\narguments:\n  PATH                          one file, directory, or link-like entry\n\nReads bounded metadata for exactly the final entry without following a final\nlink. The reply carries kind, lossless decimal size and timestamps, readonly\nstate, platform metadata, and a stable opened-object identity for ordinary\nfiles and directories. Link-object identity is available from Unix metadata;\nWindows reports that identity as typed unavailable instead of following the\nlink. No file contents are read.\n"
+    },
+    {
+      "name": "file-copy",
+      "text": "agenterm-cu file-copy    (also: file copy)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage (after the global flags):\n  file-copy SOURCE DESTINATION [--replace] [--apply]\n  file copy SOURCE DESTINATION [--replace] [--apply]\n\nThe default is a mutation-free plan. It snapshots an opened, non-symlink regular source and any existing regular destination by identity, size, modification time and SHA-256. --apply reserves a private recovery receipt before mutation, serializes the exact destination across processes, publishes a verified same-directory temporary, and keeps a replaced destination as a backup until finalize. --replace is mandatory when the destination exists. File contents are never returned.\n"
+    },
+    {
+      "name": "file-transaction",
+      "text": "agenterm-cu file-transaction    (also: file status|rollback|recover|finalize)\n  scope: observe for status; actuate for mutation    family: Filesystem\n\nusage (after the global flags):\n  file-transaction status|rollback|recover|finalize TRANSACTION_ID\n  file status|rollback|recover|finalize TRANSACTION_ID\n\nstatus returns the durable receipt without file content. rollback restores the exact recorded prior destination or removes a newly installed destination. recover reconciles reserved, partial-copy, backup-moved and installed-before-receipt crash windows. finalize verifies the completed post-state and deletes the retained backup. Every operation takes the same destination lock and refuses changed or ambiguous state with a typed error.\n"
     },
     {
       "name": "windows",

@@ -590,9 +590,16 @@ flowchart LR
   uncertainty remains typed and is never retried automatically. A macOS
   public qjswasm court has proved exact replay, binary stdin plus EOF, both
   output streams with independently advancing cursors, exit verification,
-  renewal, identity-bound stop and owner cleanup on macOS. Linux/Windows native
-  executions of that same registered journey remain the promotion boundary, so
-  this leaf stays partial.
+  renewal, identity-bound stop and owner cleanup on macOS. The independent
+  `utm-court` Linux x86_64 execute-only court then verified the complete
+  delivery closure by SHA-256 and passed the same public journey at exact
+  source `8c07b647`: replay, privacy-preserving list/status, renewal, stdin
+  plus EOF, independent stdout/stderr cursors, wait, stop and session-owned
+  cleanup all crossed. The VM was released after evidence. Linux aarch64 and
+  Windows remain the promotion boundary, so this leaf stays partial. Windows
+  currently fails before product delivery in the court's interactive-worker
+  nonce recovery; that lifecycle mechanism belongs to the independent
+  `utm-court` repository and must not be copied into AgenTerm.
 
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old
@@ -792,13 +799,24 @@ flowchart LR
   missing-path failure before release. Linux and Windows focused leaves are now
   green; promotion into both full qjswasm journeys remains open. Package tests,
   strict Clippy and the Windows x86_64 cross-check are green. `agenterm-platform` also owns
-  no-overwrite publication and volume-capacity primitives, but ACU does not yet
-  expose MCU's physical-device inventory or recoverable copy/move transaction.
+  no-overwrite publication and volume-capacity primitives. ACU now also exposes
+  `file-copy SOURCE DEST [--replace --apply]` and `file-transaction
+  status|rollback|recover|finalize ID`. Planning is mutation-free. Apply writes
+  a private bounded receipt before its first file effect, binds every removable
+  or renameable object to opened-object identity plus size/mtime/SHA-256,
+  serializes the exact destination, retains an old destination until finalize,
+  and refuses ambiguous recovery or changed post-state. The qjswasm public
+  `cu.file-copy-transaction` journey proves plan/apply/status/rollback/finalize
+  and refusal without disclosing contents on macOS; Linux and Windows native
+  court evidence is still pending through the independent `utm-court` service.
+  Physical-device inventory and recoverable move remain open.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
-  The MCU-shaped compatibility entry now routes exactly `acu file inspect PATH`
-  to `file-inspect`; mutation, xattr and transaction subcommands remain explicit
-  MCU fallbacks until equivalent typed facades exist.
+  The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,
+  status, and explicit `--apply` rollback/recover/finalize to these typed ACU
+  facades. Move, mode and xattr mutation remain explicit MCU fallbacks; the MCU
+  plan-wrapper form of transaction actions without `--apply` also stays rather
+  than accidentally performing the mutation.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
   sockets and DNS+TCP probes. `network-interfaces` is now the bounded Observe
   facade for native address inventory: `getifaddrs` plus ifindex on Unix and

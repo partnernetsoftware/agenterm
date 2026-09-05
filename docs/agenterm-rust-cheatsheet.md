@@ -2443,6 +2443,19 @@ does not make a preceding window move or other OS action transactional. If the
 product requires all-or-nothing behavior across both, it needs an explicit
 prepare/commit or compensation contract and failure evidence for that boundary.
 
+A recoverable file replacement needs more than one atomic publish. Persist a
+bounded receipt before the first data-file mutation; bind source, old
+destination, prepared temporary, retained backup and installed result to
+opened-object identity plus complete size/digest evidence. Create the sibling
+temporary exclusively, persist its identity before filling it, sync and verify
+it before moving the old destination, and retain the old object until an
+explicit finalize. Persist rollback/finalize intent before deleting or
+replacing anything so recovery can distinguish an interrupted requested action
+from third-party drift. Never reclaim a leftover by transaction-shaped name
+alone: if its durable object identity is absent or changed, fail closed. Lock a
+stable state-directory sidecar derived from the lossless canonical destination,
+not the destination inode that publication replaces.
+
 Bounded one-shot authority must be durably reserved before the authorized
 side effect and must not be refunded merely because the downstream mechanism
 fails; refunding makes a failed attempt replayable. Validate target/session,

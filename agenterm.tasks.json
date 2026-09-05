@@ -635,6 +635,23 @@
         "task.cu-managed-job-smoke"
       ]
     },
+    "cu-file-transaction-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-file-transaction-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-file-transaction-smoke"
+      ]
+    },
     "cu-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2217,6 +2234,27 @@
       "id": "cu-managed-job-smoke",
       "description": "Prove the platform-neutral public managed-job lifecycle: runtime session ownership, exact spawn replay, privacy-safe list/status, stdin write and close, independent output cursors, exit wait, lease renewal, exact stop and owner cleanup.",
       "entry": "scripts/qjs/cu-managed-job-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-file-transaction-smoke",
+      "description": "Prove plan-only default, exact apply/readback, durable status, rollback, retained-backup finalize, and changed-destination refusal through the public agenterm-cu CLI.",
+      "entry": "scripts/qjs/cu-file-transaction-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

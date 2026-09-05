@@ -2,6 +2,7 @@
 //! new `Command` variant is a compile error here, not a silent `unsupported`.
 
 use super::*;
+use crate::FileTransactionAction;
 
 impl Executor {
     pub(super) fn run_current(
@@ -145,6 +146,41 @@ impl Executor {
             } => {
                 let request = require_job_request(job_request, "job-renew")?;
                 job_renew_payload(job_id, *generation, *ttl_seconds, request.session_id)
+            }
+            Command::FileCopy {
+                source,
+                destination,
+                replace,
+                apply,
+                ..
+            } => {
+                let store = crate::file_transactions::FileTransactionStore::open()?;
+                let plan = store.plan(source, destination, *replace)?;
+                if *apply {
+                    serde_json::to_value(store.apply(&plan)?).map_err(|error| {
+                        CuError::new("file_transaction_reply_failed", error.to_string())
+                    })
+                } else {
+                    serde_json::to_value(plan).map_err(|error| {
+                        CuError::new("file_transaction_reply_failed", error.to_string())
+                    })
+                }
+            }
+            Command::FileTransaction {
+                action,
+                transaction_id,
+                ..
+            } => {
+                let store = crate::file_transactions::FileTransactionStore::open()?;
+                let receipt = match action {
+                    FileTransactionAction::Status => store.status(transaction_id),
+                    FileTransactionAction::Rollback => store.rollback(transaction_id),
+                    FileTransactionAction::Recover => store.recover(transaction_id),
+                    FileTransactionAction::Finalize => store.finalize(transaction_id),
+                }?;
+                serde_json::to_value(receipt).map_err(|error| {
+                    CuError::new("file_transaction_reply_failed", error.to_string())
+                })
             }
             Command::Windows {
                 pid,

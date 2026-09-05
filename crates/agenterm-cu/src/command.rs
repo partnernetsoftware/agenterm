@@ -44,6 +44,15 @@ pub enum JobStateFilter {
     OrphanedUncertain,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileTransactionAction {
+    Status,
+    Rollback,
+    Recover,
+    Finalize,
+}
+
 /// An absolute byte position in one managed job output stream. Stdout and
 /// stderr always carry separate cursors. Decimal text keeps the wire lossless
 /// for clients whose number type cannot represent every `u64`.
@@ -902,6 +911,24 @@ pub enum Command {
     FileInspect {
         target: TargetRef,
         path: String,
+    },
+    /// Plan or apply one recoverable regular-file copy. Planning is
+    /// observation-only; `apply` persists the recovery receipt before the
+    /// first filesystem mutation.
+    FileCopy {
+        target: TargetRef,
+        source: String,
+        destination: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        replace: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
+    },
+    /// Inspect or advance one previously reserved file-copy transaction.
+    FileTransaction {
+        target: TargetRef,
+        action: FileTransactionAction,
+        transaction_id: String,
     },
     /// Start one durable, headless AgenTerm-owned PTY job. The human name
     /// deterministically selects an isolated logical server instance.
@@ -2378,6 +2405,8 @@ impl Command {
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
+            Self::FileCopy { .. } => "file-copy".into(),
+            Self::FileTransaction { .. } => "file-transaction".into(),
             Self::PtyStart { .. } => "pty-start".into(),
             Self::PtyList { .. } => "pty-list".into(),
             Self::PtyPrune { .. } => "pty-prune".into(),
@@ -2515,6 +2544,8 @@ impl Command {
             | Self::NetworkInterfaces { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
+            | Self::FileCopy { target, .. }
+            | Self::FileTransaction { target, .. }
             | Self::PtyStart { target, .. }
             | Self::PtyList { target, .. }
             | Self::PtyPrune { target, .. }
@@ -2628,6 +2659,14 @@ impl Command {
             | Self::JobRenew { .. }
             | Self::ProcessKill { .. }
             | Self::ShellExec { .. }
+            | Self::FileCopy { apply: true, .. }
+            | Self::FileTransaction {
+                action:
+                    FileTransactionAction::Rollback
+                    | FileTransactionAction::Recover
+                    | FileTransactionAction::Finalize,
+                ..
+            }
             | Self::PtyStart { .. }
             | Self::PtyPrune { .. }
             | Self::PtyResize { .. }
@@ -4461,5 +4500,46 @@ mod tests {
                 path,
             } if path == "a path/with spaces"
         ));
+    }
+
+    #[test]
+    fn file_copy_plan_and_transaction_actions_have_exact_grants() {
+        let plan = Command::FileCopy {
+            target: TargetRef::Ssh,
+            source: "source".into(),
+            destination: "destination".into(),
+            replace: true,
+            apply: false,
+        };
+        assert_eq!(plan.required_grant(), Grant::Observe);
+        let mut apply = plan.clone();
+        if let Command::FileCopy { apply, .. } = &mut apply {
+            *apply = true;
+        }
+        assert_eq!(apply.required_grant(), Grant::Actuate);
+        let json = serde_json::to_value(&apply).unwrap();
+        let round_trip: Command = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::FileCopy {
+                target: TargetRef::Ssh,
+                replace: true,
+                apply: true,
+                ..
+            }
+        ));
+        for (action, grant) in [
+            (FileTransactionAction::Status, Grant::Observe),
+            (FileTransactionAction::Rollback, Grant::Actuate),
+            (FileTransactionAction::Recover, Grant::Actuate),
+            (FileTransactionAction::Finalize, Grant::Actuate),
+        ] {
+            let command = Command::FileTransaction {
+                target: TargetRef::Current,
+                action,
+                transaction_id: "0".repeat(32),
+            };
+            assert_eq!(command.required_grant(), grant);
+        }
     }
 }

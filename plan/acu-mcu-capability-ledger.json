@@ -677,9 +677,11 @@
         {
           "id": "file.copy.transaction",
           "mcu_shape": "file copy SOURCE DEST [--replace --apply] plus status|rollback|recover|finalize",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "build the transaction facade from existing no-overwrite/atomic-publish primitives; persist source/destination identity and every recovery state"
+          "acu_shape": "file-copy SOURCE DEST [--replace --apply] plus file-transaction status|rollback|recover|finalize ID",
+          "state": "platform-limited",
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
+          "next": "run the same public qjswasm journey in Linux and Windows courts through the independent utm-court service",
+          "note": "Default invocation is plan-only. Apply persists a private receipt before mutation, binds source/destination/temporary/backup/result by opened-object identity plus size/mtime/SHA-256, serializes the exact destination across processes, retains replacement backup until finalize, and fails closed on ambiguous recovery. The MCU compatibility adapter routes copy and applied transaction actions; its plan-wrapper spelling for rollback/recover/finalize without --apply deliberately remains on MCU until the adapter can project that wrapper losslessly. macOS public evidence cu.file-copy-transaction is green; Linux/Windows are not claimed yet."
         },
         {
           "id": "file.move.transaction",

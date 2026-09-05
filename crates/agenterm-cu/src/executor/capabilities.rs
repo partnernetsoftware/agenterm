@@ -523,6 +523,29 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "wide_values": "decimal-strings",
             }),
         );
+        verbs.insert(
+            "file-copy".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "file",
+                "grant": "observe-plan-actuate-apply",
+                "mode": "recoverable-regular-file-copy",
+                "default": "plan-only",
+                "replacement": "explicit",
+                "recovery": "durable-receipt-plus-object-identities",
+                "content_disclosure": "none",
+            }),
+        );
+        verbs.insert(
+            "file-transaction".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "file",
+                "grant": "observe-status-actuate-mutation",
+                "actions": ["status", "rollback", "recover", "finalize"],
+                "state_match": "fail-closed",
+            }),
+        );
         for (verb, grant, mode) in [
             ("job-spawn", "actuate", "resident-contained-process-start"),
             ("job-list", "observe", "durable-bounded-inventory"),

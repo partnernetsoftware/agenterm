@@ -1,0 +1,126 @@
+// Platform-neutral public black-box journey for recoverable file copies.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.file-copy-transaction"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_command, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_FILE_TRANSACTION_DIR: rh.join(run_directory, "transactions"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_file_transaction_invalid_reply:" + expected_command; }
+  ensure(reply.command === expected_command, "cu_file_transaction_wrong_command:" + expected_command);
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_file_transaction_expected_failure:" + expected_command);
+    ensure(reply.error.code === expected_error, "cu_file_transaction_wrong_error:" + expected_command);
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_file_transaction_failed:" + expected_command);
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_file_transaction_executable_missing");
+
+const context = harness.new_context(repo, "cu-file-transaction");
+const run_directory = context.run_directory;
+const source = rh.join(run_directory, "source.bin");
+const destination = rh.join(run_directory, "destination.bin");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(source, "first-source");
+  print("STEP default file-copy is a mutation-free plan");
+  const plan = invoke(run_directory, executable, "observe", [
+    "file-copy", source, destination
+  ], "file-copy");
+  ensure(plan.operation === "file.copy" && plan.destination_snapshot === null, "cu_file_transaction_plan_shape");
+  ensure(!rh.exists(destination), "cu_file_transaction_plan_mutated");
+
+  print("STEP apply publishes exact bytes and a durable completed receipt");
+  const applied = invoke(run_directory, executable, "actuate", [
+    "file-copy", source, destination, "--apply"
+  ], "file-copy");
+  ensure(applied.state === "completed" && rh.read_text(destination) === "first-source", "cu_file_transaction_apply_poststate");
+  const status = invoke(run_directory, executable, "observe", [
+    "file-transaction", "status", applied.transaction_id
+  ], "file-transaction");
+  ensure(status.state === "completed" && status.result_snapshot.sha256 === applied.result_snapshot.sha256, "cu_file_transaction_status");
+
+  print("STEP rollback removes a newly-created destination");
+  const rolled = invoke(run_directory, executable, "actuate", [
+    "file-transaction", "rollback", applied.transaction_id
+  ], "file-transaction");
+  ensure(rolled.state === "rolled_back" && !rh.exists(destination), "cu_file_transaction_rollback_poststate");
+
+  print("STEP replacement retains the old object until finalize");
+  rh.write_text(destination, "old-destination");
+  rh.write_text(source, "replacement");
+  const replaced = invoke(run_directory, executable, "actuate", [
+    "file-copy", source, destination, "--replace", "--apply"
+  ], "file-copy");
+  ensure(replaced.state === "completed" && rh.exists(replaced.backup), "cu_file_transaction_backup_retained");
+  const finalized = invoke(run_directory, executable, "actuate", [
+    "file-transaction", "finalize", replaced.transaction_id
+  ], "file-transaction");
+  ensure(finalized.state === "finalized" && !rh.exists(replaced.backup), "cu_file_transaction_finalize_poststate");
+  ensure(rh.read_text(destination) === "replacement", "cu_file_transaction_finalize_content");
+
+  print("STEP changed post-state refuses rollback rather than deleting unknown bytes");
+  rh.write_text(source, "third-source");
+  const guarded = invoke(run_directory, executable, "actuate", [
+    "file-copy", source, destination, "--replace", "--apply"
+  ], "file-copy");
+  rh.write_text(destination, "outside-change");
+  invoke(run_directory, executable, "actuate", [
+    "file-transaction", "rollback", guarded.transaction_id
+  ], "file-transaction", "file_transaction_precondition_changed");
+  ensure(rh.read_text(destination) === "outside-change", "cu_file_transaction_changed_destination_preserved");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.file-copy-transaction");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu recoverable file-copy transaction");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

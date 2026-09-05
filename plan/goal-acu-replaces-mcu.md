@@ -83,7 +83,7 @@ flowchart LR
   PS --> Q
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
   PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
-  PTY --> MJ["managed job live on macOS<br/>resident owner · native IPC · exact replay"]
+  PTY --> MJ["managed job live on macOS + Linux x86_64<br/>resident owner · native IPC · exact replay"]
   NET --> NI["network interfaces live<br/>native ids · stable order · bounded snapshot"]
   DESK --> DS["desktop-state live<br/>bounded · exact target · drift refusal"]
   TL --> Q
@@ -136,7 +136,8 @@ MCU retirement blockers
 │  ├─ [x] exact request replay returns the same public job identity without a second spawn
 │  ├─ [x] macOS public-process lifecycle: dual output, write/EOF, wait, renew and stop
 │  ├─ [x] registered qjswasm journey green on macOS
-│  └─ [ ] same journey green on Linux/Windows
+│  ├─ [x] same journey green on Linux x86_64 execute-only court
+│  └─ [ ] Linux aarch64 and Windows journeys green
 ├─ [ ] machine transactions
 │  ├─ recoverable file copy/move
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
@@ -425,6 +426,12 @@ Q3 owned runtime facades
    │  ├─ [x] Windows x86_64 cargo-xwin compile
    │  ├─ [x] Windows x86_64 focused native UTM court: exact-byte pair + file/missing
    │  └─ [~] Linux + Windows focused leaves await full qjswasm journey promotion
+   ├─ [~] recoverable file-copy transaction: plan/apply/status/rollback/recover/finalize
+   │  ├─ [x] receipt-before-effect + exact object/content snapshots + destination lock
+   │  ├─ [x] retained replacement backup; changed post-state refuses rollback/finalize
+   │  ├─ [x] qjswasm public macOS journey `cu.file-copy-transaction`
+   │  ├─ [x] MCU adapter routes copy and explicit applied transaction actions
+   │  └─ [ ] Linux + Windows native public journeys through independent `utm-court`
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

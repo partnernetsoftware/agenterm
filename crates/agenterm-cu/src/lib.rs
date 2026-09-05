@@ -16,6 +16,7 @@ pub mod cdp;
 pub mod command;
 pub mod dynlib;
 pub mod executor;
+pub mod file_transactions;
 pub mod grant_management;
 pub mod host_actions;
 pub mod hotkeys;
@@ -60,7 +61,10 @@ pub mod vnc_transport;
 pub mod worker_wire;
 
 pub use auth::{Authorization, Grant};
-pub use command::{Command, OrderRelation, PointerButton, TerminalWaitCondition, WaitCondition};
+pub use command::{
+    Command, FileTransactionAction, OrderRelation, PointerButton, TerminalWaitCondition,
+    WaitCondition,
+};
 pub use executor::{Executor, RequestIdentity};
 pub use rdp_transport::RdpEndpoint;
 pub use reply::{CuError, CuReply};
