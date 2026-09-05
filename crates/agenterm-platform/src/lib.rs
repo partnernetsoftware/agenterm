@@ -400,6 +400,9 @@ pub mod process_security;
 #[cfg(feature = "process-spawn")]
 pub mod process_spawn;
 
+#[cfg(feature = "contained-process-spawn")]
+pub mod contained_process;
+
 #[cfg(feature = "shared-memory")]
 pub mod shared_memory;
 

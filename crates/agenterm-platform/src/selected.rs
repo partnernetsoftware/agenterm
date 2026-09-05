@@ -420,6 +420,17 @@ pub(crate) mod process_reference;
 #[path = "adapters/windows/process_spawn.rs"]
 pub(crate) mod process_spawn;
 
+#[cfg(all(
+    feature = "contained-process-spawn",
+    any(target_os = "linux", target_os = "macos")
+))]
+#[path = "adapters/unix/contained_process.rs"]
+pub(crate) mod contained_process;
+
+#[cfg(all(feature = "contained-process-spawn", windows))]
+#[path = "adapters/windows/contained_process.rs"]
+pub(crate) mod contained_process;
+
 #[cfg(all(feature = "process-spawn", target_os = "linux"))]
 #[path = "adapters/linux/process_spawn.rs"]
 pub(crate) mod process_spawn;

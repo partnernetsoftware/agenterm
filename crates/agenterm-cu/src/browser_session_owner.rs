@@ -8,25 +8,19 @@ use std::{
     fs,
     io::{self, Read},
     path::{Path, PathBuf},
-    process::Child,
     thread,
     time::{Duration, Instant},
 };
 
 use agenterm_platform::{
+    contained_process::{ContainedChild, ContainedHeadlessCommand},
     filesystem::write_private_atomic,
     filesystem_open::{ExistingEntryType, open_existing_path},
     locking::PathLock,
-    process::{ProcessTreeGuard, start_identity},
+    process::start_identity,
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg(not(windows))]
-use agenterm_platform::process::configure_owned_command;
-#[cfg(not(windows))]
-use std::process::{Command, Stdio};
-
-#[cfg(not(windows))]
 use crate::browser_session::owned_launch_args;
 use crate::browser_session::{
     ACTIVE_PORT_MAX_BYTES, BrowserSessionEndpoint, BrowserSessionPaths, BrowserSessionRecord,
@@ -99,41 +93,14 @@ pub struct BrowserStopRequest {
 }
 
 struct OwnedBrowser {
-    child: Child,
-    tree: ProcessTreeGuard,
+    child: ContainedChild,
 }
 
 impl OwnedBrowser {
     fn terminate_and_reap(&mut self) -> Result<(), String> {
-        let tree_result = self.tree.terminate();
-        let deadline = Instant::now() + EXIT_WAIT;
-        loop {
-            match self.child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if Instant::now() < deadline => thread::sleep(POLL_INTERVAL),
-                Ok(None) => {
-                    self.child
-                        .kill()
-                        .map_err(|error| format!("browser kill failed: {error}"))?;
-                    let kill_deadline = Instant::now() + EXIT_WAIT;
-                    loop {
-                        match self.child.try_wait() {
-                            Ok(Some(_)) => break,
-                            Ok(None) if Instant::now() < kill_deadline => {
-                                thread::sleep(POLL_INTERVAL);
-                            }
-                            Ok(None) => return Err("browser reap deadline expired".into()),
-                            Err(error) => {
-                                return Err(format!("browser wait after kill failed: {error}"));
-                            }
-                        }
-                    }
-                    break;
-                }
-                Err(error) => return Err(format!("browser wait failed: {error}")),
-            }
-        }
-        tree_result
+        self.child
+            .terminate_and_wait(EXIT_WAIT)
+            .map_err(|error| format!("browser cleanup failed: {error}"))
     }
 }
 
@@ -233,10 +200,6 @@ fn run_owner_inner(args: &[String]) -> Result<(), String> {
     let mut browser = match spawn_owned_browser(&spec, &paths.profile) {
         Ok(browser) => browser,
         Err(OwnedSpawnError::Clean(code)) => return publish_failure(&paths, &starting, code),
-        #[cfg(not(windows))]
-        Err(OwnedSpawnError::Uncertain(code)) => {
-            return publish_uncertain(&paths, &starting, code);
-        }
     };
     let browser_pid = browser.child.id();
     let browser_identity = match start_identity(browser_pid) {
@@ -312,7 +275,6 @@ fn run_owner_inner(args: &[String]) -> Result<(), String> {
                 // On Unix an exited root removes the identity that makes a
                 // later process-group signal safe. Descendants may remain;
                 // never collapse that uncertainty into a clean failure.
-                let _ = browser.tree.terminate();
                 return publish_uncertain(&paths, &ready, "browser_tree_owner_exited");
             }
             Ok(None) if Instant::now() < expires => thread::sleep(POLL_INTERVAL),
@@ -336,53 +298,21 @@ fn run_owner_inner(args: &[String]) -> Result<(), String> {
 
 enum OwnedSpawnError {
     Clean(&'static str),
-    #[cfg(not(windows))]
-    Uncertain(&'static str),
 }
 
-#[cfg(windows)]
-fn spawn_owned_browser(
-    _spec: &BrowserOwnerSpec,
-    _profile: &Path,
-) -> Result<OwnedBrowser, OwnedSpawnError> {
-    // `Command::spawn` starts executing before `ProcessTreeGuard::attach` can
-    // assign the child to its Job. Chromium may fork in that interval. Refuse
-    // Windows until the platform crate exposes an atomic contained spawn.
-    Err(OwnedSpawnError::Clean(
-        "browser_owner_atomic_spawn_unavailable",
-    ))
-}
-
-#[cfg(not(windows))]
 fn spawn_owned_browser(
     spec: &BrowserOwnerSpec,
     profile: &Path,
 ) -> Result<OwnedBrowser, OwnedSpawnError> {
-    let mut command = Command::new(&spec.executable);
-    command
-        .args(owned_launch_args(profile))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    configure_owned_command(&mut command)
-        .map_err(|_| OwnedSpawnError::Clean("browser_owner_spawn_failed"))?;
-    let mut child = command
+    let mut command = ContainedHeadlessCommand::new(&spec.executable);
+    command.args(owned_launch_args(profile));
+    let child = command
         .spawn()
         .map_err(|_| OwnedSpawnError::Clean("browser_owner_spawn_failed"))?;
-    let tree = match ProcessTreeGuard::attach(&child) {
-        Ok(tree) => tree,
-        Err(_) => {
-            let _ = child.kill();
-            let _ = bounded_reap(&mut child, EXIT_WAIT);
-            return Err(OwnedSpawnError::Uncertain(
-                "browser_owner_containment_failed",
-            ));
-        }
-    };
-    Ok(OwnedBrowser { child, tree })
+    Ok(OwnedBrowser { child })
 }
 
-fn browser_identity_is_live(child: &mut Child, expected: &ProcessIdentity) -> bool {
+fn browser_identity_is_live(child: &mut ContainedChild, expected: &ProcessIdentity) -> bool {
     matches!(child.try_wait(), Ok(None))
         && start_identity(expected.pid).ok().as_deref() == Some(expected.start_identity.as_str())
 }
@@ -398,19 +328,6 @@ fn clear_stale_endpoint(profile: &Path) -> Result<(), String> {
         return Err("browser_debug_endpoint_invalid".into());
     }
     fs::remove_file(path).map_err(|_| "browser_debug_endpoint_unavailable".into())
-}
-
-#[cfg(not(windows))]
-fn bounded_reap(child: &mut Child, timeout: Duration) -> Result<(), String> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return Ok(()),
-            Ok(None) if Instant::now() < deadline => thread::sleep(POLL_INTERVAL),
-            Ok(None) => return Err("browser reap deadline expired".into()),
-            Err(error) => return Err(format!("browser wait failed: {error}")),
-        }
-    }
 }
 
 fn validate_starting_owner(
@@ -449,7 +366,7 @@ fn wait_for_starting_record(
 }
 
 fn wait_for_endpoint(
-    child: &mut Child,
+    child: &mut ContainedChild,
     profile: &Path,
     timeout: Duration,
 ) -> Result<crate::browser_session::DevToolsEndpoint, &'static str> {

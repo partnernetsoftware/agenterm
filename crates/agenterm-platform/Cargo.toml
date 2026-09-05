@@ -158,6 +158,11 @@ process-spawn = [
     "windows-sys/Win32_System_Console",
     "windows-sys/Win32_System_Threading",
 ]
+contained-process-spawn = [
+    "process",
+    "windows-sys/Win32_System_JobObjects",
+    "windows-sys/Win32_System_Threading",
+]
 shared-memory = [
     "dep:libc",
     "dep:windows-sys",

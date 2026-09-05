@@ -3827,3 +3827,16 @@ a stale guest handle would then name a later, unrelated lock. Keep the tombstone
 cap the complete per-slot handle ledger independently of per-call operation
 fuel, and reject exhaustion before opening or creating a file. Test both the
 no-create refusal and repeated lock/unlock across exported calls on one slot.
+
+## Establish process containment before user code executes
+
+`Command::spawn` followed by Job assignment is not containment on Windows: the
+new process can create descendants before the parent assigns it. Stable Rust
+also exposes neither a configured `Command`'s stdio nor a `Child`'s primary
+thread handle, so `CREATE_SUSPENDED` cannot be bolted onto that type safely.
+Use the platform-owned contained-spawn facade instead. Its Windows adapter owns
+the raw suspended process/thread handles, assigns the exact process object to a
+kill-on-close Job, then resumes; every failure before resume terminates and
+waits for that suspended object. Unix establishes the process group in
+`pre_exec`, before `exec` transfers control to the requested program. Keep
+arguments as `OsString`/wide units so containment does not cost path fidelity.

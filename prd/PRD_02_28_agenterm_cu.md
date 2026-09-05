@@ -262,12 +262,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   repeats that proof, locks out the owner, checks the private profile object
   identity plus exact owner marker, refuses unknown entries, and only then
   removes owned state. A real macOS Chrome court passed ready → inventory →
-  status → stopped → removed without opening a window. The current owner
-  refuses Windows before browser spawn because assigning a
-  running Chromium process to a Job leaves a fork-before-assignment escape
-  window; Windows remains typed unavailable until the platform crate provides
-  atomic contained spawn. Executable discovery is intentionally caller-owned;
-  Windows atomic contained spawn plus Linux/Windows cleanup courts remain open.
+  status → stopped → removed without opening a window. The platform crate now
+  owns one reusable contained-headless spawn contract. Unix creates the process
+  group in the pre-exec child; Windows creates the root suspended, assigns its
+  exact process handle to a kill-on-close Job, and resumes only after assignment
+  succeeds, with a fail-closed breakaway retry for an incompatible parent Job.
+  Both Windows ISAs compile this path, and the refactored macOS lifecycle court
+  remains green. A native Windows first-instruction/descendant-cleanup court and
+  the Linux lifecycle court remain promotion evidence, not inferred passes.
+  Executable discovery is intentionally caller-owned.
   Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
   retain AX/tab-strip control. The authenticated-profile route is a separately
@@ -284,7 +287,8 @@ flowchart LR
   D -->|no · disposable state| S["owned browser-session<br/>isolated profile + random port"]
   D -->|no · authenticated profile| X["fixed MV3 + Native Messaging<br/>installed bridge"]
   D -->|no bridge| A["AX active-page + tab strip<br/>typed depth limit"]
-  S --> C["public lifecycle ✓ macOS<br/>exact identity + process-tree cleanup"]
+  S --> C["contained spawn before user code<br/>Unix process group · Windows Job"]
+  C --> E["macOS lifecycle ✓ · Windows ×2 compile ✓<br/>Linux + native Windows courts pending"]
   X --> R["versioned request + at-most-once receipt"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical
