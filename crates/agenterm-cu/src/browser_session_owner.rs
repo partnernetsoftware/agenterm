@@ -391,7 +391,7 @@ fn wait_for_endpoint(
                 // being written. Invalid contents become a typed timeout unless
                 // they exceed the hard byte ceiling above.
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) if endpoint_open_error_is_transient(error.kind()) => {}
             Err(_) => return Err("browser_debug_endpoint_unavailable"),
         }
         match child.try_wait() {
@@ -401,6 +401,13 @@ fn wait_for_endpoint(
             Err(_) => return Err("browser_wait_failed"),
         }
     }
+}
+
+fn endpoint_open_error_is_transient(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied | io::ErrorKind::WouldBlock
+    )
 }
 
 fn stop_requested(
@@ -575,6 +582,24 @@ mod tests {
         clear_stale_endpoint(&profile).unwrap();
         assert!(!endpoint.exists());
         fs::remove_dir_all(profile).unwrap();
+    }
+
+    #[test]
+    fn endpoint_poll_retries_only_creation_and_sharing_races() {
+        for kind in [
+            io::ErrorKind::NotFound,
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::WouldBlock,
+        ] {
+            assert!(endpoint_open_error_is_transient(kind));
+        }
+        for kind in [
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::Other,
+        ] {
+            assert!(!endpoint_open_error_is_transient(kind));
+        }
     }
 
     #[cfg(unix)]

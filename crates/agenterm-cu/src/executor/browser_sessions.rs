@@ -120,15 +120,18 @@ pub(super) fn browser_session_start_payload(
         last_error_code: None,
     };
     publish_record(&paths.registry, &starting).map_err(state_unavailable)?;
-    if spawn_mode != DetachedSpawnMode::Independent {
+    if !matches!(
+        spawn_mode,
+        DetachedSpawnMode::Independent | DetachedSpawnMode::CallerJobFallback
+    ) {
         let _ = owner_child.kill();
         let _ = owner_child.wait();
         starting.state = BrowserSessionState::Failed;
-        starting.last_error_code = Some("browser_owner_detach_denied".into());
+        starting.last_error_code = Some("browser_owner_spawn_mode_unsupported".into());
         publish_record(&paths.registry, &starting).map_err(state_unavailable)?;
         return Err(CuError::new(
-            "browser_owner_detach_denied",
-            "the host denied an independent resident browser owner",
+            "browser_owner_spawn_mode_unsupported",
+            "the platform returned an unsupported browser owner lifetime mode",
         ));
     }
     wait_for_start(&paths, &starting, &mut owner_child, ready_timeout_ms)
@@ -277,13 +280,9 @@ pub(super) fn browser_session_stop_payload(
 pub(super) fn browser_session_remove_payload(
     name: &str,
     expect_stopped: bool,
+    expect_failed: bool,
 ) -> Result<Value, CuError> {
-    if !expect_stopped {
-        return Err(CuError::new(
-            "browser_session_remove_intent_required",
-            "browser-session-remove requires --expect stopped",
-        ));
-    }
+    let expected_state = expected_remove_state(expect_stopped, expect_failed)?;
     let root = sessions_root(false).map_err(state_unavailable)?;
     let _registry_lock = registry_lock(&root)?;
     let paths = session_paths(&root, name).map_err(|code| CuError::new(code, code))?;
@@ -303,13 +302,10 @@ pub(super) fn browser_session_remove_payload(
         Some(browser) => process_is_absent(browser)?,
         None => true,
     };
-    if record.state != BrowserSessionState::Stopped
-        || !process_is_absent(&record.owner)?
-        || !browser_absent
-    {
+    if record.state != expected_state || !process_is_absent(&record.owner)? || !browser_absent {
         return Err(CuError::new(
             "browser_session_remove_unverified",
-            "browser session is not independently verified stopped",
+            "browser session does not match the acknowledged terminal state or its processes are not independently verified absent",
         ));
     }
     let profile = open_existing_path(&paths.profile, ExistingEntryType::Directory)
@@ -372,6 +368,20 @@ pub(super) fn browser_session_remove_payload(
         "state": "removed",
         "verified": !paths.directory.exists(),
     }))
+}
+
+fn expected_remove_state(
+    expect_stopped: bool,
+    expect_failed: bool,
+) -> Result<BrowserSessionState, CuError> {
+    match (expect_stopped, expect_failed) {
+        (true, false) => Ok(BrowserSessionState::Stopped),
+        (false, true) => Ok(BrowserSessionState::Failed),
+        _ => Err(CuError::new(
+            "browser_session_remove_intent_required",
+            "browser-session-remove requires exactly one of --expect stopped or --expect failed",
+        )),
+    }
 }
 
 fn canonical_browser(value: &str) -> Result<PathBuf, CuError> {
@@ -579,5 +589,23 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn removal_requires_one_exact_terminal_state() {
+        assert_eq!(
+            expected_remove_state(true, false).unwrap(),
+            BrowserSessionState::Stopped
+        );
+        assert_eq!(
+            expected_remove_state(false, true).unwrap(),
+            BrowserSessionState::Failed
+        );
+        for (stopped, failed) in [(false, false), (true, true)] {
+            assert_eq!(
+                expected_remove_state(stopped, failed).unwrap_err().code,
+                "browser_session_remove_intent_required"
+            );
+        }
     }
 }

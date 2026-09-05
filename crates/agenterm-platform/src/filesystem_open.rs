@@ -249,6 +249,19 @@ mod tests {
     }
 
     #[test]
+    fn missing_final_path_remains_a_typed_not_found() {
+        let root = fixture("missing-final");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create missing-final fixture");
+
+        let error = open_existing_path(&root.join("not-created"), ExistingEntryType::File)
+            .expect_err("missing final entry must fail");
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+
+        fs::remove_dir_all(root).expect("remove missing-final fixture");
+    }
+
+    #[test]
     fn lexical_absolute_does_not_pop_past_the_host_root() {
         let current = std::env::current_dir().expect("read current directory");
         let (anchor, _) = split_root(&current).expect("split current directory root");

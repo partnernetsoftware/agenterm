@@ -259,6 +259,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   The public lifecycle now reaches that owner. Start requires one absolute
   executable and bounded readiness/TTL. Stop requires the literal
   `--expect stopped` postcondition and verifies both identities absent; remove
+  accepts the caller's exact terminal expectation (`stopped` or `failed`),
   repeats that proof, locks out the owner, checks the private profile object
   identity plus exact owner marker, refuses unknown entries, and only then
   removes owned state. A real macOS Chrome court passed ready → inventory →
@@ -268,13 +269,22 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   exact process handle to a kill-on-close Job, and resumes only after assignment
   succeeds, with a fail-closed breakaway retry for an incompatible parent Job.
   Both Windows ISAs compile this path, and the refactored macOS lifecycle court
-  remains green. The native `win-x86_64-desktop` court also executed the exact
+  remains green. The native `win-x86_64-desktop` and `win-aarch64-desktop`
+  courts also executed the exact
   platform test whose first child instruction opens the expected named Job and
-  proves its own exact process membership; it exited zero. Its attempted QGA
+  proves its own exact process membership; both exited zero. The x86 court's attempted QGA
   batch-log pull produced no file, so exit status is the evidence and no text
-  transcript is claimed. Windows ARM64, descendant cleanup, the complete
-  Windows browser lifecycle, and Linux lifecycle remain promotion evidence,
-  not inferred passes.
+  transcript is claimed. The ARM64 interactive court then exposed and closed two
+  real lifecycle gaps: secure Windows relative opens had erased NTSTATUS
+  `NotFound`, so readiness failed before `DevToolsActivePort` could appear; and
+  a runner Job that denied breakaway left no usable lifetime mode. NTSTATUS is
+  now translated to typed Win32 errors, creation/sharing races retry within the
+  existing deadline, and the registry explicitly reports
+  `caller-job-fallback` when the owner is bounded by the ambient Job. The same
+  court passed Edge ready → status → stopped → removed, while a prior failed
+  start was removed through `--expect failed` only after both recorded processes
+  were proven absent. Linux lifecycle and descendant cleanup remain promotion
+  evidence, not inferred passes.
   Executable discovery is intentionally caller-owned.
   Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
@@ -293,8 +303,9 @@ flowchart LR
   D -->|no · authenticated profile| X["fixed MV3 + Native Messaging<br/>installed bridge"]
   D -->|no bridge| A["AX active-page + tab strip<br/>typed depth limit"]
   S --> C["contained spawn before user code<br/>Unix process group · Windows Job"]
-  C --> E["macOS lifecycle ✓ · Windows ×2 compile ✓<br/>Win x86 first-instruction Job proof ✓"]
-  E --> P["pending: Linux lifecycle · Win ARM64<br/>Win browser lifecycle + descendant cleanup"]
+  C --> E["macOS lifecycle ✓<br/>Windows x86/ARM64 first-instruction Job proof ✓"]
+  E --> W["Win ARM64 managed-Job Edge lifecycle ✓<br/>caller-job-fallback is explicit"]
+  W --> P["pending: Linux lifecycle<br/>descendant cleanup courts"]
   X --> R["versioned request + at-most-once receipt"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical

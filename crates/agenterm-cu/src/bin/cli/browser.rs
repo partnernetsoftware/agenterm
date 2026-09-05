@@ -941,12 +941,13 @@ fn browser(
             })
         }
         "session-remove" => {
-            let expect_stopped = expect_stopped("browser session-remove", args)?;
+            let (expect_stopped, expect_failed) = expect_terminal("browser session-remove", args)?;
             let name = one_session_name("browser session-remove", args)?;
             Ok(Command::BrowserSessionRemove {
                 target,
                 name,
                 expect_stopped,
+                expect_failed,
             })
         }
         other => Err(format!(
@@ -973,6 +974,17 @@ fn expect_stopped(verb: &str, args: &mut Vec<String>) -> Result<bool, String> {
             "{verb} --expect must be the literal 'stopped', got {other:?}"
         )),
         None => Err(format!("{verb} requires --expect stopped")),
+    }
+}
+
+fn expect_terminal(verb: &str, args: &mut Vec<String>) -> Result<(bool, bool), String> {
+    match flag_text(args, "--expect")?.as_deref() {
+        Some("stopped") => Ok((true, false)),
+        Some("failed") => Ok((false, true)),
+        Some(other) => Err(format!(
+            "{verb} --expect must be the literal 'stopped' or 'failed', got {other:?}"
+        )),
+        None => Err(format!("{verb} requires --expect stopped|failed")),
     }
 }
 
@@ -1109,6 +1121,18 @@ mod tests {
             Ok(Command::BrowserSessionRemove {
                 ref name,
                 expect_stopped: true,
+                expect_failed: false,
+                ..
+            }) if name == "research"
+        ));
+
+        let mut remove_failed = words(&["research", "--expect", "failed"]);
+        assert!(matches!(
+            browser(TargetRef::Current, Some("session-remove"), &mut remove_failed),
+            Ok(Command::BrowserSessionRemove {
+                ref name,
+                expect_stopped: false,
+                expect_failed: true,
                 ..
             }) if name == "research"
         ));

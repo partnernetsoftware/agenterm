@@ -741,8 +741,9 @@ impl Executor {
             Command::BrowserSessionRemove {
                 name,
                 expect_stopped,
+                expect_failed,
                 ..
-            } => browser_session_remove_payload(name, *expect_stopped),
+            } => browser_session_remove_payload(name, *expect_stopped, *expect_failed),
             Command::App {
                 window,
                 action,

@@ -11,7 +11,7 @@ use std::{
 };
 
 use windows_sys::Win32::{
-    Foundation::HANDLE,
+    Foundation::{ERROR_MR_MID_NOT_FOUND, HANDLE},
     Storage::FileSystem::{
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
         FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -69,6 +69,8 @@ unsafe extern "system" {
         ea_buffer: *mut core::ffi::c_void,
         ea_length: u32,
     ) -> i32;
+
+    fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
 pub(crate) fn open_existing(
@@ -142,10 +144,15 @@ pub(crate) fn open_existing_child(
         )
     };
     if status < 0 {
-        Err(io::Error::other(format!(
-            "relative filesystem open failed with NTSTATUS 0x{:08X}",
-            status as u32
-        )))
+        let win32_error = unsafe { RtlNtStatusToDosError(status) };
+        if win32_error == ERROR_MR_MID_NOT_FOUND {
+            Err(io::Error::other(format!(
+                "relative filesystem open failed with NTSTATUS 0x{:08X}",
+                status as u32
+            )))
+        } else {
+            Err(io::Error::from_raw_os_error(win32_error.cast_signed()))
+        }
     } else {
         Ok(unsafe { File::from_raw_handle(opened) })
     }

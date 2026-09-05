@@ -3247,8 +3247,8 @@
       ],
       "grant": "actuate",
       "family": "browser",
-      "summary": "remove one stopped browser automation session",
-      "usage": "browser-session-remove NAME --expect stopped\nbrowser session-remove ...",
+      "summary": "remove one verified terminal browser automation session",
+      "usage": "browser-session-remove NAME --expect stopped|failed\nbrowser session-remove ...",
       "args": [
         {
           "flag": "NAME",
@@ -3257,8 +3257,8 @@
         },
         {
           "flag": "--expect",
-          "value": "stopped",
-          "help": "required stopped precondition"
+          "value": "stopped|failed",
+          "help": "required exact terminal-state precondition"
         }
       ]
     },
@@ -4079,7 +4079,7 @@
     },
     {
       "name": "browser-session-remove",
-      "text": "agenterm-cu browser-session-remove    (also: browser session-remove)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-remove NAME --expect stopped\n\nRemoves one named browser automation session only with the literal stopped precondition.\n"
+      "text": "agenterm-cu browser-session-remove    (also: browser session-remove)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-remove NAME --expect stopped|failed\n\nRemoves one named browser automation session only when its recorded terminal state exactly matches the caller's literal expectation and both recorded processes are independently verified absent.\n"
     },
     {
       "name": "page",

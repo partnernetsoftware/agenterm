@@ -3804,12 +3804,29 @@ ownership or make recursive deletion safe.
 
 When a detached owner's registry must contain the owner's PID/start identity,
 the launcher cannot publish that identity before spawning it. Avoid a race by
-writing a sealed intent first, spawning the owner, rejecting any non-independent
-detach mode, then atomically publishing `Starting`; the owner holds its stable
-sidecar lock and waits for that exact generation for a short bounded interval
-before launching the owned child. Never let the child launch merely because an
-intent file exists. Bind stop requests to both owner and child identities so a
-stale request cannot terminate a replacement generation.
+writing a sealed intent first, spawning the owner, recording the actual detach
+mode, then atomically publishing `Starting`; the owner holds its stable sidecar
+lock and waits for that exact generation for a short bounded interval before
+launching the owned child. A Windows runner Job may deny independent breakaway;
+an explicitly reported `caller-job-fallback` can still provide useful bounded
+ownership, but its lifetime is tied to that ambient Job and must never be
+reported as independent. Never let the child launch merely because an intent
+file exists. Bind stop requests to both owner and child identities so a stale
+request cannot terminate a replacement generation. Failed starts also need a
+public exact-state removal path that independently proves owner and child absent;
+otherwise one failure permanently reserves the durable resource name.
+
+## Preserve native error kinds across secure relative opens
+
+Windows `NtCreateFile` returns NTSTATUS, not a Win32 last-error value. Mapping
+every failed relative open to `ErrorKind::Other` destroys ordinary control flow:
+a bounded watcher can mistake a not-yet-created file for permanent I/O failure.
+Translate NTSTATUS with `RtlNtStatusToDosError`, retain the raw NTSTATUS only when
+translation itself is unavailable, and test that a missing final component is
+still `NotFound` on Windows. Files created by another process can also be briefly
+exclusive; a readiness poll may retry `NotFound`, `PermissionDenied`, and
+`WouldBlock` until its existing deadline, while malformed type/reparse errors
+remain fail-fast.
 
 ## Reject retained-child exhaustion before spawning native resources
 

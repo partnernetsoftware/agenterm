@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::target::TargetRef;
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PointerButton {
@@ -1636,11 +1640,15 @@ pub enum Command {
         expect_stopped: bool,
         timeout_ms: u64,
     },
-    /// Remove one already-stopped named browser session.
+    /// Remove one named browser session whose exact terminal state the caller
+    /// acknowledges. Failed starts are removable only after both recorded
+    /// processes are independently observed absent.
     BrowserSessionRemove {
         target: TargetRef,
         name: String,
         expect_stopped: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        expect_failed: bool,
     },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
@@ -3216,6 +3224,7 @@ mod tests {
             target: TargetRef::Current,
             name: "research".into(),
             expect_stopped: true,
+            expect_failed: false,
         };
         assert_eq!(remove.verb(), "browser-session-remove");
         assert_eq!(remove.required_grant(), Grant::Actuate);
@@ -3228,6 +3237,7 @@ mod tests {
                 target: TargetRef::Current,
                 ref name,
                 expect_stopped: true,
+                expect_failed: false,
             } if name == "research"
         ));
     }
