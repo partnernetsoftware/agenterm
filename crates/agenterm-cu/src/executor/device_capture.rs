@@ -33,7 +33,7 @@ pub(super) fn device_screenshot_payload(
         ));
     }
 
-    let backend = native_backend();
+    let backend = native_backend().map_err(map_capture_error)?;
     let evidence = backend.observe();
     if list {
         let inventory = evidence.inventory().map_err(map_capture_error)?;

@@ -142,6 +142,10 @@ pub type ScriptFleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> 
 /// execute one source). Does not cover check-many/corpus-scan (already
 /// unified at the `agenterm-script-common` crate level) or pack/qualify CLI
 /// verbs (engine-specific pack shapes, see design §3 non-goals).
+// The error intentionally retains bounded partial stdout and the complete
+// deterministic cost receipt. Boxing it would add an allocation to every
+// engine failure and would only move, not reduce, that owned diagnostic data.
+#[allow(clippy::result_large_err)]
 pub trait ScriptEngineBackend {
     /// The corresponding `ScriptBackend` variant.
     fn backend_id(&self) -> ScriptBackend;

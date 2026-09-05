@@ -408,6 +408,9 @@ bump 指针在尝试 `grow` 之前就已前移，越过尽头之后任何分配�
 `Budget("max_memory_pages")`，不含糊。槽不自动回收——不分配的活儿照跑，回收是调用者的
 决定，与 trap 同规矩。另外，门往客人堆里写的**累计**字节数没有任何盖子：十六个都在
 `max_bridge_result_bytes` 之内的 1 MiB 答案就能用光 16 MiB 的默认槽。
+文件本身小于该上限也不保证读文件 bridge 一定可接收：lossless 工具结果的
+封装与 guest 字符串表示同样计入预算。大型生成 catalog 应由拥有其 schema
+的原生构建门验证，或提供真正的分块协议；不要为一份文件抬高全局 bridge 上限。
 测试见 `tests/seam_attack.rs::finding_4_running_out_of_pages_is_now_reported_as_a_budget`
 与 `tests/door_attack.rs` 的三条。
 

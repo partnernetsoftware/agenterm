@@ -35,12 +35,12 @@ pub struct FilesystemEntryMetadata {
     pub windows_attributes: Option<u32>,
 }
 
-struct NativeEntryDetails {
-    identity: Option<String>,
-    unix_mode: Option<u32>,
-    unix_uid: Option<u32>,
-    unix_gid: Option<u32>,
-    windows_attributes: Option<u32>,
+pub(crate) struct NativeEntryDetails {
+    pub(crate) identity: Option<String>,
+    pub(crate) unix_mode: Option<u32>,
+    pub(crate) unix_uid: Option<u32>,
+    pub(crate) unix_gid: Option<u32>,
+    pub(crate) windows_attributes: Option<u32>,
 }
 
 impl FilesystemEntryFacts {
@@ -123,46 +123,8 @@ fn timestamp_ns(value: std::io::Result<SystemTime>) -> Option<i128> {
     })
 }
 
-#[cfg(unix)]
-fn native_details(metadata: &Metadata) -> NativeEntryDetails {
-    use std::os::unix::fs::MetadataExt as _;
-    NativeEntryDetails {
-        identity: Some(format!("unix:{:x}:{:x}", metadata.dev(), metadata.ino())),
-        unix_mode: Some(metadata.mode()),
-        unix_uid: Some(metadata.uid()),
-        unix_gid: Some(metadata.gid()),
-        windows_attributes: None,
-    }
-}
-
-#[cfg(windows)]
-fn native_details(metadata: &Metadata) -> NativeEntryDetails {
-    use std::os::windows::fs::MetadataExt as _;
-    NativeEntryDetails {
-        // Stable Windows object identity requires an opened handle and the
-        // separate `file-identity` facade. MetadataExt's by-handle identity
-        // accessors are unstable; do not replace them with a path spelling.
-        identity: None,
-        unix_mode: None,
-        unix_uid: None,
-        unix_gid: None,
-        windows_attributes: Some(metadata.file_attributes()),
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn native_details(_metadata: &Metadata) -> NativeEntryDetails {
-    NativeEntryDetails {
-        identity: None,
-        unix_mode: None,
-        unix_uid: None,
-        unix_gid: None,
-        windows_attributes: None,
-    }
-}
-
 fn metadata_details(metadata: &Metadata) -> FilesystemEntryMetadata {
-    let native = native_details(metadata);
+    let native = crate::selected::filesystem_entry::native_details(metadata);
     FilesystemEntryMetadata {
         facts: metadata_entry_facts(metadata),
         identity: native.identity,

@@ -2189,11 +2189,8 @@ mod tests {
 
     #[test]
     fn server_arguments_are_internal_bounded_and_loopback_only() {
-        assert_eq!(configure_server_launch(&[]).unwrap(), false);
-        assert_eq!(
-            configure_server_launch(&["--empty".to_owned()]).unwrap(),
-            true
-        );
+        assert!(!configure_server_launch(&[]).unwrap());
+        assert!(configure_server_launch(&["--empty".to_owned()]).unwrap());
         assert!(configure_server_launch(&["--empty".to_owned(), "--empty".to_owned()]).is_err());
         assert!(
             configure_server_launch(&["--address".to_owned(), "127.0.0.1:48815".to_owned()])

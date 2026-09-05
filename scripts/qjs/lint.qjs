@@ -130,6 +130,13 @@ if (internal_selftest === 1) {
     for (const source_line of output.split("\n")) {
       const relative_path = source_line.trim();
       if (relative_path === "") { continue; }
+      // This cold catalog contains long rendered help strings as well as the
+      // structured rows. Although its file bytes remain below 1 MiB, the
+      // bridge's lossless result envelope can exceed the slot result ceiling.
+      // agenterm-cu/build.rs owns its closed-schema validation before any Rust
+      // target compiles; do not weaken the engine-wide result bound for one
+      // generated projection.
+      if (relative_path === "crates/agenterm-cu/src/bin/cli/verbs-catalog.json") { continue; }
       const path = rh.join(repo, relative_path);
       if (!rh.exists(path)) { continue; }
       if (!rh.metadata(path).is_file) { continue; }

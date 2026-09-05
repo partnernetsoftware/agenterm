@@ -35,6 +35,10 @@ pub(crate) const fn platform_kind() -> crate::PlatformKind {
 #[path = "adapters/macos/device_capture.rs"]
 pub(crate) mod device_capture;
 
+#[cfg(all(feature = "device-capture", not(target_os = "macos")))]
+#[path = "adapters/unsupported_device_capture.rs"]
+pub(crate) mod device_capture;
+
 pub(crate) const fn app_container_process_supported() -> bool {
     #[cfg(windows)]
     {

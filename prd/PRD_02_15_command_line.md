@@ -57,6 +57,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
         inject → handoff on disk, then human/script `paste-buffer`.
         Optional copy-mode → buffer is not in this minimal set.
     - `capture-pane|capturep -p [-t target]`
+    - [x] `capture-output [-t target]
+      [--cursor earliest|current|N] [--max-bytes N]` reads the terminal's
+      bounded retained raw-byte ring with an absolute loss-aware cursor; a
+      retention gap or future cursor fails typed rather than returning a
+      substituted screen snapshot
     - `display-message|display -p [-t target] format`
     - `show-options|show`, `list-commands|lscm`
     - [x] `split-window|splitw` returns an explicit unsupported error

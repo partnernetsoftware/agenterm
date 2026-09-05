@@ -8,9 +8,9 @@
 use std::{ffi::CString, time::Duration};
 
 use crate::device_capture::{
-    DalObservation, DeviceCaptureBackend, DeviceCaptureEvidence, DeviceCaptureFrame,
-    DeviceCaptureSource, DeviceStreamFailure, HostCameraAuthorization, SelectedDevice,
-    UsbmuxObservation,
+    DalObservation, DeviceCaptureBackend, DeviceCaptureError, DeviceCaptureEvidence,
+    DeviceCaptureFrame, DeviceCaptureSource, DeviceStreamFailure, HostCameraAuthorization,
+    SelectedDevice, UsbmuxObservation,
 };
 
 const TEXT: usize = 512;
@@ -101,6 +101,10 @@ impl Drop for FrameOwner {
 /// may be constructed on any thread; each call owns and tears down its session.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MacosDeviceCaptureBackend;
+
+pub(crate) fn native_backend() -> Result<MacosDeviceCaptureBackend, DeviceCaptureError> {
+    Ok(MacosDeviceCaptureBackend)
+}
 
 impl DeviceCaptureBackend for MacosDeviceCaptureBackend {
     fn observe(&self) -> DeviceCaptureEvidence {
