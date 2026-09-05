@@ -18,6 +18,12 @@ pub fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
     crate::selected::process_metrics::nice(pid)
 }
 
+/// Reports whether one process is stopped by the host scheduler. This is a
+/// point observation used to verify suspend/resume; it is not process identity.
+pub fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
+    crate::selected::process_metrics::is_stopped(pid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +78,20 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(
             observed.expect_err("Windows has no Unix nice model").kind(),
+            ProcessMetricsErrorKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn current_process_is_not_reported_stopped_or_types_the_host_model() {
+        let observed = is_stopped(std::process::id());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert!(!observed.expect("observe current run state"));
+        #[cfg(windows)]
+        assert_eq!(
+            observed
+                .expect_err("Windows state model is not implemented")
+                .kind(),
             ProcessMetricsErrorKind::Unsupported
         );
     }

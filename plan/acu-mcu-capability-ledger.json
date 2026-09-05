@@ -77,9 +77,16 @@
         {
           "id": "process.state.mutate",
           "mcu_shape": "process set-state PID running|stopped",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "identity-bound actuate gate plus post-state"
+          "acu_shape": "process-set-state --pid N --start-identity ID running|stopped --timeout-ms N",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "retained-pidfd",
+            "macos": "retained-audit-token",
+            "windows": "typed-unsupported"
+          },
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.process-set-state"],
+          "note": "ACU signals through one retained native process object, verifies scheduler state and closes the effect receipt on every post-effect result. The MCU adapter routes the unprivileged shape after freezing start identity; --sudo/--broker remain with the privilege-provider gap."
         },
         {
           "id": "process.kill.single",

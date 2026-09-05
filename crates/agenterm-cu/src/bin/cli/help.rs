@@ -64,8 +64,15 @@ pub fn top_level_text() -> String {
     text = text.replace("\n\nClipboard", "\nClipboard");
     text = text.replace("\n\nNetwork", "\nNetwork");
     text = text.replace("\n\nProcesses", "\nProcesses");
+    text = text.replace("\n\nAccessibility: observe", "\nAccessibility: observe");
     text = text.replace("\n\nAgenTerm terminals", "\nAgenTerm terminals");
+    text = text.replace("\n\nBrowser page & tabs", "\nBrowser page & tabs");
+    text = text.replace("\n\nWindow placement", "\nWindow placement");
     text = text.replace("\n\nTransports", "\nTransports");
+    text = text.replace(
+        "  clipboard-write-file (clipboard write-file)\n                                    actuate  put a file reference on the clipboard",
+        "  clipboard-write-file             actuate  put a file reference on clipboard",
+    );
     append_missing_top_level_rows(&mut text);
     text
 }
@@ -177,7 +184,12 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
-    let compact_process = ["process-argv", "process-cwd", "process-environment"];
+    let compact_process = [
+        "process-argv",
+        "process-cwd",
+        "process-environment",
+        "process-set-state",
+    ];
     let compact_terminal = [
         "pty-start",
         "pty-list",
@@ -252,7 +264,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd  process-environment"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd\n  process-environment  process-set-state"
                 .to_owned(),
         );
     }

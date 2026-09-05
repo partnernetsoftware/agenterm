@@ -1,6 +1,9 @@
 //! Process inventory commands backed by the shared platform facade.
 
-use agenterm_cu::{Command, TargetRef, command::ProcessKillMode};
+use agenterm_cu::{
+    Command, TargetRef,
+    command::{ProcessKillMode, ProcessRunState},
+};
 
 use super::verbs::VerbSpec;
 use super::{flag_parsed, flag_text, take_switch};
@@ -31,10 +34,52 @@ pub fn parse(
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
+        "process-set-state" => process_set_state(target, args),
         "process-watch" => process_watch(target, args),
         "shell-exec" => shell_exec(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn process_set_state(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = match flag_parsed::<u32>(args, "--pid")? {
+        Some(pid) => pid,
+        None if !args.is_empty() && !args[0].starts_with('-') => args
+            .remove(0)
+            .parse::<u32>()
+            .map_err(|_| "process-set-state PID must be a positive integer".to_owned())?,
+        None => return Err("process-set-state requires --pid N (or positional PID)".into()),
+    };
+    if pid == 0 {
+        return Err("process-set-state pid must be greater than zero".into());
+    }
+    let start_identity = flag_text(args, "--start-identity")?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "process-set-state requires --start-identity ID from process-state".to_owned()
+        })?;
+    let state = args
+        .first()
+        .and_then(|value| ProcessRunState::parse(value))
+        .ok_or_else(|| "process-set-state requires state running|stopped".to_owned())?;
+    args.remove(0);
+    let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000);
+    if !(1..=60_000).contains(&timeout_ms) {
+        return Err("process-set-state --timeout-ms must be in 1..=60000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "process-set-state received unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::ProcessSetState {
+        target,
+        pid,
+        start_identity,
+        state,
+        timeout_ms,
+    })
 }
 
 fn shell_exec(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -673,6 +718,54 @@ mod tests {
             parse(spec, "kill", TargetRef::Current, &mut bad_mode)
                 .expect_err("closed mode")
                 .contains("graceful|forceful")
+        );
+    }
+
+    #[test]
+    fn process_set_state_accepts_native_and_mcu_shapes_and_requires_identity() {
+        let spec = verbs::lookup("process-set-state").expect("process-set-state verb");
+        let mut native = vec![
+            "--pid".into(),
+            "42".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+            "stopped".into(),
+            "--timeout-ms".into(),
+            "250".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut native).expect("native"),
+            Command::ProcessSetState {
+                pid: 42,
+                state: ProcessRunState::Stopped,
+                timeout_ms: 250,
+                ref start_identity,
+                ..
+            } if start_identity == "boot:123"
+        ));
+
+        let mut mcu = vec![
+            "set-state".into(),
+            "42".into(),
+            "running".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Ssh, &mut mcu).expect("MCU alias"),
+            Command::ProcessSetState {
+                target: TargetRef::Ssh,
+                pid: 42,
+                state: ProcessRunState::Running,
+                ..
+            }
+        ));
+
+        let mut missing_identity = vec!["--pid".into(), "42".into(), "stopped".into()];
+        assert!(
+            parse(spec, spec.name, TargetRef::Current, &mut missing_identity)
+                .expect_err("identity")
+                .contains("--start-identity")
         );
     }
 

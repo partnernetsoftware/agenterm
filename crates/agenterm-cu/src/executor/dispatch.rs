@@ -337,6 +337,19 @@ impl Executor {
                 *expect_exited,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::ProcessSetState {
+                pid,
+                start_identity,
+                state,
+                timeout_ms,
+                ..
+            } => process_set_state_payload(
+                *pid,
+                start_identity,
+                *state,
+                *timeout_ms,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PrivilegePlanProcessPriority {
                 pid,
                 nice,

@@ -63,6 +63,15 @@ impl ProcessReference {
         self.0.terminate(mode)
     }
 
+    /// Suspends or resumes this exact native process object.
+    ///
+    /// Linux delivers through the retained pidfd and macOS through the
+    /// retained audit token. Windows reports `Unsupported`; it does not reopen
+    /// a mutable PID or call undocumented thread-suspension APIs.
+    pub fn set_suspended(&self, suspended: bool) -> io::Result<()> {
+        self.0.set_suspended(suspended)
+    }
+
     /// Duplicates an already-open native process reference.
     ///
     /// This avoids reopening a process by PID when the caller already owns a
@@ -248,6 +257,38 @@ mod tests {
             ProcessWait::Exited
         );
         let _ = child.wait().expect("reap terminated child");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn control_reference_suspends_and_resumes_the_exact_child_object() {
+        let mut child = Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "process_reference::tests::process_reference_child",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .spawn()
+            .expect("spawn control-reference child");
+        let reference = ProcessReference::open_for_termination(child.id())
+            .expect("open exact control reference");
+        reference.set_suspended(true).expect("suspend exact child");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !crate::process_metrics::is_stopped(child.id()).expect("read stopped state") {
+            assert!(std::time::Instant::now() < deadline, "child did not stop");
+            thread::sleep(Duration::from_millis(10));
+        }
+        reference.set_suspended(false).expect("resume exact child");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while crate::process_metrics::is_stopped(child.id()).expect("read running state") {
+            assert!(std::time::Instant::now() < deadline, "child did not resume");
+            thread::sleep(Duration::from_millis(10));
+        }
+        reference
+            .terminate(crate::process_control::TerminationMode::Forceful)
+            .expect("terminate resumed child");
+        let _ = child.wait().expect("reap control-reference child");
     }
 
     #[test]

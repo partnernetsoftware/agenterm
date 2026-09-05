@@ -350,6 +350,34 @@ pub enum ProcessKillMode {
     Forceful,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessRunState {
+    Running,
+    Stopped,
+}
+
+impl ProcessRunState {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "running" => Some(Self::Running),
+            "stopped" => Some(Self::Stopped),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Stopped => "stopped",
+        }
+    }
+
+    pub const fn is_stopped(self) -> bool {
+        matches!(self, Self::Stopped)
+    }
+}
+
 /// One bounded wait over an AgenTerm-owned tab. `Contains` observes the
 /// current terminal screen; `Exited` observes process exit; `Finalized` also
 /// waits for the reader/parser tail to drain.
@@ -871,6 +899,15 @@ pub enum Command {
         mode: ProcessKillMode,
         timeout_ms: u64,
         expect_exited: bool,
+    },
+    /// Suspend or resume one exact process object and verify its scheduler
+    /// state without reopening a mutable PID as effect authority.
+    ProcessSetState {
+        target: TargetRef,
+        pid: u32,
+        start_identity: String,
+        state: ProcessRunState,
+        timeout_ms: u64,
     },
     /// Prepare a canonical, expiring, identity-bound process-priority plan.
     /// This command is observation-only: applying it belongs to a later
@@ -2435,6 +2472,7 @@ impl Command {
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
+            Self::ProcessSetState { .. } => "process-set-state".into(),
             Self::PrivilegePlanProcessPriority { .. } => "privilege-plan".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
@@ -2577,6 +2615,7 @@ impl Command {
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
+            | Self::ProcessSetState { target, .. }
             | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
@@ -2699,6 +2738,7 @@ impl Command {
             | Self::JobStop { .. }
             | Self::JobRenew { .. }
             | Self::ProcessKill { .. }
+            | Self::ProcessSetState { .. }
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
             | Self::FileMove { apply: true, .. }
@@ -3369,6 +3409,31 @@ mod tests {
                 "mode": "forceful",
                 "timeout_ms": 250,
                 "expect_exited": true,
+            })
+        );
+    }
+
+    #[test]
+    fn process_set_state_is_identity_bound_actuation_on_the_wire() {
+        let command = Command::ProcessSetState {
+            target: TargetRef::Vnc,
+            pid: 42,
+            start_identity: "boot:123".into(),
+            state: ProcessRunState::Stopped,
+            timeout_ms: 250,
+        };
+        assert_eq!(command.verb(), "process-set-state");
+        assert_eq!(command.target(), TargetRef::Vnc);
+        assert_eq!(command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-set-state",
+                "target": "vnc",
+                "pid": 42,
+                "start_identity": "boot:123",
+                "state": "stopped",
+                "timeout_ms": 250,
             })
         );
     }

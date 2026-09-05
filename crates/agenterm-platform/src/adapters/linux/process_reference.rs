@@ -105,6 +105,31 @@ impl ProcessReference {
             Err(io::Error::last_os_error())
         }
     }
+
+    pub(crate) fn set_suspended(&self, suspended: bool) -> io::Result<()> {
+        self.send_signal(if suspended {
+            libc::SIGSTOP
+        } else {
+            libc::SIGCONT
+        })
+    }
+
+    fn send_signal(&self, signal: libc::c_int) -> io::Result<()> {
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.descriptor.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
 }
 
 impl AsRawFd for crate::process_reference::ProcessReference {

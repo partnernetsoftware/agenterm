@@ -686,6 +686,23 @@
         "task.cu-privilege-plan-smoke"
       ]
     },
+    "cu-process-set-state-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-process-set-state-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-process-set-state-smoke"
+      ]
+    },
     "cu-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2331,6 +2348,27 @@
       "id": "cu-privilege-plan-smoke",
       "description": "Prove the public read-only process.set-priority plan is identity-bound, expiring, digest-sealed and mutation-free; Windows must fail with its typed semantic gap.",
       "entry": "scripts/qjs/cu-privilege-plan-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-process-set-state-smoke",
+      "description": "Prove exact-object stop/resume with start-identity binding and scheduler read-back on macOS/Linux, typed unsupported refusal on Windows, no-op behavior, and stale-identity refusal through the public CLI.",
+      "entry": "scripts/qjs/cu-process-set-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

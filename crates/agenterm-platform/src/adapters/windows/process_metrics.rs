@@ -77,6 +77,19 @@ pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
     ))
 }
 
+pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
+    if pid == 0 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process ID zero does not identify one process",
+        ));
+    }
+    Err(ProcessMetricsError::new(
+        ProcessMetricsErrorKind::Unsupported,
+        "Windows has no stable public generic stopped-process state",
+    ))
+}
+
 fn filetime_ticks(value: windows_sys::Win32::Foundation::FILETIME) -> u64 {
     (u64::from(value.dwHighDateTime) << 32) | u64::from(value.dwLowDateTime)
 }

@@ -67,6 +67,13 @@ impl ProcessReference {
         }
     }
 
+    pub(crate) fn set_suspended(&self, _suspended: bool) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows has no reliable generic exact-process suspension primitive",
+        ))
+    }
+
     pub(crate) const fn id(&self) -> u32 {
         self.process_id
     }

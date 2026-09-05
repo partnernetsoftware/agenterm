@@ -1017,6 +1017,16 @@ privilege and native/WOW64 width. Return typed unsupported until a separately
 bounded experiment proves that matrix. As with argv, bracket the point read
 with equal process-start identities so PID reuse cannot change the target.
 
+Process state mutation needs one retained object as effect authority, not an
+identity check followed by `kill(pid, signal)`. Linux can send STOP/CONT through
+the retained pidfd; macOS can use the retained audit token so XNU validates its
+pidversion. Read scheduler state back under the same frozen start identity.
+Once the native effect is attempted, every exit, reuse, observation error and
+timeout path must close the durable receipt as performed-but-unverified; an
+early `?` after the effect leaves an ambiguous reservation. Windows has no
+documented exact-process suspension primitive here, so return typed unsupported
+instead of enumerating and suspending threads through private behavior.
+
 Privilege planning is observation, not a diluted mutation path. Freeze one
 closed operation, an exact process-start identity, independently repeated
 before-state reads, requested after state and a bounded expiry before any

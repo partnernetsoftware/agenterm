@@ -74,22 +74,7 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
 }
 
 pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
-    if pid == 0 {
-        return Err(error(
-            ProcessMetricsErrorKind::InvalidId,
-            "process ID zero does not identify one process",
-        ));
-    }
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|source| {
-        error(
-            if source.kind() == std::io::ErrorKind::NotFound {
-                ProcessMetricsErrorKind::NotFound
-            } else {
-                ProcessMetricsErrorKind::Open
-            },
-            source.to_string(),
-        )
-    })?;
+    let stat = read_stat(pid)?;
     let close = stat.rfind(')').ok_or_else(|| {
         error(
             ProcessMetricsErrorKind::Parse,
@@ -109,6 +94,40 @@ pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
         ));
     }
     Ok(nice)
+}
+
+pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
+    let stat = read_stat(pid)?;
+    let close = stat.rfind(')').ok_or_else(|| {
+        error(
+            ProcessMetricsErrorKind::Parse,
+            "process stat has no closing command delimiter",
+        )
+    })?;
+    let state = stat[close + 1..]
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| error(ProcessMetricsErrorKind::Parse, "missing process state"))?;
+    Ok(matches!(state, "T" | "t"))
+}
+
+fn read_stat(pid: u32) -> Result<String, ProcessMetricsError> {
+    if pid == 0 {
+        return Err(error(
+            ProcessMetricsErrorKind::InvalidId,
+            "process ID zero does not identify one process",
+        ));
+    }
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|source| {
+        error(
+            if source.kind() == std::io::ErrorKind::NotFound {
+                ProcessMetricsErrorKind::NotFound
+            } else {
+                ProcessMetricsErrorKind::Open
+            },
+            source.to_string(),
+        )
+    })
 }
 
 fn parse_field(fields: &[&str], index: usize, name: &str) -> Result<u64, ProcessMetricsError> {

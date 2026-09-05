@@ -146,6 +146,10 @@ MCU retirement blockers
 ├─ [~] machine transactions
 │  ├─ [x] recoverable file copy: marker-owned no-replace publication + crash recovery
 │  ├─ [~] recoverable file move: macOS qjswasm green; Linux/Windows courts pending
+│  ├─ [~] process set-state: exact-object stop/resume on macOS/Linux; Windows typed gap
+│  │  ├─ [x] start-identity gate + retained pidfd/audit-token effect authority
+│  │  ├─ [x] scheduler read-back + closed success/failure receipt + public qjswasm court
+│  │  └─ [ ] Linux native and Windows typed-refusal courts
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ [~] privilege plan/broker/OS consent
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
@@ -166,6 +170,14 @@ atomic no-replace publication; the temporary stays on one opened read/write
 object through identity persistence and copying; source and destination path
 locks are acquired in stable order. The macOS qjswasm journey is green.
 Linux/Windows native evidence remains required.
+
+The unprivileged `process set-state PID running|stopped` shape has left the
+sub-verb fallback ledger. ACU freezes the public start identity, opens one
+retained native object, performs stop/resume through Linux pidfd or the macOS
+audit token, and reads scheduler state back. Every post-effect failure closes
+its durable receipt as performed-but-unverified. Windows refuses the operation
+because no documented exact-process suspension primitive is currently owned;
+MCU `--sudo/--broker` shapes remain behind the privilege-provider branch.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
@@ -471,6 +483,11 @@ Q3 owned runtime facades
    │  ├─ [x] contract digest excludes time; approval digest binds issue/expiry; mutation is always false
    │  ├─ [x] macOS public qjswasm journey `cu.privilege-plan`
    │  └─ [ ] native consent/apply provider + Linux/Windows public courts; Windows nice mapping remains typed unavailable
+   ├─ [~] process scheduler state mutation
+   │  ├─ [x] macOS/Linux exact retained-object stop/resume + native state read-back
+   │  ├─ [x] qjswasm public journey `cu.process-set-state`; stale identity cannot mutate
+   │  ├─ [x] MCU unprivileged shape routes through observe-identity then ACU effect
+   │  └─ [ ] Linux court + Windows typed-refusal court; privileged shapes stay with broker work
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

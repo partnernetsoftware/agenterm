@@ -155,6 +155,26 @@ impl ProcessReference {
             Err(io::Error::from_raw_os_error(error))
         }
     }
+
+    pub(crate) fn set_suspended(&self, suspended: bool) -> io::Result<()> {
+        let mut token = self.audit_token.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "exact-process audit token was not retained for control",
+            )
+        })?;
+        let signal = if suspended {
+            libc::SIGSTOP
+        } else {
+            libc::SIGCONT
+        };
+        let error = unsafe { proc_signal_with_audittoken(&raw mut token, signal) };
+        if error == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(error))
+        }
+    }
 }
 
 fn audit_token_for_pid(process_id: u32) -> io::Result<AuditToken> {

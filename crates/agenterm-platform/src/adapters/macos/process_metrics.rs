@@ -39,6 +39,22 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
 }
 
 pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
+    let info = read_bsd_info(pid)?;
+    let nice = info.pbi_nice;
+    if !(-20..=20).contains(&nice) {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidValue,
+            format!("host reported invalid nice value: {nice}"),
+        ));
+    }
+    Ok(nice)
+}
+
+pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
+    Ok(read_bsd_info(pid)?.pbi_status == libc::SSTOP)
+}
+
+fn read_bsd_info(pid: u32) -> Result<libc::proc_bsdinfo, ProcessMetricsError> {
     if pid == 0 {
         return Err(ProcessMetricsError::new(
             ProcessMetricsErrorKind::InvalidId,
@@ -61,14 +77,7 @@ pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
         };
         return Err(ProcessMetricsError::new(kind, source.to_string()));
     }
-    let nice = info.pbi_nice;
-    if !(-20..=20).contains(&nice) {
-        return Err(ProcessMetricsError::new(
-            ProcessMetricsErrorKind::InvalidValue,
-            format!("host reported invalid nice value: {nice}"),
-        ));
-    }
-    Ok(nice)
+    Ok(info)
 }
 
 fn nonnegative_counter(value: i32, name: &str) -> Result<u64, ProcessMetricsError> {

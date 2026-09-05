@@ -1,0 +1,132 @@
+// Public black-box journey for identity-bound process pause/resume.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-set-state"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, args, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl")
+    },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_process_state_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_process_state_wrong_error:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_process_state_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_state_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-set-state");
+const run_directory = context.run_directory;
+const children = [];
+let child = null;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start an owned long-lived process and freeze its public start identity");
+  child = harness.start_child(context, harness.host_is_windows() ? {
+    program: "cmd.exe",
+    args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"],
+    current_dir: run_directory,
+    timeout_ms: 90000
+  } : {
+    program: "/bin/sh",
+    args: ["-c", "exec sleep 60"],
+    current_dir: run_directory,
+    timeout_ms: 90000
+  });
+  children.push(child);
+  const pid = child.pid;
+  const observed = invoke(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + pid
+  ]);
+  const identity = "" + observed.start_identity;
+  ensure(observed.state === "live" && identity !== "", "cu_process_state_identity");
+
+  if (harness.host_is_windows()) {
+    print("STEP Windows refuses undocumented process suspension with a typed error");
+    invoke(run_directory, executable, "actuate", [
+      "process-set-state", "--pid", "" + pid, "--start-identity", identity,
+      "stopped", "--timeout-ms", "5000"
+    ], "process_state_unsupported");
+    ensure(harness.process_present(pid) !== 0, "cu_process_state_windows_child_changed");
+  } else {
+    print("STEP stop and resume the exact native process object with scheduler read-back");
+    const stopped = invoke(run_directory, executable, "actuate", [
+      "process", "set-state", "" + pid, "stopped", "--start-identity", identity,
+      "--timeout-ms", "5000"
+    ]);
+    ensure(stopped.before === "running" && stopped.after === "stopped"
+      && stopped.changed === true && stopped.performed === true && stopped.verified === true,
+      "cu_process_state_stop:" + JSON.stringify(stopped));
+    const resumed = invoke(run_directory, executable, "actuate", [
+      "process-set-state", "--pid", "" + pid, "--start-identity", identity,
+      "running", "--timeout-ms", "5000"
+    ]);
+    ensure(resumed.before === "stopped" && resumed.after === "running"
+      && resumed.changed === true && resumed.performed === true && resumed.verified === true,
+      "cu_process_state_resume:" + JSON.stringify(resumed));
+
+    print("STEP an already-satisfied state is verified without effect or receipt");
+    const unchanged = invoke(run_directory, executable, "actuate", [
+      "process-set-state", "--pid", "" + pid, "--start-identity", identity,
+      "running", "--timeout-ms", "5000"
+    ]);
+    ensure(unchanged.changed === false && unchanged.performed === false
+      && unchanged.verified === true, "cu_process_state_noop:" + JSON.stringify(unchanged));
+
+    print("STEP a stale identity is refused before mutation");
+    invoke(run_directory, executable, "actuate", [
+      "process-set-state", "--pid", "" + pid, "--start-identity", identity + "-stale",
+      "stopped", "--timeout-ms", "5000"
+    ], "process_identity_changed");
+    ensure(harness.process_present(pid) !== 0, "cu_process_state_stale_identity_mutated");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.process-set-state");
+  harness.remove_run(context);
+  print("PASS: identity-bound process stop/resume");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -7,7 +7,11 @@ use std::{
 
 use serde_json::{Value, json};
 
-use crate::{CuError, command::ProcessKillMode, receipt::ReceiptLog};
+use crate::{
+    CuError,
+    command::{ProcessKillMode, ProcessRunState},
+    receipt::ReceiptLog,
+};
 
 use super::error_payload;
 
@@ -733,6 +737,189 @@ pub(super) fn process_kill_payload(
         )
         .with_detail(json!({ "receipt": payload })))
     }
+}
+
+pub(super) fn process_set_state_payload(
+    pid: u32,
+    expected_identity: &str,
+    desired: ProcessRunState,
+    timeout_ms: u64,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if pid == 0 || expected_identity.is_empty() || !(1..=60_000).contains(&timeout_ms) {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-set-state requires a positive pid, non-empty start identity and timeout-ms in 1..=60000",
+        ));
+    }
+    let actual_identity = live_start_identity(pid)?;
+    if actual_identity != expected_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity does not match the prior observation",
+        ));
+    }
+    let before_stopped = process_stopped(pid)?;
+    let observed_identity = live_start_identity(pid)?;
+    if observed_identity != expected_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed while its scheduler state was observed",
+        ));
+    }
+    let before = if before_stopped { "stopped" } else { "running" };
+    if before_stopped == desired.is_stopped() {
+        return Ok(json!({
+            "pid": pid,
+            "start_identity": expected_identity,
+            "before": before,
+            "after": before,
+            "changed": false,
+            "performed": false,
+            "verified": true,
+            "mechanism": "native-process-reference",
+        }));
+    }
+
+    let reference = agenterm_platform::process_reference::ProcessReference::open_for_termination(
+        pid,
+    )
+    .map_err(|error| {
+        CuError::new("process_reference_failed", error.to_string())
+            .with_detail(json!({ "pid": pid }))
+    })?;
+    let rechecked_identity = live_start_identity(pid)?;
+    if rechecked_identity != expected_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed before state mutation",
+        ));
+    }
+    let ticket = receipts.reserve(
+        "process-set-state",
+        0,
+        json!({
+            "process": { "pid": pid, "start_identity": expected_identity },
+            "before": before,
+            "requested": desired.as_str(),
+        }),
+    )?;
+    if let Err(error) = reference.set_suspended(desired.is_stopped()) {
+        let code = if error.kind() == std::io::ErrorKind::Unsupported {
+            "process_state_unsupported"
+        } else {
+            "process_state_change_failed"
+        };
+        let typed = CuError::new(code, error.to_string());
+        receipts.complete(
+            &ticket,
+            "process-set-state",
+            0,
+            false,
+            json!({ "performed": false, "error": error_payload(&typed) }),
+        )?;
+        return Err(typed.with_detail(json!({ "receipt": ticket.json() })));
+    }
+
+    let started = Instant::now();
+    loop {
+        let alive = match reference.is_alive() {
+            Ok(alive) => alive,
+            Err(error) => {
+                let typed = CuError::new("process_reference_failed", error.to_string());
+                return fail_process_state_after_effect(receipts, &ticket, typed);
+            }
+        };
+        if !alive {
+            let typed = CuError::new(
+                "process_exited_during_state_change",
+                "the exact process exited after the state signal",
+            );
+            return fail_process_state_after_effect(receipts, &ticket, typed);
+        }
+        let current_identity = match live_start_identity(pid) {
+            Ok(identity) => identity,
+            Err(error) => return fail_process_state_after_effect(receipts, &ticket, error),
+        };
+        if current_identity != expected_identity {
+            let typed = CuError::new(
+                "process_identity_changed",
+                "PID was reused while state verification was in progress",
+            );
+            return fail_process_state_after_effect(receipts, &ticket, typed);
+        }
+        let stopped = match process_stopped(pid) {
+            Ok(stopped) => stopped,
+            Err(error) => return fail_process_state_after_effect(receipts, &ticket, error),
+        };
+        if stopped == desired.is_stopped() {
+            let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            receipts.complete(
+                &ticket,
+                "process-set-state",
+                0,
+                true,
+                json!({
+                    "performed": true,
+                    "after": desired.as_str(),
+                    "verification": "native-scheduler-state",
+                    "elapsed_ms": elapsed_ms,
+                }),
+            )?;
+            return Ok(json!({
+                "pid": pid,
+                "start_identity": expected_identity,
+                "before": before,
+                "after": desired.as_str(),
+                "changed": true,
+                "performed": true,
+                "verified": true,
+                "elapsed_ms": elapsed_ms,
+                "timeout_ms": timeout_ms,
+                "mechanism": "native-process-reference",
+                "receipt": ticket.json(),
+            }));
+        }
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            let typed = CuError::new(
+                "process_state_not_applied",
+                "the exact process did not reach the requested scheduler state before timeout",
+            );
+            return fail_process_state_after_effect(receipts, &ticket, typed);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn fail_process_state_after_effect(
+    receipts: &mut ReceiptLog,
+    ticket: &crate::receipt::ReceiptTicket,
+    error: CuError,
+) -> Result<Value, CuError> {
+    receipts.complete(
+        ticket,
+        "process-set-state",
+        0,
+        false,
+        json!({ "performed": true, "verified": false, "error": error_payload(&error) }),
+    )?;
+    Err(error.with_detail(json!({
+        "receipt": ticket.json(),
+        "performed": true,
+        "verified": false,
+    })))
+}
+
+fn process_stopped(pid: u32) -> Result<bool, CuError> {
+    agenterm_platform::process_metrics::is_stopped(pid).map_err(|error| {
+        use agenterm_platform::process_metrics::ProcessMetricsErrorKind as Kind;
+        let code = match error.kind() {
+            Kind::Unsupported => "process_state_unsupported",
+            Kind::NotFound => "process_not_found",
+            _ => "process_state_observation_failed",
+        };
+        CuError::new(code, error.to_string())
+    })
 }
 
 fn process_watch_snapshot(

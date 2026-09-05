@@ -768,6 +768,39 @@
       ]
     },
     {
+      "name": "process-set-state",
+      "command": "process-set-state",
+      "aliases": [
+        "process set-state"
+      ],
+      "grant": "actuate",
+      "family": "process",
+      "summary": "suspend or resume one exact identity-bound process object",
+      "usage": "process-set-state --pid N --start-identity ID running|stopped [--timeout-ms N]\nprocess set-state PID running|stopped --start-identity ID [--timeout-ms N]",
+      "args": [
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id previously observed"
+        },
+        {
+          "flag": "--start-identity",
+          "value": "ID",
+          "help": "exact value returned by process-state"
+        },
+        {
+          "flag": "running|stopped",
+          "value": "",
+          "help": "requested scheduler state"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "postcondition deadline in 1..=60000 milliseconds (default 5000)"
+        }
+      ]
+    },
+    {
       "name": "process-watch",
       "command": "process-watch",
       "aliases": [
@@ -4668,6 +4701,10 @@
     {
       "name": "privilege-plan",
       "text": "agenterm-cu privilege-plan    (also: privilege plan)\n  scope: observe    family: Privilege\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\n  privilege plan process.set-priority PID|self NICE [--ttl-seconds N]\n\narguments:\n  process.set-priority           the closed operation in this first slice\n  PID|self                       positive process id, or the planner process\n  NICE                           requested Unix nice value in -20..=20\n  --ttl-seconds N                approval lifetime, 1..=600 (default 120)\n\nObserves the exact process start identity and current nice value twice, then\nreturns a canonical expiring plan with contract_digest and approval_digest.\nIt never changes priority, starts a broker, invokes a shell, or opens consent.\nWindows returns privilege_operation_unsupported until a semantically equivalent\npriority-class contract exists; it never pretends Unix nice is portable there.\n"
+    },
+    {
+      "name": "process-set-state",
+      "text": "agenterm-cu process-set-state    (also: process set-state)\n  scope: actuate    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  process-set-state --pid N --start-identity ID running|stopped [--timeout-ms N]\n  process set-state PID running|stopped --start-identity ID [--timeout-ms N]\n\nOpens one native process object, revalidates the supplied start identity, sends\nSIGSTOP/SIGCONT through Linux pidfd or the macOS audit token, then reads the\nscheduler state back before returning verified=true. It never reopens the PID as\neffect authority. Windows returns process_state_unsupported rather than using\nundocumented thread suspension. A no-op requested state is verified and reports\nchanged=false without reserving an effect receipt.\n"
     },
     {
       "name": "process-environment",

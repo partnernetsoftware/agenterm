@@ -541,6 +541,17 @@ flowchart LR
   proved graceful exact exit, receipt completion and owned reaping. Arbitrary
   signals, suspend/resume and bounded process-tree termination remain separate
   leaves.
+- [~] `process-set-state` closes the unprivileged MCU pause/resume shape with a
+  stronger contract. The caller supplies the prior `process-state` identity;
+  Linux signals through the retained pidfd and macOS through the retained audit
+  token, then ACU reads the scheduler state back before returning verified.
+  No-op state is verified without an effect receipt. Once the native signal is
+  attempted, exit, PID reuse, observation failure and timeout all close the
+  durable receipt as performed-but-unverified instead of leaving an ambiguous
+  reservation. The public qjswasm journey `cu.process-set-state` is green on
+  macOS. Windows answers `process_state_unsupported`, and MCU `--sudo/--broker`
+  shapes remain with the privilege-provider leaf until a real consent boundary
+  exists.
 - [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
   bounded identity-safe diff. It takes one baseline and emits `started` /
   `exited` rows keyed by PID plus native start identity, so PID reuse cannot
