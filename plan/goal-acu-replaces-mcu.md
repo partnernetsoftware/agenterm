@@ -369,7 +369,10 @@ Q4 browser and platform depth
 │  ├─ [x] page pixel click: frozen viewport hit + trusted down/up read-back + release cleanup
 │  ├─ [x] page current-focus type: editable preflight + same-focus/value-growth proof; plaintext redacted
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
-├─ [ ] MV3/Native Messaging + managed-profile ownership
+├─ [~] browser control without a pre-opened CDP port
+│  ├─ [ ] owned browser-session: isolated profile + random endpoint + process-tree cleanup
+│  ├─ [~] MV3/Native Messaging: protocol v1 framing/validation core; host/extension/installer pending
+│  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement

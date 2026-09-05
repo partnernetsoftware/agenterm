@@ -233,6 +233,31 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   prerequisite gap (`no Chromium-family browser`), not a fabricated pass.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
   real-profile and three-host journeys remain promotion evidence.
+- [~] “No pre-opened CDP port” is now split into two honest product routes.
+  Chromium cannot acquire a DevTools TCP/pipe endpoint after its process has
+  started, so ACU will not publish a fictitious attach verb or restart a user's
+  authenticated browser. The near-term default is an owned `browser-session`:
+  ACU starts a separate isolated profile with a random endpoint, records exact
+  process identity, owns the complete process tree, and exposes typed
+  start/list/status/stop/remove. Existing browsers with an explicit startup
+  endpoint remain borrow-only through `--pid`; existing browsers without one
+  retain AX/tab-strip control. The authenticated-profile route is a separately
+  installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v1 core
+  now has bounded little-endian framing, split/combined-frame decoding, a
+  closed command catalog, bounded request ids and typed malformed/oversize
+  refusal. Host process, extension, installer, connection ownership and live
+  evidence remain gaps; library tests do not promote the route.
+
+```mermaid
+flowchart LR
+  B["browser control requested"] --> D{"startup debug endpoint?"}
+  D -->|yes| P["borrow exact PID/port<br/>owned=false"]
+  D -->|no · disposable state| S["owned browser-session<br/>isolated profile + random port"]
+  D -->|no · authenticated profile| X["fixed MV3 + Native Messaging<br/>installed bridge"]
+  D -->|no bridge| A["AX active-page + tab strip<br/>typed depth limit"]
+  S --> C["exact identity + process-tree cleanup"]
+  X --> R["versioned request + at-most-once receipt"]
+```
 - [~] Browser download ownership is now a native `page-download` vertical
   slice rather than a successful `page-js` / `page-click` acknowledgement.
   The caller selects exactly one CDP page target and one download control,

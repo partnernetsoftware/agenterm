@@ -407,14 +407,14 @@
           "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
           "acu_shape": null,
           "state": "gap",
-          "next": "owned browser process/profile lifecycle facade with recoverable removal and no foreground takeover"
+          "next": "browser-session start/list/status/stop/remove with isolated owned profile, random DevToolsActivePort endpoint, exact process identity, recoverable removal and no foreground takeover"
         },
         {
           "id": "browser.mv3-native-bridge",
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
           "acu_shape": null,
           "state": "gap",
-          "next": "versioned Native Messaging transport, fixed extension identity, profile-instance routing and at-most-once receipts"
+          "next": "protocol v1 framing and closed command validation are native-library foundations; still required: fixed-identity MV3 asset, Native Messaging host/installer, profile-instance routing, at-most-once receipts and public black-box"
         },
         {
           "id": "browser.closed-tree",

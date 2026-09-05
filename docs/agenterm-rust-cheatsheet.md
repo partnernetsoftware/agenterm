@@ -1517,6 +1517,23 @@ file, which a refusal never writes.
 
 ## A background browser tab is a target id (CDP) or a tab-strip row (AX), never a web-area
 
+Do not call a browser route “attach” unless the running process already owns a
+debug endpoint: Chromium's DevTools TCP port and pipe are startup boundaries
+and cannot be injected afterward. Use three explicit states instead: borrow an
+exact live PID that already declares a reachable endpoint (`owned=false`),
+start an ACU-owned isolated browser session with a random endpoint and complete
+process-tree/profile cleanup, or use a separately installed fixed-identity MV3
+Native Messaging bridge for an authenticated profile. Never copy a live user
+profile to manufacture the second route.
+
+Native Messaging is a framed binary protocol even when its payload is JSON.
+Decode the four-byte little-endian size across arbitrary split/combined reads,
+reject an oversized declaration before waiting for its body, cap outbound
+requests independently, and validate protocol version, bounded request id,
+closed command catalog and object-shaped arguments before routing. Keep this
+pure protocol core independent from the extension installer and browser host so
+all three platform installers share the same truth.
+
 When a caller has a browser PID instead of a CDP port, treat the process
 command line as secret-bearing mechanism input, not evidence. Observe a stable
 native start identity, perform one bounded exact-PID command-line query, observe

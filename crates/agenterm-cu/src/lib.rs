@@ -8,6 +8,7 @@ pub mod auth;
 pub mod auth_store;
 #[cfg(target_os = "macos")]
 pub mod ax_guide;
+pub mod browser_bridge;
 pub mod browser_profiles;
 pub mod cdp;
 pub mod command;
