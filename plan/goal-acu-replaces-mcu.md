@@ -165,9 +165,12 @@ MCU retirement blockers
 │  │  └─ [ ] Linux/Windows native courts; privileged shapes remain gaps
 │  ├─ [~] tree-signal crash recovery
 │  │  ├─ [x] receipt reserved before freeze; handled failure restores retained objects
-│  │  └─ [ ] restart recovery resolves or reports every member after owner death
+│  │  └─ [x] restart recovery resolves or reports every member after owner death
 │  ├─ [~] host dispatch: open + notification typed; macOS qjswasm green, Linux/Windows courts pending
-│  ├─ MV3 browser bridge and managed profile/window lifecycle
+│  ├─ [~] MV3 browser bridge and managed profile/window lifecycle
+│  │  ├─ [x] fixed extension identity + bounded secret-free native protocol
+│  │  ├─ [x] same-binary native host + current-user manifest/registry installer
+│  │  └─ [ ] public exact-connection CLI + loaded-extension closed-shadow court
 │  ├─ [~] privilege plan/broker/OS consent
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
 │  │  ├─ [x] public qjswasm `cu.privilege-plan`; Windows names the semantic gap instead of fabricating Unix nice
@@ -594,7 +597,7 @@ Q4 browser and platform depth
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [~] browser control without a pre-opened CDP port
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
-│  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core; host/installer/public court pending
+│  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core + same-binary host/current-user installer; public CLI, explicit extension load and closed-shadow court pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity
