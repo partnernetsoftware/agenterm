@@ -546,6 +546,14 @@ pub(crate) fn start_owner_from_reader(
     reader: impl Read,
 ) -> Result<ResidentJobOwner, ManagedJobOwnerError> {
     let launch = read_launch(reader)?;
+    start_owner_from_launch(launch)
+}
+
+/// Claim and start one launch that was already decoded and whose native
+/// control endpoint has already been bound by the resident runtime.
+pub(crate) fn start_owner_from_launch(
+    launch: ManagedJobLaunch,
+) -> Result<ResidentJobOwner, ManagedJobOwnerError> {
     let store = ManagedJobStore::open_at(&launch.state_path)
         .map_err(|_| ManagedJobOwnerError::new("managed_job_store_unavailable"))?;
     let owner = ResidentOwnerIdentity {
@@ -700,7 +708,7 @@ pub(crate) fn run_owner(reader: impl Read) -> Result<ManagedJobRunReport, Manage
     start_owner_from_reader(reader)?.run_to_completion()
 }
 
-fn read_launch(mut reader: impl Read) -> Result<ManagedJobLaunch, ManagedJobOwnerError> {
+pub(crate) fn read_launch(mut reader: impl Read) -> Result<ManagedJobLaunch, ManagedJobOwnerError> {
     let mut bytes = Vec::with_capacity(LAUNCH_MAX_BYTES.min(4096));
     reader
         .by_ref()

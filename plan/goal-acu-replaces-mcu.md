@@ -129,7 +129,8 @@ MCU retirement blockers
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
 │  ├─ [x] cross-platform owned stdin pipe; drop is explicit EOF, not process stop
-│  └─ [ ] public spawn/list/status/events/write/wait/renew/stop + resident IPC/expiry
+│  ├─ [x] closed current-user native IPC + opaque bounded endpoint + resident expiry loop
+│  └─ [ ] detached launcher + public spawn/list/status/events/write/wait/renew/stop
 ├─ [ ] machine transactions
 │  ├─ recoverable file copy/move
 │  ├─ MV3 browser bridge and managed profile/window lifecycle

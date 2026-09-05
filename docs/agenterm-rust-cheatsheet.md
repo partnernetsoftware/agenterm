@@ -589,6 +589,12 @@ cannot prove code hidden behind another target's `cfg`.
   to mode `0700` before launching the product. A default temp directory created
   under umask `022` is commonly `0755`; the product must reject that endpoint as
   unsafe rather than weakening ownership checks for CI.
+- A resident child must bind its current-user native control endpoint before it
+  claims or publishes a live durable state. Derive a short opaque endpoint name
+  from sealed generation identity, never accept TCP or a caller-supplied path,
+  and finish each bounded server reply before dropping the one-request stream.
+  Otherwise a crash or bind conflict can publish a live process that no client
+  can control, or Windows can discard a buffered named-pipe reply on close.
 
 - Put shared semantics outside target modules.
 - Keep selected adapter APIs type-identical across hosts.

@@ -11,12 +11,15 @@ use std::{
     time::Duration,
 };
 
+use agenterm_platform::ipc::{IpcEndpoint, IpcTransportErrorCode, NativeListener};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::managed_job_owner::{
     ManagedJobOwnerError, OutputCursorError, ResidentJobOwner, ResidentJobState, ResidentJobStatus,
-    StdinWriteError,
+    StdinWriteError, read_launch, start_owner_from_launch,
 };
+use crate::managed_job_store::ManagedJobHandle;
 
 const SCHEMA_VERSION: u32 = 1;
 const FRAME_MAX_BYTES: usize = 128 * 1024;
@@ -24,6 +27,63 @@ const REQUEST_ID_MAX_BYTES: usize = 128;
 const STDIN_BYTES_MAX: usize = 64 * 1024;
 const OUTPUT_BYTES_MAX: usize = 64 * 1024;
 const WAIT_MAX_MS: u64 = 300_000;
+const ACCEPT_TICK: Duration = Duration::from_millis(100);
+const STREAM_TIMEOUT: Duration = Duration::from_secs(305);
+
+pub(crate) fn run_resident(reader: impl Read) -> Result<(), ManagedJobOwnerError> {
+    let launch = read_launch(reader)?;
+    let endpoint = endpoint_for(&launch.handle)?;
+    // Binding precedes the durable Starting transition and contained spawn. A
+    // live job can therefore never be published without a control listener.
+    let mut listener = NativeListener::bind(&endpoint)
+        .map_err(|_| ManagedJobOwnerError::new("managed_job_endpoint_unavailable"))?;
+    let mut owner = start_owner_from_launch(launch)?;
+    loop {
+        let status = owner.status()?;
+        if !matches!(status.state, ResidentJobState::Running) && status.lease_remaining_ms == 0 {
+            return Ok(());
+        }
+        match listener.accept(ACCEPT_TICK) {
+            Ok(mut stream) => {
+                if stream.set_io_timeout(STREAM_TIMEOUT).is_err() {
+                    continue;
+                }
+                if serve_authenticated_request(&mut owner, &mut stream).is_ok() {
+                    let _ = stream.finish_server_response();
+                }
+            }
+            Err(error) if error.code == IpcTransportErrorCode::AcceptTimeout => {}
+            Err(_) => {
+                return Err(ManagedJobOwnerError::new(
+                    "managed_job_endpoint_unavailable",
+                ));
+            }
+        }
+    }
+}
+
+pub(crate) fn endpoint_for(handle: &ManagedJobHandle) -> Result<IpcEndpoint, ManagedJobOwnerError> {
+    let canonical = serde_json::to_vec(handle)
+        .map_err(|_| ManagedJobOwnerError::new("managed_job_endpoint_invalid"))?;
+    // A 128-bit opaque suffix is collision-resistant for a local 1024-record
+    // registry while leaving enough room under Darwin's short sun_path limit.
+    let suffix: String = Sha256::digest(&canonical)[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    #[cfg(windows)]
+    {
+        Ok(IpcEndpoint::NamedPipe(format!(
+            r"\\.\pipe\agenterm-cu-job-{suffix}"
+        )))
+    }
+    #[cfg(unix)]
+    {
+        let path = agenterm_platform::ipc::native_runtime_directory()
+            .join(format!("cu-job-{suffix}.sock"));
+        Ok(IpcEndpoint::UnixSocket(path.to_string_lossy().into_owned()))
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -473,6 +533,14 @@ mod tests {
         managed_job_store::ManagedJobStore,
     };
 
+    fn test_handle(nonce: char) -> ManagedJobHandle {
+        ManagedJobHandle {
+            job_id: "00000000-0000-4000-8000-000000000001".into(),
+            generation: 1,
+            nonce: nonce.to_string().repeat(32),
+        }
+    }
+
     fn test_directory(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "agenterm-managed-job-ipc-{label}-{}-{}",
@@ -550,6 +618,26 @@ mod tests {
             base64_decode(&base64_encode(&[0, 255, 1])).unwrap(),
             [0, 255, 1]
         );
+    }
+
+    #[test]
+    fn endpoint_is_native_opaque_bounded_and_generation_specific() {
+        let first = endpoint_for(&test_handle('a')).expect("first endpoint");
+        let second = endpoint_for(&test_handle('b')).expect("second endpoint");
+        assert_ne!(first, second);
+        assert_ne!(first.transport_name(), "tcp");
+        let rendered = first.to_string();
+        assert!(!rendered.contains("00000000"));
+        assert!(!rendered.contains(&"a".repeat(32)));
+        #[cfg(unix)]
+        assert!(
+            first
+                .unix_socket_path()
+                .and_then(|path| path.file_name().map(|name| name.len()))
+                .is_some_and(|length| length < 48)
+        );
+        #[cfg(windows)]
+        assert!(rendered.starts_with(r"pipe:\\.\pipe\agenterm-cu-job-"));
     }
 
     #[test]

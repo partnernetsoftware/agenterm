@@ -38,6 +38,17 @@ pub(crate) mod managed_job_owner;
     reason = "internal managed-job cohort under staged integration"
 )]
 pub(crate) mod managed_job_store;
+
+#[doc(hidden)]
+pub const MANAGED_JOB_OWNER_ARG: &str = "--agenterm-cu-internal-managed-job-owner";
+
+#[doc(hidden)]
+pub fn run_managed_job_owner() -> i32 {
+    match managed_job_ipc::run_resident(std::io::stdin().lock()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
 pub mod mcu_surface;
 pub mod mechanism;
 pub mod network_probe;

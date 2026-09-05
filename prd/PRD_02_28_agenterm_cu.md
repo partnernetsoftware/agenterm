@@ -203,9 +203,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   plaintext; a resident owner claims that intent before contained spawn and
   drains stdout/stderr concurrently into loss-aware bounded rings. The shared
   platform child now yields one owned stdin writer whose drop is EOF, while
-  containment ownership remains separate. No `job-*` verb is claimed yet:
-  resident IPC, request-bound public mutation, expiry and the platform-neutral
-  qjswasm black-box journey remain required before any ledger row turns green.
+  containment ownership remains separate. The resident now derives a short
+  opaque endpoint from its sealed generation, binds current-user native IPC
+  before claiming `starting`, serves one bounded closed request per connection,
+  and retains terminal output until its lease expires. No `job-*` verb is
+  claimed yet: detached launch, request-bound public mutation and the
+  platform-neutral qjswasm black-box journey remain required before any ledger
+  row turns green.
 
 ```mermaid
 flowchart LR
