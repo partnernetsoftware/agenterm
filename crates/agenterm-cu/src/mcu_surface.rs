@@ -415,7 +415,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "network" => (
             "available",
-            "network-interfaces, network-routes and network-probe are live; typed DNS inventory and socket-table facades remain gaps",
+            "network-interfaces, network-routes, network-dns and network-probe are live; per-service DNS mutation and global socket-table facades remain gaps",
         ),
         "device" => (
             "unsupported",

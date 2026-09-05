@@ -1417,6 +1417,13 @@ pub enum Command {
         target: TargetRef,
         max: usize,
     },
+    /// Enumerate the effective native DNS resolvers and search domains. The
+    /// reply names incomplete stub/file coverage rather than presenting it as
+    /// the complete system resolver state.
+    NetworkDns {
+        target: TargetRef,
+        max: usize,
+    },
     /// Resolve once through the host resolver, freeze the deduplicated address
     /// set, and perform an exact number of bounded TCP reachability attempts.
     NetworkProbe {
@@ -3142,6 +3149,7 @@ impl Command {
             Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
             Self::NetworkRoutes { .. } => "network-routes".into(),
+            Self::NetworkDns { .. } => "network-dns".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::FileCopy { .. } => "file-copy".into(),
@@ -3318,6 +3326,7 @@ impl Command {
             | Self::ShellExec { target, .. }
             | Self::NetworkInterfaces { target, .. }
             | Self::NetworkRoutes { target, .. }
+            | Self::NetworkDns { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::FileCopy { target, .. }
@@ -5837,6 +5846,26 @@ mod tests {
             Command::NetworkRoutes {
                 target: TargetRef::Ssh,
                 max: 5000
+            }
+        ));
+    }
+
+    #[test]
+    fn network_dns_is_observe_only_and_keeps_its_closed_remote_shape() {
+        let command = Command::NetworkDns {
+            target: TargetRef::Ssh,
+            max: 17,
+        };
+        assert_eq!(command.verb(), "network-dns");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let encoded = serde_json::to_string(&command).unwrap();
+        let decoded: Command = serde_json::from_str(&encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            Command::NetworkDns {
+                target: TargetRef::Ssh,
+                max: 17
             }
         ));
     }

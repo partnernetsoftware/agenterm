@@ -791,9 +791,11 @@
         {
           "id": "network.dns.resolvers",
           "mcu_shape": "network dns --max N",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "typed active resolver/search-domain inventory; Linux must not assume resolv.conf is the complete systemd-resolved state"
+          "acu_shape": "network-dns --max N (alias: network dns --max N)",
+          "state": "platform-limited",
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.network-dns"],
+          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. No provider contacts a resolver or fabricates completeness."
         },
         {
           "id": "network.dns.services",

@@ -4054,6 +4054,9 @@ observe EOF. On every host, terminate containment before joining readers after
 timeout, output exhaustion, or a root exit that may have left background
 descendants holding the pipes. Persist only output sizes/digests in an audit
 ledger unless the product contract explicitly authorizes content retention.
+After the child is reaped, join every capture thread before propagating any one
+reader's error; returning after the first failed join silently detaches the
+other reader and loses deterministic cleanup ownership.
 
 An interactive contained child needs a distinct stdin ownership contract. Let
 the spawn spec request a pipe, let `ContainedChild` yield its writer exactly
@@ -4272,6 +4275,16 @@ never flattened into one guessed next hop. On macOS, do not relabel route
 metrics such as hop count as a portable administrative metric. Across hosts,
 keep on-link `gateway = null` distinct from unavailable data and make every
 emitted field part of the deterministic tie-break order.
+
+DNS inventory must distinguish the resolver endpoint a process can contact
+from the system's complete upstream configuration. On Linux, a loopback
+`127.0.0.53` row is evidence of a systemd-resolved stub, not the upstream DNS
+set; read the owned upstream resolver file when present and otherwise publish
+`stub-only` plus `complete=false`. macOS scoped resolvers and Windows
+adapter-scoped servers retain their resolver/interface identity instead of
+being flattened into a global address list. Keep provider and coverage in the
+typed contract, bound scan rows and final JSON independently, and never contact
+a resolver merely to inventory configuration.
 
 ## Keep host resource facts semantically distinct
 

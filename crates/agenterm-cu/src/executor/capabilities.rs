@@ -526,6 +526,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "network-dns".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "network",
+                "grant": "observe",
+                "mode": "bounded-effective-resolver-inventory",
+                "providers": "scutil-on-macos-resolved-aware-files-on-linux-getadaptersaddresses-on-windows",
+                "coverage": "explicit-system-effective-resolver-file-or-stub-only",
+                "scan_ceiling": 10000,
+                "response_ceiling_bytes": 1048576,
+            }),
+        );
+        verbs.insert(
             "file-inspect".into(),
             serde_json::json!({
                 "status": "available",

@@ -443,6 +443,18 @@ pub(crate) mod network_routes;
 #[path = "adapters/macos/network_routes.rs"]
 pub(crate) mod network_routes;
 
+#[cfg(all(feature = "network-dns", windows))]
+#[path = "adapters/windows/network_dns.rs"]
+pub(crate) mod network_dns;
+
+#[cfg(all(feature = "network-dns", target_os = "linux"))]
+#[path = "adapters/linux/network_dns.rs"]
+pub(crate) mod network_dns;
+
+#[cfg(all(feature = "network-dns", target_os = "macos"))]
+#[path = "adapters/macos/network_dns.rs"]
+pub(crate) mod network_dns;
+
 #[cfg(all(
     feature = "network-interfaces",
     any(target_os = "linux", target_os = "macos")

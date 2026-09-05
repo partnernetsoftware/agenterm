@@ -345,6 +345,24 @@
       ]
     },
     {
+      "name": "network-dns",
+      "command": "network-dns",
+      "aliases": [
+        "network dns"
+      ],
+      "grant": "observe",
+      "family": "network",
+      "summary": "bounded effective DNS resolver and search-domain inventory",
+      "usage": "network-dns [--max N]\nnetwork dns [--max N]",
+      "args": [
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "combined resolver/domain rows, 1..=5000 (default 1000)"
+        }
+      ]
+    },
+    {
       "name": "network-routes",
       "command": "network-routes",
       "aliases": [
@@ -4907,6 +4925,10 @@
     {
       "name": "network-probe",
       "text": "agenterm-cu network-probe    (also: network probe)\n  scope: observe    family: Network\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  network-probe HOST [--port N] [--attempts N] [--timeout-ms N]\n  network probe HOST [--port N] [--attempts N] [--timeout-ms N]\n\narguments:\n  HOST                          bare hostname or IP address\n  --port N                      TCP port, 1..=65535 (default 443)\n  --attempts N                  exact attempts, 1..=20 (default 3)\n  --timeout-ms N                resolver and per-connect bound, 100..=60000 (default 3000)\n\nResolves through the host resolver once, deduplicates and freezes the\naddress set, then makes the exact requested number of TCP attempts round-robin.\nThe blocking resolver lives in an invocation-owned internal child; the parent\nenforces the overall deadline and kills and reaps that child on expiry. A TCP\nrefusal or timeout is a successful unreachable observation. Resolver, worker\nand protocol failures stay typed. This is reachability evidence, not HTTP/TLS.\n"
+    },
+    {
+      "name": "network-dns",
+      "text": "agenterm-cu network-dns    (also: network dns)\n  scope: observe    family: Network\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  network-dns [--max N]\n  network dns [--max N]\n\narguments:\n  --max N                       combined resolver/domain rows, 1..=5000 (default 1000)\n\nReturns bounded effective DNS resolver and search-domain rows with native\ninterface/service identity where the operating system supplies it. macOS uses\nthe complete scoped `scutil --dns` view in a contained bounded child; Windows\nuses GetAdaptersAddresses directly. Linux detects systemd-resolved's local\nstub and reads its upstream resolver file; if that source is unavailable the\nreply says coverage=stub-only and complete=false instead of presenting\n127.0.0.53 as the complete DNS configuration. No resolver is contacted.\n"
     },
     {
       "name": "network-routes",

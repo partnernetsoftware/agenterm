@@ -1035,6 +1035,23 @@
         "task.cu-network-routes-smoke"
       ]
     },
+    "cu-network-dns-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-network-dns-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-network-dns-smoke"
+      ]
+    },
     "cu-pty-smoke": {
       "inputs": [
         "built-agenterm",
@@ -3080,6 +3097,27 @@
       "id": "cu-network-routes-smoke",
       "description": "Prove the native route inventory is shell-free, bounded, identity-bearing, schema-complete and mutation-free on Windows, Linux and macOS.",
       "entry": "scripts/qjs/cu-network-routes-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-network-dns-smoke",
+      "description": "Prove effective DNS resolver/search-domain inventory is bounded, typed, mutation-free and honest about incomplete stub coverage on Windows, Linux and macOS.",
+      "entry": "scripts/qjs/cu-network-dns-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

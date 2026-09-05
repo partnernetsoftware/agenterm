@@ -69,7 +69,7 @@ pub fn top_level_text() -> String {
     text = text.replace("\n\nNetwork", "\nNetwork");
     text = text.replace(
         "  network-interfaces (network interfaces) observe  bounded native interface inventory",
-        "  network-interfaces  observe  addresses;  network-routes  observe  routing table",
+        "  network-interfaces  observe addresses;  network-routes  observe routes;  network-dns  observe resolvers",
     );
     text = text.replace("\nshell-exec", "\n  shell-exec");
     text = text.replace(
@@ -224,6 +224,7 @@ pub fn verbs_text() -> String {
 fn append_missing_top_level_rows(text: &mut String) {
     let compact_inline = [
         "network-routes",
+        "network-dns",
         "permissions",
         "runtime-status",
         "setup",

@@ -1251,9 +1251,21 @@ flowchart LR
   interrupted or malformed kernel snapshots. Native scanning is capped at
   10,000 records and the public response at 1 MiB. The public macOS qjswasm
   journey `cu.network-routes` is green; Linux and Windows native courts remain,
-  so this leaf is also `platform-limited`. The compatibility entry routes
-  exactly `acu network interfaces|routes [--max N]`. The identity-safe
-  per-process socket slice is live through `process-sockets`; DNS and
+  so this leaf is also `platform-limited`. `network-dns` now owns the active
+  resolver/search-domain observation shape. It exposes provider, native
+  interface/service identity when available, resolver scope, port, coverage,
+  completeness and independent scan/response bounds. macOS reads the scoped
+  system-effective `scutil --dns` view through one contained fixed-path child;
+  Windows reads adapter DNS rows directly with `GetAdaptersAddresses`; Linux
+  reads the resolver file but detects systemd-resolved's `127.0.0.53` stub and
+  switches to its upstream file. If that upstream source is unavailable, the
+  reply is `coverage=stub-only, complete=false` rather than a fabricated full
+  DNS configuration. No resolver is contacted. The public macOS qjswasm
+  journey `cu.network-dns` is green and all six targets compile; Linux and
+  Windows native courts remain, so this row moves from `gap` only to
+  `platform-limited`. The compatibility entry routes exactly
+  `acu network interfaces|routes|dns [--max N]`. The identity-safe per-process
+  socket slice is live through `process-sockets`; per-service DNS mutation and
   global/name-selected sockets remain MCU gaps.
 
   `network-probe` is implemented as an Observe
@@ -1273,22 +1285,27 @@ flowchart LR
   without raising that ceiling. Slow execute-only courts declare a bounded
   journey deadline and use Windows' synchronous `agenterm.com` front door;
   neither court latency nor a GUI-subsystem early return may become false green.
-  The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
+  The active qjswasm/tinyvm host surface still has no generic DNS/TCP API;
+  `network-dns` is an AgenTerm-injected ACU operation, not a new tinyvm OS
+  authority.
   Native system inventory remains platform-owned. Process-owned socket rows now
   bind matching process start identities; a future global inventory must join
   every row back to the same exact-process contract rather than a reusable PID.
   The MCU-shaped compatibility entry routes exactly `acu network probe HOST`
-  to `network-probe`; DNS and global/name socket inventory remain explicit MCU fallbacks
-  instead of being mislabeled as the same capability.
+  to `network-probe`; per-service DNS mutation and global/name socket inventory
+  remain explicit MCU fallbacks instead of being mislabeled as the same
+  capability.
 
 ```mermaid
 flowchart LR
-  N["network request"] --> I["interfaces: validate max"] & R["routes: validate max"] & A["probe: validate before effect"] & PS["process sockets<br/>PID + start identity"]
+  N["network request"] --> I["interfaces: validate max"] & R["routes: validate max"] & DNS["DNS: validate max"] & A["probe: validate before effect"] & PS["process sockets<br/>PID + start identity"]
   I --> U["Unix getifaddrs + ifindex"] & W["Windows adapters + LUID"]
   U & W --> S["stable rows<br/>scan 10k · response 1 MiB"]
   R --> RL["Linux netlink"] & RM["macOS route socket"] & RW["Windows IP Helper"]
   RL & RM & RW --> RS["native id + normalized prefix<br/>interrupted dump fails typed"]
   RS --> E
+  DNS --> DM["macOS scoped scutil"] & DLX["Linux resolver file<br/>resolved-stub aware"] & DW["Windows adapters + LUID"]
+  DM & DLX & DW --> DC["resolver + search domain<br/>coverage + completeness"] --> E
   S --> E["three-OS public evidence"]
   A --> H["owned helper<br/>system resolver once"]
   H --> F["dedupe + freeze addresses"]
