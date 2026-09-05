@@ -276,4 +276,38 @@ mod tests {
         assert!(capture.exceeded);
         assert_eq!(capture.remaining, 0);
     }
+
+    #[test]
+    fn completed_nonzero_exit_keeps_both_streams() {
+        #[cfg(unix)]
+        let command = "printf shell-out; printf shell-err >&2; exit 37";
+        #[cfg(windows)]
+        let command = "Write-Output shell-out; [Console]::Error.Write('shell-err'); exit 37";
+        let payload = shell_exec_payload(command, 5_000, 4_096).expect("completed shell");
+        assert_eq!(payload["exit"]["code"], 37);
+        assert_eq!(payload["success"], false);
+        assert!(payload["stdout"].as_str().unwrap().contains("shell-out"));
+        assert!(payload["stderr"].as_str().unwrap().contains("shell-err"));
+        assert_eq!(payload["output_complete"], true);
+        assert_eq!(payload["cleanup"], "verified");
+    }
+
+    #[test]
+    fn timeout_and_output_limit_are_distinct_typed_failures() {
+        #[cfg(unix)]
+        let slow = "sleep 2";
+        #[cfg(windows)]
+        let slow = "Start-Sleep -Seconds 2";
+        let timeout = shell_exec_payload(slow, 100, 4_096).expect_err("timeout");
+        assert_eq!(timeout.code, "shell_exec_timeout");
+        assert_eq!(timeout.detail.unwrap()["cleanup"], "verified");
+
+        #[cfg(unix)]
+        let noisy = "yes x | head -c 4096";
+        #[cfg(windows)]
+        let noisy = "[Console]::Out.Write(('x' * 4096))";
+        let limited = shell_exec_payload(noisy, 5_000, 64).expect_err("output limit");
+        assert_eq!(limited.code, "shell_exec_output_limit");
+        assert_eq!(limited.detail.unwrap()["cleanup"], "verified");
+    }
 }

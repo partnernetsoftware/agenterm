@@ -519,8 +519,20 @@ flowchart LR
   log, ruling out duplicate VM names and narrowing the blocker to the
   interactive Scheduled Task/session handoff. Arbitrary headless
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
-  not be simulated by a visible tab, by single-process metrics, or by silently
-  forwarding MCU `exec <command...>` into ACU's unrelated `exec --json` verb.
+  not be simulated by a visible tab or by single-process metrics.
+
+- [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
+  compatibility frontier; ACU's transport worker `exec --json` keeps its old
+  meaning. Commands are UTF-8/no-NUL and bounded before spawn. The shell is
+  contained before its first instruction, captures stdout/stderr concurrently
+  under one aggregate budget, and returns exact code/signal facts. Timeout and
+  output exhaustion terminate the owned tree or fail as
+  `shell_exec_cleanup_uncertain`; nonzero command exit remains `ok=true` with
+  `success=false`. Persistent audit records redact both streams and retain only
+  byte counts, timing, exit and cleanup facts. Local macOS and Windows arm64
+  UTM courts prove exact exit 37; the Windows court also proves both streams and
+  output-limit cleanup. Linux and Windows x86_64 native promotion runs remain
+  required, so the release leaf stays partial.
 
   `terminal-new` and `terminal-close` now close the owned-tab lifecycle gap
   without creating another PTY authority. Both reserve a crash-persistent
@@ -681,6 +693,8 @@ flowchart LR
   J1 --> J2["list/prune + absent/running/stale/absent ✓<br/>reuse + orphan process-tree cleanup"]
   J2 --> Q
   JE --> Q
+  M --> X["shell-exec<br/>contained first instruction<br/>bounded stdout+stderr"]
+  X --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
   Q -->|exact-source identity open| W1["recover x86 TCG agent liveness<br/>rerun current 735b7e0c bytes"]

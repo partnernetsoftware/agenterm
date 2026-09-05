@@ -596,10 +596,10 @@
         {
           "id": "shell.exec.bounded",
           "mcu_shape": "exec <command...> --timeout S",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "add an explicitly named argv-based command or route through owned jobs; preserve ACU exec --json for serialized CU commands",
-          "note": "The same spelling currently has different meanings and must never be forwarded silently."
+          "acu_shape": "shell-exec --command TEXT [--timeout-ms N] [--max-output-bytes N]",
+          "state": "native",
+          "next": "promote the shared public journey after Linux and Windows x86_64 native reruns; keep exec --json reserved for serialized CU worker commands",
+          "note": "The MCU compatibility router maps only MCU exec to shell-exec and propagates the completed nested exit code. macOS and Windows arm64 native courts prove bounded dual-stream capture, exact nonzero exit and cleanup; Linux arm64 runtime evidence is still blocked by a corrupt guest transfer and is not claimed."
         }
       ]
     },

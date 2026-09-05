@@ -80,7 +80,9 @@ flowchart LR
   SET --> PS["permissions status facade live<br/>same declaration as capabilities"]
   PS --> Q
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
+  PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
   TL --> Q
+  SE --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
   S --> D{"all replacement gates?"}
@@ -235,10 +237,14 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   exact exit mismatch, and verified shutdown. Reuse/list/prune, events/screen projection, stale registry
   reclamation and process-group control remain open; one process is not claimed
   as job-group coverage.
-- MCU `exec <command...>` and ACU `exec --json` currently mean different
-  things. The router must keep refusing that collision until an explicit
-  argv-based shell/job command is named; compatibility never justifies a
-  meaning-changing rewrite.
+- `shell-exec` now closes MCU's synchronous `exec <command...>` shape without
+  overloading ACU's transport-only `exec --json`. The root is contained before
+  its first instruction; stdout and stderr drain concurrently under one shared
+  ceiling; timeout/output-limit paths kill and reap or return
+  `cleanup_uncertain`. A nonzero nested exit is a completed typed result, and
+  the compatibility router propagates that code. Audit rows retain only counts,
+  timing and exit facts, never command output. macOS and Windows arm64 public
+  runs are green; Linux and Windows x86_64 promotion evidence remains open.
 - File/storage accounting is complete. Existing platform primitives for stable
   entry identity, no-overwrite publication and per-volume capacity are useful
   building blocks, but they do not yet constitute MCU's recoverable copy/move

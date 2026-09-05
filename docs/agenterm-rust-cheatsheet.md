@@ -3858,6 +3858,17 @@ waits for that suspended object. Unix establishes the process group in
 `pre_exec`, before `exec` transfers control to the requested program. Keep
 arguments as `OsString`/wide units so containment does not cost path fidelity.
 
+Captured child output adds a second ownership contract. Drain stdout and stderr
+concurrently under one aggregate byte ceiling; a serial drain can deadlock when
+the other bounded pipe fills. On Windows, opt into `STARTF_USESTDHANDLES` and an
+explicit `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` containing only the null stdin and
+the two child write handles, under the shared inheritance lock. Close parent
+copies of those writes before Job assignment/resume so readers can eventually
+observe EOF. On every host, terminate containment before joining readers after
+timeout, output exhaustion, or a root exit that may have left background
+descendants holding the pipes. Persist only output sizes/digests in an audit
+ledger unless the product contract explicitly authorizes content retention.
+
 ## Cap parked diagnostics on every host return shape
 
 A host operation returning `i32` can still park an arbitrarily long diagnostic
