@@ -161,7 +161,10 @@ MCU retirement blockers
 │  │  ├─ [x] stale identity refusal + pidfd/audit-token/HANDLE effect authority
 │  │  ├─ [x] TERM/KILL exit, STOP/CONT state and generic-delivery truth separated
 │  │  ├─ [x] MCU single-process unprivileged shape routes to ACU
-│  │  └─ [ ] Linux/Windows native courts; tree and privileged shapes remain gaps
+│  │  └─ [ ] Linux/Windows native courts; privileged shapes remain gaps
+│  ├─ [~] tree-signal crash recovery
+│  │  ├─ [x] receipt reserved before freeze; handled failure restores retained objects
+│  │  └─ [ ] restart recovery resolves or reports every member after owner death
 │  ├─ [~] host dispatch: open + notification typed; macOS qjswasm green, Linux/Windows courts pending
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ [~] privilege plan/broker/OS consent
@@ -194,13 +197,14 @@ its durable receipt as performed-but-unverified. Windows refuses the operation
 because no documented exact-process suspension primitive is currently owned;
 MCU `--sudo/--broker` shapes remain behind the privilege-provider branch.
 
-The unprivileged single-process `signal PID SIGNAL` shape has also left
-`STAY`. ACU opens the native process object before binding its start identity,
-reserves before effect, and separates observable postconditions from mere
-delivery: exit and scheduler transitions can be verified, but HUP/INT/USR
-application meaning cannot. The macOS public qjswasm court is green. Tree,
-sudo and broker shapes remain on MCU until their distinct ownership and consent
-contracts land.
+The unprivileged single-process and bounded-tree `signal PID SIGNAL` shapes
+have also left `STAY`. ACU opens native process objects before binding start
+identities, reserves before effect, and separates observable postconditions
+from mere delivery: exit and scheduler transitions can be verified, but
+HUP/INT/USR application meaning cannot. Unix tree mode freezes until two exact
+snapshots agree, delivers deepest-first, and restores only members that were
+running before the freeze. The macOS public qjswasm court is green. Sudo and
+broker shapes remain on MCU until the native consent contract lands.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
@@ -476,8 +480,8 @@ Q2 fast delegated facades
    ├─ [x] process-usage: one-shot or bounded identity-bound series, lossless counters
    ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
    ├─ [x] process-watch: bounded baseline + identity-safe started/exited diff
-   ├─ [x] exact-object process signal: closed names + typed postcondition semantics
-   └─ [ ] rich filters, process detail, tree signal and privileged mutation
+   ├─ [x] exact-object process signal/tree: closed names + typed postcondition semantics
+   └─ [ ] rich filters, process detail and privileged mutation
 Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
@@ -537,11 +541,12 @@ Q3 owned runtime facades
    │  ├─ [x] qjswasm public journey `cu.process-set-state`; stale identity cannot mutate
    │  ├─ [x] MCU unprivileged shape routes through observe-identity then ACU effect
    │  └─ [ ] Linux court + Windows typed-refusal court; privileged shapes stay with broker work
-   ├─ [~] exact-object process signal
+   ├─ [~] exact-object process signal and bounded tree
    │  ├─ [x] HUP/INT/TERM/KILL/STOP/CONT/USR1/USR2 closed portable set
-   │  ├─ [x] public macOS qjswasm journey `cu.process-signal`
-   │  ├─ [x] MCU unprivileged single-process shape routes without naked-PID mutation
-   │  └─ [ ] Linux/Windows native courts; tree and privileged shapes remain explicit gaps
+   │  ├─ [x] public macOS qjswasm journey `cu.process-signal` includes root + two descendants
+   │  ├─ [x] MCU unprivileged single/tree shapes route without naked-PID mutation
+   │  ├─ [ ] owner-death recovery court for an interrupted freeze/delivery
+   │  └─ [ ] Linux native court + Windows typed-refusal court; privileged shape remains
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

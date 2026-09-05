@@ -1,7 +1,7 @@
 //! Cross-platform process observation through `agenterm-platform`.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     time::{Duration, Instant},
 };
 
@@ -42,6 +42,29 @@ struct WatchedProcess {
 struct ProcessWatchSnapshot {
     processes: BTreeMap<(u32, String), WatchedProcess>,
     excluded_unidentified: usize,
+}
+
+struct TreeSignalMember {
+    pid: u32,
+    depth: usize,
+    identity: String,
+    reference: agenterm_platform::process_reference::ProcessReference,
+    was_stopped: bool,
+    frozen_by_us: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ProcessSignalOptions {
+    pub timeout_ms: u64,
+    pub force: bool,
+    pub tree: bool,
+    pub max_descendants: usize,
+}
+
+struct TreeSignalCheck {
+    pid: u32,
+    verified: Option<bool>,
+    state: &'static str,
 }
 
 impl WatchedProcess {
@@ -895,19 +918,36 @@ pub(super) fn process_signal_payload(
     pid: u32,
     expected_identity: Option<&str>,
     signal: ProcessSignalKind,
-    timeout_ms: u64,
-    force: bool,
+    options: ProcessSignalOptions,
     receipts: &mut ReceiptLog,
 ) -> Result<Value, CuError> {
+    let ProcessSignalOptions {
+        timeout_ms,
+        force,
+        tree,
+        max_descendants,
+    } = options;
     if pid == 0
         || expected_identity.is_some_and(str::is_empty)
         || !(1..=60_000).contains(&timeout_ms)
         || (signal == ProcessSignalKind::Kill) != force
+        || !(1..=10_000).contains(&max_descendants)
     {
         return Err(CuError::new(
             "invalid_input",
             "process-signal requires a positive pid, bounded timeout and --force exactly for SIGKILL",
         ));
+    }
+    if tree {
+        return process_tree_signal_payload(
+            pid,
+            expected_identity,
+            signal,
+            timeout_ms,
+            force,
+            max_descendants,
+            receipts,
+        );
     }
     let reference =
         agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
@@ -1080,6 +1120,538 @@ fn fail_process_signal_after_effect(
         "receipt": ticket.json(),
         "performed": true,
         "verified": false,
+    })))
+}
+
+fn process_tree_signal_payload(
+    root_pid: u32,
+    expected_identity: Option<&str>,
+    signal: ProcessSignalKind,
+    timeout_ms: u64,
+    _force: bool,
+    max_descendants: usize,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if cfg!(windows) {
+        return Err(CuError::new(
+            "process_tree_signal_unsupported",
+            "Windows arbitrary process trees have no retained containment object; use an owned managed job",
+        ));
+    }
+    if root_pid <= 1 {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-signal --tree requires a root pid greater than one",
+        ));
+    }
+    let root = open_tree_signal_member(root_pid, 0)?;
+    if expected_identity.is_some_and(|expected| expected != root.identity) {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process tree root identity does not match the prior observation",
+        ));
+    }
+    let root_identity = root.identity.clone();
+    let ticket = receipts.reserve(
+        "process-signal-tree",
+        0,
+        json!({
+            "root": { "pid": root_pid, "start_identity": root_identity },
+            "signal": signal.as_str(),
+            "max_descendants": max_descendants,
+        }),
+    )?;
+
+    let mut known = BTreeMap::from([(root_pid, root)]);
+    let stable = if signal == ProcessSignalKind::Continue {
+        stable_unfrozen_tree(root_pid, &root_identity, max_descendants, &mut known)
+    } else {
+        freeze_stable_tree(root_pid, &root_identity, max_descendants, &mut known)
+    };
+    let members = match stable {
+        Ok(members) => members,
+        Err(error) => {
+            let restore = restore_tree_members(&known, true);
+            let error = match restore {
+                Ok(()) => error,
+                Err(restore_error) => CuError::new(
+                    "process_tree_recovery_failed",
+                    format!("{}; rollback: {}", error.message, restore_error.message),
+                ),
+            };
+            return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+        }
+    };
+
+    let mut delivery_error = None;
+    for pid in members.iter().rev() {
+        let member = known.get(pid).expect("stable member retained");
+        if let Err(error) = deliver_tree_signal(member, signal) {
+            delivery_error = Some(CuError::new(
+                if error.kind() == std::io::ErrorKind::Unsupported {
+                    "process_tree_signal_unsupported"
+                } else {
+                    "process_tree_signal_failed"
+                },
+                format!("pid {}: {error}", member.pid),
+            ));
+            break;
+        }
+    }
+    if let Some(mut error) = delivery_error {
+        if !matches!(signal, ProcessSignalKind::Stop | ProcessSignalKind::Kill)
+            && let Err(restore) = restore_tree_members(&known, true)
+        {
+            error = CuError::new(
+                "process_tree_recovery_failed",
+                format!("{}; rollback: {}", error.message, restore.message),
+            );
+        }
+        return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+    }
+
+    if !matches!(signal, ProcessSignalKind::Stop | ProcessSignalKind::Kill)
+        && let Err(error) = restore_tree_members(&known, signal != ProcessSignalKind::Terminate)
+    {
+        return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+    }
+
+    let started = Instant::now();
+    let mut checks = match verify_tree_members(&known, &members, signal) {
+        Ok(checks) => checks,
+        Err(error) => {
+            return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+        }
+    };
+    while checks.iter().any(|check| check.verified == Some(false))
+        && started.elapsed() < Duration::from_millis(timeout_ms)
+    {
+        std::thread::sleep(Duration::from_millis(10));
+        checks = match verify_tree_members(&known, &members, signal) {
+            Ok(checks) => checks,
+            Err(error) => {
+                return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+            }
+        };
+    }
+    let verified = if checks.iter().all(|check| check.verified == Some(true)) {
+        Some(true)
+    } else if checks.iter().any(|check| check.verified == Some(false)) {
+        Some(false)
+    } else {
+        None
+    };
+    let success = verified != Some(false);
+    let member_rows = checks
+        .into_iter()
+        .map(|check| {
+            let member = known.get(&check.pid).expect("verified member retained");
+            json!({
+                "pid": check.pid,
+                "depth": member.depth,
+                "start_identity": member.identity,
+                "was_stopped": member.was_stopped,
+                "verified": check.verified,
+                "state": check.state,
+            })
+        })
+        .collect::<Vec<_>>();
+    receipts.complete(
+        &ticket,
+        "process-signal-tree",
+        0,
+        success,
+        json!({
+            "performed": true,
+            "verified": verified,
+            "member_count": member_rows.len(),
+            "elapsed_ms": started.elapsed().as_millis(),
+        }),
+    )?;
+    let payload = json!({
+        "root_pid": root_pid,
+        "root_start_identity": root_identity,
+        "tree": true,
+        "signal": signal.as_str(),
+        "performed": true,
+        "delivered": true,
+        "verified": verified,
+        "member_count": member_rows.len(),
+        "members": member_rows,
+        "timeout_ms": timeout_ms,
+        "max_descendants": max_descendants,
+        "receipt": ticket.json(),
+    });
+    if success {
+        Ok(payload)
+    } else {
+        Err(CuError::new(
+            "process_tree_signal_postcondition_failed",
+            "tree signal was delivered but at least one required postcondition was not observed",
+        )
+        .with_detail(json!({ "receipt": payload })))
+    }
+}
+
+fn stable_unfrozen_tree(
+    root_pid: u32,
+    root_identity: &str,
+    max_descendants: usize,
+    known: &mut BTreeMap<u32, TreeSignalMember>,
+) -> Result<Vec<u32>, CuError> {
+    let mut previous = Vec::new();
+    for _ in 0..6 {
+        let current = open_tree_snapshot(root_pid, root_identity, max_descendants)?;
+        let signature = tree_signature(&current);
+        merge_tree_members(known, current)?;
+        if signature == previous {
+            let final_ids = signature
+                .into_iter()
+                .map(|(pid, _, _)| pid)
+                .collect::<Vec<_>>();
+            retain_final_tree_members(known, &final_ids)?;
+            return Ok(final_ids);
+        }
+        previous = signature;
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    Err(CuError::new(
+        "process_tree_unstable",
+        "process tree did not produce two equal bounded snapshots in six attempts",
+    ))
+}
+
+fn freeze_stable_tree(
+    root_pid: u32,
+    root_identity: &str,
+    max_descendants: usize,
+    known: &mut BTreeMap<u32, TreeSignalMember>,
+) -> Result<Vec<u32>, CuError> {
+    for _ in 0..6 {
+        let before = open_tree_snapshot(root_pid, root_identity, max_descendants)?;
+        let before_signature = tree_signature(&before);
+        merge_tree_members(known, before)?;
+        for (pid, _, _) in &before_signature {
+            let member = known.get_mut(pid).expect("snapshot member retained");
+            if !exact_member_stopped(member)? {
+                member.reference.set_suspended(true).map_err(|error| {
+                    CuError::new(
+                        "process_tree_freeze_failed",
+                        format!("pid {}: {error}", member.pid),
+                    )
+                })?;
+                member.frozen_by_us = true;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(30));
+        let after = open_tree_snapshot(root_pid, root_identity, max_descendants)?;
+        let after_signature = tree_signature(&after);
+        merge_tree_members(known, after)?;
+        let all_stopped = after_signature.iter().try_fold(true, |all, (pid, _, _)| {
+            exact_member_stopped(known.get(pid).expect("snapshot member retained"))
+                .map(|stopped| all && stopped)
+        })?;
+        if before_signature == after_signature && all_stopped {
+            let final_ids = after_signature
+                .into_iter()
+                .map(|(pid, _, _)| pid)
+                .collect::<Vec<_>>();
+            retain_final_tree_members(known, &final_ids)?;
+            return Ok(final_ids);
+        }
+    }
+    Err(CuError::new(
+        "process_tree_freeze_unstable",
+        "process tree could not be frozen into one complete stable snapshot in six attempts",
+    ))
+}
+
+fn open_tree_snapshot(
+    root_pid: u32,
+    root_identity: &str,
+    max_descendants: usize,
+) -> Result<Vec<TreeSignalMember>, CuError> {
+    let ids = tree_snapshot_ids(root_pid, max_descendants)?;
+    let mut members = Vec::with_capacity(ids.len());
+    for (pid, depth) in ids {
+        let member = open_tree_signal_member(pid, depth)?;
+        if pid == root_pid && member.identity != root_identity {
+            return Err(CuError::new(
+                "process_identity_changed",
+                "process tree root identity changed during inventory",
+            ));
+        }
+        members.push(member);
+    }
+    Ok(members)
+}
+
+fn tree_snapshot_ids(root_pid: u32, max_descendants: usize) -> Result<Vec<(u32, usize)>, CuError> {
+    let rows = agenterm_platform::process::list()
+        .map_err(|error| CuError::new("process_tree_inventory_failed", error.to_string()))?;
+    if !rows.iter().any(|row| row.id == root_pid) {
+        return Err(CuError::new(
+            "process_tree_root_missing",
+            "the exact root is absent from the complete process inventory",
+        ));
+    }
+    let mut children = BTreeMap::<u32, Vec<u32>>::new();
+    for row in rows {
+        children.entry(row.parent_id).or_default().push(row.id);
+    }
+    for ids in children.values_mut() {
+        ids.sort_unstable();
+    }
+    let mut seen = BTreeSet::from([root_pid]);
+    let mut queue = VecDeque::from([(root_pid, 0usize)]);
+    let mut ids = vec![(root_pid, 0usize)];
+    while let Some((parent, depth)) = queue.pop_front() {
+        for child in children.get(&parent).into_iter().flatten() {
+            if seen.insert(*child) {
+                if seen.len() - 1 > max_descendants {
+                    return Err(CuError::new(
+                        "process_tree_too_large",
+                        format!("process tree exceeds --max {max_descendants} descendants"),
+                    ));
+                }
+                ids.push((*child, depth + 1));
+                queue.push_back((*child, depth + 1));
+            }
+        }
+    }
+    Ok(ids)
+}
+
+fn open_tree_signal_member(pid: u32, depth: usize) -> Result<TreeSignalMember, CuError> {
+    let reference =
+        agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
+            .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?;
+    if !reference
+        .is_alive()
+        .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?
+    {
+        return Err(CuError::new(
+            "process_tree_member_exited",
+            format!("pid {pid} exited while opening its exact process object"),
+        ));
+    }
+    let identity = live_start_identity(pid)?;
+    let was_stopped = process_stopped(pid)?;
+    if live_start_identity(pid)? != identity
+        || !reference
+            .is_alive()
+            .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?
+    {
+        return Err(CuError::new(
+            "process_identity_changed",
+            format!("pid {pid} changed while binding its scheduler state"),
+        ));
+    }
+    Ok(TreeSignalMember {
+        pid,
+        depth,
+        identity,
+        reference,
+        was_stopped,
+        frozen_by_us: false,
+    })
+}
+
+fn tree_signature(members: &[TreeSignalMember]) -> Vec<(u32, usize, String)> {
+    members
+        .iter()
+        .map(|member| (member.pid, member.depth, member.identity.clone()))
+        .collect()
+}
+
+fn merge_tree_members(
+    known: &mut BTreeMap<u32, TreeSignalMember>,
+    members: Vec<TreeSignalMember>,
+) -> Result<(), CuError> {
+    for member in members {
+        if let Some(existing) = known.get_mut(&member.pid) {
+            if existing.identity != member.identity {
+                return Err(CuError::new(
+                    "process_identity_changed",
+                    format!("pid {} was reused during tree stabilization", member.pid),
+                ));
+            }
+            existing.depth = member.depth;
+        } else {
+            known.insert(member.pid, member);
+        }
+    }
+    Ok(())
+}
+
+fn retain_final_tree_members(
+    known: &mut BTreeMap<u32, TreeSignalMember>,
+    final_ids: &[u32],
+) -> Result<(), CuError> {
+    let final_ids = final_ids.iter().copied().collect::<BTreeSet<_>>();
+    let mut failures = Vec::new();
+    for member in known
+        .values()
+        .filter(|member| !final_ids.contains(&member.pid) && member.frozen_by_us)
+    {
+        match member.reference.is_alive() {
+            Ok(false) => {}
+            Ok(true) => {
+                if let Err(error) = member.reference.set_suspended(false) {
+                    failures.push(format!("pid {} resume: {error}", member.pid));
+                }
+            }
+            Err(error) => failures.push(format!("pid {} liveness: {error}", member.pid)),
+        }
+    }
+    if !failures.is_empty() {
+        return Err(CuError::new(
+            "process_tree_recovery_failed",
+            failures.join("; "),
+        ));
+    }
+    known.retain(|pid, _| final_ids.contains(pid));
+    Ok(())
+}
+
+fn exact_member_stopped(member: &TreeSignalMember) -> Result<bool, CuError> {
+    if !member
+        .reference
+        .is_alive()
+        .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?
+    {
+        return Err(CuError::new(
+            "process_tree_member_exited",
+            format!("pid {} exited during tree stabilization", member.pid),
+        ));
+    }
+    let identity = live_start_identity(member.pid)?;
+    let stopped = process_stopped(member.pid)?;
+    if identity != member.identity || live_start_identity(member.pid)? != member.identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            format!("pid {} changed during scheduler-state read", member.pid),
+        ));
+    }
+    Ok(stopped)
+}
+
+fn deliver_tree_signal(
+    member: &TreeSignalMember,
+    signal: ProcessSignalKind,
+) -> std::io::Result<()> {
+    match signal {
+        ProcessSignalKind::Terminate => member
+            .reference
+            .terminate(agenterm_platform::process_control::TerminationMode::Graceful),
+        ProcessSignalKind::Kill => member
+            .reference
+            .terminate(agenterm_platform::process_control::TerminationMode::Forceful),
+        ProcessSignalKind::Stop => Ok(()),
+        ProcessSignalKind::Continue => member.reference.set_suspended(false),
+        ProcessSignalKind::Hangup => member
+            .reference
+            .send_signal(agenterm_platform::process_reference::ProcessSignal::Hangup),
+        ProcessSignalKind::Interrupt => member
+            .reference
+            .send_signal(agenterm_platform::process_reference::ProcessSignal::Interrupt),
+        ProcessSignalKind::User1 => member
+            .reference
+            .send_signal(agenterm_platform::process_reference::ProcessSignal::User1),
+        ProcessSignalKind::User2 => member
+            .reference
+            .send_signal(agenterm_platform::process_reference::ProcessSignal::User2),
+    }
+}
+
+fn restore_tree_members(
+    members: &BTreeMap<u32, TreeSignalMember>,
+    only_frozen_by_us: bool,
+) -> Result<(), CuError> {
+    let mut failures = Vec::new();
+    for member in members
+        .values()
+        .rev()
+        .filter(|member| !only_frozen_by_us || member.frozen_by_us)
+    {
+        match member.reference.is_alive() {
+            Ok(false) => continue,
+            Ok(true) => {}
+            Err(error) => {
+                failures.push(format!("pid {} liveness: {error}", member.pid));
+                continue;
+            }
+        }
+        if let Err(error) = member.reference.set_suspended(false) {
+            failures.push(format!("pid {} resume: {error}", member.pid));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(CuError::new(
+            "process_tree_recovery_failed",
+            failures.join("; "),
+        ))
+    }
+}
+
+fn verify_tree_members(
+    known: &BTreeMap<u32, TreeSignalMember>,
+    members: &[u32],
+    signal: ProcessSignalKind,
+) -> Result<Vec<TreeSignalCheck>, CuError> {
+    members
+        .iter()
+        .map(|pid| {
+            let member = known.get(pid).expect("stable member retained");
+            let alive = member.reference.is_alive().map_err(|error| {
+                CuError::new("process_reference_failed_after_signal", error.to_string())
+            })?;
+            let (verified, state) = match signal {
+                ProcessSignalKind::Terminate | ProcessSignalKind::Kill => {
+                    (Some(!alive), if alive { "live" } else { "exited" })
+                }
+                ProcessSignalKind::Stop | ProcessSignalKind::Continue if !alive => {
+                    (Some(false), "exited")
+                }
+                ProcessSignalKind::Stop => (Some(exact_member_stopped(member)?), "stopped"),
+                ProcessSignalKind::Continue => (Some(!exact_member_stopped(member)?), "running"),
+                _ => (None, if alive { "live" } else { "exited" }),
+            };
+            Ok(TreeSignalCheck {
+                pid: *pid,
+                verified,
+                state,
+            })
+        })
+        .collect()
+}
+
+fn fail_process_tree_signal(
+    receipts: &mut ReceiptLog,
+    ticket: &crate::receipt::ReceiptTicket,
+    error: CuError,
+    performed: bool,
+    members: &BTreeMap<u32, TreeSignalMember>,
+) -> Result<Value, CuError> {
+    receipts.complete(
+        ticket,
+        "process-signal-tree",
+        0,
+        false,
+        json!({
+            "performed": performed,
+            "verified": false,
+            "member_count": members.len(),
+            "error": error_payload(&error),
+        }),
+    )?;
+    Err(error.with_detail(json!({
+        "receipt": ticket.json(),
+        "performed": performed,
+        "verified": false,
+        "member_count": members.len(),
     })))
 }
 
@@ -1371,8 +1943,12 @@ mod tests {
             child.id(),
             Some(&identity),
             ProcessSignalKind::Stop,
-            5_000,
-            false,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: false,
+                tree: false,
+                max_descendants: 500,
+            },
             &mut receipts,
         )
         .expect("stop exact child");
@@ -1383,8 +1959,12 @@ mod tests {
             child.id(),
             Some(&identity),
             ProcessSignalKind::Continue,
-            5_000,
-            false,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: false,
+                tree: false,
+                max_descendants: 500,
+            },
             &mut receipts,
         )
         .expect("resume exact child");
@@ -1395,14 +1975,131 @@ mod tests {
             child.id(),
             Some(&identity),
             ProcessSignalKind::Kill,
-            5_000,
-            true,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: true,
+                tree: false,
+                max_descendants: 500,
+            },
             &mut receipts,
         )
         .expect("kill exact child");
         assert_eq!(killed["state"], "exited");
         assert_eq!(killed["verified"], true);
         child.wait().expect("reap signal fixture");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn exact_tree_signal_freezes_every_member_and_preserves_the_bounded_snapshot() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "trap '' USR1; sleep 30 & sleep 30 & wait"])
+            .spawn()
+            .expect("spawn tree fixture");
+        let identity = live_start_identity(child.id()).expect("tree root identity");
+        for _ in 0..100 {
+            let rows = tree_snapshot_ids(child.id(), 16).expect("tree inventory");
+            if rows.len() >= 3 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let root = std::fs::canonicalize(std::env::temp_dir())
+            .expect("temporary root")
+            .join(format!("agenterm-cu-tree-signal-{}", child.id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut receipts = ReceiptLog::open_in(&root, crate::TargetRef::Current).unwrap();
+
+        let stopped = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Stop,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: false,
+                tree: true,
+                max_descendants: 16,
+            },
+            &mut receipts,
+        )
+        .expect("stop exact tree");
+        assert_eq!(stopped["verified"], true);
+        assert!(stopped["member_count"].as_u64().unwrap() >= 3);
+        assert!(
+            stopped["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|member| member["state"] == "stopped")
+        );
+
+        let continued = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Continue,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: false,
+                tree: true,
+                max_descendants: 16,
+            },
+            &mut receipts,
+        )
+        .expect("resume exact tree");
+        assert_eq!(continued["verified"], true);
+
+        let descendant_pid = tree_snapshot_ids(child.id(), 16)
+            .unwrap()
+            .into_iter()
+            .find_map(|(pid, depth)| (depth > 0).then_some(pid))
+            .expect("tree descendant");
+        let pre_stopped =
+            agenterm_platform::process_reference::ProcessReference::open_for_termination(
+                descendant_pid,
+            )
+            .expect("retain pre-stopped descendant");
+        pre_stopped
+            .set_suspended(true)
+            .expect("pre-stop descendant");
+        assert!(process_stopped(descendant_pid).unwrap());
+        let generic = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::User1,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: false,
+                tree: true,
+                max_descendants: 16,
+            },
+            &mut receipts,
+        )
+        .expect("deliver generic tree signal");
+        assert!(generic["verified"].is_null());
+        assert!(
+            process_stopped(descendant_pid).unwrap(),
+            "a member stopped before the transaction must remain stopped"
+        );
+        pre_stopped
+            .set_suspended(false)
+            .expect("resume fixture descendant");
+
+        let killed = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Kill,
+            ProcessSignalOptions {
+                timeout_ms: 5_000,
+                force: true,
+                tree: true,
+                max_descendants: 16,
+            },
+            &mut receipts,
+        )
+        .expect("kill exact tree");
+        assert_eq!(killed["verified"], true);
+        child.wait().expect("reap tree root");
         std::fs::remove_dir_all(root).unwrap();
     }
 

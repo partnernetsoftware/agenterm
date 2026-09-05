@@ -110,6 +110,55 @@ try {
   ]);
   ensure(killed.performed === true && killed.verified === true && killed.state === "exited",
     "cu_process_signal_kill:" + JSON.stringify(killed));
+
+  print("STEP bounded tree signal preserves exact members and postconditions");
+  const tree_child = harness.start_child(context, harness.host_is_windows() ? {
+    program: "cmd.exe",
+    args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  } : {
+    program: "/bin/sh",
+    args: ["-c", "sleep 60 & sleep 60 & wait"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  });
+  children.push(tree_child);
+  const tree_pid = tree_child.pid;
+  const tree_observed = invoke(context.run_directory, executable, "observe", [
+    "process-state", "--pid", "" + tree_pid
+  ]);
+  const tree_identity = "" + tree_observed.start_identity;
+  if (harness.host_is_windows()) {
+    invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + tree_pid, "STOP", "--start-identity", tree_identity,
+      "--tree", "--max", "16"
+    ], "process_tree_signal_unsupported");
+    const tree_root_killed = invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + tree_pid, "KILL", "--start-identity", tree_identity, "--force"
+    ]);
+    ensure(tree_root_killed.verified === true, "cu_process_tree_windows_cleanup");
+  } else {
+    const tree_stopped = invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + tree_pid, "STOP", "--start-identity", tree_identity,
+      "--tree", "--max", "16"
+    ]);
+    ensure(tree_stopped.tree === true && tree_stopped.verified === true
+      && tree_stopped.member_count >= 3,
+      "cu_process_tree_stop:" + JSON.stringify(tree_stopped));
+    const tree_resumed = invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + tree_pid, "CONT", "--start-identity", tree_identity,
+      "--tree", "--max", "16"
+    ]);
+    ensure(tree_resumed.verified === true && tree_resumed.member_count >= 3,
+      "cu_process_tree_cont:" + JSON.stringify(tree_resumed));
+    const tree_killed = invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + tree_pid, "KILL", "--start-identity", tree_identity,
+      "--tree", "--max", "16", "--force"
+    ]);
+    ensure(tree_killed.verified === true && tree_killed.member_count >= 3,
+      "cu_process_tree_kill:" + JSON.stringify(tree_killed));
+  }
   succeeded = 1;
 } catch (error) {
   failure = "" + error;

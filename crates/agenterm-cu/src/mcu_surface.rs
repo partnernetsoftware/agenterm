@@ -383,7 +383,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "process" => (
             "available",
-            "ps/process state/argv/cwd/environment/usage/watch/wait plus exact-object single-process signal are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup, tree signal and privileged mutation remain typed gaps",
+            "ps/process state/argv/cwd/environment/usage/watch/wait plus exact-object single-process/tree signal are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup and privileged mutation remain typed gaps",
         ),
         "resource" => (
             "unsupported",

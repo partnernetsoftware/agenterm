@@ -3631,6 +3631,18 @@ durable effect receipt before delivery and close it on every post-effect
 observation failure. Windows must return a typed unsupported result for POSIX
 signals it cannot express; only forceful KILL is owned by the retained HANDLE.
 
+For an arbitrary Unix process tree, a single parent snapshot is not an effect
+boundary. Open and identity-bind every member, stop the root and discovered
+descendants, and repeat bounded inventory until two member/depth/identity
+snapshots agree and every retained object reads stopped. Deliver deepest-first.
+Track which members were already stopped: after non-STOP delivery resume only
+those the operation froze, otherwise automation silently changes pre-existing
+scheduler state. A failure must attempt that same exact-object restoration and
+close the effect receipt; never use a late bare-PID sweep as cleanup. Existing
+Windows processes do not acquire Job Object membership retroactively as one
+atomic tree, so return typed unsupported instead of imitating this with PID
+enumeration.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second

@@ -103,9 +103,9 @@
           "note": "ACU reserves a crash-persistent receipt, mutates through one retained native process object, and waits on that object. macOS retains TASK_AUDIT_TOKEN and calls proc_signal_with_audittoken, whose pidversion validation rejects a recycled PID."
         },
         {
-          "id": "process.signal.single",
-          "mcu_shape": "signal PID SIG... without --tree/--sudo/--broker",
-          "acu_shape": "process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force]",
+          "id": "process.signal.single-and-tree",
+          "mcu_shape": "signal PID SIG... with optional --tree, without --sudo/--broker",
+          "acu_shape": "process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]",
           "state": "platform-limited",
           "platforms": {
             "linux": "retained-pidfd",
@@ -114,14 +114,14 @@
           },
           "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
           "evidence": ["cu.process-signal"],
-          "note": "TERM/KILL verify exact exit, STOP/CONT verify scheduler state, and HUP/INT/USR1/USR2 report accepted delivery without fabricating application acknowledgement."
+          "note": "TERM/KILL verify exact exit, STOP/CONT verify scheduler state, and HUP/INT/USR1/USR2 report accepted delivery without fabricating application acknowledgement. Unix tree mode freezes until two bounded snapshots agree, retains every native process object, delivers deepest-first, and restores only members that it found running. Windows arbitrary trees remain typed unsupported, matching the absence of an MCU Job Object provider."
         },
         {
-          "id": "process.signal.tree-and-privileged",
-          "mcu_shape": "kill|signal --tree and signal --sudo|--broker",
+          "id": "process.signal.privileged",
+          "mcu_shape": "signal --sudo|--broker",
           "acu_shape": null,
           "state": "gap",
-          "next": "bounded tree snapshot, per-member exact identity, independently verified postconditions and native consent provider"
+          "next": "native consent provider with the same exact-object single/tree contract"
         },
         {
           "id": "process.cwd",

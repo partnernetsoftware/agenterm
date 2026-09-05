@@ -380,13 +380,19 @@ impl Executor {
                 signal,
                 timeout_ms,
                 force,
+                tree,
+                max_descendants,
                 ..
             } => process_signal_payload(
                 *pid,
                 start_identity.as_deref(),
                 *signal,
-                *timeout_ms,
-                *force,
+                ProcessSignalOptions {
+                    timeout_ms: *timeout_ms,
+                    force: *force,
+                    tree: *tree,
+                    max_descendants: *max_descendants,
+                },
                 &mut self.open_receipts(command.target())?,
             ),
             Command::PrivilegePlanProcessPriority {

@@ -850,8 +850,8 @@
       ],
       "grant": "actuate",
       "family": "process",
-      "summary": "deliver one closed signal through an exact native process object",
-      "usage": "process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\nprocess signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\nsignal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]",
+      "summary": "deliver one closed signal through exact native process objects",
+      "usage": "process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\nprocess signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\nsignal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]",
       "args": [
         {
           "flag": "--pid",
@@ -877,6 +877,16 @@
           "flag": "--force",
           "value": "",
           "help": "required for SIGKILL and rejected for every other signal"
+        },
+        {
+          "flag": "--tree",
+          "value": "",
+          "help": "freeze one bounded Unix process tree before exact-object delivery"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "tree descendant ceiling in 1..=10000 (default 500)"
         }
       ]
     },
@@ -4204,7 +4214,7 @@
   "help": [
     {
       "name": "process-signal",
-      "text": "agenterm-cu process-signal    (also: process signal, signal)\n  scope: actuate    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\n  process signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\n  signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\n\nSIGNAL is one of HUP, INT, TERM, KILL, STOP, CONT, USR1 or USR2 (the SIG prefix is optional). The executor opens one mutation-capable native process reference before binding the live start identity and never uses a naked PID as effect authority. TERM/KILL require exact-object exit read-back; STOP/CONT require scheduler-state read-back. HUP/INT/USR1/USR2 prove exact native delivery but remain verified=false because only the target application can acknowledge their meaning. SIGKILL requires --force. Linux uses pidfd_send_signal, macOS uses the retained audit token, and Windows supports only forceful KILL through its retained process HANDLE; every other Windows signal returns process_signal_unsupported. Tree and privileged signal shapes are separate gaps.\n"
+      "text": "agenterm-cu process-signal    (also: process signal, signal)\n  scope: actuate    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\n  process signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\n  signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force] [--tree --max N]\n\nSIGNAL is one of HUP, INT, TERM, KILL, STOP, CONT, USR1 or USR2 (the SIG prefix is optional). The executor opens mutation-capable native process references before binding live start identities and never uses a naked PID as effect authority. TERM/KILL require exact-object exit read-back; STOP/CONT require scheduler-state read-back. HUP/INT/USR1/USR2 prove exact native delivery but remain verified=false because only the target application can acknowledge their meaning. SIGKILL requires --force. --tree freezes the root and every bounded descendant until two complete snapshots agree, delivers deepest-first, and restores only members it found running; pre-stopped members stay stopped. Linux uses pidfd_send_signal, macOS uses retained audit tokens, and Windows refuses arbitrary trees because it has no retained containment object for pre-existing processes. Privileged signal shapes remain a separate consent-provider gap.\n"
     },
     {
       "name": "capabilities",

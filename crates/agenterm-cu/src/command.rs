@@ -377,6 +377,10 @@ pub enum ProcessSignalKind {
     User2,
 }
 
+const fn default_process_tree_max_descendants() -> usize {
+    500
+}
+
 impl ProcessSignalKind {
     pub fn parse(raw: &str) -> Option<Self> {
         Some(match raw.trim().to_ascii_uppercase().as_str() {
@@ -990,6 +994,10 @@ pub enum Command {
         timeout_ms: u64,
         #[serde(default)]
         force: bool,
+        #[serde(default)]
+        tree: bool,
+        #[serde(default = "default_process_tree_max_descendants")]
+        max_descendants: usize,
     },
     /// Prepare a canonical, expiring, identity-bound process-priority plan.
     /// This command is observation-only: applying it belongs to a later
@@ -3562,6 +3570,8 @@ mod tests {
             signal: ProcessSignalKind::User1,
             timeout_ms: 250,
             force: false,
+            tree: true,
+            max_descendants: 64,
         };
         assert_eq!(command.verb(), "process-signal");
         assert_eq!(command.target(), TargetRef::Ssh);
@@ -3576,6 +3586,8 @@ mod tests {
                 "signal": "SIGUSR1",
                 "timeout_ms": 250,
                 "force": false,
+                "tree": true,
+                "max_descendants": 64,
             })
         );
     }

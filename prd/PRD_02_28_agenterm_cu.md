@@ -588,10 +588,19 @@ flowchart LR
   explicit `--force`; every post-effect observation failure closes the durable
   receipt rather than leaving a reusable reservation. The public qjswasm
   journey `cu.process-signal` is green on macOS: stale identity refusal,
-  SIGUSR1 delivery, STOP/CONT read-back, KILL exit and cleanup passed in 1.058
-  seconds. MCU's unprivileged single-process `signal` shape now routes here,
-  reducing top-level compatibility `STAY` from 19 to 18; tree and privileged
-  shapes remain explicit gaps.
+  SIGUSR1 delivery, single-process STOP/CONT/KILL, then a real root plus two
+  descendants through tree STOP/CONT/KILL all pass. Unix `--tree` freezes root
+  and descendants until two bounded snapshots agree, retains each native
+  object, delivers deepest-first, and resumes only members it found running;
+  pre-stopped members remain stopped. Windows returns the same honest typed
+  tree refusal as MCU because no containment object owns an arbitrary existing
+  tree. MCU's unprivileged single-process and tree `signal` shapes now route
+  here, reducing top-level compatibility `STAY` from 19 to 18; only privileged
+  signal shapes remain behind the consent-provider gap. The operation reserves
+  a durable effect receipt before its first freeze and restores exact objects
+  on every handled failure. Automatic restart recovery after the ACU process
+  itself dies mid-freeze remains an explicit reliability leaf; an unfinished
+  receipt reports ambiguity rather than authorizing a second delivery.
 - [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
   bounded identity-safe diff. It takes one baseline and emits `started` /
   `exited` rows keyed by PID plus native start identity, so PID reuse cannot

@@ -64,6 +64,9 @@ fn process_signal(target: TargetRef, args: &mut Vec<String>) -> Result<Command, 
     let start_identity = flag_text(args, "--start-identity")?.filter(|value| !value.is_empty());
     let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000);
     let force = take_switch(args, "--force");
+    let tree = take_switch(args, "--tree");
+    let max_was_explicit = args.iter().any(|value| value == "--max");
+    let max_descendants = flag_parsed::<usize>(args, "--max")?.unwrap_or(500);
     if !(1..=60_000).contains(&timeout_ms) {
         return Err("process-signal --timeout-ms must be in 1..=60000".into());
     }
@@ -72,6 +75,12 @@ fn process_signal(target: TargetRef, args: &mut Vec<String>) -> Result<Command, 
     }
     if force && signal != ProcessSignalKind::Kill {
         return Err("process-signal --force is valid only with SIGKILL".into());
+    }
+    if !(1..=10_000).contains(&max_descendants) {
+        return Err("process-signal --max must be in 1..=10000".into());
+    }
+    if !tree && max_was_explicit {
+        return Err("process-signal --max requires --tree".into());
     }
     if !args.is_empty() {
         return Err(format!("process-signal received unexpected {:?}", args[0]));
@@ -83,6 +92,8 @@ fn process_signal(target: TargetRef, args: &mut Vec<String>) -> Result<Command, 
         signal,
         timeout_ms,
         force,
+        tree,
+        max_descendants,
     })
 }
 
@@ -829,6 +840,7 @@ mod tests {
             Command::ProcessSignal {
                 signal: ProcessSignalKind::User1,
                 force: false,
+                tree: false,
                 ..
             }
         ));
@@ -839,11 +851,31 @@ mod tests {
             Command::ProcessSignal {
                 signal: ProcessSignalKind::Kill,
                 force: true,
+                tree: false,
                 ..
             }
         ));
         let mut refused = vec!["42".into(), "SIGKILL".into()];
         assert!(parse(spec, "signal", TargetRef::Current, &mut refused).is_err());
+
+        let mut tree = vec![
+            "42".into(),
+            "TERM".into(),
+            "--tree".into(),
+            "--max".into(),
+            "64".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "signal", TargetRef::Current, &mut tree).unwrap(),
+            Command::ProcessSignal {
+                signal: ProcessSignalKind::Terminate,
+                tree: true,
+                max_descendants: 64,
+                ..
+            }
+        ));
+        let mut max_without_tree = vec!["42".into(), "TERM".into(), "--max".into(), "500".into()];
+        assert!(parse(spec, "signal", TargetRef::Current, &mut max_without_tree).is_err());
     }
 
     #[test]
