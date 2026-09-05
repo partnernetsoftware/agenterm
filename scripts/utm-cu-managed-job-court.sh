@@ -145,6 +145,7 @@ elif data.startswith(b"\xef\xbb\xbf"):
     text = data.decode("utf-8-sig")
 else:
     text = data.decode("utf-8")
+text = text.replace("\r\n", "\n").replace("\r", "\n")
 temporary = path.with_name(path.name + ".utf8.tmp")
 temporary.write_text(text, encoding="utf-8", newline="")
 os.replace(temporary, path)

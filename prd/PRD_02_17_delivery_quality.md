@@ -1144,10 +1144,11 @@ costs a full candidate cycle:
   Product court scripts only lease, transfer exact bytes, execute and release.
 - [x] Windows guest logs are an encoding boundary. Windows PowerShell 5 may
   redirect native output as UTF-16LE while Linux and newer shells emit UTF-8;
-  the host normalizes the pulled text copy before exact `EVIDENCE`/`PASS`
-  matching. It never decodes payloads or manifests, and malformed text fails
-  closed. This repaired a real false-negative where the Windows ARM64 journey
-  had fully passed but byte-oriented UTF-8 matching rejected its transcript.
+  the host normalizes the pulled text copy to UTF-8 with LF endings before
+  exact `EVIDENCE`/`PASS` matching. It never decodes payloads or manifests,
+  and malformed text fails closed. This repaired a real false-negative where
+  the Windows ARM64 journey had fully passed but byte-oriented UTF-8 matching
+  rejected its transcript.
 
 ```mermaid
 flowchart LR
