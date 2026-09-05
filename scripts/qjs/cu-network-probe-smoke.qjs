@@ -20,8 +20,7 @@ function ensure(condition, message) {
 }
 
 function text_of(value) {
-  if (value === undefined || value === null) { return ""; }
-  return "" + value;
+  return "" + (value ?? "");
 }
 
 function at(value, dotted) {

@@ -5,15 +5,18 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`930dec0`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`58ec897`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 The earlier opt-in allocation attribution remains diagnostic-only: D0 rejected
 the recovery specialization and no allocator rewind/reuse landed. This revision
 adds the exact first optional-property slice `base?.prop` / `base?.[key]` with
 single base evaluation and skipped computed-key effects on nullish input. It
 adds no VM opcode and keeps the 101,256-byte static core exact; the public
-network-probe journey now consumes the computed-key form. Optional calls and
-continuation chains remain named gaps rather than approximate semantics.
+network-probe journey consumes the computed-key form and the exact `lhs ?? rhs`
+slice. Nullish coalescing evaluates its left operand once, evaluates the right
+only for null/undefined, adds no VM opcode and preserves the same exact static
+core. Optional calls, continuation chains, `??=`, and mixing `??` with boolean
+short-circuit operators remain named gaps rather than approximate semantics.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
