@@ -761,6 +761,25 @@
       ]
     },
     {
+      "name": "process-sockets",
+      "command": "process-sockets",
+      "aliases": ["process sockets"],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity-bound bounded native socket inventory",
+      "usage": "process-sockets --pid N [--family FAMILY] [--protocol PROTOCOL] [--state STATE] [--endpoint SUB] [--offset N] [--limit N] [--max-visited N]\nprocess sockets PID [filters]",
+      "args": [
+        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
+        {"flag": "--family", "value": "FAMILY", "help": "exact family, for example IPv4, IPv6 or Unix"},
+        {"flag": "--protocol", "value": "PROTOCOL", "help": "exact protocol, for example TCP or UDP"},
+        {"flag": "--state", "value": "STATE", "help": "exact normalized socket state"},
+        {"flag": "--endpoint", "value": "SUB", "help": "case-insensitive endpoint substring"},
+        {"flag": "--offset", "value": "N", "help": "first matching socket (default 0)"},
+        {"flag": "--limit", "value": "N", "help": "returned sockets, 1..=5000 (default 256)"},
+        {"flag": "--max-visited", "value": "N", "help": "native descriptor scan ceiling, 1..=10000 (default 4096)"}
+      ]
+    },
+    {
       "name": "process-wait",
       "command": "process-wait",
       "aliases": [
@@ -4275,6 +4294,10 @@
     {
       "name": "process-threads",
       "text": "agenterm-cu process-threads    (also: process threads)\n  scope: observe    family: Processes\n\nusage:\n  process-threads --pid N [--name SUB] [--state STATE] [--offset N] [--limit N] [--max-visited N]\n  process threads PID [filters]\n\nReads one bounded native thread inventory between matching process-start identities. Thread ids and time counters are lossless strings, and time_unit names the platform counter domain. Scan errors and truncation remain visible.\n"
+    },
+    {
+      "name": "process-sockets",
+      "text": "agenterm-cu process-sockets    (also: process sockets)\n  scope: observe    family: Processes\n\nusage:\n  process-sockets --pid N [--family FAMILY] [--protocol PROTOCOL] [--state STATE] [--endpoint SUB] [--offset N] [--limit N] [--max-visited N]\n  process sockets PID [filters]\n\nReads one bounded process-owned socket inventory between matching process-start identities. Darwin uses linked libproc and Linux joins /proc/PID/fd socket inodes to the process network namespace without lsof or another executable. Endpoint and Unix-domain path bytes remain lossless. Windows refuses with a typed unsupported result. Native scan truncation, read errors, filter matches and caller pagination remain separate. Watch/diff is not part of this one-shot command.\n"
     },
     {
       "name": "process-signal",

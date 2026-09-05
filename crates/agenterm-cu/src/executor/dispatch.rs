@@ -378,6 +378,26 @@ impl Executor {
                 *limit,
                 *max_visited,
             ),
+            Command::ProcessSockets {
+                pid,
+                family,
+                protocol,
+                state,
+                endpoint,
+                offset,
+                limit,
+                max_visited,
+                ..
+            } => process_sockets_payload(
+                *pid,
+                family.as_deref(),
+                protocol.as_deref(),
+                state.as_deref(),
+                endpoint.as_deref(),
+                *offset,
+                *limit,
+                *max_visited,
+            ),
             Command::ProcessUsage {
                 pid,
                 watch_ms,

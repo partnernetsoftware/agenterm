@@ -200,9 +200,20 @@
         {
           "id": "process.sockets",
           "mcu_shape": "process sockets PID [--watch]",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "join process identity with the future network socket facade"
+          "acu_shape": "process-sockets --pid N [--family FAMILY] [--protocol PROTOCOL] [--state STATE] [--endpoint SUB] [--offset N] [--limit N] [--max-visited N] (alias: process sockets PID)",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "native-libproc",
+            "linux": "native-procfs",
+            "windows": "typed-unsupported"
+          },
+          "qualification": "macos-public-qjswasm-live-linux-runtime-and-windows-refusal-courts-pending",
+          "evidence": [
+            "cu.process-sockets",
+            "agenterm-platform process socket unit tests"
+          ],
+          "note": "One-shot socket rows are joined to one process fd and bracketed by matching start identities. Native descriptor scan truncation and caller result pagination remain separate. Darwin uses build-linked libproc; Linux joins procfs socket inodes to the process network namespace without lsof. Unix-domain endpoint bytes remain lossless. Windows refuses undocumented arbitrary-process socket tables by type.",
+          "next": "Linux native and Windows typed-refusal courts; bounded watch/diff remains an explicit gap"
         },
         {
           "id": "process.policy",
@@ -765,9 +776,15 @@
         {
           "id": "network.sockets",
           "mcu_shape": "network sockets --pid/--name/--protocol/--state/--offset/--max/--scan-max",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "bounded native socket inventory joined to process start identity; expose truncated result and truncated scan independently"
+          "acu_shape": "process-sockets --pid N with family/protocol/state/endpoint filters and independent scan/page bounds",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "native-per-process",
+            "linux": "native-per-process",
+            "windows": "typed-unsupported"
+          },
+          "note": "The identity-safe per-process slice is live. Global/name-selected system socket inventory is not inferred from it and remains a gap.",
+          "next": "add a bounded global inventory with exact process identity joins, then native courts"
         },
         {
           "id": "network.probe",

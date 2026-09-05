@@ -4138,6 +4138,18 @@ wide counters as decimal or hexadecimal strings at JSON boundaries, validate
 address-range addition rather than saturating it, and keep filtering bounded
 over the already-captured snapshot.
 
+Process socket inventory is an identity join, not a table dump. On Linux,
+enumerate the target's bounded `/proc/PID/fd` set first, retain each
+`socket:[inode]`, then join it to that process network namespace's bounded
+`tcp`, `tcp6`, `udp`, `udp6` and `unix` tables. Keep duplicate fds that refer
+to the same inode, tolerate an absent protocol table, and preserve Unix-socket
+path bytes including spaces and invalid UTF-8. On macOS, enumerate bounded
+fds and resolve only socket rows with `PROC_PIDFDSOCKETINFO` in the build-linked
+C adapter. In both cases `visited_count` describes the native descriptor scan,
+not the filtered result page; fd, family, protocol, local/remote endpoint and
+state are one snapshot bracketed by the same start identity. Do not use `lsof`
+or another runtime executable as a mechanism dependency.
+
 On macOS, link a small fixed-layout C adapter at build time when a system API is
 not directly bindgen-backed. The C side fills caller-owned bounded records; the
 Rust side validates return codes, counts, lengths and ranges before constructing

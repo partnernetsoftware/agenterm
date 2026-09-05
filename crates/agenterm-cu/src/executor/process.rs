@@ -642,6 +642,84 @@ pub(super) fn process_threads_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn process_sockets_payload(
+    pid: u32,
+    family: Option<&str>,
+    protocol: Option<&str>,
+    state: Option<&str>,
+    endpoint: Option<&str>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+) -> Result<Value, CuError> {
+    let (offset, limit, max_visited) = inspection_bounds(offset, limit, max_visited)?;
+    let (start_identity, snapshot) = identity_bracket(pid, "sockets", || {
+        agenterm_platform::process::sockets(pid, max_visited)
+    })?;
+    let matching = snapshot
+        .items
+        .iter()
+        .filter(|row| family.is_none_or(|value| row.family.eq_ignore_ascii_case(value)))
+        .filter(|row| protocol.is_none_or(|value| row.protocol.eq_ignore_ascii_case(value)))
+        .filter(|row| {
+            state.is_none_or(|value| {
+                row.state
+                    .as_deref()
+                    .is_some_and(|state| state.eq_ignore_ascii_case(value))
+            })
+        })
+        .filter(|row| raw_contains_ascii_case_insensitive(&row.endpoint, endpoint))
+        .collect::<Vec<_>>();
+    let matched = matching.len();
+    let rows = matching
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|row| {
+            let mut value = serde_json::Map::from_iter([
+                ("fd".to_owned(), json!(row.descriptor)),
+                ("family".to_owned(), json!(row.family)),
+                ("protocol".to_owned(), json!(row.protocol)),
+                ("local".to_owned(), Value::Null),
+                ("remote".to_owned(), Value::Null),
+                ("state".to_owned(), json!(row.state)),
+                (
+                    "inode".to_owned(),
+                    json!(row.inode.map(|value| value.to_string())),
+                ),
+            ]);
+            if let Some(local) = row.local.as_deref() {
+                insert_raw_text(&mut value, "local", local, true);
+            }
+            if let Some(remote) = row.remote.as_deref() {
+                insert_raw_text(&mut value, "remote", remote, true);
+            }
+            insert_raw_text(&mut value, "endpoint", &row.endpoint, true);
+            Value::Object(value)
+        })
+        .collect::<Vec<_>>();
+    let returned = rows.len();
+    let next_offset = offset.checked_add(returned).filter(|next| *next < matched);
+    Ok(json!({
+        "pid": pid,
+        "start_identity": start_identity,
+        "provider": process_inspection_provider("sockets"),
+        "sockets": rows,
+        "visited_count": snapshot.visited_count,
+        "matched_count": matched,
+        "returned_count": returned,
+        "read_errors": snapshot.read_errors,
+        "offset": offset,
+        "limit": limit,
+        "max_visited": max_visited,
+        "truncated_results": next_offset.is_some(),
+        "truncated_scan": snapshot.truncated_scan,
+        "next_offset": next_offset,
+        "verified": true,
+    }))
+}
+
 fn process_inspection_provider(subject: &str) -> String {
     let host = if cfg!(target_os = "macos") {
         "darwin-libproc"

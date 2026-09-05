@@ -553,7 +553,19 @@ flowchart LR
   evidence `cu.process-inspection`; Linux uses procfs and is cross-built for
   both ISAs. Windows refuses with `process_inspection_unsupported` instead of
   parsing undocumented remote-process structures. Linux native execution,
-  Windows refusal courts, sockets, and MCU-compatible watch/diff remain open.
+  Windows refusal courts and MCU-compatible watch/diff remain open.
+- [~] One-shot `process-sockets` now joins each process-owned fd to a bounded
+  native socket row between equal process start identities. The reply keeps
+  family, protocol, local/remote/combined endpoint, normalized state and fd;
+  Unix-domain endpoint bytes use the same lossless text-or-hex projection as
+  other native paths. Native descriptor traversal and caller filtering/page
+  limits are independent and both expose truncation. macOS uses build-linked
+  `libproc`; Linux joins `/proc/PID/fd` socket inodes to the process network
+  namespace without `lsof`; Windows returns typed unsupported instead of
+  parsing private handle tables. Public qjswasm evidence `cu.process-sockets`
+  is green on macOS against an invocation-owned loopback listener. Linux native
+  execution, Windows refusal courts, global/name socket inventory and bounded
+  watch/diff remain open.
 - [~] `process-wait` is the first process capability that deliberately exceeds
   MCU's implementation: the caller supplies the `process-state` start identity,
   ACU opens and waits on a native stable process object, and PID reuse is a
@@ -950,7 +962,9 @@ flowchart LR
   command is green and both Windows ISAs compile under strict Clippy; Linux and
   Windows runtime courts remain, so the ledger truthfully stays
   `platform-limited`. The compatibility entry routes exactly `acu network
-  interfaces [--max N]`; routes, DNS and sockets remain MCU gaps.
+  interfaces [--max N]`. The identity-safe per-process socket slice is now live
+  through `process-sockets`; routes, DNS and global/name-selected sockets remain
+  MCU gaps.
 
   `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,
@@ -970,21 +984,25 @@ flowchart LR
   journey deadline and use Windows' synchronous `agenterm.com` front door;
   neither court latency nor a GUI-subsystem early return may become false green.
   The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
-  Native system inventory remains platform-owned; socket rows must bind process
-  start identity rather than a reusable PID.
+  Native system inventory remains platform-owned. Process-owned socket rows now
+  bind matching process start identities; a future global inventory must join
+  every row back to the same exact-process contract rather than a reusable PID.
   The MCU-shaped compatibility entry routes exactly `acu network probe HOST`
-  to `network-probe`; routes, DNS and sockets remain explicit MCU fallbacks
+  to `network-probe`; routes, DNS and global/name socket inventory remain explicit MCU fallbacks
   instead of being mislabeled as the same capability.
 
 ```mermaid
 flowchart LR
-  N["network request"] --> I["interfaces: validate max"] & A["probe: validate before effect"]
+  N["network request"] --> I["interfaces: validate max"] & A["probe: validate before effect"] & PS["process sockets<br/>PID + start identity"]
   I --> U["Unix getifaddrs + ifindex"] & W["Windows adapters + LUID"]
   U & W --> S["stable rows<br/>scan 10k · response 1 MiB"]
   S --> E["three-OS public evidence"]
   A --> H["owned helper<br/>system resolver once"]
   H --> F["dedupe + freeze addresses"]
   F --> T["exact round-robin TCP attempts"]
+  PS --> PM["Darwin libproc"] & PL["Linux fd inode + proc net"] & PW["Windows typed unsupported"]
+  PM & PL --> PJ["fd/family/protocol/endpoints/state<br/>lossless + bounded"]
+  PJ & PW --> PE["public qjswasm native/refusal courts"]
   H --> DL{"overall deadline"}
   DL -->|expires| K["kill + reap exact helper<br/>typed timeout"]
   T --> E

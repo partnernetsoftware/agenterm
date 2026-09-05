@@ -82,6 +82,20 @@ pub struct ProcessThreadInfo {
     pub processor: Option<i32>,
 }
 
+/// One process-owned native socket. Endpoint bytes stay undecoded because a
+/// Unix-domain socket path is not required to be UTF-8.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessSocketInfo {
+    pub descriptor: i32,
+    pub family: String,
+    pub protocol: String,
+    pub local: Option<Vec<u8>>,
+    pub remote: Option<Vec<u8>>,
+    pub endpoint: Vec<u8>,
+    pub state: Option<String>,
+    pub inode: Option<u64>,
+}
+
 /// One raw, NUL-delimited entry from a process's initial environment block.
 ///
 /// The bytes are deliberately not decoded here: Unix environment names and

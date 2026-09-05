@@ -5,7 +5,7 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::contract::process::{
     ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind, ProcessFileDescriptor, ProcessInfo,
-    ProcessInspection, ProcessMemoryRegion, ProcessThreadInfo,
+    ProcessInspection, ProcessMemoryRegion, ProcessSocketInfo, ProcessThreadInfo,
 };
 
 pub(crate) fn stdout_probe_token(reader: &ChildStdout) -> Option<PipeProbeToken> {
@@ -113,6 +113,13 @@ pub(crate) fn threads(
     _max_visited: usize,
 ) -> Result<ProcessInspection<ProcessThreadInfo>, ProcessError> {
     inspection_unsupported("thread")
+}
+
+pub(crate) fn sockets(
+    _pid: u32,
+    _max_visited: usize,
+) -> Result<ProcessInspection<ProcessSocketInfo>, ProcessError> {
+    inspection_unsupported("socket")
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {

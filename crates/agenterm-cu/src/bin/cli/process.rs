@@ -40,6 +40,7 @@ pub fn parse(
         "process-fds" => process_fds(target, args),
         "process-maps" => process_maps(target, args),
         "process-threads" => process_threads(target, args),
+        "process-sockets" => process_sockets(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
@@ -179,6 +180,41 @@ fn process_threads(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
         pid,
         name,
         state,
+        offset,
+        limit,
+        max_visited,
+    })
+}
+
+fn process_sockets(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = inspection_pid(args, "process-sockets")?;
+    let family = bounded_filter(flag_text(args, "--family")?, "process-sockets --family", 32)?;
+    let protocol = bounded_filter(
+        flag_text(args, "--protocol")?,
+        "process-sockets --protocol",
+        32,
+    )?;
+    let state = bounded_filter(flag_text(args, "--state")?, "process-sockets --state", 32)?;
+    let endpoint = bounded_filter(
+        flag_text(args, "--endpoint")?,
+        "process-sockets --endpoint",
+        1024,
+    )?;
+    let InspectionBounds {
+        offset,
+        limit,
+        max_visited,
+    } = inspection_bounds(args)?;
+    if !args.is_empty() {
+        return Err(format!("process-sockets received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessSockets {
+        target,
+        pid,
+        family,
+        protocol,
+        state,
+        endpoint,
         offset,
         limit,
         max_visited,
@@ -864,6 +900,57 @@ mod tests {
                 .expect_err("identity")
                 .contains("--start-identity")
         );
+    }
+
+    #[test]
+    fn process_sockets_accepts_native_and_mcu_shapes_with_independent_bounds() {
+        let spec = verbs::lookup("process-sockets").expect("process-sockets verb");
+        let mut native = vec![
+            "--pid".into(),
+            "42".into(),
+            "--family".into(),
+            "IPv6".into(),
+            "--protocol".into(),
+            "tcp".into(),
+            "--state".into(),
+            "listen".into(),
+            "--endpoint".into(),
+            ":443".into(),
+            "--offset".into(),
+            "3".into(),
+            "--limit".into(),
+            "5".into(),
+            "--max-visited".into(),
+            "200".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut native).expect("native"),
+            Command::ProcessSockets {
+                pid: 42,
+                offset: Some(3),
+                limit: Some(5),
+                max_visited: Some(200),
+                ref family,
+                ref protocol,
+                ref state,
+                ref endpoint,
+                ..
+            } if family.as_deref() == Some("IPv6")
+                && protocol.as_deref() == Some("tcp")
+                && state.as_deref() == Some("listen")
+                && endpoint.as_deref() == Some(":443")
+        ));
+
+        let mut mcu = vec!["sockets".into(), "42".into(), "--limit".into(), "1".into()];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Ssh, &mut mcu).expect("MCU alias"),
+            Command::ProcessSockets {
+                target: TargetRef::Ssh,
+                pid: 42,
+                limit: Some(1),
+                ..
+            }
+        ));
     }
 
     #[test]

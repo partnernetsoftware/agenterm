@@ -990,6 +990,26 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_visited: Option<usize>,
     },
+    /// Inspect one identity-bracketed native socket snapshot. Endpoint bytes
+    /// remain lossless and scan completeness is independent from pagination.
+    ProcessSockets {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        family: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        endpoint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_visited: Option<usize>,
+    },
     /// One cumulative resource sample for an exact, identity-bound process.
     ProcessUsage {
         target: TargetRef,
@@ -2612,6 +2632,7 @@ impl Command {
             Self::ProcessFds { .. } => "process-fds".into(),
             Self::ProcessMaps { .. } => "process-maps".into(),
             Self::ProcessThreads { .. } => "process-threads".into(),
+            Self::ProcessSockets { .. } => "process-sockets".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
@@ -2761,6 +2782,7 @@ impl Command {
             | Self::ProcessFds { target, .. }
             | Self::ProcessMaps { target, .. }
             | Self::ProcessThreads { target, .. }
+            | Self::ProcessSockets { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }

@@ -1,0 +1,117 @@
+// Public black-box journey for identity-bound native process socket inventory.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-sockets"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, args, expected_error) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_process_sockets_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_process_sockets_wrong_error:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_process_sockets_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_sockets_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-sockets");
+const children = [];
+let succeeded = 0;
+let failure = "";
+try {
+  if (harness.host_is_windows()) {
+    print("STEP Windows refuses private arbitrary-process socket tables by type");
+    invoke(context.run_directory, executable, [
+      "process-sockets", "--pid", "" + rh.pid()
+    ], "process_inspection_unsupported");
+  } else {
+    print("STEP start one invocation-owned loopback TCP listener without sensitive traffic");
+    const stdout_path = rh.join(context.run_directory, "listener.stdout");
+    const stderr_path = rh.join(context.run_directory, "listener.stderr");
+    const listener = harness.start_child(context, {
+      program: executable,
+      args: ["--agenterm-cu-internal-network-probe-fixture", "1", "30000"],
+      current_dir: context.run_directory,
+      env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+      stdout_path: stdout_path,
+      stderr_path: stderr_path,
+      timeout_ms: 35000
+    }, "process-sockets-listener");
+    children.push(listener);
+    let ready = null;
+    for (let poll = 0; poll < 400; poll = poll + 1) {
+      if (direct_file(stdout_path)) {
+        const text = rh.read_text(stdout_path).trim();
+        if (text.startsWith("{") && text.endsWith("}")) {
+          const candidate = JSON.parse(text);
+          if (candidate.port > 0) { ready = candidate; break; }
+        }
+      }
+      ensure(harness.child_state(listener) !== "exited", "cu_process_sockets_listener_early_exit");
+      harness.sleep_ms(10);
+    }
+    ensure(ready !== null, "cu_process_sockets_listener_not_ready");
+
+    print("STEP public process-sockets joins the exact process fd to its listening endpoint");
+    const view = invoke(context.run_directory, executable, [
+      "process", "sockets", "" + listener.pid,
+      "--protocol", "tcp", "--state", "listen",
+      "--endpoint", ":" + ready.port,
+      "--limit", "8", "--max-visited", "256"
+    ]);
+    ensure(view.verified === true && view.start_identity.length > 0, "cu_process_sockets_identity");
+    ensure(view.visited_count >= view.returned_count, "cu_process_sockets_counts");
+    ensure(view.truncated_scan === false && view.truncated_results === false, "cu_process_sockets_truncated");
+    ensure(view.sockets.length === 1, "cu_process_sockets_listener_missing:" + JSON.stringify(view));
+    const socket = view.sockets[0];
+    ensure(socket.fd >= 0, "cu_process_sockets_fd");
+    ensure(socket.protocol === "TCP" && socket.state === "listen", "cu_process_sockets_semantics");
+    ensure(socket.endpoint.endsWith(":" + ready.port), "cu_process_sockets_endpoint");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+const completion = harness.complete_children(context, children, succeeded !== 0, failure);
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.process-sockets");
+  harness.remove_run(context);
+  print("PASS: process sockets are native, bounded, identity-safe and lossless");
+}
+if (failure !== "") { throw failure; }
+ensure(completion.cleanup.completed_pids.length === children.length, "cu_process_sockets_cleanup");
+if (children.length > 0) {
+  ensure(harness.process_present(children[0].pid) === 0, "cu_process_sockets_listener_orphan");
+}
+return;

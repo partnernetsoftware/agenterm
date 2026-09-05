@@ -402,8 +402,9 @@ shapes fail typed instead of being ignored.
   courts remain before promotion from `platform-limited` to `native`.
   The active qjswasm/tinyvm host surface still has no generic TCP or DNS API;
   historical catalog names are not implementation. Routes/DNS remain native
-  platform work, while socket rows must join a process start identity rather
-  than a reusable PID alone.
+  platform work. Process-owned socket rows now join one native fd to a snapshot
+  bracketed by the same start identity; global/name-selected socket inventory
+  and watch/diff remain open rather than reusing a naked PID.
 - Device/audio accounting is complete across peripheral inventory and events,
   exclusive device leases, byte I/O, serial configuration and default-output
   state. A path alone is never durable device identity, and audio backends stay
@@ -483,7 +484,9 @@ Q2 fast delegated facades
    ├─ [x] exact-object process signal/tree: closed names + typed postcondition semantics
    ├─ [~] process fds/maps/threads: native one-shot + public qjswasm macOS court ✓
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
-   └─ [ ] process sockets, remaining rich filters and privileged mutation
+   ├─ [~] process sockets: native one-shot + public qjswasm macOS court ✓
+   │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
+   └─ [ ] remaining rich filters and privileged mutation
 Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity

@@ -6,6 +6,7 @@
 
 #define AGT_PROCESS_PATH_MAX 1024
 #define AGT_PROCESS_THREAD_NAME_MAX 64
+#define AGT_PROCESS_ENDPOINT_MAX 1024
 
 typedef struct {
   int32_t descriptor;
@@ -55,6 +56,19 @@ typedef struct {
   uint8_t name[AGT_PROCESS_THREAD_NAME_MAX];
 } agt_process_thread;
 
+typedef struct {
+  int32_t descriptor;
+  int32_t family;
+  int32_t socket_type;
+  int32_t protocol;
+  int32_t tcp_state;
+  uint32_t generic_state;
+  uint32_t local_len;
+  uint32_t remote_len;
+  uint8_t local[AGT_PROCESS_ENDPOINT_MAX];
+  uint8_t remote[AGT_PROCESS_ENDPOINT_MAX];
+} agt_process_socket;
+
 /* 0 success, 1 invalid input, 2 denied, 3 native failure, 4 malformed. */
 int32_t agt_process_fds(uint32_t pid, agt_process_fd *out, size_t capacity,
                         size_t *visited, size_t *written, size_t *read_errors,
@@ -63,6 +77,10 @@ int32_t agt_process_regions(uint32_t pid, agt_process_region *out,
                             size_t capacity, size_t *visited,
                             size_t *written, int32_t *truncated);
 int32_t agt_process_threads(uint32_t pid, agt_process_thread *out,
+                            size_t capacity, size_t *visited,
+                            size_t *written, size_t *read_errors,
+                            int32_t *truncated);
+int32_t agt_process_sockets(uint32_t pid, agt_process_socket *out,
                             size_t capacity, size_t *visited,
                             size_t *written, size_t *read_errors,
                             int32_t *truncated);

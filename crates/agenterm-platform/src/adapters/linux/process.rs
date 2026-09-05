@@ -5,7 +5,7 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 use crate::contract::process::{
     PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
     ProcessFileDescriptor, ProcessInfo, ProcessInspection, ProcessMemoryRegion, ProcessObservation,
-    ProcessThreadInfo,
+    ProcessSocketInfo, ProcessThreadInfo,
 };
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::process_observation::observe;
@@ -75,21 +75,32 @@ pub(crate) fn file_descriptors(
 
     let directory = format!("/proc/{pid}/fd");
     let entries = std::fs::read_dir(&directory).map_err(inspection_error)?;
-    let mut descriptors = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse::<i32>().ok())
-                .map(|descriptor| (descriptor, entry.path()))
-        })
-        .collect::<Vec<_>>();
+    let mut descriptors = Vec::with_capacity(max_visited.saturating_add(1));
+    let mut read_errors = 0usize;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                read_errors += 1;
+                continue;
+            }
+        };
+        let Some(descriptor) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        descriptors.push((descriptor, entry.path()));
+        if descriptors.len() > max_visited {
+            break;
+        }
+    }
     descriptors.sort_unstable_by_key(|(descriptor, _)| *descriptor);
     let truncated_scan = descriptors.len() > max_visited;
     descriptors.truncate(max_visited);
     let visited_count = descriptors.len();
-    let mut read_errors = 0usize;
     let items = descriptors
         .into_iter()
         .filter_map(|(descriptor, path)| match std::fs::read_link(path) {
@@ -170,6 +181,317 @@ pub(crate) fn memory_regions(
         read_errors: 0,
         truncated_scan,
     })
+}
+
+pub(crate) fn sockets(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessSocketInfo>, ProcessError> {
+    use std::collections::HashMap;
+
+    let directory = format!("/proc/{pid}/fd");
+    let entries = std::fs::read_dir(&directory).map_err(inspection_error)?;
+    let mut descriptors = Vec::with_capacity(max_visited.saturating_add(1));
+    let mut read_errors = 0usize;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                read_errors += 1;
+                continue;
+            }
+        };
+        let Some(descriptor) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        descriptors.push((descriptor, entry.path()));
+        if descriptors.len() > max_visited {
+            break;
+        }
+    }
+    descriptors.sort_unstable_by_key(|(descriptor, _)| *descriptor);
+    let truncated_scan = descriptors.len() > max_visited;
+    descriptors.truncate(max_visited);
+    let visited_count = descriptors.len();
+    let mut socket_descriptors = Vec::new();
+    for (descriptor, path) in descriptors {
+        let target = match std::fs::read_link(path) {
+            Ok(target) => target,
+            Err(_) => {
+                read_errors += 1;
+                continue;
+            }
+        };
+        let bytes = std::os::unix::ffi::OsStrExt::as_bytes(target.as_os_str());
+        if let Some(inode) = parse_socket_inode(bytes) {
+            socket_descriptors.push((descriptor, inode));
+        }
+    }
+
+    let mut by_inode = HashMap::new();
+    let mut source_bytes = 0usize;
+    for (file, family, protocol) in [
+        ("tcp", "IPv4", "TCP"),
+        ("tcp6", "IPv6", "TCP"),
+        ("udp", "IPv4", "UDP"),
+        ("udp6", "IPv6", "UDP"),
+    ] {
+        let bytes = read_bounded_socket_table(pid, file, &mut source_bytes)?;
+        for line in bytes.split(|byte| *byte == b'\n').skip(1) {
+            if line.iter().all(u8::is_ascii_whitespace) {
+                continue;
+            }
+            match parse_linux_inet_socket(line, family, protocol) {
+                Ok((inode, row)) => {
+                    by_inode.insert(inode, row);
+                }
+                Err(_) => read_errors += 1,
+            }
+        }
+    }
+    let unix = read_bounded_socket_table(pid, "unix", &mut source_bytes)?;
+    for line in unix.split(|byte| *byte == b'\n').skip(1) {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        match parse_linux_unix_socket(line) {
+            Ok((inode, row)) => {
+                by_inode.insert(inode, row);
+            }
+            Err(_) => read_errors += 1,
+        }
+    }
+
+    let items = socket_descriptors
+        .into_iter()
+        .map(|(descriptor, inode)| {
+            let mut row = by_inode
+                .get(&inode)
+                .cloned()
+                .unwrap_or_else(|| ProcessSocketInfo {
+                    descriptor,
+                    family: "Other".to_owned(),
+                    protocol: "UNKNOWN".to_owned(),
+                    local: None,
+                    remote: None,
+                    endpoint: format!("socket:[{inode}]").into_bytes(),
+                    state: None,
+                    inode: Some(inode),
+                });
+            row.descriptor = descriptor;
+            row
+        })
+        .collect();
+    Ok(ProcessInspection {
+        items,
+        visited_count,
+        read_errors,
+        truncated_scan,
+    })
+}
+
+fn parse_socket_inode(target: &[u8]) -> Option<u64> {
+    let digits = target.strip_prefix(b"socket:[")?.strip_suffix(b"]")?;
+    std::str::from_utf8(digits).ok()?.parse().ok()
+}
+
+fn read_bounded_socket_table(
+    pid: u32,
+    name: &str,
+    consumed: &mut usize,
+) -> Result<Vec<u8>, ProcessError> {
+    use std::io::Read as _;
+
+    const MAX_TOTAL_BYTES: usize = 8 * 1024 * 1024;
+    let remaining = MAX_TOTAL_BYTES.checked_sub(*consumed).ok_or_else(|| {
+        ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "process socket tables exceed 8 MiB",
+        )
+    })?;
+    let file = match std::fs::File::open(format!("/proc/{pid}/net/{name}")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(inspection_error(error)),
+    };
+    let mut bytes = Vec::new();
+    file.take(remaining as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(inspection_error)?;
+    if bytes.len() > remaining {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InventoryTooLarge,
+            "process socket tables exceed 8 MiB",
+        ));
+    }
+    *consumed += bytes.len();
+    Ok(bytes)
+}
+
+fn parse_linux_inet_socket(
+    line: &[u8],
+    family: &str,
+    protocol: &str,
+) -> Result<(u64, ProcessSocketInfo), ProcessError> {
+    let fields = line
+        .split(u8::is_ascii_whitespace)
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
+    if fields.len() < 10 {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "process socket table row has too few fields",
+        ));
+    }
+    let local = parse_linux_inet_endpoint(fields[1], family)?;
+    let remote = parse_linux_inet_endpoint(fields[2], family)?;
+    let state_raw = std::str::from_utf8(fields[3]).map_err(|_| {
+        ProcessError::new(ProcessErrorKind::InvalidData, "socket state is not ASCII")
+    })?;
+    let inode = parse_decimal(fields[9], "socket inode")?;
+    let remote_unspecified = remote == b"0.0.0.0:0" || remote == b"[::]:0";
+    let endpoint = if remote_unspecified {
+        local.clone()
+    } else {
+        [local.as_slice(), b"->", remote.as_slice()].concat()
+    };
+    let state = if protocol == "TCP" {
+        Some(linux_tcp_state(state_raw).to_owned())
+    } else {
+        Some(
+            if remote_unspecified {
+                "unconnected"
+            } else {
+                "connected"
+            }
+            .to_owned(),
+        )
+    };
+    Ok((
+        inode,
+        ProcessSocketInfo {
+            descriptor: -1,
+            family: family.to_owned(),
+            protocol: protocol.to_owned(),
+            local: Some(local),
+            remote: (!remote_unspecified).then_some(remote),
+            endpoint,
+            state,
+            inode: Some(inode),
+        },
+    ))
+}
+
+fn parse_linux_inet_endpoint(field: &[u8], family: &str) -> Result<Vec<u8>, ProcessError> {
+    let separator = field
+        .iter()
+        .rposition(|byte| *byte == b':')
+        .ok_or_else(|| {
+            ProcessError::new(
+                ProcessErrorKind::InvalidData,
+                "process socket endpoint has no port",
+            )
+        })?;
+    let address = &field[..separator];
+    let port = parse_hex(&field[separator + 1..], "socket port")?;
+    let port = u16::try_from(port)
+        .map_err(|_| ProcessError::new(ProcessErrorKind::InvalidData, "socket port exceeds u16"))?;
+    let text = match family {
+        "IPv4" => {
+            if address.len() != 8 {
+                return Err(ProcessError::new(
+                    ProcessErrorKind::InvalidData,
+                    "IPv4 socket address is not 8 hex digits",
+                ));
+            }
+            let raw = u32::try_from(parse_hex(address, "IPv4 socket address")?).map_err(|_| {
+                ProcessError::new(ProcessErrorKind::InvalidData, "IPv4 address exceeds u32")
+            })?;
+            format!("{}:{port}", std::net::Ipv4Addr::from(raw.to_le_bytes()))
+        }
+        "IPv6" => {
+            if address.len() != 32 {
+                return Err(ProcessError::new(
+                    ProcessErrorKind::InvalidData,
+                    "IPv6 socket address is not 32 hex digits",
+                ));
+            }
+            let mut bytes = [0u8; 16];
+            for (index, word) in address.chunks_exact(8).enumerate() {
+                let raw = u32::try_from(parse_hex(word, "IPv6 socket word")?).map_err(|_| {
+                    ProcessError::new(ProcessErrorKind::InvalidData, "IPv6 word exceeds u32")
+                })?;
+                bytes[index * 4..index * 4 + 4].copy_from_slice(&raw.to_le_bytes());
+            }
+            format!("[{}]:{port}", std::net::Ipv6Addr::from(bytes))
+        }
+        _ => unreachable!("caller selects a fixed address family"),
+    };
+    Ok(text.into_bytes())
+}
+
+fn linux_tcp_state(code: &str) -> &str {
+    match code {
+        "01" => "established",
+        "02" => "syn-sent",
+        "03" => "syn-received",
+        "04" => "fin-wait-1",
+        "05" => "fin-wait-2",
+        "06" => "time-wait",
+        "07" => "closed",
+        "08" => "close-wait",
+        "09" => "last-ack",
+        "0A" | "0a" => "listen",
+        "0B" | "0b" => "closing",
+        _ => "unknown",
+    }
+}
+
+fn parse_linux_unix_socket(line: &[u8]) -> Result<(u64, ProcessSocketInfo), ProcessError> {
+    let mut cursor = 0usize;
+    let mut fields = Vec::with_capacity(7);
+    for _ in 0..7 {
+        fields.push(take_map_token(line, &mut cursor)?);
+    }
+    while cursor < line.len() && line[cursor].is_ascii_whitespace() {
+        cursor += 1;
+    }
+    let inode = parse_decimal(fields[6], "Unix socket inode")?;
+    let local = (cursor < line.len()).then(|| line[cursor..].to_vec());
+    let endpoint = local
+        .clone()
+        .unwrap_or_else(|| format!("unix:[{inode}]").into_bytes());
+    let socket_type = std::str::from_utf8(fields[4]).unwrap_or("");
+    let protocol = match socket_type {
+        "0001" => "UNIX-STREAM",
+        "0002" => "UNIX-DGRAM",
+        "0005" => "UNIX-SEQPACKET",
+        _ => "UNIX",
+    };
+    let state = match fields[5] {
+        b"01" => "unconnected",
+        b"02" => "connecting",
+        b"03" => "connected",
+        b"04" => "disconnecting",
+        _ => "unknown",
+    };
+    Ok((
+        inode,
+        ProcessSocketInfo {
+            descriptor: -1,
+            family: "Unix".to_owned(),
+            protocol: protocol.to_owned(),
+            local,
+            remote: None,
+            endpoint,
+            state: Some(state.to_owned()),
+            inode: Some(inode),
+        },
+    ))
 }
 
 fn parse_linux_map_line(line: &[u8]) -> Result<ProcessMemoryRegion, ProcessError> {
@@ -590,5 +912,32 @@ impl ProcessTreeGuard {
         }
         self.active = false;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod socket_tests {
+    use super::{parse_linux_inet_socket, parse_linux_unix_socket};
+
+    #[test]
+    fn inet_socket_parser_preserves_fd_join_fields_and_tcp_state() {
+        let line = b"0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000 501 0 12345 1";
+        let (inode, row) = parse_linux_inet_socket(line, "IPv4", "TCP").expect("tcp row");
+        assert_eq!(inode, 12_345);
+        assert_eq!(row.local.as_deref(), Some(&b"127.0.0.1:8080"[..]));
+        assert_eq!(row.remote, None);
+        assert_eq!(row.endpoint, b"127.0.0.1:8080");
+        assert_eq!(row.state.as_deref(), Some("listen"));
+    }
+
+    #[test]
+    fn unix_socket_parser_keeps_non_utf8_and_spaces_losslessly() {
+        let line =
+            b"0000000000000000: 00000002 00000000 00010000 0001 01 54321 /tmp/name \xff.sock";
+        let (inode, row) = parse_linux_unix_socket(line).expect("unix row");
+        assert_eq!(inode, 54_321);
+        assert_eq!(row.protocol, "UNIX-STREAM");
+        assert_eq!(row.local.as_deref(), Some(&b"/tmp/name \xff.sock"[..]));
+        assert_eq!(row.endpoint, b"/tmp/name \xff.sock");
     }
 }

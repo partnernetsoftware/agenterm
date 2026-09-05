@@ -5,7 +5,7 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 use crate::contract::process::{
     PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
     ProcessFileDescriptor, ProcessInfo, ProcessInspection, ProcessMemoryRegion, ProcessObservation,
-    ProcessThreadInfo,
+    ProcessSocketInfo, ProcessThreadInfo,
 };
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::process_observation::observe;
@@ -96,6 +96,7 @@ pub(crate) fn list() -> Result<Vec<ProcessInfo>, ProcessError> {
 
 const NATIVE_PATH_MAX: usize = 1024;
 const NATIVE_THREAD_NAME_MAX: usize = 64;
+const NATIVE_ENDPOINT_MAX: usize = 1024;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -151,6 +152,21 @@ struct NativeThread {
     name: [u8; NATIVE_THREAD_NAME_MAX],
 }
 
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct NativeSocket {
+    descriptor: i32,
+    family: i32,
+    socket_type: i32,
+    protocol: i32,
+    tcp_state: i32,
+    generic_state: u32,
+    local_len: u32,
+    remote_len: u32,
+    local: [u8; NATIVE_ENDPOINT_MAX],
+    remote: [u8; NATIVE_ENDPOINT_MAX],
+}
+
 unsafe extern "C" {
     fn agt_process_fds(
         pid: u32,
@@ -172,6 +188,15 @@ unsafe extern "C" {
     fn agt_process_threads(
         pid: u32,
         out: *mut NativeThread,
+        capacity: usize,
+        visited: *mut usize,
+        written: *mut usize,
+        read_errors: *mut usize,
+        truncated: *mut i32,
+    ) -> i32;
+    fn agt_process_sockets(
+        pid: u32,
+        out: *mut NativeSocket,
         capacity: usize,
         visited: *mut usize,
         written: *mut usize,
@@ -426,6 +451,126 @@ pub(crate) fn threads(
         read_errors,
         truncated_scan: truncated != 0,
     })
+}
+
+pub(crate) fn sockets(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessSocketInfo>, ProcessError> {
+    let empty = unsafe { std::mem::zeroed::<NativeSocket>() };
+    let mut raw = vec![empty; max_visited];
+    let (mut visited, mut written, mut read_errors, mut truncated) = (0, 0, 0, 0);
+    let code = unsafe {
+        agt_process_sockets(
+            pid,
+            raw.as_mut_ptr(),
+            raw.len(),
+            &raw mut visited,
+            &raw mut written,
+            &raw mut read_errors,
+            &raw mut truncated,
+        )
+    };
+    if code != 0 {
+        return Err(native_inspection_error(code, "socket"));
+    }
+    if written > raw.len()
+        || visited > max_visited
+        || written
+            .checked_add(read_errors)
+            .is_none_or(|accounted| accounted > visited)
+    {
+        return Err(ProcessError::new(
+            ProcessErrorKind::InvalidData,
+            "native socket counts exceed their buffers",
+        ));
+    }
+    raw.truncate(written);
+    let items = raw
+        .into_iter()
+        .map(|row| {
+            let local = native_bytes(&row.local, row.local_len, "socket local endpoint")?;
+            let remote = native_bytes(&row.remote, row.remote_len, "socket remote endpoint")?;
+            let family = match row.family {
+                libc::AF_INET => "IPv4".to_owned(),
+                libc::AF_INET6 => "IPv6".to_owned(),
+                libc::AF_UNIX => "Unix".to_owned(),
+                other => format!("family-{other}"),
+            };
+            let protocol = match (row.family, row.protocol, row.socket_type) {
+                (libc::AF_INET | libc::AF_INET6, libc::IPPROTO_TCP, _) => "TCP".to_owned(),
+                (libc::AF_INET | libc::AF_INET6, libc::IPPROTO_UDP, _) => "UDP".to_owned(),
+                (libc::AF_UNIX, _, libc::SOCK_STREAM) => "UNIX-STREAM".to_owned(),
+                (libc::AF_UNIX, _, libc::SOCK_DGRAM) => "UNIX-DGRAM".to_owned(),
+                (libc::AF_UNIX, _, _) => "UNIX".to_owned(),
+                (_, other, _) => format!("protocol-{other}"),
+            };
+            let remote = remote.filter(|value| !endpoint_is_unspecified(value));
+            let endpoint = match (local.as_deref(), remote.as_deref()) {
+                (Some(local), Some(remote)) => [local, b"->", remote].concat(),
+                (Some(local), None) => local.to_vec(),
+                (None, Some(remote)) => remote.to_vec(),
+                (None, None) => format!("socket-fd:{}", row.descriptor).into_bytes(),
+            };
+            let state = if row.tcp_state >= 0 {
+                Some(darwin_tcp_state(row.tcp_state).to_owned())
+            } else {
+                generic_socket_state(row.generic_state).map(str::to_owned)
+            };
+            Ok(ProcessSocketInfo {
+                descriptor: row.descriptor,
+                family,
+                protocol,
+                local,
+                remote,
+                endpoint,
+                state,
+                inode: None,
+            })
+        })
+        .collect::<Result<Vec<_>, ProcessError>>()?;
+    Ok(ProcessInspection {
+        items,
+        visited_count: visited,
+        read_errors,
+        truncated_scan: truncated != 0,
+    })
+}
+
+fn endpoint_is_unspecified(endpoint: &[u8]) -> bool {
+    endpoint == b"0.0.0.0:0" || endpoint == b"[::]:0"
+}
+
+fn darwin_tcp_state(state: i32) -> &'static str {
+    match state {
+        0 => "closed",
+        1 => "listen",
+        2 => "syn-sent",
+        3 => "syn-received",
+        4 => "established",
+        5 => "close-wait",
+        6 => "fin-wait-1",
+        7 => "closing",
+        8 => "last-ack",
+        9 => "fin-wait-2",
+        10 => "time-wait",
+        11 => "reserved",
+        _ => "unknown",
+    }
+}
+
+fn generic_socket_state(flags: u32) -> Option<&'static str> {
+    if flags & 0x0002 != 0 {
+        Some("connected")
+    } else if flags & 0x0004 != 0 {
+        Some("connecting")
+    } else if flags & 0x0008 != 0 {
+        Some("disconnecting")
+    } else if flags & 0x2000 != 0 {
+        Some("disconnected")
+    } else {
+        None
+    }
 }
 
 pub(crate) fn command_line(pid: u32) -> Result<String, ProcessError> {

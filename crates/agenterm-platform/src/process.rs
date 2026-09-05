@@ -13,7 +13,7 @@ use crate::{contract::process::ProcessInfo, selected::process as adapter};
 pub use crate::contract::process::{
     PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentEntry, ProcessEnvironmentSnapshot,
     ProcessError, ProcessErrorKind, ProcessFileDescriptor, ProcessInspection, ProcessMemoryRegion,
-    ProcessThreadInfo,
+    ProcessSocketInfo, ProcessThreadInfo,
 };
 pub use crate::contract::process::{PipeProbeError, PipeProbeToken};
 pub use crate::process_observation::{ProcessObservation, observe, start_identity};
@@ -112,6 +112,16 @@ pub fn threads(
 ) -> Result<ProcessInspection<ProcessThreadInfo>, ProcessError> {
     validate_inspection(pid, max_visited)?;
     adapter::threads(pid, max_visited)
+}
+
+/// Read one bounded process-local socket inventory. Native source traversal is
+/// bounded independently from product-side filtering and pagination.
+pub fn sockets(
+    pid: u32,
+    max_visited: usize,
+) -> Result<ProcessInspection<ProcessSocketInfo>, ProcessError> {
+    validate_inspection(pid, max_visited)?;
+    adapter::sockets(pid, max_visited)
 }
 
 pub fn kill(pid: u32) -> Result<(), ProcessError> {
@@ -224,6 +234,8 @@ mod tests {
         assert!(!maps.items.is_empty());
         let threads = super::threads(std::process::id(), 256).expect("current threads");
         assert!(!threads.items.is_empty());
+        let sockets = super::sockets(std::process::id(), 256).expect("current sockets");
+        assert!(sockets.visited_count <= 256);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
