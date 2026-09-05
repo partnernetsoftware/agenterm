@@ -43,6 +43,13 @@ ACU replaces MCU
 │  ├─ runtime/session/lock/audit → on-demand coordinator + per-resource owners
 │  ├─ Simulator → explicit macOS-limited typed facade
 │  └─ current/ssh/vnc/VM targets preserve one command and result schema
+├─ active device frontier
+│  ├─ [x] opaque id → exact resident native object; no raw locator as public authority
+│  ├─ [x] macOS public qjswasm claim/replay/I/O/renew/release/TTL/session court
+│  ├─ [x] durable state and audit exclude locator, lease secret and byte payload
+│  ├─ [ ] preserve partial-write lower bound and delivery uncertainty on failure
+│  ├─ [ ] Linux native public qjswasm court
+│  └─ [ ] Windows native COM/virtual-COM court
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter

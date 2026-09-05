@@ -1346,15 +1346,22 @@ flowchart LR
   must close both managed jobs and device owners or report
   `runtime_session_cleanup_uncertain`.
 
-  This is implementation progress, not yet a delivery claim. The next owning
-  evidence is a guarded, non-sensitive public qjswasm fixture that exercises
-  claim → write → read → renew → release, exact replay, wrong-secret/session/
-  generation refusal, TTL cleanup, setup-refresh deferral and session-end
-  cleanup without exposing a raw device path as test authority. Unix may use a
-  private PTY-backed device fixture whose owner and object identity are
-  revalidated; Windows still needs a native COM/virtual-COM court. Until those
-  courts pass, lifecycle, serial configuration and byte I/O remain `[~]` and
-  may not remove their MCU fallback.
+  The registered `cu.device-lease` public qjswasm journey is green on macOS
+  arm64. Its invocation-owned PTY fixture is admitted only through a private,
+  owner-bound registry; the public caller sees an opaque token and device id,
+  never a raw device path. The journey proves claim → write → read → renew →
+  release, exact replay without a second open or repeated secret, wrong-secret/
+  session/generation refusal, setup-refresh deferral, session-end cleanup and
+  TTL expiry. It also proves that durable state and audit contain no locator,
+  lease secret, byte payload or fixture token.
+
+  This is one native court, not six-cell delivery. Linux must run the same
+  public fixture on native courts; Windows still needs a native COM or
+  controlled virtual-COM court because a Unix PTY is not Windows evidence.
+  Partial-write failure semantics must preserve known lower bounds and delivery
+  uncertainty before byte I/O can be promoted. Until those courts pass,
+  lifecycle, serial configuration and byte I/O remain `[~]`; only the lossless
+  native argument shapes may leave the transitional MCU fallback.
 
 ```text
 device.inventory
@@ -1382,8 +1389,10 @@ device.claim + byte I/O
 ├─ [x] durable crash states contain no locator, payload or plaintext lease
 ├─ [x] setup refresh defers around active/uncertain owners without disrupting them
 ├─ [x] session-end closes jobs and device owners or returns cleanup-uncertain
-├─ [ ] public qjswasm fixture: replay/refusal/I/O/renew/release/TTL/session cleanup
-├─ [ ] macOS + Linux native runtime courts
+├─ [x] macOS public qjswasm fixture: replay/refusal/I/O/renew/release/TTL/session cleanup
+├─ [x] durable state + audit exclude locator/secret/payload/fixture token
+├─ [ ] partial-write lower-bound/delivery-uncertainty semantics
+├─ [ ] Linux native public qjswasm courts
 └─ [ ] Windows native COM/virtual-COM runtime court
 ```
 
@@ -1397,13 +1406,13 @@ flowchart LR
   P --> A["claim admission<br/>session + target lock"]
   A --> O["resident exact-object owner<br/>fd / HANDLE"]
   O --> IO["bounded config + read/write<br/>renew / release / expiry"]
-  IO --> DC["public qjs fixture<br/>then native courts"]
+  IO --> DC["macOS public qjs fixture ✓<br/>Linux + Windows courts pending"]
   W --> WC{"coverage complete?"}
   WC -->|no| WS["suppress inferred events<br/>typed incomplete coverage"]
   WC -->|yes| WE["added · removed · changed"]
   WS & WE --> C
   DC --> C
-  C -->|macOS green| M["platform-limited"]
+  C -->|macOS green only| M["platform-limited"]
   C -->|Linux + Windows green| V["native inventory leaf"]
 ```
 - [~] `device-screenshot` is now an integrated current-target leaf, with live
