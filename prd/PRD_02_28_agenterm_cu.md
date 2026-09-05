@@ -239,7 +239,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   authenticated browser. The near-term default is an owned `browser-session`:
   ACU starts a separate isolated profile with a random endpoint, records exact
   process identity, owns the complete process tree, and exposes typed
-  start/list/status/stop/remove. Existing browsers with an explicit startup
+  start/list/status/stop/remove. Its pure foundation now validates one portable
+  session-name component, emits `--remote-debugging-port=0` rather than scanning
+  or reserving a guessed port, and strictly parses the bounded two-line
+  `DevToolsActivePort` record into a loopback browser websocket. The resident
+  owner, registry, executable discovery and cleanup verbs remain open. Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
   retain AX/tab-strip control. The authenticated-profile route is a separately
   installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v1 core

@@ -1534,6 +1534,14 @@ closed command catalog and object-shaped arguments before routing. Keep this
 pure protocol core independent from the extension installer and browser host so
 all three platform installers share the same truth.
 
+For an owned Chromium session, request `--remote-debugging-port=0` and read the
+bounded `DevToolsActivePort` file from that session's private profile. Require a
+nonzero decimal port and a `/devtools/browser/` websocket path; reject extra
+records, fragments, control bytes and oversized input. Do not pre-bind a port,
+scan neighbors, publish the private profile path, or confuse this pure launch
+contract with durable ownership: a resident owner must still retain the exact
+process-tree guard and prove endpoint/profile cleanup.
+
 When a caller has a browser PID instead of a CDP port, treat the process
 command line as secret-bearing mechanism input, not evidence. Observe a stable
 native start identity, perform one bounded exact-PID command-line query, observe

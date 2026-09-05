@@ -407,7 +407,7 @@
           "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
           "acu_shape": null,
           "state": "gap",
-          "next": "browser-session start/list/status/stop/remove with isolated owned profile, random DevToolsActivePort endpoint, exact process identity, recoverable removal and no foreground takeover"
+          "next": "portable session-name, random-port launch arguments and strict DevToolsActivePort parsing are native-library foundations; still required: browser-session start/list/status/stop/remove with resident owner, isolated profile, exact process identity, recoverable removal and no foreground takeover"
         },
         {
           "id": "browser.mv3-native-bridge",
