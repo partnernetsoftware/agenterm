@@ -1,18 +1,25 @@
 use std::{
     ffi::{OsStr, OsString},
-    io,
+    fs::File,
+    io::{self, Read},
     os::windows::{
         ffi::OsStrExt as _,
-        io::{AsHandle as _, AsRawHandle as _},
+        io::{AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle},
     },
     time::Duration,
 };
 
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, GetLastError},
-    System::Threading::{
-        CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW,
-        PROCESS_INFORMATION, ResumeThread, STARTUPINFOW,
+    Foundation::{CloseHandle, GetLastError, HANDLE},
+    System::{
+        Pipes::CreatePipe,
+        Threading::{
+            CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW,
+            DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
+            InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, ResumeThread,
+            STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute,
+        },
     },
 };
 
@@ -26,7 +33,17 @@ use crate::{
 pub struct ContainedChild {
     process: ProcessReference,
     containment: ProcessContainment,
+    stdout: Option<ContainedChildOutput>,
+    stderr: Option<ContainedChildOutput>,
     exit: Option<ProcessExit>,
+}
+
+pub struct ContainedChildOutput(File);
+
+impl Read for ContainedChildOutput {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buffer)
+    }
 }
 
 pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChild> {
@@ -71,31 +88,75 @@ fn spawn_suspended_into(
         .as_deref()
         .map(|path| nul_terminated(path.as_os_str()))
         .transpose()?;
-    let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
-    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let mut capture = spec.capture_output.then(CaptureStdio::new).transpose()?;
+    let mut raw_inherited = capture
+        .as_ref()
+        .map(CaptureStdio::raw_child_handles)
+        .unwrap_or_default();
+    let mut attributes = if raw_inherited.is_empty() {
+        None
+    } else {
+        Some(AttributeList::with_handle_list(&mut raw_inherited)?)
+    };
+    let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
+    startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+    if let Some(capture) = &capture {
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = capture.stdin.as_raw_handle();
+        startup.StartupInfo.hStdOutput = capture.stdout_write.as_raw_handle();
+        startup.StartupInfo.hStdError = capture.stderr_write.as_raw_handle();
+        startup.lpAttributeList = attributes
+            .as_mut()
+            .expect("captured stdio has an attribute list")
+            .raw;
+    }
     let mut information: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
-    let ok = unsafe {
-        CreateProcessW(
+    let borrowed = raw_inherited
+        .iter()
+        .map(|handle| unsafe { BorrowedHandle::borrow_raw(*handle) })
+        .collect::<Vec<_>>();
+    let created = crate::process_spawn::with_inheritable_handles(borrowed.as_slice(), || unsafe {
+        let ok = CreateProcessW(
             application.as_ptr(),
             command_line.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
-            0,
-            CREATE_NO_WINDOW | CREATE_SUSPENDED | extra_flags,
+            i32::from(!raw_inherited.is_empty()),
+            CREATE_NO_WINDOW
+                | CREATE_SUSPENDED
+                | extra_flags
+                | if raw_inherited.is_empty() {
+                    0
+                } else {
+                    EXTENDED_STARTUPINFO_PRESENT
+                },
             std::ptr::null(),
             directory
                 .as_ref()
                 .map_or(std::ptr::null(), |value| value.as_ptr()),
-            &startup,
+            &startup.StartupInfo,
             &raw mut information,
-        )
+        );
+        let error = if ok == 0 { GetLastError() } else { 0 };
+        (ok, error)
+    });
+    let (ok, native_error) = match created {
+        Ok(result) => result,
+        Err(error) => {
+            cleanup_information(information);
+            return Err(AttemptError::io(error));
+        }
     };
     if ok == 0 {
         return Err(AttemptError::io(io::Error::from_raw_os_error(
-            unsafe { GetLastError() } as i32,
+            native_error as i32,
         )));
     }
     let handles = CreatedHandles(information);
+    let (stdout, stderr) = capture
+        .take()
+        .map(CaptureStdio::into_parent_outputs)
+        .unwrap_or((None, None));
     let process = match ProcessReference::duplicate_from(handles.process()) {
         Ok(process) => process,
         Err(error) => {
@@ -120,6 +181,8 @@ fn spawn_suspended_into(
     Ok(ContainedChild {
         process,
         containment,
+        stdout,
+        stderr,
         exit: None,
     })
 }
@@ -162,6 +225,14 @@ impl ContainedChild {
         Ok(Some(exit))
     }
 
+    pub(crate) fn take_stdout(&mut self) -> Option<ContainedChildOutput> {
+        self.stdout.take()
+    }
+
+    pub(crate) fn take_stderr(&mut self) -> Option<ContainedChildOutput> {
+        self.stderr.take()
+    }
+
     pub(crate) fn terminate_and_wait(&mut self, timeout: Duration) -> io::Result<()> {
         let root_exited = self.try_wait()?.is_some();
         self.containment.terminate(1).map_err(io::Error::other)?;
@@ -187,6 +258,127 @@ fn abort_raw_suspended(handles: &CreatedHandles) {
     unsafe {
         TerminateProcess(handles.process().as_raw_handle(), 1);
         WaitForSingleObject(handles.process().as_raw_handle(), u32::MAX);
+    }
+}
+
+fn cleanup_information(information: PROCESS_INFORMATION) {
+    if information.hProcess.is_null() {
+        return;
+    }
+    let handles = CreatedHandles(information);
+    abort_raw_suspended(&handles);
+}
+
+struct CaptureStdio {
+    stdin: OwnedHandle,
+    stdout_read: OwnedHandle,
+    stdout_write: OwnedHandle,
+    stderr_read: OwnedHandle,
+    stderr_write: OwnedHandle,
+}
+
+impl CaptureStdio {
+    fn new() -> io::Result<Self> {
+        let stdin = File::open("NUL")?.into();
+        let (stdout_read, stdout_write) = pipe()?;
+        let (stderr_read, stderr_write) = pipe()?;
+        Ok(Self {
+            stdin,
+            stdout_read,
+            stdout_write,
+            stderr_read,
+            stderr_write,
+        })
+    }
+
+    fn raw_child_handles(&self) -> Vec<HANDLE> {
+        vec![
+            self.stdin.as_raw_handle(),
+            self.stdout_write.as_raw_handle(),
+            self.stderr_write.as_raw_handle(),
+        ]
+    }
+
+    fn into_parent_outputs(self) -> (Option<ContainedChildOutput>, Option<ContainedChildOutput>) {
+        let Self {
+            stdin,
+            stdout_read,
+            stdout_write,
+            stderr_read,
+            stderr_write,
+        } = self;
+        drop(stdin);
+        drop(stdout_write);
+        drop(stderr_write);
+        (
+            Some(ContainedChildOutput(File::from(stdout_read))),
+            Some(ContainedChildOutput(File::from(stderr_read))),
+        )
+    }
+}
+
+fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
+    let mut read = std::ptr::null_mut();
+    let mut write = std::ptr::null_mut();
+    if unsafe { CreatePipe(&raw mut read, &raw mut write, std::ptr::null(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe {
+        (
+            OwnedHandle::from_raw_handle(read),
+            OwnedHandle::from_raw_handle(write),
+        )
+    })
+}
+
+struct AttributeList {
+    _storage: Vec<usize>,
+    raw: LPPROC_THREAD_ATTRIBUTE_LIST,
+}
+
+impl AttributeList {
+    fn with_handle_list(handles: &mut [HANDLE]) -> io::Result<Self> {
+        let mut bytes = 0;
+        unsafe {
+            InitializeProcThreadAttributeList(std::ptr::null_mut(), 1, 0, &raw mut bytes);
+        }
+        if bytes == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut storage = vec![0usize; bytes.div_ceil(std::mem::size_of::<usize>())];
+        let raw = storage.as_mut_ptr().cast();
+        if unsafe { InitializeProcThreadAttributeList(raw, 1, 0, &raw mut bytes) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let list = Self {
+            _storage: storage,
+            raw,
+        };
+        let handle_bytes = handles
+            .len()
+            .checked_mul(std::mem::size_of::<HANDLE>())
+            .ok_or_else(|| io::Error::other("contained stdio handle list size overflow"))?;
+        if unsafe {
+            UpdateProcThreadAttribute(
+                list.raw,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                handles.as_mut_ptr().cast(),
+                handle_bytes,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(list)
+    }
+}
+
+impl Drop for AttributeList {
+    fn drop(&mut self) {
+        unsafe { DeleteProcThreadAttributeList(self.raw) };
     }
 }
 

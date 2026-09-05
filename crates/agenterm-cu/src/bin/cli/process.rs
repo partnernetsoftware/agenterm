@@ -32,8 +32,35 @@ pub fn parse(
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
         "process-watch" => process_watch(target, args),
+        "shell-exec" => shell_exec(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn shell_exec(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let command = flag_text(args, "--command")?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "shell-exec requires one non-empty --command TEXT".to_owned())?;
+    let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(10_000);
+    let max_output_bytes = flag_parsed::<usize>(args, "--max-output-bytes")?.unwrap_or(1_048_576);
+    if command.len() > 131_072 || command.as_bytes().contains(&0) {
+        return Err("shell-exec --command must be 1..=131072 UTF-8 bytes without NUL".into());
+    }
+    if !(100..=120_000).contains(&timeout_ms) {
+        return Err("shell-exec --timeout-ms must be in 100..=120000".into());
+    }
+    if !(1..=16_777_216).contains(&max_output_bytes) {
+        return Err("shell-exec --max-output-bytes must be in 1..=16777216".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("shell-exec received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ShellExec {
+        target,
+        command,
+        timeout_ms,
+        max_output_bytes,
+    })
 }
 
 fn process_cwd(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -322,6 +349,36 @@ fn ps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
 mod tests {
     use super::*;
     use crate::cli::verbs;
+
+    #[test]
+    fn shell_exec_has_a_closed_bounded_shape() {
+        let spec = verbs::lookup("shell-exec").expect("shell-exec verb");
+        let mut args = vec![
+            "--command".into(),
+            "printf marker".into(),
+            "--timeout-ms".into(),
+            "2500".into(),
+            "--max-output-bytes".into(),
+            "4096".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut args).expect("parse"),
+            Command::ShellExec {
+                ref command,
+                timeout_ms: 2500,
+                max_output_bytes: 4096,
+                ..
+            } if command == "printf marker"
+        ));
+        for invalid in [
+            vec!["--command", ""],
+            vec!["--command", "x", "--timeout-ms", "99"],
+            vec!["--command", "x", "--max-output-bytes", "16777217"],
+        ] {
+            let mut invalid = invalid.into_iter().map(str::to_owned).collect();
+            assert!(parse(spec, spec.name, TargetRef::Current, &mut invalid).is_err());
+        }
+    }
 
     #[test]
     fn ps_parses_the_closed_bounded_shape() {

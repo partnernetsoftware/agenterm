@@ -149,7 +149,15 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "process",
-        verbs: &["process", "ps", "kill", "signal", "exec", "state"],
+        verbs: &[
+            "process",
+            "ps",
+            "kill",
+            "signal",
+            "exec",
+            "shell-exec",
+            "state",
+        ],
     },
     Group {
         id: "resource",

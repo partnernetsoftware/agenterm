@@ -57,6 +57,7 @@ mod process;
 mod profiles;
 mod pty_jobs;
 mod receipts;
+mod shell_exec;
 mod snapshots;
 mod terminal;
 #[cfg(test)]
@@ -86,6 +87,7 @@ use process::*;
 use profiles::*;
 use pty_jobs::*;
 use receipts::*;
+use shell_exec::*;
 use snapshots::*;
 use terminal::*;
 #[cfg(test)]
@@ -335,19 +337,47 @@ impl Executor {
         reply: &CuReply,
     ) -> Result<(), CuError> {
         let outcome = if reply.ok { "ok" } else { "failed" };
-        audit.record_actuation(
-            command.target(),
-            command,
-            Grant::Actuate,
-            outcome,
+        let detail = if matches!(command, Command::ShellExec { .. }) {
+            // Shell output routinely contains credentials and other private
+            // material. Preserve bounded execution evidence without copying
+            // either stream into the persistent actuation journal.
+            reply
+                .data
+                .as_ref()
+                .map(|data| {
+                    serde_json::json!({
+                        "schema_version": data.get("schema_version"),
+                        "shell": data.get("shell"),
+                        "pid": data.get("pid"),
+                        "elapsed_ms": data.get("elapsed_ms"),
+                        "exit": data.get("exit"),
+                        "success": data.get("success"),
+                        "stdout_bytes": data.get("stdout_bytes"),
+                        "stderr_bytes": data.get("stderr_bytes"),
+                        "output_complete": data.get("output_complete"),
+                        "cleanup": data.get("cleanup"),
+                        "output_redacted": true,
+                    })
+                })
+                .or_else(|| {
+                    reply.error.as_ref().map(|error| {
+                    serde_json::json!({
+                        "code": error.code,
+                        "cleanup": error.detail.as_ref().and_then(|detail| detail.get("cleanup")),
+                        "output_redacted": true,
+                    })
+                })
+                })
+        } else {
             reply.data.clone().or_else(|| {
                 reply.error.as_ref().map(|error| {
                     serde_json::to_value(error).unwrap_or_else(
                         |_| serde_json::json!({ "code": error.code, "message": error.message }),
                     )
                 })
-            }),
-        )
+            })
+        };
+        audit.record_actuation(command.target(), command, Grant::Actuate, outcome, detail)
     }
 
     pub(super) fn execute_current(&self, command: &Command) -> CuReply {
@@ -446,6 +476,45 @@ mod tests {
         assert_eq!(record["outcome"], "failed");
         assert_eq!(record["detail"]["code"], "history_commit_failed");
         assert_eq!(record["detail"]["detail"]["effect"], "rolled_back");
+        remove_audit_scratch(&path);
+    }
+
+    #[test]
+    fn shell_exec_audit_keeps_metrics_but_never_persists_output() {
+        let path = audit_scratch("shell-output-redaction");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        let command = Command::ShellExec {
+            target: TargetRef::Current,
+            command: "printf private-command-material".into(),
+            timeout_ms: 1_000,
+            max_output_bytes: 1_024,
+        };
+        let reply = CuReply::ok(
+            &command,
+            serde_json::json!({
+                "schema_version": 1,
+                "shell": "sh",
+                "pid": 7,
+                "elapsed_ms": 2,
+                "exit": {"kind": "code", "code": 0},
+                "success": true,
+                "stdout": "private-stdout-material",
+                "stderr": "private-stderr-material",
+                "stdout_bytes": 23,
+                "stderr_bytes": 23,
+                "output_complete": true,
+                "cleanup": "root-exited",
+            }),
+        );
+        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        let text = std::fs::read_to_string(&path).expect("read audit");
+        assert!(!text.contains("private-command-material"));
+        assert!(!text.contains("private-stdout-material"));
+        assert!(!text.contains("private-stderr-material"));
+        let record: serde_json::Value = serde_json::from_str(text.trim()).expect("audit JSON");
+        assert_eq!(record["detail"]["output_redacted"], true);
+        assert_eq!(record["detail"]["stdout_bytes"], 23);
+        assert_eq!(record["detail"]["stderr_bytes"], 23);
         remove_audit_scratch(&path);
     }
 

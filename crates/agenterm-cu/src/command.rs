@@ -443,6 +443,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_processes: Option<usize>,
     },
+    /// Run one bounded host-shell command in a process tree contained before
+    /// its first instruction. This is intentionally distinct from the
+    /// transport worker entry mode named `exec`.
+    ShellExec {
+        target: TargetRef,
+        command: String,
+        timeout_ms: u64,
+        max_output_bytes: usize,
+    },
     /// Resolve once through the host resolver, freeze the deduplicated address
     /// set, and perform an exact number of bounded TCP reachability attempts.
     NetworkProbe {
@@ -1882,6 +1891,7 @@ impl Command {
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
+            Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::PtyStart { .. } => "pty-start".into(),
@@ -1998,6 +2008,7 @@ impl Command {
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
             | Self::ProcessWatch { target, .. }
+            | Self::ShellExec { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::PtyStart { target, .. }
@@ -2101,6 +2112,7 @@ impl Command {
         match self {
             Self::PointerMove { .. }
             | Self::ProcessKill { .. }
+            | Self::ShellExec { .. }
             | Self::PtyStart { .. }
             | Self::PtyPrune { .. }
             | Self::PtyResize { .. }
@@ -2158,6 +2170,29 @@ impl Command {
 mod tests {
     use super::*;
     use crate::auth::Grant;
+
+    #[test]
+    fn shell_exec_is_distinct_from_transport_exec_and_keeps_closed_budgets() {
+        let command = Command::ShellExec {
+            target: TargetRef::Ssh,
+            command: "printf marker".into(),
+            timeout_ms: 10_000,
+            max_output_bytes: 1_048_576,
+        };
+        assert_eq!(command.verb(), "shell-exec");
+        assert_eq!(command.required_grant(), Grant::Actuate);
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(
+            serde_json::to_value(command).expect("serialize"),
+            serde_json::json!({
+                "verb": "shell-exec",
+                "target": "ssh",
+                "command": "printf marker",
+                "timeout_ms": 10_000,
+                "max_output_bytes": 1_048_576,
+            })
+        );
+    }
 
     #[test]
     fn permissions_is_a_first_class_observe_wire_command() {

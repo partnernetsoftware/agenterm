@@ -130,6 +130,12 @@ impl Executor {
                 *max_events,
                 *max_processes,
             ),
+            Command::ShellExec {
+                command,
+                timeout_ms,
+                max_output_bytes,
+                ..
+            } => shell_exec_payload(command, *timeout_ms, *max_output_bytes),
             Command::NetworkProbe {
                 host,
                 port,

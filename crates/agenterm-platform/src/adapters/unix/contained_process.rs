@@ -1,6 +1,6 @@
 use std::{
-    io,
-    process::{Child, Command, Stdio},
+    io::{self, Read},
+    process::{Child, ChildStderr, ChildStdout, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -16,13 +16,28 @@ pub struct ContainedChild {
     tree: ProcessTreeGuard,
 }
 
+pub enum ContainedChildOutput {
+    Stdout(ChildStdout),
+    Stderr(ChildStderr),
+}
+
+impl Read for ContainedChildOutput {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Stdout(stream) => stream.read(buffer),
+            Self::Stderr(stream) => stream.read(buffer),
+        }
+    }
+}
+
 pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChild> {
     let mut command = Command::new(&spec.program);
-    command
-        .args(&spec.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.args(&spec.args).stdin(Stdio::null());
+    if spec.capture_output {
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    } else {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+    }
     if let Some(directory) = &spec.current_dir {
         command.current_dir(directory);
     }
@@ -50,6 +65,14 @@ impl ContainedChild {
                 .as_ref()
                 .map(crate::process_spawn::classify_exit_status)
         })
+    }
+
+    pub(crate) fn take_stdout(&mut self) -> Option<ContainedChildOutput> {
+        self.child.stdout.take().map(ContainedChildOutput::Stdout)
+    }
+
+    pub(crate) fn take_stderr(&mut self) -> Option<ContainedChildOutput> {
+        self.child.stderr.take().map(ContainedChildOutput::Stderr)
     }
 
     pub(crate) fn terminate_and_wait(&mut self, timeout: Duration) -> io::Result<()> {

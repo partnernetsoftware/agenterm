@@ -62,6 +62,7 @@ pub fn top_level_text() -> String {
     );
     text = text.replace("\n\nUnmapped MCU groups", "\nUnmapped MCU groups");
     text = text.replace("\n\nClipboard", "\nClipboard");
+    text = text.replace("\n\nNetwork", "\nNetwork");
     text = text.replace("\n\nTransports", "\nTransports");
     append_missing_top_level_rows(&mut text);
     text
