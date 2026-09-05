@@ -40,7 +40,7 @@ ACU replaces MCU
 │  ├─ PTY/process/task composition → AgenTerm + qjswasm
 │  ├─ file/network/device/service/privilege → typed platform facades
 │  ├─ setup/doctor/permissions → truthful probes + exact repair actions
-│  ├─ daemon/session/lock/audit → one durable native ACU coordinator
+│  ├─ runtime/session/lock/audit → on-demand coordinator + per-resource owners
 │  ├─ Simulator → explicit macOS-limited typed facade
 │  └─ current/ssh/vnc/VM targets preserve one command and result schema
 ├─ qjswasm execution core
@@ -153,7 +153,8 @@ MCU retirement blockers
 │  ├─ [x] audit query with bounded result/scan/byte budgets
 │  ├─ [x] audit retention: plan/apply + atomic bounded compact + qjswasm court
 │  ├─ [x] MCU-shaped session/lock/audit-query/compact compatibility routes to ACU
-│  └─ [ ] daemon ownership
+│  ├─ [x] runtime-status + daemon status/caps aliases report truthful topology without publishing state
+│  └─ [~] daemon start/restart/stop callers migrate before the obsolete lifecycle is retired
 ├─ [~] managed job facade
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
@@ -203,11 +204,15 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **16 top-level `STAY` spellings**. The reviewed retirement of
-the no-authority `ghost` overlay and obsolete `desktop-helper` sidecar removed
-two fallbacks without inventing replacement mechanisms. This is not the remaining
-capability count: group verbs contain multiple independently gated shapes. The
-machine-readable ledger, not the top-level number, decides retirement.
+`acu.ts` now has **14 static top-level `STAY` spellings**. The exact
+`storage devices` route and truthful `daemon status|caps` observations have
+left the static set; other storage mutation/volume shapes and obsolete daemon
+lifecycle spellings still fail over dynamically until their callers migrate.
+The reviewed retirement of the no-authority `ghost` overlay and obsolete
+`desktop-helper` sidecar removed two more fallbacks without inventing replacement
+mechanisms. This is not the remaining capability count: group verbs contain
+multiple independently gated shapes. The machine-readable ledger, not the
+top-level number, decides retirement.
 
 ACU now owns `job-resources JOB_ID GENERATION [--watch-ms N]` as an exact,
 identity-bracketed observation of every current native containment-group
@@ -292,7 +297,7 @@ shapes fail typed instead of being ignored.
   accounting dimension: `page`, `browser`, `process`, `resource`, `file` and
   other families contain independently meaningful sub-verbs and argument
   shapes that R0 must also enumerate.
-- The transitional `acu.ts` adapter now keeps **31 top-level spellings** on
+- At this historical snapshot, the transitional `acu.ts` adapter kept **31 top-level spellings** on
   MCU. Its 97-name pass-through set is not a parity count: it mixes MCU
   spellings, ACU-native spellings and group aliases. The adapter's 45 green
   tests prove lossless argv routing and honest refusal only; they do not prove
@@ -440,8 +445,10 @@ shapes fail typed instead of being ignored.
   privacy-minimized physical/block inventory through fixed system providers,
   one shared deadline and contained cleanup. Exact capacities cross JSON as
   decimal strings; serial/WWN/Windows UniqueId are never queried. Its macOS
-  qjswasm court is green and Linux/Windows x86_64 compile, but those two native
-  runtime courts remain before the MCU compatibility fallback can leave STAY.
+  qjswasm court is green. Exact source `76f85249` also passed the public journey
+  on a native Linux aarch64 Lima/VZ court with source and artifact digests
+  matched. Windows and Linux x86_64 runtime courts remain; the exact inventory
+  route has left static STAY while other storage sub-shapes remain dynamic.
   Existing stable-entry, no-overwrite and per-volume primitives stay separate
   from physical devices. Unix modes/xattrs and Windows
   ACLs/attributes remain distinct platform vocabularies; parity must not be
@@ -548,7 +555,9 @@ Q2 fast delegated facades
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
    └─ [ ] remaining rich filters and privileged mutation
 Q3 owned runtime facades
-├─ [~] PTY/job/daemon/session/lock/audit/service
+├─ [~] PTY/job/runtime/session/lock/audit/service
+│  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
+│  ├─ [~] daemon status/caps route to ACU; start/restart/stop caller migration pending retirement
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
 │  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor
@@ -580,8 +589,8 @@ Q3 owned runtime facades
    ├─ [~] storage-devices: fixed native provider + bounded privacy-minimized inventory
    │  ├─ [x] exact decimal capacities; no serial/WWN/Windows UniqueId
    │  ├─ [x] 10,000-row scan + 2 MiB provider + 1 MiB response ceilings
-   │  ├─ [x] macOS public qjswasm journey `cu.storage-devices`
-   │  └─ [ ] Linux + Windows native qjswasm journeys, then remove storage STAY
+   │  ├─ [x] macOS + Linux aarch64 public qjswasm journey `cu.storage-devices`
+   │  └─ [ ] Linux x86_64 + Windows native qjswasm journeys; non-inventory storage shapes remain
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public CLI schema/count/prefix court

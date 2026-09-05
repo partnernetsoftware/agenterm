@@ -789,6 +789,11 @@ pub enum Command {
     Doctor {
         target: TargetRef,
     },
+    /// Read-only truth about ACU's on-demand coordinator and per-resource
+    /// resident owners. This deliberately does not invent a global daemon.
+    RuntimeStatus {
+        target: TargetRef,
+    },
     /// Ask the host's registered application dispatcher to open one path or
     /// URL. Native acceptance is not proof that a handler consumed it.
     HostOpen {
@@ -2870,6 +2875,7 @@ impl Command {
             Self::Capabilities { .. } => "capabilities".into(),
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
+            Self::RuntimeStatus { .. } => "runtime-status".into(),
             Self::HostOpen { .. } => "host-open".into(),
             Self::HostNotify { .. } => "host-notify".into(),
             Self::AuditQuery { .. } => "audit-query".into(),
@@ -3035,6 +3041,7 @@ impl Command {
             Self::Capabilities { target, .. }
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
+            | Self::RuntimeStatus { target, .. }
             | Self::HostOpen { target, .. }
             | Self::HostNotify { target, .. }
             | Self::AuditQuery { target, .. }
@@ -3829,6 +3836,25 @@ mod tests {
             back,
             Command::Doctor {
                 target: TargetRef::Vnc
+            }
+        ));
+    }
+
+    #[test]
+    fn runtime_status_is_a_first_class_observe_wire_command() {
+        let command = Command::RuntimeStatus {
+            target: TargetRef::Ssh,
+        };
+        assert_eq!(command.verb(), "runtime-status");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let value = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(value["verb"], "runtime-status");
+        let back: Command = serde_json::from_value(value).expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::RuntimeStatus {
+                target: TargetRef::Ssh
             }
         ));
     }

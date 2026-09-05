@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::executor::managed_jobs::stop_session_jobs;
+use crate::managed_job_store::{ManagedJobState, ManagedJobStore};
 use crate::runtime_coordinator::RuntimeCoordinator;
 
 fn runtime_now_utc_s() -> Result<i64, CuError> {
@@ -24,6 +25,62 @@ fn runtime_json(value: impl serde::Serialize) -> Result<serde_json::Value, CuErr
             "runtime command result could not be serialized",
         )
     })
+}
+
+/// Describe the actual ACU runtime topology without probing or mutating an
+/// owned child. Durable records are declarations; liveness remains the owning
+/// job command's responsibility so this summary cannot fabricate health.
+pub(super) fn runtime_status_payload() -> Result<serde_json::Value, CuError> {
+    let now = runtime_now_utc_s()?;
+    let coordinator = RuntimeCoordinator::open()?;
+    let counts = coordinator.status_counts(now)?;
+    let jobs = ManagedJobStore::open()?.list()?;
+
+    let mut starting = 0usize;
+    let mut running_declared = 0usize;
+    let mut terminal = 0usize;
+    let mut detached = 0usize;
+    let mut orphaned_uncertain = 0usize;
+    for job in &jobs {
+        match job.state {
+            ManagedJobState::StartIntent | ManagedJobState::Starting => starting += 1,
+            ManagedJobState::Running => running_declared += 1,
+            ManagedJobState::StartFailed { .. }
+            | ManagedJobState::Exited { .. }
+            | ManagedJobState::Signaled { .. } => terminal += 1,
+            ManagedJobState::Detached => detached += 1,
+            ManagedJobState::OrphanedUncertain => orphaned_uncertain += 1,
+        }
+    }
+
+    Ok(serde_json::json!({
+        "schema": 1,
+        "architecture": "on-demand-coordinator-with-resource-owners",
+        "global_daemon": {
+            "present": false,
+            "required": false,
+            "lifecycle_commands": "not-applicable",
+        },
+        "coordinator": {
+            "state": "available",
+            "activation": "on-demand-per-command",
+        },
+        "sessions": { "active": counts.active_sessions },
+        "locks": { "active": counts.active_locks },
+        "managed_jobs": {
+            "total_records": jobs.len(),
+            "starting": starting,
+            "running_declared": running_declared,
+            "terminal": terminal,
+            "detached": detached,
+            "orphaned_uncertain": orphaned_uncertain,
+            "owner_liveness_probed": false,
+        },
+        "action": {
+            "performed": false,
+            "reason": "read-only topology summary; use job-status for exact owner liveness",
+        },
+    }))
 }
 
 pub(super) fn session_start_payload(

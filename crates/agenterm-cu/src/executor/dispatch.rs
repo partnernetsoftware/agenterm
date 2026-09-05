@@ -31,6 +31,7 @@ impl Executor {
                 ),
             },
             Command::Doctor { .. } => Ok(doctor_payload()),
+            Command::RuntimeStatus { .. } => runtime_status_payload(),
             Command::HostOpen {
                 value,
                 application,

@@ -160,11 +160,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   manifest libraries before executables. Static manifest/build/signing gates
   own this wiring. The local six-cell baseline now also requires an
   architecture-matched `agenterm-cu` and executes its public bounded
-  `storage-devices` observation after the AgenTerm launcher check; a macOS arm64
-  rehearsal is green. This is stronger than archive membership but remains a
-  minimum court: the same complete qjswasm journey still needs Linux/Windows
-  native evidence and all six sealed Candidate cells. Native Unix packaging,
-  macOS signing/notarization and sealed Candidate artifact evidence remain open.
+  `storage-devices` observation after the AgenTerm launcher check; macOS arm64
+  and a digest-matched native Linux arm64 qjswasm court are green. This is
+  stronger than archive membership but remains a minimum court: Linux x86_64,
+  Windows native evidence and all six sealed Candidate cells are still open.
+  Native Unix packaging, macOS signing/notarization and sealed Candidate
+  artifact evidence remain open.
 - [ ] Candidate and six-cell qualification and release evidence remain open.
   Passing local fixtures and staged public smoke does not promote this subtree
   root to shipped.
@@ -212,7 +213,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   Ambiguity, disappearance, drift, inventory overflow and tree truncation are
   explicit rather than hidden. macOS public CLI evidence is green; Linux and
   Windows journey evidence remains open. The next dependency is the shared
-  native runtime spine: daemon → session lease → target lock → request identity
+  native runtime spine: on-demand coordinator → session lease → target lock → request identity
   → queryable audit. The middle three public leaves are now live: durable
   `session start|list|status|renew|end`, session-bound idempotent
   `lock acquire|list|release`, and newest-first `audit-query` with independent
@@ -247,8 +248,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   effect-scope digest so another endpoint conflicts instead of receiving a
   false replay. Unit and process-boundary worker courts are green; public
   SSH/VNC mutation journeys, exact target-lock derivation, three-host evidence,
-  daemon ownership remain open; the enlarged runtime journey still needs the
-  remaining native courts.
+  remaining native courts stay open. `runtime-status` now truthfully reports
+  that no global daemon is present or required: coordination is on demand and
+  resident ownership belongs to the resource that needs it. Its snapshot reads
+  effective session, lock and managed-job counts without sweeping, advancing
+  the durable clock high-water mark or publishing state. The MCU compatibility
+  shell maps `daemon status` to this result and `daemon caps` to the ACU
+  capability catalog; `daemon start|restart|stop` remain explicit migration
+  gaps rather than successful no-ops. The public qjswasm evidence is
+  `cu.runtime-status`; Linux and Windows native reruns remain open.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
 - [~] The compatibility spelling `acu caps` now returns the replacement ACU
@@ -1074,10 +1082,14 @@ flowchart LR
   provider-output ceiling; ACU adds a 1 MiB response ceiling. Capacities remain
   exact decimal strings across JSON, unavailable host fields stay explicit,
   and serial/WWN/Windows UniqueId are never requested or emitted. The public
-  `cu.storage-devices` qjswasm journey is green on macOS; Linux and Windows
-  x86_64 compile, while their native runtime courts remain open. Therefore the
+  `cu.storage-devices` qjswasm journey is green on macOS. At exact source
+  `76f85249`, the same journey passed on a native Linux aarch64 Lima/VZ court
+  after source, bundle and guest artifact digests matched; unavailable UTM
+  launch infrastructure is not product evidence. Windows and Linux x86_64
+  native runtime courts remain open. Therefore the
   ledger is `platform-limited`, not yet promoted to native or removed from the
-  MCU fallback.
+  overall storage family. The exact inventory spelling already routes through
+  ACU; mutation and volume sub-shapes remain dynamic compatibility fallbacks.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
   The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,

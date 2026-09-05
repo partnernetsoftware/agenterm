@@ -1,0 +1,88 @@
+// Public black-box court for ACU's non-daemon runtime topology.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.runtime-status"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function invoke(context, executable, args) {
+  const runtime_path = rh.join(context.run_directory, "runtime.json");
+  const jobs_path = rh.join(context.run_directory, "jobs.json");
+  const receipt_path = rh.join(context.run_directory, "receipts.jsonl");
+  const output = rh.command(executable, args, {
+    cwd: context.run_directory,
+    env: {
+      AGENTERM_CU_RUNTIME_PATH: runtime_path,
+      AGENTERM_CU_MANAGED_JOB_PATH: jobs_path,
+      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success, "cu_runtime_status_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.command === "runtime-status", "cu_runtime_status_reply");
+  ensure(!rh.exists(runtime_path) && !rh.exists(jobs_path), "cu_runtime_status_published_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "", "cu_runtime_status_effect_receipt");
+  return reply.data;
+}
+
+function assert_empty_status(data) {
+  ensure(data.schema === 1, "cu_runtime_status_schema");
+  ensure(data.architecture === "on-demand-coordinator-with-resource-owners", "cu_runtime_status_architecture");
+  ensure(data.global_daemon.present === false && data.global_daemon.required === false, "cu_runtime_status_daemon_truth");
+  ensure(data.global_daemon.lifecycle_commands === "not-applicable", "cu_runtime_status_lifecycle_truth");
+  ensure(data.coordinator.state === "available" && data.coordinator.activation === "on-demand-per-command", "cu_runtime_status_coordinator");
+  ensure(data.sessions.active === 0 && data.locks.active === 0, "cu_runtime_status_empty_runtime");
+  ensure(data.managed_jobs.total_records === 0, "cu_runtime_status_empty_jobs");
+  ensure(data.managed_jobs.owner_liveness_probed === false, "cu_runtime_status_no_liveness_claim");
+  ensure(data.action.performed === false, "cu_runtime_status_no_effect");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-runtime-status");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP flat runtime status reports the non-daemon topology without publishing state");
+  const flat = invoke(context, executable, [
+    "--target", "current", "--grant", "observe", "runtime-status"
+  ]);
+  assert_empty_status(flat);
+
+  print("STEP daemon status is only a truthful compatibility alias");
+  const alias = invoke(context, executable, [
+    "--target", "current", "--grant", "observe", "daemon", "status"
+  ]);
+  assert_empty_status(alias);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.runtime-status");
+  harness.remove_run(context);
+  print("PASS: ACU runtime topology is observable without a global daemon or read-side publication");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

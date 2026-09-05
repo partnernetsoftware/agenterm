@@ -692,9 +692,9 @@
           "mcu_shape": "storage devices --max N with physical/block id, media, bus, size and health",
           "acu_shape": "storage-devices --max N (alias: storage devices --max N) through a bounded privacy-minimized native provider",
           "state": "platform-limited",
-          "platforms": {"macos": "live-qjswasm-journey", "linux": "x86_64-compile-only", "windows": "x86_64-compile-only"},
-          "next": "run the same cu.storage-devices qjswasm journey on native Linux and Windows courts, then remove the exact storage devices compatibility fallback",
-          "note": "The platform facade uses fixed system providers, one shared deadline, contained process-tree cleanup, a 10000-row scan ceiling and a 2 MiB provider-output ceiling. ACU adds a 1 MiB response ceiling, exact decimal capacity strings and explicit unavailable fields. It never requests or emits serial, WWN or Windows UniqueId. macOS native qjswasm evidence is green; Linux and Windows runtime evidence is not yet claimed. The separate volume_space query remains mounted-path capacity, not this inventory."
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "live-qjswasm-journey-aarch64", "windows": "x86_64-compile-only"},
+          "next": "run cu.storage-devices on native Windows and Linux x86_64 courts; keep the remaining storage mutation and volume shapes as explicit dynamic fallbacks",
+          "note": "The platform facade uses fixed system providers, one shared deadline, contained process-tree cleanup, a 10000-row scan ceiling and a 2 MiB provider-output ceiling. ACU adds a 1 MiB response ceiling, exact decimal capacity strings and explicit unavailable fields. It never requests or emits serial, WWN or Windows UniqueId. macOS native qjswasm evidence is green. Exact source 76f85249 also passed the same public qjswasm journey on a native Linux aarch64 Lima/VZ court with source, bundle and guest artifact digests matched; unavailable UTM launch infrastructure is not product evidence. Windows runtime and Linux x86_64 evidence remain open. The exact storage devices compatibility shape now routes to ACU, while volume_space and storage mutations remain separate shapes."
         },
         {
           "id": "file.metadata.inspect",
@@ -898,11 +898,22 @@
           "next": "bind service definition identity and before state into a privilege plan; revalidate before mutation and verify state after"
         },
         {
-          "id": "runtime.user-daemon",
-          "mcu_shape": "daemon start|status|restart|stop plus protocol/capability manifest",
+          "id": "runtime.topology-status",
+          "mcu_shape": "daemon status|caps plus protocol/capability manifest",
+          "acu_shape": "runtime-status plus capabilities; compatibility aliases daemon status and daemon caps",
+          "state": "native",
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "implementation-platform-neutral", "windows": "implementation-platform-neutral"},
+          "evidence": ["cu.runtime-status", "agenterm-cu non-publishing runtime status unit suite"],
+          "next": "run the public qjswasm journey on native Linux and Windows courts",
+          "note": "ACU truthfully reports an on-demand coordinator and per-resource resident owners. It does not claim or require one global daemon. The bounded snapshot computes effective session, lock and managed-job counts without sweeping expiry, advancing the durable clock high-water mark or publishing state; exact owner liveness remains owned by the resource status command."
+        },
+        {
+          "id": "runtime.global-daemon-lifecycle",
+          "mcu_shape": "daemon start|restart|stop",
           "acu_shape": null,
-          "state": "gap",
-          "next": "small native ACU coordinator for leases, jobs, locks and recovery; do not recreate a Bun sidecar"
+          "state": "retired",
+          "next": "migrate remaining compatibility callers, then make these obsolete lifecycle spellings fail with the explicit not-applicable architecture result",
+          "note": "ACU commands start on demand, while jobs and browser sessions own only their required resident processes. Mapping start, restart or stop to successful no-ops would be dishonest and recreating a Bun-style global sidecar would regress the architecture."
         },
         {
           "id": "runtime.desktop-helper-sidecar",

@@ -2530,6 +2530,14 @@ ambiguity and must be preserved. Use the same primitive in reverse when
 restoring a retired source. This rule applies to both a replaced destination
 and the source-retirement half of a cross-volume move.
 
+A topology/status observation must not be assembled from state-list APIs that
+also advance a durable clock high-water mark, sweep expiry, publish repaired
+state, or create a replacement generation. Give the status surface a dedicated
+bounded snapshot that computes effective counts in memory without publishing or
+sweeping. Report owner liveness as unprobed unless the status call actually
+performs the identity-bound native probe; direct callers to the owning resource
+status command when they need that stronger claim.
+
 Atomic audit-log compaction changes the inode behind the pathname. All
 cooperating appenders and compactors need one stable sidecar lock, and an
 appender that retained an earlier file handle must reopen the pathname while

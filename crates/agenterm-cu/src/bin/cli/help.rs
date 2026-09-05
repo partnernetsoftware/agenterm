@@ -94,7 +94,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  resource-status  observe  host snapshot;  storage-devices  observe  block inventory",
+            "  resource-status  observe  host;  runtime-status  observe  owners;  storage-devices  observe  disks",
             1,
         );
     }
@@ -212,7 +212,7 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
-    let compact_inline = ["network-routes", "storage-devices"];
+    let compact_inline = ["network-routes", "runtime-status", "storage-devices"];
     let compact_process = [
         "process-argv",
         "process-cwd",

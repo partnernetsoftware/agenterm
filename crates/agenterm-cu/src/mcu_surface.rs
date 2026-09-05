@@ -428,7 +428,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "runtime" => (
             "available",
-            "session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; daemon/service/term remain typed gaps",
+            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; global daemon lifecycle is not applicable, while service/term remain typed gaps",
         ),
         "desktop-helper" => (
             "unsupported",

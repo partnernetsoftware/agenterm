@@ -131,6 +131,12 @@ struct LockRecord {
     expires_at_utc_s: i64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeStatusCounts {
+    pub active_sessions: usize,
+    pub active_locks: usize,
+}
+
 impl RuntimeCoordinator {
     /// Open the machine-local private spine at `~/.../agenterm/cu-runtime.json`.
     pub fn open() -> Result<Self, CuError> {
@@ -164,6 +170,52 @@ impl RuntimeCoordinator {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Read the effective live counts without sweeping, advancing the durable
+    /// clock high-water mark or publishing an empty state document. Writers
+    /// atomically replace the document, so one complete validated generation
+    /// is enough for this topology summary; exact mutation admission continues
+    /// to use the locked session APIs.
+    pub fn status_counts(&self, now_utc_s: i64) -> Result<RuntimeStatusCounts, CuError> {
+        if now_utc_s < 0 {
+            return Err(CuError::new(
+                "runtime_clock_invalid",
+                "runtime clock must be a non-negative UTC second value",
+            ));
+        }
+        let document = self.read_document()?.unwrap_or_default();
+        if now_utc_s < document.last_now_utc_s {
+            return Err(CuError::new(
+                "runtime_clock_rollback",
+                "runtime clock moved backward from persisted state",
+            ));
+        }
+        let active_sessions = document
+            .sessions
+            .values()
+            .filter(|session| {
+                session.state == SessionState::Active && session.expires_at_utc_s > now_utc_s
+            })
+            .count();
+        let active_locks = document
+            .locks
+            .values()
+            .filter(|lock| {
+                lock.expires_at_utc_s > now_utc_s
+                    && document
+                        .sessions
+                        .get(&lock.session_id)
+                        .is_some_and(|session| {
+                            session.state == SessionState::Active
+                                && session.expires_at_utc_s > now_utc_s
+                        })
+            })
+            .count();
+        Ok(RuntimeStatusCounts {
+            active_sessions,
+            active_locks,
+        })
     }
 
     /// Serialize session-bound effect admission against terminal cleanup.
@@ -859,6 +911,40 @@ mod tests {
         let path = TestPath::new(name);
         let coordinator = RuntimeCoordinator::open_at(&path.0).unwrap();
         (path, coordinator)
+    }
+
+    #[test]
+    fn status_counts_are_effective_and_never_publish_or_sweep() {
+        let (path, coordinator) = open("status-counts");
+        assert_eq!(
+            coordinator.status_counts(100).unwrap(),
+            RuntimeStatusCounts {
+                active_sessions: 0,
+                active_locks: 0,
+            }
+        );
+        assert!(!path.0.exists());
+
+        let started = coordinator.session_start(Some("court"), 10, 100).unwrap();
+        coordinator
+            .lock_acquire(&started.session_id, &started.lease, "desktop:1", 5, 100)
+            .unwrap();
+        assert_eq!(
+            coordinator.status_counts(101).unwrap(),
+            RuntimeStatusCounts {
+                active_sessions: 1,
+                active_locks: 1,
+            }
+        );
+        let before = fs::read(&path.0).unwrap();
+        assert_eq!(
+            coordinator.status_counts(111).unwrap(),
+            RuntimeStatusCounts {
+                active_sessions: 0,
+                active_locks: 0,
+            }
+        );
+        assert_eq!(fs::read(&path.0).unwrap(), before);
     }
 
     #[test]

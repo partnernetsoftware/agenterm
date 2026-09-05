@@ -2348,6 +2348,18 @@
       "args": []
     },
     {
+      "name": "runtime-status",
+      "command": "runtime-status",
+      "aliases": [
+        "daemon status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "report the on-demand coordinator and per-resource owner topology",
+      "usage": "daemon status\nruntime-status",
+      "args": []
+    },
+    {
       "name": "storage-devices",
       "command": "storage-devices",
       "aliases": [
@@ -4978,6 +4990,10 @@
     {
       "name": "resource-status",
       "text": "agenterm-cu resource-status    (also: resource status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  resource status\n  resource-status\n\nReturns one bounded current-host snapshot with platform, architecture, host\nidentity, uptime, native load semantics, CPU identity, strict free memory,\nreclaimable available memory and the complete native process count. The\nqueries are sequential and atomicSnapshot is always false. Windows explicitly\nreports loadAverageSemantics=windows-not-available instead of fabricating a\nnative load measurement.\n"
+    },
+    {
+      "name": "runtime-status",
+      "text": "agenterm-cu runtime-status    (also: daemon status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  daemon status\n  runtime-status\n\nReports ACU's actual on-demand coordinator, active session/lock counts and\ndurable managed-job state counts. ACU has no global daemon: each long-lived\njob or browser session has its own bounded resident owner. This command is\nread-only and does not probe child liveness; use job-status for that exact\nowner check. daemon start/restart/stop are not aliases and must not become\nno-op successes.\n"
     },
     {
       "name": "storage-devices",

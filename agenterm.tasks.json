@@ -720,6 +720,23 @@
         "task.cu-resource-status-smoke"
       ]
     },
+    "cu-runtime-status-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-runtime-status-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-status-smoke"
+      ]
+    },
     "cu-storage-devices-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2582,6 +2599,27 @@
       "id": "cu-resource-status-smoke",
       "description": "Prove the public current-host resource snapshot is complete, bounded and read-only; strict free and reclaimable available memory remain distinct, and Windows load unavailability is explicit.",
       "entry": "scripts/qjs/cu-resource-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-status-smoke",
+      "description": "Prove ACU reports its on-demand coordinator and per-resource owner topology without inventing a global daemon, probing child liveness, creating durable state or writing an effect receipt.",
+      "entry": "scripts/qjs/cu-runtime-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

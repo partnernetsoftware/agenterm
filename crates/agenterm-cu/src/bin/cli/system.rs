@@ -31,6 +31,18 @@ pub fn parse(
         }
         return Ok(Command::ResourceStatus { target });
     }
+    if spec.name == "runtime-status" {
+        if args.first().is_some_and(|arg| arg == "status") {
+            args.remove(0);
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "runtime-status accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::RuntimeStatus { target });
+    }
     if spec.name == "storage-devices" {
         if args.first().is_some_and(|arg| arg == "devices") {
             args.remove(0);
@@ -525,6 +537,23 @@ mod tests {
         assert!(parse("session-start", &["--ttl", "1", "extra"]).is_err());
         assert!(parse("session-renew", &["s1", "--lease"]).is_err());
         assert!(parse("lock-acquire", &["s1", "lease"]).is_err());
+    }
+
+    #[test]
+    fn runtime_status_flat_and_daemon_alias_are_closed() {
+        assert!(matches!(
+            parse("runtime-status", &[]).unwrap(),
+            Command::RuntimeStatus {
+                target: TargetRef::Current
+            }
+        ));
+        assert!(matches!(
+            parse("daemon", &["status"]).unwrap(),
+            Command::RuntimeStatus {
+                target: TargetRef::Current
+            }
+        ));
+        assert!(parse("daemon", &["status", "extra"]).is_err());
     }
 
     #[test]
