@@ -244,6 +244,80 @@ fn fs_read_over_the_result_cap_is_a_refusal_not_a_prefix() {
 // process
 // =========================================================================
 
+#[test]
+fn process_configured_child_probe() {
+    if std::env::var_os("AGENTERM_QJS_CONTAINED_PROBE").is_none() {
+        return;
+    }
+    let mut stdin = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin).expect("read probe stdin");
+    println!(
+        "configured:{stdin}:{}:{}",
+        std::env::var_os("AGENTERM_QJS_REMOVED").is_none(),
+        std::env::current_dir()
+            .expect("probe current directory")
+            .display()
+    );
+    eprint!("configured-stderr");
+}
+
+#[test]
+fn every_qjs_child_entry_uses_contained_launch_with_configured_stdio() {
+    let scratch = Scratch::new("contained-command");
+    let command_stderr = scratch.path("command.stderr");
+    let spawn_stdout = scratch.path("spawn.stdout");
+    let executable = std::env::current_exe().expect("resolve tool-door test executable");
+    let base = format!(
+        r#"{{
+            program: {program},
+            args: ["--exact", "process_configured_child_probe", "--nocapture"],
+            current_dir: {cwd},
+            env: {{ AGENTERM_QJS_CONTAINED_PROBE: "1", AGENTERM_QJS_REMOVED: "present" }},
+            env_remove: ["AGENTERM_QJS_REMOVED"],
+            stdin_text: "from-stdin",
+            timeout_ms: 10000
+        }}"#,
+        program = js(&executable),
+        cwd = js(&scratch.0),
+    );
+    let source = format!(
+        r#"
+        const commandSpec = {base};
+        commandSpec.stderr_path = {command_stderr};
+        if (process_command(JSON.stringify(commandSpec)) !== 0) {{ return "command:" + tool_result(); }}
+        const command = JSON.parse(tool_result());
+
+        const spawnSpec = {base};
+        spawnSpec.stdout_path = {spawn_stdout};
+        const handle = process_spawn(JSON.stringify(spawnSpec));
+        if (handle < 0) {{ return "spawn:" + tool_result(); }}
+        if (process_wait(handle, 10000) !== 0) {{ return "wait:" + tool_result(); }}
+        const spawned = JSON.parse(tool_result());
+
+        const statusSpec = {base};
+        const status = process_status(JSON.stringify(statusSpec));
+        return "" + command.success + "|" + command.stderr + "|"
+            + (command.stdout.indexOf("configured:from-stdin:true:") >= 0) + "|"
+            + spawned.success + "|" + spawned.stdout + "|"
+            + (spawned.stderr.indexOf("configured-stderr") >= 0) + "|" + status;
+        "#,
+        command_stderr = js(&command_stderr),
+        spawn_stdout = js(&spawn_stdout),
+    );
+    let out = run_tool(&source);
+    assert_eq!(string_of(&out), "true||true|true||true|0", "{out:?}");
+    assert_eq!(
+        std::fs::read_to_string(command_stderr).expect("command stderr redirect"),
+        "configured-stderr"
+    );
+    assert!(
+        std::fs::read_to_string(spawn_stdout)
+            .expect("spawn stdout redirect")
+            .contains("configured:from-stdin:true:"),
+        "spawn stdout redirect omitted the configured child output"
+    );
+}
+
 /// `process.status` does not read the child's output, and it used to spawn
 /// with pipes and drop them at once: a child that printed anything died of
 /// SIGPIPE and the door answered `-1`. Wave-1 measured it on

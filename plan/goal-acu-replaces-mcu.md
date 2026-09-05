@@ -47,6 +47,7 @@ ACU replaces MCU
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
+│  ├─ all child entry paths enter native containment before user code
 │  └─ invocation-owned cleanup with no cross-run global state
 ├─ evidence
 │  ├─ Win UIA, macOS AX and Linux AT-SPI2 native journeys

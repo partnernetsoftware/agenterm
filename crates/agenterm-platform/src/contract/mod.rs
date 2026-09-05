@@ -57,7 +57,7 @@ pub mod process_metrics;
 pub mod process_observation;
 #[cfg(feature = "process-spawn")]
 pub mod process_spawn;
-#[cfg(feature = "window")]
+#[cfg(feature = "process-window")]
 pub mod process_window;
 #[cfg(feature = "processor-affinity")]
 pub mod processor_affinity;

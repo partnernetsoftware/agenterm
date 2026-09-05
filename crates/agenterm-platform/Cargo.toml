@@ -287,7 +287,7 @@ pty = [
     "windows-sys/Win32_System_SystemInformation",
     "windows-sys/Win32_System_Threading",
 ]
-window = [
+process-window = [
     "dep:objc2-app-kit",
     "dep:objc2-foundation",
     "dep:x11rb",
@@ -298,6 +298,7 @@ window = [
     "windows-sys/Win32_UI_Input_KeyboardAndMouse",
     "windows-sys/Win32_UI_WindowsAndMessaging",
 ]
+window = ["process-window"]
 input = ["window"]
 window-enum = [
     "dep:x11rb",

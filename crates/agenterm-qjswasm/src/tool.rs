@@ -91,6 +91,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use agenterm_platform::contained_process::{ContainedChild, ContainedHeadlessCommand, ProcessExit};
 use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
@@ -462,8 +463,7 @@ enum Handle {
 /// all enforce -- rh gave `.start()` children a 15/22 s cap and wave 2 found
 /// the door ignored it.
 struct Running {
-    child: std::process::Child,
-    tree: agenterm_platform::process::ProcessTreeGuard,
+    child: ContainedChild,
     drains: Drains,
     started: Instant,
     deadline: Option<Duration>,
@@ -477,11 +477,7 @@ impl Running {
     /// Kill the child once its deadline has passed; true if it did.
     fn enforce_deadline(&mut self) -> bool {
         if !self.killed_by_deadline && self.deadline.is_some_and(|d| self.started.elapsed() >= d) {
-            let _ = self.tree.terminate();
-            let _ = self.child.kill();
-            // Reap it now, so the very next `try_wait` sees the exit rather
-            // than a SIGKILLed process the kernel has not yet collected.
-            let _ = self.child.wait();
+            let _ = self.child.terminate_and_wait(Duration::from_secs(5));
             self.killed_by_deadline = true;
         }
         self.killed_by_deadline
@@ -501,7 +497,7 @@ struct CaptureBuffer {
 }
 
 impl Drains {
-    fn start(child: &mut std::process::Child, max_capture: usize) -> Self {
+    fn start(child: &mut ContainedChild, max_capture: usize) -> Self {
         fn drain<R: std::io::Read + Send + 'static>(
             pipe: Option<R>,
             max_capture: usize,
@@ -534,8 +530,8 @@ impl Drains {
             })
         }
         Self {
-            stdout: drain(child.stdout.take(), max_capture),
-            stderr: drain(child.stderr.take(), max_capture),
+            stdout: drain(child.take_stdout(), max_capture),
+            stderr: drain(child.take_stderr(), max_capture),
         }
     }
 
@@ -563,9 +559,7 @@ impl Drop for ToolState {
     fn drop(&mut self) {
         for handle in &mut self.children {
             if let Handle::Running(r) = handle {
-                let _ = r.tree.terminate();
-                let _ = r.child.kill();
-                let _ = r.child.wait();
+                let _ = r.child.terminate_and_wait(Duration::from_secs(5));
             }
         }
     }
@@ -852,23 +846,23 @@ pub(crate) fn install(
                 // Not captured: spawned with null pipes, so a chatty child
                 // neither blocks on a pipe nobody reads nor dies of SIGPIPE on
                 // one that was dropped.
-                let (mut child, mut tree) = spawn_command(&spec, false)?;
+                let mut child = spawn_command(&spec, false)?;
                 let started = Instant::now();
                 loop {
                     match child.try_wait() {
-                        Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
+                        Ok(Some(ProcessExit::Code(code))) => return Ok(code),
+                        Ok(Some(ProcessExit::Signal(_) | ProcessExit::Unavailable)) => {
+                            return Ok(-1);
+                        }
+                        Ok(Some(_)) => return Ok(-1),
                         Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
-                            let _ = tree.terminate();
-                            let _ = child.kill();
-                            let _ = child.wait();
+                            let _ = child.terminate_and_wait(Duration::from_secs(5));
                             return Err("process.status: timed out".to_string());
                         }
                         Ok(None) => {
                             // A cancel kills the child too: no orphans.
                             if cancellable_sleep(&cancel, Duration::from_millis(5)).is_err() {
-                                let _ = tree.terminate();
-                                let _ = child.kill();
-                                let _ = child.wait();
+                                let _ = child.terminate_and_wait(Duration::from_secs(5));
                                 return Err(CANCELLED_MARK.to_string());
                             }
                         }
@@ -1063,12 +1057,11 @@ pub(crate) fn install(
                 }
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.spawn: the spec is not valid: {e}"))?;
-                let (mut child, tree) = spawn_command(&spec, true)?;
+                let mut child = spawn_command(&spec, true)?;
                 let drains = Drains::start(&mut child, max_capture);
                 let mut s = state.borrow_mut();
                 s.children.push(Handle::Running(Running {
                     child,
-                    tree,
                     drains,
                     started: Instant::now(),
                     deadline: spec.timeout_ms.map(Duration::from_millis),
@@ -1122,13 +1115,11 @@ pub(crate) fn install(
             direct(&state, "process.kill", || {
                 let mut s = state.borrow_mut();
                 match usize::try_from(h).ok().and_then(|i| s.children.get_mut(i)) {
-                    Some(Handle::Running(r)) => {
-                        let tree_result = r.tree.terminate();
-                        let _ = r.child.kill();
-                        tree_result
-                            .map(|()| 0)
-                            .map_err(|error| format!("process.kill: owned tree cleanup: {error}"))
-                    }
+                    Some(Handle::Running(r)) => r
+                        .child
+                        .terminate_and_wait(Duration::from_secs(5))
+                        .map(|()| 0)
+                        .map_err(|error| format!("process.kill: owned tree cleanup: {error}")),
                     Some(Handle::Done { .. }) => Ok(0),
                     None => Err(format!("process.kill: no child with handle {h}")),
                 }
@@ -2197,8 +2188,8 @@ fn run_command(
     cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
     let timeout = spec.timeout_ms.map(Duration::from_millis);
-    let (child, tree) = spawn_command(&spec, true)?;
-    wait_child(child, tree, timeout, max_capture, cancel)
+    let child = spawn_command(&spec, true)?;
+    wait_child(child, timeout, max_capture, cancel)
 }
 
 /// Spawn per the spec with both streams piped and stdin fed on its own
@@ -2219,20 +2210,8 @@ fn modified_ms(meta: &std::fs::Metadata) -> Option<u64> {
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-fn spawn_command(
-    spec: &CommandSpec,
-    capture: bool,
-) -> Result<
-    (
-        std::process::Child,
-        agenterm_platform::process::ProcessTreeGuard,
-    ),
-    String,
-> {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-
-    let mut command = Command::new(&spec.program);
+fn spawn_command(spec: &CommandSpec, capture: bool) -> Result<ContainedChild, String> {
+    let mut command = ContainedHeadlessCommand::new(&spec.program);
     command.args(&spec.args);
     if let Some(dir) = &spec.current_dir {
         command.current_dir(dir);
@@ -2243,52 +2222,26 @@ fn spawn_command(
     for key in &spec.env_remove {
         command.env_remove(key);
     }
-    agenterm_platform::process::configure_owned_command(&mut command)
-        .map_err(|e| format!("process.command: configuring owned process tree: {e}"))?;
-    command
-        .stdin(if spec.stdin_text.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(match &spec.stdout_path {
-            Some(path) => Stdio::from(
-                std::fs::File::create(path)
-                    .map_err(|e| format!("process: creating stdout_path `{path}`: {e}"))?,
-            ),
-            None if capture => Stdio::piped(),
-            None => Stdio::null(),
-        })
-        .stderr(match &spec.stderr_path {
-            Some(path) => Stdio::from(
-                std::fs::File::create(path)
-                    .map_err(|e| format!("process: creating stderr_path `{path}`: {e}"))?,
-            ),
-            None if capture => Stdio::piped(),
-            None => Stdio::null(),
-        });
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("process.command: spawning `{}`: {e}", spec.program))?;
-    let tree = match agenterm_platform::process::ProcessTreeGuard::attach(&child) {
-        Ok(tree) => tree,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "process.command: containing `{}`: {error}",
-                spec.program
-            ));
-        }
-    };
-    if let (Some(text), Some(mut stdin)) = (&spec.stdin_text, child.stdin.take()) {
-        let text = text.clone();
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(text.as_bytes());
-        });
+    if let Some(text) = &spec.stdin_text {
+        command.stdin_text(text);
     }
-    Ok((child, tree))
+    if capture {
+        command.capture_output();
+    }
+    if let Some(path) = &spec.stdout_path {
+        let file = std::fs::File::create(path)
+            .map_err(|e| format!("process: creating stdout_path `{path}`: {e}"))?;
+        command.stdout_file(file);
+    }
+    if let Some(path) = &spec.stderr_path {
+        let file = std::fs::File::create(path)
+            .map_err(|e| format!("process: creating stderr_path `{path}`: {e}"))?;
+        command.stderr_file(file);
+    }
+
+    command
+        .spawn()
+        .map_err(|e| format!("process.command: spawning `{}`: {e}", spec.program))
 }
 
 /// Drain both streams on their own threads, wait bounded, answer as JSON:
@@ -2300,8 +2253,7 @@ fn spawn_command(
 /// U+FFFD for anything else, like `print`; binary output cannot cross a door
 /// that carries text. Capture is capped at `max_capture` per stream.
 fn wait_child(
-    mut child: std::process::Child,
-    tree: agenterm_platform::process::ProcessTreeGuard,
+    mut child: ContainedChild,
     timeout: Option<Duration>,
     max_capture: usize,
     cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -2310,7 +2262,6 @@ fn wait_child(
     finish_child(
         Running {
             child,
-            tree,
             drains,
             started: Instant::now(),
             deadline: None,
@@ -2335,7 +2286,6 @@ fn finish_child(
 ) -> Result<String, String> {
     let max_capture = running.max_capture;
     let (stdout, stderr) = (running.drains.stdout.take(), running.drains.stderr.take());
-    let mut tree = running.tree;
     let mut child = running.child;
     let mut timed_out = running.killed_by_deadline;
     let started = Instant::now();
@@ -2344,16 +2294,13 @@ fn finish_child(
             Ok(Some(status)) => break Some(status),
             Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
                 timed_out = true;
-                let _ = tree.terminate();
-                let _ = child.kill();
-                break child.wait().ok();
+                let _ = child.terminate_and_wait(Duration::from_secs(5));
+                break child.try_wait().ok().flatten();
             }
             Ok(None) => {
                 // A cancel kills the child too: no orphans.
                 if cancellable_sleep(cancel, Duration::from_millis(5)).is_err() {
-                    let _ = tree.terminate();
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    let _ = child.terminate_and_wait(Duration::from_secs(5));
                     return Err(CANCELLED_MARK.to_string());
                 }
             }
@@ -2377,9 +2324,13 @@ fn finish_child(
     let exit_code = if timed_out {
         None
     } else {
-        status.and_then(|s| s.code())
+        status.and_then(|status| match status {
+            ProcessExit::Code(code) => Some(code),
+            ProcessExit::Signal(_) | ProcessExit::Unavailable => None,
+            _ => None,
+        })
     };
-    let success = !timed_out && status.is_some_and(|s| s.success());
+    let success = !timed_out && status == Some(ProcessExit::Code(0));
     command_result_json(exit_code, success, stdout, stderr, timed_out, max_capture)
 }
 

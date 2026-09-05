@@ -1,12 +1,12 @@
 use std::{
-    io::{self, Read},
+    io::{self, Read, Write as _},
     process::{Child, ChildStderr, ChildStdout, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
 
 use crate::{
-    contained_process::ContainedHeadlessCommand,
+    contained_process::{ContainedHeadlessCommand, ContainedOutput},
     contract::process_spawn::ProcessExit,
     process::{ProcessTreeGuard, configure_owned_command},
 };
@@ -32,14 +32,27 @@ impl Read for ContainedChildOutput {
 
 pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChild> {
     let mut command = Command::new(&spec.program);
-    command.args(&spec.args).stdin(Stdio::null());
-    if spec.capture_output {
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    } else {
-        command.stdout(Stdio::null()).stderr(Stdio::null());
-    }
+    command
+        .args(&spec.args)
+        .stdin(if spec.stdin_text.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+    command.stdout(output_stdio(&spec.stdout)?);
+    command.stderr(output_stdio(&spec.stderr)?);
     if let Some(directory) = &spec.current_dir {
         command.current_dir(directory);
+    }
+    for (key, value) in &spec.env {
+        match value {
+            Some(value) => {
+                command.env(key, value);
+            }
+            None => {
+                command.env_remove(key);
+            }
+        }
     }
     configure_owned_command(&mut command).map_err(io::Error::other)?;
     let mut child = command.spawn()?;
@@ -51,7 +64,21 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
             return Err(io::Error::other(error));
         }
     };
+    if let (Some(text), Some(mut stdin)) = (&spec.stdin_text, child.stdin.take()) {
+        let text = text.clone();
+        thread::spawn(move || {
+            let _ = stdin.write_all(&text);
+        });
+    }
     Ok(ContainedChild { child, tree })
+}
+
+fn output_stdio(output: &ContainedOutput) -> io::Result<Stdio> {
+    match output {
+        ContainedOutput::Null => Ok(Stdio::null()),
+        ContainedOutput::Capture => Ok(Stdio::piped()),
+        ContainedOutput::File(file) => file.try_clone().map(Stdio::from),
+    }
 }
 
 impl ContainedChild {

@@ -51,6 +51,7 @@ agenterm-qjswasm
 │  ├─ [x] advisory locks retain stable tombstones and refuse a 33rd lifetime handle before file creation
 │  ├─ [x] text and i32-returning host operations apply one parked-result cap to diagnostics
 │  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
+│  ├─ [x] every child entry uses the shared first-instruction contained launcher
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
@@ -227,10 +228,15 @@ second route around ACU/AgenTerm product contracts.
   `process.command` publish per-stream truncation flags, including additional
   cuts required after JSON escaping. `process.command_stdout` refuses a
   truncated result because its raw-text return cannot carry those flags.
-- [x] Tool children are configured and retained as owned process trees.
-  Explicit kill, timeout, cancellation and slot reclamation terminate the tree
-  before reaping the direct child; guard-attachment failure kills the newly
-  spawned child and fails typed instead of returning an uncontained handle.
+- [x] All four tool child entry paths (`command`, `command_stdout`, `status`,
+  `spawn`) use the same `agenterm-platform` contained launcher. Windows creates
+  the child suspended, assigns its kill-on-close Job before the first user
+  instruction and only then resumes it; Unix establishes the owned process
+  group in `pre_exec`. Working directory, inherited environment mutation,
+  stdin, capture and file redirection retain their public behavior. Explicit
+  kill, timeout, cancellation and slot reclamation terminate the owned tree and
+  reap the direct child; containment setup failure returns typed instead of
+  exposing an uncontained handle.
 - [x] `check-many` charges entry files and recursively resolved imports to one
   aggregate source ledger, applies the per-source byte limit to every imported
   module, caps resolved modules at 1024 and checks the same wall deadline during

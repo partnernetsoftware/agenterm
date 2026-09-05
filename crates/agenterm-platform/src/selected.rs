@@ -724,7 +724,7 @@ pub(crate) mod chassis_present {
 #[path = "adapters/windows/activation.rs"]
 pub(crate) mod activation;
 
-#[cfg(all(feature = "window", windows))]
+#[cfg(all(feature = "process-window", windows))]
 #[path = "adapters/windows/process_window.rs"]
 pub(crate) mod process_window;
 
@@ -756,11 +756,11 @@ pub(crate) mod window;
 #[path = "adapters/macos/window.rs"]
 pub(crate) mod window;
 
-#[cfg(all(feature = "window", target_os = "linux"))]
+#[cfg(all(feature = "process-window", target_os = "linux"))]
 #[path = "adapters/linux/process_window.rs"]
 pub(crate) mod process_window;
 
-#[cfg(all(feature = "window", target_os = "macos"))]
+#[cfg(all(feature = "process-window", target_os = "macos"))]
 #[path = "adapters/macos/process_window.rs"]
 pub(crate) mod process_window;
 

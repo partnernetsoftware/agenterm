@@ -1,7 +1,8 @@
 use std::{
+    cmp::Ordering as CmpOrdering,
     ffi::{OsStr, OsString},
-    fs::File,
-    io::{self, Read},
+    fs::{File, OpenOptions},
+    io::{self, Read, Write as _},
     os::windows::{
         ffi::OsStrExt as _,
         io::{AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle},
@@ -14,17 +15,17 @@ use windows_sys::Win32::{
     System::{
         Pipes::CreatePipe,
         Threading::{
-            CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessW,
-            DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
-            InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, ResumeThread,
-            STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute,
+            CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_SUSPENDED,
+            CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+            EXTENDED_STARTUPINFO_PRESENT, InitializeProcThreadAttributeList,
+            LPPROC_THREAD_ATTRIBUTE_LIST, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION,
+            ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute,
         },
     },
 };
 
 use crate::{
-    contained_process::ContainedHeadlessCommand,
+    contained_process::{ContainedHeadlessCommand, ContainedOutput},
     contract::process_spawn::ProcessExit,
     process_containment::{ProcessContainment, ProcessContainmentOptions},
     process_reference::{ProcessReference, ProcessWait},
@@ -88,28 +89,17 @@ fn spawn_suspended_into(
         .as_deref()
         .map(|path| nul_terminated(path.as_os_str()))
         .transpose()?;
-    let mut capture = spec.capture_output.then(CaptureStdio::new).transpose()?;
-    let mut raw_inherited = capture
-        .as_ref()
-        .map(CaptureStdio::raw_child_handles)
-        .unwrap_or_default();
-    let mut attributes = if raw_inherited.is_empty() {
-        None
-    } else {
-        Some(AttributeList::with_handle_list(&mut raw_inherited)?)
-    };
+    let mut environment = environment_block(spec)?;
+    let stdio = PreparedStdio::new(spec)?;
+    let mut raw_inherited = stdio.raw_child_handles();
+    let attributes = AttributeList::with_handle_list(&mut raw_inherited)?;
     let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-    if let Some(capture) = &capture {
-        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-        startup.StartupInfo.hStdInput = capture.stdin.as_raw_handle();
-        startup.StartupInfo.hStdOutput = capture.stdout_write.as_raw_handle();
-        startup.StartupInfo.hStdError = capture.stderr_write.as_raw_handle();
-        startup.lpAttributeList = attributes
-            .as_mut()
-            .expect("captured stdio has an attribute list")
-            .raw;
-    }
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.hStdInput = stdio.stdin_child.as_raw_handle();
+    startup.StartupInfo.hStdOutput = stdio.stdout_child.as_raw_handle();
+    startup.StartupInfo.hStdError = stdio.stderr_child.as_raw_handle();
+    startup.lpAttributeList = attributes.raw;
     let mut information: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
     let borrowed = raw_inherited
         .iter()
@@ -121,16 +111,19 @@ fn spawn_suspended_into(
             command_line.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
-            i32::from(!raw_inherited.is_empty()),
+            1,
             CREATE_NO_WINDOW
                 | CREATE_SUSPENDED
                 | extra_flags
-                | if raw_inherited.is_empty() {
-                    0
+                | EXTENDED_STARTUPINFO_PRESENT
+                | if environment.is_some() {
+                    CREATE_UNICODE_ENVIRONMENT
                 } else {
-                    EXTENDED_STARTUPINFO_PRESENT
+                    0
                 },
-            std::ptr::null(),
+            environment
+                .as_mut()
+                .map_or(std::ptr::null(), |block| block.as_mut_ptr().cast()),
             directory
                 .as_ref()
                 .map_or(std::ptr::null(), |value| value.as_ptr()),
@@ -153,10 +146,8 @@ fn spawn_suspended_into(
         )));
     }
     let handles = CreatedHandles(information);
-    let (stdout, stderr) = capture
-        .take()
-        .map(CaptureStdio::into_parent_outputs)
-        .unwrap_or((None, None));
+    drop(attributes);
+    let (stdin, stdout, stderr) = stdio.into_parent_streams();
     let process = match ProcessReference::duplicate_from(handles.process()) {
         Ok(process) => process,
         Err(error) => {
@@ -177,6 +168,12 @@ fn spawn_suspended_into(
         let _ = containment.terminate(1);
         let _ = process.wait_for_exit(None);
         return Err(AttemptError::io(error));
+    }
+    if let Some((mut stdin, text)) = stdin.zip(spec.stdin_text.as_ref()) {
+        let text = text.clone();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&text);
+        });
     }
     Ok(ContainedChild {
         process,
@@ -269,51 +266,225 @@ fn cleanup_information(information: PROCESS_INFORMATION) {
     abort_raw_suspended(&handles);
 }
 
-struct CaptureStdio {
-    stdin: OwnedHandle,
-    stdout_read: OwnedHandle,
-    stdout_write: OwnedHandle,
-    stderr_read: OwnedHandle,
-    stderr_write: OwnedHandle,
+struct PreparedStdio {
+    stdin_child: OwnedHandle,
+    stdin_parent: Option<OwnedHandle>,
+    stdout_child: OwnedHandle,
+    stdout_parent: Option<OwnedHandle>,
+    stderr_child: OwnedHandle,
+    stderr_parent: Option<OwnedHandle>,
 }
 
-impl CaptureStdio {
-    fn new() -> io::Result<Self> {
-        let stdin = File::open("NUL")?.into();
-        let (stdout_read, stdout_write) = pipe()?;
-        let (stderr_read, stderr_write) = pipe()?;
+impl PreparedStdio {
+    fn new(spec: &ContainedHeadlessCommand) -> io::Result<Self> {
+        let (stdin_child, stdin_parent) = if spec.stdin_text.is_some() {
+            let (read, write) = pipe()?;
+            (read, Some(write))
+        } else {
+            (File::open("NUL")?.into(), None)
+        };
+        let (stdout_child, stdout_parent) = output_handles(&spec.stdout)?;
+        let (stderr_child, stderr_parent) = output_handles(&spec.stderr)?;
         Ok(Self {
-            stdin,
-            stdout_read,
-            stdout_write,
-            stderr_read,
-            stderr_write,
+            stdin_child,
+            stdin_parent,
+            stdout_child,
+            stdout_parent,
+            stderr_child,
+            stderr_parent,
         })
     }
 
     fn raw_child_handles(&self) -> Vec<HANDLE> {
         vec![
-            self.stdin.as_raw_handle(),
-            self.stdout_write.as_raw_handle(),
-            self.stderr_write.as_raw_handle(),
+            self.stdin_child.as_raw_handle(),
+            self.stdout_child.as_raw_handle(),
+            self.stderr_child.as_raw_handle(),
         ]
     }
 
-    fn into_parent_outputs(self) -> (Option<ContainedChildOutput>, Option<ContainedChildOutput>) {
+    fn into_parent_streams(
+        self,
+    ) -> (
+        Option<File>,
+        Option<ContainedChildOutput>,
+        Option<ContainedChildOutput>,
+    ) {
         let Self {
-            stdin,
-            stdout_read,
-            stdout_write,
-            stderr_read,
-            stderr_write,
+            stdin_child,
+            stdin_parent,
+            stdout_child,
+            stdout_parent,
+            stderr_child,
+            stderr_parent,
         } = self;
-        drop(stdin);
-        drop(stdout_write);
-        drop(stderr_write);
+        drop(stdin_child);
+        drop(stdout_child);
+        drop(stderr_child);
         (
-            Some(ContainedChildOutput(File::from(stdout_read))),
-            Some(ContainedChildOutput(File::from(stderr_read))),
+            stdin_parent.map(File::from),
+            stdout_parent.map(|handle| ContainedChildOutput(File::from(handle))),
+            stderr_parent.map(|handle| ContainedChildOutput(File::from(handle))),
         )
+    }
+}
+
+fn output_handles(output: &ContainedOutput) -> io::Result<(OwnedHandle, Option<OwnedHandle>)> {
+    match output {
+        ContainedOutput::Null => Ok((OpenOptions::new().write(true).open("NUL")?.into(), None)),
+        ContainedOutput::Capture => {
+            let (read, write) = pipe()?;
+            Ok((write, Some(read)))
+        }
+        ContainedOutput::File(file) => Ok((file.try_clone()?.into(), None)),
+    }
+}
+
+fn environment_block(spec: &ContainedHeadlessCommand) -> io::Result<Option<Vec<u16>>> {
+    if spec.env.is_empty() {
+        return Ok(None);
+    }
+    let overrides = EnvironmentOverrides::from_spec(spec)?;
+    let inherited = crate::selected::environment::InheritedEnvironment::capture()?;
+    Ok(Some(merge_environment_block(
+        inherited.units()?,
+        &overrides,
+    )))
+}
+
+struct EncodedEnvironmentEntry {
+    key: Vec<u16>,
+    value: Option<Vec<u16>>,
+}
+
+struct EnvironmentOverrides(Vec<EncodedEnvironmentEntry>);
+
+impl EnvironmentOverrides {
+    fn from_spec(spec: &ContainedHeadlessCommand) -> io::Result<Self> {
+        let mut overrides = Self(Vec::new());
+        for (key, value) in &spec.env {
+            let key = key.encode_wide().collect::<Vec<_>>();
+            let value = value
+                .as_deref()
+                .map(|value| value.encode_wide().collect::<Vec<_>>());
+            if key.is_empty()
+                || key.iter().any(|unit| *unit == 0 || *unit == b'=' as u16)
+                || value.as_ref().is_some_and(|value| value.contains(&0))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "environment key is empty, contains '=' or NUL, or value contains NUL",
+                ));
+            }
+            overrides.insert(EncodedEnvironmentEntry { key, value });
+        }
+        Ok(overrides)
+    }
+
+    fn insert(&mut self, entry: EncodedEnvironmentEntry) {
+        let mut low = 0usize;
+        let mut high = self.0.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if compare_environment_keys(&self.0[middle].key, &entry.key) == CmpOrdering::Less {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        if self
+            .0
+            .get(low)
+            .is_some_and(|current| compare_environment_keys(&current.key, &entry.key).is_eq())
+        {
+            self.0[low] = entry;
+        } else {
+            self.0.insert(low, entry);
+        }
+    }
+}
+
+fn merge_environment_block(inherited: &[u16], overrides: &EnvironmentOverrides) -> Vec<u16> {
+    let mut block = Vec::new();
+    let mut inherited_at = 0usize;
+    let mut override_at = 0usize;
+    while inherited_at < inherited.len() && inherited[inherited_at] != 0 {
+        let entry_end = inherited[inherited_at..]
+            .iter()
+            .position(|unit| *unit == 0)
+            .map_or(inherited.len(), |offset| inherited_at + offset);
+        let entry = &inherited[inherited_at..entry_end];
+        let Some(key) = environment_entry_key(entry) else {
+            inherited_at = entry_end.saturating_add(1);
+            continue;
+        };
+        let mut keep_inherited = true;
+        while let Some(override_entry) = overrides.0.get(override_at) {
+            match compare_environment_keys(&override_entry.key, key) {
+                CmpOrdering::Less => {
+                    append_environment_entry(&mut block, override_entry);
+                    override_at += 1;
+                }
+                CmpOrdering::Equal => {
+                    append_environment_entry(&mut block, override_entry);
+                    override_at += 1;
+                    keep_inherited = false;
+                    break;
+                }
+                CmpOrdering::Greater => break,
+            }
+        }
+        if keep_inherited {
+            block.extend_from_slice(entry);
+            block.push(0);
+        }
+        inherited_at = entry_end.saturating_add(1);
+    }
+    for entry in &overrides.0[override_at..] {
+        append_environment_entry(&mut block, entry);
+    }
+    if block.is_empty() {
+        block.push(0);
+    }
+    block.push(0);
+    block
+}
+
+fn append_environment_entry(block: &mut Vec<u16>, entry: &EncodedEnvironmentEntry) {
+    let Some(value) = &entry.value else {
+        return;
+    };
+    block.extend_from_slice(&entry.key);
+    block.push(b'=' as u16);
+    block.extend_from_slice(value);
+    block.push(0);
+}
+
+fn environment_entry_key(entry: &[u16]) -> Option<&[u16]> {
+    let search_start = usize::from(entry.first() == Some(&(b'=' as u16)));
+    let separator = entry
+        .get(search_start..)?
+        .iter()
+        .position(|unit| *unit == b'=' as u16)?
+        + search_start;
+    (separator != 0).then_some(&entry[..separator])
+}
+
+fn compare_environment_keys(left: &[u16], right: &[u16]) -> CmpOrdering {
+    for (left, right) in left.iter().copied().zip(right.iter().copied()) {
+        match ascii_upper_unit(left).cmp(&ascii_upper_unit(right)) {
+            CmpOrdering::Equal => {}
+            ordering => return ordering,
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
+const fn ascii_upper_unit(unit: u16) -> u16 {
+    if unit >= b'a' as u16 && unit <= b'z' as u16 {
+        unit - (b'a' - b'A') as u16
+    } else {
+        unit
     }
 }
 
@@ -493,6 +664,22 @@ mod tests {
             text(windows_command_line(std::path::Path::new("C:\\app.exe"), &args).unwrap()),
             r#""C:\app.exe" "" "two words" "say \"hello\"" 中文 C:\tail\"#
         );
+    }
+
+    #[test]
+    fn environment_merge_preserves_drive_entries_and_applies_last_case_insensitive_mutation() {
+        let mut spec = ContainedHeadlessCommand::new("cmd.exe");
+        spec.env("Path", "new")
+            .env("alpha", "first")
+            .env("ALPHA", "two")
+            .env_remove("remove_me");
+        let overrides = EnvironmentOverrides::from_spec(&spec).expect("valid overrides");
+        let inherited = "=C:=C:\\old\0alpha=old\0PATH=old\0REMOVE_ME=old\0ZED=last\0\0"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let actual = String::from_utf16(&merge_environment_block(&inherited, &overrides))
+            .expect("valid UTF-16");
+        assert_eq!(actual, "=C:=C:\\old\0ALPHA=two\0Path=new\0ZED=last\0\0");
     }
 
     #[test]

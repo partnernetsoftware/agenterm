@@ -2,6 +2,7 @@
 
 use std::{
     ffi::OsString,
+    fs::File,
     io::{self, Read},
     path::PathBuf,
     time::Duration,
@@ -20,7 +21,16 @@ pub struct ContainedHeadlessCommand {
     pub(crate) program: PathBuf,
     pub(crate) args: Vec<OsString>,
     pub(crate) current_dir: Option<PathBuf>,
-    pub(crate) capture_output: bool,
+    pub(crate) env: Vec<(OsString, Option<OsString>)>,
+    pub(crate) stdin_text: Option<Vec<u8>>,
+    pub(crate) stdout: ContainedOutput,
+    pub(crate) stderr: ContainedOutput,
+}
+
+pub(crate) enum ContainedOutput {
+    Null,
+    Capture,
+    File(File),
 }
 
 impl ContainedHeadlessCommand {
@@ -29,7 +39,10 @@ impl ContainedHeadlessCommand {
             program: program.into(),
             args: Vec::new(),
             current_dir: None,
-            capture_output: false,
+            env: Vec::new(),
+            stdin_text: None,
+            stdout: ContainedOutput::Null,
+            stderr: ContainedOutput::Null,
         }
     }
 
@@ -52,13 +65,44 @@ impl ContainedHeadlessCommand {
         self
     }
 
+    /// Sets one variable in the child's inherited environment.
+    pub fn env(&mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> &mut Self {
+        self.env.push((key.into(), Some(value.into())));
+        self
+    }
+
+    /// Removes one variable from the child's inherited environment.
+    pub fn env_remove(&mut self, key: impl Into<OsString>) -> &mut Self {
+        self.env.push((key.into(), None));
+        self
+    }
+
+    /// Feeds these UTF-8 bytes to the child's standard input and then closes it.
+    pub fn stdin_text(&mut self, text: impl Into<String>) -> &mut Self {
+        self.stdin_text = Some(text.into().into_bytes());
+        self
+    }
+
     /// Captures stdout and stderr through independent owned streams.
     ///
     /// Callers should drain both streams concurrently before waiting for a
     /// verbose child, so neither bounded operating-system pipe can block the
     /// other stream or the child process.
     pub fn capture_output(&mut self) -> &mut Self {
-        self.capture_output = true;
+        self.stdout = ContainedOutput::Capture;
+        self.stderr = ContainedOutput::Capture;
+        self
+    }
+
+    /// Redirects stdout to an already-open file instead of capturing it.
+    pub fn stdout_file(&mut self, file: File) -> &mut Self {
+        self.stdout = ContainedOutput::File(file);
+        self
+    }
+
+    /// Redirects stderr to an already-open file instead of capturing it.
+    pub fn stderr_file(&mut self, file: File) -> &mut Self {
+        self.stderr = ContainedOutput::File(file);
         self
     }
 
@@ -129,6 +173,19 @@ fn validate(command: &ContainedHeadlessCommand) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "contained process parameter contains NUL",
+        ));
+    }
+    if command.env.iter().any(|(key, value)| {
+        key.is_empty()
+            || key.as_encoded_bytes().contains(&0)
+            || key.as_encoded_bytes().contains(&b'=')
+            || value
+                .as_ref()
+                .is_some_and(|value| value.as_encoded_bytes().contains(&0))
+    }) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "contained process environment key is empty, contains '=' or NUL, or value contains NUL",
         ));
     }
     Ok(())
@@ -231,5 +288,85 @@ mod tests {
             .expect("stderr is UTF-8");
         assert!(stdout.contains("contained-stdout-probe"));
         assert!(stderr.contains("contained-stderr-probe"));
+    }
+
+    #[test]
+    fn configured_stdio_probe() {
+        if std::env::var_os("AGENTERM_CONTAINED_CONFIGURED_PROBE").is_some() {
+            let mut stdin = String::new();
+            std::io::stdin()
+                .read_to_string(&mut stdin)
+                .expect("read configured stdin");
+            println!(
+                "{stdin}|{}",
+                std::env::var_os("AGENTERM_CONTAINED_REMOVED").is_none()
+            );
+            eprint!("configured-stderr");
+            return;
+        }
+
+        let path = std::env::temp_dir().join(format!(
+            "agenterm-contained-stderr-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        let mut command = ContainedHeadlessCommand::new(
+            std::env::current_exe().expect("resolve contained configured test executable"),
+        );
+        command.args([
+            "--exact",
+            "contained_process::tests::configured_stdio_probe",
+            "--nocapture",
+        ]);
+        command
+            .env("AGENTERM_CONTAINED_CONFIGURED_PROBE", "1")
+            .env("AGENTERM_CONTAINED_REMOVED", "present")
+            .env_remove("AGENTERM_CONTAINED_REMOVED")
+            .stdin_text("configured-stdin")
+            .capture_output()
+            .stderr_file(File::create(&path).expect("create redirected stderr"));
+        let mut child = command.spawn().expect("spawn configured contained probe");
+        let mut stdout = child.take_stdout().expect("captured stdout");
+        assert!(child.take_stderr().is_none());
+        let stdout_drain = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).expect("drain child stdout");
+            bytes
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let exit = loop {
+            match child.try_wait().expect("wait configured probe") {
+                Some(exit) => break exit,
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                None => panic!("configured contained probe timed out"),
+            }
+        };
+        assert_eq!(exit, ProcessExit::Code(0));
+        let stdout = String::from_utf8(stdout_drain.join().expect("join stdout drain"))
+            .expect("stdout is UTF-8");
+        assert!(stdout.contains("configured-stdin|true"), "{stdout:?}");
+        drop(command);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read redirected stderr"),
+            "configured-stderr"
+        );
+        std::fs::remove_file(path).expect("remove redirected stderr");
+    }
+
+    #[test]
+    fn invalid_environment_is_rejected_before_spawn() {
+        let mut command = ContainedHeadlessCommand::new("unused");
+        command.env("BAD=KEY", "value");
+        assert_eq!(
+            command
+                .spawn()
+                .err()
+                .expect("invalid environment must fail")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
     }
 }

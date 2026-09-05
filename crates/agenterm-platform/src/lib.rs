@@ -409,7 +409,7 @@ pub mod contained_process;
 #[cfg(feature = "shared-memory")]
 pub mod shared_memory;
 
-#[cfg(feature = "window")]
+#[cfg(feature = "process-window")]
 pub mod process_window;
 
 #[cfg(feature = "runtime")]
