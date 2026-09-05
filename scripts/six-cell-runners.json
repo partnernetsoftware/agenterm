@@ -58,14 +58,14 @@
       "target": "aarch64-pc-windows-msvc",
       "kind": "blocked",
       "level": "native",
-      "reason": "A Windows arm64 UTM VM exists, but this registry has no verified invocation lease, interactive-session agent or artifact transfer route for it yet. Discover and prove start/readiness/execute/receipt/stop before changing kind.",
+      "reason": "This JSON is the older ssh/host map, not the utm-court caller. Local Windows arm64 execute-only evidence goes through scripts/utm-cu-managed-job-court.sh against win-aarch64-desktop. Do not treat VM presence as this cell becoming kind=host.",
       "expect_file": "PE32+ executable (GUI) Aarch64"
     },
     {
       "target": "x86_64-pc-windows-msvc",
       "kind": "blocked",
       "level": "emulated=prism",
-      "reason": "Windows x86_64 UTM guests exist, but this registry has no verified invocation lease, interactive-session agent or artifact transfer route. Presence of a VM is not a callable runner.",
+      "reason": "This JSON is the older ssh/host map, not the utm-court caller. Local Windows x86_64 execute-only evidence goes through scripts/utm-cu-managed-job-court.sh against win-x86_64-desktop. Presence of a VM is not this cell becoming kind=host.",
       "expect_file": "PE32+ executable (GUI) x86-64"
     }
   ]

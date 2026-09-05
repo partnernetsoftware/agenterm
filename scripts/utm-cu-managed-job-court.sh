@@ -41,6 +41,11 @@ case "$SOURCE_SHA" in
   *) echo "source identity is unavailable" >&2; exit 2 ;;
 esac
 
+is_real_court_cli() {
+  [ -n "$1" ] && [ -x "$1" ] && [ -f "$1" ] &&
+    grep -q 'Uniform, product-neutral lifecycle' "$1" 2>/dev/null
+}
+
 resolve_court_cli() {
   for candidate in \
     "${UTM_COURT_CLI:-}" \
@@ -48,15 +53,18 @@ resolve_court_cli() {
     "$REPO_ROOT/../utm-court/bin/utm-court" \
     "$HOME/repos/utm-court/bin/utm-court"
   do
-    [ -n "$candidate" ] && [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+    is_real_court_cli "$candidate" && { printf '%s\n' "$candidate"; return 0; }
   done
-  command -v utm-court 2>/dev/null || return 1
+  found="$(command -v utm-court 2>/dev/null || true)"
+  is_real_court_cli "$found" && { printf '%s\n' "$found"; return 0; }
+  return 1
 }
 COURT_CLI="$(resolve_court_cli)" || {
   echo "utm-court CLI is unavailable; set UTM_COURT_CLI or UTM_COURT_HOME" >&2
   exit 2
 }
 export UTM_COURT_STATE_DIR="${UTM_COURT_STATE_DIR:-$REPO_ROOT/target/utm-court-service}"
+WINDOWS_ROOT="${UTM_COURT_WINDOWS_ROOT:-$("$COURT_CLI" windows-root)}"
 
 SCRATCH="$(mktemp -d)"
 LEASED=0
@@ -128,7 +136,7 @@ if [ "$GUEST_OS" = linux ]; then
     "rm -rf '$GUEST_ROOT'; mkdir -p '$GUEST_ROOT'; tar -xzf '$GUEST_ARCHIVE' -C '$GUEST_ROOT'; cd '$GUEST_ROOT'; sha256sum -c MANIFEST.sha256 >'$GUEST_LOG' 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then target/debug/agenterm cli script task run cu-managed-job-smoke --manifest agenterm.tasks.json >>'$GUEST_LOG' 2>&1; rc=\$?; fi; printf '%s' \"\$rc\" >'$GUEST_EXIT.tmp'; mv -f '$GUEST_EXIT.tmp' '$GUEST_EXIT'"
 else
   "$COURT_CLI" interactive-ready "$COURT" 180 >/dev/null
-  GUEST_BASE="C:\\minicon-six"
+  GUEST_BASE="$WINDOWS_ROOT"
   GUEST_ARCHIVE="$GUEST_BASE\\agenterm-$RUN_ID.zip"
   GUEST_ROOT="$GUEST_BASE\\agenterm-$RUN_ID"
   GUEST_LOG="$GUEST_BASE\\agenterm-$RUN_ID.log"
@@ -184,7 +192,7 @@ while :; do
     fi
     if [ "$GUEST_OS" = windows ]; then
       "$COURT_CLI" pull "$COURT" \
-        'C:\minicon-six\agent-v2\job.log' "$EVIDENCE_DIR/agent-job.log" \
+        "$WINDOWS_ROOT\\agent-v2\\job.log" "$EVIDENCE_DIR/agent-job.log" \
         >/dev/null 2>&1 || true
     fi
     printf '124\n' >"$EVIDENCE_DIR/run.exit"

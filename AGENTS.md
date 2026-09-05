@@ -231,6 +231,14 @@ The highest-yield rule: a `.qjs` script that uses something outside the
 subset fails **at compile time with a named capability diagnostic**; read that
 diagnostic, do not work around it.
 
+## Local UTM courts
+
+Local UTM/Lima lifecycle lives in sibling `utm-court`
+(`partnernetsoftware/utm-court`). AgenTerm only calls
+`scripts/utm-cu-managed-job-court.sh`. Do not copy `utmctl`, guest agents,
+or a second court service into this repo. Guest Windows paths come from
+`utm-court windows-root`. Caller map: `~/repos/utm-court/CALLERS.md`.
+
 ## Development loop
 
 Use PowerShell from the repository root:
