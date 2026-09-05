@@ -8,14 +8,14 @@ use agenterm_platform::{
     entropy::secure_random_array,
     file_identity::file_identity,
     filesystem::{host_directories, user_home_directory},
-    filesystem_open::{open_existing_path, ExistingEntryType},
+    filesystem_open::{ExistingEntryType, open_existing_path},
     filesystem_publish::{publish_directory, write_file_atomic},
-    native_messaging::{register_current_user_host, ChromiumRegistryTarget},
+    native_messaging::{ChromiumRegistryTarget, register_current_user_host},
 };
 use serde::Serialize;
 
 use super::{
-    extension_assets, native_host_manifest, ExtensionMaterializationPlan, ACU_NATIVE_HOST_NAME,
+    ACU_NATIVE_HOST_NAME, ExtensionMaterializationPlan, extension_assets, native_host_manifest,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -660,10 +660,12 @@ mod tests {
             BrowserRegistrationOutcome::Failed { ref code }
                 if code == "browser_bridge_native_manifest_registration_destination_invalid"
         ));
-        assert!(fs::symlink_metadata(&destination)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            fs::symlink_metadata(&destination)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(
             fs::read_link(&destination).unwrap(),
             PathBuf::from("sentinel.json")
@@ -697,10 +699,12 @@ mod tests {
             BrowserRegistrationOutcome::Failed { ref code }
                 if code == "browser_bridge_native_manifest_registration_destination_invalid"
         ));
-        assert!(fs::symlink_metadata(&registration_parent)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            fs::symlink_metadata(&registration_parent)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert!(!external.join("host.json").exists());
         fs::remove_dir_all(root).unwrap();
     }

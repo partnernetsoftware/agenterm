@@ -9,17 +9,17 @@ mod installer;
 mod registry;
 
 pub use assets::{
-    extension_assets, native_host_manifest, ExtensionAsset, ExtensionMaterializationPlan,
-    MaterializationError,
+    ExtensionAsset, ExtensionMaterializationPlan, MaterializationError, extension_assets,
+    native_host_manifest,
 };
 pub use host::{
-    list_live_connections, run_native_host, send_to_connection, BridgeHostError, BridgeResponse,
-    BridgeStatus, BridgeWireError, ConnectionInventory, RequestLedger,
+    BridgeHostError, BridgeResponse, BridgeStatus, BridgeWireError, ConnectionInventory,
+    RequestLedger, list_live_connections, run_native_host, send_to_connection,
 };
 pub use installer::{
-    install_for_current_user, BrowserBridgeInstall, BrowserBridgeInstallError,
-    BrowserBridgeInstallPaths, BrowserRegistrationOutcome, BrowserRegistrationPlan,
-    BrowserRegistrationReceipt, BrowserRegistrationTarget, ChromiumFamily,
+    BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
+    BrowserRegistrationOutcome, BrowserRegistrationPlan, BrowserRegistrationReceipt,
+    BrowserRegistrationTarget, ChromiumFamily, install_for_current_user,
 };
 pub use registry::{
     ConnectionEndpoint, ConnectionEntry, ConnectionId, ConnectionRegistry, ProcessIdentity,
