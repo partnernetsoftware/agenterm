@@ -1,12 +1,12 @@
 use std::{
-    io::{self, Read, Write as _},
-    process::{Child, ChildStderr, ChildStdout, Command, Stdio},
+    io::{self, Read, Write},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
 
 use crate::{
-    contained_process::{ContainedHeadlessCommand, ContainedOutput},
+    contained_process::{ContainedHeadlessCommand, ContainedInput, ContainedOutput},
     contract::process_spawn::ProcessExit,
     process::{ProcessTreeGuard, configure_owned_command},
 };
@@ -14,11 +14,24 @@ use crate::{
 pub struct ContainedChild {
     child: Child,
     tree: ProcessTreeGuard,
+    stdin: Option<ContainedChildInput>,
 }
 
 pub enum ContainedChildOutput {
     Stdout(ChildStdout),
     Stderr(ChildStderr),
+}
+
+pub struct ContainedChildInput(ChildStdin);
+
+impl Write for ContainedChildInput {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.0.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
 }
 
 impl Read for ContainedChildOutput {
@@ -32,13 +45,10 @@ impl Read for ContainedChildOutput {
 
 pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChild> {
     let mut command = Command::new(&spec.program);
-    command
-        .args(&spec.args)
-        .stdin(if spec.stdin_text.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        });
+    command.args(&spec.args).stdin(match &spec.stdin {
+        ContainedInput::Null => Stdio::null(),
+        ContainedInput::Text(_) | ContainedInput::Pipe => Stdio::piped(),
+    });
     command.stdout(output_stdio(&spec.stdout)?);
     command.stderr(output_stdio(&spec.stderr)?);
     if let Some(directory) = &spec.current_dir {
@@ -64,13 +74,20 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
             return Err(io::Error::other(error));
         }
     };
-    if let (Some(text), Some(mut stdin)) = (&spec.stdin_text, child.stdin.take()) {
-        let text = text.clone();
-        thread::spawn(move || {
-            let _ = stdin.write_all(&text);
-        });
-    }
-    Ok(ContainedChild { child, tree })
+    let stdin = match &spec.stdin {
+        ContainedInput::Text(text) => {
+            if let Some(mut stdin) = child.stdin.take() {
+                let text = text.clone();
+                thread::spawn(move || {
+                    let _ = stdin.write_all(&text);
+                });
+            }
+            None
+        }
+        ContainedInput::Pipe => child.stdin.take().map(ContainedChildInput),
+        ContainedInput::Null => None,
+    };
+    Ok(ContainedChild { child, tree, stdin })
 }
 
 fn output_stdio(output: &ContainedOutput) -> io::Result<Stdio> {
@@ -100,6 +117,10 @@ impl ContainedChild {
 
     pub(crate) fn take_stderr(&mut self) -> Option<ContainedChildOutput> {
         self.child.stderr.take().map(ContainedChildOutput::Stderr)
+    }
+
+    pub(crate) fn take_stdin(&mut self) -> Option<ContainedChildInput> {
+        self.stdin.take()
     }
 
     pub(crate) fn terminate_and_wait(&mut self, timeout: Duration) -> io::Result<()> {

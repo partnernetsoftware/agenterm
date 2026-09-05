@@ -2,7 +2,7 @@ use std::{
     cmp::Ordering as CmpOrdering,
     ffi::{OsStr, OsString},
     fs::{File, OpenOptions},
-    io::{self, Read, Write as _},
+    io::{self, Read, Write},
     os::windows::{
         ffi::OsStrExt as _,
         io::{AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle},
@@ -25,7 +25,7 @@ use windows_sys::Win32::{
 };
 
 use crate::{
-    contained_process::{ContainedHeadlessCommand, ContainedOutput},
+    contained_process::{ContainedHeadlessCommand, ContainedInput, ContainedOutput},
     contract::process_spawn::ProcessExit,
     process_containment::{ProcessContainment, ProcessContainmentOptions},
     process_reference::{ProcessReference, ProcessWait},
@@ -34,12 +34,25 @@ use crate::{
 pub struct ContainedChild {
     process: ProcessReference,
     containment: ProcessContainment,
+    stdin: Option<ContainedChildInput>,
     stdout: Option<ContainedChildOutput>,
     stderr: Option<ContainedChildOutput>,
     exit: Option<ProcessExit>,
 }
 
 pub struct ContainedChildOutput(File);
+
+pub struct ContainedChildInput(File);
+
+impl Write for ContainedChildInput {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.0.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
 
 impl Read for ContainedChildOutput {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -169,15 +182,23 @@ fn spawn_suspended_into(
         let _ = process.wait_for_exit(None);
         return Err(AttemptError::io(error));
     }
-    if let Some((mut stdin, text)) = stdin.zip(spec.stdin_text.as_ref()) {
-        let text = text.clone();
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(&text);
-        });
-    }
+    let stdin = match &spec.stdin {
+        ContainedInput::Text(text) => {
+            if let Some(mut stdin) = stdin {
+                let text = text.clone();
+                std::thread::spawn(move || {
+                    let _ = stdin.write_all(&text);
+                });
+            }
+            None
+        }
+        ContainedInput::Pipe => stdin.map(ContainedChildInput),
+        ContainedInput::Null => None,
+    };
     Ok(ContainedChild {
         process,
         containment,
+        stdin,
         stdout,
         stderr,
         exit: None,
@@ -230,6 +251,10 @@ impl ContainedChild {
         self.stderr.take()
     }
 
+    pub(crate) fn take_stdin(&mut self) -> Option<ContainedChildInput> {
+        self.stdin.take()
+    }
+
     pub(crate) fn terminate_and_wait(&mut self, timeout: Duration) -> io::Result<()> {
         let root_exited = self.try_wait()?.is_some();
         self.containment.terminate(1).map_err(io::Error::other)?;
@@ -277,11 +302,12 @@ struct PreparedStdio {
 
 impl PreparedStdio {
     fn new(spec: &ContainedHeadlessCommand) -> io::Result<Self> {
-        let (stdin_child, stdin_parent) = if spec.stdin_text.is_some() {
-            let (read, write) = pipe()?;
-            (read, Some(write))
-        } else {
-            (File::open("NUL")?.into(), None)
+        let (stdin_child, stdin_parent) = match &spec.stdin {
+            ContainedInput::Text(_) | ContainedInput::Pipe => {
+                let (read, write) = pipe()?;
+                (read, Some(write))
+            }
+            ContainedInput::Null => (File::open("NUL")?.into(), None),
         };
         let (stdout_child, stdout_parent) = output_handles(&spec.stdout)?;
         let (stderr_child, stderr_parent) = output_handles(&spec.stderr)?;

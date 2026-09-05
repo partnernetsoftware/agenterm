@@ -3899,6 +3899,18 @@ timeout, output exhaustion, or a root exit that may have left background
 descendants holding the pipes. Persist only output sizes/digests in an audit
 ledger unless the product contract explicitly authorizes content retention.
 
+An interactive contained child needs a distinct stdin ownership contract. Let
+the spawn spec request a pipe, let `ContainedChild` yield its writer exactly
+once, then move that writer to one serialized owner; dropping it is the sole
+EOF operation and must not terminate the process tree. Never hold the child
+lifecycle lock while a pipe write can block. A failed `write_all` may have
+delivered a prefix, so report uncertain/partial delivery unless a higher-level
+framed protocol acknowledges the bytes; `BrokenPipe` closes the input channel
+but does not prove the child exited. On Windows, inherit only the child read
+end in the explicit handle list—the parent writer must stay non-inheritable—or
+EOF can never arrive. Stop and expiry terminate/reap containment first, then
+join the writer and both output drains.
+
 ## Cap parked diagnostics on every host return shape
 
 A host operation returning `i32` can still park an arbitrarily long diagnostic

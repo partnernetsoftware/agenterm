@@ -3,7 +3,7 @@
 use std::{
     ffi::OsString,
     fs::File,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::PathBuf,
     time::Duration,
 };
@@ -22,7 +22,7 @@ pub struct ContainedHeadlessCommand {
     pub(crate) args: Vec<OsString>,
     pub(crate) current_dir: Option<PathBuf>,
     pub(crate) env: Vec<(OsString, Option<OsString>)>,
-    pub(crate) stdin_text: Option<Vec<u8>>,
+    pub(crate) stdin: ContainedInput,
     pub(crate) stdout: ContainedOutput,
     pub(crate) stderr: ContainedOutput,
 }
@@ -33,6 +33,12 @@ pub(crate) enum ContainedOutput {
     File(File),
 }
 
+pub(crate) enum ContainedInput {
+    Null,
+    Text(Vec<u8>),
+    Pipe,
+}
+
 impl ContainedHeadlessCommand {
     pub fn new(program: impl Into<PathBuf>) -> Self {
         Self {
@@ -40,7 +46,7 @@ impl ContainedHeadlessCommand {
             args: Vec::new(),
             current_dir: None,
             env: Vec::new(),
-            stdin_text: None,
+            stdin: ContainedInput::Null,
             stdout: ContainedOutput::Null,
             stderr: ContainedOutput::Null,
         }
@@ -79,7 +85,16 @@ impl ContainedHeadlessCommand {
 
     /// Feeds these UTF-8 bytes to the child's standard input and then closes it.
     pub fn stdin_text(&mut self, text: impl Into<String>) -> &mut Self {
-        self.stdin_text = Some(text.into().into_bytes());
+        self.stdin = ContainedInput::Text(text.into().into_bytes());
+        self
+    }
+
+    /// Keeps an owned writable pipe to the contained child's standard input.
+    ///
+    /// The caller must take the writer from the spawned child. Dropping that
+    /// writer delivers EOF without changing process-tree ownership.
+    pub fn pipe_stdin(&mut self) -> &mut Self {
+        self.stdin = ContainedInput::Pipe;
         self
     }
 
@@ -121,9 +136,25 @@ pub struct ContainedChild(crate::selected::contained_process::ContainedChild);
 /// independent worker threads.
 pub struct ContainedChildOutput(crate::selected::contained_process::ContainedChildOutput);
 
+/// One owned writer for a contained child's standard input.
+///
+/// The writer is `Send`, not shared. A resident owner should serialize writes
+/// on one thread and drop it exactly once when stdin is closed.
+pub struct ContainedChildInput(crate::selected::contained_process::ContainedChildInput);
+
 impl Read for ContainedChildOutput {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.0.read(buffer)
+    }
+}
+
+impl Write for ContainedChildInput {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.0.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
     }
 }
 
@@ -145,6 +176,11 @@ impl ContainedChild {
     /// Takes the captured stderr stream, when output capture was requested.
     pub fn take_stderr(&mut self) -> Option<ContainedChildOutput> {
         self.0.take_stderr().map(ContainedChildOutput)
+    }
+
+    /// Takes the configured stdin pipe exactly once.
+    pub fn take_stdin(&mut self) -> Option<ContainedChildInput> {
+        self.0.take_stdin().map(ContainedChildInput)
     }
 
     /// Terminates the complete owned tree and waits boundedly for the root.
@@ -354,6 +390,71 @@ mod tests {
             "configured-stderr"
         );
         std::fs::remove_file(path).expect("remove redirected stderr");
+    }
+
+    #[test]
+    fn piped_stdin_is_a_send_writer_and_drop_delivers_eof() {
+        fn assert_send<T: Send>() {}
+        assert_send::<ContainedChildInput>();
+
+        if std::env::var_os("AGENTERM_CONTAINED_PIPE_PROBE").is_some() {
+            let mut bytes = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut bytes)
+                .expect("read piped stdin through EOF");
+            println!("pipe-bytes={}", bytes.len());
+            eprintln!("pipe-stderr");
+            return;
+        }
+
+        let mut command = ContainedHeadlessCommand::new(
+            std::env::current_exe().expect("resolve contained pipe test executable"),
+        );
+        command.args([
+            "--exact",
+            "contained_process::tests::piped_stdin_is_a_send_writer_and_drop_delivers_eof",
+            "--nocapture",
+        ]);
+        command
+            .env("AGENTERM_CONTAINED_PIPE_PROBE", "1")
+            .pipe_stdin()
+            .capture_output();
+        let mut child = command.spawn().expect("spawn contained pipe probe");
+        let mut stdin = child.take_stdin().expect("piped stdin");
+        assert!(child.take_stdin().is_none());
+        stdin.write_all(b"first").expect("write first stdin chunk");
+        stdin
+            .write_all(b"second")
+            .expect("write second stdin chunk");
+        drop(stdin);
+
+        let mut stdout = child.take_stdout().expect("captured stdout");
+        let mut stderr = child.take_stderr().expect("captured stderr");
+        let stdout_drain = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).expect("drain pipe stdout");
+            bytes
+        });
+        let stderr_drain = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).expect("drain pipe stderr");
+            bytes
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let exit = loop {
+            match child.try_wait().expect("wait pipe probe") {
+                Some(exit) => break exit,
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                None => panic!("contained pipe probe timed out"),
+            }
+        };
+        assert_eq!(exit, ProcessExit::Code(0));
+        let stdout = String::from_utf8(stdout_drain.join().expect("join pipe stdout"))
+            .expect("pipe stdout is UTF-8");
+        let stderr = String::from_utf8(stderr_drain.join().expect("join pipe stderr"))
+            .expect("pipe stderr is UTF-8");
+        assert!(stdout.contains("pipe-bytes=11"), "{stdout:?}");
+        assert!(stderr.contains("pipe-stderr"), "{stderr:?}");
     }
 
     #[test]
