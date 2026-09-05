@@ -466,16 +466,16 @@
         {
           "id": "browser.mv3-native-bridge",
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
-          "acu_shape": null,
+          "acu_shape": "fixed-identity embedded MV3 asset plus bounded status|tabs|debug-read protocol and exact-process connection-registry library core; no public host/installer yet",
           "state": "gap",
-          "next": "protocol v1 framing and closed command validation are native-library foundations; still required: fixed-identity MV3 asset, Native Messaging host/installer, profile-instance routing, at-most-once receipts and public black-box"
+          "next": "wire the same agenterm-cu binary as Native Messaging host, atomically install the embedded asset and host manifest, route profile instances through current-user IPC, add at-most-once receipts, then run the background closed-shadow public court"
         },
         {
           "id": "browser.closed-tree",
           "mcu_shape": "browser debug-read/debug-type/debug-invoke/debug-files across frames and closed shadow DOM",
-          "acu_shape": null,
+          "acu_shape": "library contract for exact-tab, bounded cross-frame Accessibility.getFullAXTree projection with no form values, presentation invariance and mandatory detach evidence; public bridge route absent",
           "state": "gap",
-          "next": "MV3 debugger facade with exact tab/frame/node identity, bounded traversal, detach cleanup and secret-free receipts"
+          "next": "connect the library contract to the Native Messaging host and prove exact tab/frame/node identity, closed-shadow traversal, detach cleanup and secret-free receipts in a public black-box"
         },
         {
           "id": "browser.window-lifecycle",

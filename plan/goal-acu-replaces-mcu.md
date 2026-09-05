@@ -577,7 +577,7 @@ Q4 browser and platform depth
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [~] browser control without a pre-opened CDP port
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
-│  ├─ [~] MV3/Native Messaging: protocol v1 framing/validation core; host/extension/installer pending
+│  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core; host/installer/public court pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [ ] Simulator facade
 └─ [ ] current/ssh/vnc/VM schema parity

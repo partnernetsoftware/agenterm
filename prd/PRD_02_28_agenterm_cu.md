@@ -367,8 +367,14 @@ flowchart LR
   retain AX/tab-strip control. The authenticated-profile route is a separately
   installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v1 core
   now has bounded little-endian framing, split/combined-frame decoding, a
-  closed command catalog, bounded request ids and typed malformed/oversize
-  refusal. Host process, extension, installer, connection ownership and live
+  closed `status|tabs|debug-read` catalog, bounded request ids and typed
+  malformed/oversize refusal. A fixed new ACU extension identity, embedded MV3
+  assets, same-binary native-host manifest plan and current-user/exact-process
+  connection registry are present as library foundations. `debug-read` walks a
+  bounded cross-frame AX tree without exporting form values, proves tab/window
+  presentation did not change, and treats debugger detach failure as failure;
+  tab inventory is independently bounded. Atomic installer publication,
+  same-binary host/IPC dispatch, profile-instance routing and live closed-shadow
   evidence remain gaps; library tests do not promote the route.
 
 ```mermaid

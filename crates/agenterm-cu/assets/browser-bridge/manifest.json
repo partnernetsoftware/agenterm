@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "AgenTerm ACU Browser Bridge",
+  "version": "1.0.0",
+  "description": "Fixed-identity browser observation bridge for AgenTerm ACU.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2i5BkbattiSUtoSyn+zQIfbiP9xAd6o1JfyN7ft4nZNAlpADWiiXYefenSmNyET18oTTCKHs7jYQQN79UGiA4+JArCBiCawb/0zfa73vdgx9bLu0KeoUYeMuFZRdac3IAa2lZQMWYrVwsIeEuQkXbGgjkuiY+ccM+d4e24UlFf8zBYjBpSTt7+JtE168YWGqcZMQAOT1qhFuvt9Q9ekkO+4gjkYFme+b4tY4nlEmBEDgR1C9oi5Qzh2cA9w+dNvszu+0XUyl/kUG83RdC31KEuKLkGg/xVUwGqkx7rG/dqBYTaMs/ZmADKxa1NRwFmXtQj0OfGP7a+ZDlIODzcJ8QwIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "tabs",
+    "debugger"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

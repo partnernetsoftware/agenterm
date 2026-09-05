@@ -1574,6 +1574,18 @@ closed command catalog and object-shaped arguments before routing. Keep this
 pure protocol core independent from the extension installer and browser host so
 all three platform installers share the same truth.
 
+An authenticated-profile bridge needs its own fixed extension/native-host
+identity; never reuse or overwrite the retiring tool's identity. Embed the
+reviewed MV3 assets and materialize them through a same-directory atomic staging
+plan. Bind each live connection to the current user, an exact process-start
+identity, the fixed endpoint and a CSPRNG id; PID or path alone is not registry
+ownership. A background debugger read must export only bounded AX role/name
+facts, never form/control values or arbitrary DOM attributes, and must prove the
+tab-active and window-focus states did not change. Debugger detach is part of
+the result: detach failure makes the read fail even when data was obtained.
+Bound tab inventory separately so a browser with many tabs cannot bypass the
+native-message response budget.
+
 For an owned Chromium session, request `--remote-debugging-port=0` and read the
 bounded `DevToolsActivePort` file from that session's private profile. Require a
 nonzero decimal port and a `/devtools/browser/` websocket path; reject extra
