@@ -184,13 +184,14 @@ capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
 ACU now owns `job-resources JOB_ID GENERATION [--watch-ms N]` as an exact,
-identity-bracketed observation of the managed record's single root child. Its
-point and bounded-series replies say `scope=root-only` and
-`tree_complete=false`; they expose a one-entry `members` view with RSS, exact
-CPU counters and page faults without inventing descendant coverage. This does
-not remove MCU `job resources` or `job env` from typed fallback: MCU's contract
-is tree-wide and the current resident record does not retain an
-identity-complete descendant set or public environment view.
+identity-bracketed observation of every current native containment-group
+member. Point and bounded-series replies expose a stable membership digest,
+per-member facts and lossless aggregate RSS, CPU and page-fault counters. A
+Windows Job Object prevents breakaway and can report `tree_complete=true`;
+POSIX process groups report complete current membership but deliberately do
+not claim genealogy after breakaway. MCU routing still waits on exact flag
+alignment and three-host evidence. `job env` remains separate because the
+resident record intentionally does not publish a secret-bearing environment.
 
 Recoverable `file move` is now the same proven copy-transaction ownership rule,
 not a second loose file mechanism: the random marker and both backup names use

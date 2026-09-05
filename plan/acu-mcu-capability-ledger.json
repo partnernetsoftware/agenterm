@@ -642,12 +642,12 @@
         {
           "id": "job.context-resources",
           "mcu_shape": "job env|resources [--watch]",
-          "acu_shape": "job-resources JOB_ID GENERATION [--watch-ms N] samples the record's exact root child only; environment and tree aggregation remain absent",
+          "acu_shape": "job-resources JOB_ID GENERATION [--watch-ms N] identity-brackets every current native containment-group member and returns exact aggregate counters; stored environment remains absent",
           "state": "platform-limited",
           "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
           "evidence": ["cu.managed-job-resources"],
-          "next": "add an identity-complete owned process-tree inventory and aggregation plus an explicit environment contract before routing MCU's tree-wide argument shape",
-          "note": "Point and bounded-series replies carry members, rss_bytes, exact decimal cpu_ms/cpu_time_ns and page faults. Every process-usage sample brackets start identity and must match the durable job record. scope=root-only and tree_complete=false prevent this native subset from masquerading as MCU's process-group view; MCU job resources and job env therefore remain typed compatibility gaps."
+          "next": "prove the same public containment-resource court on Linux and Windows, align the MCU adapter's exact flags, and separately design an explicit secret-bearing environment observation context",
+          "note": "Point and bounded-series replies carry a stable-membership digest, all current containment members, and lossless decimal aggregate/per-member RSS, CPU and page-fault counters. The durable root must remain present and every member is identity-bracketed. Windows Job Objects report breakaway_prevented=true and therefore tree_complete=true; POSIX process groups report current membership completely but do not claim genealogy after breakaway. MCU job env remains a typed gap."
         },
         {
           "id": "job.policy-priority-state",

@@ -81,6 +81,33 @@ function find_job(inventory, job_id) {
   return null;
 }
 
+function has_resource_member(members, pid, require_counters) {
+  for (const member of members) {
+    if (member.pid === pid) {
+      if (!require_counters) { return true; }
+      return text_of(member.start_identity) !== ""
+        && text_of(member.rss_bytes) !== ""
+        && text_of(member.cpu_ms) !== ""
+        && text_of(member.cpu_time_ns) !== "";
+    }
+  }
+  return false;
+}
+
+function valid_resource_samples(samples) {
+  for (const sample of samples) {
+    if (sample.membership_complete !== true
+      || sample.member_count < 1
+      || text_of(sample.membership_sha256).length !== 64
+      || text_of(sample.rss_bytes) === ""
+      || text_of(sample.cpu_ms) === ""
+      || text_of(sample.cpu_time_ns) === "") {
+      return false;
+    }
+  }
+  return true;
+}
+
 function wait_owner_absent(run_directory, executable, job) {
   for (let poll = 0; poll < 100; poll = poll + 1) {
     const status = invoke_cu(run_directory, executable, [
@@ -196,20 +223,26 @@ try {
     "cu_managed_job_status_privacy_contract"
   );
 
-  print("STEP sample the exact root child once and with one bounded watch without claiming tree coverage");
+  print("STEP sample the owned containment group once and with one bounded watch");
   const resources = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "observe",
     "job-resources", first_job.job_id, "" + first_job.generation
   ], "job-resources");
   ensure(
-    resources.scope === "root-only" && resources.tree_complete === false
+    resources.scope === "containment-group"
+      && (resources.provider === "windows-job-object"
+        || resources.provider === "posix-process-group")
+      && resources.membership_complete === true
+      && resources.tree_complete === resources.breakaway_prevented
+      && resources.coherence === "stable-membership-sweep"
       && resources.mode === "point" && resources.verified === true
-      && resources.members.length === 1
-      && resources.members[0].pid === status.process_pid
-      && text_of(resources.members[0].start_identity) !== ""
-      && text_of(resources.members[0].rss_bytes) !== ""
-      && text_of(resources.members[0].cpu_ms) !== ""
-      && text_of(resources.members[0].cpu_time_ns) !== "",
+      && resources.member_count === resources.members.length
+      && resources.member_count >= 1
+      && text_of(resources.membership_sha256).length === 64
+      && text_of(resources.rss_bytes) !== ""
+      && text_of(resources.cpu_ms) !== ""
+      && text_of(resources.cpu_time_ns) !== ""
+      && has_resource_member(resources.members, status.process_pid, true),
     "cu_managed_job_resources_point_contract"
   );
   const watched_resources = invoke_cu(run_directory, executable, [
@@ -218,13 +251,18 @@ try {
     "--watch-ms", "5"
   ], "job-resources");
   ensure(
-    watched_resources.scope === "root-only" && watched_resources.tree_complete === false
+    watched_resources.scope === "containment-group"
+      && watched_resources.membership_complete === true
+      && watched_resources.tree_complete === watched_resources.breakaway_prevented
+      && watched_resources.coherence === "stable-membership-sweep"
       && watched_resources.mode === "bounded-series" && watched_resources.verified === true
       && watched_resources.duration_ms === 5 && watched_resources.completed === true
       && watched_resources.truncated === false && watched_resources.emitted > 0
       && watched_resources.samples.length === watched_resources.emitted
-      && watched_resources.members.length === 1
-      && watched_resources.members[0].pid === status.process_pid,
+      && watched_resources.member_count === watched_resources.members.length
+      && watched_resources.member_count >= 1
+      && has_resource_member(watched_resources.members, status.process_pid, false)
+      && valid_resource_samples(watched_resources.samples),
     "cu_managed_job_resources_watch_contract"
   );
 
@@ -392,16 +430,16 @@ try {
   print("STEP expire a short session and prove its owned target lock is swept from public state");
   const expiring = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "actuate",
-    "session-start", "--label", "expiry-smoke", "--ttl-seconds", "1"
+    "session-start", "--label", "expiry-smoke", "--ttl-seconds", "3"
   ], "session-start");
   const expiring_id = text_of(expiring.session_id);
   const expiring_lease = text_of(expiring.lease);
   const expiring_lock = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "actuate",
-    "lock-acquire", expiring_id, expiring_lease, "court:expiry", "--ttl-seconds", "1"
+    "lock-acquire", expiring_id, expiring_lease, "court:expiry", "--ttl-seconds", "3"
   ], "lock-acquire");
   ensure(expiring_lock.lock.session_id === expiring_id, "cu_runtime_expiring_lock_contract");
-  harness.sleep_ms(2200);
+  harness.sleep_ms(4200);
   const expired = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "observe", "session-status", expiring_id
   ], "session-status");
@@ -522,7 +560,7 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.remove_run(context);
-  print("PASS: agenterm-cu platform-neutral managed-job lifecycle, root-only resources and bounded audit retention");
+  print("PASS: agenterm-cu managed-job lifecycle, containment resources and bounded audit retention");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

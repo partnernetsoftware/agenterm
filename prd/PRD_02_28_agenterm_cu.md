@@ -713,15 +713,17 @@ flowchart LR
   `utm-court` repository and must not be copied into AgenTerm.
   `job-resources JOB_ID GENERATION [--watch-ms N]` additionally exposes a
   point sample or an adaptively spaced, at-most-300-second bounded series for
-  the one exact root child stored by that record. It reuses process-usage's
-  start-identity bracket on every sample and refuses any identity that differs
-  from the durable record. Replies carry `members`, lossless decimal
-  `rss_bytes`, `cpu_ms`/`cpu_time_ns`, page faults, `scope=root-only`, and
-  `tree_complete=false`. Descendant enumeration, aggregate tree accounting,
-  and stored job environment remain gaps; the MCU tree-wide `job resources`
-  and `job env` shapes must not route to this narrower view. The same macOS
-  public qjswasm court now proves both the point and bounded-watch resource
-  projections; Linux and Windows native evidence remains pending.
+  every current member of the resident owner's native containment group. Each
+  stable-membership sweep brackets every member's start identity, requires the
+  durable root identity to remain present, and refuses partial or drifting
+  observations. Replies carry a membership digest, per-member facts, and
+  lossless decimal aggregate `rss_bytes`, `cpu_ms`/`cpu_time_ns`, and page
+  faults. Windows Job Objects prevent breakaway and therefore report
+  `tree_complete=true`; POSIX process groups report complete current
+  membership but deliberately do not claim genealogy after breakaway. The
+  macOS public qjswasm court proves both point and bounded-watch projections;
+  Linux and Windows native evidence and exact MCU flag alignment remain before
+  routing. Stored job environment is a separate secret-bearing gap.
 
 - [~] Privilege is now split at the real authority boundary. The public
   `privilege plan process.set-priority` command is read-only on macOS/Linux:

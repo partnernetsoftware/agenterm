@@ -226,7 +226,7 @@
       "aliases": ["job resources"],
       "grant": "observe",
       "family": "system",
-      "summary": "sample the exact managed-job root process without claiming tree coverage",
+      "summary": "sample the managed job's native containment-group members and aggregates",
       "usage": "job-resources JOB_ID GENERATION [--watch-ms N]\njob resources JOB_ID GENERATION [--watch-ms N]",
       "args": []
     },
@@ -4405,7 +4405,7 @@
     },
     {
       "name": "job-resources",
-      "text": "agenterm-cu job-resources    (also: job resources)\n  scope: observe    family: Managed jobs\n\nusage: job-resources JOB_ID GENERATION [--watch-ms N]\n\nSamples the durable record's exact root child identity once or as a bounded series for 1..=300000 ms. Each sample reuses process-usage start-identity bracketing and the observed identity must match the job record. Results include members, rss_bytes, exact decimal cpu_ms plus cpu_time_ns, and page faults. scope=root-only and tree_complete=false are deliberate: descendants are not enumerated or aggregated.\n"
+      "text": "agenterm-cu job-resources    (also: job resources)\n  scope: observe    family: Managed jobs\n\nusage: job-resources JOB_ID GENERATION [--watch-ms N]\n\nSamples the managed job's native containment group once or as a bounded series for 1..=300000 ms. Every member is identity-bracketed and the durable root identity must remain present. Results include a membership digest, exact decimal aggregate and per-member CPU/RSS/page-fault counters, and explicit provider, membership_complete, breakaway_prevented, and tree_complete truth. Windows Job Objects prevent breakaway; POSIX process groups enumerate current membership but do not claim complete genealogy.\n"
     },
     {
       "name": "job-output",

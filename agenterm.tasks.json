@@ -2375,7 +2375,7 @@
     },
     {
       "id": "cu-managed-job-smoke",
-      "description": "Prove the public managed-job lifecycle and bounded audit retention: session ownership, exact spawn replay, privacy-safe list/status, identity-bracketed root-only resource point/watch views with tree_complete=false, stdin write/close, dual-stream cursors, full-budget single-stream output, exit wait, renewal, exact stop, session-end cleanup and retry, then retention plan/apply/readback with malformed and expired drops.",
+      "description": "Prove the public managed-job lifecycle and bounded audit retention: session ownership, exact spawn replay, privacy-safe list/status, identity-bracketed native containment-group resource point/watch views with stable membership and truthful breakaway coverage, stdin write/close, dual-stream cursors, full-budget single-stream output, exit wait, renewal, exact stop, session-end cleanup and retry, then retention plan/apply/readback with malformed and expired drops.",
       "entry": "scripts/qjs/cu-managed-job-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
