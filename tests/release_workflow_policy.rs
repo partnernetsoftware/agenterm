@@ -711,6 +711,13 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     }
     assert!(runtime.contains("candidate-part-${{ matrix.platform_id }}"));
     assert!(runtime.contains("Scan final Windows Candidate bytes with Defender"));
+    assert!(runtime.contains("name: cu-retirement-cell-smoke"));
+    assert!(CANDIDATE.contains("Upload exact-source ACU runtime control"));
+    assert!(CANDIDATE.contains("scripts/qjs/cu-retirement-cell-smoke.qjs"));
+    assert!(runtime.contains("runtime-control/cu-retirement-cell-smoke.qjs"));
+    assert!(runtime.contains(
+        "candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}"
+    ));
     assert!(
         runtime
             .contains("program_data_windows=\"${PROGRAMDATA:-${ProgramData:-C:\\\\ProgramData}}\"")
@@ -841,6 +848,11 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
         CANDIDATE.contains("task run candidate-aggregate --manifest agenterm.tasks.json -- \\")
     );
     assert!(CANDIDATE.contains("path: candidate-output/"));
+    assert!(CANDIDATE.contains("Download exact-attempt ACU runtime receipts"));
+    assert!(CANDIDATE.contains("scripts/qjs/cu-retirement-runtime-aggregate.qjs"));
+    assert!(CANDIDATE.contains("candidate-output/evidence/cu-six-cell-runtime.json"));
+    assert!(CANDIDATE_AGGREGATE_QJS.contains("candidate.validate_cu_runtime_summary"));
+    assert!(RELEASE_CANDIDATE_QJS.contains("validate_cu_runtime_summary(cu_runtime"));
     assert!(!CANDIDATE.contains(".agenterm-rhai.bin"));
     assert!(!CANDIDATE.contains("scripts/rhai/check.rhai"));
     assert!(!CANDIDATE.contains("scripts/rhai/fresh-clone-rehearsal.rhai"));

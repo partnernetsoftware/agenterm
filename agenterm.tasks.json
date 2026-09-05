@@ -208,7 +208,8 @@
         "exact-source",
         "candidate-metadata",
         "six-platform-assets",
-        "qualification-receipt"
+        "qualification-receipt",
+        "six-cell-acu-runtime-summary"
       ],
       "outputs": [
         "candidate-manifest"
@@ -2143,7 +2144,7 @@
     },
     {
       "id": "candidate-aggregate",
-      "description": "Seal one exact-SHA six-platform release Candidate manifest from a closed payload",
+      "description": "Seal one exact-SHA six-platform release Candidate manifest from a closed payload and six native ACU runtime receipts",
       "entry": "scripts/qjs/candidate-aggregate.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -2161,7 +2162,7 @@
     },
     {
       "id": "candidate-verify",
-      "description": "Verify one exact-SHA Candidate manifest, qualification receipt, and every payload byte",
+      "description": "Verify one exact-SHA Candidate manifest, six-cell ACU runtime summary, qualification receipt, and every payload byte",
       "entry": "scripts/qjs/candidate-verify.qjs",
       "profile": "tool",
       "cwd": ".",

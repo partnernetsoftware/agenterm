@@ -1,0 +1,93 @@
+// Execute one final packaged agenterm-cu/libagenterm pair on its native host
+// and publish a source/run/archive-bound, mutation-free Candidate receipt.
+//
+// Args: AGENTERM_CU LIBAGENTERM PLATFORM_ID SOURCE_SHA ARCHIVE_SHA256
+//       RUN_ID RUN_ATTEMPT OUTPUT_JSON
+import * as rh from "lib/rh_compat";
+
+function require_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function valid_hex(value, length) {
+  return value.length === length && rh.only_chars(value, rh.HEX);
+}
+
+const args = rh.args();
+require_ok(args.length === 8, "cu_retirement_cell_arguments");
+const executable = rh.absolute(args[0]);
+const abi = rh.absolute(args[1]);
+const platform_id = args[2];
+const source_sha = args[3];
+const archive_sha256 = args[4];
+const run_id = args[5];
+const run_attempt = args[6];
+const output = rh.absolute(args[7]);
+
+const platforms = {
+  "windows-x86_64": { os: "windows", arch: "x86_64" },
+  "windows-aarch64": { os: "windows", arch: "aarch64" },
+  "linux-x86_64": { os: "linux", arch: "x86_64" },
+  "linux-aarch64": { os: "linux", arch: "aarch64" },
+  "macos-aarch64": { os: "macos", arch: "aarch64" },
+  "macos-x86_64": { os: "macos", arch: "x86_64" }
+};
+const platform = platforms[platform_id];
+require_ok(typeof platform === "object" && platform !== null, "cu_retirement_cell_platform");
+require_ok(rh.exists(executable) && rh.metadata(executable).is_file, "cu_retirement_cell_executable");
+require_ok(rh.exists(abi) && rh.metadata(abi).is_file, "cu_retirement_cell_abi");
+require_ok(valid_hex(source_sha, 40), "cu_retirement_cell_source_sha");
+require_ok(valid_hex(archive_sha256, 64), "cu_retirement_cell_archive_sha256");
+require_ok(run_id !== "" && rh.only_chars(run_id, rh.DIGITS), "cu_retirement_cell_run_id");
+require_ok(run_attempt !== "" && rh.only_chars(run_attempt, rh.DIGITS), "cu_retirement_cell_run_attempt");
+
+const child_env = { AGENTERM_ABI_LIB: abi, AGENTERM_NO_ACTIVATE: "1" };
+function observe(command) {
+  const result = rh.command(
+    executable,
+    ["--target", "current", "--grant", "observe", command],
+    { env: child_env, timeout_ms: 30000 }
+  );
+  require_ok(result.exit_code === 0 && result.success, "cu_retirement_cell_" + command + "_exit");
+  const reply = JSON.parse(result.stdout.trim());
+  require_ok(reply.ok === true && reply.target === "current" && reply.command === command,
+             "cu_retirement_cell_" + command + "_reply");
+  return reply;
+}
+
+const capabilities = observe("capabilities");
+const runtime = observe("runtime-status");
+require_ok(typeof capabilities.data === "object" && capabilities.data !== null,
+           "cu_retirement_cell_capabilities_data");
+require_ok(runtime.data.action.performed === false, "cu_retirement_cell_runtime_mutated");
+require_ok(runtime.data.global_daemon.present === false
+             && runtime.data.global_daemon.required === false,
+           "cu_retirement_cell_daemon_claim");
+
+const receipt = {
+  schema_version: 1,
+  kind: "agenterm-cu-runtime-cell",
+  source_sha: source_sha,
+  run: { id: run_id, attempt: run_attempt },
+  platform_id: platform_id,
+  os: platform.os,
+  arch: platform.arch,
+  archive_sha256: archive_sha256,
+  agenterm_cu: {
+    name: platform.os === "windows" ? "agenterm-cu.exe" : "agenterm-cu",
+    sha256: rh.sha256_file(executable)
+  },
+  libagenterm: {
+    name: platform.os === "windows" ? "agenterm.dll"
+      : (platform.os === "macos" ? "libagenterm.dylib" : "libagenterm.so"),
+    sha256: rh.sha256_file(abi)
+  },
+  evidence: ["cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status"],
+  mutation_performed: false,
+  result: "passed"
+};
+rh.atomic_write(output, rh.stringify_pretty(receipt) + "\n");
+print("EVIDENCE cu.retirement-cell.capabilities");
+print("EVIDENCE cu.retirement-cell.runtime-status");
+print("PASS " + platform_id + " " + archive_sha256);
+return;

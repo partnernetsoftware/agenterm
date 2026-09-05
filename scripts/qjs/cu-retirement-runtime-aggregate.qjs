@@ -1,0 +1,49 @@
+// Validate exactly six native ACU Candidate receipts and write one bounded
+// summary that candidate-aggregate embeds into the sealed manifest.
+//
+// Args: RECEIPT_DIR SOURCE_SHA RUN_ID RUN_ATTEMPT OUTPUT_JSON
+import * as rh from "lib/rh_compat";
+import * as candidate from "lib/release_candidate";
+
+const args = rh.args();
+rh.require(args.length === 5, "cu_runtime_aggregate_arguments");
+const root = rh.absolute(args[0]);
+const source_sha = args[1];
+const run_id = args[2];
+const run_attempt = args[3];
+const output = rh.absolute(args[4]);
+const expected = [
+  "windows-x86_64", "windows-aarch64",
+  "linux-x86_64", "linux-aarch64",
+  "macos-aarch64", "macos-x86_64"
+];
+
+const cells = [];
+for (const platform_id of expected) {
+  const path = rh.join(root, platform_id + ".json");
+  rh.require(rh.exists(path) && rh.metadata(path).is_file,
+             "cu_runtime_receipt_missing:" + platform_id);
+  cells.push(rh.parse_file(path));
+}
+const names = [];
+for (const entry of rh.read_dir(root)) {
+  rh.require(entry.is_file, "cu_runtime_receipt_not_file:" + entry.name);
+  names.push(entry.name);
+}
+const expected_names = [];
+for (const platform_id of expected) { expected_names.push(platform_id + ".json"); }
+rh.require(candidate.exact_values(expected_names, names), "cu_runtime_receipt_set");
+
+const summary = {
+  schema_version: 1,
+  kind: "agenterm-cu-six-cell-runtime",
+  source_sha: source_sha,
+  run: { id: run_id, attempt: run_attempt },
+  result: "passed",
+  cells: cells
+};
+candidate.validate_cu_runtime_summary(summary, source_sha, run_id, run_attempt);
+rh.atomic_write(output, rh.stringify_pretty(summary) + "\n");
+print("EVIDENCE cu.retirement-six-cell-runtime");
+print("PASS agenterm-cu six-cell runtime " + source_sha);
+return;

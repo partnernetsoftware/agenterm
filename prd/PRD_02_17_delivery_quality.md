@@ -1125,3 +1125,16 @@ costs a full candidate cycle:
   headers and common token formats without turning public hashes, UUID fixtures
   or standard test domains into permanent false positives. The gate must scan
   the exact publish/upload set as well as changed documentation.
+
+### ACU six-cell Candidate court (current frontier)
+
+- [~] The Candidate runtime matrix now has an execute-only ACU court in all six
+  native cells. Each cell runs the final packaged `agenterm-cu` with its
+  colocated `libagenterm`, observes `capabilities` and the non-publishing
+  `runtime-status`, and emits a receipt bound to source SHA, workflow run and
+  attempt, archive digest, CU digest and ABI-library digest.
+- [~] Aggregate accepts exactly the current attempt's six named cells, rejects
+  missing/extra/stale/mismatched receipts, and embeds the validated summary in
+  the Candidate manifest. Runtime runners still perform no checkout, Cargo,
+  packaging or signing. Local fixture validation is green; the leaf remains
+  partial until one exact-SHA remote Candidate proves all six native runners.

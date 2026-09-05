@@ -211,6 +211,8 @@ require_ok(
     && runtime_job.includes("ubuntu-24.04-arm")
     && runtime_job.includes("macos-15-intel")
     && runtime_job.includes("Defender")
+    && runtime_job.includes("cu-retirement-cell-smoke")
+    && runtime_job.includes("candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}")
     && !runtime_job.includes("actions/checkout")
     && !runtime_job.includes("cargo "),
   "release_candidate_workflow_contract"

@@ -174,10 +174,33 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   architecture-matched `agenterm-cu` and executes its public bounded
   `storage-devices` observation after the AgenTerm launcher check; macOS arm64
   and a digest-matched native Linux arm64 qjswasm court are green. This is
-  stronger than archive membership but remains a minimum court: Linux x86_64,
-  Windows x86_64 and all six sealed Candidate cells are still open.
+  stronger than archive membership but remains a minimum court: Linux x86_64
+  and Windows x86_64 local courts are still open. The formal Candidate path is
+  now wired (not yet remotely executed): every one of the six native runtime
+  runners consumes only its already sealed archive, runs the packaged
+  `agenterm-cu` + colocated `libagenterm` through the exact-source
+  `cu-retirement-cell-smoke`, and uploads a run/attempt/archive/binary-bound
+  receipt. The aggregate requires exactly six current-attempt cells with
+  matching source identity and embeds their validated summary into the sealed
+  Candidate manifest. No runtime cell checks out source, invokes Cargo, or
+  mutates machine state; a first successful exact-SHA Candidate remains the
+  evidence needed to turn this leaf `[x]`.
   Native Unix packaging, macOS signing/notarization and sealed Candidate
   artifact evidence remain open.
+
+```mermaid
+flowchart LR
+  B["one local/candidate build<br/>six sealed archives"]
+  R["six native execute-only runners<br/>Win · Linux · macOS × x86_64/aarch64"]
+  C["cu-retirement-cell-smoke<br/>capabilities + runtime-status"]
+  E["six exact-attempt receipts<br/>source + archive + CU + ABI hashes"]
+  A{"aggregate: exactly six<br/>same source/run/attempt"}
+  M["sealed Candidate manifest<br/>embedded ACU runtime summary"]
+  X["fail closed<br/>no Candidate seal"]
+  B --> R --> C --> E --> A
+  A -->|green| M
+  A -->|missing / stale / mismatch| X
+```
 - [ ] Candidate and six-cell qualification and release evidence remain open.
   Passing local fixtures and staged public smoke does not promote this subtree
   root to shipped.

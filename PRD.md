@@ -132,7 +132,7 @@ AgenTerm — local agent & process fleet work OS
 │
 ├─ 23–27（已迁出）        轻量终端宿主：源码与 PRD 子树 2026-08-23 迁至独立仓 minicon
 │
-├─ agenterm-cu（computer-use 子树 · partial；正式 dist/Candidate qualification 进行中）
+├─ agenterm-cu（computer-use 子树 · partial；六格 execute-only Candidate court 已接线、待首跑）
 │  └─ 28 agenterm-cu            自有 computer-use 底座：定义、边界、不变量、晋升门
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端

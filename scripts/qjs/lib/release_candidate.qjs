@@ -135,6 +135,55 @@ export function exact_values(expected, actual) {
   return true;
 }
 
+export function validate_cu_runtime_summary(summary, source_sha, run_id, run_attempt) {
+  const expected = [
+    { platform_id: "windows-x86_64", os: "windows", arch: "x86_64" },
+    { platform_id: "windows-aarch64", os: "windows", arch: "aarch64" },
+    { platform_id: "linux-x86_64", os: "linux", arch: "x86_64" },
+    { platform_id: "linux-aarch64", os: "linux", arch: "aarch64" },
+    { platform_id: "macos-aarch64", os: "macos", arch: "aarch64" },
+    { platform_id: "macos-x86_64", os: "macos", arch: "x86_64" }
+  ];
+  const run = child(summary, "run");
+  const cells = list(summary, "cells");
+  rh.require(
+    summary.schema_version === 1
+      && summary.kind === "agenterm-cu-six-cell-runtime"
+      && summary.source_sha === source_sha
+      && text(run.id) === text(run_id)
+      && text(run.attempt) === text(run_attempt)
+      && summary.result === "passed",
+    "candidate_cu_runtime_identity"
+  );
+  rh.require(cells.length === expected.length, "candidate_cu_runtime_cell_count");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    const cell = cells[i];
+    const cell_run = child(cell, "run");
+    const agenterm_cu = child(cell, "agenterm_cu");
+    const libagenterm = child(cell, "libagenterm");
+    rh.require(
+      cell.schema_version === 1
+        && cell.kind === "agenterm-cu-runtime-cell"
+        && cell.source_sha === source_sha
+        && text(cell_run.id) === text(run_id)
+        && text(cell_run.attempt) === text(run_attempt)
+        && cell.platform_id === expected[i].platform_id
+        && cell.os === expected[i].os
+        && cell.arch === expected[i].arch
+        && valid_sha256(text(cell.archive_sha256))
+        && valid_sha256(text(agenterm_cu.sha256))
+        && valid_sha256(text(libagenterm.sha256))
+        && cell.mutation_performed === false
+        && cell.result === "passed"
+        && exact_values(
+          ["cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status"],
+          list(cell, "evidence")
+        ),
+      "candidate_cu_runtime_cell:" + expected[i].platform_id
+    );
+  }
+}
+
 export function verify_checksum(path, hash, name) {
   const content = rh.read_text(path).trim();
   check(content === hash + "  " + name, "candidate_checksum_content:", name);
@@ -495,6 +544,7 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
   const run = child(manifest, "run");
   const sbom = child(manifest, "sbom");
   const qualification = child(manifest, "qualification");
+  const cu_runtime = child(manifest, "cu_runtime");
   const inputs = child(manifest, "inputs");
   const workflow_path_rel = text(workflow.path);
   const workflow_sha256 = text(workflow.sha256);
@@ -565,6 +615,7 @@ export function validate_manifest(source_root_value, manifest_path_value, asset_
     "candidate_receipt_identity"
   );
   validate_receipt(receipt_path, source_sha, cargo_hash, artifact_hash, gate_hash, sbom_hash, gate_path);
+  validate_cu_runtime_summary(cu_runtime, source_sha, run.id, run.attempt);
 
   const assets = list(manifest, "assets");
   rh.require(assets.length === 7, "candidate_asset_count");

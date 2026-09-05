@@ -2,7 +2,7 @@
 //
 // Usage:
 //   agenterm cli script run --profile tool scripts/qjs/candidate-aggregate.qjs -- \
-//     SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY OUTPUT_MANIFEST
+//     SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY CU_RUNTIME_SUMMARY OUTPUT_MANIFEST
 //
 // METADATA_JSON schema v1 fields:
 //   source_sha, version, expected_tag, workflow_path, workflow_sha256,
@@ -26,21 +26,22 @@ function readme_entry(asset_root, readme_name) {
 
 const args = rh.args();
 if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
-  print("usage: candidate-aggregate SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY OUTPUT_MANIFEST");
+  print("usage: candidate-aggregate SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY CU_RUNTIME_SUMMARY OUTPUT_MANIFEST");
   print(
     "creates schema-v1 exact-SHA Candidate metadata; validates the "
       + "closed six-platform payload before writing"
   );
   return 0;
 }
-if (args.length !== 4) {
-  throw "candidate_aggregate_arguments: expected SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY OUTPUT_MANIFEST";
+if (args.length !== 5) {
+  throw "candidate_aggregate_arguments: expected SOURCE_ROOT METADATA_JSON ASSET_DIRECTORY CU_RUNTIME_SUMMARY OUTPUT_MANIFEST";
 }
 
 const source_root = rh.absolute(args[0]);
 const metadata_path = rh.absolute(args[1]);
 const asset_root = rh.absolute(args[2]);
-const output_path = rh.absolute(args[3]);
+const cu_runtime_path = rh.absolute(args[3]);
+const output_path = rh.absolute(args[4]);
 const metadata = rh.parse_file(metadata_path);
 const metadata_source_sha = "" + metadata.source_sha;
 const metadata_version = "" + metadata.version;
@@ -186,6 +187,11 @@ candidate.require_file(receipt_path, "candidate_receipt_missing");
 const receipt_size = candidate.file_size(receipt_path, "candidate_receipt_missing");
 const receipt_hash = rh.sha256_file(receipt_path);
 const sbom_size = candidate.file_size(sbom_path, "candidate_sbom_missing");
+candidate.require_file(cu_runtime_path, "candidate_cu_runtime_missing");
+const cu_runtime = rh.parse_file(cu_runtime_path);
+candidate.validate_cu_runtime_summary(
+  cu_runtime, metadata_source_sha, metadata.run_id, metadata.run_attempt
+);
 
 const manifest = {
   schema_version: 1,
@@ -207,6 +213,7 @@ const manifest = {
   qualification: { name: receipt_name, size: receipt_size, sha256: receipt_hash },
   sbom: { name: sbom_name, size: sbom_size, sha256: sbom_hash },
   windows_signing: { mode: windows_signing_mode, receipt: windows_signing_receipt },
+  cu_runtime: cu_runtime,
   assets: assets,
   unsigned_macos_readmes: readme_entries
 };

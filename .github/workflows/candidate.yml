@@ -80,6 +80,16 @@ jobs:
             echo "signed_macos=$signed_macos"
           } >>"$GITHUB_OUTPUT"
 
+      - name: Upload exact-source ACU runtime control
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            scripts/qjs/cu-retirement-cell-smoke.qjs
+            scripts/qjs/lib/rh_compat.qjs
+          if-no-files-found: error
+          retention-days: 2
+
   build:
     needs: preflight
     env:
@@ -969,6 +979,12 @@ jobs:
           name: candidate-part-${{ matrix.platform_id }}
           path: part
 
+      - name: Download exact-source ACU runtime control
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: runtime-control
+
       - name: Execute final Windows archive
         if: matrix.family == 'windows'
         shell: bash
@@ -1096,6 +1112,56 @@ jobs:
           grep -Fq "$version" <<<"$output"
           echo "PASS ${{ matrix.platform_id }} $(shasum -a 256 "$archive" | cut -d' ' -f1) $output"
 
+      - name: cu-retirement-cell-smoke
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PLATFORM_ID: ${{ matrix.platform_id }}
+        run: |
+          set -euo pipefail
+          archive="$(find part -maxdepth 1 -type f \
+            \( -name 'agenterm-*-windows-*.zip' \
+              -o -name 'agenterm-*-linux-*.tar.gz' \
+              -o -name 'agenterm-*-macos-*.zip' \) -print -quit)"
+          test -n "$archive"
+          case "${{ matrix.family }}" in
+            windows)
+              archive_sha256="$(sha256sum "$archive" | cut -d' ' -f1)"
+              launcher="runtime/agenterm.com"
+              cu="runtime/agenterm-cu.exe"
+              abi="runtime/agenterm.dll"
+              ;;
+            linux)
+              archive_sha256="$(sha256sum "$archive" | cut -d' ' -f1)"
+              launcher="runtime/agenterm"
+              cu="runtime/agenterm-cu"
+              abi="runtime/libagenterm.so"
+              chmod +x "$launcher" "$cu"
+              ;;
+            macos)
+              archive_sha256="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
+              launcher="runtime/agenterm"
+              cu="runtime/agenterm-cu"
+              abi="runtime/libagenterm.dylib"
+              chmod +x "$launcher" "$cu"
+              ;;
+          esac
+          test -f "$launcher" && test -f "$cu" && test -f "$abi"
+          mkdir -p runtime-evidence
+          AGENTERM_NO_ACTIVATE=1 "$launcher" cli script run --profile tool \
+            runtime-control/cu-retirement-cell-smoke.qjs -- \
+            "$cu" "$abi" "$PLATFORM_ID" "$SOURCE_SHA" "$archive_sha256" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            "runtime-evidence/$PLATFORM_ID.json"
+
+      - name: Upload ACU native runtime receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: runtime-evidence/${{ matrix.platform_id }}.json
+          if-no-files-found: error
+          retention-days: 14
+
   aggregate:
     needs: [preflight, build, windows_unsigned, windows_sign, runtime]
     if: >-
@@ -1116,6 +1182,13 @@ jobs:
           pattern: candidate-part-*
           merge-multiple: true
           path: candidate-input
+
+      - name: Download exact-attempt ACU runtime receipts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          pattern: candidate-cu-runtime-*-${{ github.run_id }}-${{ github.run_attempt }}
+          merge-multiple: true
+          path: runtime-evidence
 
       - name: Write candidate workflow metadata
         env:
@@ -1176,11 +1249,18 @@ jobs:
           version="$(jq -r .version candidate-metadata.json)"
           test -f candidate-input/qualification-receipt.json
           mkdir -p candidate-output/payload
+          mkdir -p candidate-output/evidence
           find candidate-input -mindepth 1 -maxdepth 1 -type f \
             -exec cp -- {} candidate-output/payload/ \;
+          "$RUNNER_TEMP/agenterm-candidate-tool/agenterm" cli script run \
+            --profile tool scripts/qjs/cu-retirement-runtime-aggregate.qjs -- \
+            runtime-evidence "${{ inputs.source_sha }}" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            candidate-output/evidence/cu-six-cell-runtime.json
           "$RUNNER_TEMP/agenterm-candidate-tool/agenterm" cli script \
             task run candidate-aggregate --manifest agenterm.tasks.json -- \
             . candidate-metadata.json candidate-output/payload \
+            candidate-output/evidence/cu-six-cell-runtime.json \
             "candidate-output/agenterm-$version-candidate-manifest.json"
 
       - name: Upload sealed candidate
