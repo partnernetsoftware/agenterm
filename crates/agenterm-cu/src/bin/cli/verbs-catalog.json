@@ -2136,7 +2136,7 @@
       ],
       "grant": "observe",
       "family": "browser",
-      "summary": "CDP Runtime.evaluate against one page target",
+      "summary": "bounded awaited CDP Runtime.evaluate against one page target",
       "usage": "page-js [--window HANDLE] --expression EXPR [--port N | --pid PID]\n        [--target-id ID | --target-url SUB | --target-title SUB | --match SUB]\npage read --js EXPR [...]                           (MCU spelling)",
       "args": [
         {
@@ -2147,7 +2147,7 @@
         {
           "flag": "--expression",
           "value": "EXPR",
-          "help": "JavaScript expression (MCU: --js)"
+          "help": "JavaScript expression (MCU: --js); Promises settle before the bounded reply"
         },
         {
           "flag": "--port",

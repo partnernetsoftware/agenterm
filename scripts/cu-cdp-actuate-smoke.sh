@@ -39,8 +39,9 @@
 #      match a click selector (nothing dispatched).
 #   5. `page fill --selector '#q' --text hello --clear` verified by .value
 #      read-back.
-#   6. `page click --text Go` performed + verified: the button's onclick
-#      rewrote #out, which page-js reads back as "clicked:hello".
+#   6. `page-js` awaits a real Promise to its settled value and reports a
+#      rejected Promise as `cdp_evaluation_failed`, then `page click --text
+#      Go` performs + verifies the button's DOM mutation.
 #   7. `page hover` verifies the trusted mousemove event target; `page
 #      scroll` verifies the exact container offset changed.
 #   8. `page files` sets one local fixture without a picker and verifies its
@@ -268,6 +269,17 @@ still_background "page type" "$OUT"
 READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "document.getElementById('q').value")"
 [[ "$(jf "$READ" data.value)" == "hello$TYPE_SECRET" ]] || fail "page type value read-back: $READ"
 echo "STEP 6b page type at existing focus -> same-focus/value-growth verified; plaintext redacted"
+
+# Public page-js must describe completion, not Promise creation. A rejection
+# is a typed evaluation failure; neither operation activates the target.
+READ="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "new Promise(resolve=>setTimeout(()=>resolve('promise-settled'),30))")"
+[[ "$(jf "$READ" ok)" == "True" && "$(jf "$READ" data.value)" == "promise-settled" ]] || fail "page-js did not await Promise: $READ"
+[[ "$(jf "$READ" data.awaited)" == "True" && "$(jf "$READ" data.timeout_ms)" == "10000" ]] || fail "page-js lacks bounded-await receipt: $READ"
+still_background "page-js promise" "$READ"
+REJECT="$(obs page-js --port "$PORT" --target-id "$ID_B" --expression "Promise.reject(new Error('expected-rejection'))" || true)"
+[[ "$(jf "$REJECT" ok)" == "False" && "$(jf "$REJECT" error.code)" == "cdp_evaluation_failed" ]] || fail "page-js Promise rejection was not typed: $REJECT"
+still_background "page-js rejected promise" "$REJECT"
+echo "STEP 6c page-js Promise -> settled value; rejection -> typed cdp_evaluation_failed"
 
 # 5. page click by text: the onclick handler rewrites #out; verified by the
 #    document read-back and independently through page-js.

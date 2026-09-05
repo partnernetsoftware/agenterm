@@ -1577,6 +1577,12 @@ of them has to bring the tab forward. What the throwaway headless gate
   `wait_event("Page.loadEventFired")` works without a second connection.
   Bound the inbound message at 16 MiB (an AX tree or a PNG is large) and
   handle the 8-byte length form; the 64 KiB cap stays a `page-js` rule.
+- **An expression result is its settled value, not a Promise handle.** Public
+  `page-js` sends `awaitPromise=true` even for ordinary expressions (which stay
+  immediate), keeps the session call deadline as a hard wall, and types Promise
+  rejection separately from listener/method absence. A successful reply must
+  publish that it awaited settlement; otherwise callers can mistake queued
+  browser work for completed observation.
 - **Focus emulation, not activation.** `Input.insertText` and click
   side-effects want a focused page; `Emulation.setFocusEmulationEnabled`
   gives an unfocused target that without touching the real front tab or

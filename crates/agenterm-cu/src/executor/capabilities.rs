@@ -428,6 +428,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "reason": observe::page_js_unsupported_reason(),
                 "target_selectors": ["--target-id", "--target-url", "--target-title", "--match"],
                 "background_tabs": "Runtime.evaluate reaches a background tab by target; no focus change",
+                "promise_semantics": "awaited to a settled value under the bounded CDP call deadline",
             },
             "spaces": crate::mcu_surface::verb_declaration("spaces"),
             "displays": crate::mcu_surface::verb_declaration("displays"),

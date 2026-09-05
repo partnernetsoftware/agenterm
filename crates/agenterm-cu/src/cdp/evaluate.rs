@@ -24,11 +24,17 @@ pub fn evaluate(port: u16, expression: &str, selector: &TargetSelector) -> Resul
         ));
     }
     let (target, mut session) = connect_target(port, selector)?;
-    let value = evaluate_on(&mut session, expression)?;
+    // `Runtime.evaluate` otherwise acknowledges a Promise object before its
+    // work has completed.  Public `page-js` is an observation boundary, so
+    // its reply must represent the expression's settled value (or a typed
+    // rejection/timeout), not merely Promise creation.
+    let value = evaluate_on_await(&mut session, expression)?;
     Ok(json!({
         "backend": backend(),
         "port": port,
         "via": "Runtime.evaluate",
+        "awaited": true,
+        "timeout_ms": session.call_timeout.as_millis(),
         "target": target.identity_json(),
         "selector": selector.json(),
         "focus_changed": false,
@@ -36,8 +42,9 @@ pub fn evaluate(port: u16, expression: &str, selector: &TargetSelector) -> Resul
     }))
 }
 
-/// One `Runtime.evaluate` (by value, promises not awaited) whose reply is
-/// bounded by the `page-js` 64 KiB contract.
+/// One synchronous `Runtime.evaluate` (by value) whose reply is bounded by
+/// the `page-js` 64 KiB contract. Internal page mechanisms use this when they
+/// deliberately install or inspect state without returning a Promise.
 pub fn evaluate_on<T: Transport>(
     session: &mut Session<T>,
     expression: &str,
@@ -89,7 +96,7 @@ fn evaluate_on_mode<T: Transport>(
     }
     if let Some(exception) = result.get("exceptionDetails") {
         return Err(CdpError::typed(
-            "unsupported",
+            "cdp_evaluation_failed",
             format!(
                 "CDP Runtime.evaluate threw: {}",
                 exception["exception"]["description"]
@@ -159,7 +166,7 @@ mod tests {
             7
         );
         let err = evaluate_on(&mut session, "boom").expect_err("thrown");
-        assert_eq!(err.code, "unsupported");
+        assert_eq!(err.code, "cdp_evaluation_failed");
         assert!(err.message.contains("ReferenceError"));
         let err = evaluate_on(&mut session, "other").expect_err("method error");
         assert_eq!(err.code, "unsupported");

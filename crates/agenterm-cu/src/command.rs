@@ -1152,7 +1152,9 @@ pub enum Command {
     /// constructor is never used. At most one of `target_id` (exact CDP
     /// id), `target_url` / `target_title` (case-insensitive substring)
     /// picks the page target; none keeps the first page. Evaluation
-    /// reaches background tabs without selecting or raising anything.
+    /// reaches background tabs without selecting or raising anything. A
+    /// returned Promise is awaited under the bounded CDP call deadline;
+    /// rejection and timeout are typed failures.
     PageJs {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]

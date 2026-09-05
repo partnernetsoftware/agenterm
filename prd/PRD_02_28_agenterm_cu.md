@@ -203,6 +203,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   MCU-compatible `--match` now searches title + URL + description but tightens
   first-hit guessing into an exact-one contract: zero and ambiguity are typed
   before any page effect.
+  Public `page-js` now treats Promise settlement as part of the observation:
+  `Runtime.evaluate` always uses `awaitPromise`, synchronous values remain
+  immediate, and resolved values, rejection, or the 10-second CDP deadline are
+  returned as explicit evidence (`awaited=true`, `cdp_evaluation_failed`, or
+  `cdp_timeout`). A throwaway headless Brave court proved a background Promise
+  settles without changing the active target or foreground window and that a
+  rejected Promise cannot be reported as success.
   MCU's viewport `page click X Y` is also native: the point is frozen before the
   receipt, trusted page down/up events are read back, and a failed release gets
   a cleanup attempt without converting the failed effect into success.
@@ -279,6 +286,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   an unverified persistent receipt whose key evidence is length+digest rather
   than plaintext. Callers needing proof must use an exact window/node semantic
   action and its postcondition; JSON `ok` alone is not delivery evidence.
+
+```mermaid
+flowchart LR
+  J["page-js expression"] --> T["exact background target"]
+  T --> E["Runtime.evaluate<br/>awaitPromise=true"]
+  E -->|resolved| R["settled value + awaited receipt"]
+  E -->|rejected| X["cdp_evaluation_failed"]
+  E -->|10 s deadline| D["cdp_timeout"]
+  R --> F["active tab + front window unchanged"]
+```
 - [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
   PID/parent/name inventory through `agenterm-platform::process::list`, shared
   with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
