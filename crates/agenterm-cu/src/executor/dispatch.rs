@@ -276,6 +276,12 @@ impl Executor {
                 flat,
                 ..
             } => tree_payload(*window, *depth, *max_nodes, *flat),
+            Command::DesktopState {
+                window,
+                depth,
+                max_nodes,
+                ..
+            } => desktop_state_payload(*window, *depth, *max_nodes),
             Command::Query {
                 window,
                 depth,

@@ -1,7 +1,7 @@
 //! Accessibility observation: tree / query / hit / focused / observe /
 //! verify, the incremental pair snapshot / diff, the independent AT-SPI
 //! read-backs, `wait`, and the non-tree observers (`screenshot`, `zoom`,
-//! `pointer-position`).
+//! `pointer-position`, and `desktop-state`).
 
 use agenterm_cu::{Command, TargetRef, WaitCondition};
 
@@ -34,6 +34,23 @@ pub fn parse(
                 depth,
                 max_nodes,
                 flat,
+            })
+        }
+        "desktop-state" => {
+            let window = flag_window(args)?;
+            let depth = flag_parsed::<u32>(args, "--depth")?;
+            let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "desktop-state accepts only [--window HANDLE] [--depth N] [--max-nodes N]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::DesktopState {
+                target,
+                window,
+                depth,
+                max_nodes,
             })
         }
         "query" => query(target, spelled, args),
@@ -543,4 +560,32 @@ fn screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         path,
         window,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::verbs;
+    use super::*;
+
+    #[test]
+    fn desktop_state_accepts_the_mcu_state_alias_with_closed_flags() {
+        let spec = verbs::lookup("state").expect("state alias");
+        let mut args = vec![
+            "--window".into(),
+            "Fixture#7".into(),
+            "--depth".into(),
+            "2".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "state", TargetRef::Current, &mut args).unwrap(),
+            Command::DesktopState {
+                window: Some(7),
+                depth: Some(2),
+                max_nodes: None,
+                ..
+            }
+        ));
+        let mut stray = vec!["--unknown".into()];
+        assert!(parse(spec, "state", TargetRef::Current, &mut stray).is_err());
+    }
 }

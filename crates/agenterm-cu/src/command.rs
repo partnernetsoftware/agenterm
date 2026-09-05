@@ -650,6 +650,19 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         flat: bool,
     },
+    /// One bounded desktop observation composed from a window inventory, one
+    /// window-scoped accessibility tree, and the pointer position.  The
+    /// selected window is re-enumerated after the tree read; a changed target
+    /// fails closed instead of returning a mixed-instant snapshot.
+    DesktopState {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+    },
     /// Bounded, filtered flat node list over the same walk `tree` makes
     /// (same node ids and flatten indices). Filters: `role` (comma list;
     /// `AXTextArea` and `text-area` both match), `text` (case-insensitive
@@ -1925,6 +1938,7 @@ impl Command {
             Self::TerminalSend { .. } => "terminal-send".into(),
             Self::TerminalWait { .. } => "terminal-wait".into(),
             Self::Tree { .. } => "tree".into(),
+            Self::DesktopState { .. } => "desktop-state".into(),
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
             Self::MenuInspect { .. } => "menu-inspect".into(),
@@ -2043,6 +2057,7 @@ impl Command {
             | Self::TerminalSend { target, .. }
             | Self::TerminalWait { target, .. }
             | Self::Tree { target, .. }
+            | Self::DesktopState { target, .. }
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
             | Self::MenuInspect { target, .. }
@@ -2726,6 +2741,26 @@ mod tests {
             serde_json::json!({
                 "verb": "tree", "target": "ssh", "window": 7,
                 "depth": 3, "max_nodes": 5, "flat": true
+            })
+        );
+    }
+
+    #[test]
+    fn desktop_state_is_an_observe_command_with_closed_wire_shape() {
+        let command = Command::DesktopState {
+            target: TargetRef::Ssh,
+            window: Some(7),
+            depth: Some(2),
+            max_nodes: Some(10),
+        };
+        assert_eq!(command.verb(), "desktop-state");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "desktop-state", "target": "ssh", "window": 7,
+                "depth": 2, "max_nodes": 10
             })
         );
     }

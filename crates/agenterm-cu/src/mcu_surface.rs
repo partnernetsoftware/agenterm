@@ -34,6 +34,7 @@ pub const GROUPS: &[Group] = &[
         id: "snapshot",
         verbs: &[
             "tree",
+            "state",
             "query",
             "focused",
             "observe",
@@ -149,15 +150,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "process",
-        verbs: &[
-            "process",
-            "ps",
-            "kill",
-            "signal",
-            "exec",
-            "shell-exec",
-            "state",
-        ],
+        verbs: &["process", "ps", "kill", "signal", "exec", "shell-exec"],
     },
     Group {
         id: "resource",
@@ -241,7 +234,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "ghost",
     "signal",
     "exec",
-    "state",
     "open",
     "notify",
     "audit",
@@ -276,7 +268,7 @@ fn typed_only_reason(verb: &str) -> &'static str {
             "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/hover/scroll/drag/dialog/files/fill/nav/screenshot map to typed CDP verbs (background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
         "ghost" => "ACU migration gap: the ghost cursor overlay has no typed facade yet",
-        "ps" | "signal" | "exec" | "state" => {
+        "ps" | "signal" | "exec" => {
             "ACU migration gap: delegate through the bounded process/qjswasm facade; typed refuse"
         }
         "open" => "ACU migration gap: typed host-open facade pending",

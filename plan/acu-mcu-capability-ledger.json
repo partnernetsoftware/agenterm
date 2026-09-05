@@ -322,6 +322,16 @@
           "note": "Spaces are a truthful macOS-only surface; displays are cross-platform."
         },
         {
+          "id": "desktop.state",
+          "mcu_shape": "state [--window HANDLE] [--depth N] as a screenshot-free desktop observation",
+          "acu_shape": "desktop-state (alias state) composes one complete bounded window inventory, one exact bounded accessibility tree and pointer position",
+          "state": "native",
+          "qualification": "macos-public-cli-live-linux-windows-journeys-pending",
+          "evidence": ["agenterm-cu desktop-state macos host black-box"],
+          "declared_evidence": ["cu.linux-desktop-state", "cu.windows-desktop-state"],
+          "note": "An omitted handle requires resolved focus; explicit handles must exist in the first inventory. The exact WindowInfo row is re-read after the tree and any disappearance or identity/geometry/focus change fails typed desktop_state_changed. Tree truncation is explicit and more than 512 windows is refused instead of returned as a partial desktop."
+        },
+        {
           "id": "desktop.setup-doctor-caps",
           "mcu_shape": "setup/doctor/caps with active dependency and permission probes",
           "acu_shape": "capabilities reports typed status and permission blockers; doctor composes bounded live probes with the same declarations; setup remains absent",

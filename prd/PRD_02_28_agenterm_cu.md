@@ -166,6 +166,17 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   CoreSimulator. `remaining_families` is empty. This closes only the discovery
   DAG; rows marked `gap` or `platform-limited` remain work and cannot be called
   shipped from catalog presence.
+- [~] MCU retirement is the current delivery cut, not a documentation-only
+  migration. `desktop-state` (MCU alias `state`) is the first whole top-level
+  fallback removed in this cut: one bounded window inventory selects an exact
+  or uniquely resolved focused target, one bounded accessibility tree and the
+  pointer are observed, then the complete window identity is revalidated.
+  Ambiguity, disappearance, drift, inventory overflow and tree truncation are
+  explicit rather than hidden. macOS public CLI evidence is green; Linux and
+  Windows journey evidence remains open. The next dependency is the shared
+  native runtime spine: daemon → session lease → target lock → request identity
+  → queryable audit; it must serve jobs, file transactions, browser bridge,
+  privilege and Simulator instead of spawning parallel coordinators.
 - [~] absorbed from that skill on 2026-08-30 (review and slices in
   [plan/design-mcu-absorption.md](../plan/design-mcu-absorption.md)): its
   default control loop `windows -> bounded query/tree -> invoke <selector>`,

@@ -84,9 +84,11 @@ flowchart LR
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
   PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
   NET --> NI["network interfaces live<br/>native ids · stable order · bounded snapshot"]
+  DESK --> DS["desktop-state live<br/>bounded · exact target · drift refusal"]
   TL --> Q
   SE --> Q
   NI --> Q
+  DS --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
   S --> D{"all replacement gates?"}
@@ -94,6 +96,8 @@ flowchart LR
   D -->|yes| R["switch default entry"]
   R --> X["MCU compatibility-only"]
   X --> Z["removal rehearsal"]
+  L --> RT["retirement critical path<br/>runtime spine → jobs → transactions"]
+  RT --> D
 ```
 
 ## Capability-state contract
@@ -110,7 +114,40 @@ flowchart LR
 temporary `gap`, a proved `platform-limited` cell, or a reviewed `retired`
 behavior. A group or verb appearing in `capabilities` does not make it shipped.
 
-## Current observed frontier (2026-09-04)
+## Current retirement frontier (2026-09-05)
+
+The active cut is deliberately narrow: clear every unexplained compatibility
+`STAY`, then pass the MCU-absence court. General qjswasm optimization and new
+product branches do not pre-empt these blockers.
+
+```text
+MCU retirement blockers
+├─ [x] desktop state: bounded native desktop-state + state alias
+├─ [ ] shared runtime spine
+│  └─ daemon → session lease → target lock → request identity → queryable audit
+├─ [ ] managed job facade
+│  └─ spawn/adopt/inventory → streams/input → resources/state → wait/stop/expiry
+├─ [ ] machine transactions
+│  ├─ recoverable file copy/move
+│  ├─ MV3 browser bridge and managed profile/window lifecycle
+│  ├─ privilege plan/broker/OS consent
+│  └─ CoreSimulator plus required device/service operations
+├─ [ ] classify and remove every remaining argument-shape fallback
+└─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
+```
+
+`acu.ts` now has **25 top-level `STAY` spellings**. This is not the remaining
+capability count: group verbs contain multiple independently gated shapes. The
+machine-readable ledger, not the top-level number, decides retirement.
+
+The latest removed fallback is `state`. `desktop-state` (also spelled `state`)
+composes one complete bounded window inventory, one exact window accessibility
+tree and pointer position without a screenshot. It refuses ambiguous focus,
+unknown handles, inventories over 512 windows, and target drift during capture;
+tree truncation remains explicit. The macOS public CLI is live; Linux and
+Windows journey evidence is still required before the row is three-host green.
+
+## Historical observed frontier (2026-09-04)
 
 - MCU currently exposes **79 top-level verbs**. This is only the first
   accounting dimension: `page`, `browser`, `process`, `resource`, `file` and
@@ -334,7 +371,8 @@ Q2 fast delegated facades
 │  ├─ [ ] permissions: required/optional three-host evidence + open-next action
 │  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
 │  └─ [ ] setup: idempotent launcher/runtime repair
-├─ [ ] open/notify/state and terminal adoption
+├─ [~] open/notify/state and terminal adoption
+│  └─ [x] state → bounded native desktop-state; open/notify/adoption remain
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only

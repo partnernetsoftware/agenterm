@@ -1191,6 +1191,34 @@
       ]
     },
     {
+      "name": "desktop-state",
+      "command": "desktop-state",
+      "aliases": [
+        "state"
+      ],
+      "grant": "observe",
+      "family": "a11y-observe",
+      "summary": "bounded coherent desktop observation without a screenshot",
+      "usage": "desktop-state [--window HANDLE] [--depth N] [--max-nodes N]\nstate [--window HANDLE] [--depth N] [--max-nodes N]     (MCU spelling)",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "exact window from `windows`; omitted only when focus resolves uniquely"
+        },
+        {
+          "flag": "--depth",
+          "value": "N",
+          "help": "tree walk depth (root = 0, at most 64)"
+        },
+        {
+          "flag": "--max-nodes",
+          "value": "N",
+          "help": "tree node budget (1..20000)"
+        }
+      ]
+    },
+    {
       "name": "query",
       "command": "query",
       "aliases": [
@@ -3924,6 +3952,10 @@
     {
       "name": "tree",
       "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat]\n  elements [--window HANDLE] [--depth N] [--max-nodes N]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --flat                        number nodes (index, depth) in walk order\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks; the reply carries truncated / visited / returned. --flat numbers\nnodes (index, depth) in walk order -- the same identity query reports.\n`elements` is the MCU spelling of tree --flat.\n"
+    },
+    {
+      "name": "desktop-state",
+      "text": "agenterm-cu desktop-state    (also: state)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  desktop-state [--window HANDLE] [--depth N] [--max-nodes N]\n  state [--window HANDLE] [--depth N] [--max-nodes N]     (MCU spelling)\n\narguments:\n  --window HANDLE               exact window from `windows`; omitted only when focus resolves uniquely\n  --depth N                     tree walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n\nComposes one bounded top-level window inventory, one selected window's bounded\naccessibility tree, and the absolute pointer position. It never captures a\nscreenshot. An explicit handle must be in the first inventory; an omitted handle\nrequires a unique resolved focused window. The target is re-enumerated after the\ntree read and any changed/disappeared row fails typed `desktop_state_changed`.\nThe tree says whether its node bound truncated; a desktop with more than 512\nwindows refuses rather than returning a partial inventory.\n"
     },
     {
       "name": "query",

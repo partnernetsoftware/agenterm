@@ -281,6 +281,12 @@ Windows checklist:
   Cross-platform command tests that pass a synthetic HWND must allow the native
   adapter to reject that window before name lookup; prove exact not-found matcher
   semantics with pure data and prove the integrated path with an owned window.
+- A composed desktop observation is not one instant merely because it has one
+  JSON envelope. Freeze the target from the first bounded window inventory,
+  perform the slower tree/pointer reads, then re-enumerate and require the full
+  target identity row to match before publishing. Refuse ambiguous focus,
+  disappearance, drift and an over-budget inventory; expose tree truncation
+  instead of selecting the first window or calling a partial desktop complete.
 - A process-global native resource needs one lock and one RAII owner across every
   adapter path. In particular, Windows console attach/detach cannot be split
   between a dependency helper and a platform guard: serialize the whole
