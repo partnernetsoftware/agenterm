@@ -9,6 +9,21 @@
     "unsupported_is_not_a_roadmap_state": true,
     "mcu_absence_is_the_final_replacement_court": true
   },
+  "family_order": [
+    "process",
+    "desktop",
+    "browser",
+    "pty-job-terminal",
+    "file-storage",
+    "network",
+    "device-audio",
+    "service-runtime-session-audit",
+    "setup-doctor-permissions",
+    "host-resource",
+    "power",
+    "privilege",
+    "simulator"
+  ],
   "families": {
     "process": {
       "accounting": "complete",
@@ -692,9 +707,11 @@
           "mcu_shape": "storage devices --max N with physical/block id, media, bus, size and health",
           "acu_shape": "storage-devices --max N (alias: storage devices --max N) through a bounded privacy-minimized native provider",
           "state": "platform-limited",
-          "platforms": {"macos": "live-qjswasm-journey", "linux": "live-qjswasm-journey-aarch64", "windows": "x86_64-compile-only"},
-          "next": "run cu.storage-devices on native Windows and Linux x86_64 courts; keep the remaining storage mutation and volume shapes as explicit dynamic fallbacks",
-          "note": "The platform facade uses fixed system providers, one shared deadline, contained process-tree cleanup, a 10000-row scan ceiling and a 2 MiB provider-output ceiling. ACU adds a 1 MiB response ceiling, exact decimal capacity strings and explicit unavailable fields. It never requests or emits serial, WWN or Windows UniqueId. macOS native qjswasm evidence is green. Exact source 76f85249 also passed the same public qjswasm journey on a native Linux aarch64 Lima/VZ court with source, bundle and guest artifact digests matched; unavailable UTM launch infrastructure is not product evidence. Windows runtime and Linux x86_64 evidence remain open. The exact storage devices compatibility shape now routes to ACU, while volume_space and storage mutations remain separate shapes."
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "live-qjswasm-journey-aarch64", "windows": "live-qjswasm-journey-aarch64"},
+          "qualification": "macos-linux-aarch64-windows-aarch64-live-linux-x86-windows-x86-pending",
+          "evidence": ["cu.storage-devices"],
+          "next": "run cu.storage-devices on native Linux x86_64 and Windows x86_64 courts; keep the remaining storage mutation and volume shapes as explicit dynamic fallbacks",
+          "note": "The platform facade uses fixed system providers, one shared deadline, contained process-tree cleanup, a 10000-row scan ceiling and a 2 MiB provider-output ceiling. ACU adds a 1 MiB response ceiling, exact decimal capacity strings and explicit unavailable fields. It never requests or emits serial, WWN or Windows UniqueId. macOS native qjswasm evidence is green. Exact source 76f85249 also passed the same public qjswasm journey on a native Linux aarch64 Lima/VZ court with source, bundle and guest artifact digests matched; unavailable UTM launch infrastructure is not product evidence. Exact source 00d22433 passed on a Windows aarch64 UTM court after a ten-file guest manifest match and was then reverted and stopped. Linux x86_64 and Windows x86_64 remain open. The exact storage devices compatibility shape now routes to ACU, while volume_space and storage mutations remain separate shapes."
         },
         {
           "id": "file.metadata.inspect",
@@ -902,10 +919,10 @@
           "mcu_shape": "daemon status|caps plus protocol/capability manifest",
           "acu_shape": "runtime-status plus capabilities; compatibility aliases daemon status and daemon caps",
           "state": "native",
-          "platforms": {"macos": "live-qjswasm-journey", "linux": "implementation-platform-neutral", "windows": "implementation-platform-neutral"},
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "implementation-platform-neutral", "windows": "live-qjswasm-journey-aarch64"},
           "evidence": ["cu.runtime-status", "agenterm-cu non-publishing runtime status unit suite"],
-          "next": "run the public qjswasm journey on native Linux and Windows courts",
-          "note": "ACU truthfully reports an on-demand coordinator and per-resource resident owners. It does not claim or require one global daemon. The bounded snapshot computes effective session, lock and managed-job counts without sweeping expiry, advancing the durable clock high-water mark or publishing state; exact owner liveness remains owned by the resource status command."
+          "next": "run the public qjswasm journey on native Linux and Windows x86_64 courts",
+          "note": "ACU truthfully reports an on-demand coordinator and per-resource resident owners. It does not claim or require one global daemon. The bounded snapshot computes effective session, lock and managed-job counts without sweeping expiry, advancing the durable clock high-water mark or publishing state; exact owner liveness remains owned by the resource status command. Exact source 00d22433 passed cu.runtime-status on a Windows aarch64 UTM court after a ten-file guest manifest match; the disposable guest was reverted and stopped."
         },
         {
           "id": "runtime.global-daemon-lifecycle",

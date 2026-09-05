@@ -720,6 +720,24 @@
         "task.cu-resource-status-smoke"
       ]
     },
+    "acu-retirement-readiness": {
+      "inputs": [
+        "built-agenterm-cu",
+        "acu-retirement-ledger"
+      ],
+      "outputs": [
+        "acu-retirement-readiness-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 524288
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-retirement-readiness"
+      ]
+    },
     "cu-runtime-status-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2604,6 +2622,28 @@
       "args": [
         ".",
         "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "acu-retirement-readiness",
+      "description": "Measure the one fail-closed ACU retirement contract: capability/evidence ledger, three-host task registration, six-cell Candidate wiring, production Bun/MCU dependencies and the temporary adapter report. Remaining blockers are successful audit output, never hidden green retirement.",
+      "entry": "scripts/qjs/acu-retirement-court.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu",
+        "report"
       ],
       "dependencies": [],
       "platforms": [

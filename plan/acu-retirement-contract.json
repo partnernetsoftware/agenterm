@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "ledger": "plan/acu-mcu-capability-ledger.json",
+  "final_states": ["native", "delegated", "platform-limited", "retired"],
+  "evidence_required_states": ["native", "delegated", "platform-limited"],
+  "required_host_tasks": [
+    {"id": "cu-macos-smoke", "platform": "macos"},
+    {"id": "cu-linux-smoke", "platform": "linux"},
+    {"id": "cu-windows-smoke", "platform": "windows"}
+  ],
+  "required_delivery_task": "six-cell-qualify",
+  "candidate_runtime_marker": "cu-retirement-cell-smoke",
+  "production_scan_paths": [
+    ".github",
+    "scripts",
+    "agenterm.tasks.json"
+  ],
+  "forbidden_production_patterns": [
+    "Bun\\.",
+    "#!/usr/bin/env bun",
+    "from[[:space:]].*skills/mcu",
+    "require\\(.*skills/mcu"
+  ]
+}

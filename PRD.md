@@ -188,6 +188,9 @@ flowchart LR
   FLEET --> SCRIPT & CU & CC
   SCRIPT --> CU & CC
   TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
+  CU --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>Bun-free · MCU absent"}
+  RETIRE -->|red| CU
+  RETIRE -->|green| EVIDENCE
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE
 ```
 

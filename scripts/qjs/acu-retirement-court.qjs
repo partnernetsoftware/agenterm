@@ -1,0 +1,216 @@
+// One fail-closed accounting court for retiring MCU without hiding remaining
+// capability, evidence, delivery or Bun-dependency gaps.
+//
+// Args:
+//   REPO AGENTERM_CU_EXE report
+//   REPO AGENTERM_CU_EXE enforce-absent
+//
+// report reads the temporary adapter report when ACU_MCU_ROOT is set and emits
+// a bounded blocker inventory. enforce-absent never invokes Bun and additionally
+// requires ACU_MCU_ROOT to name an absent directory.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.retirement-readiness", "cu.retirement"];
+
+function add(blockers, id, detail) {
+  blockers.push({ id: id, detail: detail });
+}
+
+function has_text(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function has_rows(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function task_for(manifest, id) {
+  for (const task of manifest.tasks) {
+    if (task.id === id) { return task; }
+  }
+  return null;
+}
+
+function platform_has(task, platform) {
+  if (task === null || !Array.isArray(task.platforms)) { return false; }
+  for (const item of task.platforms) {
+    if (item === platform) { return true; }
+  }
+  return false;
+}
+
+function last_json_line(text) {
+  const lines = text.trim().split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line !== "") { return JSON.parse(line); }
+  }
+  throw "retirement_report_missing_json";
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 3, "expected: REPO AGENTERM_CU_EXE report|enforce-absent");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+const mode = args[2];
+harness.require(mode === "report" || mode === "enforce-absent", "retirement_mode_invalid");
+const context = harness.new_context(repo, mode === "report" ? "acu-retirement-readiness" : "acu-retirement");
+
+const contract = rh.parse_file(rh.join(repo, "plan/acu-retirement-contract.json"));
+const ledger = rh.parse_file(rh.join(repo, contract.ledger));
+const manifest = rh.parse_file(rh.join(repo, "agenterm.tasks.json"));
+const blockers = [];
+const counts = { total: 0, native: 0, delegated: 0, gap: 0, platform_limited: 0, retired: 0 };
+
+harness.require(contract.schema === 1 && ledger.schema === 1, "retirement_contract_schema");
+harness.require(Array.isArray(ledger.family_order) && ledger.family_order.length === 13, "retirement_family_order");
+
+for (const family_id of ledger.family_order) {
+  const family = ledger.families[family_id];
+  if (family === undefined || !Array.isArray(family.capabilities)) {
+    add(blockers, "family_missing", "" + family_id);
+  } else {
+    for (const capability of family.capabilities) {
+      counts.total = counts.total + 1;
+      const state = "" + capability.state;
+      if (state === "native") { counts.native = counts.native + 1; }
+      else if (state === "delegated") { counts.delegated = counts.delegated + 1; }
+      else if (state === "gap") { counts.gap = counts.gap + 1; }
+      else if (state === "platform-limited") { counts.platform_limited = counts.platform_limited + 1; }
+      else if (state === "retired") { counts.retired = counts.retired + 1; }
+      else { add(blockers, "state_unknown", "" + capability.id + ":" + state); }
+
+      if (state === "gap") { add(blockers, "capability_gap", "" + capability.id); }
+      if ((state === "native" || state === "delegated") && !has_text(capability.acu_shape)) {
+        add(blockers, "available_without_acu_shape", "" + capability.id);
+      }
+      if ((state === "native" || state === "delegated" || state === "platform-limited")
+          && !has_rows(capability.evidence)) {
+        add(blockers, "available_without_evidence", "" + capability.id);
+      }
+      if (state === "platform-limited" && !has_text(capability.qualification)) {
+        add(blockers, "platform_limit_without_qualification", "" + capability.id);
+      }
+      if (state === "retired" && !has_text(capability.note)) {
+        add(blockers, "retired_without_rationale", "" + capability.id);
+      }
+    }
+  }
+}
+
+for (const required of contract.required_host_tasks) {
+  const task = task_for(manifest, required.id);
+  if (task === null || !platform_has(task, required.platform)) {
+    add(blockers, "host_task_missing", required.id + ":" + required.platform);
+  }
+}
+const delivery = task_for(manifest, contract.required_delivery_task);
+if (delivery === null
+    || !platform_has(delivery, "macos")
+    || !platform_has(delivery, "linux")
+    || !platform_has(delivery, "windows")) {
+  add(blockers, "delivery_task_missing", "" + contract.required_delivery_task);
+}
+
+const capabilities = rh.command(executable, ["--target", "current", "--grant", "observe", "capabilities"], {
+  cwd: repo,
+  timeout_ms: 30000
+});
+if (!capabilities.success) {
+  add(blockers, "cu_capabilities_failed", "exit=" + capabilities.exit_code);
+} else {
+  const reply = last_json_line(capabilities.stdout);
+  if (reply.ok !== true || reply.command !== "capabilities") {
+    add(blockers, "cu_capabilities_invalid", "typed reply missing");
+  }
+}
+
+const candidate_text = rh.read_text(rh.join(repo, ".github/workflows/candidate.yml"));
+if (candidate_text.indexOf(contract.candidate_runtime_marker) < 0) {
+  add(blockers, "candidate_cu_runtime_missing", contract.candidate_runtime_marker);
+}
+
+for (const pattern of contract.forbidden_production_patterns) {
+  const grep_args = ["grep", "-n", "-I", "-E", pattern, "--"];
+  for (const path of contract.production_scan_paths) { grep_args.push(path); }
+  const scan = rh.command("git", grep_args, { cwd: repo, timeout_ms: 30000 });
+  if (scan.exit_code === 0) {
+    add(blockers, "production_dependency_forbidden", pattern);
+  } else if (scan.exit_code !== 1) {
+    add(blockers, "production_scan_failed", pattern + ":exit=" + scan.exit_code);
+  }
+}
+
+const configured_mcu_root = rh.env_or("ACU_MCU_ROOT", "");
+const mcu_root = configured_mcu_root === "" ? "" : rh.absolute(configured_mcu_root);
+let compatibility = null;
+if (mode === "report") {
+  if (mcu_root === "") {
+    add(blockers, "compatibility_source_unavailable", "set ACU_MCU_ROOT for adapter accounting");
+  } else {
+    const adapter = rh.join(mcu_root, "acu.ts");
+    if (!rh.exists(adapter)) {
+      add(blockers, "compatibility_adapter_missing", "acu.ts");
+    } else {
+      const bun = rh.env_or("ACU_BUN", "bun");
+      const adapter_report = rh.command(bun, [adapter, "--retirement-report"], {
+        cwd: mcu_root,
+        timeout_ms: 30000
+      });
+      if (!adapter_report.success) {
+        add(blockers, "compatibility_report_failed", "exit=" + adapter_report.exit_code);
+      } else {
+        compatibility = last_json_line(adapter_report.stdout);
+        if (compatibility.schema !== 1 || compatibility.adapter !== "acu.ts") {
+          add(blockers, "compatibility_report_invalid", "schema or adapter");
+        } else {
+          if (compatibility.static_stays.length > 0) {
+            add(blockers, "static_stays", "count=" + compatibility.static_stays.length);
+          }
+          if (compatibility.dynamic_corpus_complete !== true) {
+            add(blockers, "dynamic_parity_corpus_incomplete", "argument-sensitive stays are not exhaustive");
+          }
+          if (compatibility.mcu_required !== false) {
+            add(blockers, "adapter_still_requires_mcu", "compatibility report says MCU is required");
+          }
+        }
+      }
+    }
+  }
+} else {
+  if (mcu_root === "") {
+    add(blockers, "mcu_absence_path_missing", "ACU_MCU_ROOT must name the retired path");
+  } else if (rh.exists(mcu_root)) {
+    add(blockers, "mcu_still_present", "retired path still exists");
+  }
+}
+
+const report = {
+  schema: 1,
+  mode: mode,
+  ready: blockers.length === 0,
+  counts: counts,
+  compatibility: compatibility,
+  blocker_count: blockers.length,
+  blockers: blockers
+};
+print("RETIREMENT " + JSON.stringify(report));
+
+if (mode === "report") {
+  harness.emit_evidence(context, declared_evidence, "cu.retirement-readiness");
+  harness.remove_run(context);
+  print("PASS: retirement readiness was measured; blockers remain authoritative");
+  return;
+}
+harness.require(blockers.length === 0, "acu_retirement_blocked:" + JSON.stringify(blockers));
+harness.emit_evidence(context, declared_evidence, "cu.retirement");
+harness.remove_run(context);
+print("PASS: ACU is ledger-complete, three-host registered, six-cell wired, Bun-free and MCU-absent");
+return;

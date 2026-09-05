@@ -84,6 +84,18 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
      ├─ consumed by CLI, MCP and qjswasm
      └─ acu.qjs retires when legacy MCU syntax has no retained callers
   ```
+- [~] Retirement now has one machine-enforced qjswasm court rather than a
+  prose checklist. `acu-retirement-readiness` walks all 13 ledger families,
+  rejects every `gap`, requires public evidence for available or
+  platform-limited claims, verifies the three native host tasks and six-cell
+  task registration, checks Candidate execution wiring, scans production
+  automation for Bun/MCU dependencies, and consumes the temporary adapter's
+  machine report. Report mode succeeds only as an audit and emits
+  `cu.retirement-readiness`; its first baseline measures 131 capabilities,
+  including 21 gaps and 50 platform-limited rows, plus 14 static adapter stays
+  and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
+  `cu.retirement`, after zero blockers and after the configured MCU path is
+  actually unavailable.
 - [x] Two MCU-only surfaces are reviewed retirements, not ACU gaps. `ghost X Y`
   drew a decorative cursor with no observation or effect authority; callers
   must use real pointer state, structured hit-testing or screenshots instead.
@@ -163,7 +175,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `storage-devices` observation after the AgenTerm launcher check; macOS arm64
   and a digest-matched native Linux arm64 qjswasm court are green. This is
   stronger than archive membership but remains a minimum court: Linux x86_64,
-  Windows native evidence and all six sealed Candidate cells are still open.
+  Windows x86_64 and all six sealed Candidate cells are still open.
   Native Unix packaging, macOS signing/notarization and sealed Candidate
   artifact evidence remain open.
 - [ ] Candidate and six-cell qualification and release evidence remain open.
@@ -256,7 +268,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   shell maps `daemon status` to this result and `daemon caps` to the ACU
   capability catalog; `daemon start|restart|stop` remain explicit migration
   gaps rather than successful no-ops. The public qjswasm evidence is
-  `cu.runtime-status`; Linux and Windows native reruns remain open.
+  `cu.runtime-status`; exact source `00d22433` passes it on Windows aarch64
+  after a ten-file guest manifest match and disposable-court rollback. Linux
+  and Windows x86_64 reruns remain open.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
 - [~] The compatibility spelling `acu caps` now returns the replacement ACU
@@ -1085,8 +1099,10 @@ flowchart LR
   `cu.storage-devices` qjswasm journey is green on macOS. At exact source
   `76f85249`, the same journey passed on a native Linux aarch64 Lima/VZ court
   after source, bundle and guest artifact digests matched; unavailable UTM
-  launch infrastructure is not product evidence. Windows and Linux x86_64
-  native runtime courts remain open. Therefore the
+  launch infrastructure is not product evidence. Exact source `00d22433` also
+  passed on Windows aarch64 after a ten-file guest manifest match; the guest
+  was reverted and stopped. Windows x86_64 and Linux x86_64 native runtime
+  courts remain open. Therefore the
   ledger is `platform-limited`, not yet promoted to native or removed from the
   overall storage family. The exact inventory spelling already routes through
   ACU; mutation and volume sub-shapes remain dynamic compatibility fallbacks.

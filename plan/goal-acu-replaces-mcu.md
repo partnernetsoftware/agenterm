@@ -447,8 +447,10 @@ shapes fail typed instead of being ignored.
   decimal strings; serial/WWN/Windows UniqueId are never queried. Its macOS
   qjswasm court is green. Exact source `76f85249` also passed the public journey
   on a native Linux aarch64 Lima/VZ court with source and artifact digests
-  matched. Windows and Linux x86_64 runtime courts remain; the exact inventory
-  route has left static STAY while other storage sub-shapes remain dynamic.
+  matched. Exact source `00d22433` then passed the same journey on Windows
+  aarch64 after a ten-file guest manifest match and disposable-court rollback.
+  Linux x86_64 and Windows x86_64 remain; the exact inventory route has left
+  static STAY while other storage sub-shapes remain dynamic.
   Existing stable-entry, no-overwrite and per-volume primitives stay separate
   from physical devices. Unix modes/xattrs and Windows
   ACLs/attributes remain distinct platform vocabularies; parity must not be
@@ -557,7 +559,8 @@ Q2 fast delegated facades
 Q3 owned runtime facades
 ├─ [~] PTY/job/runtime/session/lock/audit/service
 │  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
-│  ├─ [~] daemon status/caps route to ACU; start/restart/stop caller migration pending retirement
+│  ├─ [~] daemon status/caps route to ACU; macOS + Windows aarch64 qjswasm green; Linux + Windows x86 pending
+│  ├─ [~] daemon start/restart/stop caller migration pending retirement
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
 │  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor
@@ -589,8 +592,8 @@ Q3 owned runtime facades
    ├─ [~] storage-devices: fixed native provider + bounded privacy-minimized inventory
    │  ├─ [x] exact decimal capacities; no serial/WWN/Windows UniqueId
    │  ├─ [x] 10,000-row scan + 2 MiB provider + 1 MiB response ceilings
-   │  ├─ [x] macOS + Linux aarch64 public qjswasm journey `cu.storage-devices`
-   │  └─ [ ] Linux x86_64 + Windows native qjswasm journeys; non-inventory storage shapes remain
+   │  ├─ [x] macOS + Linux aarch64 + Windows aarch64 public qjswasm journey `cu.storage-devices`
+   │  └─ [ ] Linux x86_64 + Windows x86_64 qjswasm journeys; non-inventory storage shapes remain
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public CLI schema/count/prefix court
@@ -658,11 +661,24 @@ Q4 browser and platform depth
 │  └─ [ ] controlled mutation courts; shutdown/deployment/guest foreground/screenshot
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement
+├─ [~] one qjswasm retirement court
+│  ├─ [x] report mode measures ledger gaps/evidence, host-task registration, Candidate wiring, Bun/MCU production dependencies and adapter truth
+│  ├─ [x] adapter exposes a machine report that cannot mistake zero static STAY for complete dynamic parity
+│  └─ [ ] enforce-absent mode green with zero blockers and the retired MCU path unavailable
 ├─ [~] six-cell baseline now requires architecture-matched `agenterm-cu`
 │  ├─ [x] local arm64 rehearsal executes public bounded storage inventory
 │  └─ [ ] same qjswasm ACU journey on all six native/emulated userland courts
 └─ [ ] parity corpus + three-host native + MCU-absent rehearsal
 ```
+
+The first `acu-retirement-readiness` run is intentionally red as a promotion
+decision while remaining a successful bounded audit: 131 ledger capabilities
+currently include 21 `gap` and 50 `platform-limited` rows, the compatibility
+adapter reports 14 static stays and explicitly says its argument-sensitive
+corpus is incomplete, the Candidate workflow has no
+`cu-retirement-cell-smoke`, and the release-dispatch helper still requires Bun.
+Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
+the blockers were measured, never that MCU may be removed.
 
 `moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
 means “ACU cannot yet express this exact public shape; use MCU temporarily,”
