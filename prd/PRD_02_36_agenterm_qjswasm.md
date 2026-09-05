@@ -266,8 +266,14 @@ second route around ACU/AgenTerm product contracts.
   cursor, exact resize read-back, detached temporary lease, separate
   row/metadata diffs and a non-empty terminal event. It then restarts the same
   name and requires the old baseline to fail `pty_snapshot_authority_changed`.
-  This local result does not inherit the earlier six-cell claim; the enlarged
-  bytes still require their own six-cell rerun.
+  That enlarged journey now passes Windows x86_64 at `121b76ed`. Windows arm64
+  found a native-only boundary case after resize: ConPTY can expose its legal
+  wrap-pending cursor one column beyond the visible grid. `735b7e0c` normalizes
+  that wire projection, after which the arm64 journey passed all nine stages
+  and cleanup. The remaining leaf is identity, not known behavior: rerun the
+  current `735b7e0c` bytes on x86_64 once its TCG interactive agent is live;
+  do not splice the two differently pinned Windows passes into a new exact-SHA
+  six-cell claim.
 - `cargo test -p agenterm-qjswasm` owns crate behavior; do not pin a historical
   pass count because the suite grows.
 - public Script CLI black boxes own `.qjs` route, diagnostics, receipts and

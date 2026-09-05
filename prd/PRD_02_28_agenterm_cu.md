@@ -558,17 +558,20 @@ flowchart LR
   temporary writes. The local macOS public qjswasm journey proved snapshot →
   verified resize/diff → literal output/diff → non-empty event continuation,
   then restarted the same name and proved the prior baseline is refused as a
-  different authority. The enlarged artifact pair now passes macOS arm64,
-  macOS x86_64/Rosetta and native Linux arm64/x86_64. Windows x86_64 reached
-  `pty-start` and exposed `ERROR_BROKEN_PIPE (233)` between the first empty
-  startup inventory and the first mutation. Commit `121b76ed` therefore makes
-  startup require two consecutive independent empty-inventory reads before
-  mutation; both Windows targets cross-build and the local public journey is
-  green. Its Windows runtime recheck remains open because the UTM interactive
-  court then exceeded its declared wall budget before claiming a nonce; no
-  product pass is inferred from that infrastructure failure. Windows arm64 is
-  blocked at the same interactive-agent boundary. Reuse and orphan process-tree
-  control remain open.
+  different authority. The enlarged artifact pair passes macOS arm64, macOS
+  x86_64/Rosetta and native Linux arm64/x86_64. Windows x86_64 then exposed
+  `ERROR_BROKEN_PIPE (233)` between the first empty startup inventory and the
+  first mutation; `121b76ed` requires two consecutive independent empty reads
+  before mutation, and that exact product passed the complete x86_64 UTM
+  journey. Windows arm64 subsequently exposed a legal ConPTY right-margin
+  wrap-pending cursor as `column == columns`; rejecting it invalidated the
+  complete UI bootstrap and blocked both `pty-wait` and cleanup. `735b7e0c`
+  normalizes that one cursor state to the last visible cell without weakening
+  any other screen bound, and the rebuilt arm64 product passed all nine stages,
+  exact status 7, restart refusal and cleanup. A current-source x86_64 rerun
+  remains an evidence-identity leaf because its TCG guest had not recovered
+  interactive-agent liveness; the two Windows passes are not combined into an
+  exact-source six-cell claim. Reuse and orphan process-tree control remain open.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 
@@ -598,14 +601,14 @@ flowchart LR
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
   H --> J["pty start/list/prune/status/read/send/wait/exit/stop ✓<br/>exact job + epoch + @tab"]
-  J --> JE["pty snapshot/diff/events/resize<br/>macOS + Linux four cells ✓<br/>Windows runtime recheck pending"]
+  J --> JE["pty snapshot/diff/events/resize<br/>macOS + Linux four cells ✓<br/>Win x86 121b76ed ✓ · Win arm 735b7e0c ✓"]
   J --> J1["qjswasm public PTY court · local six-cell ✓<br/>macOS arm64 + x86_64/Rosetta<br/>Linux + Windows x86_64/arm64 native"]
   J1 --> J2["list/prune + absent/running/stale/absent ✓<br/>reuse + orphan process-tree cleanup"]
   J2 --> Q
   JE --> Q
   Q -->|macOS green| M1["public evidence live"]
   Q -->|Linux step green / suite red| L1["fix old observe court; rerun"]
-  Q -->|Windows court budget blocked| W1["repair wall deadline; rerun 121b76ed<br/>zero pass while nonce absent"]
+  Q -->|exact-source identity open| W1["recover x86 TCG agent liveness<br/>rerun current 735b7e0c bytes"]
   M1 --> P["promote only after three-host court"]
   L1 --> P
   W1 --> P

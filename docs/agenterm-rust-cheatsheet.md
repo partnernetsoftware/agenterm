@@ -3723,6 +3723,18 @@ reusable court image. The Linux x86_64 qjswasm-to-ACU PTY court exposed this as
 `home-directory-unavailable` before passing with isolated `HOME`,
 `XDG_DATA_HOME`, and `XDG_CONFIG_HOME`.
 
+## Keep file-transfer stdin separate from a timeout wrapper's program source
+
+A wrapper invoked as `interpreter - ... <<PROGRAM` consumes stdin to read its
+own source, so a nested `file push` silently receives EOF. Use an argument form
+such as `interpreter -c PROGRAM` whenever the wrapped command owns stdin. A
+transport self-test must persist and return one newly generated non-empty
+payload through the fake adapter; comparing two independently hard-coded
+`fixture` strings proves neither upload nor download. For an interactive VM
+agent, also separate slow interpreter cold start from steady liveness: publish
+and match an opaque atomic nonce instead of spawning another interpreter for
+each readiness check.
+
 For a durable named-resource inventory, do not equate a state directory with a
 live authority. Enumerate a bounded private root, reject malformed or
 link-like entries, sort stable names, then reconcile every name through its

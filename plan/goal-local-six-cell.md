@@ -1145,10 +1145,21 @@ Windows bundle 还必须包含并从 `agenterm.com` 启动外层 CLI。直接由
 随后真执行到 `pty-start`，在首个空 inventory 与首个 mutation 之间返回
 `ERROR_BROKEN_PIPE (233)`；清理已验证，无孤儿。`121b76ed` 把启动门改为连续
 两次独立空 inventory 后才允许 mutation，并已完成本地黑盒与两个 Windows target
-交叉构建。Windows runtime 复核尚未计绿：后续 UTM 轮次在领取作业前耗尽时间，
-而 `interactive-ready SECONDS` 当前按循环次数计数、每次 QGA 调用自身又可等待，
-所以参数不是可信 wall deadline。下一刀先让 court 使用单一单调时钟总期限，再
-复跑 `121b76ed` 的 Windows arm64/x86_64；nonce 未出现时保持 BLOCKED。
+交叉构建；该 exact x86_64 product 随后在 UTM 完整旅程全绿。
+
+Windows arm64 的同旅程又抓到 ConPTY 右边界待换行状态：91 列命令行可令 parser
+报告 `cursor.column == columns`。旧 bootstrap 把整个 screen 判坏，连 `pty-wait`
+与失败清理都会返回 `ui_screen_cursor_bounds`。`735b7e0c` 只把这个合法状态投影到
+最后一个可见格，不放宽 row/run/尺寸/字节门；重建后九阶段、status 7、重启拒绝
+与清理全绿。x86_64 仍需以同一 `735b7e0c` 字节再跑一次才能恢复 exact-source
+六格称谓；当前只记录两次各自钉死的真实 Windows 通过，不拼接证据。
+
+本轮还发现 court 自身曾有假绿：用 heredoc 把 Python 程序喂给 timeout wrapper，
+同时也吃掉了 `file push` 的 stdin，所以非空上传静默变成零字节。minicon court
+已改为 `python3 -c`，其 fake transport 必须持久化并拉回每次唯一 payload；不能再
+用两端各自写死同一个 `fixture` 冒充 round-trip。交互代理 v2 用原子 nonce ping
+区分“PowerShell 冷启动”与“worker 已活”，但 x86 TCG 冷启和重复恢复仍会堆积
+PowerShell task；这是 court 启动性能与单实例回收债，不是产品绿灯。
 
 ## 6. 已知坑（开工前先读）
 
