@@ -48,6 +48,8 @@ agenterm-qjswasm
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
 │  ├─ [ ] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
+│  │  ├─ no shell-out fallback or duplicated machine-control mechanism
+│  │  ├─ MCU-absent black-box parity precedes switching the default entry
 │  │  └─ generic tinyvm remains free of AgenTerm machine-control authority
 │  ├─ [~] tool.* and release-task coverage grows by product need
 │  └─ [ ] every v0.1.18 release-critical journey has live .qjs evidence
@@ -106,6 +108,8 @@ flowchart LR
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   ACUOBJ["agenterm:acu embedder object<br/>shared schema · Executor · failures · receipts"]
+  TS["temporary acu.ts<br/>legacy argv + binary discovery only"]
+  ABSENT{"zero STAY + MCU absent<br/>black-box parity"}
   COMPAT["temporary acu.qjs<br/>legacy mapping only · no Bun"]
   ACUCLI["ACU consumers<br/>CLI · MCP · qjs"]
   QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
@@ -140,7 +144,8 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> ACUOBJ --> ACUCLI --> RECEIPT
-  COMPAT -. legacy syntax .-> ACUOBJ
+  TS --> ABSENT --> COMPAT
+  COMPAT -. legacy syntax only .-> ACUOBJ
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT

@@ -84,6 +84,40 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
      ├─ consumed by CLI, MCP and qjswasm
      └─ acu.qjs retires when legacy MCU syntax has no retained callers
   ```
+
+  This boundary is enforceable, not aspirational:
+
+  ```text
+  compatibility implementation budget
+  ├─ acu.ts may: discover the exact ACU binary; normalize legacy argv; forward stdio/exit
+  ├─ acu.ts must not: implement filesystem/process/browser/device/privilege effects
+  ├─ existing TypeScript-owned effects are migration debt, not accepted architecture
+  ├─ acu.qjs may: preserve only the same legacy syntax projection without Bun
+  ├─ acu.qjs must not: shell out around a missing typed command or duplicate verification
+  └─ agenterm:acu owns: typed calls into the shared schema + Executor + receipts
+  ```
+
+  A compatibility route is complete only when the same public command succeeds
+  with the MCU tree unavailable and its effect is proved by the owning native
+  postcondition. Merely changing `acu.ts` from `STAY` to a private TypeScript
+  implementation does not reduce the retirement gap. New product capability
+  work therefore lands in `agenterm-cu`, an existing AgenTerm-owned facade, or
+  the generic qjswasm/tinyvm layer; it never grows the transitional shell.
+
+  ```mermaid
+  flowchart LR
+    TS["acu.ts today<br/>argv projection · binary discovery"]
+    OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
+    GATE{"zero STAY<br/>MCU-absent parity"}
+    QJS["acu.qjs transition<br/>Bun-free legacy mapping"]
+    OBJ["agenterm:acu<br/>embedder object library"]
+    USERS["one contract<br/>CLI · MCP · qjs"]
+    DEBT["remaining TypeScript effect<br/>measured migration debt"]
+    TS --> GATE
+    OWNER --> GATE
+    GATE -->|red| DEBT --> OWNER
+    GATE -->|green| QJS --> OBJ --> USERS
+  ```
 - [~] Retirement now has one machine-enforced qjswasm court rather than a
   prose checklist. `acu-retirement-readiness` walks all 13 ledger families,
   rejects every `gap`, requires public evidence for available or
