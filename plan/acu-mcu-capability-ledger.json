@@ -341,9 +341,9 @@
         {
           "id": "desktop.session-lock-audit",
           "mcu_shape": "session/lock/audit plus crash-persistent effect receipts",
-          "acu_shape": "grant/grant-id and receipts; no public session, target-lock or audit lifecycle",
+          "acu_shape": "durable public session and target-lock lifecycle, bounded audit-query, grant/grant-id and crash-persistent effect receipts",
           "state": "gap",
-          "next": "typed control-session facade shared with remote targets; preserve at-most-once receipts and independently verified postconditions"
+          "next": "add universal request identity/at-most-once admission plus audit retention, then prove the same facade on remote targets"
         },
         {
           "id": "desktop.ghost-cursor",
@@ -823,16 +823,18 @@
         {
           "id": "runtime.session-lease",
           "mcu_shape": "session start|status|renew|end with TTL and bound-resource cleanup",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "durable opaque session lease shared by jobs, device claims and target locks; monotonic expiry and explicit cleanup outcome"
+          "acu_shape": "session start|list|status|renew|end with bounded TTL, retained terminal status and automatic owned-lock release",
+          "state": "native",
+          "evidence": ["agenterm-cu macos isolated public runtime loop", "agenterm-cu runtime coordinator unit suite"],
+          "note": "The opaque lease is returned once; durable state and audit contain only its SHA-256 digest. Expiry and explicit end retain bounded terminal evidence and release every owned lock."
         },
         {
           "id": "runtime.target-lock",
           "mcu_shape": "lock acquire|status|renew|release over namespaced targets",
-          "acu_shape": "individual ACU verbs have authorization/receipts but no public cross-command target lock",
-          "state": "gap",
-          "next": "atomic namespaced lock bound to target identity and session lease, recovered or expired after coordinator restart"
+          "acu_shape": "lock acquire|list|release over namespace:target, bound to a durable session lease",
+          "state": "native",
+          "evidence": ["agenterm-cu macos isolated public runtime loop", "agenterm-cu runtime coordinator conflict/idempotency tests"],
+          "note": "Same-owner reacquisition preserves lock identity and renews expiry; another session fails typed. Session end/expiry releases the lock."
         },
         {
           "id": "runtime.request-idempotency",
@@ -851,9 +853,10 @@
         {
           "id": "runtime.audit-query-retention",
           "mcu_shape": "audit query|compact with filters, pagination and scan/result/byte/age/event ceilings",
-          "acu_shape": "append-only audit and receipt files with bounded receipt listing",
+          "acu_shape": "durable serialized audit append plus newest-first audit-query with verb/outcome/time filters and independent offset/result/scan/byte ceilings",
           "state": "gap",
-          "next": "bounded query plus crash-safe retention over the existing ACU audit format; preserve malformed-record counts and default dry-run"
+          "evidence": ["agenterm-cu audit unit/concurrency suite", "agenterm-cu macos isolated public runtime loop"],
+          "next": "add crash-safe dry-run compaction/retention; query already exposes malformed counts and all truncation dimensions"
         },
         {
           "id": "runtime.audit-replay",

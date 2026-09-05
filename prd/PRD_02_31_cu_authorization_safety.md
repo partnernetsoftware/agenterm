@@ -154,13 +154,30 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   quit / delete). Linux / Windows / remote tiers are not claimed.
 ## Audit
 
-- [ ] every authorized action produces an observable record identifying target,
+- [~] every authorized action produces an observable record identifying target,
   command, decision, outcome and time, sufficient to reconstruct what was done
-  to which machine.
-- [ ] the audit record is machine-readable and survives the session that
-  produced it.
-- [ ] failure to record is failure to act: if the audit path is unavailable, the
+  to which machine. `audit-query` now exposes newest-first bounded observation
+  with independent returned-row, scanned-row and byte ceilings, malformed-row
+  counts, truncation flags and a continuation offset when only the result
+  window truncates. Retention/compaction, an older-byte cursor and
+  universal request correlation remain open.
+- [~] the versioned JSONL audit is machine-readable, cross-process append
+  serialized, durably flushed and survives the session that produced it.
+- [x] failure to record is failure to act: if the audit path is unavailable, the
   action does not execute.
+
+## Stable macOS consent identity
+
+- [ ] Routine CU execution must come from one fixed installed app-bundle path
+  carrying a stable signed identity. Worktree binaries are development-only:
+  changing path or code identity invalidates prior Camera/Accessibility TCC
+  consent and can make a host-permission failure resemble a device fault. The
+  Candidate pipeline must ship and verify the original signed
+  `AgentermCu.app` bytes, include separate Camera and Accessibility usage
+  descriptions, and install shims only toward that verified executable. It
+  must never locally re-sign promoted bytes. Camera, Accessibility and Screen
+  Recording remain distinct permissions; a DAL capture verb must not demand
+  Screen Recording or treat Accessibility denial as a phone trust failure.
 
 ## Refusal semantics
 

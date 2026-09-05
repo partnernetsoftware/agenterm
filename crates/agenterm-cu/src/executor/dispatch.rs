@@ -9,6 +9,50 @@ impl Executor {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
             Command::Permissions { .. } => Ok(permissions_payload()),
             Command::Doctor { .. } => Ok(doctor_payload()),
+            Command::AuditQuery {
+                verb_filter,
+                outcome,
+                since_ms,
+                offset,
+                max,
+                scan_max,
+                byte_max,
+                ..
+            } => self.query_audit(audit::AuditQuery {
+                verb: verb_filter.as_deref(),
+                outcome: outcome.as_deref(),
+                since_ms: *since_ms,
+                offset: *offset,
+                max: *max,
+                scan_max: *scan_max,
+                byte_max: *byte_max,
+            }),
+            Command::SessionStart {
+                label, ttl_seconds, ..
+            } => session_start_payload(label.as_deref(), *ttl_seconds),
+            Command::SessionList { .. } => session_list_payload(),
+            Command::SessionStatus { session_id, .. } => session_status_payload(session_id),
+            Command::SessionRenew {
+                session_id,
+                lease,
+                ttl_seconds,
+                ..
+            } => session_renew_payload(session_id, lease, *ttl_seconds),
+            Command::SessionEnd {
+                session_id,
+                lease,
+                confirm,
+                ..
+            } => session_end_payload(session_id, lease, *confirm),
+            Command::LockAcquire {
+                session_id,
+                lease,
+                lock_target,
+                ttl_seconds,
+                ..
+            } => lock_acquire_payload(session_id, lease, lock_target, *ttl_seconds),
+            Command::LockList { .. } => lock_list_payload(),
+            Command::LockRelease { lock_id, lease, .. } => lock_release_payload(lock_id, lease),
             Command::Windows {
                 pid,
                 app,

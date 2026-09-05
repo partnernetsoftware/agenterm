@@ -2457,6 +2457,16 @@ semantics. On the pinned Windows Rust toolchain,
 destination-to-backup swap adds a crash interval and must not be used as an
 "atomic" fallback.
 
+For a durable runtime lease, return the opaque bearer token only at creation
+and persist only a constant-time-compared cryptographic digest. Keep bounded
+terminal session records so `ended` and `expired` remain distinguishable from
+`not_found`; evict oldest terminal records before refusing a new session, but
+never evict an active owner to make room. A namespaced target lock is owned by
+that session, cannot outlive its expiry, preserves its lock identity on
+same-owner reacquisition, and is released on end/expiry. Audit output for lease
+creation must project non-secret metadata rather than serializing the complete
+command result.
+
 Authorization selectors and provider material must not inherit through a
 transport worker's generic environment forwarding. Reserve the complete
 case-insensitive product prefixes (for example `AGENTERM_CU_GRANT*` and
@@ -2625,6 +2635,13 @@ Proven on the `agenterm-cu host` / `AgentermCu.app` host (`scripts/install-cu-ho
   `ax_trusted=false`. After `tccutil reset` + reinstall + user enable once
   with matching csreq, launchd reported `ax_trusted=true` and Carbon hotkeys
   applied placements.
+- Camera, Accessibility and Screen Recording are independent TCC services.
+  Empty AVFoundation/DAL inventory does not prove an attached phone is locked
+  or untrusted. Classify host Camera authorization, usbmux pairing, DAL source
+  publication and stream/frame delivery separately; only direct target evidence
+  may produce a device-specific diagnosis. Routine automation must use the
+  fixed, promoted, signed app-bundle bytes. Worktree binaries are test-only
+  identities whose changing path/cdhash legitimately loses prior consent.
 
 ### CLI success is not host success
 

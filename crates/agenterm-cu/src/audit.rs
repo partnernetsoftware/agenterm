@@ -2,17 +2,21 @@
 
 use std::{
     fs::{File, OpenOptions},
-    io::Write,
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::Serialize;
 
 use crate::{auth::Grant, command::Command, reply::CuError, target::TargetRef};
+use agenterm_platform::locking::{LockErrorKind, PathLock};
+
+const MAX_AUDIT_RECORD_BYTES: usize = 256 * 1024;
 
 #[derive(Serialize)]
 struct AuditRecord<'a> {
+    schema_version: u32,
     ts_ms: u128,
     target: &'a str,
     verb: &'a str,
@@ -37,6 +41,24 @@ pub struct AuditLog {
     injected_failure: Option<InjectedAuditFailure>,
     #[cfg(test)]
     successful_records: usize,
+}
+
+pub const DEFAULT_QUERY_MAX: usize = 200;
+pub const MAX_QUERY_MAX: usize = 5_000;
+pub const DEFAULT_QUERY_SCAN_MAX: usize = 10_000;
+pub const MAX_QUERY_SCAN_MAX: usize = 100_000;
+pub const DEFAULT_QUERY_BYTE_MAX: usize = 4 * 1024 * 1024;
+pub const MAX_QUERY_BYTE_MAX: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Debug, Default)]
+pub struct AuditQuery<'a> {
+    pub verb: Option<&'a str>,
+    pub outcome: Option<&'a str>,
+    pub since_ms: Option<u128>,
+    pub offset: Option<usize>,
+    pub max: Option<usize>,
+    pub scan_max: Option<usize>,
+    pub byte_max: Option<usize>,
 }
 
 #[cfg(test)]
@@ -100,6 +122,7 @@ impl AuditLog {
         detail: Option<serde_json::Value>,
     ) -> Result<(), CuError> {
         let record = AuditRecord {
+            schema_version: 1,
             ts_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_millis())
@@ -135,6 +158,7 @@ impl AuditLog {
         detail: Option<serde_json::Value>,
     ) -> Result<(), CuError> {
         let record = AuditRecord {
+            schema_version: 1,
             ts_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_millis())
@@ -163,6 +187,17 @@ impl AuditLog {
                 format!("audit serialization failed: {error}"),
             )
         })?;
+        if line.len() > MAX_AUDIT_RECORD_BYTES {
+            return Err(CuError::new(
+                "audit_record_too_large",
+                format!(
+                    "audit record is {} bytes; limit is {MAX_AUDIT_RECORD_BYTES}",
+                    line.len()
+                ),
+            ));
+        }
+        let lock_path = self.path.with_extension("jsonl.lock");
+        let _lock = acquire_audit_lock(&lock_path)?;
         #[cfg(test)]
         if matches!(
             self.injected_failure,
@@ -200,18 +235,257 @@ impl AuditLog {
                 ),
             ));
         }
-        self.file.flush().map_err(|error| {
-            CuError::new(
-                "audit_unavailable",
-                format!("could not flush audit log {}: {error}", self.path.display()),
-            )
-        })?;
+        self.file
+            .flush()
+            .and_then(|_| self.file.sync_data())
+            .map_err(|error| {
+                CuError::new(
+                    "audit_unavailable",
+                    format!(
+                        "could not durably flush audit log {}: {error}",
+                        self.path.display()
+                    ),
+                )
+            })?;
         #[cfg(test)]
         {
             self.successful_records += 1;
         }
         Ok(())
     }
+}
+
+fn acquire_audit_lock(path: &Path) -> Result<PathLock, CuError> {
+    // Durable fsync can exceed a scheduler quantum under concurrent writers.
+    // Keep admission bounded, but do not turn normal serialization into a
+    // spurious audit failure on a busy disk.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match PathLock::try_acquire(path) {
+            Ok(lock) => return Ok(lock),
+            Err(error) if error.kind() == LockErrorKind::Contended && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => {
+                let code = if error.kind() == LockErrorKind::Contended {
+                    "audit_busy"
+                } else {
+                    "audit_unavailable"
+                };
+                return Err(
+                    CuError::new(code, "could not acquire the audit append lock")
+                        .with_detail(serde_json::json!({ "kind": format!("{:?}", error.kind()) })),
+                );
+            }
+        }
+    }
+}
+
+/// Read the newest matching audit records under independent scan, result and
+/// byte budgets. A torn/malformed record is counted and skipped: audit query
+/// must expose evidence loss without making every older valid record
+/// unreachable.
+pub fn query(query: AuditQuery<'_>) -> Result<serde_json::Value, CuError> {
+    let path = resolved_audit_path().map_err(|error| CuError::new("audit_unavailable", error))?;
+    query_at(&path, query)
+}
+
+pub(crate) fn query_at(path: &Path, query: AuditQuery<'_>) -> Result<serde_json::Value, CuError> {
+    let offset = bounded("--offset", query.offset.unwrap_or(0), 0, 100_000)?;
+    let max = bounded(
+        "--max",
+        query.max.unwrap_or(DEFAULT_QUERY_MAX),
+        1,
+        MAX_QUERY_MAX,
+    )?;
+    let scan_max = bounded(
+        "--scan-max",
+        query.scan_max.unwrap_or(DEFAULT_QUERY_SCAN_MAX),
+        1,
+        MAX_QUERY_SCAN_MAX,
+    )?;
+    let byte_max = bounded(
+        "--byte-max",
+        query.byte_max.unwrap_or(DEFAULT_QUERY_BYTE_MAX),
+        1_024,
+        MAX_QUERY_BYTE_MAX,
+    )?;
+    if let Some(outcome) = query.outcome
+        && !matches!(outcome, "attempt" | "ok" | "failed" | "refused")
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "--outcome must be attempt|ok|failed|refused",
+        ));
+    }
+
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(query_reply(
+                path,
+                query,
+                offset,
+                max,
+                scan_max,
+                byte_max,
+                Vec::new(),
+                0,
+                0,
+                0,
+                0,
+                false,
+                false,
+            ));
+        }
+        Err(error) => {
+            return Err(CuError::new(
+                "audit_unavailable",
+                format!("could not open audit log {}: {error}", path.display()),
+            ));
+        }
+    };
+    let size = file
+        .metadata()
+        .map_err(|error| {
+            CuError::new(
+                "audit_unavailable",
+                format!("could not stat audit log {}: {error}", path.display()),
+            )
+        })?
+        .len();
+    let read_len = size.min(byte_max as u64) as usize;
+    let start = size.saturating_sub(read_len as u64);
+    file.seek(SeekFrom::Start(start)).map_err(|error| {
+        CuError::new(
+            "audit_unavailable",
+            format!("could not seek audit log {}: {error}", path.display()),
+        )
+    })?;
+    let mut bytes = vec![0; read_len];
+    file.read_exact(&mut bytes).map_err(|error| {
+        CuError::new(
+            "audit_unavailable",
+            format!("could not read audit log {}: {error}", path.display()),
+        )
+    })?;
+    let truncated_bytes = start > 0;
+    if truncated_bytes {
+        bytes = match bytes.iter().position(|byte| *byte == b'\n') {
+            Some(boundary) => bytes.split_off(boundary + 1),
+            None => Vec::new(),
+        };
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut scanned = 0usize;
+    let mut matched = 0usize;
+    let mut malformed = 0usize;
+    let mut records = Vec::new();
+    let mut truncated_scan = false;
+    for line in text.lines().rev().filter(|line| !line.trim().is_empty()) {
+        if scanned == scan_max {
+            truncated_scan = true;
+            break;
+        }
+        scanned += 1;
+        let value: serde_json::Value = match serde_json::from_str(line) {
+            Ok(serde_json::Value::Object(object)) => serde_json::Value::Object(object),
+            _ => {
+                malformed += 1;
+                continue;
+            }
+        };
+        if query.verb.is_some_and(|needle| {
+            !value["verb"]
+                .as_str()
+                .is_some_and(|verb| verb.contains(needle))
+        }) || query
+            .outcome
+            .is_some_and(|outcome| value["outcome"].as_str() != Some(outcome))
+            || query.since_ms.is_some_and(|since| {
+                value["ts_ms"]
+                    .as_u64()
+                    .map(u128::from)
+                    .is_none_or(|ts| ts < since)
+            })
+        {
+            continue;
+        }
+        let index = matched;
+        matched += 1;
+        if index >= offset && records.len() < max {
+            records.push(value);
+        }
+    }
+    Ok(query_reply(
+        path,
+        query,
+        offset,
+        max,
+        scan_max,
+        byte_max,
+        records,
+        scanned,
+        matched,
+        malformed,
+        bytes.len(),
+        truncated_scan,
+        truncated_bytes,
+    ))
+}
+
+fn bounded(name: &str, value: usize, min: usize, max: usize) -> Result<usize, CuError> {
+    if value < min || value > max {
+        return Err(CuError::new(
+            "invalid_input",
+            format!("{name} must be in {min}..={max}, got {value}"),
+        ));
+    }
+    Ok(value)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn query_reply(
+    path: &Path,
+    query: AuditQuery<'_>,
+    offset: usize,
+    max: usize,
+    scan_max: usize,
+    byte_max: usize,
+    records: Vec<serde_json::Value>,
+    scanned: usize,
+    matched: usize,
+    malformed: usize,
+    scanned_bytes: usize,
+    truncated_scan: bool,
+    truncated_bytes: bool,
+) -> serde_json::Value {
+    let truncated_results = matched > offset.saturating_add(records.len());
+    let complete = !(truncated_results || truncated_scan || truncated_bytes);
+    // An offset can continue only within the same scanned byte window. Byte or
+    // scan truncation needs a future cursor contract; do not fabricate one.
+    let next_offset = truncated_results.then(|| offset.saturating_add(records.len()));
+    serde_json::json!({
+        "addressing": "append-only-audit-jsonl",
+        "path": path,
+        "filter": { "verb": query.verb, "outcome": query.outcome, "since_ms": query.since_ms },
+        "offset": offset,
+        "max": max,
+        "scan_max": scan_max,
+        "byte_max": byte_max,
+        "scanned": scanned,
+        "scanned_bytes": scanned_bytes,
+        "matched": matched,
+        "returned": records.len(),
+        "malformed": malformed,
+        "truncated_results": truncated_results,
+        "truncated_scan": truncated_scan,
+        "truncated_bytes": truncated_bytes,
+        "complete": complete,
+        "next_offset": next_offset,
+        "truncated": !complete,
+        "records": records,
+    })
 }
 
 /// The audit log path this process would write: `AGENTERM_CU_AUDIT_PATH`
@@ -254,11 +528,16 @@ fn default_audit_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use std::{
+        fs::OpenOptions,
+        io::Write,
         path::{Path, PathBuf},
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            Arc, Barrier,
+            atomic::{AtomicU64, Ordering},
+        },
     };
 
-    use super::{AuditLog, InjectedAuditFailure, default_audit_path};
+    use super::{AuditLog, AuditQuery, InjectedAuditFailure, default_audit_path, query_at};
     use crate::{auth::Grant, command::Command, target::TargetRef};
 
     static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
@@ -372,6 +651,111 @@ mod tests {
         assert_eq!(error.code, "audit_unavailable");
         assert!(error.message.contains("flush"));
         drop(audit);
+        remove_scratch(&path);
+    }
+
+    #[test]
+    fn query_is_newest_first_filtered_bounded_and_malformed_visible() {
+        let path = scratch_path("query");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        for (outcome, marker) in [("attempt", 1), ("ok", 2), ("failed", 3)] {
+            audit
+                .record_actuation(
+                    TargetRef::Current,
+                    &command(),
+                    Grant::Actuate,
+                    outcome,
+                    Some(serde_json::json!({"marker": marker})),
+                )
+                .expect("audit record");
+        }
+        drop(audit);
+        let mut append = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("append malformed fixture");
+        writeln!(append, "{{torn").expect("append malformed line");
+        append.flush().expect("flush malformed line");
+
+        let reply = query_at(
+            &path,
+            AuditQuery {
+                verb: Some("window"),
+                max: Some(2),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("query");
+        assert_eq!(reply["scanned"], 4);
+        assert_eq!(reply["matched"], 3);
+        assert_eq!(reply["returned"], 2);
+        assert_eq!(reply["malformed"], 1);
+        assert_eq!(reply["truncated"], true);
+        assert_eq!(reply["records"][0]["outcome"], "failed");
+        assert_eq!(reply["records"][1]["outcome"], "ok");
+
+        let filtered = query_at(
+            &path,
+            AuditQuery {
+                outcome: Some("ok"),
+                ..AuditQuery::default()
+            },
+        )
+        .expect("filtered query");
+        assert_eq!(filtered["matched"], 1);
+        assert_eq!(filtered["records"][0]["detail"]["marker"], 2);
+        remove_scratch(&path);
+    }
+
+    #[test]
+    fn query_missing_file_is_empty_and_limits_fail_typed() {
+        let path = scratch_path("missing-query");
+        let empty = query_at(&path, AuditQuery::default()).expect("missing is empty");
+        assert_eq!(empty["records"], serde_json::json!([]));
+        let error = query_at(
+            &path,
+            AuditQuery {
+                max: Some(0),
+                ..AuditQuery::default()
+            },
+        )
+        .expect_err("zero max");
+        assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn concurrent_writers_keep_one_json_object_per_line() {
+        let path = scratch_path("concurrent");
+        let barrier = Arc::new(Barrier::new(4));
+        let mut threads = Vec::new();
+        for worker in 0..4 {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            threads.push(std::thread::spawn(move || {
+                let mut audit = AuditLog::open_at(path).expect("open writer");
+                barrier.wait();
+                for sequence in 0..20 {
+                    audit
+                        .record_actuation(
+                            TargetRef::Current,
+                            &command(),
+                            Grant::Actuate,
+                            "ok",
+                            Some(serde_json::json!({ "worker": worker, "sequence": sequence })),
+                        )
+                        .expect("serialized append");
+                }
+            }));
+        }
+        for thread in threads {
+            thread.join().expect("writer thread");
+        }
+        let lines: Vec<_> = std::fs::read_to_string(&path)
+            .expect("audit bytes")
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("whole JSON line"))
+            .collect();
+        assert_eq!(lines.len(), 80);
         remove_scratch(&path);
     }
 }

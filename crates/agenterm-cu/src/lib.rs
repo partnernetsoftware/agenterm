@@ -32,6 +32,7 @@ pub mod pty_snapshot;
 pub mod rdp_transport;
 pub mod receipt;
 pub mod reply;
+pub mod runtime_coordinator;
 pub mod snapshot;
 pub mod ssh_transport;
 #[cfg(target_os = "macos")]

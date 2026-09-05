@@ -175,7 +175,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   explicit rather than hidden. macOS public CLI evidence is green; Linux and
   Windows journey evidence remains open. The next dependency is the shared
   native runtime spine: daemon → session lease → target lock → request identity
-  → queryable audit; it must serve jobs, file transactions, browser bridge,
+  → queryable audit. The middle three public leaves are now live: durable
+  `session start|list|status|renew|end`, session-bound idempotent
+  `lock acquire|list|release`, and newest-first `audit-query` with independent
+  result/scan/byte budgets. Lease plaintext is returned once and never reaches
+  durable state or audit. macOS isolated public CLI evidence covers the full
+  create/status/acquire/reacquire/release/end/query loop; three-host evidence,
+  request identity, retention/compaction and daemon ownership remain open.
+  The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
 - [~] absorbed from that skill on 2026-08-30 (review and slices in
   [plan/design-mcu-absorption.md](../plan/design-mcu-absorption.md)): its
@@ -796,6 +803,18 @@ flowchart LR
   output state. Device paths are locators rather than durable identity;
   mutations require a live lease or plan, target revalidation, bounded I/O and
   independently read-back post-state. Backend gaps remain platform-limited.
+- [ ] `device-screenshot` is a planned current-main leaf; a stale experiment
+  is evidence, not merge authority. Its classifier must never infer a phone
+  trust/lock fault from an empty host capture inventory. Preflight separates
+  host Camera TCC, usbmux availability/pairing, DAL source publication and
+  stream/frame delivery: zero sources with denied/unknown Camera permission is
+  `host_camera_denied|host_camera_consent_required`; a healthy paired device
+  with no published DAL row is `dal_source_unavailable`; only an enumerated
+  target plus direct evidence may produce a device-specific failure. `--list`
+  reports those host signals. Accessibility is independent from pure DAL
+  capture. The implementation belongs behind an `agenterm-platform` contract,
+  uses fixture classification without a real phone or visible prompt, and
+  atomically refuses overwrite/partial output.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

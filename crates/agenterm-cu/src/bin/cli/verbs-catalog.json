@@ -36,6 +36,96 @@
       "args": []
     },
     {
+      "name": "audit-query",
+      "command": "audit-query",
+      "aliases": [],
+      "grant": "observe",
+      "family": "system",
+      "summary": "bounded newest-first control audit query",
+      "usage": "audit-query [--verb TEXT] [--outcome attempt|ok|failed|refused] [--since-ms UTC_MS] [--offset N] [--max N] [--scan-max N] [--byte-max N]",
+      "args": []
+    },
+    {
+      "name": "session-start",
+      "command": "session-start",
+      "aliases": ["session create"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "create one durable runtime lease",
+      "usage": "session-start [--label TEXT] [--ttl-seconds N]\nsession create [--label TEXT] [--ttl N]",
+      "args": []
+    },
+    {
+      "name": "session-list",
+      "command": "session-list",
+      "aliases": ["session list"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list bounded durable runtime leases",
+      "usage": "session-list\nsession list",
+      "args": []
+    },
+    {
+      "name": "session-status",
+      "command": "session-status",
+      "aliases": ["session status"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "inspect one durable runtime lease",
+      "usage": "session-status SESSION_ID\nsession status SESSION_ID",
+      "args": []
+    },
+    {
+      "name": "session-renew",
+      "command": "session-renew",
+      "aliases": ["session renew"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "renew one runtime lease with its private token",
+      "usage": "session-renew SESSION_ID --lease LEASE [--ttl-seconds N]\nsession renew SESSION_ID LEASE [--ttl N]",
+      "args": []
+    },
+    {
+      "name": "session-end",
+      "command": "session-end",
+      "aliases": ["session end"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "end one runtime lease and release its locks",
+      "usage": "session-end SESSION_ID --lease LEASE --confirm\nsession end SESSION_ID LEASE --force",
+      "args": []
+    },
+    {
+      "name": "lock-acquire",
+      "command": "lock-acquire",
+      "aliases": ["lock acquire"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "acquire or renew one session-bound target lock",
+      "usage": "lock-acquire SESSION_ID LEASE NAMESPACE:TARGET [--ttl-seconds N]\nlock acquire SESSION_ID LEASE NAMESPACE:TARGET [--ttl N]",
+      "args": []
+    },
+    {
+      "name": "lock-list",
+      "command": "lock-list",
+      "aliases": ["lock list"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list active target locks",
+      "usage": "lock-list\nlock list",
+      "args": []
+    },
+    {
+      "name": "lock-release",
+      "command": "lock-release",
+      "aliases": ["lock release"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "release one target lock with its owner lease",
+      "usage": "lock-release LOCK_ID --lease LEASE\nlock release LOCK_ID LEASE",
+      "args": []
+    },
+    {
       "name": "network-interfaces",
       "command": "network-interfaces",
       "aliases": [
@@ -3764,6 +3854,42 @@
     {
       "name": "doctor",
       "text": "agenterm-cu doctor\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  doctor\n\nReuses the canonical capabilities and permissions declarations, then\nruns bounded window and display inventory probes. A failed probe remains a typed check in the\nsuccessful diagnostic document; `doctor` never mutates setup, consent, helpers or foreground state.\n"
+    },
+    {
+      "name": "audit-query",
+      "text": "agenterm-cu audit-query\n  scope: observe    family: Runtime coordination\n\nusage: audit-query [--verb TEXT] [--outcome KIND] [--since-ms UTC_MS] [budgets]\n\nNewest-first bounded read of the append-only control audit. Returned rows, scanned rows and scanned bytes have independent ceilings; truncation and the next offset are explicit.\n"
+    },
+    {
+      "name": "session-start",
+      "text": "agenterm-cu session-start    (also: session create)\n  scope: actuate    family: Runtime coordination\n\nusage: session-start [--label TEXT] [--ttl-seconds N]\n\nCreates a durable bounded runtime session. The private lease token is returned once; durable state stores only its digest.\n"
+    },
+    {
+      "name": "session-list",
+      "text": "agenterm-cu session-list    (also: session list)\n  scope: observe    family: Runtime coordination\n\nusage: session-list\n\nLists bounded active and retained terminal runtime sessions without revealing lease tokens.\n"
+    },
+    {
+      "name": "session-status",
+      "text": "agenterm-cu session-status    (also: session status)\n  scope: observe    family: Runtime coordination\n\nusage: session-status SESSION_ID\n\nReads one runtime session's label, state, creation time and expiry.\n"
+    },
+    {
+      "name": "session-renew",
+      "text": "agenterm-cu session-renew    (also: session renew)\n  scope: actuate    family: Runtime coordination\n\nusage: session-renew SESSION_ID --lease LEASE [--ttl-seconds N]\n\nRenews an active runtime session after verifying its private lease token.\n"
+    },
+    {
+      "name": "session-end",
+      "text": "agenterm-cu session-end    (also: session end)\n  scope: actuate    family: Runtime coordination\n\nusage: session-end SESSION_ID --lease LEASE --confirm\n\nExplicitly ends a runtime session and releases every target lock it owns. Requires --confirm (or MCU-compatible --force).\n"
+    },
+    {
+      "name": "lock-acquire",
+      "text": "agenterm-cu lock-acquire    (also: lock acquire)\n  scope: actuate    family: Runtime coordination\n\nusage: lock-acquire SESSION_ID LEASE NAMESPACE:TARGET [--ttl-seconds N]\n\nAcquires one namespace:target lock bound to a live session. Same-owner reacquisition is idempotent; a competing owner fails typed.\n"
+    },
+    {
+      "name": "lock-list",
+      "text": "agenterm-cu lock-list    (also: lock list)\n  scope: observe    family: Runtime coordination\n\nusage: lock-list\n\nLists active session-bound target locks after expiry cleanup.\n"
+    },
+    {
+      "name": "lock-release",
+      "text": "agenterm-cu lock-release    (also: lock release)\n  scope: actuate    family: Runtime coordination\n\nusage: lock-release LOCK_ID --lease LEASE\n\nReleases one lock by lock id after verifying its owning session lease.\n"
     },
     {
       "name": "network-interfaces",

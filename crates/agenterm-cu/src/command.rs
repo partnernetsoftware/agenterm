@@ -278,6 +278,65 @@ pub enum Command {
     Doctor {
         target: TargetRef,
     },
+    /// Newest-first bounded read of the append-only control audit. Byte,
+    /// record-scan and returned-result budgets are independent.
+    AuditQuery {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        verb_filter: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since_ms: Option<u128>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scan_max: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        byte_max: Option<usize>,
+    },
+    SessionStart {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        ttl_seconds: u64,
+    },
+    SessionList {
+        target: TargetRef,
+    },
+    SessionStatus {
+        target: TargetRef,
+        session_id: String,
+    },
+    SessionRenew {
+        target: TargetRef,
+        session_id: String,
+        lease: String,
+        ttl_seconds: u64,
+    },
+    SessionEnd {
+        target: TargetRef,
+        session_id: String,
+        lease: String,
+        confirm: bool,
+    },
+    LockAcquire {
+        target: TargetRef,
+        session_id: String,
+        lease: String,
+        lock_target: String,
+        ttl_seconds: u64,
+    },
+    LockList {
+        target: TargetRef,
+    },
+    LockRelease {
+        target: TargetRef,
+        lock_id: String,
+        lease: String,
+    },
     /// Top-level window inventory. Without any filter or page field the
     /// reply `data` is the plain window array (unchanged shape); with one,
     /// `data` is the inventory object `{windows, visited, matched, returned,
@@ -1899,6 +1958,15 @@ impl Command {
             Self::Capabilities { .. } => "capabilities".into(),
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
+            Self::AuditQuery { .. } => "audit-query".into(),
+            Self::SessionStart { .. } => "session-start".into(),
+            Self::SessionList { .. } => "session-list".into(),
+            Self::SessionStatus { .. } => "session-status".into(),
+            Self::SessionRenew { .. } => "session-renew".into(),
+            Self::SessionEnd { .. } => "session-end".into(),
+            Self::LockAcquire { .. } => "lock-acquire".into(),
+            Self::LockList { .. } => "lock-list".into(),
+            Self::LockRelease { .. } => "lock-release".into(),
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
@@ -2018,6 +2086,15 @@ impl Command {
             Self::Capabilities { target, .. }
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
+            | Self::AuditQuery { target, .. }
+            | Self::SessionStart { target, .. }
+            | Self::SessionList { target, .. }
+            | Self::SessionStatus { target, .. }
+            | Self::SessionRenew { target, .. }
+            | Self::SessionEnd { target, .. }
+            | Self::LockAcquire { target, .. }
+            | Self::LockList { target, .. }
+            | Self::LockRelease { target, .. }
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
@@ -2135,6 +2212,11 @@ impl Command {
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
             Self::PointerMove { .. }
+            | Self::SessionStart { .. }
+            | Self::SessionRenew { .. }
+            | Self::SessionEnd { .. }
+            | Self::LockAcquire { .. }
+            | Self::LockRelease { .. }
             | Self::ProcessKill { .. }
             | Self::ShellExec { .. }
             | Self::PtyStart { .. }

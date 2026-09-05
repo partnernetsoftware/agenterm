@@ -205,11 +205,23 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-session-stop",
         "browser-session-remove",
     ];
+    let compact_runtime = [
+        "audit-query",
+        "session-start",
+        "session-list",
+        "session-status",
+        "session-renew",
+        "session-end",
+        "lock-acquire",
+        "lock-list",
+        "lock-release",
+    ];
     let mut missing = verbs::VERBS
         .iter()
         .filter(|spec| !compact_process.contains(&spec.name))
         .filter(|spec| !compact_terminal.contains(&spec.name))
         .filter(|spec| !compact_browser_session.contains(&spec.name))
+        .filter(|spec| !compact_runtime.contains(&spec.name))
         .filter(|spec| !text.contains(&format!("  {}", spec.name)))
         .map(|spec| {
             let row = verbs::cold_verb(spec.name);
@@ -240,6 +252,15 @@ fn append_missing_top_level_rows(text: &mut String) {
                 .to_owned(),
         );
     }
+    if compact_runtime
+        .iter()
+        .any(|name| !text.contains(&format!("  {name}")))
+    {
+        missing.push(
+            "  audit-query  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release"
+                .to_owned(),
+        );
+    }
     if missing.is_empty() {
         return;
     }
@@ -252,6 +273,12 @@ fn append_missing_top_level_rows(text: &mut String) {
         text.insert_str(at, &block);
     } else {
         text.push_str(&block);
+    }
+    while text.lines().count() > 160 {
+        let Some(blank) = text.find("\n\n") else {
+            break;
+        };
+        text.remove(blank);
     }
 }
 

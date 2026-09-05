@@ -21,7 +21,7 @@ use std::{
 use crate::mechanism::window_enumerate::WindowInfo;
 
 use crate::{
-    audit::AuditLog,
+    audit::{self, AuditLog},
     auth::{Authorization, Grant},
     auth_store::{AuthStore, AuthStoreErrorKind, GrantAttempt, GrantDecision, GrantDenialKind},
     command::{
@@ -59,6 +59,7 @@ mod process;
 mod profiles;
 mod pty_jobs;
 mod receipts;
+mod runtime;
 mod shell_exec;
 mod snapshots;
 mod terminal;
@@ -91,6 +92,7 @@ use process::*;
 use profiles::*;
 use pty_jobs::*;
 use receipts::*;
+use runtime::*;
 use shell_exec::*;
 use snapshots::*;
 use terminal::*;
@@ -341,7 +343,27 @@ impl Executor {
         reply: &CuReply,
     ) -> Result<(), CuError> {
         let outcome = if reply.ok { "ok" } else { "failed" };
-        let detail = if matches!(command, Command::ShellExec { .. }) {
+        let detail = if matches!(command, Command::SessionStart { .. }) {
+            reply
+                .data
+                .as_ref()
+                .map(|data| {
+                    serde_json::json!({
+                        "session_id": data.get("session_id"),
+                        "label": data.get("label"),
+                        "expires_at_utc_s": data.get("expires_at_utc_s"),
+                        "lease_redacted": true,
+                    })
+                })
+                .or_else(|| {
+                    reply.error.as_ref().map(|error| {
+                        serde_json::json!({
+                            "code": error.code,
+                            "lease_redacted": true,
+                        })
+                    })
+                })
+        } else if matches!(command, Command::ShellExec { .. }) {
             // Shell output routinely contains credentials and other private
             // material. Preserve bounded execution evidence without copying
             // either stream into the persistent actuation journal.

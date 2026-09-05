@@ -21,6 +21,17 @@ impl Executor {
     pub(super) fn open_receipts(&self, target: TargetRef) -> Result<ReceiptLog, CuError> {
         ReceiptLog::open_in(&self.receipt_dir()?, target)
     }
+
+    pub(super) fn query_audit(
+        &self,
+        query: audit::AuditQuery<'_>,
+    ) -> Result<serde_json::Value, CuError> {
+        #[cfg(test)]
+        if let Some(path) = self.audit_path.as_ref() {
+            return audit::query_at(path, query);
+        }
+        audit::query(query)
+    }
 }
 
 /// `receipts --window H --max N`: the target's receipt file read back in
