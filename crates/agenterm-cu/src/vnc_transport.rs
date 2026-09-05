@@ -764,6 +764,21 @@ mod tests {
     }
 
     #[test]
+    fn network_interface_limit_survives_session_target_rewrite() {
+        let command = CuCommand::NetworkInterfaces {
+            target: TargetRef::Vnc,
+            max: 37,
+        };
+        assert!(matches!(
+            rewrite_command_target_current(&command).expect("rewrite"),
+            CuCommand::NetworkInterfaces {
+                target: TargetRef::Current,
+                max: 37,
+            }
+        ));
+    }
+
+    #[test]
     fn clipboard_read_observe_survives_target_rewrite() {
         let command = CuCommand::ClipboardRead {
             target: TargetRef::Vnc,

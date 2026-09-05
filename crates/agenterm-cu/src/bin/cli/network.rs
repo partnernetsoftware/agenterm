@@ -11,15 +11,33 @@ pub fn parse(
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
     if spelled == "network" {
-        if args.first().map(String::as_str) != Some("probe") {
-            return Err("network requires subcommand probe".into());
+        if !matches!(
+            args.first().map(String::as_str),
+            Some("probe" | "interfaces")
+        ) {
+            return Err("network requires subcommand interfaces or probe".into());
         }
         args.remove(0);
     }
     match spec.name {
+        "network-interfaces" => network_interfaces(target, args),
         "network-probe" => network_probe(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn network_interfaces(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let max = flag_parsed::<usize>(args, "--max")?.unwrap_or(1000);
+    if !(1..=5000).contains(&max) {
+        return Err("network-interfaces --max must be in 1..=5000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!(
+            "network-interfaces received unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::NetworkInterfaces { target, max })
 }
 
 fn network_probe(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -71,6 +89,25 @@ mod tests {
         ));
         let mut args = vec!["probe".into(), "127.0.0.1".into()];
         assert!(parse(spec, "network", TargetRef::Current, &mut args).is_ok());
+    }
+
+    #[test]
+    fn parses_network_interfaces_defaults_alias_and_closed_limit() {
+        let spec = crate::cli::verbs::lookup("network-interfaces").unwrap();
+        let mut args = Vec::new();
+        assert!(matches!(
+            parse(spec, "network-interfaces", TargetRef::Current, &mut args).unwrap(),
+            Command::NetworkInterfaces { max: 1000, .. }
+        ));
+        let mut args = vec!["interfaces".into(), "--max".into(), "1".into()];
+        assert!(matches!(
+            parse(spec, "network", TargetRef::Current, &mut args).unwrap(),
+            Command::NetworkInterfaces { max: 1, .. }
+        ));
+        for value in ["0", "5001"] {
+            let mut args = vec!["--max".into(), value.into()];
+            assert!(parse(spec, "network-interfaces", TargetRef::Current, &mut args).is_err());
+        }
     }
 
     #[test]

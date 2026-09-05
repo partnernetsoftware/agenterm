@@ -363,6 +363,17 @@ pub(crate) mod process_metrics;
 #[path = "adapters/windows/process_observation.rs"]
 pub(crate) mod process_observation;
 
+#[cfg(all(feature = "network-interfaces", windows))]
+#[path = "adapters/windows/network_interfaces.rs"]
+pub(crate) mod network_interfaces;
+
+#[cfg(all(
+    feature = "network-interfaces",
+    any(target_os = "linux", target_os = "macos")
+))]
+#[path = "adapters/unix/network_interfaces.rs"]
+pub(crate) mod network_interfaces;
+
 #[cfg(all(feature = "process-observation", target_os = "linux"))]
 #[path = "adapters/linux/process_observation.rs"]
 pub(crate) mod process_observation;

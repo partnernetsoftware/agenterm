@@ -270,6 +270,9 @@ pub mod entropy;
 // Host-neutral today (std only), so it needs no feature gate or adapter split.
 pub mod local_clock;
 
+#[cfg(feature = "network-interfaces")]
+pub mod network_interfaces;
+
 // Host-neutral and deliberately non-generic at the std thread boundary.
 pub mod threading;
 

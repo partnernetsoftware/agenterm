@@ -3877,3 +3877,14 @@ text-returning operations before storing and billing that diagnostic; the
 numeric return shape is not evidence that the host-to-guest text path is free.
 Regression-test the smallest configured budget against an error containing a
 path or other caller-controlled detail.
+
+## Count native inventory scans across the whole snapshot
+
+A native linked-list inventory ceiling applies to the complete snapshot, not
+to each traversal independently. Resetting the counter for a second metadata
+pass silently doubles the advertised bound. When metadata such as Unix link
+addresses may appear before or after IP rows, collect both in one bounded pass
+and join them afterward by a stable native identity/name. Do not assume native
+record order merely to avoid that join. Keep caller result truncation separate
+from native scan truncation so a short response cannot masquerade as a complete
+system view.

@@ -81,8 +81,10 @@ flowchart LR
   PS --> Q
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
   PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
+  NET --> NI["network interfaces live<br/>native ids · stable order · bounded snapshot"]
   TL --> Q
   SE --> Q
+  NI --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
   S --> D{"all replacement gates?"}
@@ -252,11 +254,16 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
   ACLs/attributes remain distinct platform vocabularies; parity must not be
   manufactured by renaming one as the other.
 - Network accounting is complete across interfaces, routes, DNS, sockets and
-  DNS+TCP probes. The active qjswasm/tinyvm host surface has no generic TCP or
-  DNS API; historical catalog names are not implementation. Probes require a
-  bounded native `agenterm-platform` resolver/connect facade first, while
-  system inventory remains platform-owned and socket rows must join a process
-  start identity rather than a reusable PID alone.
+  DNS+TCP probes. `network-interfaces` now exposes a bounded native snapshot:
+  Unix uses `getifaddrs` plus ifindex, Windows uses `GetAdaptersAddresses` plus
+  adapter LUID, and ACU preserves stable ordering, explicit unavailable fields,
+  a 10,000-record scan ceiling and a 1 MiB response ceiling. MCU-shaped
+  `network interfaces [--max N]` routes to it; Linux and Windows public runtime
+  courts remain before promotion from `platform-limited` to `native`.
+  The active qjswasm/tinyvm host surface still has no generic TCP or DNS API;
+  historical catalog names are not implementation. Routes/DNS remain native
+  platform work, while socket rows must join a process start identity rather
+  than a reusable PID alone.
 - Device/audio accounting is complete across peripheral inventory and events,
   exclusive device leases, byte I/O, serial configuration and default-output
   state. A path alone is never durable device identity, and audio backends stay
@@ -358,6 +365,10 @@ Q3 owned runtime facades
 │  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe
+   ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
+   │  ├─ [x] macOS public CLI schema/count/prefix court
+   │  ├─ [x] Windows x86_64 + arm64 compile/Clippy
+   │  └─ [ ] Linux + Windows native public runtime courts
    ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
    │  ├─ [x] macOS public qjswasm journey: 41 STEP / 42 evidence + cleanup
    │  ├─ [x] Linux x86_64 focused native UTM court: exact-byte pair + file/link/missing

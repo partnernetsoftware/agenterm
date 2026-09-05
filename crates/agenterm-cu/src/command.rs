@@ -452,6 +452,13 @@ pub enum Command {
         timeout_ms: u64,
         max_output_bytes: usize,
     },
+    /// Enumerate a bounded, stable-sorted snapshot of native network
+    /// interface addresses. Native ids identify this snapshot only; callers
+    /// must not treat display names as durable lease identities.
+    NetworkInterfaces {
+        target: TargetRef,
+        max: usize,
+    },
     /// Resolve once through the host resolver, freeze the deduplicated address
     /// set, and perform an exact number of bounded TCP reachability attempts.
     NetworkProbe {
@@ -1892,6 +1899,7 @@ impl Command {
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
+            Self::NetworkInterfaces { .. } => "network-interfaces".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::PtyStart { .. } => "pty-start".into(),
@@ -2009,6 +2017,7 @@ impl Command {
             | Self::ProcessKill { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
+            | Self::NetworkInterfaces { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::PtyStart { target, .. }
@@ -3542,6 +3551,27 @@ mod tests {
                 attempts: 4,
                 timeout_ms: 750,
                 ..
+            }
+        ));
+    }
+
+    #[test]
+    fn network_interfaces_is_observe_only_and_keeps_its_closed_remote_shape() {
+        let command = Command::NetworkInterfaces {
+            target: TargetRef::Vnc,
+            max: 5000,
+        };
+        assert_eq!(command.verb(), "network-interfaces");
+        assert_eq!(command.target(), TargetRef::Vnc);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(json["max"], 5000);
+        let round_trip: Command = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::NetworkInterfaces {
+                target: TargetRef::Vnc,
+                max: 5000,
             }
         ));
     }

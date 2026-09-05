@@ -136,6 +136,7 @@ impl Executor {
                 max_output_bytes,
                 ..
             } => shell_exec_payload(command, *timeout_ms, *max_output_bytes),
+            Command::NetworkInterfaces { max, .. } => network_interfaces_payload(*max),
             Command::NetworkProbe {
                 host,
                 port,

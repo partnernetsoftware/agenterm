@@ -671,9 +671,11 @@
         {
           "id": "network.interfaces",
           "mcu_shape": "network interfaces --max N with address, netmask, CIDR, MAC, scope and internal state",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "cross-platform bounded interface inventory with stable interface identity and typed unavailable fields"
+          "acu_shape": "agenterm-cu network-interfaces --max N (alias: network interfaces)",
+          "state": "platform-limited",
+          "platforms": {"macos": "native", "linux": "pending-runtime-court", "windows": "pending-runtime-court"},
+          "next": "execute the same public stable-prefix/schema journey on native Linux and Windows, then promote to native",
+          "note": "The shared platform facade uses getifaddrs plus ifindex on Unix and GetAdaptersAddresses plus adapter LUID on Windows. It returns stable-sorted address rows under a 10000-record scan ceiling and 1 MiB response ceiling; max is validated as 1..5000 before enumeration. Missing MAC/netmask/CIDR fields remain explicit unavailable fields. The MCU compatibility entry routes only interfaces; routes/DNS/sockets stay honest gaps."
         },
         {
           "id": "network.routes",

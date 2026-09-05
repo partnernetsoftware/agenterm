@@ -181,7 +181,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "network",
-        verbs: &["network", "network-probe"],
+        verbs: &["network", "network-interfaces", "network-probe"],
     },
     Group {
         id: "device",
@@ -282,7 +282,7 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "open" => "ACU migration gap: typed host-open facade pending",
         "notify" => "ACU migration gap: typed host-notification facade pending",
         "network" => {
-            "network probe is live as network-probe; interfaces/routes/DNS inventory/sockets remain typed gaps"
+            "network interfaces and probe are live; routes/DNS inventory/sockets remain typed gaps"
         }
         "audit" | "session" | "lock" | "service" | "term" => {
             "ACU migration gap: delegate through the AgenTerm runtime facade; typed refuse"
@@ -410,7 +410,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "network" => (
             "available",
-            "network-probe is live; typed interface/route/DNS inventory and socket-table facades remain gaps",
+            "network-interfaces and network-probe are live; typed route/DNS inventory and socket-table facades remain gaps",
         ),
         "device" => (
             "unsupported",

@@ -727,7 +727,18 @@ flowchart LR
   to `file-inspect`; mutation, xattr and transaction subcommands remain explicit
   MCU fallbacks until equivalent typed facades exist.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
-  sockets and DNS+TCP probes. `network-probe` is now implemented as an Observe
+  sockets and DNS+TCP probes. `network-interfaces` is now the bounded Observe
+  facade for native address inventory: `getifaddrs` plus ifindex on Unix and
+  `GetAdaptersAddresses` plus adapter LUID on Windows. Rows are stable-sorted;
+  missing MAC/netmask/CIDR fields are explicit; the whole snapshot shares one
+  10,000-record native scan budget and ACU adds a 1 MiB response ceiling.
+  `--max` is rejected outside 1..=5000 before enumeration. The public macOS
+  command is green and both Windows ISAs compile under strict Clippy; Linux and
+  Windows runtime courts remain, so the ledger truthfully stays
+  `platform-limited`. The compatibility entry routes exactly `acu network
+  interfaces [--max N]`; routes, DNS and sockets remain MCU gaps.
+
+  `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,
   then report the exact bounded TCP attempts. The resolver lives in an
   invocation-owned internal child because Windows and glibc cancellation APIs
@@ -747,22 +758,25 @@ flowchart LR
   The active qjswasm/tinyvm host surface still has no generic DNS/TCP API.
   Native system inventory remains platform-owned; socket rows must bind process
   start identity rather than a reusable PID.
-  The MCU-shaped compatibility entry now routes exactly `acu network probe HOST`
-  to `network-probe`; interfaces, routes, DNS and sockets remain explicit MCU
-  fallbacks instead of being mislabeled as the same capability.
+  The MCU-shaped compatibility entry routes exactly `acu network probe HOST`
+  to `network-probe`; routes, DNS and sockets remain explicit MCU fallbacks
+  instead of being mislabeled as the same capability.
 
 ```mermaid
 flowchart LR
-  N["network probe request"] --> A["validate before effect"]
+  N["network request"] --> I["interfaces: validate max"] & A["probe: validate before effect"]
+  I --> U["Unix getifaddrs + ifindex"] & W["Windows adapters + LUID"]
+  U & W --> S["stable rows<br/>scan 10k · response 1 MiB"]
+  S --> E["three-OS public evidence"]
   A --> H["owned helper<br/>system resolver once"]
   H --> F["dedupe + freeze addresses"]
   F --> T["exact round-robin TCP attempts"]
-  H --> D{"overall deadline"}
-  D -->|expires| K["kill + reap exact helper<br/>typed timeout"]
-  T --> E["three-OS loopback evidence"]
+  H --> DL{"overall deadline"}
+  DL -->|expires| K["kill + reap exact helper<br/>typed timeout"]
+  T --> E
   E -->|three OS green| B["release-size court<br/>keep 2 MiB ceiling"]
   B --> C["C: hot route + compressed cold catalog<br/>S3 slope green · S1 still red"]
-  C --> D["D: reusable mechanism review<br/>L3 must shrink · no CLI byte shifting"]
+  C --> MR["D: reusable mechanism review<br/>L3 must shrink · no CLI byte shifting"]
   D -->|Windows S1 red| R["rollback ABI prototype<br/>return 123,904 B budget decision"]
   D -->|all gates green| P["promote ledger row to native"]
 ```

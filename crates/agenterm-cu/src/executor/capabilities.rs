@@ -472,6 +472,18 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-kill".into(), process_kill_verb);
         verbs.insert("process-watch".into(), process_watch_verb);
         verbs.insert(
+            "network-interfaces".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "network",
+                "grant": "observe",
+                "mode": "bounded-native-address-inventory",
+                "identity": "ifindex-on-unix-adapter-luid-on-windows",
+                "scan_ceiling": 10000,
+                "response_ceiling_bytes": 1048576,
+            }),
+        );
+        verbs.insert(
             "network-probe".into(),
             serde_json::json!({
                 "status": "available",
