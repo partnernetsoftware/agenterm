@@ -1751,6 +1751,7 @@ mod surface_tests {
                     "--expect",
                     "exited",
                 ],
+                "process-signal" => vec!["4294967295", "TERM"],
                 "host-open" => vec!["https://example.invalid"],
                 "host-notify" => vec!["AgenTerm"],
                 "app" => vec!["--window", "1"],

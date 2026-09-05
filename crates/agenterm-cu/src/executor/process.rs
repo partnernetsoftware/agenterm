@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::{
     CuError,
-    command::{ProcessKillMode, ProcessRunState},
+    command::{ProcessKillMode, ProcessRunState, ProcessSignalKind},
     receipt::ReceiptLog,
 };
 
@@ -891,6 +891,198 @@ pub(super) fn process_set_state_payload(
     }
 }
 
+pub(super) fn process_signal_payload(
+    pid: u32,
+    expected_identity: Option<&str>,
+    signal: ProcessSignalKind,
+    timeout_ms: u64,
+    force: bool,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if pid == 0
+        || expected_identity.is_some_and(str::is_empty)
+        || !(1..=60_000).contains(&timeout_ms)
+        || (signal == ProcessSignalKind::Kill) != force
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-signal requires a positive pid, bounded timeout and --force exactly for SIGKILL",
+        ));
+    }
+    let reference =
+        agenterm_platform::process_reference::ProcessReference::open_for_termination(pid)
+            .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?;
+    if !reference
+        .is_alive()
+        .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?
+    {
+        return Err(CuError::new(
+            "process_not_found",
+            "the exact process object exited before signal preparation",
+        ));
+    }
+    let identity = live_start_identity(pid)?;
+    if expected_identity.is_some_and(|expected| expected != identity) {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity does not match the prior observation",
+        ));
+    }
+    if !reference
+        .is_alive()
+        .map_err(|error| CuError::new("process_reference_failed", error.to_string()))?
+    {
+        return Err(CuError::new(
+            "process_not_found",
+            "the bound process object exited before signal reservation",
+        ));
+    }
+
+    let ticket = receipts.reserve(
+        "process-signal",
+        0,
+        json!({
+            "process": { "pid": pid, "start_identity": identity },
+            "signal": signal.as_str(),
+        }),
+    )?;
+    let effect = match signal {
+        ProcessSignalKind::Terminate => {
+            reference.terminate(agenterm_platform::process_control::TerminationMode::Graceful)
+        }
+        ProcessSignalKind::Kill => {
+            reference.terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+        }
+        ProcessSignalKind::Stop => reference.set_suspended(true),
+        ProcessSignalKind::Continue => reference.set_suspended(false),
+        ProcessSignalKind::Hangup => {
+            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::Hangup)
+        }
+        ProcessSignalKind::Interrupt => {
+            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::Interrupt)
+        }
+        ProcessSignalKind::User1 => {
+            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::User1)
+        }
+        ProcessSignalKind::User2 => {
+            reference.send_signal(agenterm_platform::process_reference::ProcessSignal::User2)
+        }
+    };
+    if let Err(error) = effect {
+        let code = if error.kind() == std::io::ErrorKind::Unsupported {
+            "process_signal_unsupported"
+        } else {
+            "process_signal_failed"
+        };
+        let typed = CuError::new(code, error.to_string());
+        receipts.complete(
+            &ticket,
+            "process-signal",
+            0,
+            false,
+            json!({ "performed": false, "error": error_payload(&typed) }),
+        )?;
+        return Err(typed.with_detail(json!({ "receipt": ticket.json() })));
+    }
+
+    let started = Instant::now();
+    let desired_stopped = match signal {
+        ProcessSignalKind::Stop => Some(true),
+        ProcessSignalKind::Continue => Some(false),
+        _ => None,
+    };
+    let expects_exit = matches!(
+        signal,
+        ProcessSignalKind::Terminate | ProcessSignalKind::Kill
+    );
+    let (verified, after) = loop {
+        let alive = match reference.is_alive() {
+            Ok(alive) => alive,
+            Err(error) => {
+                let typed =
+                    CuError::new("process_reference_failed_after_signal", error.to_string());
+                return fail_process_signal_after_effect(receipts, &ticket, typed);
+            }
+        };
+        if expects_exit && !alive {
+            break (true, "exited");
+        }
+        if let Some(stopped) = desired_stopped {
+            if !alive {
+                break (false, "exited");
+            }
+            let observed_stopped = match process_stopped(pid) {
+                Ok(value) => value,
+                Err(error) => return fail_process_signal_after_effect(receipts, &ticket, error),
+            };
+            if observed_stopped == stopped {
+                break (true, if stopped { "stopped" } else { "running" });
+            }
+        } else if !expects_exit {
+            break (false, if alive { "live" } else { "exited" });
+        }
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            break (false, if alive { "live" } else { "exited" });
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let success = verified || (!expects_exit && desired_stopped.is_none());
+    receipts.complete(
+        &ticket,
+        "process-signal",
+        0,
+        success,
+        json!({
+            "performed": true,
+            "verified": verified,
+            "after": after,
+            "elapsed_ms": elapsed_ms,
+        }),
+    )?;
+    let payload = json!({
+        "pid": pid,
+        "start_identity": identity,
+        "signal": signal.as_str(),
+        "performed": true,
+        "delivered": true,
+        "verified": verified,
+        "state": after,
+        "elapsed_ms": elapsed_ms,
+        "timeout_ms": timeout_ms,
+        "mechanism": "native-process-reference",
+        "receipt": ticket.json(),
+    });
+    if success {
+        Ok(payload)
+    } else {
+        Err(CuError::new(
+            "process_signal_postcondition_failed",
+            "signal was delivered but its required postcondition was not observed before timeout",
+        )
+        .with_detail(json!({ "receipt": payload })))
+    }
+}
+
+fn fail_process_signal_after_effect(
+    receipts: &mut ReceiptLog,
+    ticket: &crate::receipt::ReceiptTicket,
+    error: CuError,
+) -> Result<Value, CuError> {
+    receipts.complete(
+        ticket,
+        "process-signal",
+        0,
+        false,
+        json!({ "performed": true, "verified": false, "error": error_payload(&error) }),
+    )?;
+    Err(error.with_detail(json!({
+        "receipt": ticket.json(),
+        "performed": true,
+        "verified": false,
+    })))
+}
+
 fn fail_process_state_after_effect(
     receipts: &mut ReceiptLog,
     ticket: &crate::receipt::ReceiptTicket,
@@ -1160,6 +1352,59 @@ pub(super) fn process_list_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn exact_process_signal_stops_resumes_and_terminates_one_owned_child() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn signal fixture");
+        let identity = live_start_identity(child.id()).expect("fixture identity");
+        let root = std::fs::canonicalize(std::env::temp_dir())
+            .expect("temporary root")
+            .join(format!("agenterm-cu-signal-{}", child.id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut receipts = ReceiptLog::open_in(&root, crate::TargetRef::Current).unwrap();
+
+        let stopped = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Stop,
+            5_000,
+            false,
+            &mut receipts,
+        )
+        .expect("stop exact child");
+        assert_eq!(stopped["state"], "stopped");
+        assert_eq!(stopped["verified"], true);
+
+        let running = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Continue,
+            5_000,
+            false,
+            &mut receipts,
+        )
+        .expect("resume exact child");
+        assert_eq!(running["state"], "running");
+        assert_eq!(running["verified"], true);
+
+        let killed = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Kill,
+            5_000,
+            true,
+            &mut receipts,
+        )
+        .expect("kill exact child");
+        assert_eq!(killed["state"], "exited");
+        assert_eq!(killed["verified"], true);
+        child.wait().expect("reap signal fixture");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn current_process_is_visible_by_exact_pid() {

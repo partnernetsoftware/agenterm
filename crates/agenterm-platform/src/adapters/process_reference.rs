@@ -8,6 +8,17 @@ pub enum ProcessWait {
     TimedOut,
 }
 
+/// Portable names for the bounded Unix signal subset exposed through an exact
+/// native process reference. Windows reports `Unsupported` for every member;
+/// forceful Windows termination remains [`ProcessReference::terminate`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessSignal {
+    Hangup,
+    Interrupt,
+    User1,
+    User2,
+}
+
 pub struct ProcessReference(pub(crate) crate::selected::process_reference::ProcessReference);
 
 impl ProcessReference {
@@ -70,6 +81,14 @@ impl ProcessReference {
     /// a mutable PID or call undocumented thread-suspension APIs.
     pub fn set_suspended(&self, suspended: bool) -> io::Result<()> {
         self.0.set_suspended(suspended)
+    }
+
+    /// Delivers one non-terminal Unix signal through this exact process object.
+    ///
+    /// Linux uses the retained pidfd and macOS uses the retained audit token;
+    /// Windows refuses rather than emulating POSIX signal meaning.
+    pub fn send_signal(&self, signal: ProcessSignal) -> io::Result<()> {
+        self.0.send_signal(signal)
     }
 
     /// Duplicates an already-open native process reference.

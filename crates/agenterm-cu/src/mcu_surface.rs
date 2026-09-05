@@ -241,7 +241,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     // they left this list; `ghost` (a cursor overlay drawn on the desktop)
     // is deliberately not absorbed and stays typed.
     "ghost",
-    "signal",
     "exec",
     "open",
     "notify",
@@ -274,7 +273,7 @@ fn typed_only_reason(verb: &str) -> &'static str {
             "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/hover/scroll/drag/dialog/files/fill/nav/screenshot map to typed CDP verbs (background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
         "ghost" => "ACU migration gap: the ghost cursor overlay has no typed facade yet",
-        "ps" | "signal" | "exec" => {
+        "ps" | "exec" => {
             "ACU migration gap: delegate through the bounded process/qjswasm facade; typed refuse"
         }
         "open" => "ACU migration gap: typed host-open facade pending",
@@ -384,7 +383,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "process" => (
             "available",
-            "ps/process state/argv/cwd/environment/usage/watch/wait are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup and richer mutation remain typed gaps",
+            "ps/process state/argv/cwd/environment/usage/watch/wait plus exact-object single-process signal are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup, tree signal and privileged mutation remain typed gaps",
         ),
         "resource" => (
             "unsupported",

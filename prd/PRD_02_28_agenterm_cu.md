@@ -578,6 +578,20 @@ flowchart LR
   macOS. Windows answers `process_state_unsupported`, and MCU `--sudo/--broker`
   shapes remain with the privilege-provider leaf until a real consent boundary
   exists.
+- [~] `process-signal --pid N SIGNAL` generalizes that exact-object authority
+  without pretending every signal has a verifiable application effect. Linux
+  delivers through the retained pidfd and macOS through the retained audit
+  token; Windows supports only forceful KILL through its retained HANDLE and
+  returns `process_signal_unsupported` for POSIX-only signals. TERM/KILL verify
+  exact-object exit, STOP/CONT verify scheduler state, while HUP/INT/USR1/USR2
+  truthfully return delivery accepted with `verified=false`. SIGKILL requires
+  explicit `--force`; every post-effect observation failure closes the durable
+  receipt rather than leaving a reusable reservation. The public qjswasm
+  journey `cu.process-signal` is green on macOS: stale identity refusal,
+  SIGUSR1 delivery, STOP/CONT read-back, KILL exit and cleanup passed in 1.058
+  seconds. MCU's unprivileged single-process `signal` shape now routes here,
+  reducing top-level compatibility `STAY` from 19 to 18; tree and privileged
+  shapes remain explicit gaps.
 - [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
   bounded identity-safe diff. It takes one baseline and emits `started` /
   `exited` rows keyed by PID plus native start identity, so PID reuse cannot

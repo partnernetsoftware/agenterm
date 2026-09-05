@@ -1,0 +1,128 @@
+// Public black-box journey for exact-object process signal delivery.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-signal"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, args, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_process_signal_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_process_signal_wrong_error:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_process_signal_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_signal_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-signal");
+const children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start one owned process and observe its stable identity");
+  const child = harness.start_child(context, harness.host_is_windows() ? {
+    program: "cmd.exe",
+    args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  } : {
+    program: "/bin/sh",
+    args: ["-c", "trap '' USR1; while :; do sleep 1; done"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  });
+  children.push(child);
+  const pid = child.pid;
+  const observed = invoke(context.run_directory, executable, "observe", [
+    "process-state", "--pid", "" + pid
+  ]);
+  const identity = "" + observed.start_identity;
+  ensure(observed.state === "live" && identity !== "", "cu_process_signal_identity");
+
+  print("STEP stale caller identity is refused before delivery");
+  invoke(context.run_directory, executable, "actuate", [
+    "signal", "" + pid, "USR1", "--start-identity", identity + "-stale"
+  ], "process_identity_changed");
+  ensure(harness.process_present(pid) !== 0, "cu_process_signal_stale_mutated");
+
+  if (harness.host_is_windows()) {
+    print("STEP Windows refuses POSIX STOP without pretending delivery");
+    invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + pid, "STOP", "--start-identity", identity
+    ], "process_signal_unsupported");
+  } else {
+    print("STEP exact USR1 delivery remains distinct from application acknowledgement");
+    const delivered = invoke(context.run_directory, executable, "actuate", [
+      "process-signal", "--pid", "" + pid, "USR1", "--start-identity", identity
+    ]);
+    ensure(delivered.performed === true && delivered.delivered === true
+      && delivered.verified === false && delivered.state === "live",
+      "cu_process_signal_delivery:" + JSON.stringify(delivered));
+
+    print("STEP STOP and CONT reach their scheduler postconditions");
+    const stopped = invoke(context.run_directory, executable, "actuate", [
+      "signal", "" + pid, "STOP", "--start-identity", identity
+    ]);
+    ensure(stopped.verified === true && stopped.state === "stopped",
+      "cu_process_signal_stop:" + JSON.stringify(stopped));
+    const resumed = invoke(context.run_directory, executable, "actuate", [
+      "process", "signal", "" + pid, "CONT", "--start-identity", identity
+    ]);
+    ensure(resumed.verified === true && resumed.state === "running",
+      "cu_process_signal_continue:" + JSON.stringify(resumed));
+  }
+
+  print("STEP explicit SIGKILL terminates the same retained process object");
+  const killed = invoke(context.run_directory, executable, "actuate", [
+    "signal", "" + pid, "KILL", "--start-identity", identity,
+    "--force", "--timeout-ms", "5000"
+  ]);
+  ensure(killed.performed === true && killed.verified === true && killed.state === "exited",
+    "cu_process_signal_kill:" + JSON.stringify(killed));
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.process-signal");
+  harness.remove_run(context);
+  print("PASS: exact-object process signal delivery");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

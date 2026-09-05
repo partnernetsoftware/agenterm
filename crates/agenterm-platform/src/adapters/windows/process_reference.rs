@@ -74,6 +74,16 @@ impl ProcessReference {
         ))
     }
 
+    pub(crate) fn send_signal(
+        &self,
+        _signal: crate::process_reference::ProcessSignal,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows has no POSIX signal contract for an arbitrary process",
+        ))
+    }
+
     pub(crate) const fn id(&self) -> u32 {
         self.process_id
     }

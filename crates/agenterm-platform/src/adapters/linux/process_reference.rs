@@ -107,14 +107,27 @@ impl ProcessReference {
     }
 
     pub(crate) fn set_suspended(&self, suspended: bool) -> io::Result<()> {
-        self.send_signal(if suspended {
+        self.send_raw_signal(if suspended {
             libc::SIGSTOP
         } else {
             libc::SIGCONT
         })
     }
 
-    fn send_signal(&self, signal: libc::c_int) -> io::Result<()> {
+    pub(crate) fn send_signal(
+        &self,
+        signal: crate::process_reference::ProcessSignal,
+    ) -> io::Result<()> {
+        let signal = match signal {
+            crate::process_reference::ProcessSignal::Hangup => libc::SIGHUP,
+            crate::process_reference::ProcessSignal::Interrupt => libc::SIGINT,
+            crate::process_reference::ProcessSignal::User1 => libc::SIGUSR1,
+            crate::process_reference::ProcessSignal::User2 => libc::SIGUSR2,
+        };
+        self.send_raw_signal(signal)
+    }
+
+    fn send_raw_signal(&self, signal: libc::c_int) -> io::Result<()> {
         let result = unsafe {
             libc::syscall(
                 libc::SYS_pidfd_send_signal,

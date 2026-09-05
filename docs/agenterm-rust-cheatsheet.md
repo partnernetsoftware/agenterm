@@ -3622,6 +3622,15 @@ pidversion, so a recycled PID fails instead of receiving the signal. If the
 task audit token cannot be obtained, fail typed instead of falling back to
 `kill(pid, ...)`.
 
+Do not collapse signal delivery and signal effect into one `verified` bit.
+TERM/KILL can verify exact-object exit; STOP/CONT can verify scheduler state.
+HUP/INT/USR1/USR2 can prove delivery through a retained pidfd or audit token,
+but only the target application can acknowledge their semantic effect, so a
+successful adapter call remains `delivery=accepted, verified=false`. Reserve a
+durable effect receipt before delivery and close it on every post-effect
+observation failure. Windows must return a typed unsupported result for POSIX
+signals it cannot express; only forceful KILL is owned by the retained HANDLE.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second

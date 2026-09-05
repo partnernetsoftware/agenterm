@@ -103,11 +103,25 @@
           "note": "ACU reserves a crash-persistent receipt, mutates through one retained native process object, and waits on that object. macOS retains TASK_AUDIT_TOKEN and calls proc_signal_with_audittoken, whose pidversion validation rejects a recycled PID."
         },
         {
-          "id": "process.signal-and-tree",
-          "mcu_shape": "signal PID SIG... and kill|signal --tree",
+          "id": "process.signal.single",
+          "mcu_shape": "signal PID SIG... without --tree/--sudo/--broker",
+          "acu_shape": "process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force]",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "retained-pidfd",
+            "macos": "retained-audit-token",
+            "windows": "retained-handle-kill-only"
+          },
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.process-signal"],
+          "note": "TERM/KILL verify exact exit, STOP/CONT verify scheduler state, and HUP/INT/USR1/USR2 report accepted delivery without fabricating application acknowledgement."
+        },
+        {
+          "id": "process.signal.tree-and-privileged",
+          "mcu_shape": "kill|signal --tree and signal --sudo|--broker",
           "acu_shape": null,
           "state": "gap",
-          "next": "arbitrary signal semantics, bounded tree snapshot, per-member identity and independently verified postconditions"
+          "next": "bounded tree snapshot, per-member exact identity, independently verified postconditions and native consent provider"
         },
         {
           "id": "process.cwd",

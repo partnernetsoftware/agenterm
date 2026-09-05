@@ -374,6 +374,21 @@ impl Executor {
                 *timeout_ms,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::ProcessSignal {
+                pid,
+                start_identity,
+                signal,
+                timeout_ms,
+                force,
+                ..
+            } => process_signal_payload(
+                *pid,
+                start_identity.as_deref(),
+                *signal,
+                *timeout_ms,
+                *force,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PrivilegePlanProcessPriority {
                 pid,
                 nice,

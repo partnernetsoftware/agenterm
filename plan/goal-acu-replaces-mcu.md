@@ -96,6 +96,8 @@ flowchart LR
   MJ --> Q
   NI --> Q
   DS --> Q
+  PROC --> SIG["exact process signal live<br/>pidfd / audit token / HANDLE<br/>delivery ≠ application acknowledgement"]
+  SIG --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
   S --> D{"all replacement gates?"}
@@ -155,6 +157,11 @@ MCU retirement blockers
 │  │  ├─ [x] start-identity gate + retained pidfd/audit-token effect authority
 │  │  ├─ [x] scheduler read-back + closed success/failure receipt + public qjswasm court
 │  │  └─ [ ] Linux native and Windows typed-refusal courts
+│  ├─ [~] process signal: exact-object closed signal set; macOS qjswasm green
+│  │  ├─ [x] stale identity refusal + pidfd/audit-token/HANDLE effect authority
+│  │  ├─ [x] TERM/KILL exit, STOP/CONT state and generic-delivery truth separated
+│  │  ├─ [x] MCU single-process unprivileged shape routes to ACU
+│  │  └─ [ ] Linux/Windows native courts; tree and privileged shapes remain gaps
 │  ├─ [~] host dispatch: open + notification typed; macOS qjswasm green, Linux/Windows courts pending
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ [~] privilege plan/broker/OS consent
@@ -168,7 +175,7 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **19 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **18 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
@@ -186,6 +193,14 @@ audit token, and reads scheduler state back. Every post-effect failure closes
 its durable receipt as performed-but-unverified. Windows refuses the operation
 because no documented exact-process suspension primitive is currently owned;
 MCU `--sudo/--broker` shapes remain behind the privilege-provider branch.
+
+The unprivileged single-process `signal PID SIGNAL` shape has also left
+`STAY`. ACU opens the native process object before binding its start identity,
+reserves before effect, and separates observable postconditions from mere
+delivery: exit and scheduler transitions can be verified, but HUP/INT/USR
+application meaning cannot. The macOS public qjswasm court is green. Tree,
+sudo and broker shapes remain on MCU until their distinct ownership and consent
+contracts land.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
@@ -461,7 +476,8 @@ Q2 fast delegated facades
    ├─ [x] process-usage: one-shot or bounded identity-bound series, lossless counters
    ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
    ├─ [x] process-watch: bounded baseline + identity-safe started/exited diff
-   └─ [ ] rich filters, process detail, exec and identity-bound signal/mutation
+   ├─ [x] exact-object process signal: closed names + typed postcondition semantics
+   └─ [ ] rich filters, process detail, tree signal and privileged mutation
 Q3 owned runtime facades
 ├─ [~] PTY/job/daemon/session/lock/audit/service
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
@@ -521,6 +537,11 @@ Q3 owned runtime facades
    │  ├─ [x] qjswasm public journey `cu.process-set-state`; stale identity cannot mutate
    │  ├─ [x] MCU unprivileged shape routes through observe-identity then ACU effect
    │  └─ [ ] Linux court + Windows typed-refusal court; privileged shapes stay with broker work
+   ├─ [~] exact-object process signal
+   │  ├─ [x] HUP/INT/TERM/KILL/STOP/CONT/USR1/USR2 closed portable set
+   │  ├─ [x] public macOS qjswasm journey `cu.process-signal`
+   │  ├─ [x] MCU unprivileged single-process shape routes without naked-PID mutation
+   │  └─ [ ] Linux/Windows native courts; tree and privileged shapes remain explicit gaps
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

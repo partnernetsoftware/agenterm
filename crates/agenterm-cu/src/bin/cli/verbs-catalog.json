@@ -842,6 +842,45 @@
       ]
     },
     {
+      "name": "process-signal",
+      "command": "process-signal",
+      "aliases": [
+        "process signal",
+        "signal"
+      ],
+      "grant": "actuate",
+      "family": "process",
+      "summary": "deliver one closed signal through an exact native process object",
+      "usage": "process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\nprocess signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\nsignal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]",
+      "args": [
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id selected by the caller"
+        },
+        {
+          "flag": "SIGNAL",
+          "value": "HUP|INT|TERM|KILL|STOP|CONT|USR1|USR2",
+          "help": "closed portable signal name"
+        },
+        {
+          "flag": "--start-identity",
+          "value": "ID",
+          "help": "optional exact value returned by process-state"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "exit/state postcondition deadline in 1..=60000 milliseconds"
+        },
+        {
+          "flag": "--force",
+          "value": "",
+          "help": "required for SIGKILL and rejected for every other signal"
+        }
+      ]
+    },
+    {
       "name": "process-watch",
       "command": "process-watch",
       "aliases": [
@@ -4163,6 +4202,10 @@
     }
   ],
   "help": [
+    {
+      "name": "process-signal",
+      "text": "agenterm-cu process-signal    (also: process signal, signal)\n  scope: actuate    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  process-signal --pid N SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\n  process signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\n  signal PID SIGNAL [--start-identity ID] [--timeout-ms N] [--force]\n\nSIGNAL is one of HUP, INT, TERM, KILL, STOP, CONT, USR1 or USR2 (the SIG prefix is optional). The executor opens one mutation-capable native process reference before binding the live start identity and never uses a naked PID as effect authority. TERM/KILL require exact-object exit read-back; STOP/CONT require scheduler-state read-back. HUP/INT/USR1/USR2 prove exact native delivery but remain verified=false because only the target application can acknowledge their meaning. SIGKILL requires --force. Linux uses pidfd_send_signal, macOS uses the retained audit token, and Windows supports only forceful KILL through its retained process HANDLE; every other Windows signal returns process_signal_unsupported. Tree and privileged signal shapes are separate gaps.\n"
+    },
     {
       "name": "capabilities",
       "text": "agenterm-cu capabilities    (also: caps)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  capabilities\n\nWhat the selected target can observe and actuate, verb group by verb\ngroup, with a typed reason for anything this host does not support.\n`caps` is the MCU spelling.\n"

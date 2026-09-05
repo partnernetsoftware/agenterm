@@ -357,6 +357,55 @@ pub enum ProcessRunState {
     Stopped,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ProcessSignalKind {
+    #[serde(rename = "SIGHUP")]
+    Hangup,
+    #[serde(rename = "SIGINT")]
+    Interrupt,
+    #[serde(rename = "SIGTERM")]
+    Terminate,
+    #[serde(rename = "SIGKILL")]
+    Kill,
+    #[serde(rename = "SIGSTOP")]
+    Stop,
+    #[serde(rename = "SIGCONT")]
+    Continue,
+    #[serde(rename = "SIGUSR1")]
+    User1,
+    #[serde(rename = "SIGUSR2")]
+    User2,
+}
+
+impl ProcessSignalKind {
+    pub fn parse(raw: &str) -> Option<Self> {
+        Some(match raw.trim().to_ascii_uppercase().as_str() {
+            "HUP" | "SIGHUP" => Self::Hangup,
+            "INT" | "SIGINT" => Self::Interrupt,
+            "TERM" | "SIGTERM" => Self::Terminate,
+            "KILL" | "SIGKILL" => Self::Kill,
+            "STOP" | "SIGSTOP" => Self::Stop,
+            "CONT" | "SIGCONT" => Self::Continue,
+            "USR1" | "SIGUSR1" => Self::User1,
+            "USR2" | "SIGUSR2" => Self::User2,
+            _ => return None,
+        })
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hangup => "SIGHUP",
+            Self::Interrupt => "SIGINT",
+            Self::Terminate => "SIGTERM",
+            Self::Kill => "SIGKILL",
+            Self::Stop => "SIGSTOP",
+            Self::Continue => "SIGCONT",
+            Self::User1 => "SIGUSR1",
+            Self::User2 => "SIGUSR2",
+        }
+    }
+}
+
 impl ProcessRunState {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
@@ -928,6 +977,19 @@ pub enum Command {
         start_identity: String,
         state: ProcessRunState,
         timeout_ms: u64,
+    },
+    /// Deliver one closed signal through a retained native process object.
+    /// An optional prior start identity tightens caller intent; the executor
+    /// always binds and returns the live identity before reserving the effect.
+    ProcessSignal {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_identity: Option<String>,
+        signal: ProcessSignalKind,
+        timeout_ms: u64,
+        #[serde(default)]
+        force: bool,
     },
     /// Prepare a canonical, expiring, identity-bound process-priority plan.
     /// This command is observation-only: applying it belongs to a later
@@ -2495,6 +2557,7 @@ impl Command {
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessSetState { .. } => "process-set-state".into(),
+            Self::ProcessSignal { .. } => "process-signal".into(),
             Self::PrivilegePlanProcessPriority { .. } => "privilege-plan".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
@@ -2640,6 +2703,7 @@ impl Command {
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
             | Self::ProcessSetState { target, .. }
+            | Self::ProcessSignal { target, .. }
             | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
@@ -2765,6 +2829,7 @@ impl Command {
             | Self::JobRenew { .. }
             | Self::ProcessKill { .. }
             | Self::ProcessSetState { .. }
+            | Self::ProcessSignal { .. }
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
             | Self::FileMove { apply: true, .. }
@@ -3484,6 +3549,33 @@ mod tests {
                 "start_identity": "boot:123",
                 "state": "stopped",
                 "timeout_ms": 250,
+            })
+        );
+    }
+
+    #[test]
+    fn process_signal_keeps_closed_exact_object_intent_on_the_wire() {
+        let command = Command::ProcessSignal {
+            target: TargetRef::Ssh,
+            pid: 42,
+            start_identity: Some("boot:123".into()),
+            signal: ProcessSignalKind::User1,
+            timeout_ms: 250,
+            force: false,
+        };
+        assert_eq!(command.verb(), "process-signal");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-signal",
+                "target": "ssh",
+                "pid": 42,
+                "start_identity": "boot:123",
+                "signal": "SIGUSR1",
+                "timeout_ms": 250,
+                "force": false,
             })
         );
     }
