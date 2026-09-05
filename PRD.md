@@ -176,7 +176,7 @@ flowchart LR
   FLEET["Fleet authority<br/>tabs · events · waits"]
   CLI["Public control<br/>CLI · mux · MCP"]
   SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
-  CU["agenterm-cu<br/>structured desktop control"]
+  CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
   PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
   CC["Control Center<br/>typed consumer"]
   EVIDENCE["exact-artifact courts<br/>cross-build · native runners · UTM"]

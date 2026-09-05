@@ -46,6 +46,9 @@ agenterm-qjswasm
 │  ├─ [x] Fleet facade and public CLI route
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
+│  ├─ [ ] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
+│  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
+│  │  └─ generic tinyvm remains free of AgenTerm machine-control authority
 │  ├─ [~] tool.* and release-task coverage grows by product need
 │  └─ [ ] every v0.1.18 release-critical journey has live .qjs evidence
 ├─ robustness
@@ -102,6 +105,9 @@ flowchart LR
   LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
+  ACUOBJ["agenterm:acu embedder object<br/>shared schema · Executor · failures · receipts"]
+  COMPAT["temporary acu.qjs<br/>legacy mapping only · no Bun"]
+  ACUCLI["ACU consumers<br/>CLI · MCP · qjs"]
   QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
   UP["tinyvm repository<br/>generic engine write knife"]
@@ -133,6 +139,8 @@ flowchart LR
   MANY -. bytes · modules · deadline .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
+  DOOR --> ACUOBJ --> ACUCLI --> RECEIPT
+  COMPAT -. legacy syntax .-> ACUOBJ
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
@@ -206,6 +214,17 @@ WASI and the Component Model, if implemented, belong to the generic tinyvm
 repository. AgenTerm still exposes operating-system authority through its
 versioned typed Script door. A WASI adapter must not become an undocumented
 second route around ACU/AgenTerm product contracts.
+
+The ACU convergence follows the same boundary. `agenterm:acu` is an AgenTerm
+embedder object, not a tinyvm builtin: generic tinyvm validates and executes
+Wasm, while the AgenTerm embedder supplies the versioned machine-control host
+contract. CLI, MCP and qjswasm must enter the same Rust schema and `Executor`;
+none may own a second implementation. `acu.ts` first shrinks to zero useful
+fallbacks, `acu.qjs` then removes Bun while preserving only legacy argument
+mapping, and that shell retires after its callers migrate to the typed object.
+The owning retirement gates and public behavior remain in
+[PRD 28](PRD_02_28_agenterm_cu.md); this module owns only the qjswasm host-door
+integration.
 
 ## Current acceptance
 

@@ -65,10 +65,25 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   no longer requires Bun. That is an intermediate shell, not a second product
   implementation: no native mechanism, authority policy or postcondition may
   be copied from the Rust owner into qjswasm. The converged API is an
-  embedder-provided `acu` object whose qjs calls, CLI and MCP share one typed
-  schema, `Executor`, deadline/cleanup behavior, failure vocabulary and receipt
-  contract. Once callers no longer require legacy MCU syntax, `acu.qjs` itself
-  may retire.
+  embedder-provided `agenterm:acu` object (exposed to qjs as `acu`) whose qjs
+  calls, CLI and MCP share one typed schema, `Executor`, deadline/cleanup
+  behavior, failure vocabulary and receipt contract. Once callers no longer
+  require legacy MCU syntax, `acu.qjs` itself may retire.
+
+  ```text
+  compatibility-shell lifecycle
+  ├─ now: acu.ts = legacy argv projection + ACU binary discovery
+  │  ├─ no product mechanism
+  │  ├─ no independent authority or postcondition
+  │  └─ every STAY is a measured retirement blocker
+  ├─ after zero-STAY + MCU-absent courts: acu.qjs = Bun-free syntax adapter
+  │  ├─ calls the public agenterm:acu object
+  │  └─ contains mapping only; never a second Executor
+  └─ convergence: agenterm:acu = stable typed library surface
+     ├─ one schema / Executor / error vocabulary / receipt contract
+     ├─ consumed by CLI, MCP and qjswasm
+     └─ acu.qjs retires when legacy MCU syntax has no retained callers
+  ```
 - [x] Two MCU-only surfaces are reviewed retirements, not ACU gaps. `ghost X Y`
   drew a decorative cursor with no observation or effect authority; callers
   must use real pointer state, structured hit-testing or screenshots instead.

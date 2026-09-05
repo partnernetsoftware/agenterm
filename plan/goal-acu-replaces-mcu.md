@@ -47,7 +47,7 @@ ACU replaces MCU
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
 │  ├─ phase 2: `acu.qjs` removes Bun while retaining only compatibility mapping
-│  ├─ phase 3: embedder-provided `acu` object shares schema/Executor/errors with CLI and MCP
+│  ├─ phase 3: embedder-provided `agenterm:acu` object (qjs `acu`) shares schema/Executor/errors with CLI and MCP
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
@@ -84,7 +84,7 @@ flowchart LR
   I --> Q
   P --> Q
   Q --> AQ["temporary acu.qjs compatibility shell<br/>no Bun · no duplicated mechanism"]
-  AQ --> AO["embedder acu object library<br/>one schema + Executor + failures"]
+  AQ --> AO["agenterm:acu embedder object<br/>one schema + Executor + failures"]
   SET --> PS["permissions status + open-next live<br/>real status · exact pane · never consent"]
   PS --> Q
   SET --> HO["host open + notification live<br/>shell-free · acceptance ≠ verification"]
@@ -139,7 +139,8 @@ The compatibility migration has three explicit phases. Today `acu.ts` may
 only perform lossless legacy argv projection and binary discovery; it cannot
 own a second implementation. After the STAY ledger and MCU-absent courts are
 green, `acu.qjs` replaces that Bun shell while keeping only compatibility
-mapping. The converged surface is an embedder-provided qjswasm `acu` object:
+mapping. The converged surface is an embedder-provided qjswasm `agenterm:acu`
+object (available to qjs as `acu`):
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
 deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
 into qjswasm would preserve the duplication and is explicitly rejected.
