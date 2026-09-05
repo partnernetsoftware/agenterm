@@ -48,7 +48,7 @@ ACU replaces MCU
 │  ├─ [x] macOS public qjswasm claim/replay/I/O/renew/release/TTL/session court
 │  ├─ [x] durable state and audit exclude locator, lease secret and byte payload
 │  ├─ [x] preserve partial-write lower bound, delivery uncertainty and retry safety independently
-│  ├─ [ ] Linux native public qjswasm court
+│  ├─ [x] Linux aarch64 + x86_64 native public qjswasm courts
 │  └─ [ ] Windows native COM/virtual-COM court
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh

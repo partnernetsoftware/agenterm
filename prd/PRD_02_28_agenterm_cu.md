@@ -1355,9 +1355,12 @@ flowchart LR
   TTL expiry. It also proves that durable state and audit contain no locator,
   lease secret, byte payload or fixture token.
 
-  This is one native court, not six-cell delivery. Linux must run the same
-  public fixture on native courts; Windows still needs a native COM or
-  controlled virtual-COM court because a Unix PTY is not Windows evidence.
+  At exact source `a21dfcff4227ca9dfcb6d55a13da9bbbf4e84187`, the same
+  checked-in public journey also passed in `lnx-x86_64-desktop` and
+  `lnx-aarch64-desktop`: each court verified the uploaded manifest before
+  execution, emitted `cu.device-lease`, returned exit zero and was stopped by
+  the invocation-owned lease. Windows still needs a native COM or controlled
+  virtual-COM court because a Unix PTY is not Windows evidence.
   Partial-write failures now preserve three independent facts end to end:
   known-written lower bound, delivery uncertainty and retry safety. An effect
   may be certain yet unsafe to retry when native bytes were accepted before a
@@ -1395,7 +1398,7 @@ device.claim + byte I/O
 ├─ [x] macOS public qjswasm fixture: replay/refusal/I/O/renew/release/TTL/session cleanup
 ├─ [x] durable state + audit exclude locator/secret/payload/fixture token
 ├─ [x] partial-write lower bound / delivery uncertainty / retry safety are independent
-├─ [ ] Linux native public qjswasm courts
+├─ [x] Linux aarch64 + x86_64 native public qjswasm courts
 └─ [ ] Windows native COM/virtual-COM runtime court
 ```
 
@@ -1409,14 +1412,14 @@ flowchart LR
   P --> A["claim admission<br/>session + target lock"]
   A --> O["resident exact-object owner<br/>fd / HANDLE"]
   O --> IO["bounded config + read/write<br/>renew / release / expiry"]
-  IO --> DC["macOS public qjs fixture ✓<br/>Linux + Windows courts pending"]
+  IO --> DC["macOS + Linux x2 public courts ✓<br/>Windows COM court pending"]
   W --> WC{"coverage complete?"}
   WC -->|no| WS["suppress inferred events<br/>typed incomplete coverage"]
   WC -->|yes| WE["added · removed · changed"]
   WS & WE --> C
   DC --> C
-  C -->|macOS green only| M["platform-limited"]
-  C -->|Linux + Windows green| V["native inventory leaf"]
+  C -->|macOS + Linux green| M["platform-limited"]
+  C -->|Windows also green| V["native device leaf"]
 ```
 - [~] `device-screenshot` is now an integrated current-target leaf, with live
   promotion still waiting on a non-sensitive device court. Its classifier must

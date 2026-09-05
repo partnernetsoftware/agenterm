@@ -143,8 +143,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；device claim/lease/I/O 的
-│     │                       macOS 公共 qjswasm fixture 已绿，Linux/Windows 原生 court 待证
-│     │                       I/O 下界/不确定性/重试语义已分离；下一闸是两平台 court 与六格交付
+│     │                       macOS + Linux 双 ISA 公共 qjswasm court 已绿，Windows COM court 待证
+│     │                       I/O 下界/不确定性/重试语义已分离；下一闸是 Windows 与六格交付
 │     │                       未过这些证据前只记 partial，不把源码存在写成已交付
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端

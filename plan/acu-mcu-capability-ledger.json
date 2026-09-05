@@ -865,33 +865,33 @@
           "mcu_shape": "device claims|claim|renew|release with exclusive TTL secret lease",
           "acu_shape": "device-claims; device-claim DEVICE_ID with bounded serial configuration and TTL; device-status/read/write/renew/release by lease id, generation and secret",
           "state": "platform-limited",
-          "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-implementation-public-court-pending", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-public-qjswasm-green-linux-windows-native-courts-pending",
+          "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-public-qjswasm-green-both-isa", "windows": "native-implementation-public-court-pending"},
+          "qualification": "macos-and-linux-both-isa-public-qjswasm-green-windows-native-court-pending",
           "evidence": ["cu.device-lease"],
-          "note": "The public id is only an installation-HMAC selector. Claim re-enumerates the private locator, opens one exact native object under an exclusive resident owner, ties admission to a runtime session and target lock, returns the secret once, and persists neither locator nor plaintext secret. The macOS public qjswasm fixture proves exact replay without a second open, authority refusal, setup-refresh deferral, session-end cleanup and TTL expiry without publishing its private PTY locator or token.",
-          "next": "run the same public qjswasm journey on Linux native courts and a Windows COM or controlled virtual-COM court"
+          "note": "The public id is only an installation-HMAC selector. Claim re-enumerates the private locator, opens one exact native object under an exclusive resident owner, ties admission to a runtime session and target lock, returns the secret once, and persists neither locator nor plaintext secret. The same public qjswasm fixture proves exact replay without a second open, authority refusal, setup-refresh deferral, session-end cleanup and TTL expiry on macOS plus Linux aarch64/x86_64 without publishing its private PTY locator or token. The two Linux UTM courts verified exact source a21dfcff4227ca9dfcb6d55a13da9bbbf4e84187 and their uploaded manifests before execution.",
+          "next": "run a Windows COM or controlled virtual-COM court; a Unix PTY is not Windows evidence"
         },
         {
           "id": "device.byte-io",
           "mcu_shape": "device read|write with bounded hex bytes under a live lease",
           "acu_shape": "device-read and device-write with base64|hex encoding, 64 KiB bound, 300 s timeout bound and exact lease/session/generation authority",
           "state": "platform-limited",
-          "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-implementation-public-court-pending", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-public-qjswasm-green-partial-delivery-contract-green-linux-windows-courts-pending",
+          "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-public-qjswasm-green-both-isa", "windows": "native-implementation-public-court-pending"},
+          "qualification": "macos-and-linux-both-isa-public-qjswasm-green-partial-delivery-contract-green-windows-court-pending",
           "evidence": ["cu.device-lease"],
           "note": "One resident owner performs I/O on the same native object retained at claim. The macOS public qjswasm court proves exact binary echo and wrong-authority refusal. Payload, lease material, native locator and fixture token do not enter durable state or audit evidence. Write failures carry known-written lower bound, delivery uncertainty and retry safety as independent fields; a known post-effect failure is not mislabeled retry-safe.",
-          "next": "run the same byte-I/O contract on Linux and Windows native courts"
+          "next": "run the same byte-I/O contract on a Windows COM or controlled virtual-COM court"
         },
         {
           "id": "device.serial-config",
           "mcu_shape": "device claim with baud/data-bits/parity/stop-bits/flow and readback",
           "acu_shape": "device-claim DEVICE_ID --baud/--data-bits/--parity/--stop-bits/--flow with native readback",
           "state": "platform-limited",
-          "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-implementation-public-court-pending", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-public-qjswasm-green-linux-windows-native-courts-pending",
+          "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-public-qjswasm-green-both-isa", "windows": "native-implementation-public-court-pending"},
+          "qualification": "macos-and-linux-both-isa-public-qjswasm-green-windows-native-court-pending",
           "evidence": ["cu.device-lease"],
           "note": "Portable serial values are validated before launch, applied by the selected native adapter and read back on the retained object. Unsupported combinations fail typed rather than silently degrading.",
-          "next": "run the portable subset and restoration contract on Linux native serial and Windows COM courts"
+          "next": "run the portable subset and restoration contract on a Windows COM court"
         },
         {
           "id": "device.screen-capture",
