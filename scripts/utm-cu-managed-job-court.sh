@@ -116,7 +116,13 @@ if [ "$GUEST_OS" = linux ]; then
   GUEST_ROOT="/tmp/agenterm-$RUN_ID"
   GUEST_LOG="/tmp/agenterm-$RUN_ID.log"
   GUEST_EXIT="/tmp/agenterm-$RUN_ID.exit"
-  "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
+  # The x86_64 guest is fully emulated on Apple Silicon.  A multi-megabyte
+  # delivery bundle can legitimately exceed utm-court's 30-second default
+  # transfer deadline even though the Guest Agent is healthy (the tiny probe
+  # above still completes).  Bound this exact bulk transfer separately; do not
+  # weaken the service-wide command/receipt deadlines.
+  UTM_COURT_TRANSFER_TIMEOUT=180 \
+    "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
   "$COURT_CLI" exec "$COURT" -- /bin/bash -lc \
     "rm -rf '$GUEST_ROOT'; mkdir -p '$GUEST_ROOT'; tar -xzf '$GUEST_ARCHIVE' -C '$GUEST_ROOT'; cd '$GUEST_ROOT'; sha256sum -c MANIFEST.sha256 >'$GUEST_LOG' 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then target/debug/agenterm cli script task run cu-managed-job-smoke --manifest agenterm.tasks.json >>'$GUEST_LOG' 2>&1; rc=\$?; fi; printf '%s' \"\$rc\" >'$GUEST_EXIT.tmp'; mv -f '$GUEST_EXIT.tmp' '$GUEST_EXIT'"
 else
@@ -128,7 +134,8 @@ else
   GUEST_EXIT="$GUEST_BASE\\agenterm-$RUN_ID.exit"
   JOB="$GUEST_BASE\\agent-v2\\job.pending.ps1"
   READY="$GUEST_BASE\\agent-v2\\job.ready"
-  "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
+  UTM_COURT_TRANSFER_TIMEOUT=180 \
+    "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
   printf '%s\n' \
     '$ErrorActionPreference = "Stop"' \
     "\$root = '$GUEST_ROOT'" \
