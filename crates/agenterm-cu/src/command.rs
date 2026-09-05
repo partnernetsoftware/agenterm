@@ -1,11 +1,296 @@
 //! Abstract, target-agnostic command set (PRD_02_29).
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::target::TargetRef;
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+const JOB_COMMAND_PARTS_MAX: usize = 256;
+const JOB_COMMAND_BYTES_MAX: usize = 32 * 1024;
+const JOB_ENVIRONMENT_ENTRIES_MAX: usize = 128;
+const JOB_ENVIRONMENT_BYTES_MAX: usize = 24 * 1024;
+const JOB_CWD_BYTES_MAX: usize = 8 * 1024;
+const JOB_TTL_SECONDS_MAX: u64 = 86_400;
+const JOB_LIST_MAX: usize = 1_024;
+const JOB_EVENTS_TIMEOUT_MS_MAX: u64 = 300_000;
+const JOB_EVENTS_BYTES_MAX: usize = 1024 * 1024;
+const JOB_WRITE_DECODED_BYTES_MAX: usize = 256 * 1024;
+const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
+const JOB_STOP_GRACE_MS_MAX: u64 = 60_000;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobEnvironment {
+    pub name: String,
+    /// `None` removes an inherited value; `Some` sets it.
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobStateFilter {
+    StartIntent,
+    Starting,
+    Running,
+    StartFailed,
+    Exited,
+    Signaled,
+    Detached,
+    OrphanedUncertain,
+}
+
+/// An absolute byte position in one managed job output stream. Stdout and
+/// stderr always carry separate cursors. Decimal text keeps the wire lossless
+/// for clients whose number type cannot represent every `u64`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct JobOutputCursor(String);
+
+impl JobOutputCursor {
+    pub fn new(value: impl Into<String>) -> Result<Self, &'static str> {
+        let value = value.into();
+        validate_job_cursor(&value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn value(&self) -> u64 {
+        self.0
+            .parse()
+            .expect("JobOutputCursor construction validates u64 decimal text")
+    }
+}
+
+impl<'de> Deserialize<'de> for JobOutputCursor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
+fn validate_job_cursor(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+        || value.parse::<u64>().is_err()
+    {
+        return Err("managed-job output cursor must be canonical decimal u64 text");
+    }
+    Ok(())
+}
+
+fn deserialize_job_command<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let command = Vec::<String>::deserialize(deserializer)?;
+    validate_job_command(&command).map_err(serde::de::Error::custom)?;
+    Ok(command)
+}
+
+fn validate_job_command(command: &[String]) -> Result<(), &'static str> {
+    if command.is_empty()
+        || command.len() > JOB_COMMAND_PARTS_MAX
+        || command[0].is_empty()
+        || command.iter().any(|part| part.as_bytes().contains(&0))
+    {
+        return Err("managed-job command must contain 1..=256 parts and a nonempty program");
+    }
+    let bytes = command
+        .iter()
+        .try_fold(0usize, |total, part| total.checked_add(part.len()))
+        .ok_or("managed-job command byte length overflow")?;
+    if bytes > JOB_COMMAND_BYTES_MAX {
+        return Err("managed-job command content exceeds 32 KiB");
+    }
+    Ok(())
+}
+
+fn deserialize_job_environment<'de, D>(deserializer: D) -> Result<Vec<JobEnvironment>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let environment = Vec::<JobEnvironment>::deserialize(deserializer)?;
+    validate_job_environment(&environment).map_err(serde::de::Error::custom)?;
+    Ok(environment)
+}
+
+fn validate_job_environment(environment: &[JobEnvironment]) -> Result<(), &'static str> {
+    let mut names = HashSet::with_capacity(environment.len());
+    if environment.len() > JOB_ENVIRONMENT_ENTRIES_MAX
+        || environment.iter().any(|entry| {
+            entry.name.is_empty()
+                || entry.name.as_bytes().contains(&0)
+                || entry.name.as_bytes().contains(&b'=')
+                || entry
+                    .value
+                    .as_ref()
+                    .is_some_and(|value| value.as_bytes().contains(&0))
+                || !names.insert(entry.name.to_lowercase())
+        })
+    {
+        return Err("managed-job environment must contain at most 128 entries with nonempty names");
+    }
+    let bytes = environment.iter().try_fold(0usize, |total, entry| {
+        total
+            .checked_add(entry.name.len())
+            .and_then(|total| total.checked_add(entry.value.as_ref().map_or(0, String::len)))
+    });
+    if bytes.is_none_or(|bytes| bytes > JOB_ENVIRONMENT_BYTES_MAX) {
+        return Err("managed-job environment content exceeds 24 KiB");
+    }
+    Ok(())
+}
+
+fn deserialize_job_cwd<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let cwd = Option::<String>::deserialize(deserializer)?;
+    if cwd
+        .as_ref()
+        .is_some_and(|path| path.len() > JOB_CWD_BYTES_MAX || path.as_bytes().contains(&0))
+    {
+        return Err(serde::de::Error::custom("managed-job cwd exceeds 8 KiB"));
+    }
+    Ok(cwd)
+}
+
+fn deserialize_job_ttl<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if !(1..=JOB_TTL_SECONDS_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "managed-job ttl_seconds must be in 1..=86400",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_generation<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(serde::de::Error::custom(
+            "managed-job generation must be nonzero",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_list_max<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<usize>::deserialize(deserializer)?;
+    if value.is_some_and(|value| !(1..=JOB_LIST_MAX).contains(&value)) {
+        return Err(serde::de::Error::custom(
+            "managed-job list max must be in 1..=1024",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_events_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if value > JOB_EVENTS_TIMEOUT_MS_MAX {
+        return Err(serde::de::Error::custom(
+            "managed-job events timeout_ms must be at most 300000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_events_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=JOB_EVENTS_BYTES_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "managed-job events max_bytes must be in 1..=1048576",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_write<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    validate_job_write_base64(&value).map_err(serde::de::Error::custom)?;
+    Ok(value)
+}
+
+fn validate_job_write_base64(value: &str) -> Result<(), &'static str> {
+    let bytes = value.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return Err("managed-job data_base64 must be padded standard base64");
+    }
+    let padding = bytes.iter().rev().take_while(|byte| **byte == b'=').count();
+    if padding > 2
+        || bytes[..bytes.len().saturating_sub(padding)]
+            .iter()
+            .any(|byte| !byte.is_ascii_alphanumeric() && *byte != b'+' && *byte != b'/')
+        || bytes[..bytes.len().saturating_sub(padding)].contains(&b'=')
+    {
+        return Err("managed-job data_base64 must be padded standard base64");
+    }
+    let decoded = bytes
+        .len()
+        .checked_div(4)
+        .and_then(|groups| groups.checked_mul(3))
+        .and_then(|bytes| bytes.checked_sub(padding))
+        .ok_or("managed-job data_base64 length overflow")?;
+    if decoded > JOB_WRITE_DECODED_BYTES_MAX {
+        return Err("managed-job stdin write exceeds 256 KiB decoded");
+    }
+    Ok(())
+}
+
+fn deserialize_job_wait_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if value > JOB_WAIT_TIMEOUT_MS_MAX {
+        return Err(serde::de::Error::custom(
+            "managed-job wait timeout_ms must be at most 86400000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_stop_grace<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if value > JOB_STOP_GRACE_MS_MAX {
+        return Err(serde::de::Error::custom(
+            "managed-job stop grace_ms must be at most 60000",
+        ));
+    }
+    Ok(value)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -336,6 +621,91 @@ pub enum Command {
         target: TargetRef,
         lock_id: String,
         lease: String,
+    },
+    JobSpawn {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_job_command")]
+        command: Vec<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            deserialize_with = "deserialize_job_environment"
+        )]
+        environment: Vec<JobEnvironment>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_job_cwd"
+        )]
+        cwd: Option<String>,
+        #[serde(deserialize_with = "deserialize_job_ttl")]
+        ttl_seconds: u64,
+    },
+    JobList {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: Option<JobStateFilter>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_job_list_max"
+        )]
+        max: Option<usize>,
+    },
+    JobStatus {
+        target: TargetRef,
+        job_id: String,
+    },
+    JobEvents {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        stdout_cursor: JobOutputCursor,
+        stderr_cursor: JobOutputCursor,
+        #[serde(deserialize_with = "deserialize_job_events_timeout")]
+        timeout_ms: u64,
+        #[serde(deserialize_with = "deserialize_job_events_max")]
+        max_bytes: usize,
+    },
+    JobWrite {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        #[serde(deserialize_with = "deserialize_job_write")]
+        data_base64: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        close_stdin: bool,
+    },
+    JobWait {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        #[serde(deserialize_with = "deserialize_job_wait_timeout")]
+        timeout_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect_exit: Option<i32>,
+    },
+    JobStop {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        #[serde(deserialize_with = "deserialize_job_stop_grace")]
+        grace_ms: u64,
+        expect_stopped: bool,
+    },
+    JobRenew {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        #[serde(deserialize_with = "deserialize_job_ttl")]
+        ttl_seconds: u64,
     },
     /// Top-level window inventory. Without any filter or page field the
     /// reply `data` is the plain window array (unchanged shape); with one,
@@ -1984,6 +2354,14 @@ impl Command {
             Self::LockAcquire { .. } => "lock-acquire".into(),
             Self::LockList { .. } => "lock-list".into(),
             Self::LockRelease { .. } => "lock-release".into(),
+            Self::JobSpawn { .. } => "job-spawn".into(),
+            Self::JobList { .. } => "job-list".into(),
+            Self::JobStatus { .. } => "job-status".into(),
+            Self::JobEvents { .. } => "job-events".into(),
+            Self::JobWrite { .. } => "job-write".into(),
+            Self::JobWait { .. } => "job-wait".into(),
+            Self::JobStop { .. } => "job-stop".into(),
+            Self::JobRenew { .. } => "job-renew".into(),
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
@@ -2113,6 +2491,14 @@ impl Command {
             | Self::LockAcquire { target, .. }
             | Self::LockList { target, .. }
             | Self::LockRelease { target, .. }
+            | Self::JobSpawn { target, .. }
+            | Self::JobList { target, .. }
+            | Self::JobStatus { target, .. }
+            | Self::JobEvents { target, .. }
+            | Self::JobWrite { target, .. }
+            | Self::JobWait { target, .. }
+            | Self::JobStop { target, .. }
+            | Self::JobRenew { target, .. }
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
@@ -2236,6 +2622,10 @@ impl Command {
             | Self::SessionEnd { .. }
             | Self::LockAcquire { .. }
             | Self::LockRelease { .. }
+            | Self::JobSpawn { .. }
+            | Self::JobWrite { .. }
+            | Self::JobStop { .. }
+            | Self::JobRenew { .. }
             | Self::ProcessKill { .. }
             | Self::ShellExec { .. }
             | Self::PtyStart { .. }
@@ -2289,12 +2679,325 @@ impl Command {
             _ => crate::auth::Grant::Observe,
         }
     }
+
+    /// Validate a command assembled directly in Rust. Deserialization applies
+    /// the same field bounds before constructing managed-job variants.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        match self {
+            Self::JobSpawn {
+                command,
+                environment,
+                cwd,
+                ttl_seconds,
+                ..
+            } => {
+                validate_job_command(command)?;
+                validate_job_environment(environment)?;
+                if cwd
+                    .as_ref()
+                    .is_some_and(|path| path.len() > JOB_CWD_BYTES_MAX)
+                {
+                    return Err("managed-job cwd exceeds 8 KiB");
+                }
+                if !(1..=JOB_TTL_SECONDS_MAX).contains(ttl_seconds) {
+                    return Err("managed-job ttl_seconds must be in 1..=86400");
+                }
+                Ok(())
+            }
+            Self::JobList { max, .. } => {
+                if max.is_some_and(|value| !(1..=JOB_LIST_MAX).contains(&value)) {
+                    return Err("managed-job list max must be in 1..=1024");
+                }
+                Ok(())
+            }
+            Self::JobStatus { job_id, .. } => validate_job_id(job_id),
+            Self::JobEvents {
+                job_id,
+                generation,
+                stdout_cursor,
+                stderr_cursor,
+                timeout_ms,
+                max_bytes,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                validate_job_cursor(stdout_cursor.as_str())?;
+                validate_job_cursor(stderr_cursor.as_str())?;
+                if *timeout_ms > JOB_EVENTS_TIMEOUT_MS_MAX {
+                    return Err("managed-job events timeout_ms must be at most 300000");
+                }
+                if !(1..=JOB_EVENTS_BYTES_MAX).contains(max_bytes) {
+                    return Err("managed-job events max_bytes must be in 1..=1048576");
+                }
+                Ok(())
+            }
+            Self::JobWrite {
+                job_id,
+                generation,
+                data_base64,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                validate_job_write_base64(data_base64)
+            }
+            Self::JobWait {
+                job_id,
+                generation,
+                timeout_ms,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if *timeout_ms > JOB_WAIT_TIMEOUT_MS_MAX {
+                    return Err("managed-job wait timeout_ms must be at most 86400000");
+                }
+                Ok(())
+            }
+            Self::JobStop {
+                job_id,
+                generation,
+                grace_ms,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if *grace_ms > JOB_STOP_GRACE_MS_MAX {
+                    return Err("managed-job stop grace_ms must be at most 60000");
+                }
+                Ok(())
+            }
+            Self::JobRenew {
+                job_id,
+                generation,
+                ttl_seconds,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if !(1..=JOB_TTL_SECONDS_MAX).contains(ttl_seconds) {
+                    return Err("managed-job ttl_seconds must be in 1..=86400");
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+fn validate_job_id(job_id: &str) -> Result<(), &'static str> {
+    let bytes = job_id.as_bytes();
+    let valid = bytes.len() == 36
+        && bytes.get(8) == Some(&b'-')
+        && bytes.get(13) == Some(&b'-')
+        && bytes.get(18) == Some(&b'-')
+        && bytes.get(23) == Some(&b'-')
+        && bytes.get(14) == Some(&b'4')
+        && matches!(bytes.get(19), Some(b'8' | b'9' | b'a' | b'b'))
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            matches!(index, 8 | 13 | 18 | 23)
+                || byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()
+        });
+    if !valid {
+        return Err("managed-job id must be a lowercase UUID v4");
+    }
+    Ok(())
+}
+
+fn validate_job_generation(generation: u64) -> Result<(), &'static str> {
+    if generation == 0 {
+        return Err("managed-job generation must be nonzero");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::Grant;
+
+    const TEST_JOB_ID: &str = "00000000-0000-4000-8000-000000000001";
+
+    #[test]
+    fn managed_job_cohort_round_trips_closed_wire_shapes_and_grants() {
+        let spawn = serde_json::json!({
+            "verb": "job-spawn",
+            "target": "ssh",
+            "command": ["tool", "--flag"],
+            "environment": [{"name": "MODE", "value": "test"}],
+            "cwd": "work",
+            "ttl_seconds": 3_600
+        });
+        let spawn_command: Command = serde_json::from_value(spawn.clone()).expect("spawn");
+        assert_eq!(spawn_command.verb(), "job-spawn");
+        assert_eq!(spawn_command.target(), TargetRef::Ssh);
+        assert_eq!(spawn_command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&spawn_command).expect("serialize spawn"),
+            spawn
+        );
+        spawn_command.validate().expect("valid direct command");
+
+        let list: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-list",
+            "target": "current",
+            "state": "running",
+            "offset": 2,
+            "max": 10
+        }))
+        .expect("list");
+        assert_eq!(list.verb(), "job-list");
+        assert_eq!(list.required_grant(), Grant::Observe);
+
+        let events = serde_json::json!({
+            "verb": "job-events",
+            "target": "vnc",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "stdout_cursor": "12",
+            "stderr_cursor": "34",
+            "timeout_ms": 300_000,
+            "max_bytes": 1_048_576
+        });
+        let events_command: Command = serde_json::from_value(events.clone()).expect("events");
+        assert_eq!(events_command.verb(), "job-events");
+        assert_eq!(events_command.target(), TargetRef::Vnc);
+        assert_eq!(events_command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(events_command).expect("serialize events"),
+            events
+        );
+
+        let write: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-write",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "data_base64": "AAEC",
+            "close_stdin": true
+        }))
+        .expect("write");
+        assert_eq!(write.verb(), "job-write");
+        assert_eq!(write.required_grant(), Grant::Actuate);
+
+        let wait: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-wait",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "timeout_ms": 86_400_000,
+            "expect_exit": 0
+        }))
+        .expect("wait");
+        assert_eq!(wait.verb(), "job-wait");
+        assert_eq!(wait.required_grant(), Grant::Observe);
+
+        let stop: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-stop",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "grace_ms": 60_000,
+            "expect_stopped": true
+        }))
+        .expect("stop");
+        assert_eq!(stop.verb(), "job-stop");
+        assert_eq!(stop.required_grant(), Grant::Actuate);
+
+        let renew: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-renew",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "ttl_seconds": 86_400
+        }))
+        .expect("renew");
+        assert_eq!(renew.verb(), "job-renew");
+        assert_eq!(renew.required_grant(), Grant::Actuate);
+
+        let status: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-status",
+            "target": "current",
+            "job_id": TEST_JOB_ID
+        }))
+        .expect("status does not require generation");
+        assert_eq!(status.verb(), "job-status");
+        assert_eq!(status.required_grant(), Grant::Observe);
+    }
+
+    #[test]
+    fn managed_job_serde_rejects_unbounded_and_stale_inputs() {
+        let reject =
+            |value| serde_json::from_value::<Command>(value).expect_err("command must be rejected");
+
+        reject(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": [], "ttl_seconds": 1
+        }));
+        reject(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 0
+        }));
+        reject(serde_json::json!({
+            "verb": "job-list", "target": "current", "max": 1025
+        }));
+        reject(serde_json::json!({
+            "verb": "job-events", "target": "current", "job_id": TEST_JOB_ID, "generation": 0,
+            "stdout_cursor": "0", "stderr_cursor": "0", "timeout_ms": 0, "max_bytes": 1
+        }));
+        reject(serde_json::json!({
+            "verb": "job-events", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "stdout_cursor": "00", "stderr_cursor": "0", "timeout_ms": 0, "max_bytes": 1
+        }));
+        reject(serde_json::json!({
+            "verb": "job-events", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "stdout_cursor": 0, "stderr_cursor": "0", "timeout_ms": 300001, "max_bytes": 1048577
+        }));
+        reject(serde_json::json!({
+            "verb": "job-write", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "data_base64": "not base64"
+        }));
+        reject(serde_json::json!({
+            "verb": "job-wait", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "timeout_ms": 86400001
+        }));
+        reject(serde_json::json!({
+            "verb": "job-stop", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "grace_ms": 60001, "expect_stopped": true
+        }));
+        reject(serde_json::json!({
+            "verb": "job-renew", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "ttl_seconds": 86401
+        }));
+    }
+
+    #[test]
+    fn managed_job_large_collection_and_write_bounds_fail_closed() {
+        let too_many_parts = vec!["x"; JOB_COMMAND_PARTS_MAX + 1];
+        assert!(serde_json::from_value::<Command>(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": too_many_parts, "ttl_seconds": 1
+        }))
+        .is_err());
+
+        let too_many_environment = (0..=JOB_ENVIRONMENT_ENTRIES_MAX)
+            .map(|index| serde_json::json!({"name": format!("K{index}"), "value": "x"}))
+            .collect::<Vec<_>>();
+        assert!(
+            serde_json::from_value::<Command>(serde_json::json!({
+                "verb": "job-spawn", "target": "current", "command": ["x"],
+                "environment": too_many_environment, "ttl_seconds": 1
+            }))
+            .is_err()
+        );
+
+        let oversized_base64 = "A".repeat((JOB_WRITE_DECODED_BYTES_MAX / 3 + 1) * 4);
+        assert!(
+            serde_json::from_value::<Command>(serde_json::json!({
+                "verb": "job-write", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+                "data_base64": oversized_base64
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn device_screenshot_inventory_preserves_host_diagnostic_wire_shape() {

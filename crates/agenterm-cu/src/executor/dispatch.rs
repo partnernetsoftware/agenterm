@@ -53,6 +53,17 @@ impl Executor {
             } => lock_acquire_payload(session_id, lease, lock_target, *ttl_seconds),
             Command::LockList { .. } => lock_list_payload(),
             Command::LockRelease { lock_id, lease, .. } => lock_release_payload(lock_id, lease),
+            Command::JobSpawn { .. }
+            | Command::JobList { .. }
+            | Command::JobStatus { .. }
+            | Command::JobEvents { .. }
+            | Command::JobWrite { .. }
+            | Command::JobWait { .. }
+            | Command::JobStop { .. }
+            | Command::JobRenew { .. } => Err(CuError::new(
+                "managed_job_public_unavailable",
+                "managed-job resident IPC is staged internally but its public cohort is not wired",
+            )),
             Command::Windows {
                 pid,
                 app,

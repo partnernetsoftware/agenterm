@@ -8,15 +8,17 @@
 
 use std::{
     collections::{HashSet, VecDeque},
-    io::{self, Read},
+    io::{self, Read, Write},
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard},
     thread::{self, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use agenterm_platform::{
-    contained_process::{ContainedChild, ContainedChildOutput, ContainedHeadlessCommand},
+    contained_process::{
+        ContainedChild, ContainedChildInput, ContainedChildOutput, ContainedHeadlessCommand,
+    },
     process::{ProcessExit, start_identity},
 };
 use serde::{Deserialize, Serialize};
@@ -32,6 +34,10 @@ const ENVIRONMENT_ENTRIES_MAX: usize = 256;
 const OUTPUT_CAPACITY_MIN: usize = 4 * 1024;
 const OUTPUT_CAPACITY_MAX: usize = 2 * 1024 * 1024;
 const OUTPUT_PAGE_MAX: usize = 64 * 1024;
+const STDIN_WRITE_MAX: usize = 64 * 1024;
+const LEASE_TTL_MIN_MS: u64 = 1_000;
+const LEASE_TTL_MAX_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+const WAIT_MAX: Duration = Duration::from_secs(300);
 const WAIT_POLL: Duration = Duration::from_millis(10);
 const DRAIN_SETTLE_WAIT: Duration = Duration::from_secs(1);
 const CLEANUP_WAIT: Duration = Duration::from_secs(5);
@@ -52,6 +58,8 @@ pub(crate) struct ManagedJobLaunch {
     pub environment: Vec<ManagedJobEnvironment>,
     /// Aggregate retained bytes across stdout and stderr.
     pub output_capacity_bytes: usize,
+    /// Resident control lease. It is held only in memory and is never persisted.
+    pub lease_ttl_ms: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -68,7 +76,7 @@ pub(crate) struct ManagedJobOwnerError {
 }
 
 impl ManagedJobOwnerError {
-    const fn new(code: &'static str) -> Self {
+    pub(crate) const fn new(code: &'static str) -> Self {
         Self { code }
     }
 }
@@ -84,6 +92,35 @@ pub(crate) struct ManagedJobRunReport {
     pub terminal: ManagedJobTerminal,
     pub stdout: OutputSnapshot,
     pub stderr: OutputSnapshot,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ResidentJobState {
+    Running,
+    Exited(i32),
+    Signaled(u16),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResidentJobStatus {
+    pub state: ResidentJobState,
+    pub stdin_open: bool,
+    pub lease_remaining_ms: u64,
+    pub stdout_earliest_cursor: u64,
+    pub stdout_current_cursor: u64,
+    pub stderr_earliest_cursor: u64,
+    pub stderr_current_cursor: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum StdinWriteError {
+    Limit,
+    Closed,
+    Owner(ManagedJobOwnerError),
+    DeliveryUncertain {
+        /// Bytes known to have been accepted before the failing write or flush.
+        known_written: usize,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -225,14 +262,126 @@ pub(crate) struct ResidentJobOwner {
     owner: ResidentOwnerIdentity,
     process: ExactProcessIdentity,
     child: Option<ContainedChild>,
+    stdin: Option<ContainedChildInput>,
     stdout: SharedRing,
     stderr: SharedRing,
     stdout_drain: Option<JoinHandle<()>>,
     stderr_drain: Option<JoinHandle<()>>,
     finished: bool,
+    terminal_report: Option<ManagedJobRunReport>,
+    lease_deadline: Instant,
 }
 
 impl ResidentJobOwner {
+    pub(crate) fn status(&mut self) -> Result<ResidentJobStatus, ManagedJobOwnerError> {
+        self.poll_lifecycle()?;
+        let stdout = lock_ring(&self.stdout);
+        let stderr = lock_ring(&self.stderr);
+        let state = match self.terminal_report.as_ref().map(|report| report.terminal) {
+            None => ResidentJobState::Running,
+            Some(ManagedJobTerminal::Exited(code)) => ResidentJobState::Exited(code),
+            Some(ManagedJobTerminal::Signaled(signal)) => ResidentJobState::Signaled(signal),
+        };
+        Ok(ResidentJobStatus {
+            state,
+            stdin_open: self.stdin.is_some(),
+            lease_remaining_ms: self
+                .lease_deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+            stdout_earliest_cursor: stdout.earliest_cursor(),
+            stdout_current_cursor: stdout.current_cursor,
+            stderr_earliest_cursor: stderr.earliest_cursor(),
+            stderr_current_cursor: stderr.current_cursor,
+        })
+    }
+
+    pub(crate) fn write_stdin(&mut self, bytes: &[u8]) -> Result<usize, StdinWriteError> {
+        if bytes.len() > STDIN_WRITE_MAX {
+            return Err(StdinWriteError::Limit);
+        }
+        self.poll_lifecycle().map_err(StdinWriteError::Owner)?;
+        if self.finished {
+            return Err(StdinWriteError::Closed);
+        }
+        let Some(mut writer) = self.stdin.take() else {
+            return Err(StdinWriteError::Closed);
+        };
+        let known_written = write_exact_and_flush(&mut writer, bytes)
+            .map_err(|known_written| StdinWriteError::DeliveryUncertain { known_written })?;
+        self.stdin = Some(writer);
+        Ok(known_written)
+    }
+
+    pub(crate) fn close_stdin(&mut self) -> Result<bool, ManagedJobOwnerError> {
+        self.poll_lifecycle()?;
+        Ok(self.stdin.take().is_some())
+    }
+
+    pub(crate) fn renew(&mut self, ttl_ms: u64) -> Result<u64, ManagedJobOwnerError> {
+        validate_lease_ttl(ttl_ms)?;
+        self.poll_lifecycle()?;
+        if self.finished {
+            return Err(ManagedJobOwnerError::new("managed_job_already_terminal"));
+        }
+        let ttl = Duration::from_millis(ttl_ms);
+        self.lease_deadline = Instant::now()
+            .checked_add(ttl)
+            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_lease_invalid"))?;
+        Ok(ttl_ms)
+    }
+
+    pub(crate) fn wait(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<ManagedJobRunReport>, ManagedJobOwnerError> {
+        if timeout > WAIT_MAX {
+            return Err(ManagedJobOwnerError::new("managed_job_wait_limit"));
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            self.poll_lifecycle()?;
+            if let Some(report) = self.terminal_report.clone() {
+                return Ok(Some(report));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(None);
+            }
+            thread::sleep(WAIT_POLL.min(deadline.saturating_duration_since(now)));
+        }
+    }
+
+    pub(crate) fn stop(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        if let Some(report) = self.terminal_report.clone() {
+            return Ok(report);
+        }
+        if let Some(report) = self.try_finish()? {
+            return Ok(report);
+        }
+        self.stdin.take();
+        let _cleanup_result = self
+            .child
+            .as_mut()
+            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_process_state_unknown"))?
+            .terminate_and_wait(CLEANUP_WAIT);
+        let exit = self
+            .child
+            .as_mut()
+            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_process_state_unknown"))?
+            .try_wait()
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_process_state_unknown"))?
+            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_process_state_unknown"))?;
+        // Closing stdin can let the root exit between the pre-stop poll and
+        // native tree termination. Preserve that exact observed exit and let
+        // `finish_after_exit` retry containment cleanup after the root has
+        // become unambiguously dead. We reach this point only after retaining
+        // the native terminal result; a still-live root failed above.
+        self.finish_after_exit(exit)
+    }
+
     #[allow(dead_code, reason = "used by the next resident IPC slice")]
     pub(crate) fn output_page(
         &self,
@@ -247,6 +396,9 @@ impl ResidentJobOwner {
     pub(crate) fn try_finish(
         &mut self,
     ) -> Result<Option<ManagedJobRunReport>, ManagedJobOwnerError> {
+        if let Some(report) = self.terminal_report.clone() {
+            return Ok(Some(report));
+        }
         let exit = match self
             .child
             .as_mut()
@@ -262,6 +414,14 @@ impl ResidentJobOwner {
             }
         };
 
+        self.finish_after_exit(exit).map(Some)
+    }
+
+    fn finish_after_exit(
+        &mut self,
+        exit: ProcessExit,
+    ) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        self.stdin.take();
         // Root exit does not prove descendants closed inherited pipe handles.
         // Close the native containment owner before joining either reader.
         self.child
@@ -288,19 +448,33 @@ impl ResidentJobOwner {
 
         self.finished = true;
         self.child.take();
-        Ok(Some(ManagedJobRunReport {
+        let report = ManagedJobRunReport {
             terminal,
             stdout: lock_ring(&self.stdout).snapshot(),
             stderr: lock_ring(&self.stderr).snapshot(),
-        }))
+        };
+        self.terminal_report = Some(report.clone());
+        Ok(report)
     }
 
     pub(crate) fn run_to_completion(mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
         loop {
-            if let Some(report) = self.try_finish()? {
+            self.poll_lifecycle()?;
+            if let Some(report) = self.terminal_report.clone() {
                 return Ok(report);
             }
             thread::sleep(WAIT_POLL);
+        }
+    }
+
+    fn poll_lifecycle(&mut self) -> Result<(), ManagedJobOwnerError> {
+        if self.finished {
+            return Ok(());
+        }
+        if Instant::now() >= self.lease_deadline {
+            self.stop().map(|_| ())
+        } else {
+            self.try_finish().map(|_| ())
         }
     }
 
@@ -326,6 +500,20 @@ impl ResidentJobOwner {
     fn drains_finalized(&self) -> bool {
         lock_ring(&self.stdout).finalized && lock_ring(&self.stderr).finalized
     }
+}
+
+fn write_exact_and_flush(writer: &mut impl Write, bytes: &[u8]) -> Result<usize, usize> {
+    let mut known_written = 0;
+    while known_written < bytes.len() {
+        match writer.write(&bytes[known_written..]) {
+            Ok(0) => return Err(known_written),
+            Ok(count) => known_written += count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return Err(known_written),
+        }
+    }
+    writer.flush().map_err(|_| known_written)?;
+    Ok(known_written)
 }
 
 impl Drop for ResidentJobOwner {
@@ -383,6 +571,21 @@ pub(crate) fn start_owner_from_reader(
         }
     };
 
+    let stdin_stream = child.take_stdin();
+    let Some(stdin_stream) = stdin_stream else {
+        let cleanup = child.terminate_and_wait(CLEANUP_WAIT);
+        if cleanup.is_ok() {
+            let _ = store.mark_start_failed(
+                &launch.handle,
+                &owner,
+                "stdin_stream_unavailable",
+                now_utc_ms()?,
+            );
+        }
+        return Err(ManagedJobOwnerError::new(
+            "managed_job_stdin_stream_unavailable",
+        ));
+    };
     let stdout = Arc::new(Mutex::new(CursorRing::new(
         launch.output_capacity_bytes.div_ceil(2),
     )));
@@ -478,11 +681,16 @@ pub(crate) fn start_owner_from_reader(
         owner,
         process,
         child: Some(child),
+        stdin: Some(stdin_stream),
         stdout,
         stderr,
         stdout_drain: Some(stdout_drain),
         stderr_drain: Some(stderr_drain),
         finished: false,
+        terminal_report: None,
+        lease_deadline: Instant::now()
+            .checked_add(Duration::from_millis(launch.lease_ttl_ms))
+            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_lease_invalid"))?,
     })
 }
 
@@ -515,6 +723,7 @@ fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError
         || launch.arguments.len() > COMMAND_PARTS_MAX
         || launch.environment.len() > ENVIRONMENT_ENTRIES_MAX
         || !(OUTPUT_CAPACITY_MIN..=OUTPUT_CAPACITY_MAX).contains(&launch.output_capacity_bytes)
+        || validate_lease_ttl(launch.lease_ttl_ms).is_err()
         || launch
             .current_directory
             .as_ref()
@@ -554,7 +763,10 @@ fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError
 
 fn build_contained_command(launch: &ManagedJobLaunch) -> ContainedHeadlessCommand {
     let mut command = ContainedHeadlessCommand::new(&launch.program);
-    command.args(&launch.arguments).capture_output();
+    command
+        .args(&launch.arguments)
+        .pipe_stdin()
+        .capture_output();
     if let Some(directory) = &launch.current_directory {
         command.current_dir(directory);
     }
@@ -569,6 +781,14 @@ fn build_contained_command(launch: &ManagedJobLaunch) -> ContainedHeadlessComman
         }
     }
     command
+}
+
+fn validate_lease_ttl(ttl_ms: u64) -> Result<(), ManagedJobOwnerError> {
+    if (LEASE_TTL_MIN_MS..=LEASE_TTL_MAX_MS).contains(&ttl_ms) {
+        Ok(())
+    } else {
+        Err(ManagedJobOwnerError::new("managed_job_lease_invalid"))
+    }
 }
 
 fn spawn_drain(
@@ -639,10 +859,34 @@ fn now_utc_ms() -> Result<i64, ManagedJobOwnerError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        fs,
-        io::{Cursor, Write as _},
-    };
+    use std::{fs, io::Cursor};
+
+    struct PartialWriter {
+        remaining: usize,
+    }
+
+    impl Write for PartialWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "fixture failure"));
+            }
+            let count = self.remaining.min(bytes.len());
+            self.remaining -= count;
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn partial_stdin_failure_reports_only_the_known_lower_bound() {
+        assert_eq!(
+            write_exact_and_flush(&mut PartialWriter { remaining: 2 }, b"abcdef"),
+            Err(2)
+        );
+    }
 
     fn test_directory(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -672,6 +916,7 @@ mod tests {
             current_directory: None,
             environment: Vec::new(),
             output_capacity_bytes: 16 * 1024,
+            lease_ttl_ms: 60_000,
         }
     }
 

@@ -27,6 +27,11 @@ pub mod macos_spaces;
     dead_code,
     reason = "internal managed-job cohort under staged integration"
 )]
+pub(crate) mod managed_job_ipc;
+#[allow(
+    dead_code,
+    reason = "internal managed-job cohort under staged integration"
+)]
 pub(crate) mod managed_job_owner;
 #[allow(
     dead_code,
