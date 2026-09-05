@@ -5,7 +5,7 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`7b9ee90`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`e77d668`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 The earlier opt-in allocation attribution remains diagnostic-only: D0 rejected
 the recovery specialization and no allocator rewind/reuse landed. This revision
