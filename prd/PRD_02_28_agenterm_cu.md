@@ -526,10 +526,13 @@ flowchart LR
   forceful) and a real Linux x86_64 court has returned verified exit with no
   surviving child. Windows forceful mode uses a retained HANDLE; its x86_64
   court likewise returned verified exit in 114 ms with a closed receipt.
-  macOS is deliberately typed `process_signal_unsupported`:
-  kqueue proves which object exits but cannot atomically signal that object, so
-  a PID fallback would retain a reuse race and is forbidden. Arbitrary signals,
-  suspend/resume and bounded process-tree termination remain separate leaves.
+  macOS now retains `TASK_AUDIT_TOKEN` while opening the stronger termination
+  reference, releases the task-name port, and calls
+  `proc_signal_with_audittoken`; XNU validates the embedded pidversion, so a
+  recycled PID cannot receive the effect. The macOS public qjswasm journey
+  proved graceful exact exit, receipt completion and owned reaping. Arbitrary
+  signals, suspend/resume and bounded process-tree termination remain separate
+  leaves.
 - [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
   bounded identity-safe diff. It takes one baseline and emits `started` /
   `exited` rows keyed by PID plus native start identity, so PID reuse cannot

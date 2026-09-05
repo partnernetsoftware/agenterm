@@ -81,7 +81,7 @@ const declared_evidence = [
   "cu.macos-process-usage",
   "cu.macos-process-usage-watch",
   "cu.macos-process-wait",
-  "cu.macos-process-kill-refusal",
+  "cu.macos-process-kill-exact",
   "cu.macos-process-lifecycle-watch",
   "cu.macos-network-probe",
   "cu.macos-file-inspect",
@@ -3022,26 +3022,24 @@ try {
     "cu_macos_smoke_terminal_server_exit:" + JSON.stringify(terminal_output)
   );
 
-  print("STEP process-kill refuses a PID-racy macOS signal and leaves the exact fixture alive");
-  const kill_refusal = run_cu_reply(
+  print("STEP process-kill uses the retained macOS audit token and verifies the exact fixture exit");
+  const kill_result = run_cu_json(
     run_directory,
     executable,
     [
       "--target", "current", "--grant", "observe,actuate", "process-kill",
       "--pid", "" + fixture_pid, "--start-identity", process_identity,
-      "--mode", "forceful", "--timeout-ms", "5000", "--expect", "exited"
+      "--mode", "graceful", "--timeout-ms", "5000", "--expect", "exited"
     ]
   );
   ensure(
-    !flag_at(kill_refusal, "ok")
-      && text_at(kill_refusal, "error.code") === "process_signal_unsupported"
-      && harness.process_present(fixture_pid) !== 0,
-    "cu_macos_smoke_process_kill_refusal:" + JSON.stringify(kill_refusal)
+    flag_at(kill_result, "data.performed") && flag_at(kill_result, "data.verified")
+      && text_at(kill_result, "data.state") === "exited"
+      && text_at(kill_result, "data.mechanism") === "native-process-reference",
+    "cu_macos_smoke_process_kill_exact:" + JSON.stringify(kill_result)
   );
 
-  print("STEP the fixture's owned SIGTERM cleanup path exits 0 and is reaped");
-  const terminated = rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
-  ensure(terminated.success === true, "cu_macos_smoke_fixture_terminate:" + terminated.stderr);
+  print("STEP the exact fixture's graceful cleanup path exits 0 and is reaped");
   let fixture_exited = 0;
   for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
     if (harness.state(fixture) === "exited") {
@@ -3164,7 +3162,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-process-environment"
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-usage-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-wait");
-harness.emit_evidence(context, declared_evidence, "cu.macos-process-kill-refusal");
+harness.emit_evidence(context, declared_evidence, "cu.macos-process-kill-exact");
 harness.emit_evidence(context, declared_evidence, "cu.macos-process-lifecycle-watch");
 harness.emit_evidence(context, declared_evidence, "cu.macos-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.macos-file-inspect");

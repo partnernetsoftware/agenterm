@@ -10,7 +10,30 @@ use crate::process_reference::ProcessWait;
 pub struct ProcessReference {
     queue: OwnedFd,
     process_id: u32,
+    audit_token: Option<AuditToken>,
     exited: AtomicBool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct AuditToken {
+    value: [u32; 8],
+}
+
+const TASK_AUDIT_TOKEN: u32 = 15;
+const TASK_AUDIT_TOKEN_COUNT: u32 = 8;
+
+unsafe extern "C" {
+    static mach_task_self_: u32;
+    fn task_name_for_pid(target_task: u32, pid: libc::c_int, task: *mut u32) -> libc::c_int;
+    fn task_info(
+        task: u32,
+        flavor: u32,
+        information: *mut libc::c_int,
+        count: *mut u32,
+    ) -> libc::c_int;
+    fn mach_port_deallocate(task: u32, name: u32) -> libc::c_int;
+    fn proc_signal_with_audittoken(token: *mut AuditToken, signal: libc::c_int) -> libc::c_int;
 }
 
 impl ProcessReference {
@@ -44,12 +67,15 @@ impl ProcessReference {
         Ok(Self {
             queue,
             process_id,
+            audit_token: None,
             exited: AtomicBool::new(false),
         })
     }
 
     pub(crate) fn open_for_termination(process_id: u32) -> io::Result<Self> {
-        Self::open(process_id)
+        let mut reference = Self::open(process_id)?;
+        reference.audit_token = Some(audit_token_for_pid(process_id)?);
+        Ok(reference)
     }
 
     pub(crate) const fn id(&self) -> u32 {
@@ -110,13 +136,57 @@ impl ProcessReference {
 
     pub(crate) fn terminate(
         &self,
-        _mode: crate::process_control::TerminationMode,
+        mode: crate::process_control::TerminationMode,
     ) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "macOS has no exact-process signal primitive atomic against PID reuse",
-        ))
+        let mut token = self.audit_token.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "exact-process audit token was not retained for termination",
+            )
+        })?;
+        let signal = match mode {
+            crate::process_control::TerminationMode::Graceful => libc::SIGTERM,
+            crate::process_control::TerminationMode::Forceful => libc::SIGKILL,
+        };
+        let error = unsafe { proc_signal_with_audittoken(&raw mut token, signal) };
+        if error == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(error))
+        }
     }
+}
+
+fn audit_token_for_pid(process_id: u32) -> io::Result<AuditToken> {
+    let pid = libc::c_int::try_from(process_id)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "process id is out of range"))?;
+    let self_task = unsafe { mach_task_self_ };
+    let mut task = 0_u32;
+    let result = unsafe { task_name_for_pid(self_task, pid, &raw mut task) };
+    if result != 0 {
+        return Err(io::Error::from_raw_os_error(result));
+    }
+    let mut token = AuditToken::default();
+    let mut count = TASK_AUDIT_TOKEN_COUNT;
+    let info_result = unsafe {
+        task_info(
+            task,
+            TASK_AUDIT_TOKEN,
+            token.value.as_mut_ptr().cast(),
+            &raw mut count,
+        )
+    };
+    let _ = unsafe { mach_port_deallocate(self_task, task) };
+    if info_result != 0 {
+        return Err(io::Error::from_raw_os_error(info_result));
+    }
+    if count != TASK_AUDIT_TOKEN_COUNT || token.value[5] != process_id {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "task audit token does not identify the requested process",
+        ));
+    }
+    Ok(token)
 }
 
 impl AsRawFd for crate::process_reference::ProcessReference {

@@ -55,10 +55,10 @@ impl ProcessReference {
 
     /// Sends a termination request through this exact native process object.
     ///
-    /// Linux uses `pidfd_send_signal`; Windows forceful termination uses the
-    /// retained process HANDLE. macOS deliberately reports `Unsupported`
-    /// because a kqueue NOTE_EXIT subscription cannot make a later PID signal
-    /// atomic against PID reuse.
+    /// Linux uses `pidfd_send_signal`; Windows uses the retained process HANDLE;
+    /// macOS retains the target task's audit token and asks XNU to validate its
+    /// embedded pidversion while delivering the signal. No host reopens a
+    /// mutable numeric PID as the authority for this effect.
     pub fn terminate(&self, mode: crate::process_control::TerminationMode) -> io::Result<()> {
         self.0.terminate(mode)
     }
@@ -224,7 +224,7 @@ mod tests {
         assert!(child.wait().expect("reap child").success());
     }
 
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     #[test]
     fn termination_reference_stops_the_exact_child_object() {
         let mut child = Command::new(std::env::current_exe().expect("test executable"))
@@ -248,17 +248,6 @@ mod tests {
             ProcessWait::Exited
         );
         let _ = child.wait().expect("reap terminated child");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_refuses_pid_racy_termination() {
-        let reference = ProcessReference::open_for_termination(std::process::id())
-            .expect("open current process reference");
-        let error = reference
-            .terminate(crate::process_control::TerminationMode::Forceful)
-            .expect_err("kqueue cannot authorize an exact process signal");
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 
     #[test]

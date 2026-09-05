@@ -85,15 +85,15 @@
           "id": "process.kill.single",
           "mcu_shape": "kill PID [--force] [--timeout S]",
           "acu_shape": "process-kill --pid N --start-identity ID --mode graceful|forceful --timeout-ms N --expect exited",
-          "state": "platform-limited",
-          "platforms": {"linux": "native", "macos": "typed-unsupported", "windows": "native"},
-          "evidence": ["linux-x86_64-pidfd-live", "windows-x86_64-retained-handle-live"],
+          "state": "native",
+          "platforms": {"linux": "pidfd", "macos": "audit-token", "windows": "retained-handle"},
+          "evidence": ["linux-x86_64-pidfd-live", "cu.macos-process-kill-exact", "windows-x86_64-retained-handle-live"],
           "declared_evidence": [
             "cu.linux-process-kill",
-            "cu.macos-process-kill-refusal",
+            "cu.macos-process-kill-exact",
             "cu.windows-process-kill"
           ],
-          "note": "ACU reserves a crash-persistent receipt, mutates through one retained native process object, and waits on that object. macOS refuses because kqueue observation cannot make a later PID signal atomic against reuse."
+          "note": "ACU reserves a crash-persistent receipt, mutates through one retained native process object, and waits on that object. macOS retains TASK_AUDIT_TOKEN and calls proc_signal_with_audittoken, whose pidversion validation rejects a recycled PID."
         },
         {
           "id": "process.signal-and-tree",

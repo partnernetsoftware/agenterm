@@ -251,6 +251,11 @@ Windows journey evidence is still required before the row is three-host green.
   identity, and waits monotonically for that exact object. A live timeout is a
   verified result. This is intentionally stronger than MCU's repeated PID
   inventory polling; the native ACU spelling is reachable through the shim.
+- `process-kill` now owns an exact native mutation on all three hosts: Linux
+  signals its pidfd, Windows terminates its retained HANDLE, and macOS signals
+  a retained task audit token whose pidversion is checked by XNU. The macOS
+  public qjswasm journey proves graceful exit and reaping; arbitrary signals
+  and bounded tree termination remain separate gaps.
 - The three public native journeys now bind those commands to each owned GUI
   fixture. macOS exact source `986863c0` is live green at 40 STEP / 41 evidence
   ids in 28.504 s. Linux x86_64 is
