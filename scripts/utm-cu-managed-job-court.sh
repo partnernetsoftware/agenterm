@@ -1,5 +1,7 @@
 #!/bin/bash
-# Run the registered public managed-job journey in one Linux/Windows UTM court.
+# Run one registered public ACU journey in a Linux/Windows UTM court.
+# Defaults preserve the historical managed-job entry; thin owning wrappers may
+# select another checked-in task and its exact evidence/PASS lines.
 
 set -euo pipefail
 
@@ -19,6 +21,11 @@ EOF
 [ "$#" -eq 2 ] || { usage >&2; exit 2; }
 COURT="$1"
 PROFILE_DIR="$2"
+TASK="${AGENTERM_UTM_TASK:-cu-managed-job-smoke}"
+EVIDENCE="${AGENTERM_UTM_EVIDENCE:-cu.managed-job-lifecycle}"
+PASS_LINE="${AGENTERM_UTM_PASS_LINE:-PASS: agenterm-cu platform-neutral managed-job lifecycle (replay, dual cursors, renewal, stop and owned cleanup)}"
+case "$TASK" in ''|*[!a-z0-9-]*) echo "invalid UTM task id" >&2; exit 2 ;; esac
+case "$EVIDENCE" in ''|*[!a-z0-9.-]*) echo "invalid UTM evidence id" >&2; exit 2 ;; esac
 case "$COURT" in
   lnx-aarch64-desktop|lnx-x86_64-desktop) GUEST_OS=linux ;;
   win-aarch64-desktop|win-x86_64-desktop) GUEST_OS=windows ;;
@@ -79,7 +86,8 @@ trap cleanup EXIT
 PAYLOAD="$SCRATCH/payload"
 mkdir -p "$PAYLOAD/target/debug" "$PAYLOAD/scripts/qjs/lib"
 cp "$REPO_ROOT/agenterm.tasks.json" "$PAYLOAD/"
-cp "$REPO_ROOT/scripts/qjs/cu-managed-job-smoke.qjs" "$PAYLOAD/scripts/qjs/"
+[ -f "$REPO_ROOT/scripts/qjs/$TASK.qjs" ] || { echo "task script is missing: $TASK" >&2; exit 2; }
+cp "$REPO_ROOT/scripts/qjs/$TASK.qjs" "$PAYLOAD/scripts/qjs/"
 cp "$REPO_ROOT/scripts/qjs/lib/rh_compat.qjs" "$PAYLOAD/scripts/qjs/lib/"
 cp "$REPO_ROOT/scripts/qjs/lib/test_harness.qjs" "$PAYLOAD/scripts/qjs/lib/"
 printf '%s\n' "$SOURCE_SHA" >"$PAYLOAD/SOURCE_SHA"
@@ -119,7 +127,7 @@ LEASED=1
 RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 LOCAL_LOG="$SCRATCH/run.log"
 LOCAL_EXIT="$SCRATCH/run.exit"
-EVIDENCE_DIR="$REPO_ROOT/target/utm-court-evidence/$SOURCE_SHA/$COURT"
+EVIDENCE_DIR="$REPO_ROOT/target/utm-court-evidence/$SOURCE_SHA/$COURT/$TASK"
 if [ "$GUEST_OS" = linux ]; then
   GUEST_ARCHIVE="/tmp/agenterm-$RUN_ID.tar.gz"
   GUEST_ROOT="/tmp/agenterm-$RUN_ID"
@@ -133,7 +141,7 @@ if [ "$GUEST_OS" = linux ]; then
   UTM_COURT_TRANSFER_TIMEOUT=180 \
     "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
   "$COURT_CLI" exec "$COURT" -- /bin/bash -lc \
-    "rm -rf '$GUEST_ROOT'; mkdir -p '$GUEST_ROOT'; tar -xzf '$GUEST_ARCHIVE' -C '$GUEST_ROOT'; cd '$GUEST_ROOT'; sha256sum -c MANIFEST.sha256 >'$GUEST_LOG' 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then target/debug/agenterm cli script task run cu-managed-job-smoke --manifest agenterm.tasks.json >>'$GUEST_LOG' 2>&1; rc=\$?; fi; printf '%s' \"\$rc\" >'$GUEST_EXIT.tmp'; mv -f '$GUEST_EXIT.tmp' '$GUEST_EXIT'"
+    "rm -rf '$GUEST_ROOT'; mkdir -p '$GUEST_ROOT'; tar -xzf '$GUEST_ARCHIVE' -C '$GUEST_ROOT'; cd '$GUEST_ROOT'; sha256sum -c MANIFEST.sha256 >'$GUEST_LOG' 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then target/debug/agenterm cli script task run '$TASK' --manifest agenterm.tasks.json >>'$GUEST_LOG' 2>&1; rc=\$?; fi; printf '%s' \"\$rc\" >'$GUEST_EXIT.tmp'; mv -f '$GUEST_EXIT.tmp' '$GUEST_EXIT'"
 else
   "$COURT_CLI" interactive-ready "$COURT" 180 >/dev/null
   GUEST_BASE="$WINDOWS_ROOT"
@@ -163,7 +171,7 @@ else
     '    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $parts[1]).Hash.ToLowerInvariant()' \
     '    if ($actual -ne $parts[0]) { throw "artifact digest mismatch" }' \
     '  }' \
-    '  & ".\target\debug\agenterm.com" cli script task run cu-managed-job-smoke --manifest agenterm.tasks.json *> $log' \
+    "  & \".\\target\\debug\\agenterm.com\" cli script task run $TASK --manifest agenterm.tasks.json *> \$log" \
     '  $exitCode = $LASTEXITCODE' \
     '} catch {' \
     '  $_ | Out-String | Add-Content -LiteralPath $log' \
@@ -196,7 +204,7 @@ while :; do
         >/dev/null 2>&1 || true
     fi
     printf '124\n' >"$EVIDENCE_DIR/run.exit"
-    python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" <<'PY'
+    python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$EVIDENCE" <<'PY'
 import datetime, json, os, sys
 receipt = {
     "schema": 1,
@@ -205,7 +213,7 @@ receipt = {
     "bundle_sha256": sys.argv[4],
     "exit_code": 124,
     "outcome": "timeout",
-    "evidence": "cu.managed-job-lifecycle",
+    "evidence": sys.argv[5],
     "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
 with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
@@ -213,7 +221,7 @@ with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
     stream.write("\n")
 os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 PY
-    echo "UTM managed-job journey timed out after ${result_timeout}s" >&2
+    echo "UTM $TASK journey timed out after ${result_timeout}s" >&2
     exit 1
   fi
   sleep 1
@@ -227,7 +235,7 @@ mkdir -p "$EVIDENCE_DIR"
 cp "$LOCAL_LOG" "$EVIDENCE_DIR/run.log"
 cp "$LOCAL_EXIT" "$EVIDENCE_DIR/run.exit"
 cp "$PAYLOAD/MANIFEST.sha256" "$EVIDENCE_DIR/MANIFEST.sha256"
-python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$RUN_RC" <<'PY'
+python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$RUN_RC" "$EVIDENCE" <<'PY'
 import datetime, json, sys
 receipt = {
     "schema": 1,
@@ -235,7 +243,7 @@ receipt = {
     "court": sys.argv[3],
     "bundle_sha256": sys.argv[4],
     "exit_code": int(sys.argv[5]),
-    "evidence": "cu.managed-job-lifecycle",
+    "evidence": sys.argv[6],
     "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
 with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
@@ -246,5 +254,5 @@ os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 PY
 
 [ "$RUN_RC" -eq 0 ] || exit "$RUN_RC"
-grep -Fqx 'EVIDENCE cu.managed-job-lifecycle' "$LOCAL_LOG"
-grep -Fqx 'PASS: agenterm-cu platform-neutral managed-job lifecycle (replay, dual cursors, renewal, stop and owned cleanup)' "$LOCAL_LOG"
+grep -Fqx "EVIDENCE $EVIDENCE" "$LOCAL_LOG"
+grep -Fqx "$PASS_LINE" "$LOCAL_LOG"
