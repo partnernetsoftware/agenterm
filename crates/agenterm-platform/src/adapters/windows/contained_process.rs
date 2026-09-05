@@ -279,6 +279,10 @@ impl Drop for ContainedChild {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process_containment::ProcessContainmentErrorKind;
+    use std::{thread, time::Instant};
+
+    const FIRST_INSTRUCTION_JOB: &str = r"Local\agenterm-contained-first-instruction-test";
 
     fn text(units: Vec<u16>) -> String {
         String::from_utf16(&units[..units.len() - 1]).expect("valid test UTF-16")
@@ -297,5 +301,53 @@ mod tests {
             text(windows_command_line(std::path::Path::new("C:\\app.exe"), &args).unwrap()),
             r#""C:\app.exe" "" "two words" "say \"hello\"" 中文 C:\tail\"#
         );
+    }
+
+    #[test]
+    fn first_child_instruction_observes_the_exact_containment_job() {
+        match ProcessContainment::open(FIRST_INSTRUCTION_JOB) {
+            Ok(containment) => {
+                let process = ProcessReference::open(std::process::id())
+                    .expect("retain contained child identity");
+                assert!(
+                    containment
+                        .contains(&process)
+                        .expect("query exact child membership"),
+                    "the child ran before it belonged to the expected Job"
+                );
+                return;
+            }
+            Err(error) if error.kind() == ProcessContainmentErrorKind::NotFound => {}
+            Err(error) => panic!("probe containment open failed: {error}"),
+        }
+
+        let containment = ProcessContainment::create(
+            Some(FIRST_INSTRUCTION_JOB),
+            ProcessContainmentOptions {
+                terminate_on_last_close: true,
+                ..ProcessContainmentOptions::default()
+            },
+        )
+        .expect("create probe containment");
+        let mut spec = ContainedHeadlessCommand::new(
+            std::env::current_exe().expect("resolve test executable"),
+        );
+        spec.args([
+            "--exact",
+            "selected::contained_process::tests::first_child_instruction_observes_the_exact_containment_job",
+            "--nocapture",
+        ]);
+        let mut child = spawn_suspended_into(&spec, containment, 0)
+            .map_err(|failure| failure.error)
+            .expect("spawn exact contained probe");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match child.try_wait().expect("wait contained probe") {
+                Some(ProcessExit::Code(0)) => break,
+                Some(exit) => panic!("contained probe failed: {exit:?}"),
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                None => panic!("contained probe timed out"),
+            }
+        }
     }
 }
