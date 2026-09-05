@@ -91,6 +91,23 @@ pub fn parse(
             apply,
         });
     }
+    if spec.name == "host-open" {
+        let value = positional(args, "TARGET")?;
+        let application = flag_text(args, "--app")?;
+        let background = take_switch(args, "--background");
+        if !args.is_empty() {
+            return Err(format!(
+                "host-open accepts TARGET [--app APPLICATION] [--background]; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::HostOpen {
+            target,
+            value,
+            application,
+            background,
+        });
+    }
     if !args.is_empty() {
         return Err(format!(
             "{} accepts no arguments; unexpected {:?}",

@@ -503,6 +503,18 @@ flowchart LR
   this native command, reducing the MCU `STAY` inventory from 32 to 31; routing
   tests and a live macOS adapter invocation are green. Whole-window activation
   subsequently reduces it to 30 under the separate evidence above.
+- [~] Host application dispatch is now a first-class actuation:
+  `host-open PATH_OR_URL [--app APPLICATION] [--background]` (alias `open`)
+  crosses a typed `agenterm-platform` facade and never invokes a shell. macOS
+  uses the system LaunchServices launcher, Linux uses a system `xdg-open`, and
+  Windows uses `ShellExecuteW`; target/application values are bounded and
+  option-like or NUL-containing values are rejected before native dispatch.
+  The durable receipt stores byte lengths and SHA-256, not plaintext. A native
+  acceptance is only `performed=true, accepted=true, verified=false`, never a
+  fabricated claim that the handler rendered or consumed the target. The
+  background no-window macOS qjswasm fixture is green as
+  `cu.host-open.macos`; Linux/Windows native courts remain open. MCU `open` now
+  routes here, reducing the top-level compatibility `STAY` set from 21 to 20.
 - [x] The compatibility boundary no longer lies about `permissions`: `acu
   permissions` now reaches the same canonical observe-only ACU facade used by
   `doctor` and `capabilities`, and the old MCU entry advertises ACU as its

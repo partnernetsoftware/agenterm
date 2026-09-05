@@ -81,6 +81,8 @@ flowchart LR
   P --> Q
   SET --> PS["permissions status facade live<br/>same declaration as capabilities"]
   PS --> Q
+  SET --> HO["host-open live<br/>shell-free · acceptance ≠ verification"]
+  HO --> Q
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
   PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
   PTY --> MJ["managed job live on macOS + Linux x86_64<br/>resident owner · native IPC · exact replay"]
@@ -150,6 +152,7 @@ MCU retirement blockers
 │  │  ├─ [x] start-identity gate + retained pidfd/audit-token effect authority
 │  │  ├─ [x] scheduler read-back + closed success/failure receipt + public qjswasm court
 │  │  └─ [ ] Linux native and Windows typed-refusal courts
+│  ├─ [~] host open: shell-free typed dispatcher; macOS qjswasm green, Linux/Windows courts pending
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ [~] privilege plan/broker/OS consent
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
@@ -160,7 +163,7 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **21 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **20 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
@@ -196,6 +199,16 @@ Windows journey evidence is still required before the row is three-host green.
 The legacy `acu caps` spelling now projects directly onto ACU `capabilities`.
 It no longer keeps MCU's private capability manifest alive; live mechanism
 depth that ACU has not proved remains explicit in the replacement truth table.
+
+The legacy `open PATH_OR_URL [--app APPLICATION] [--bg]` spelling now routes
+to ACU `host-open`. Its platform facade never invokes a shell, rejects
+option-like/NUL/oversized values before dispatch, uses the native registered
+application mechanism, and writes a pre-effect receipt containing only byte
+lengths and digests. Native dispatcher acceptance is deliberately reported as
+`performed=true, accepted=true, verified=false`; it is not proof that the
+handler rendered or consumed the target. A no-window macOS `.app` fixture is
+green through the public qjswasm court; Linux and Windows handler-owned courts
+remain before three-host promotion.
 
 ## Historical observed frontier (2026-09-04)
 

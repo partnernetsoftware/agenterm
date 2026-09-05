@@ -1,0 +1,116 @@
+// macOS public black-box journey for shell-free host application dispatch.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.host-open.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", "actuate"];
+  for (let index = 0; index < arguments.length; index = index + 1) { argv.push(arguments[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      HOME: run_directory
+    },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.command === "host-open", "cu_host_open_wrong_command");
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_host_open_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_host_open_wrong_error:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_host_open_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_host_open_executable_missing");
+
+const context = harness.new_context(repo, "cu-host-open");
+const run_directory = context.run_directory;
+const bundle = rh.join(run_directory, "BackgroundFixture.app");
+const macos = rh.join(bundle, "Contents/MacOS");
+const fixture = rh.join(macos, "BackgroundFixture");
+const marker = rh.join(macos, "ready");
+const target = rh.join(run_directory, "document.txt");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.create_dir_all(macos);
+  rh.write_text(fixture,
+    "#!/bin/sh\n"
+    + "printf ready > \"$(dirname \"$0\")/ready\"\n");
+  const chmod = rh.command("/bin/chmod", ["0700", fixture], { timeout_ms: 5000 });
+  ensure(chmod.success === true, "cu_host_open_fixture_chmod:" + chmod.stderr);
+  rh.write_text(rh.join(bundle, "Contents/Info.plist"),
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+    + "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    + "<plist version=\"1.0\"><dict>"
+    + "<key>CFBundleName</key><string>BackgroundFixture</string>"
+    + "<key>CFBundleExecutable</key><string>BackgroundFixture</string>"
+    + "<key>CFBundleIdentifier</key><string>dev.agenterm.host-open-fixture</string>"
+    + "<key>CFBundlePackageType</key><string>APPL</string>"
+    + "<key>LSBackgroundOnly</key><true/>"
+    + "</dict></plist>\n");
+  rh.write_text(target, "host-open-fixture");
+
+  print("STEP oversized target fails typed before dispatch");
+  const oversized = "x".repeat(32769);
+  const invalid = invoke(run_directory, executable, ["host-open", oversized], "host_open_invalid_input");
+  ensure(invalid.detail.effect === "not_performed", "cu_host_open_invalid_effect");
+
+  print("STEP background LaunchServices dispatch accepts one exact argv target");
+  const opened = invoke(run_directory, executable, [
+    "open", target, "--app", bundle, "--background"
+  ]);
+  ensure(opened.performed === true && opened.accepted === true && opened.verified === false,
+    "cu_host_open_receipt_truth:" + JSON.stringify(opened));
+  ensure(opened.provider === "macos-open" && opened.verification === "dispatcher-accepted-only",
+    "cu_host_open_provider_truth");
+  ensure(opened.target_evidence.byte_length > 0 && opened.target_evidence.sha256.length === 64,
+    "cu_host_open_target_evidence");
+  let attempts = 0;
+  while (!rh.exists(marker) && attempts < 200) {
+    harness.sleep_ms(25);
+    attempts = attempts + 1;
+  }
+  ensure(direct_file(marker) && rh.read_text(marker) === "ready", "cu_host_open_handler_not_started");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.host-open.macos");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu shell-free host-open dispatch");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

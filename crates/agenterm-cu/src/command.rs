@@ -600,6 +600,16 @@ pub enum Command {
     Doctor {
         target: TargetRef,
     },
+    /// Ask the host's registered application dispatcher to open one path or
+    /// URL. Native acceptance is not proof that a handler consumed it.
+    HostOpen {
+        target: TargetRef,
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        application: Option<String>,
+        #[serde(default)]
+        background: bool,
+    },
     /// Newest-first bounded read of the append-only control audit. Byte,
     /// record-scan and returned-result budgets are independent.
     AuditQuery {
@@ -2443,6 +2453,7 @@ impl Command {
             Self::Capabilities { .. } => "capabilities".into(),
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
+            Self::HostOpen { .. } => "host-open".into(),
             Self::AuditQuery { .. } => "audit-query".into(),
             Self::AuditCompact { .. } => "audit-compact".into(),
             Self::SessionStart { .. } => "session-start".into(),
@@ -2586,6 +2597,7 @@ impl Command {
             Self::Capabilities { target, .. }
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
+            | Self::HostOpen { target, .. }
             | Self::AuditQuery { target, .. }
             | Self::AuditCompact { target, .. }
             | Self::SessionStart { target, .. }
@@ -2726,7 +2738,8 @@ impl Command {
 
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
-            Self::PointerMove { .. }
+            Self::HostOpen { .. }
+            | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
             | Self::SessionStart { .. }
             | Self::SessionRenew { .. }
@@ -3204,6 +3217,30 @@ mod tests {
             back,
             Command::Doctor {
                 target: TargetRef::Vnc
+            }
+        ));
+    }
+
+    #[test]
+    fn host_open_is_a_first_class_actuate_wire_command() {
+        let command = Command::HostOpen {
+            target: TargetRef::Ssh,
+            value: "https://example.invalid".into(),
+            application: Some("Browser".into()),
+            background: true,
+        };
+        assert_eq!(command.verb(), "host-open");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Actuate);
+        let value = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(value["verb"], "host-open");
+        let back: Command = serde_json::from_value(value).expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::HostOpen {
+                target: TargetRef::Ssh,
+                background: true,
+                ..
             }
         ));
     }

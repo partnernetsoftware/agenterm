@@ -4054,3 +4054,21 @@ claiming success. A normal job stop may retain its resident output owner until
 the output lease expires; owner teardown needs a distinct internal stop-and-
 release operation so both the child tree and its IPC owner disappear before the
 cleanup receipt becomes green.
+
+## Keep host dispatch acceptance distinct from handler success
+
+Opening a path or URL through LaunchServices, `xdg-open`, or `ShellExecuteW`
+crosses an external dispatcher boundary. A successful native return proves
+only that the dispatcher accepted the request; it does not prove that the
+selected handler rendered, consumed, or persisted the target. Public receipts
+must therefore keep `accepted` separate from `verified` and stay
+`verified=false` unless an independent handler-owned postcondition is read
+back.
+
+Pass the target as one bounded argument without a shell, reject NUL and
+option-like leading-dash values before dispatch, and use an absolute trusted
+system launcher where the OS contract requires a helper executable. Reserve a
+durable receipt before touching the dispatcher. A launcher timeout or status
+read failure may happen after dispatch, so report its effect as `unknown`
+rather than `not_performed`. Store only target/application length and digest in
+receipts unless the caller explicitly requested disclosure.

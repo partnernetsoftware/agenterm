@@ -31,6 +31,18 @@ pub(crate) const fn platform_kind() -> crate::PlatformKind {
     }
 }
 
+#[cfg(all(feature = "host-open", windows))]
+#[path = "adapters/windows/host_open.rs"]
+pub(crate) mod host_open;
+
+#[cfg(all(feature = "host-open", target_os = "macos"))]
+#[path = "adapters/macos/host_open.rs"]
+pub(crate) mod host_open;
+
+#[cfg(all(feature = "host-open", target_os = "linux"))]
+#[path = "adapters/linux/host_open.rs"]
+pub(crate) mod host_open;
+
 #[cfg(all(feature = "device-capture", target_os = "macos"))]
 #[path = "adapters/macos/device_capture.rs"]
 pub(crate) mod device_capture;

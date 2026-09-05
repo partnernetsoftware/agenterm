@@ -63,6 +63,7 @@ pub fn top_level_text() -> String {
     text = text.replace("\n\nUnmapped MCU groups", "\nUnmapped MCU groups");
     text = text.replace("\n\nClipboard", "\nClipboard");
     text = text.replace("\n\nNetwork", "\nNetwork");
+    text = text.replace("\nshell-exec", "\n  shell-exec");
     text = text.replace("\n\nProcesses", "\nProcesses");
     text = text.replace("\n\nAccessibility: observe", "\nAccessibility: observe");
     text = text.replace("\n\nAgenTerm terminals", "\nAgenTerm terminals");
@@ -247,7 +248,11 @@ fn append_missing_top_level_rows(text: &mut String) {
         .filter(|spec| !compact_terminal.contains(&spec.name))
         .filter(|spec| !compact_browser_session.contains(&spec.name))
         .filter(|spec| !compact_runtime.contains(&spec.name))
-        .filter(|spec| !text.contains(&format!("  {}", spec.name)))
+        .filter(|spec| {
+            !text
+                .lines()
+                .any(|line| line.trim_start().starts_with(spec.name))
+        })
         .map(|spec| {
             let row = verbs::cold_verb(spec.name);
             format!(

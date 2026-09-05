@@ -1751,6 +1751,7 @@ mod surface_tests {
                     "--expect",
                     "exited",
                 ],
+                "host-open" => vec!["https://example.invalid"],
                 "app" => vec!["--window", "1"],
                 _ => vec![],
             }

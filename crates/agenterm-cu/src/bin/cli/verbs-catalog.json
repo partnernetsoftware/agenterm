@@ -36,6 +36,32 @@
       "args": []
     },
     {
+      "name": "host-open",
+      "command": "host-open",
+      "aliases": ["open"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "dispatch one path or URL to its registered host application",
+      "usage": "host-open TARGET [--app APPLICATION] [--background]\nopen TARGET [--app APPLICATION] [--background]",
+      "args": [
+        {
+          "flag": "TARGET",
+          "value": "PATH_OR_URL",
+          "help": "one path or URL; never interpreted by a shell"
+        },
+        {
+          "flag": "--app",
+          "value": "APPLICATION",
+          "help": "macOS application selection; unsupported hosts fail typed"
+        },
+        {
+          "flag": "--background",
+          "value": "",
+          "help": "request non-activating dispatch where the host supports it"
+        }
+      ]
+    },
+    {
       "name": "audit-query",
       "command": "audit-query",
       "aliases": [],
@@ -4133,6 +4159,10 @@
     {
       "name": "doctor",
       "text": "agenterm-cu doctor\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  doctor\n\nReuses the canonical capabilities and permissions declarations, then\nruns bounded window and display inventory probes. A failed probe remains a typed check in the\nsuccessful diagnostic document; `doctor` never mutates setup, consent, helpers or foreground state.\n"
+    },
+    {
+      "name": "host-open",
+      "text": "agenterm-cu host-open    (also: open)\n  scope: actuate    family: System & permissions\n\nusage: host-open TARGET [--app APPLICATION] [--background]\n\nDispatches one path or URL through the host's registered application mechanism without a shell. A successful reply proves only that the native dispatcher accepted the request: accepted=true, performed=true, verified=false. It never claims that a handler rendered or consumed the target. Explicit application selection is currently macOS-only; unsupported shapes fail typed instead of being ignored.\n"
     },
     {
       "name": "audit-query",

@@ -703,6 +703,23 @@
         "task.cu-process-set-state-smoke"
       ]
     },
+    "cu-host-open-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-host-open-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-host-open-smoke"
+      ]
+    },
     "cu-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2379,6 +2396,25 @@
       "platforms": [
         "windows",
         "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-host-open-smoke",
+      "description": "Prove macOS host-open rejects option-like targets, dispatches one shell-free argv target to a background fixture, records crash-persistent evidence, and never upgrades dispatcher acceptance into handler verification.",
+      "entry": "scripts/qjs/cu-host-open-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
         "macos"
       ],
       "side_effects": [

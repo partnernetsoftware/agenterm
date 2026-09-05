@@ -14,6 +14,17 @@ impl Executor {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
             Command::Permissions { .. } => Ok(permissions_payload()),
             Command::Doctor { .. } => Ok(doctor_payload()),
+            Command::HostOpen {
+                value,
+                application,
+                background,
+                ..
+            } => host_open_payload(
+                value,
+                application.as_deref(),
+                *background,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::AuditQuery {
                 verb_filter,
                 outcome,

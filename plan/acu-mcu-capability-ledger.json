@@ -959,6 +959,21 @@
           "next": "platform guidance action that opens one exact settings surface without fabricating or bypassing consent"
         },
         {
+          "id": "host.open",
+          "mcu_shape": "open PATH_OR_URL [--app APPLICATION] [--bg]",
+          "acu_shape": "host-open PATH_OR_URL [--app APPLICATION] [--background] (also: open)",
+          "state": "delegated",
+          "platforms": {
+            "macos": "native-black-box",
+            "linux": "native-court-pending",
+            "windows": "native-court-pending"
+          },
+          "qualification": "macos-public-qjswasm-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.host-open.macos", "agenterm-platform host-open feature tests"],
+          "note": "The shell-free host adapter accepts exactly one path or URL. Success means only that the native dispatcher accepted the request; replies remain verified=false because handler rendering or consumption was not observed. Target and application are represented in durable receipts by byte length and SHA-256 rather than plaintext.",
+          "next": "run handler-owned no-window fixtures in Linux and Windows native courts; unsupported application/background shapes must remain typed rather than ignored"
+        },
+        {
           "id": "runtime.capability-probe",
           "mcu_shape": "caps performs live probes and returns the full manifest plus state counts",
           "acu_shape": "capabilities returns the ACU verb/target/mechanism matrix",

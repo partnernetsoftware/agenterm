@@ -685,6 +685,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "reason": "live window/display probes plus canonical permissions and capabilities declarations; no setup mutation",
             }),
         );
+        verbs.insert(
+            "host-open".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "setup",
+                "grant": "actuate",
+                "mode": "agenterm-platform-registered-application-dispatch",
+                "shell": false,
+                "verification": "dispatcher-accepted-only",
+            }),
+        );
     }
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
