@@ -111,6 +111,7 @@ LEASED=1
 RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 LOCAL_LOG="$SCRATCH/run.log"
 LOCAL_EXIT="$SCRATCH/run.exit"
+EVIDENCE_DIR="$REPO_ROOT/target/utm-court-evidence/$SOURCE_SHA/$COURT"
 if [ "$GUEST_OS" = linux ]; then
   GUEST_ARCHIVE="/tmp/agenterm-$RUN_ID.tar.gz"
   GUEST_ROOT="/tmp/agenterm-$RUN_ID"
@@ -168,12 +169,45 @@ else
   printf ready | "$COURT_CLI" push "$COURT" - "$READY"
 fi
 
-deadline=$((SECONDS + 360))
+result_timeout=360
+[ "$COURT" = win-x86_64-desktop ] && result_timeout=600
+deadline=$((SECONDS + result_timeout))
 while :; do
   : >"$LOCAL_EXIT"
   "$COURT_CLI" pull "$COURT" "$GUEST_EXIT" "$LOCAL_EXIT" >/dev/null 2>&1 || true
   [ -s "$LOCAL_EXIT" ] && break
-  [ "$SECONDS" -lt "$deadline" ] || { echo "UTM managed-job journey timed out" >&2; exit 1; }
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    mkdir -p "$EVIDENCE_DIR"
+    if "$COURT_CLI" pull "$COURT" "$GUEST_LOG" "$LOCAL_LOG" >/dev/null 2>&1; then
+      cp "$LOCAL_LOG" "$EVIDENCE_DIR/timeout.log"
+      cat "$LOCAL_LOG" >&2
+    fi
+    if [ "$GUEST_OS" = windows ]; then
+      "$COURT_CLI" pull "$COURT" \
+        'C:\minicon-six\agent-v2\job.log' "$EVIDENCE_DIR/agent-job.log" \
+        >/dev/null 2>&1 || true
+    fi
+    printf '124\n' >"$EVIDENCE_DIR/run.exit"
+    python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" <<'PY'
+import datetime, json, os, sys
+receipt = {
+    "schema": 1,
+    "source_sha": sys.argv[2],
+    "court": sys.argv[3],
+    "bundle_sha256": sys.argv[4],
+    "exit_code": 124,
+    "outcome": "timeout",
+    "evidence": "cu.managed-job-lifecycle",
+    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}
+with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
+    json.dump(receipt, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+os.replace(sys.argv[1] + ".tmp", sys.argv[1])
+PY
+    echo "UTM managed-job journey timed out after ${result_timeout}s" >&2
+    exit 1
+  fi
   sleep 1
 done
 "$COURT_CLI" pull "$COURT" "$GUEST_LOG" "$LOCAL_LOG"
@@ -181,7 +215,6 @@ cat "$LOCAL_LOG"
 RUN_RC="$(tr -d '\r\n ' <"$LOCAL_EXIT")"
 case "$RUN_RC" in ''|*[!0-9]*) echo "invalid guest exit receipt" >&2; exit 1 ;; esac
 
-EVIDENCE_DIR="$REPO_ROOT/target/utm-court-evidence/$SOURCE_SHA/$COURT"
 mkdir -p "$EVIDENCE_DIR"
 cp "$LOCAL_LOG" "$EVIDENCE_DIR/run.log"
 cp "$LOCAL_EXIT" "$EVIDENCE_DIR/run.exit"
