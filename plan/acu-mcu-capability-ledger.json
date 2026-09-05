@@ -407,7 +407,7 @@
           "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
           "acu_shape": null,
           "state": "gap",
-          "next": "portable name, random-port launch, strict DevToolsActivePort parsing, private session layout and bounded atomic generation/nonce/owner-identity registry are native foundations; still required: resident owner plus public start/list/status/stop/remove, executable discovery, verified process-tree cleanup and no foreground takeover"
+          "next": "portable launch, private atomic registry and the Unix internal resident owner now bind stop to generation/nonce plus owner and browser start identities and retain typed cleanup uncertainty; Windows fails before spawn until atomic Job-contained spawn exists; still required: public lifecycle, executable discovery and live three-host cleanup"
         },
         {
           "id": "browser.mv3-native-bridge",

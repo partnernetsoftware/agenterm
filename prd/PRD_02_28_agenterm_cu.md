@@ -248,8 +248,20 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   owner start-identity replacement checks, and explicit
   `starting/ready/stopping/stopped/failed/orphaned_uncertain` states. A ready or
   stopping record is invalid unless exact browser identity and endpoint travel
-  together. The resident owner, executable discovery, public verbs and live
-  cleanup evidence remain open. Existing browsers with an explicit startup
+  together. The internal same-binary resident owner now waits for the launcher's
+  post-spawn identity publication, holds the per-session lock, launches one
+  process-group/Job-contained browser, publishes ready only after the strict
+  port record, accepts only a stop request bound to generation + nonce + both
+  process identities, and performs bounded cleanup on stop, TTL, failure and
+  unwind. A prior endpoint file is removed before spawn, so a replacement
+  generation cannot inherit stale readiness. Cleanup uncertainty—including an
+  unexpectedly exited Unix tree root—is a durable state, never a claimed stop.
+  The current owner refuses Windows before browser spawn because assigning a
+  running Chromium process to a Job leaves a fork-before-assignment escape
+  window; Windows remains typed unavailable until the platform crate provides
+  atomic contained spawn. Public lifecycle verbs,
+  executable discovery and live three-host cleanup evidence remain open.
+  Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
   retain AX/tab-strip control. The authenticated-profile route is a separately
   installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v1 core

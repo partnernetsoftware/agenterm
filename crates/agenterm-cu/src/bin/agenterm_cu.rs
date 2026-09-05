@@ -20,6 +20,9 @@ fn main() {
     if matches!(args.as_slice(), [arg] if arg == agenterm_cu::network_probe::WORKER_ARG) {
         std::process::exit(agenterm_cu::network_probe::run_worker_stdio());
     }
+    if args.first().map(String::as_str) == Some(agenterm_cu::browser_session_owner::OWNER_ARG) {
+        std::process::exit(agenterm_cu::browser_session_owner::run_owner(&args[1..]));
+    }
     if args.first().map(String::as_str) == Some(agenterm_cu::network_probe::FIXTURE_ARG) {
         std::process::exit(agenterm_cu::network_probe::run_loopback_fixture(&args[1..]));
     }

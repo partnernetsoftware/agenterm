@@ -3786,3 +3786,12 @@ can re-acquire an identity-bound process reference, report
 `orphaned_uncertain` and preserve the record for inspection. Atomic JSON keeps
 readers from observing a torn generation; it does not by itself prove process
 ownership or make recursive deletion safe.
+
+When a detached owner's registry must contain the owner's PID/start identity,
+the launcher cannot publish that identity before spawning it. Avoid a race by
+writing a sealed intent first, spawning the owner, rejecting any non-independent
+detach mode, then atomically publishing `Starting`; the owner holds its stable
+sidecar lock and waits for that exact generation for a short bounded interval
+before launching the owned child. Never let the child launch merely because an
+intent file exists. Bind stop requests to both owner and child identities so a
+stale request cannot terminate a replacement generation.

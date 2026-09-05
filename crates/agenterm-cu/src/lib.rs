@@ -11,6 +11,7 @@ pub mod ax_guide;
 pub mod browser_bridge;
 pub mod browser_profiles;
 pub mod browser_session;
+pub mod browser_session_owner;
 pub mod cdp;
 pub mod command;
 pub mod dynlib;
