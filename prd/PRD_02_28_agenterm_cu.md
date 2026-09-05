@@ -633,10 +633,20 @@ flowchart LR
   tree. MCU's unprivileged single-process and tree `signal` shapes now route
   here, reducing top-level compatibility `STAY` from 19 to 18; only privileged
   signal shapes remain behind the consent-provider gap. The operation reserves
-  a durable effect receipt before its first freeze and restores exact objects
-  on every handled failure. Automatic restart recovery after the ACU process
-  itself dies mid-freeze remains an explicit reliability leaf; an unfinished
-  receipt reports ambiguity rather than authorizing a second delivery.
+  its public effect receipt and publishes a private recovery transaction before
+  its first freeze. Every exact member is durably captured, then advances by
+  write-ahead `freeze-intent → frozen-by-us` and, when it leaves the final
+  stable tree, `release-intent → released`; delivery cannot start until the
+  stable membership is sealed. Restart recovery observes the saved start
+  identity before acting, never touches a replacement PID, preserves members
+  that were already stopped, and separates `cleanup_verified` from an unknown
+  signal effect. A crash between freeze intent and its completion is resumed
+  with explicit `freeze_ownership_ambiguous=true`, not silently presented as a
+  verified effect. The registered qjswasm court externally kills the exact ACU
+  owner while the durable transaction is still `stabilizing`, then proves the
+  next owner repairs the terminal receipt and leaves no frozen orphan. Unit
+  courts cover first-intent, suspend-before-mark, mid-tree and
+  resume-before-release-mark crash windows.
 - [~] `process-watch` replaces MCU's PID/name/parent/all lifecycle watch with a
   bounded identity-safe diff. It takes one baseline and emits `started` /
   `exited` rows keyed by PID plus native start identity, so PID reuse cannot

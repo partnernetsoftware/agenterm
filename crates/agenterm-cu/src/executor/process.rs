@@ -14,6 +14,7 @@ use crate::{
 };
 
 use super::error_payload;
+use super::process_signal_recovery::{RecoveryMemberInput, RecoveryStore};
 
 const DEFAULT_MAX: usize = 200;
 const MAX_RESULTS: usize = 5_000;
@@ -1559,6 +1560,8 @@ fn process_tree_signal_payload(
             "process-signal --tree requires a root pid greater than one",
         ));
     }
+    let recovery_store = RecoveryStore::open_beside_receipt(receipts.path())?;
+    let recovered_transactions = recovery_store.recover_pending(receipts)?;
     let root = open_tree_signal_member(root_pid, 0)?;
     if expected_identity.is_some_and(|expected| expected != root.identity) {
         return Err(CuError::new(
@@ -1578,29 +1581,63 @@ fn process_tree_signal_payload(
     )?;
 
     let mut known = BTreeMap::from([(root_pid, root)]);
+    let transaction_id = match recovery_store.begin(
+        &ticket.id,
+        root_pid,
+        &root_identity,
+        signal,
+        &[RecoveryMemberInput {
+            pid: root_pid,
+            depth: 0,
+            start_identity: &root_identity,
+            was_stopped: known.get(&root_pid).expect("root retained").was_stopped,
+        }],
+    ) {
+        Ok(id) => id,
+        Err(error) => {
+            return fail_process_tree_signal(receipts, &ticket, error, false, &known);
+        }
+    };
     let stable = if signal == ProcessSignalKind::Continue {
-        stable_unfrozen_tree(root_pid, &root_identity, max_descendants, &mut known)
+        stable_unfrozen_tree(
+            root_pid,
+            &root_identity,
+            max_descendants,
+            &mut known,
+            &recovery_store,
+            &transaction_id,
+        )
     } else {
-        freeze_stable_tree(root_pid, &root_identity, max_descendants, &mut known)
+        freeze_stable_tree(
+            root_pid,
+            &root_identity,
+            max_descendants,
+            &mut known,
+            &recovery_store,
+            &transaction_id,
+        )
     };
     let members = match stable {
         Ok(members) => members,
         Err(error) => {
-            let restore = restore_tree_members(&known, true);
-            let error = match restore {
-                Ok(()) => error,
+            let error = match recovery_store.recover_pending(receipts) {
+                Ok(_) => error,
                 Err(restore_error) => CuError::new(
                     "process_tree_recovery_failed",
                     format!("{}; rollback: {}", error.message, restore_error.message),
                 ),
             };
-            return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+            return Err(process_tree_error_detail(error, &ticket, &known));
         }
     };
 
     let mut delivery_error = None;
     for pid in members.iter().rev() {
         let member = known.get(pid).expect("stable member retained");
+        if let Err(error) = recovery_store.before_delivery(&transaction_id, member.pid) {
+            delivery_error = Some(error);
+            break;
+        }
         if let Err(error) = deliver_tree_signal(member, signal) {
             delivery_error = Some(CuError::new(
                 if error.kind() == std::io::ErrorKind::Unsupported {
@@ -1612,17 +1649,34 @@ fn process_tree_signal_payload(
             ));
             break;
         }
+        if let Err(error) = recovery_store.after_delivery(&transaction_id, member.pid) {
+            delivery_error = Some(error);
+            break;
+        }
     }
     if let Some(mut error) = delivery_error {
-        if !matches!(signal, ProcessSignalKind::Stop | ProcessSignalKind::Kill)
-            && let Err(restore) = restore_tree_members(&known, true)
-        {
-            error = CuError::new(
-                "process_tree_recovery_failed",
-                format!("{}; rollback: {}", error.message, restore.message),
-            );
+        match restore_tree_members(&known, true) {
+            Ok(()) => {
+                if let Err(recovery_error) =
+                    recovery_store.finish_recovery(&transaction_id, false, receipts)
+                {
+                    error = CuError::new(
+                        "process_tree_recovery_failed",
+                        format!(
+                            "{}; durable recovery close: {}",
+                            error.message, recovery_error.message
+                        ),
+                    );
+                }
+            }
+            Err(restore) => {
+                error = CuError::new(
+                    "process_tree_recovery_failed",
+                    format!("{}; rollback: {}", error.message, restore.message),
+                );
+            }
         }
-        return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+        return Err(process_tree_error_detail(error, &ticket, &known));
     }
 
     if !matches!(signal, ProcessSignalKind::Stop | ProcessSignalKind::Kill)
@@ -1635,7 +1689,14 @@ fn process_tree_signal_payload(
     let mut checks = match verify_tree_members(&known, &members, signal) {
         Ok(checks) => checks,
         Err(error) => {
-            return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+            let error = recover_failed_tree_transaction(
+                &recovery_store,
+                &transaction_id,
+                &known,
+                receipts,
+                error,
+            );
+            return Err(process_tree_error_detail(error, &ticket, &known));
         }
     };
     while checks.iter().any(|check| check.verified == Some(false))
@@ -1645,7 +1706,14 @@ fn process_tree_signal_payload(
         checks = match verify_tree_members(&known, &members, signal) {
             Ok(checks) => checks,
             Err(error) => {
-                return fail_process_tree_signal(receipts, &ticket, error, true, &known);
+                let error = recover_failed_tree_transaction(
+                    &recovery_store,
+                    &transaction_id,
+                    &known,
+                    receipts,
+                    error,
+                );
+                return Err(process_tree_error_detail(error, &ticket, &known));
             }
         };
     }
@@ -1671,18 +1739,25 @@ fn process_tree_signal_payload(
             })
         })
         .collect::<Vec<_>>();
-    receipts.complete(
-        &ticket,
-        "process-signal-tree",
-        0,
-        success,
-        json!({
-            "performed": true,
-            "verified": verified,
-            "member_count": member_rows.len(),
-            "elapsed_ms": started.elapsed().as_millis(),
-        }),
-    )?;
+    if !success {
+        let error = recover_failed_tree_transaction(
+            &recovery_store,
+            &transaction_id,
+            &known,
+            receipts,
+            CuError::new(
+                "process_tree_signal_postcondition_failed",
+                "tree signal was delivered but at least one required postcondition was not observed",
+            ),
+        );
+        return Err(process_tree_error_detail(error, &ticket, &known));
+    }
+    let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    if let Err(error) =
+        recovery_store.finish_effect(&transaction_id, elapsed_ms, verified, receipts)
+    {
+        return Err(process_tree_error_detail(error, &ticket, &known));
+    }
     let payload = json!({
         "root_pid": root_pid,
         "root_start_identity": root_identity,
@@ -1696,16 +1771,54 @@ fn process_tree_signal_payload(
         "timeout_ms": timeout_ms,
         "max_descendants": max_descendants,
         "receipt": ticket.json(),
+        "transaction_id": transaction_id,
+        "recovered_transactions": recovered_transactions,
     });
-    if success {
-        Ok(payload)
-    } else {
-        Err(CuError::new(
-            "process_tree_signal_postcondition_failed",
-            "tree signal was delivered but at least one required postcondition was not observed",
-        )
-        .with_detail(json!({ "receipt": payload })))
+    Ok(payload)
+}
+
+fn recover_failed_tree_transaction(
+    recovery_store: &RecoveryStore,
+    transaction_id: &str,
+    members: &BTreeMap<u32, TreeSignalMember>,
+    receipts: &mut ReceiptLog,
+    mut error: CuError,
+) -> CuError {
+    match restore_tree_members(members, true) {
+        Ok(()) => {
+            if let Err(recovery_error) =
+                recovery_store.finish_recovery(transaction_id, false, receipts)
+            {
+                error = CuError::new(
+                    "process_tree_recovery_failed",
+                    format!(
+                        "{}; durable recovery close: {}",
+                        error.message, recovery_error.message
+                    ),
+                );
+            }
+        }
+        Err(restore) => {
+            error = CuError::new(
+                "process_tree_recovery_failed",
+                format!("{}; rollback: {}", error.message, restore.message),
+            );
+        }
     }
+    error
+}
+
+fn process_tree_error_detail(
+    error: CuError,
+    ticket: &crate::receipt::ReceiptTicket,
+    members: &BTreeMap<u32, TreeSignalMember>,
+) -> CuError {
+    error.with_detail(json!({
+        "receipt": ticket.json(),
+        "performed": true,
+        "verified": false,
+        "member_count": members.len(),
+    }))
 }
 
 fn stable_unfrozen_tree(
@@ -1713,18 +1826,21 @@ fn stable_unfrozen_tree(
     root_identity: &str,
     max_descendants: usize,
     known: &mut BTreeMap<u32, TreeSignalMember>,
+    recovery_store: &RecoveryStore,
+    transaction_id: &str,
 ) -> Result<Vec<u32>, CuError> {
     let mut previous = Vec::new();
     for _ in 0..6 {
         let current = open_tree_snapshot(root_pid, root_identity, max_descendants)?;
         let signature = tree_signature(&current);
-        merge_tree_members(known, current)?;
+        merge_tree_members(known, current, recovery_store, transaction_id)?;
         if signature == previous {
             let final_ids = signature
                 .into_iter()
                 .map(|(pid, _, _)| pid)
                 .collect::<Vec<_>>();
-            retain_final_tree_members(known, &final_ids)?;
+            retain_final_tree_members(known, &final_ids, recovery_store, transaction_id)?;
+            recovery_store.mark_stable(transaction_id, &final_ids)?;
             return Ok(final_ids);
         }
         previous = signature;
@@ -1741,27 +1857,43 @@ fn freeze_stable_tree(
     root_identity: &str,
     max_descendants: usize,
     known: &mut BTreeMap<u32, TreeSignalMember>,
+    recovery_store: &RecoveryStore,
+    transaction_id: &str,
 ) -> Result<Vec<u32>, CuError> {
     for _ in 0..6 {
         let before = open_tree_snapshot(root_pid, root_identity, max_descendants)?;
         let before_signature = tree_signature(&before);
-        merge_tree_members(known, before)?;
+        merge_tree_members(known, before, recovery_store, transaction_id)?;
         for (pid, _, _) in &before_signature {
             let member = known.get_mut(pid).expect("snapshot member retained");
-            if !exact_member_stopped(member)? {
+            if member.was_stopped || member.frozen_by_us {
+                continue;
+            }
+            if exact_member_stopped(member)? {
+                return Err(CuError::new(
+                    "process_tree_freeze_state_changed",
+                    format!(
+                        "pid {} stopped after its scheduler state was captured",
+                        member.pid
+                    ),
+                ));
+            }
+            recovery_store.before_freeze(transaction_id, member.pid)?;
+            {
                 member.reference.set_suspended(true).map_err(|error| {
                     CuError::new(
                         "process_tree_freeze_failed",
                         format!("pid {}: {error}", member.pid),
                     )
                 })?;
-                member.frozen_by_us = true;
             }
+            recovery_store.after_freeze(transaction_id, member.pid)?;
+            member.frozen_by_us = true;
         }
         std::thread::sleep(Duration::from_millis(30));
         let after = open_tree_snapshot(root_pid, root_identity, max_descendants)?;
         let after_signature = tree_signature(&after);
-        merge_tree_members(known, after)?;
+        merge_tree_members(known, after, recovery_store, transaction_id)?;
         let all_stopped = after_signature.iter().try_fold(true, |all, (pid, _, _)| {
             exact_member_stopped(known.get(pid).expect("snapshot member retained"))
                 .map(|stopped| all && stopped)
@@ -1771,7 +1903,8 @@ fn freeze_stable_tree(
                 .into_iter()
                 .map(|(pid, _, _)| pid)
                 .collect::<Vec<_>>();
-            retain_final_tree_members(known, &final_ids)?;
+            retain_final_tree_members(known, &final_ids, recovery_store, transaction_id)?;
+            recovery_store.mark_stable(transaction_id, &final_ids)?;
             return Ok(final_ids);
         }
     }
@@ -1882,7 +2015,26 @@ fn tree_signature(members: &[TreeSignalMember]) -> Vec<(u32, usize, String)> {
 fn merge_tree_members(
     known: &mut BTreeMap<u32, TreeSignalMember>,
     members: Vec<TreeSignalMember>,
+    recovery_store: &RecoveryStore,
+    transaction_id: &str,
 ) -> Result<(), CuError> {
+    let inputs = members
+        .iter()
+        .map(|member| {
+            let captured = known.get(&member.pid);
+            RecoveryMemberInput {
+                pid: member.pid,
+                depth: member.depth,
+                start_identity: captured
+                    .map(|existing| existing.identity.as_str())
+                    .unwrap_or(&member.identity),
+                was_stopped: captured
+                    .map(|existing| existing.was_stopped)
+                    .unwrap_or(member.was_stopped),
+            }
+        })
+        .collect::<Vec<_>>();
+    recovery_store.register_members(transaction_id, &inputs)?;
     for member in members {
         if let Some(existing) = known.get_mut(&member.pid) {
             if existing.identity != member.identity {
@@ -1902,18 +2054,52 @@ fn merge_tree_members(
 fn retain_final_tree_members(
     known: &mut BTreeMap<u32, TreeSignalMember>,
     final_ids: &[u32],
+    recovery_store: &RecoveryStore,
+    transaction_id: &str,
 ) -> Result<(), CuError> {
     let final_ids = final_ids.iter().copied().collect::<BTreeSet<_>>();
     let mut failures = Vec::new();
     for member in known
         .values()
-        .filter(|member| !final_ids.contains(&member.pid) && member.frozen_by_us)
+        .filter(|member| !final_ids.contains(&member.pid))
     {
+        if member.was_stopped {
+            continue;
+        }
+        if !member.frozen_by_us {
+            if let Err(error) = recovery_store.released_without_freeze(transaction_id, member.pid) {
+                failures.push(format!(
+                    "pid {} release mark: {}",
+                    member.pid, error.message
+                ));
+            }
+            continue;
+        }
         match member.reference.is_alive() {
-            Ok(false) => {}
+            Ok(false) => {
+                if let Err(error) = recovery_store.released_after_exit(transaction_id, member.pid) {
+                    failures.push(format!(
+                        "pid {} exited release: {}",
+                        member.pid, error.message
+                    ));
+                }
+            }
             Ok(true) => {
+                if let Err(error) = recovery_store.before_release(transaction_id, member.pid) {
+                    failures.push(format!(
+                        "pid {} release intent: {}",
+                        member.pid, error.message
+                    ));
+                    continue;
+                }
                 if let Err(error) = member.reference.set_suspended(false) {
                     failures.push(format!("pid {} resume: {error}", member.pid));
+                } else if let Err(error) = recovery_store.after_release(transaction_id, member.pid)
+                {
+                    failures.push(format!(
+                        "pid {} release mark: {}",
+                        member.pid, error.message
+                    ));
                 }
             }
             Err(error) => failures.push(format!("pid {} liveness: {error}", member.pid)),

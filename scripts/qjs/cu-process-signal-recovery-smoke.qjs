@@ -1,0 +1,172 @@
+// Public owner-death court for crash-persistent process-signal tree recovery.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-signal"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function invoke(run_directory, executable, grant, args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(output.success === true && reply.ok === true,
+    "cu_process_signal_recovery_invoke:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+ensure(rh.exists(executable), "cu_process_signal_recovery_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-signal-recovery");
+const children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start an owned root with two descendants");
+  const child = harness.start_child(context, {
+    program: "/bin/sh",
+    args: ["-c", "trap '' USR1; i=0; while [ $i -lt 64 ]; do sleep 60 & i=$((i+1)); done; wait"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  });
+  children.push(child);
+  const pid = child.pid;
+  const observed = invoke(context.run_directory, executable, "observe", [
+    "process-state", "--pid", "" + pid
+  ]);
+  const identity = "" + observed.start_identity;
+  ensure(identity !== "", "cu_process_signal_recovery_identity");
+
+  print("STEP production binary ignores the former owner-death environment seam");
+  const no_seam = rh.command(executable, [
+    "--target", "current", "--grant", "actuate",
+    "process-signal", "--pid", "" + pid, "CONT",
+    "--start-identity", identity, "--tree", "--max", "128"
+  ], {
+    cwd: context.run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_PROCESS_SIGNAL_OWNER_DEATH: "after-freeze"
+    },
+    timeout_ms: 30000
+  });
+  const no_seam_reply = JSON.parse(no_seam.stdout.trim());
+  ensure(no_seam.success === true && no_seam_reply.ok === true
+      && no_seam_reply.data.verified === true,
+    "cu_process_signal_recovery_production_seam:" + JSON.stringify(no_seam_reply));
+
+  print("STEP externally kill the exact ACU owner after its durable transaction appears");
+  const acu = harness.start_child(context, {
+    program: executable,
+    args: [
+      "--target", "current", "--grant", "actuate",
+      "process-signal", "--pid", "" + pid, "USR1",
+      "--start-identity", identity, "--tree", "--max", "128"
+    ],
+    current_dir: context.run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  children.push(acu);
+  const transaction_dir = rh.join(context.run_directory,
+    "cu-receipts/process-signal-transactions");
+  let durable_seen = false;
+  let attempts = 0;
+  while (!durable_seen && attempts < 2000 && harness.child_state(acu) === "running") {
+    if (rh.exists(transaction_dir)) {
+      const entries = rh.read_dir(transaction_dir);
+      let index = 0;
+      while (index < entries.length) {
+        if (entries[index].is_file === true && entries[index].name.endsWith(".json")) {
+          const transaction = JSON.parse(rh.read_text(
+            rh.join(transaction_dir, entries[index].name)));
+          if (transaction.phase === "stabilizing") { durable_seen = true; }
+        }
+        index = index + 1;
+      }
+    }
+    if (!durable_seen) { harness.sleep_ms(1); }
+    attempts = attempts + 1;
+  }
+  ensure(durable_seen && harness.child_state(acu) === "running",
+    "cu_process_signal_recovery_transaction_window_not_observed");
+  harness.child_kill(acu);
+  const crashed = harness.child_wait(acu, 5000);
+  ensure(crashed.success !== true,
+    "cu_process_signal_recovery_owner_survived:" + crashed.exit_code);
+
+  print("STEP next ACU owner reopens only exact identities and resumes the frozen tree");
+  const recovered = invoke(context.run_directory, executable, "actuate", [
+    "process-signal", "--pid", "" + pid, "CONT",
+    "--start-identity", identity, "--tree", "--max", "128"
+  ]);
+  ensure(recovered.verified === true && recovered.member_count >= 65,
+    "cu_process_signal_recovery_continue:" + JSON.stringify(recovered));
+  ensure(recovered.recovered_transactions.length === 1
+      && recovered.recovered_transactions[0].outcome === "recovered",
+    "cu_process_signal_recovery_outcome:" + JSON.stringify(recovered));
+  const recovery_members = recovered.recovered_transactions[0].members;
+  ensure(recovery_members.length >= 1, "cu_process_signal_recovery_member_count");
+  for (let index = 0; index < recovery_members.length; index = index + 1) {
+    const outcome = recovery_members[index].outcome;
+    ensure(outcome === "preserved" || outcome === "freeze_intent_not_applied"
+        || outcome === "freeze_intent_resumed" || outcome === "resumed"
+        || outcome === "already_released" || outcome === "released",
+      "cu_process_signal_recovery_orphan:" + JSON.stringify(recovery_members[index]));
+  }
+
+  print("STEP interrupted effect receipt closes with typed recovery evidence");
+  const receipt_page = invoke(context.run_directory, executable, "observe", [
+    "receipts", "--max", "50"
+  ]);
+  let recovery_receipt_found = false;
+  for (let index = 0; index < receipt_page.receipts.length; index = index + 1) {
+    const row = receipt_page.receipts[index];
+    if (row.verb === "process-signal-tree" && row.phase === "failed"
+        && row.recovery_verified === true) {
+      recovery_receipt_found = true;
+    }
+  }
+  ensure(recovery_receipt_found,
+    "cu_process_signal_recovery_receipt:" + JSON.stringify(receipt_page));
+
+  print("STEP exact-tree cleanup leaves no frozen orphan");
+  const killed = invoke(context.run_directory, executable, "actuate", [
+    "process-signal", "--pid", "" + pid, "KILL",
+    "--start-identity", identity, "--tree", "--max", "128", "--force"
+  ]);
+  ensure(killed.verified === true && killed.member_count >= 65,
+    "cu_process_signal_recovery_cleanup:" + JSON.stringify(killed));
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.process-signal");
+  harness.remove_run(context);
+  print("PASS: tree signal owner-death recovery");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

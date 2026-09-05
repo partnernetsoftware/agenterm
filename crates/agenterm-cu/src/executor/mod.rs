@@ -67,6 +67,7 @@ mod persisted;
 mod placement;
 mod pointer;
 mod process;
+mod process_signal_recovery;
 mod profiles;
 mod pty_jobs;
 mod receipts;

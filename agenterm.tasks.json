@@ -720,6 +720,23 @@
         "task.cu-process-signal-smoke"
       ]
     },
+    "cu-process-signal-recovery-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-process-signal-recovery-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-process-signal-recovery-smoke"
+      ]
+    },
     "cu-process-inspection-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2508,6 +2525,26 @@
       "dependencies": [],
       "platforms": [
         "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-process-signal-recovery-smoke",
+      "description": "Kill the ACU owner during durable pre-stable tree freeze, then prove a fresh ACU owner resumes only exact start identities, reports typed recovery, never redelivers the interrupted signal, and leaves no frozen orphan.",
+      "entry": "scripts/qjs/cu-process-signal-recovery-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
         "linux",
         "macos"
       ],

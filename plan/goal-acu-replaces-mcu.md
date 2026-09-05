@@ -214,8 +214,14 @@ identities, reserves before effect, and separates observable postconditions
 from mere delivery: exit and scheduler transitions can be verified, but
 HUP/INT/USR application meaning cannot. Unix tree mode freezes until two exact
 snapshots agree, delivers deepest-first, and restores only members that were
-running before the freeze. The macOS public qjswasm court is green. Sudo and
-broker shapes remain on MCU until the native consent contract lands.
+running before the freeze. Its recovery transaction is durable before the
+first suspend, and every member moves through write-ahead freeze, release and
+delivery phases. A replacement PID is never touched; an uncertain freeze
+intent is cleaned up with explicit ownership-ambiguous evidence rather than
+hidden as a verified effect. The public qjswasm court kills the exact ACU owner
+while the transaction is still stabilizing, then proves exact-member recovery,
+terminal receipt closure and no frozen orphan. Sudo and broker shapes remain on
+MCU until the native consent contract lands.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
@@ -573,7 +579,7 @@ Q3 owned runtime facades
    │  ├─ [x] HUP/INT/TERM/KILL/STOP/CONT/USR1/USR2 closed portable set
    │  ├─ [x] public macOS qjswasm journey `cu.process-signal` includes root + two descendants
    │  ├─ [x] MCU unprivileged single/tree shapes route without naked-PID mutation
-   │  ├─ [ ] owner-death recovery court for an interrupted freeze/delivery
+   │  ├─ [x] pre-freeze write-ahead recovery + external owner-death qjswasm court
    │  └─ [ ] Linux native court + Windows typed-refusal court; privileged shape remains
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth

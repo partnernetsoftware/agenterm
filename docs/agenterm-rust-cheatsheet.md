@@ -3663,6 +3663,20 @@ Windows processes do not acquire Job Object membership retroactively as one
 atomic tree, so return typed unsupported instead of imitating this with PID
 enumeration.
 
+Temporary stabilization is already an effect boundary. Do not freeze a process
+tree first and publish its recovery record only after the snapshots converge:
+owner death in that interval strands stopped processes with no repair owner.
+Publish one durable transaction before the first suspend, capture each exact
+member before touching it, and write ahead `freeze intent`, `frozen by us`,
+`release intent`, and `released` around the native calls. Recovery must compare
+the saved start identity before every repair, preserve pre-stopped members, and
+never touch a replacement PID. If the owner dies after freeze intent but before
+the completion mark, current stopped state cannot prove who stopped it; restore
+the exact object but report ownership ambiguity separately from cleanup success
+and effect outcome. Seal stable membership before delivery, and close the
+public receipt from a durable terminal phase before retiring the private
+transaction so either side of the dual-write crash window is idempotent.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second
