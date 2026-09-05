@@ -213,6 +213,7 @@ require_ok(
     && runtime_job.includes("Defender")
     && runtime_job.includes("cu-retirement-cell-smoke")
     && runtime_job.includes("runtime-control/cu-setup-cli-smoke.qjs")
+    && runtime_job.includes("runtime-control/cu-setup-runtime-refresh-smoke.qjs")
     && candidate.includes("scripts/qjs/lib/test_harness.qjs")
     && runtime_job.includes("candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}")
     && !runtime_job.includes("actions/checkout")

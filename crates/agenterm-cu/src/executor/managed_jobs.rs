@@ -78,6 +78,7 @@ pub(super) fn job_spawn_payload(
     session_lease: &str,
     runtime: &RuntimeCoordinator,
 ) -> Result<Value, CuError> {
+    let _refresh_fence = runtime.acquire_refresh_fence()?;
     let _session_gate = runtime.acquire_session_gate(session_id)?;
     let admission_now = now_utc_ms().ok_or_else(clock_error)?;
     runtime.session_verify(session_id, session_lease, admission_now / 1_000)?;

@@ -4127,6 +4127,24 @@ the output lease expires; owner teardown needs a distinct internal stop-and-
 release operation so both the child tree and its IPC owner disappear before the
 cleanup receipt becomes green.
 
+## Refresh future activation without restarting resident owners
+
+A compatibility command called “runtime refresh” must follow the replacement
+product's actual ownership architecture. ACU has an on-demand coordinator plus
+independent resident resource owners, not MCU's global daemon. Serialize setup
+refresh and future resident-resource admission through one stable lock domain,
+take a bounded owner snapshot, and report `deferred` when an owner is live or
+uncertain. Do not recreate a daemon merely to preserve an old restart spelling,
+and never stop, restart, or release a resident owner as a setup side effect.
+
+Keep diagnostic check paths zero-write. An apply may align the launcher used by
+future activations while a current owner continues unchanged. Prove that
+distinction through the public qjswasm CLI: bind the same job id, generation and
+native process identity before and after refresh, then perform cleanup only
+through the owner's explicit lifecycle command. A provider that has no native
+claim inventory is `unavailable`; publishing `active: 0` must not be interpreted
+as proof that no external owner exists.
+
 ## Keep host dispatch acceptance distinct from handler success
 
 Opening a path or URL through LaunchServices, `xdg-open`, or `ShellExecuteW`

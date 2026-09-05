@@ -31,6 +31,15 @@ const MAX_SESSION_ID_BYTES: usize = 128;
 const MAX_START_IDENTITY_BYTES: usize = 512;
 const MAX_TERMINAL_CODE_BYTES: usize = 128;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub(crate) struct ManagedJobRefreshBlockers {
+    pub blocking: usize,
+    pub start_intent: usize,
+    pub starting: usize,
+    pub running: usize,
+    pub orphaned_uncertain: usize,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManagedJobHandle {
@@ -140,16 +149,26 @@ impl Default for Document {
 
 impl ManagedJobStore {
     pub(crate) fn open() -> Result<Self, CuError> {
-        if let Some(path) = std::env::var_os("AGENTERM_CU_MANAGED_JOB_PATH") {
-            return Self::open_creating_parent(PathBuf::from(path));
-        }
-        let directories = host_directories().map_err(|_| unavailable())?;
-        Self::open_creating_parent(
+        Self::open_creating_parent(Self::configured_path()?)
+    }
+
+    fn configured_path() -> Result<PathBuf, CuError> {
+        let path = if let Some(path) = std::env::var_os("AGENTERM_CU_MANAGED_JOB_PATH") {
+            PathBuf::from(path)
+        } else {
+            let directories = host_directories().map_err(|_| unavailable())?;
             directories
                 .local_data
                 .join("agenterm")
-                .join("cu-managed-jobs.json"),
-        )
+                .join("cu-managed-jobs.json")
+        };
+        if path.is_absolute() {
+            Ok(path)
+        } else {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(path))
+                .map_err(|_| unavailable())
+        }
     }
 
     fn open_creating_parent(path: PathBuf) -> Result<Self, CuError> {
@@ -413,6 +432,36 @@ impl ManagedJobStore {
         self.inspect(|document| Ok(document.jobs.values().cloned().collect()))
     }
 
+    /// Count resident resources that make a runtime refresh defer. This path
+    /// takes the durable store lock and is used under the coordinator refresh
+    /// fence for apply admission.
+    pub(crate) fn refresh_blockers(&self) -> Result<ManagedJobRefreshBlockers, CuError> {
+        self.inspect(|document| Ok(summarize_refresh_blockers(document)))
+    }
+
+    /// Read the atomic document without creating a directory or lock file.
+    /// Setup check is a diagnostic and must remain strictly zero-write; apply
+    /// uses [`Self::refresh_blockers`] under the refresh fence instead.
+    pub(crate) fn refresh_blockers_read_only() -> Result<ManagedJobRefreshBlockers, CuError> {
+        let path = Self::configured_path()?;
+        let parent = explicit_parent(&path)?;
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata_is_link_like(&metadata) || !metadata.is_dir() => {
+                return Err(corrupt(
+                    "managed-job state parent must be a direct directory",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ManagedJobRefreshBlockers::default());
+            }
+            Err(_) => return Err(unavailable()),
+        }
+        let store = Self { path };
+        let document = store.read_document()?.unwrap_or_default();
+        Ok(summarize_refresh_blockers(&document))
+    }
+
     fn mark_running_terminal(
         &self,
         handle: &ManagedJobHandle,
@@ -559,6 +608,25 @@ impl ManagedJobStore {
             )
         })
     }
+}
+
+fn summarize_refresh_blockers(document: &Document) -> ManagedJobRefreshBlockers {
+    let mut summary = ManagedJobRefreshBlockers::default();
+    for record in document.jobs.values() {
+        match record.state {
+            ManagedJobState::StartIntent => summary.start_intent += 1,
+            ManagedJobState::Starting => summary.starting += 1,
+            ManagedJobState::Running => summary.running += 1,
+            ManagedJobState::OrphanedUncertain => summary.orphaned_uncertain += 1,
+            ManagedJobState::StartFailed { .. }
+            | ManagedJobState::Exited { .. }
+            | ManagedJobState::Signaled { .. }
+            | ManagedJobState::Detached => {}
+        }
+    }
+    summary.blocking =
+        summary.start_intent + summary.starting + summary.running + summary.orphaned_uncertain;
+    summary
 }
 
 fn checked_record_mut<'a>(
@@ -977,6 +1045,36 @@ mod tests {
         assert_eq!(
             store.reserve_start(None, 1).unwrap().state,
             ManagedJobState::StartIntent
+        );
+    }
+
+    #[test]
+    fn refresh_blockers_count_only_resident_or_uncertain_states() {
+        let scratch = Scratch::new("refresh-blockers");
+        let store = scratch.store();
+        let intent = store.reserve_start(None, 1).unwrap();
+        assert_eq!(
+            store.refresh_blockers().unwrap(),
+            ManagedJobRefreshBlockers {
+                blocking: 1,
+                start_intent: 1,
+                ..ManagedJobRefreshBlockers::default()
+            }
+        );
+
+        let handle = intent.handle();
+        let resident = owner(501);
+        let child = process(502);
+        store.claim_starting(&handle, resident.clone(), 2).unwrap();
+        assert_eq!(store.refresh_blockers().unwrap().starting, 1);
+        store
+            .mark_running(&handle, &resident, child.clone(), 3)
+            .unwrap();
+        assert_eq!(store.refresh_blockers().unwrap().running, 1);
+        store.mark_exited(&handle, &resident, &child, 0, 4).unwrap();
+        assert_eq!(
+            store.refresh_blockers().unwrap(),
+            ManagedJobRefreshBlockers::default()
         );
     }
 

@@ -177,6 +177,7 @@ flowchart LR
   CLI["Public control<br/>CLI · mux · MCP"]
   SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
+  REFRESH["owner-preserving refresh<br/>stable admission fence · no daemon restart"]
   PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
   CC["Control Center<br/>typed consumer"]
   EVIDENCE["exact-artifact courts<br/>cross-build · native runners · UTM"]
@@ -185,10 +186,11 @@ flowchart LR
 
   U --> TERM --> FLEET --> CLI
   PLATFORM --> TERM & CU
+  CU --> REFRESH
   FLEET --> SCRIPT & CU & CC
   SCRIPT --> CU & CC
   TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
-  CU --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>Bun-free · MCU absent"}
+  REFRESH --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>Bun-free · MCU absent"}
   RETIRE -->|red| CU
   RETIRE -->|green| EVIDENCE
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE

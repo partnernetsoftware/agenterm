@@ -21,7 +21,7 @@
       "aliases": ["path-install"],
       "grant": "actuate",
       "family": "system",
-      "summary": "inspect or atomically publish the stable current-user agenterm-cu launcher",
+      "summary": "inspect or refresh the stable launcher while preserving resident owners",
       "usage": "setup [--check] [--bin-dir PATH]\npath-install [--bin-dir PATH]",
       "args": [
         {"flag": "--check", "value": "", "help": "strictly read-only inspection; requires observe rather than actuate"},
@@ -4634,7 +4634,7 @@
     },
     {
       "name": "setup",
-      "text": "agenterm-cu setup    (also: path-install)\n  scope: observe for --check; actuate for apply    family: System & permissions\n\nusage:\n  setup --check [--bin-dir PATH]\n  setup [--bin-dir PATH]\n\nChecks or atomically publishes one ACU-owned launcher for the exact packaged agenterm-cu binary. Check mode performs no filesystem writes. Apply is idempotent, preserves foreign/link-like entries, and refuses non-current targets. Runtime refresh and permission consent are separate capabilities.\n"
+      "text": "agenterm-cu setup    (also: path-install)\n  scope: observe for --check; actuate for apply    family: System & permissions\n\nusage:\n  setup --check [--bin-dir PATH]\n  setup [--bin-dir PATH]\n\nChecks or atomically publishes one ACU-owned launcher for the exact packaged agenterm-cu binary. Check mode performs no filesystem writes. Apply serializes with future resident-job admission, aligns future activation when idle, and reports deferred without stopping, restarting, or releasing a live or uncertain owner. It is idempotent, preserves foreign/link-like entries, and refuses non-current targets. Device-owner refresh stays explicitly unavailable until a native claim inventory exists. Permission consent is separate.\n"
     },
     {
       "name": "permissions",

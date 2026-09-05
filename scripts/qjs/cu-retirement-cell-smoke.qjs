@@ -4,7 +4,7 @@
 // persistent machine mutation.
 //
 // Args: AGENTERM_CU LIBAGENTERM PLATFORM_ID SOURCE_SHA ARCHIVE_SHA256
-//       RUN_ID RUN_ATTEMPT OUTPUT_JSON SETUP_RECEIPT
+//       RUN_ID RUN_ATTEMPT OUTPUT_JSON SETUP_RECEIPT SETUP_REFRESH_RECEIPT
 import * as rh from "lib/rh_compat";
 
 function require_ok(condition, message) {
@@ -16,7 +16,7 @@ function valid_hex(value, length) {
 }
 
 const args = rh.args();
-require_ok(args.length === 9, "cu_retirement_cell_arguments");
+require_ok(args.length === 10, "cu_retirement_cell_arguments");
 const executable = rh.absolute(args[0]);
 const abi = rh.absolute(args[1]);
 const platform_id = args[2];
@@ -26,6 +26,7 @@ const run_id = args[5];
 const run_attempt = args[6];
 const output = rh.absolute(args[7]);
 const setup_receipt_path = rh.absolute(args[8]);
+const setup_refresh_receipt_path = rh.absolute(args[9]);
 
 const platforms = {
   "windows-x86_64": { os: "windows", arch: "x86_64" },
@@ -80,9 +81,25 @@ require_ok(setup.schema_version === 1
 require_ok(setup.evidence.length === 1
              && setup.evidence[0] === "cu.setup-cli-entrypoint",
            "cu_retirement_cell_setup_evidence_invalid");
+require_ok(rh.exists(setup_refresh_receipt_path)
+             && rh.metadata(setup_refresh_receipt_path).is_file,
+           "cu_retirement_cell_setup_refresh_receipt_missing");
+const setup_refresh = rh.parse_file(setup_refresh_receipt_path);
+require_ok(setup_refresh.schema_version === 1
+             && setup_refresh.kind === "agenterm-cu-setup-refresh-cell"
+             && setup_refresh.platform_id === platform_id
+             && setup_refresh.agenterm_cu_sha256 === rh.sha256_file(executable)
+             && setup_refresh.resident_owner_preserved === true
+             && setup_refresh.owned_ephemeral_cleanup === "complete"
+             && setup_refresh.persistent_mutation_performed === false
+             && setup_refresh.result === "passed",
+           "cu_retirement_cell_setup_refresh_receipt_invalid");
+require_ok(setup_refresh.evidence.length === 1
+             && setup_refresh.evidence[0] === "cu.setup-runtime-refresh-owned-job",
+           "cu_retirement_cell_setup_refresh_evidence_invalid");
 
 const receipt = {
-  schema_version: 2,
+  schema_version: 3,
   kind: "agenterm-cu-runtime-cell",
   source_sha: source_sha,
   run: { id: run_id, attempt: run_attempt },
@@ -102,7 +119,8 @@ const receipt = {
   evidence: [
     "cu.retirement-cell.capabilities",
     "cu.retirement-cell.runtime-status",
-    "cu.setup-cli-entrypoint"
+    "cu.setup-cli-entrypoint",
+    "cu.setup-runtime-refresh-owned-job"
   ],
   owned_ephemeral_cleanup: "complete",
   persistent_mutation_performed: false,
@@ -112,5 +130,6 @@ rh.atomic_write(output, rh.stringify_pretty(receipt) + "\n");
 print("EVIDENCE cu.retirement-cell.capabilities");
 print("EVIDENCE cu.retirement-cell.runtime-status");
 print("EVIDENCE cu.setup-cli-entrypoint");
+print("EVIDENCE cu.setup-runtime-refresh-owned-job");
 print("PASS " + platform_id + " " + archive_sha256);
 return;

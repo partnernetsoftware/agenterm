@@ -775,8 +775,9 @@ pub enum Command {
         target: TargetRef,
     },
     /// Inspect or atomically publish the stable current-user launcher for the
-    /// exact packaged `agenterm-cu` executable. Runtime refresh and permission
-    /// repair remain separate commands.
+    /// exact packaged `agenterm-cu` executable. Apply also refreshes future
+    /// activation without disturbing resident resource owners; permission
+    /// repair remains separate.
     Setup {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "SetupAction::is_apply")]

@@ -154,6 +154,7 @@ MCU retirement blockers
 │  ├─ [x] audit retention: plan/apply + atomic bounded compact + qjswasm court
 │  ├─ [x] MCU-shaped session/lock/audit-query/compact compatibility routes to ACU
 │  ├─ [x] runtime-status + daemon status/caps aliases report truthful topology without publishing state
+│  ├─ [x] setup refresh: stable admission fence + resident-owner snapshot; never recreate global daemon lifecycle
 │  └─ [~] daemon start/restart/stop callers migrate before the obsolete lifecycle is retired
 ├─ [~] managed job facade
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
@@ -206,7 +207,11 @@ MCU retirement blockers
 
 `acu.ts` now has **13 static top-level `STAY` spellings**. Native
 `setup --check|apply` and its `path-install` alias removed launcher filesystem
-effects from the compatibility shell; runtime refresh remains a distinct gap.
+effects from the compatibility shell. Runtime refresh is now native too: it
+serializes future job admission with setup, snapshots resident owners, aligns
+future activation when idle, and otherwise returns `deferred` without stopping,
+restarting or releasing anything. Its local public qjswasm owner-preservation
+court is green and its six-cell Candidate court is wired but not yet executed.
 The exact `storage devices` route and truthful `daemon status|caps`
 observations have left the static set; other storage mutation/volume shapes and
 obsolete daemon lifecycle spellings still fail over dynamically until their
@@ -544,7 +549,7 @@ Q2 fast delegated facades
 │  ├─ [~] permissions open-next: macOS exact pane + granted no-op; denied-pane and two native courts pending
 │  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
 │  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS arm64 and Rosetta x86_64 qjswasm courts green; Candidate six-cell execution wired but not yet run
-│  └─ [ ] setup runtime refresh: coordinator-aware repair that must not disrupt owned jobs or device leases
+│  └─ [~] setup runtime refresh: stable admission fence; exact managed-job owner survives locally; device-claim inventory and six-cell execution pending
 ├─ [~] open/notify/state and terminal adoption
 │  ├─ [x] open/notify → typed host adapters; macOS public courts green, Linux/Windows pending
 │  └─ [x] state → bounded native desktop-state; terminal adoption remains separate

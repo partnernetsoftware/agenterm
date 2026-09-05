@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use crate::{
     command::SetupAction,
+    managed_job_store::{ManagedJobRefreshBlockers, ManagedJobStore},
     reply::CuError,
+    runtime_coordinator::RuntimeCoordinator,
     setup_entrypoint::{self, SetupMode},
 };
 
@@ -22,9 +24,150 @@ pub(super) fn setup_payload(
         Some(path) => PathBuf::from(path),
         None => setup_entrypoint::default_bin_dir()?,
     };
-    let mode = match action {
-        SetupAction::Check => SetupMode::Check,
-        SetupAction::Apply => SetupMode::Apply,
-    };
-    setup_entrypoint::run(&source, &bin_dir, mode)
+    match action {
+        SetupAction::Check => {
+            let blockers = ManagedJobStore::refresh_blockers_read_only()
+                .map_err(runtime_refresh_preflight_error)?;
+            let mut setup = setup_entrypoint::run(&source, &bin_dir, SetupMode::Check)?;
+            attach_runtime_refresh(&mut setup, SetupAction::Check, blockers)?;
+            Ok(setup)
+        }
+        SetupAction::Apply => {
+            let runtime = RuntimeCoordinator::open().map_err(runtime_refresh_preflight_error)?;
+            let _refresh_fence = runtime.acquire_refresh_fence()?;
+            let store = ManagedJobStore::open().map_err(runtime_refresh_preflight_error)?;
+            let blockers = store
+                .refresh_blockers()
+                .map_err(runtime_refresh_preflight_error)?;
+            let mut setup = setup_entrypoint::run(&source, &bin_dir, SetupMode::Apply)?;
+            attach_runtime_refresh(&mut setup, SetupAction::Apply, blockers)?;
+            Ok(setup)
+        }
+    }
+}
+
+fn runtime_refresh_preflight_error(error: CuError) -> CuError {
+    CuError::new(
+        "runtime_refresh_preflight_uncertain",
+        "runtime resource inventory could not be proven before setup refresh",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "none",
+        "cause": error.code,
+    }))
+}
+
+fn attach_runtime_refresh(
+    setup: &mut serde_json::Value,
+    mode: SetupAction,
+    blockers: ManagedJobRefreshBlockers,
+) -> Result<(), CuError> {
+    let object = setup.as_object_mut().ok_or_else(|| {
+        CuError::new(
+            "setup_entrypoint_serialization_failed",
+            "setup result is not a JSON object",
+        )
+    })?;
+    let launcher_ready = object.get("status").and_then(serde_json::Value::as_str) == Some("ready");
+    let launcher_performed = object
+        .get("action")
+        .and_then(|value| value.get("performed"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let ready = launcher_ready && blockers.blocking == 0;
+    object.insert(
+        "runtime_refresh".into(),
+        serde_json::json!({
+            "schema": 1,
+            "architecture": "on-demand-coordinator-with-resource-owners",
+            "mode": match mode { SetupAction::Check => "check", SetupAction::Apply => "apply" },
+            "status": if ready { "ready" } else { "deferred" },
+            "global_daemon": { "present": false, "required": false },
+            "future_activation": {
+                "provider": "direct-launcher",
+                "aligned": launcher_ready,
+                "action": if launcher_performed { "published" } else { "unchanged" },
+            },
+            "owned_resources": {
+                "managed_jobs": {
+                    "blocking": blockers.blocking,
+                    "states": {
+                        "start_intent": blockers.start_intent,
+                        "starting": blockers.starting,
+                        "running": blockers.running,
+                        "orphaned_uncertain": blockers.orphaned_uncertain,
+                    }
+                },
+                "device_leases": {
+                    "provider": "unavailable",
+                    "active": 0,
+                    "authority": "no-native-claim-surface"
+                }
+            },
+            "preservation": {
+                "verified": true,
+                "stopped": 0,
+                "restarted": 0,
+                "released": 0
+            },
+            "action": {
+                "performed": launcher_performed && blockers.blocking == 0,
+                "effect": if launcher_performed && blockers.blocking == 0 {
+                    "future_activation_published"
+                } else {
+                    "none"
+                },
+                "outcome": if ready {
+                    if launcher_performed { "refreshed" } else { "unchanged" }
+                } else {
+                    "deferred"
+                }
+            }
+        }),
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_value(status: &str, performed: bool) -> serde_json::Value {
+        serde_json::json!({
+            "status": status,
+            "action": { "performed": performed }
+        })
+    }
+
+    #[test]
+    fn runtime_refresh_is_ready_only_for_an_aligned_launcher_and_no_blockers() {
+        let mut value = setup_value("ready", true);
+        attach_runtime_refresh(
+            &mut value,
+            SetupAction::Apply,
+            ManagedJobRefreshBlockers::default(),
+        )
+        .unwrap();
+        assert_eq!(value["runtime_refresh"]["status"], "ready");
+        assert_eq!(value["runtime_refresh"]["action"]["performed"], true);
+        assert_eq!(value["runtime_refresh"]["global_daemon"]["present"], false);
+    }
+
+    #[test]
+    fn runtime_refresh_defers_without_disturbing_a_resident_owner() {
+        let mut value = setup_value("ready", true);
+        attach_runtime_refresh(
+            &mut value,
+            SetupAction::Apply,
+            ManagedJobRefreshBlockers {
+                blocking: 1,
+                running: 1,
+                ..ManagedJobRefreshBlockers::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(value["runtime_refresh"]["status"], "deferred");
+        assert_eq!(value["runtime_refresh"]["action"]["performed"], false);
+        assert_eq!(value["runtime_refresh"]["preservation"]["stopped"], 0);
+    }
 }

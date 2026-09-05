@@ -20,7 +20,11 @@ function invoke(run_directory, executable, grant, arguments, expected_error) {
   for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+    },
     timeout_ms: 30000
   });
   let reply = null;
@@ -64,7 +68,15 @@ try {
   ]);
   ensure(missing.mode === "check" && missing.status === "missing", "cu_setup_missing_status");
   ensure(missing.action.performed === false && missing.effect === "none", "cu_setup_check_mutated");
+  ensure(missing.runtime_refresh.status === "deferred", "cu_setup_check_runtime_status");
+  ensure(missing.runtime_refresh.owned_resources.managed_jobs.blocking === 0,
+         "cu_setup_check_runtime_blockers");
+  ensure(missing.runtime_refresh.global_daemon.present === false
+           && missing.runtime_refresh.global_daemon.required === false,
+         "cu_setup_check_global_daemon");
   ensure(!rh.exists(bin_directory), "cu_setup_check_created_directory");
+  ensure(!rh.exists(rh.join(run_directory, "cu-runtime.json")), "cu_setup_check_created_runtime");
+  ensure(!rh.exists(rh.join(run_directory, "cu-managed-jobs.json")), "cu_setup_check_created_jobs");
 
   print("STEP apply publishes one exact owned launcher and repeated apply is unchanged");
   const installed = invoke(run_directory, executable, "actuate", [
@@ -72,6 +84,16 @@ try {
   ]);
   ensure(installed.status === "ready" && installed.action.outcome === "installed", "cu_setup_install_status");
   ensure(installed.action.performed === true && installed.effect === "committed", "cu_setup_install_effect");
+  ensure(installed.runtime_refresh.status === "ready"
+           && installed.runtime_refresh.future_activation.aligned === true
+           && installed.runtime_refresh.action.performed === true
+           && installed.runtime_refresh.preservation.stopped === 0
+           && installed.runtime_refresh.preservation.restarted === 0
+           && installed.runtime_refresh.preservation.released === 0,
+         "cu_setup_runtime_refresh_contract");
+  ensure(installed.runtime_refresh.owned_resources.device_leases.provider === "unavailable"
+           && installed.runtime_refresh.owned_resources.device_leases.active === 0,
+         "cu_setup_device_provider_truth");
   ensure(direct_file(launcher), "cu_setup_launcher_missing");
   const digest = rh.sha256_file(launcher);
   const unchanged = invoke(run_directory, executable, "actuate", [
@@ -79,6 +101,9 @@ try {
   ]);
   ensure(unchanged.status === "ready" && unchanged.action.outcome === "unchanged", "cu_setup_idempotent_status");
   ensure(unchanged.action.performed === false && rh.sha256_file(launcher) === digest, "cu_setup_idempotent_bytes");
+  ensure(unchanged.runtime_refresh.action.performed === false
+           && unchanged.runtime_refresh.action.outcome === "unchanged",
+         "cu_setup_runtime_idempotent");
 
   print("STEP check reads the installed state and the launcher invokes the exact package binary");
   const ready = invoke(run_directory, executable, "observe", [

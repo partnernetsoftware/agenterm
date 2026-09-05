@@ -248,6 +248,21 @@ impl RuntimeCoordinator {
         })
     }
 
+    /// Serialize setup refresh with admission of future resident resources.
+    /// The stable lock file is never deleted; doing so could split the lock
+    /// domain while another process still owns the opened object.
+    pub(crate) fn acquire_refresh_fence(&self) -> Result<PathLock, CuError> {
+        let path = parent(&self.path)?.join(".agenterm-runtime-refresh.lock");
+        PathLock::try_acquire(&path).map_err(|error| {
+            let code = if error.kind() == LockErrorKind::Contended {
+                "runtime_refresh_busy"
+            } else {
+                "runtime_refresh_unavailable"
+            };
+            CuError::new(code, "runtime refresh admission fence is unavailable")
+        })
+    }
+
     pub fn session_start(
         &self,
         label: Option<&str>,
@@ -1048,6 +1063,27 @@ mod tests {
             "runtime_lock_contended"
         );
         drop(held);
+    }
+
+    #[test]
+    fn refresh_fence_is_one_stable_admission_domain() {
+        let (path, coordinator) = open("refresh-fence");
+        let held = coordinator.acquire_refresh_fence().unwrap();
+        let error = match coordinator.acquire_refresh_fence() {
+            Ok(_) => panic!("second refresh fence acquisition must contend"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "runtime_refresh_busy");
+        let fence_path = path
+            .0
+            .parent()
+            .unwrap()
+            .join(".agenterm-runtime-refresh.lock");
+        assert!(fence_path.is_file());
+        drop(held);
+        let reacquired = coordinator.acquire_refresh_fence().unwrap();
+        assert!(fence_path.is_file());
+        drop(reacquired);
     }
 
     #[test]

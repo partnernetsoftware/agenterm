@@ -1,0 +1,177 @@
+// Prove setup refresh preserves one exact resident managed-job owner.
+// Args: REPO AGENTERM_CU_EXE [OUTPUT_RECEIPT PLATFORM_ID] | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.setup-runtime-refresh-owned-job"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function invoke(run_directory, executable, arguments, expected_command) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_setup_refresh_invalid_reply:" + expected_command; }
+  ensure(output.success === true && reply.ok === true,
+         "cu_setup_refresh_failed:" + expected_command);
+  ensure(reply.command === expected_command,
+         "cu_setup_refresh_wrong_command:" + expected_command);
+  return reply.data;
+}
+
+function mutation_prefix(request_id, session_id, session_lease) {
+  return [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id,
+    "--session", session_id,
+    "--session-lease", session_lease
+  ];
+}
+
+function append_all(target, values) {
+  for (const value of values) { target.push(value); }
+  return target;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2 || args.length === 4,
+                "expected: REPO AGENTERM_CU_EXE [OUTPUT_RECEIPT PLATFORM_ID]");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+const output_receipt = args.length === 4 ? rh.absolute(args[2]) : "";
+const platform_id = args.length === 4 ? args[3] : "";
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable) && rh.symlink_metadata(executable).is_file,
+       "cu_setup_refresh_executable_missing");
+
+const context = harness.new_context(repo, "cu-setup-runtime-refresh");
+const run_directory = context.run_directory;
+const bin_directory = rh.join(run_directory, "bin");
+const request_root = "setup-refresh-" + context.run_id;
+const windows = harness.host_is_windows();
+let session_id = "";
+let session_lease = "";
+let job = null;
+let session_ended = false;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP create one session and resident managed job");
+  const session = invoke(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "setup-refresh", "--ttl-seconds", "120"
+  ], "session-start");
+  session_id = session.session_id;
+  session_lease = session.lease;
+  const long_command = windows
+    ? ["cmd.exe", "/D", "/Q", "/C", "ping -n 60 127.0.0.1 >nul"]
+    : ["/bin/sh", "-c", "sleep 60"];
+  const spawn_args = mutation_prefix(request_root + "-spawn", session_id, session_lease);
+  append_all(spawn_args, ["job-spawn", "--ttl-seconds", "60", "--"]);
+  append_all(spawn_args, long_command);
+  const spawned = invoke(run_directory, executable, spawn_args, "job-spawn");
+  job = { job_id: spawned.job_id, generation: spawned.generation };
+  const before = invoke(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-status", job.job_id
+  ], "job-status");
+  ensure(before.state === "running" && before.io_available === true,
+         "cu_setup_refresh_job_not_running");
+
+  print("STEP setup refresh defers and preserves the exact resident owner");
+  const setup = invoke(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "setup", "--bin-dir", bin_directory
+  ], "setup");
+  ensure(setup.status === "ready", "cu_setup_refresh_launcher_not_ready");
+  ensure(setup.runtime_refresh.status === "deferred"
+           && setup.runtime_refresh.owned_resources.managed_jobs.blocking >= 1
+           && setup.runtime_refresh.owned_resources.managed_jobs.states.running >= 1
+           && setup.runtime_refresh.action.performed === false
+           && setup.runtime_refresh.preservation.stopped === 0
+           && setup.runtime_refresh.preservation.restarted === 0
+           && setup.runtime_refresh.preservation.released === 0,
+         "cu_setup_refresh_deferred_contract");
+  const after = invoke(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-status", job.job_id
+  ], "job-status");
+  ensure(after.job_id === before.job_id
+           && after.generation === before.generation
+           && after.process_pid === before.process_pid
+           && after.state === "running"
+           && after.io_available === true,
+         "cu_setup_refresh_changed_resident_owner");
+
+  print("STEP explicit owner cleanup remains separate from setup");
+  const stop_args = mutation_prefix(request_root + "-stop", session_id, session_lease);
+  append_all(stop_args, [
+    "job-stop", job.job_id, "" + job.generation,
+    "--grace-ms", "100", "--expect-stopped"
+  ]);
+  const stopped = invoke(run_directory, executable, stop_args, "job-stop");
+  ensure(stopped.stopped === true, "cu_setup_refresh_job_stop");
+  const ended = invoke(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-end", session_id, "--lease", session_lease, "--confirm"
+  ], "session-end");
+  session_ended = true;
+  ensure(ended.session.state === "ended", "cu_setup_refresh_session_end");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (!session_ended && session_id !== "" && session_lease !== "") {
+  try {
+    invoke(run_directory, executable, [
+      "--target", "current", "--grant", "actuate",
+      "session-end", session_id, "--lease", session_lease, "--confirm"
+    ], "session-end");
+    session_ended = true;
+  } catch (error) {
+    if (failure === "") { failure = "cu_setup_refresh_cleanup_failed"; }
+  }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  if (output_receipt !== "") {
+    rh.atomic_write(output_receipt, rh.stringify_pretty({
+      schema_version: 1,
+      kind: "agenterm-cu-setup-refresh-cell",
+      platform_id: platform_id,
+      agenterm_cu_sha256: rh.sha256_file(executable),
+      evidence: declared_evidence,
+      resident_owner_preserved: true,
+      owned_ephemeral_cleanup: "complete",
+      persistent_mutation_performed: false,
+      result: "passed"
+    }) + "\n");
+  }
+  print("PASS: setup refresh preserves resident owners");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

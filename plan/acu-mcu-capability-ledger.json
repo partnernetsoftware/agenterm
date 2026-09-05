@@ -1020,9 +1020,11 @@
         {
           "id": "setup.runtime-refresh",
           "mcu_shape": "setup refreshes an idle daemon and refuses to disrupt running jobs or device leases",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "depends on the ACU runtime coordinator and its owned-resource inventory; never restart blindly"
+          "acu_shape": "setup apply serializes with future managed-job admission, reports the bounded resident-owner snapshot, aligns future activation when idle and otherwise defers without stopping, restarting or releasing an owner",
+          "state": "native",
+          "qualification": "public-qjs-macos-owned-job-green-six-cell-candidate-wired-not-run-device-claim-provider-unavailable",
+          "evidence": ["cu.setup-runtime-refresh-owned-job"],
+          "next": "run the wired six-cell Candidate court and add a native device-claim inventory before claiming device-owner preservation"
         },
         {
           "id": "doctor.health",

@@ -127,10 +127,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measures 131 capabilities,
   including 20 gaps and 50 platform-limited rows, plus 13 static adapter stays
-  and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
+  and an incomplete dynamic parity corpus. The owner-preserving setup refresh
+  cut reduces the current ledger to 19 gaps without changing the 13 static
+  top-level spellings. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
-- [~] The stable CLI launcher has left `STAY`. Native `setup --check` is a
+- [~] The setup family has left its implementation fallback. Native
+  `setup --check` is a
   zero-write inspection; `setup` atomically publishes one owned launcher for
   the exact packaged `agenterm-cu` binary under a path lock, repairs only its
   own stale bytes, and refuses foreign files or links without changing them.
@@ -141,11 +144,36 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   now requires the same journey before each cell may publish its receipt,
   binds its exact CU digest, and distinguishes cleaned owned-ephemeral effects
   from persistent machine mutation. Linux, Windows and one exact six-cell
-  Candidate aggregate remain unproved until the workflow actually runs, as
-  does the separate coordinator-aware runtime-refresh leaf. Direct workflow
+  Candidate aggregate remain unproved until the workflow actually runs.
+  Runtime refresh follows ACU's real on-demand architecture instead of
+  recreating MCU's global daemon: setup apply and resident job admission share
+  one stable fence; check remains zero-write; an idle refresh aligns future
+  activation, while any start-intent, starting, running or owner-uncertain job
+  makes the refresh `deferred`. It never stops, restarts or releases the
+  resident owner. The public qjswasm journey
+  `cu.setup-runtime-refresh-owned-job` is green on macOS: the exact job id,
+  generation, process id and running state survive the refresh, and only the
+  later explicit owner cleanup stops it. Candidate runtime schema 3 now binds
+  this second receipt in every native cell. Device-lease refresh stays
+  explicitly unavailable until ACU owns a native claim inventory; reporting
+  zero active leases is not evidence that no external device owner exists.
+  Linux, Windows and one exact six-cell Candidate aggregate remain unproved.
+  Direct workflow
   script runs carry their explicit task-equivalent wall/operation/output
   budgets; relying on the generic run defaults made the slower x86_64 launch
   cancel even though the command itself was healthy.
+
+```mermaid
+flowchart LR
+  CHECK["setup --check<br/>zero write"] --> SNAP["read-only owner snapshot"]
+  APPLY["setup apply"] --> FENCE["stable refresh/admission fence"]
+  SPAWN["future job admission"] --> FENCE
+  FENCE --> OWNERS{"resident owner blockers?"}
+  OWNERS -->|none| ALIGN["align future activation<br/>ready"]
+  OWNERS -->|present / uncertain| DEFER["deferred<br/>stop=0 · restart=0 · release=0"]
+  ALIGN & DEFER --> COURT["qjswasm owner-preservation court"]
+  COURT --> SIX["Candidate six native cells<br/>pending exact run"]
+```
 - [x] Two MCU-only surfaces are reviewed retirements, not ACU gaps. `ghost X Y`
   drew a decorative cursor with no observation or effect authority; callers
   must use real pointer state, structured hit-testing or screenshots instead.

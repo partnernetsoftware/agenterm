@@ -87,6 +87,7 @@ jobs:
           path: |
             scripts/qjs/cu-retirement-cell-smoke.qjs
             scripts/qjs/cu-setup-cli-smoke.qjs
+            scripts/qjs/cu-setup-runtime-refresh-smoke.qjs
             scripts/qjs/lib/rh_compat.qjs
             scripts/qjs/lib/test_harness.qjs
           if-no-files-found: error
@@ -1156,11 +1157,17 @@ jobs:
             runtime-control/cu-setup-cli-smoke.qjs -- \
             "$PWD" "$cu" "runtime-evidence/setup-$PLATFORM_ID.json" "$PLATFORM_ID"
           AGENTERM_NO_ACTIVATE=1 "$launcher" cli script run --profile tool \
+            --timeout-ms 120000 --max-operations 100000000 \
+            --max-output-bytes 262144 \
+            runtime-control/cu-setup-runtime-refresh-smoke.qjs -- \
+            "$PWD" "$cu" "runtime-evidence/setup-refresh-$PLATFORM_ID.json" "$PLATFORM_ID"
+          AGENTERM_NO_ACTIVATE=1 "$launcher" cli script run --profile tool \
             runtime-control/cu-retirement-cell-smoke.qjs -- \
             "$cu" "$abi" "$PLATFORM_ID" "$SOURCE_SHA" "$archive_sha256" \
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
             "runtime-evidence/$PLATFORM_ID.json" \
-            "runtime-evidence/setup-$PLATFORM_ID.json"
+            "runtime-evidence/setup-$PLATFORM_ID.json" \
+            "runtime-evidence/setup-refresh-$PLATFORM_ID.json"
 
       - name: Upload ACU native runtime receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
