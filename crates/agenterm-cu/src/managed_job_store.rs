@@ -14,7 +14,9 @@ use std::{
 
 use agenterm_platform::{
     entropy::secure_random_array,
-    filesystem::{metadata_is_link_like, protect_private_directory, write_private_atomic},
+    filesystem::{
+        host_directories, metadata_is_link_like, protect_private_directory, write_private_atomic,
+    },
     locking::{LockErrorKind, PathLock},
 };
 use serde::{Deserialize, Serialize};
@@ -137,6 +139,37 @@ impl Default for Document {
 }
 
 impl ManagedJobStore {
+    pub(crate) fn open() -> Result<Self, CuError> {
+        if let Some(path) = std::env::var_os("AGENTERM_CU_MANAGED_JOB_PATH") {
+            return Self::open_creating_parent(PathBuf::from(path));
+        }
+        let directories = host_directories().map_err(|_| unavailable())?;
+        Self::open_creating_parent(
+            directories
+                .local_data
+                .join("agenterm")
+                .join("cu-managed-jobs.json"),
+        )
+    }
+
+    fn open_creating_parent(path: PathBuf) -> Result<Self, CuError> {
+        let path = if path.is_absolute() {
+            path
+        } else {
+            std::env::current_dir()
+                .map_err(|_| unavailable())?
+                .join(path)
+        };
+        let parent = explicit_parent(&path)?;
+        fs::create_dir_all(parent).map_err(|_| unavailable())?;
+        protect_private_directory(parent).map_err(|_| unavailable())?;
+        Self::open_at(path)
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// Open one caller-selected private state file.
     ///
     /// The parent must already be a direct directory. It is protected for the
@@ -203,6 +236,31 @@ impl ManagedJobStore {
             }
             record.owner = Some(owner);
             record.state = ManagedJobState::Starting;
+            Ok(())
+        })
+    }
+
+    /// Close an intent only while no resident owner ever claimed it. The
+    /// launcher retains and reaps the attempted owner before using this edge.
+    pub(crate) fn mark_unclaimed_start_failed(
+        &self,
+        handle: &ManagedJobHandle,
+        code: &str,
+        now_utc_ms: i64,
+    ) -> Result<ManagedJobRecord, CuError> {
+        validate_bounded_token(code, MAX_TERMINAL_CODE_BYTES, "terminal code")?;
+        let code = code.to_owned();
+        self.transition(handle, now_utc_ms, move |record| {
+            if record.state != ManagedJobState::StartIntent
+                || record.owner.is_some()
+                || record.process.is_some()
+            {
+                return Err(transition_error(
+                    "unclaimed start failure requires an ownerless start intent",
+                ));
+            }
+            record.state = ManagedJobState::StartFailed { code };
+            record.terminal_at_utc_ms = Some(now_utc_ms);
             Ok(())
         })
     }
@@ -294,6 +352,7 @@ impl ManagedJobStore {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn mark_detached(
         &self,
         handle: &ManagedJobHandle,
@@ -585,7 +644,6 @@ fn validate_record(key: &str, record: &ManagedJobRecord) -> Result<(), CuError> 
         }
         ManagedJobState::StartFailed { code } => {
             validate_bounded_token(code, MAX_TERMINAL_CODE_BYTES, "terminal code").is_ok()
-                && record.owner.is_some()
                 && record.process.is_none()
                 && record.terminal_at_utc_ms == Some(record.updated_at_utc_ms)
         }

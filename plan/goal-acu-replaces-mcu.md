@@ -83,10 +83,12 @@ flowchart LR
   PS --> Q
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
   PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
+  PTY --> MJ["managed job live on macOS<br/>resident owner · native IPC · exact replay"]
   NET --> NI["network interfaces live<br/>native ids · stable order · bounded snapshot"]
   DESK --> DS["desktop-state live<br/>bounded · exact target · drift refusal"]
   TL --> Q
   SE --> Q
+  MJ --> Q
   NI --> Q
   DS --> Q
   Q --> H["three-host native court"]
@@ -130,7 +132,11 @@ MCU retirement blockers
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
 │  ├─ [x] cross-platform owned stdin pipe; drop is explicit EOF, not process stop
 │  ├─ [x] closed current-user native IPC + opaque bounded endpoint + resident expiry loop
-│  └─ [ ] detached launcher + public spawn/list/status/events/write/wait/renew/stop
+│  ├─ [x] detached launcher + public spawn/list/status/events/write/wait/renew/stop
+│  ├─ [x] exact request replay returns the same public job identity without a second spawn
+│  ├─ [x] macOS public-process lifecycle: dual output, write/EOF, wait, renew and stop
+│  ├─ [x] registered qjswasm journey green on macOS
+│  └─ [ ] same journey green on Linux/Windows
 ├─ [ ] machine transactions
 │  ├─ recoverable file copy/move
 │  ├─ MV3 browser bridge and managed profile/window lifecycle

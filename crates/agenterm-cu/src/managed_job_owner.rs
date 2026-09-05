@@ -27,7 +27,7 @@ use crate::managed_job_store::{
     ExactProcessIdentity, ManagedJobHandle, ManagedJobStore, ResidentOwnerIdentity,
 };
 
-const LAUNCH_SCHEMA_VERSION: u32 = 1;
+pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 1;
 const LAUNCH_MAX_BYTES: usize = 64 * 1024;
 const COMMAND_PARTS_MAX: usize = 256;
 const ENVIRONMENT_ENTRIES_MAX: usize = 256;
@@ -457,6 +457,7 @@ impl ResidentJobOwner {
         Ok(report)
     }
 
+    #[cfg(test)]
     pub(crate) fn run_to_completion(mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
         loop {
             self.poll_lifecycle()?;
@@ -542,6 +543,7 @@ impl Drop for ResidentJobOwner {
 }
 
 /// Read and validate one sealed launch, claim its intent, then spawn contained.
+#[cfg(test)]
 pub(crate) fn start_owner_from_reader(
     reader: impl Read,
 ) -> Result<ResidentJobOwner, ManagedJobOwnerError> {
@@ -704,6 +706,7 @@ pub(crate) fn start_owner_from_launch(
 
 /// Current synchronous internal entry point. A later detached-owner command
 /// can pass its inherited pipe here without placing launch data in argv/env.
+#[cfg(test)]
 pub(crate) fn run_owner(reader: impl Read) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
     start_owner_from_reader(reader)?.run_to_completion()
 }
@@ -856,7 +859,7 @@ fn terminal_from_exit(exit: ProcessExit) -> Result<ManagedJobTerminal, ManagedJo
     }
 }
 
-fn now_utc_ms() -> Result<i64, ManagedJobOwnerError> {
+pub(crate) fn now_utc_ms() -> Result<i64, ManagedJobOwnerError> {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| ManagedJobOwnerError::new("managed_job_clock_invalid"))?

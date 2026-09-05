@@ -577,6 +577,23 @@ flowchart LR
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab or by single-process metrics.
 
+- [~] The arbitrary managed-job facade is now public as
+  `job-spawn/list/status/events/write/wait/renew/stop`. It is distinct from an
+  AgenTerm tab and from the bounded synchronous `shell-exec`: an independent
+  resident owner contains the exact child tree, retains separate bounded
+  stdout/stderr cursor rings, owns stdin EOF, and serves one request per
+  current-user native socket/pipe connection. The durable registry never
+  stores command arguments, environment values, session lease, stdin bytes or
+  the private owner nonce in a public reply. Mutating spawn/write/renew/stop
+  require request identity; replay of an exact successful spawn returns the
+  same `{job_id,generation}` and does not create another process. Delivery
+  uncertainty remains typed and is never retried automatically. A macOS
+  public qjswasm court has proved exact replay, binary stdin plus EOF, both
+  output streams with independently advancing cursors, exit verification,
+  renewal, identity-bound stop and owner cleanup on macOS. Linux/Windows native
+  executions of that same registered journey remain the promotion boundary, so
+  this leaf stays partial.
+
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old
   meaning. Commands are UTF-8/no-NUL and bounded before spawn. The shell is

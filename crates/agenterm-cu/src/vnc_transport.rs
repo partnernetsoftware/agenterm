@@ -810,6 +810,32 @@ mod tests {
     }
 
     #[test]
+    fn managed_job_events_cursors_survive_session_target_rewrite() {
+        let command = CuCommand::JobEvents {
+            target: TargetRef::Vnc,
+            job_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+            generation: 9,
+            stdout_cursor: crate::command::JobOutputCursor::new("17").unwrap(),
+            stderr_cursor: crate::command::JobOutputCursor::new("23").unwrap(),
+            timeout_ms: 700,
+            max_bytes: 4096,
+        };
+        let remote = rewrite_command_target_current(&command).expect("rewrite");
+        assert!(matches!(
+            remote,
+            CuCommand::JobEvents {
+                target: TargetRef::Current,
+                generation: 9,
+                ref stdout_cursor,
+                ref stderr_cursor,
+                timeout_ms: 700,
+                max_bytes: 4096,
+                ..
+            } if stdout_cursor.as_str() == "17" && stderr_cursor.as_str() == "23"
+        ));
+    }
+
+    #[test]
     fn network_interface_limit_survives_session_target_rewrite() {
         let command = CuCommand::NetworkInterfaces {
             target: TargetRef::Vnc,

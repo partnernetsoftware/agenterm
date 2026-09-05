@@ -126,6 +126,86 @@
       "args": []
     },
     {
+      "name": "job-spawn",
+      "command": "job-spawn",
+      "aliases": ["job spawn"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "start one durable detached process under a resident owner",
+      "usage": "job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] -- PROGRAM [ARG...]\njob spawn ...",
+      "args": []
+    },
+    {
+      "name": "job-list",
+      "command": "job-list",
+      "aliases": ["job list"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list bounded durable managed-job records",
+      "usage": "job-list [--state STATE] [--offset N] [--max N]\njob list ...",
+      "args": []
+    },
+    {
+      "name": "job-status",
+      "command": "job-status",
+      "aliases": ["job status"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "inspect one managed-job identity and live state",
+      "usage": "job-status JOB_ID\njob status JOB_ID",
+      "args": []
+    },
+    {
+      "name": "job-events",
+      "command": "job-events",
+      "aliases": ["job events"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read lossless cursor-based stdout and stderr pages",
+      "usage": "job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]",
+      "args": []
+    },
+    {
+      "name": "job-write",
+      "command": "job-write",
+      "aliases": ["job write"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "write one bounded base64 chunk and optionally close stdin",
+      "usage": "job-write JOB_ID GENERATION [--data-base64 DATA] [--close-stdin]",
+      "args": []
+    },
+    {
+      "name": "job-wait",
+      "command": "job-wait",
+      "aliases": ["job wait"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "wait boundedly for one managed job and verify exit",
+      "usage": "job-wait JOB_ID GENERATION [--timeout-ms N] [--expect-exit CODE]",
+      "args": []
+    },
+    {
+      "name": "job-stop",
+      "command": "job-stop",
+      "aliases": ["job stop"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "close stdin then force-stop one identity-bound job",
+      "usage": "job-stop JOB_ID GENERATION [--grace-ms N] [--expect-stopped]",
+      "args": []
+    },
+    {
+      "name": "job-renew",
+      "command": "job-renew",
+      "aliases": ["job renew"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "renew one resident managed-job lease",
+      "usage": "job-renew JOB_ID GENERATION [--ttl-seconds N]",
+      "args": []
+    },
+    {
       "name": "network-interfaces",
       "command": "network-interfaces",
       "aliases": [
@@ -3921,6 +4001,38 @@
     {
       "name": "lock-release",
       "text": "agenterm-cu lock-release    (also: lock release)\n  scope: actuate    family: Runtime coordination\n\nusage: lock-release LOCK_ID --lease LEASE\n\nReleases one lock by lock id after verifying its owning session lease.\n"
+    },
+    {
+      "name": "job-spawn",
+      "text": "agenterm-cu job-spawn    (also: job spawn)\n  scope: actuate    family: Managed jobs\n\nusage: job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] -- PROGRAM [ARG...]\n\nStarts one contained child under an independent resident owner. Requires the global --request-id, --session and --session-lease identity. Exact replay returns the same job_id and generation without spawning twice. Command, environment and private owner nonce are never returned by list/status.\n"
+    },
+    {
+      "name": "job-list",
+      "text": "agenterm-cu job-list    (also: job list)\n  scope: observe    family: Managed jobs\n\nusage: job-list [--state STATE] [--offset N] [--max N]\n\nLists bounded retained job identities and public lifecycle state. STATE is start-intent, starting, running, start-failed, exited, signaled, detached, or orphaned-uncertain.\n"
+    },
+    {
+      "name": "job-status",
+      "text": "agenterm-cu job-status    (also: job status)\n  scope: observe    family: Managed jobs\n\nusage: job-status JOB_ID\n\nReads durable state and, while the resident owner is reachable, its identity-bound live child status. Owner nonce, command and environment remain private.\n"
+    },
+    {
+      "name": "job-events",
+      "text": "agenterm-cu job-events    (also: job events)\n  scope: observe    family: Managed jobs\n\nusage: job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]\n\nReads independent bounded stdout/stderr rings. Cursors are canonical decimal byte positions; truncation and native read failures stay explicit.\n"
+    },
+    {
+      "name": "job-write",
+      "text": "agenterm-cu job-write    (also: job write)\n  scope: actuate    family: Managed jobs\n\nusage: job-write JOB_ID GENERATION [--data-base64 DATA] [--close-stdin]\n\nWrites at most 64 KiB decoded bytes and optionally closes stdin in the same resident request. Requires global request identity; uncertain delivery fails closed rather than retrying bytes.\n"
+    },
+    {
+      "name": "job-wait",
+      "text": "agenterm-cu job-wait    (also: job wait)\n  scope: observe    family: Managed jobs\n\nusage: job-wait JOB_ID GENERATION [--timeout-ms N] [--expect-exit CODE]\n\nWaits up to 24 hours through bounded resident requests. --expect-exit turns a different or unfinished result into a typed mismatch.\n"
+    },
+    {
+      "name": "job-stop",
+      "text": "agenterm-cu job-stop    (also: job stop)\n  scope: actuate    family: Managed jobs\n\nusage: job-stop JOB_ID GENERATION [--grace-ms N] [--expect-stopped]\n\nWith grace, first closes stdin and waits; then stops the exact contained child object. Requires global request identity. --expect-stopped refuses an unverified terminal state.\n"
+    },
+    {
+      "name": "job-renew",
+      "text": "agenterm-cu job-renew    (also: job renew)\n  scope: actuate    family: Managed jobs\n\nusage: job-renew JOB_ID GENERATION [--ttl-seconds N]\n\nRenews the resident owner lease for 1..=86400 seconds. Requires global request identity. Expiry remains an owned-resource cleanup boundary.\n"
     },
     {
       "name": "network-interfaces",

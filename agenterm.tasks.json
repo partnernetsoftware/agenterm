@@ -618,6 +618,23 @@
         "task.cu-macos-smoke"
       ]
     },
+    "cu-managed-job-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-managed-job-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-managed-job-smoke"
+      ]
+    },
     "cu-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2194,6 +2211,27 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-managed-job-smoke",
+      "description": "Prove the platform-neutral public managed-job lifecycle: runtime session ownership, exact spawn replay, privacy-safe list/status, stdin write and close, independent output cursors, exit wait, lease renewal, exact stop and owner cleanup.",
+      "entry": "scripts/qjs/cu-managed-job-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

@@ -28,8 +28,8 @@ use crate::{
         Command, InvokeAction, InvokeValueKind, OrderRelation, PointerButton, WaitCondition,
     },
     idempotency_store::{
-        FinalOutcome, FinalOutcomeKind, IdempotencyStore, MAX_RETENTION_TTL_MS, ReserveDecision,
-        fingerprint_canonical_request_with_secret,
+        FinalOutcome, FinalOutcomeKind, FinalReplay, IdempotencyStore, MAX_RETENTION_TTL_MS,
+        ReserveDecision, fingerprint_canonical_request_with_secret,
     },
     mechanism, network_probe, observe,
     rdp_transport::{self, RdpEndpoint},
@@ -55,6 +55,7 @@ mod dispatch;
 mod errors;
 mod files;
 mod invoke;
+mod managed_jobs;
 mod menus;
 mod network_interfaces;
 mod node_match;
@@ -90,6 +91,7 @@ use device_capture::*;
 use errors::*;
 use files::*;
 use invoke::*;
+use managed_jobs::*;
 use menus::*;
 use network_interfaces::*;
 use node_match::*;
@@ -400,6 +402,24 @@ impl Executor {
                     .as_ref()
                     .is_some_and(|outcome| outcome.kind == FinalOutcomeKind::Succeeded);
                 if succeeded {
+                    if matches!(command, Command::JobSpawn { .. }) {
+                        return match status
+                            .outcome
+                            .as_ref()
+                            .and_then(|outcome| outcome.replay.as_ref())
+                        {
+                            Some(replay @ FinalReplay::JobSpawn { .. }) => {
+                                CuReply::ok(command, replay_payload(replay))
+                            }
+                            None => CuReply::err(
+                                command,
+                                CuError::new(
+                                    "managed_job_replay_projection_missing",
+                                    "completed job-spawn has no sealed public replay result",
+                                ),
+                            ),
+                        };
+                    }
                     return CuReply::ok(
                         command,
                         serde_json::json!({
@@ -409,31 +429,47 @@ impl Executor {
                         }),
                     );
                 }
+                let detail = if matches!(command, Command::JobSpawn { .. }) {
+                    serde_json::json!({
+                        "effect": "not_repeated",
+                        "idempotent": true,
+                    })
+                } else {
+                    serde_json::json!({
+                        "effect": "not_repeated",
+                        "idempotent": true,
+                        "request": status,
+                    })
+                };
                 return CuReply::err(
                     command,
                     CuError::new(
                         "request_previously_failed",
                         "this request identity already has a terminal failed receipt",
                     )
-                    .with_detail(serde_json::json!({
-                        "effect": "not_repeated",
-                        "idempotent": true,
-                        "request": status,
-                    })),
+                    .with_detail(detail),
                 );
             }
             Ok(ReserveDecision::Uncertain(status)) => {
+                let detail = if matches!(command, Command::JobSpawn { .. }) {
+                    serde_json::json!({
+                        "effect": "unknown",
+                        "idempotent": true,
+                    })
+                } else {
+                    serde_json::json!({
+                        "effect": "unknown",
+                        "idempotent": true,
+                        "request": status,
+                    })
+                };
                 return CuReply::err(
                     command,
                     CuError::new(
                         "request_outcome_unknown",
                         "this request identity may already have been delivered; automatic replay is refused",
                     )
-                    .with_detail(serde_json::json!({
-                        "effect": "unknown",
-                        "idempotent": true,
-                        "request": status,
-                    })),
+                    .with_detail(detail),
                 );
             }
             Err(error) => return CuReply::err(command, error),
@@ -453,7 +489,15 @@ impl Executor {
                 return CuReply::err(command, error);
             }
         };
-        let reply = self.execute_current(command);
+        let reply = match self.run_current(
+            command,
+            Some(&JobRequestContext {
+                session_id: &identity.session_id,
+            }),
+        ) {
+            Ok(data) => CuReply::ok(command, data),
+            Err(error) => CuReply::err(command, error),
+        };
         if let Err(mut error) = Self::audit_after(&mut audit, command, &reply) {
             let _ = store.mark_outcome_unknown(
                 &identity.request_id,
@@ -470,8 +514,39 @@ impl Executor {
             return CuReply::err(command, error);
         }
 
+        if reply
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "managed_job_outcome_unknown")
+        {
+            let _ = store.mark_outcome_unknown(
+                &identity.request_id,
+                &fingerprint,
+                &reservation.completion_token,
+                now_utc_ms().unwrap_or(now_ms),
+            );
+            return reply;
+        }
+
         let outcome = if reply.ok {
-            FinalOutcome::new(FinalOutcomeKind::Succeeded, "ok", None)
+            let outcome = FinalOutcome::new(FinalOutcomeKind::Succeeded, "ok", None);
+            if matches!(command, Command::JobSpawn { .. }) {
+                outcome.and_then(|outcome| {
+                    reply
+                        .data
+                        .as_ref()
+                        .ok_or_else(|| {
+                            CuError::new(
+                                "managed_job_replay_projection_invalid",
+                                "successful job-spawn omitted its public identity",
+                            )
+                        })
+                        .and_then(replay_from_spawn_reply)
+                        .and_then(|replay| outcome.with_replay(replay))
+                })
+            } else {
+                outcome
+            }
         } else {
             FinalOutcome::new(
                 FinalOutcomeKind::Failed,
@@ -481,8 +556,19 @@ impl Executor {
                     .map_or("failed", |error| error.code.as_str()),
                 None,
             )
-        }
-        .expect("reply error codes satisfy the bounded outcome contract");
+        };
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let _ = store.mark_outcome_unknown(
+                    &identity.request_id,
+                    &fingerprint,
+                    &reservation.completion_token,
+                    now_utc_ms().unwrap_or(now_ms),
+                );
+                return CuReply::err(command, error);
+            }
+        };
         if let Err(error) = store.finalize(
             &identity.request_id,
             &fingerprint,
@@ -721,7 +807,7 @@ impl Executor {
     }
 
     pub(super) fn execute_current(&self, command: &Command) -> CuReply {
-        match self.run_current(command) {
+        match self.run_current(command, None) {
             Ok(data) => CuReply::ok(command, data),
             Err(error) => CuReply::err(command, error),
         }

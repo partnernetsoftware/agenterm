@@ -215,6 +215,14 @@ fn append_missing_top_level_rows(text: &mut String) {
         "lock-acquire",
         "lock-list",
         "lock-release",
+        "job-spawn",
+        "job-list",
+        "job-status",
+        "job-events",
+        "job-write",
+        "job-wait",
+        "job-stop",
+        "job-renew",
     ];
     let mut missing = verbs::VERBS
         .iter()
@@ -257,7 +265,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  audit-query  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release"
+            "  audit-query  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-events  job-write  job-wait  job-stop  job-renew"
                 .to_owned(),
         );
     }

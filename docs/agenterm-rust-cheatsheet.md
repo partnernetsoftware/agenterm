@@ -3688,6 +3688,15 @@ into `None` (unbounded wait) or a negative capture bound into `usize::MAX`.
 Prove the refusal leaves the same child handle usable for corrected wait and
 cleanup.
 
+For a detached resident owner, freeze every launch locator before crossing the
+process boundary. In particular, turn an explicit relative registry override
+into an absolute path in the parent while preserving the child's rule that a
+sealed launch must contain only absolute state/program/cwd paths. A parent
+polling the registry immediately after spawn can race the owner's short
+claim/update lock; retry only the typed contention result under the existing
+startup deadline. Missing state, corrupt state and any other store failure stay
+terminal instead of being treated as transient readiness.
+
 ## Keep filesystem metadata and object identity separate
 
 Use `symlink_metadata` when an observation promises to describe the final

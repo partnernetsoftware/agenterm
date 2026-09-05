@@ -31,7 +31,8 @@ use sha2::{Digest, Sha256};
 
 use crate::CuError;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
+const OLDEST_READABLE_SCHEMA_VERSION: u32 = 1;
 const FINGERPRINT_DOMAIN: &[u8] = b"agenterm-cu/idempotency-request/v1\0";
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 const MAX_RECORDS: usize = 1_024;
@@ -61,6 +62,14 @@ pub enum FinalOutcomeKind {
     Failed,
 }
 
+/// Minimal non-secret public data needed to replay a completed effect without
+/// executing it again. Never add bearer authority or private launch material.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
+pub enum FinalReplay {
+    JobSpawn { job_id: String, generation: u64 },
+}
+
 /// Bounded, non-secret outcome metadata retained for exact replay.
 ///
 /// Human messages, command output, paths, request bodies and credentials do
@@ -74,6 +83,8 @@ pub struct FinalOutcome {
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<FinalReplay>,
 }
 
 impl FinalOutcome {
@@ -86,9 +97,16 @@ impl FinalOutcome {
             kind,
             code: code.into(),
             receipt_sha256,
+            replay: None,
         };
         validate_outcome(&outcome)?;
         Ok(outcome)
+    }
+
+    pub fn with_replay(mut self, replay: FinalReplay) -> Result<Self, CuError> {
+        self.replay = Some(replay);
+        validate_outcome(&self)?;
+        Ok(self)
     }
 }
 
@@ -354,6 +372,7 @@ impl IdempotencyStore {
             .records
             .retain(|_, record| record.expires_at_utc_ms > now_utc_ms);
         let result = operation(&mut document)?;
+        document.schema_version = SCHEMA_VERSION;
         document.last_now_utc_ms = now_utc_ms;
         validate_document(&document)?;
         self.write_document(&document)?;
@@ -476,7 +495,7 @@ pub fn fingerprint_canonical_request_with_secret(
 }
 
 fn validate_document(document: &Document) -> Result<(), CuError> {
-    if document.schema_version != SCHEMA_VERSION
+    if !(OLDEST_READABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&document.schema_version)
         || document.last_now_utc_ms < 0
         || document.records.len() > MAX_RECORDS
     {
@@ -509,6 +528,12 @@ fn validate_document(document: &Document) -> Result<(), CuError> {
         match (&record.state, &record.outcome) {
             (RequestState::Finalized, Some(outcome)) => {
                 validate_outcome(outcome).map_err(as_corrupt)?;
+                if document.schema_version == 1 && outcome.replay.is_some() {
+                    return Err(CuError::new(
+                        "request_store_corrupt",
+                        "schema-one request state cannot contain replay metadata",
+                    ));
+                }
             }
             (RequestState::Reserved | RequestState::OutcomeUnknown, None) => {}
             _ => {
@@ -582,7 +607,39 @@ fn validate_outcome(outcome: &FinalOutcome) -> Result<(), CuError> {
     if let Some(digest) = &outcome.receipt_sha256 {
         validate_digest(digest, "request_outcome_invalid")?;
     }
+    if let Some(replay) = &outcome.replay {
+        if outcome.kind != FinalOutcomeKind::Succeeded {
+            return Err(CuError::new(
+                "request_outcome_invalid",
+                "failed outcomes cannot carry successful replay data",
+            ));
+        }
+        match replay {
+            FinalReplay::JobSpawn { job_id, generation } => {
+                if *generation == 0 || !is_lowercase_uuid_v4(job_id) {
+                    return Err(CuError::new(
+                        "request_outcome_invalid",
+                        "job replay requires a lowercase UUID v4 and nonzero generation",
+                    ));
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+fn is_lowercase_uuid_v4(value: &str) -> bool {
+    value.len() == 36
+        && value.as_bytes().get(8) == Some(&b'-')
+        && value.as_bytes().get(13) == Some(&b'-')
+        && value.as_bytes().get(18) == Some(&b'-')
+        && value.as_bytes().get(23) == Some(&b'-')
+        && value.as_bytes().get(14) == Some(&b'4')
+        && matches!(value.as_bytes().get(19), Some(b'8' | b'9' | b'a' | b'b'))
+        && value.bytes().enumerate().all(|(index, byte)| {
+            matches!(index, 8 | 13 | 18 | 23)
+                || byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()
+        })
 }
 
 fn validate_now(now_utc_ms: i64) -> Result<(), CuError> {
@@ -734,6 +791,13 @@ mod tests {
         FinalOutcome::new(FinalOutcomeKind::Succeeded, "completed", None).expect("outcome")
     }
 
+    fn job_replay() -> FinalReplay {
+        FinalReplay::JobSpawn {
+            job_id: "00000000-0000-4000-8000-000000000001".into(),
+            generation: 1,
+        }
+    }
+
     #[test]
     fn finalized_request_replays_across_reopen_without_persisting_secrets() {
         let (path, store) = open("final-reopen");
@@ -762,6 +826,83 @@ mod tests {
         assert!(!persisted.contains(canonical));
         assert!(!persisted.contains(&fresh.completion_token));
         assert!(persisted.contains("completion_token_sha256"));
+    }
+
+    #[test]
+    fn job_replay_round_trips_and_schema_one_upgrades_on_mutation() {
+        let (path, store) = open("job-replay-upgrade");
+        let digest = fingerprint("job=<command-sentinel>;lease=<lease-sentinel>");
+        let fresh = match store.reserve("req-job", &digest, 60_000, 1_000).unwrap() {
+            ReserveDecision::Fresh(fresh) => fresh,
+            other => panic!("expected fresh reservation, got {other:?}"),
+        };
+        let outcome = succeeded().with_replay(job_replay()).unwrap();
+        store
+            .finalize(
+                "req-job",
+                &digest,
+                &fresh.completion_token,
+                outcome.clone(),
+                1_001,
+            )
+            .unwrap();
+        let replay = store.reserve("req-job", &digest, 60_000, 1_002).unwrap();
+        assert!(matches!(
+            replay,
+            ReserveDecision::ReplayFinalized(RequestStatus {
+                outcome: Some(ref actual),
+                ..
+            }) if actual == &outcome
+        ));
+
+        let schema_two = fs::read_to_string(&path.0).unwrap();
+        assert!(!schema_two.contains("command-sentinel"));
+        assert!(!schema_two.contains("lease-sentinel"));
+        assert!(!schema_two.contains(&fresh.completion_token));
+        let schema_one = schema_two.replacen("\"schema_version\":2", "\"schema_version\":1", 1);
+        // Schema one predates replay projections, so use a valid old outcome.
+        let schema_one = schema_one.replace(
+            ",\"replay\":{\"kind\":\"job_spawn\",\"job_id\":\"00000000-0000-4000-8000-000000000001\",\"generation\":1}",
+            "",
+        );
+        fs::write(&path.0, schema_one).unwrap();
+        let reopened = IdempotencyStore::open_at(&path.0).expect("read schema one");
+        let other = fingerprint("other");
+        assert!(matches!(
+            reopened
+                .reserve("req-other", &other, 60_000, 1_003)
+                .unwrap(),
+            ReserveDecision::Fresh(_)
+        ));
+        let upgraded = fs::read_to_string(&path.0).unwrap();
+        assert!(upgraded.contains("\"schema_version\":2"));
+    }
+
+    #[test]
+    fn replay_metadata_rejects_failed_or_invalid_job_identity() {
+        assert_eq!(
+            FinalOutcome::new(FinalOutcomeKind::Failed, "failed", None)
+                .unwrap()
+                .with_replay(job_replay())
+                .unwrap_err()
+                .code,
+            "request_outcome_invalid"
+        );
+        for replay in [
+            FinalReplay::JobSpawn {
+                job_id: "not-a-job".into(),
+                generation: 1,
+            },
+            FinalReplay::JobSpawn {
+                job_id: "00000000-0000-4000-8000-000000000001".into(),
+                generation: 0,
+            },
+        ] {
+            assert_eq!(
+                succeeded().with_replay(replay).unwrap_err().code,
+                "request_outcome_invalid"
+            );
+        }
     }
 
     #[test]

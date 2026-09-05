@@ -12,14 +12,15 @@ use std::{
 };
 
 use agenterm_platform::ipc::{IpcEndpoint, IpcTransportErrorCode, NativeListener};
+use agenterm_platform::{entropy::secure_random_array, ipc::NativeStream};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::managed_job_owner::{
     ManagedJobOwnerError, OutputCursorError, ResidentJobOwner, ResidentJobState, ResidentJobStatus,
-    StdinWriteError, read_launch, start_owner_from_launch,
+    StdinWriteError, now_utc_ms, read_launch, start_owner_from_launch,
 };
-use crate::managed_job_store::ManagedJobHandle;
+use crate::managed_job_store::{ManagedJobHandle, ManagedJobStore};
 
 const SCHEMA_VERSION: u32 = 1;
 const FRAME_MAX_BYTES: usize = 128 * 1024;
@@ -32,11 +33,24 @@ const STREAM_TIMEOUT: Duration = Duration::from_secs(305);
 
 pub(crate) fn run_resident(reader: impl Read) -> Result<(), ManagedJobOwnerError> {
     let launch = read_launch(reader)?;
+    let store = ManagedJobStore::open_at(&launch.state_path)
+        .map_err(|_| ManagedJobOwnerError::new("managed_job_store_unavailable"))?;
     let endpoint = endpoint_for(&launch.handle)?;
     // Binding precedes the durable Starting transition and contained spawn. A
     // live job can therefore never be published without a control listener.
-    let mut listener = NativeListener::bind(&endpoint)
-        .map_err(|_| ManagedJobOwnerError::new("managed_job_endpoint_unavailable"))?;
+    let mut listener = match NativeListener::bind(&endpoint) {
+        Ok(listener) => listener,
+        Err(_) => {
+            let _ = store.mark_unclaimed_start_failed(
+                &launch.handle,
+                "managed_job_endpoint_unavailable",
+                now_utc_ms()?,
+            );
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_endpoint_unavailable",
+            ));
+        }
+    };
     let mut owner = start_owner_from_launch(launch)?;
     loop {
         let status = owner.status()?;
@@ -104,6 +118,7 @@ pub(crate) enum ManagedJobOperation {
     },
     Write {
         data_base64: String,
+        close_stdin: bool,
     },
     CloseStdin,
     Wait {
@@ -113,6 +128,59 @@ pub(crate) enum ManagedJobOperation {
     Renew {
         ttl_ms: u64,
     },
+}
+
+pub(crate) fn client_request(
+    handle: &ManagedJobHandle,
+    operation: ManagedJobOperation,
+) -> Result<ManagedJobResult, ManagedJobProtocolError> {
+    validate_operation(&operation).map_err(protocol_error)?;
+    let endpoint = endpoint_for(handle).map_err(|error| protocol_error(error.code))?;
+    let request_id = random_request_id()?;
+    let request = ManagedJobRequest {
+        schema_version: SCHEMA_VERSION,
+        request_id: request_id.clone(),
+        operation,
+    };
+    let encoded =
+        serde_json::to_vec(&request).map_err(|_| protocol_error("managed_job_request_invalid"))?;
+    let mut stream = NativeStream::connect(&endpoint, Duration::from_secs(2))
+        .map_err(|_| protocol_error("managed_job_owner_unavailable"))?;
+    stream
+        .set_io_timeout(STREAM_TIMEOUT)
+        .map_err(|_| protocol_error("managed_job_protocol_io"))?;
+    write_frame(&mut stream, &encoded).map_err(|_| protocol_error("managed_job_protocol_io"))?;
+    let reply_bytes = read_frame(&mut stream)
+        .map_err(|_| protocol_error("managed_job_protocol_io"))?
+        .ok_or_else(|| protocol_error("managed_job_response_missing"))?;
+    let reply: ManagedJobReply = serde_json::from_slice(&reply_bytes)
+        .map_err(|_| protocol_error("managed_job_response_invalid"))?;
+    if reply.schema_version != SCHEMA_VERSION
+        || reply.request_id != request_id
+        || reply.ok != reply.result.is_some()
+        || reply.ok == reply.error.is_some()
+    {
+        return Err(protocol_error("managed_job_response_invalid"));
+    }
+    match (reply.result, reply.error) {
+        (Some(result), None) => Ok(result),
+        (None, Some(error)) => Err(error),
+        _ => Err(protocol_error("managed_job_response_invalid")),
+    }
+}
+
+fn random_request_id() -> Result<String, ManagedJobProtocolError> {
+    let bytes = secure_random_array::<16>()
+        .map_err(|_| protocol_error("managed_job_request_entropy_unavailable"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn protocol_error(code: impl Into<String>) -> ManagedJobProtocolError {
+    ManagedJobProtocolError {
+        code: code.into(),
+        known_written_lower_bound: None,
+        delivery_uncertain: None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -252,7 +320,7 @@ fn validate_operation(operation: &ManagedJobOperation) -> Result<(), &'static st
                 return Err("managed_job_output_limit");
             }
         }
-        ManagedJobOperation::Write { data_base64 } => {
+        ManagedJobOperation::Write { data_base64, .. } => {
             if data_base64.len() > encoded_len(STDIN_BYTES_MAX) {
                 return Err("managed_job_stdin_limit");
             }
@@ -293,12 +361,22 @@ fn dispatch(owner: &mut ResidentJobOwner, request: ManagedJobRequest) -> Managed
                     .map_err(cursor_error)
             }
         }
-        ManagedJobOperation::Write { data_base64 } => match base64_decode(&data_base64) {
+        ManagedJobOperation::Write {
+            data_base64,
+            close_stdin,
+        } => match base64_decode(&data_base64) {
             Ok(bytes) if bytes.len() <= STDIN_BYTES_MAX => match owner.write_stdin(&bytes) {
-                Ok(accepted_bytes) => Ok(ManagedJobResult::Write {
-                    accepted_bytes,
-                    delivery: WriteDelivery::Complete,
-                }),
+                Ok(accepted_bytes) => {
+                    let result = ManagedJobResult::Write {
+                        accepted_bytes,
+                        delivery: WriteDelivery::Complete,
+                    };
+                    if close_stdin {
+                        owner.close_stdin().map(|_| result)
+                    } else {
+                        Ok(result)
+                    }
+                }
                 Err(StdinWriteError::DeliveryUncertain { known_written }) => {
                     return failure(
                         request_id,
@@ -446,7 +524,7 @@ fn encoded_len(bytes: usize) -> usize {
     bytes.div_ceil(3) * 4
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut output = String::with_capacity(encoded_len(bytes.len()));
     for chunk in bytes.chunks(3) {
@@ -469,7 +547,7 @@ fn base64_encode(bytes: &[u8]) -> String {
     output
 }
 
-fn base64_decode(value: &str) -> Result<Vec<u8>, ()> {
+pub(crate) fn base64_decode(value: &str) -> Result<Vec<u8>, ()> {
     if !value.len().is_multiple_of(4) || !value.is_ascii() {
         return Err(());
     }
@@ -651,6 +729,7 @@ mod tests {
                 request_id: "write-1".into(),
                 operation: ManagedJobOperation::Write {
                     data_base64: base64_encode(&binary),
+                    close_stdin: false,
                 },
             },
         );

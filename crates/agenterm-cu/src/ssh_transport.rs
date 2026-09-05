@@ -659,6 +659,34 @@ mod tests {
     }
 
     #[test]
+    fn managed_job_spawn_contract_survives_remote_target_rewrite() {
+        let command = CuCommand::JobSpawn {
+            target: TargetRef::Ssh,
+            command: vec!["tool".into(), "--child-flag".into()],
+            environment: vec![crate::command::JobEnvironment {
+                name: "MODE".into(),
+                value: Some("court".into()),
+            }],
+            cwd: Some("court".into()),
+            ttl_seconds: 37,
+        };
+        let remote = rewrite_command_target_current(&command).expect("rewrite");
+        assert!(matches!(
+            remote,
+            CuCommand::JobSpawn {
+                target: TargetRef::Current,
+                ref command,
+                ref environment,
+                ref cwd,
+                ttl_seconds: 37,
+            } if command == &["tool", "--child-flag"]
+                && environment[0].name == "MODE"
+                && environment[0].value.as_deref() == Some("court")
+                && cwd.as_deref() == Some("court")
+        ));
+    }
+
+    #[test]
     fn network_interface_limit_survives_remote_target_rewrite() {
         let command = CuCommand::NetworkInterfaces {
             target: TargetRef::Ssh,

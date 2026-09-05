@@ -569,20 +569,31 @@
           "note": "tmux topology is provider-specific; ACU replacement does not require installing tmux or claiming one AgenTerm tab has tmux pane semantics."
         },
         {
-          "id": "job.spawn-adopt-inventory",
-          "mcu_shape": "job spawn|adopt|list|status|prune with request id, cwd, env, limits and ownership",
+          "id": "job.spawn-inventory",
+          "mcu_shape": "job spawn|list|status with request id, cwd, env and ownership",
+          "acu_shape": "job-spawn|job-list|job-status under an explicit runtime session",
+          "state": "native",
+          "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
+          "evidence": ["cu.managed-job-lifecycle"],
+          "next": "run the registered lifecycle journey on Linux and Windows, then route the lossless MCU argument subset through acu.ts",
+          "note": "The registry seals start intent/generation/owner/exact child identity without command, environment or lease plaintext. A same request identity replays the exact public job id and generation without a second spawn; other uncertainty is typed and never retried. MCU adopt, prune and launch limits remain separate gaps."
+        },
+        {
+          "id": "job.adopt-prune-limits",
+          "mcu_shape": "job adopt|prune and spawn process limits",
           "acu_shape": null,
           "state": "gap",
-          "next": "wire the completed private registry and contained resident-owner core to public request-bound spawn/list/status, resident IPC and bounded terminal retention",
-          "note": "Internal foundations are present but intentionally unshipped: the registry seals start intent/generation/owner/exact child identity without command, environment or lease plaintext, and the owner claims before contained spawn. No public job verb or recovery court exists yet, so this row remains gap."
+          "next": "add identity-bound process-group adoption, bounded terminal receipt pruning and native pre-exec resource limits without weakening current ownership"
         },
         {
           "id": "job.output-events-input",
           "mcu_shape": "job output|events|write with independent stdout/stderr cursors and bounded long poll",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "publish resident IPC over the completed owned stdin pipe and dual-stream cursor rings, with response ceilings, timeout, terminal event and truncation markers",
-          "note": "The platform now yields a one-owner writable stdin pipe and the internal owner drains both output streams concurrently. Public write/events, partial-delivery semantics and crash recovery are not yet wired, so this row remains gap."
+          "acu_shape": "job-events|job-write with independent decimal cursors, bounded long poll and explicit stdin EOF",
+          "state": "native",
+          "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
+          "evidence": ["cu.managed-job-lifecycle"],
+          "next": "run the same public cursor and write/EOF court on Linux and Windows",
+          "note": "One resident owner drains both streams concurrently into bounded loss-aware rings. Writes report the accepted byte lower bound and whether delivery was complete; unknown delivery remains typed."
         },
         {
           "id": "job.context-resources",
@@ -601,9 +612,12 @@
         {
           "id": "job.lease-wait-stop",
           "mcu_shape": "job renew|wait|stop plus on-lease-expiry detach|stop",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "shared ACU control-session lease primitive with monotonic wait, explicit expiry policy and crash-persistent cleanup receipt"
+          "acu_shape": "job-renew|job-wait|job-stop under the owning ACU runtime session",
+          "state": "platform-limited",
+          "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
+          "evidence": ["cu.managed-job-lifecycle"],
+          "next": "add explicit expiry detach policy and cross-host evidence; retain MCU fallback for shapes that cannot be represented losslessly",
+          "note": "Renew, bounded wait and identity-bound stop are public and session-gated. The resident owner owns TTL cleanup, but MCU's selectable detach-on-expiry contract is not yet present."
         },
         {
           "id": "shell.exec.bounded",

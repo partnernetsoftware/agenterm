@@ -1,0 +1,355 @@
+// Platform-neutral public black-box journey for durable managed jobs.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// Every operation goes through the public agenterm-cu CLI. The session lease,
+// child command, environment override and stdin bytes stay in memory only:
+// failure text names the verb and typed code, never the reply or arguments.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.managed-job-lifecycle"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function invoke_cu(run_directory, executable, arguments, expected_command) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_managed_job_empty_reply:" + expected_command);
+  let reply = null;
+  try { reply = JSON.parse(stdout); }
+  catch (error) { throw "cu_managed_job_invalid_reply:" + expected_command; }
+  ensure(
+    (output.success === true) === (reply.ok === true),
+    "cu_managed_job_process_reply_disagree:" + expected_command
+  );
+  if (reply.ok !== true) {
+    throw "cu_managed_job_cli_failed:" + expected_command + ":" + text_of(reply.error.code);
+  }
+  ensure(reply.command === expected_command, "cu_managed_job_wrong_reply:" + expected_command);
+  return reply.data;
+}
+
+function mutation_prefix(request_id, session_id, session_lease) {
+  return [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id,
+    "--session", session_id,
+    "--session-lease", session_lease
+  ];
+}
+
+function append_all(target, values) {
+  for (const value of values) { target.push(value); }
+  return target;
+}
+
+function find_job(inventory, job_id) {
+  for (const row of inventory.jobs) {
+    if (row.job_id === job_id) { return row; }
+  }
+  return null;
+}
+
+function wait_owner_absent(run_directory, executable, job) {
+  for (let poll = 0; poll < 100; poll = poll + 1) {
+    const status = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "job-status", job.job_id
+    ], "job-status");
+    if (status.io_available === false) { return true; }
+    harness.sleep_ms(100);
+  }
+  return false;
+}
+
+function stop_owned_job(run_directory, executable, session_id, session_lease, request_id, job) {
+  const args = mutation_prefix(request_id, session_id, session_lease);
+  append_all(args, [
+    "job-stop", job.job_id, "" + job.generation,
+    "--grace-ms", "100", "--expect-stopped"
+  ]);
+  return invoke_cu(run_directory, executable, args, "job-stop");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) {
+  executable = executable + ".exe";
+}
+ensure(direct_file(executable), "cu_managed_job_executable_missing");
+
+const context = harness.new_context(repo, "cu-managed-job");
+const run_directory = context.run_directory;
+const windows = harness.host_is_windows();
+const request_root = "managed-job-" + context.run_id;
+let session_id = "";
+let session_lease = "";
+let first_job = null;
+let second_job = null;
+let first_owner_absent = false;
+let second_owner_absent = false;
+let session_ended = false;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP create one bounded runtime session without retaining its private lease in evidence or command logs");
+  const session = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "managed-job-smoke", "--ttl-seconds", "30"
+  ], "session-start");
+  session_id = text_of(session.session_id);
+  session_lease = text_of(session.lease);
+  ensure(
+    session_id !== "" && session_lease !== "" && session.label === "managed-job-smoke",
+    "cu_managed_job_session_contract"
+  );
+
+  const interactive_command = windows
+    ? [
+        "cmd.exe", "/D", "/Q", "/V:ON", "/C",
+        "set /p SMOKE_LINE=& echo OUT:!SMOKE_LINE!& echo ERR:!SMOKE_LINE! 1>&2& exit /b 7"
+      ]
+    : [
+        "/bin/sh", "-c",
+        "IFS= read -r line; printf 'OUT:%s\\n' \"$line\"; printf 'ERR:%s\\n' \"$line\" >&2; exit 7"
+      ];
+  const spawn_request = request_root + "-spawn";
+  const spawn_args = mutation_prefix(spawn_request, session_id, session_lease);
+  append_all(spawn_args, [
+    "job-spawn", "--cwd", run_directory,
+    "--env", "AGENTERM_JOB_SMOKE_PRIVATE=not-for-logs",
+    "--ttl-seconds", "10", "--"
+  ]);
+  append_all(spawn_args, interactive_command);
+
+  print("STEP spawn once and replay the exact request identity without creating a second job");
+  const spawned = invoke_cu(run_directory, executable, spawn_args, "job-spawn");
+  first_job = { job_id: text_of(spawned.job_id), generation: spawned.generation };
+  ensure(first_job.job_id !== "" && first_job.generation > 0, "cu_managed_job_spawn_identity");
+  const replayed = invoke_cu(run_directory, executable, spawn_args, "job-spawn");
+  ensure(
+    replayed.job_id === first_job.job_id && replayed.generation === first_job.generation,
+    "cu_managed_job_spawn_replay_identity"
+  );
+
+  print("STEP list and inspect the running job while launch command and environment remain absent");
+  const inventory = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-list", "--max", "64"
+  ], "job-list");
+  const listed = find_job(inventory, first_job.job_id);
+  ensure(
+    listed !== null && listed.generation === first_job.generation
+      && listed.session_id === session_id && listed.state === "running",
+    "cu_managed_job_list_contract"
+  );
+  const status = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-status", first_job.job_id
+  ], "job-status");
+  const public_observation = JSON.stringify({inventory: inventory, status: status});
+  ensure(
+    status.generation === first_job.generation && status.state === "running"
+      && status.io_available === true && status.live.state.kind === "running"
+      && public_observation.indexOf("AGENTERM_JOB_SMOKE_PRIVATE") < 0
+      && public_observation.indexOf("not-for-logs") < 0
+      && public_observation.indexOf("SMOKE_LINE") < 0
+      && public_observation.indexOf("IFS= read") < 0,
+    "cu_managed_job_status_privacy_contract"
+  );
+
+  print("STEP renew the resident lease, then atomically write five bytes and close stdin");
+  const renew_args = mutation_prefix(request_root + "-renew", session_id, session_lease);
+  append_all(renew_args, [
+    "job-renew", first_job.job_id, "" + first_job.generation, "--ttl-seconds", "5"
+  ]);
+  const renewed = invoke_cu(run_directory, executable, renew_args, "job-renew");
+  ensure(renewed.renewed_ttl_ms === 5000, "cu_managed_job_renew_contract");
+  const write_args = mutation_prefix(request_root + "-write", session_id, session_lease);
+  append_all(write_args, [
+    "job-write", first_job.job_id, "" + first_job.generation,
+    "--data-base64", "cGluZwo=", "--close-stdin"
+  ]);
+  const wrote = invoke_cu(run_directory, executable, write_args, "job-write");
+  ensure(
+    wrote.accepted_bytes === 5 && wrote.delivery === "complete" && wrote.stdin_closed === true,
+    "cu_managed_job_write_contract"
+  );
+
+  print("STEP read stdout and stderr through two independently advancing loss-aware cursors");
+  const first_events = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-events", first_job.job_id, "" + first_job.generation,
+    "--stdout-cursor", "0", "--stderr-cursor", "0",
+    "--timeout-ms", "10000", "--max-bytes", "4096"
+  ], "job-events");
+  const stdout_cursor = text_of(first_events.stdout.next_cursor);
+  const stderr_cursor = text_of(first_events.stderr.next_cursor);
+  ensure(
+    first_events.stdout.bytes > 0 && first_events.stderr.bytes > 0
+      && stdout_cursor !== "0" && stderr_cursor !== "0",
+    "cu_managed_job_events_initial_contract"
+  );
+  const stderr_replay = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-events", first_job.job_id, "" + first_job.generation,
+    "--stdout-cursor", stdout_cursor, "--stderr-cursor", "0", "--max-bytes", "4096"
+  ], "job-events");
+  ensure(
+    stderr_replay.stdout.bytes === 0 && stderr_replay.stdout.next_cursor === stdout_cursor
+      && stderr_replay.stderr.bytes === first_events.stderr.bytes
+      && stderr_replay.stderr.next_cursor === stderr_cursor,
+    "cu_managed_job_events_stderr_cursor_contract"
+  );
+  const stdout_replay = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-events", first_job.job_id, "" + first_job.generation,
+    "--stdout-cursor", "0", "--stderr-cursor", stderr_cursor, "--max-bytes", "4096"
+  ], "job-events");
+  ensure(
+    stdout_replay.stdout.bytes === first_events.stdout.bytes
+      && stdout_replay.stdout.next_cursor === stdout_cursor
+      && stdout_replay.stderr.bytes === 0
+      && stdout_replay.stderr.next_cursor === stderr_cursor,
+    "cu_managed_job_events_stdout_cursor_contract"
+  );
+
+  print("STEP wait for the exact exit code and for the renewed resident owner to release itself");
+  const waited = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-wait", first_job.job_id, "" + first_job.generation,
+    "--timeout-ms", "10000", "--expect-exit", "7"
+  ], "job-wait");
+  ensure(
+    waited.completed === true && waited.status.state.kind === "exited"
+      && waited.status.state.exit_code === 7,
+    "cu_managed_job_wait_contract"
+  );
+  first_owner_absent = wait_owner_absent(run_directory, executable, first_job);
+  ensure(first_owner_absent, "cu_managed_job_first_owner_cleanup");
+
+  print("STEP stop a second long-running job by exact identity and observe owned owner cleanup");
+  const long_command = windows
+    ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]
+    : ["/bin/sh", "-c", "sleep 30"];
+  const second_spawn_args = mutation_prefix(request_root + "-spawn-stop", session_id, session_lease);
+  append_all(second_spawn_args, ["job-spawn", "--ttl-seconds", "2", "--"]);
+  append_all(second_spawn_args, long_command);
+  const second_spawned = invoke_cu(run_directory, executable, second_spawn_args, "job-spawn");
+  second_job = { job_id: text_of(second_spawned.job_id), generation: second_spawned.generation };
+  ensure(second_job.job_id !== "" && second_job.generation > 0, "cu_managed_job_second_identity");
+  const stopped = stop_owned_job(
+    run_directory, executable, session_id, session_lease,
+    request_root + "-stop", second_job
+  );
+  ensure(
+    stopped.stopped === true && stopped.job_id === second_job.job_id
+      && stopped.generation === second_job.generation
+      && stopped.status.state.kind !== "running",
+    "cu_managed_job_stop_contract"
+  );
+  second_owner_absent = wait_owner_absent(run_directory, executable, second_job);
+  ensure(second_owner_absent, "cu_managed_job_second_owner_cleanup");
+
+  print("STEP end the owning runtime session and verify its durable terminal state");
+  const ended = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-end", session_id, "--lease", session_lease, "--confirm"
+  ], "session-end");
+  session_ended = true;
+  ensure(
+    ended.session.session_id === session_id && ended.session.state === "ended"
+      && ended.released_locks === 0,
+    "cu_managed_job_session_end_contract"
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+// Cleanup is identity-bound. Never use a process-name pattern, and do not
+// retain a failure string containing a lease, command, environment or stdin.
+if (session_id !== "" && session_lease !== "") {
+  if (first_job !== null && !first_owner_absent) {
+    try {
+      stop_owned_job(
+        run_directory, executable, session_id, session_lease,
+        request_root + "-cleanup-first", first_job
+      );
+    } catch (error) {}
+    try { first_owner_absent = wait_owner_absent(run_directory, executable, first_job); }
+    catch (error) {}
+  }
+  if (second_job !== null && !second_owner_absent) {
+    try {
+      stop_owned_job(
+        run_directory, executable, session_id, session_lease,
+        request_root + "-cleanup-second", second_job
+      );
+    } catch (error) {}
+    try { second_owner_absent = wait_owner_absent(run_directory, executable, second_job); }
+    catch (error) {}
+  }
+  if (!session_ended) {
+    try {
+      invoke_cu(run_directory, executable, [
+        "--target", "current", "--grant", "actuate",
+        "session-end", session_id, "--lease", session_lease, "--confirm"
+      ], "session-end");
+      session_ended = true;
+    } catch (error) {}
+  }
+}
+if (first_job !== null && !first_owner_absent) {
+  failure = failure === "" ? "cu_managed_job_first_owner_cleanup" : failure;
+}
+if (second_job !== null && !second_owner_absent) {
+  failure = failure === "" ? "cu_managed_job_second_owner_cleanup" : failure;
+}
+if (session_id !== "" && !session_ended) {
+  failure = failure === "" ? "cu_managed_job_session_cleanup" : failure;
+}
+if (failure !== "") { succeeded = 0; }
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu platform-neutral managed-job lifecycle (replay, dual cursors, renewal, stop and owned cleanup)");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

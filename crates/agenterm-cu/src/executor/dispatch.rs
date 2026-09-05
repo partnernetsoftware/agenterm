@@ -4,7 +4,11 @@
 use super::*;
 
 impl Executor {
-    pub(super) fn run_current(&self, command: &Command) -> Result<serde_json::Value, CuError> {
+    pub(super) fn run_current(
+        &self,
+        command: &Command,
+        job_request: Option<&JobRequestContext<'_>>,
+    ) -> Result<serde_json::Value, CuError> {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
             Command::Permissions { .. } => Ok(permissions_payload()),
@@ -53,17 +57,95 @@ impl Executor {
             } => lock_acquire_payload(session_id, lease, lock_target, *ttl_seconds),
             Command::LockList { .. } => lock_list_payload(),
             Command::LockRelease { lock_id, lease, .. } => lock_release_payload(lock_id, lease),
-            Command::JobSpawn { .. }
-            | Command::JobList { .. }
-            | Command::JobStatus { .. }
-            | Command::JobEvents { .. }
-            | Command::JobWrite { .. }
-            | Command::JobWait { .. }
-            | Command::JobStop { .. }
-            | Command::JobRenew { .. } => Err(CuError::new(
-                "managed_job_public_unavailable",
-                "managed-job resident IPC is staged internally but its public cohort is not wired",
-            )),
+            Command::JobSpawn {
+                command,
+                environment,
+                cwd,
+                ttl_seconds,
+                ..
+            } => {
+                let request = job_request.ok_or_else(|| {
+                    CuError::new(
+                        "managed_job_request_identity_required",
+                        "job-spawn requires request-id, session and session-lease",
+                    )
+                })?;
+                job_spawn_payload(
+                    command,
+                    environment,
+                    cwd.as_deref(),
+                    *ttl_seconds,
+                    request.session_id,
+                )
+            }
+            Command::JobList {
+                state, offset, max, ..
+            } => job_list_payload(*state, *offset, *max),
+            Command::JobStatus { job_id, .. } => job_status_payload(job_id),
+            Command::JobEvents {
+                job_id,
+                generation,
+                stdout_cursor,
+                stderr_cursor,
+                timeout_ms,
+                max_bytes,
+                ..
+            } => job_events_payload(
+                job_id,
+                *generation,
+                stdout_cursor,
+                stderr_cursor,
+                *timeout_ms,
+                *max_bytes,
+            ),
+            Command::JobWrite {
+                job_id,
+                generation,
+                data_base64,
+                close_stdin,
+                ..
+            } => {
+                let request = require_job_request(job_request, "job-write")?;
+                job_write_payload(
+                    job_id,
+                    *generation,
+                    data_base64,
+                    *close_stdin,
+                    request.session_id,
+                )
+            }
+            Command::JobWait {
+                job_id,
+                generation,
+                timeout_ms,
+                expect_exit,
+                ..
+            } => job_wait_payload(job_id, *generation, *timeout_ms, *expect_exit),
+            Command::JobStop {
+                job_id,
+                generation,
+                grace_ms,
+                expect_stopped,
+                ..
+            } => {
+                let request = require_job_request(job_request, "job-stop")?;
+                job_stop_payload(
+                    job_id,
+                    *generation,
+                    *grace_ms,
+                    *expect_stopped,
+                    request.session_id,
+                )
+            }
+            Command::JobRenew {
+                job_id,
+                generation,
+                ttl_seconds,
+                ..
+            } => {
+                let request = require_job_request(job_request, "job-renew")?;
+                job_renew_payload(job_id, *generation, *ttl_seconds, request.session_id)
+            }
             Command::Windows {
                 pid,
                 app,
@@ -1076,6 +1158,18 @@ impl Executor {
             }
         }
     }
+}
+
+fn require_job_request<'a>(
+    request: Option<&'a JobRequestContext<'_>>,
+    verb: &str,
+) -> Result<&'a JobRequestContext<'a>, CuError> {
+    request.ok_or_else(|| {
+        CuError::new(
+            "managed_job_request_identity_required",
+            format!("{verb} requires request-id, session and session-lease"),
+        )
+    })
 }
 
 /// `--allow-browser-chrome` for the focused text writers (`send-text`,

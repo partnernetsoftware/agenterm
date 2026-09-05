@@ -128,6 +128,14 @@ pub const GROUPS: &[Group] = &[
         verbs: &[
             "pty",
             "job",
+            "job-spawn",
+            "job-list",
+            "job-status",
+            "job-events",
+            "job-write",
+            "job-wait",
+            "job-stop",
+            "job-renew",
             "terminal-list",
             "terminal-new",
             "terminal-close",
@@ -374,8 +382,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             }
         }
         "shell-pty-job" => (
-            "unsupported",
-            "ACU migration gap: delegate PTY/job through the AgenTerm runtime; this command will not silently shell",
+            "available",
+            "native durable PTY and managed-job lifecycles are live; canonical leaf verbs replace MCU's grouped spelling without shell delegation",
         ),
         "process" => (
             "unsupported",
@@ -864,6 +872,14 @@ pub fn merge_verbs(mut verbs: Value) -> Value {
         "tab-close",
         "browser-profiles",
         "browser-open",
+        "job-spawn",
+        "job-list",
+        "job-status",
+        "job-events",
+        "job-write",
+        "job-wait",
+        "job-stop",
+        "job-renew",
     ] {
         if !map.contains_key(verb) {
             map.insert(verb.to_owned(), verb_declaration(verb));
@@ -928,7 +944,7 @@ mod tests {
         assert!(matrix.starts_with("group\tos\tstatus\t"));
         assert!(!matrix.contains("\t\t\n"));
         assert!(matrix.contains("page-js\tmacos\tavailable\t"));
-        assert!(matrix.contains("shell-pty-job\tlinux\tunsupported\t"));
+        assert!(matrix.contains("shell-pty-job\tlinux\tavailable\t"));
         assert!(matrix.contains("simulator\twindows\tunsupported\t"));
         assert!(is_align_verb("pty") && is_align_verb("unlock"));
         assert!(!is_align_verb("query"));

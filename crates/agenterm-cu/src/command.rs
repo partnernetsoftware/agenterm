@@ -19,7 +19,7 @@ const JOB_TTL_SECONDS_MAX: u64 = 86_400;
 const JOB_LIST_MAX: usize = 1_024;
 const JOB_EVENTS_TIMEOUT_MS_MAX: u64 = 300_000;
 const JOB_EVENTS_BYTES_MAX: usize = 1024 * 1024;
-const JOB_WRITE_DECODED_BYTES_MAX: usize = 256 * 1024;
+const JOB_WRITE_DECODED_BYTES_MAX: usize = 64 * 1024;
 const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
 const JOB_STOP_GRACE_MS_MAX: u64 = 60_000;
 
@@ -224,9 +224,9 @@ where
     D: serde::Deserializer<'de>,
 {
     let value = usize::deserialize(deserializer)?;
-    if !(1..=JOB_EVENTS_BYTES_MAX).contains(&value) {
+    if !(2..=JOB_EVENTS_BYTES_MAX).contains(&value) {
         return Err(serde::de::Error::custom(
-            "managed-job events max_bytes must be in 1..=1048576",
+            "managed-job events max_bytes must be in 2..=1048576",
         ));
     }
     Ok(value)
@@ -262,7 +262,7 @@ fn validate_job_write_base64(value: &str) -> Result<(), &'static str> {
         .and_then(|bytes| bytes.checked_sub(padding))
         .ok_or("managed-job data_base64 length overflow")?;
     if decoded > JOB_WRITE_DECODED_BYTES_MAX {
-        return Err("managed-job stdin write exceeds 256 KiB decoded");
+        return Err("managed-job stdin write exceeds 64 KiB decoded");
     }
     Ok(())
 }
@@ -2727,8 +2727,8 @@ impl Command {
                 if *timeout_ms > JOB_EVENTS_TIMEOUT_MS_MAX {
                     return Err("managed-job events timeout_ms must be at most 300000");
                 }
-                if !(1..=JOB_EVENTS_BYTES_MAX).contains(max_bytes) {
-                    return Err("managed-job events max_bytes must be in 1..=1048576");
+                if !(2..=JOB_EVENTS_BYTES_MAX).contains(max_bytes) {
+                    return Err("managed-job events max_bytes must be in 2..=1048576");
                 }
                 Ok(())
             }

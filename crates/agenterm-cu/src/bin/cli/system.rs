@@ -1,17 +1,31 @@
 //! Host-level discovery that is independent of the desktop/window family.
 
-use agenterm_cu::{Command, TargetRef};
+use agenterm_cu::{
+    Command, TargetRef,
+    command::{JobEnvironment, JobOutputCursor, JobStateFilter},
+};
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
 
 const DEFAULT_SESSION_TTL_SECONDS: u64 = 3_600;
 const DEFAULT_LOCK_TTL_SECONDS: u64 = 300;
+const DEFAULT_JOB_TTL_SECONDS: u64 = 3_600;
+const DEFAULT_JOB_EVENTS_MAX_BYTES: usize = 65_536;
 
 pub fn parse(
     spec: &VerbSpec,
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name.starts_with("job-") {
+        if args
+            .first()
+            .is_some_and(|arg| spec.aliases.contains(&format!("job {arg}").as_str()))
+        {
+            args.remove(0);
+        }
+        return parse_job(spec.name, target, args);
+    }
     if spec.name.starts_with("session-") || spec.name.starts_with("lock-") {
         if args.first().is_some_and(|arg| {
             spec.aliases.contains(
@@ -66,6 +80,153 @@ pub fn parse(
         "permissions" => Ok(Command::Permissions { target }),
         "doctor" => Ok(Command::Doctor { target }),
         other => Err(format!("unknown command '{other}'")),
+    }
+}
+
+fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let command = match name {
+        "job-spawn" => return parse_job_spawn(target, args),
+        "job-list" => Command::JobList {
+            target,
+            state: flag_text(args, "--state")?
+                .map(|value| parse_job_state(&value))
+                .transpose()?,
+            offset: flag_parsed(args, "--offset")?,
+            max: flag_parsed(args, "--max")?,
+        },
+        "job-status" => Command::JobStatus {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+        },
+        "job-events" => Command::JobEvents {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            stdout_cursor: cursor_flag(args, "--stdout-cursor")?,
+            stderr_cursor: cursor_flag(args, "--stderr-cursor")?,
+            timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(0),
+            max_bytes: flag_parsed(args, "--max-bytes")?.unwrap_or(DEFAULT_JOB_EVENTS_MAX_BYTES),
+        },
+        "job-write" => {
+            let job_id = positional(args, "JOB_ID")?;
+            let generation = positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?;
+            let data_base64 = flag_text(args, "--data-base64")?.unwrap_or_default();
+            let close_stdin = take_switch(args, "--close-stdin");
+            if data_base64.is_empty() && !close_stdin {
+                return Err("job-write requires --data-base64 DATA or --close-stdin".into());
+            }
+            Command::JobWrite {
+                target,
+                job_id,
+                generation,
+                data_base64,
+                close_stdin,
+            }
+        }
+        "job-wait" => Command::JobWait {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(0),
+            expect_exit: flag_parsed(args, "--expect-exit")?,
+        },
+        "job-stop" => Command::JobStop {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            grace_ms: flag_parsed(args, "--grace-ms")?.unwrap_or(0),
+            expect_stopped: take_switch(args, "--expect-stopped"),
+        },
+        "job-renew" => Command::JobRenew {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            ttl_seconds: ttl_flag(args, DEFAULT_JOB_TTL_SECONDS)?,
+        },
+        other => return Err(format!("unknown managed-job command '{other}'")),
+    };
+    if !args.is_empty() {
+        return Err(format!("{name} received unexpected argument {:?}", args[0]));
+    }
+    command.validate().map_err(str::to_owned)?;
+    Ok(command)
+}
+
+fn parse_job_spawn(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let separator = args
+        .iter()
+        .position(|arg| arg == "--")
+        .ok_or_else(|| "job-spawn requires `-- PROGRAM [ARG...]`".to_owned())?;
+    let command = args.split_off(separator + 1);
+    args.pop();
+    if command.is_empty() {
+        return Err("job-spawn requires PROGRAM after `--`".into());
+    }
+    let mut environment = Vec::new();
+    while let Some(value) = take_repeated_flag(args, "--env")? {
+        let (name, value) = value
+            .split_once('=')
+            .ok_or_else(|| "--env requires NAME=VALUE".to_owned())?;
+        environment.push(JobEnvironment {
+            name: name.to_owned(),
+            value: Some(value.to_owned()),
+        });
+    }
+    while let Some(name) = take_repeated_flag(args, "--unset-env")? {
+        environment.push(JobEnvironment { name, value: None });
+    }
+    let cwd = flag_text(args, "--cwd")?;
+    let ttl_seconds = ttl_flag(args, DEFAULT_JOB_TTL_SECONDS)?;
+    if !args.is_empty() {
+        return Err(format!(
+            "job-spawn received unexpected option {:?} before `--`",
+            args[0]
+        ));
+    }
+    let command = Command::JobSpawn {
+        target,
+        command,
+        environment,
+        cwd,
+        ttl_seconds,
+    };
+    command.validate().map_err(str::to_owned)?;
+    Ok(command)
+}
+
+fn take_repeated_flag(
+    args: &mut Vec<String>,
+    flag: &'static str,
+) -> Result<Option<String>, String> {
+    flag_text(args, flag)
+}
+
+fn cursor_flag(args: &mut Vec<String>, flag: &'static str) -> Result<JobOutputCursor, String> {
+    JobOutputCursor::new(flag_text(args, flag)?.unwrap_or_else(|| "0".into()))
+        .map_err(str::to_owned)
+}
+
+fn parse_job_state(value: &str) -> Result<JobStateFilter, String> {
+    match value {
+        "start-intent" => Ok(JobStateFilter::StartIntent),
+        "starting" => Ok(JobStateFilter::Starting),
+        "running" => Ok(JobStateFilter::Running),
+        "start-failed" => Ok(JobStateFilter::StartFailed),
+        "exited" => Ok(JobStateFilter::Exited),
+        "signaled" => Ok(JobStateFilter::Signaled),
+        "detached" => Ok(JobStateFilter::Detached),
+        "orphaned-uncertain" => Ok(JobStateFilter::OrphanedUncertain),
+        _ => Err(format!("unknown managed-job state {value:?}")),
     }
 }
 
@@ -171,7 +332,7 @@ mod tests {
     use crate::cli::verbs;
 
     fn parse(name: &str, args: &[&str]) -> Result<Command, String> {
-        let spec = verbs::lookup(name).expect("runtime verb");
+        let spec = verbs::resolve(name, args.first().copied()).expect("runtime verb");
         let mut args = args.iter().map(|value| (*value).to_owned()).collect();
         super::parse(spec, TargetRef::Current, &mut args)
     }
@@ -208,5 +369,97 @@ mod tests {
         assert!(parse("session-start", &["--ttl", "1", "extra"]).is_err());
         assert!(parse("session-renew", &["s1", "--lease"]).is_err());
         assert!(parse("lock-acquire", &["s1", "lease"]).is_err());
+    }
+
+    #[test]
+    fn managed_job_spawn_preserves_child_arguments_after_separator() {
+        let Command::JobSpawn {
+            command,
+            environment,
+            cwd,
+            ttl_seconds,
+            ..
+        } = parse(
+            "job",
+            &[
+                "spawn",
+                "--env",
+                "A=1",
+                "--unset-env",
+                "B",
+                "--cwd",
+                ".",
+                "--ttl",
+                "12",
+                "--",
+                "program",
+                "--env",
+                "child-value",
+            ],
+        )
+        .unwrap()
+        else {
+            panic!("job-spawn command")
+        };
+        assert_eq!(command, ["program", "--env", "child-value"]);
+        assert_eq!(
+            environment,
+            [
+                JobEnvironment {
+                    name: "A".into(),
+                    value: Some("1".into())
+                },
+                JobEnvironment {
+                    name: "B".into(),
+                    value: None
+                }
+            ]
+        );
+        assert_eq!(cwd.as_deref(), Some("."));
+        assert_eq!(ttl_seconds, 12);
+        assert!(parse("job-spawn", &["program"]).is_err());
+    }
+
+    #[test]
+    fn managed_job_lifecycle_shapes_are_closed_and_bounded() {
+        let id = "123e4567-e89b-42d3-a456-426614174000";
+        assert!(matches!(
+            parse("job", &["status", id]).unwrap(),
+            Command::JobStatus { .. }
+        ));
+        let Command::JobEvents {
+            stdout_cursor,
+            stderr_cursor,
+            max_bytes,
+            ..
+        } = parse(
+            "job-events",
+            &[
+                id,
+                "1",
+                "--stdout-cursor",
+                "7",
+                "--stderr-cursor",
+                "9",
+                "--max-bytes",
+                "128",
+            ],
+        )
+        .unwrap()
+        else {
+            panic!("job-events command")
+        };
+        assert_eq!(stdout_cursor.as_str(), "7");
+        assert_eq!(stderr_cursor.as_str(), "9");
+        assert_eq!(max_bytes, 128);
+        assert!(parse("job-events", &[id, "0"]).is_err());
+        assert!(parse("job-write", &[id, "1"]).is_err());
+        assert!(matches!(
+            parse("job-write", &[id, "1", "--close-stdin"]).unwrap(),
+            Command::JobWrite {
+                close_stdin: true,
+                ..
+            }
+        ));
     }
 }

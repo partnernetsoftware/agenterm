@@ -524,6 +524,29 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         for (verb, grant, mode) in [
+            ("job-spawn", "actuate", "resident-contained-process-start"),
+            ("job-list", "observe", "durable-bounded-inventory"),
+            ("job-status", "observe", "durable-plus-live-status"),
+            ("job-events", "observe", "loss-aware-dual-output-cursors"),
+            ("job-write", "actuate", "bounded-atomic-stdin-write"),
+            ("job-wait", "observe", "bounded-terminal-state-wait"),
+            ("job-stop", "actuate", "identity-bound-tree-stop"),
+            ("job-renew", "actuate", "resident-lease-renewal"),
+        ] {
+            verbs.insert(
+                verb.into(),
+                serde_json::json!({
+                    "status": "available",
+                    "group": "shell-pty-job",
+                    "grant": grant,
+                    "mode": mode,
+                    "transport": "authenticated-native-ipc",
+                    "owner": "independent-resident-process",
+                    "request_identity": matches!(verb, "job-spawn" | "job-write" | "job-stop" | "job-renew"),
+                }),
+            );
+        }
+        for (verb, grant, mode) in [
             ("pty-start", "actuate", "isolated-headless-job-start"),
             (
                 "pty-list",
@@ -925,7 +948,9 @@ mod tests {
                 >= crate::mcu_surface::GROUPS.len()
         );
         let tsv = data["alignment_tsv"].as_str().unwrap_or("");
-        assert!(tsv.contains("shell-pty-job\tlinux\tunsupported\t"));
+        assert!(tsv.contains("shell-pty-job\tlinux\tavailable\t"));
+        assert_eq!(data["verbs"]["job-spawn"]["status"], "available");
+        assert_eq!(data["verbs"]["job-events"]["grant"], "observe");
         assert!(!tsv.contains("still-gap"));
         assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
         assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");
