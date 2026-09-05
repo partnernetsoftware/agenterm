@@ -268,8 +268,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   exact process handle to a kill-on-close Job, and resumes only after assignment
   succeeds, with a fail-closed breakaway retry for an incompatible parent Job.
   Both Windows ISAs compile this path, and the refactored macOS lifecycle court
-  remains green. A native Windows first-instruction/descendant-cleanup court and
-  the Linux lifecycle court remain promotion evidence, not inferred passes.
+  remains green. The native `win-x86_64-desktop` court also executed the exact
+  platform test whose first child instruction opens the expected named Job and
+  proves its own exact process membership; it exited zero. Its attempted QGA
+  batch-log pull produced no file, so exit status is the evidence and no text
+  transcript is claimed. Windows ARM64, descendant cleanup, the complete
+  Windows browser lifecycle, and Linux lifecycle remain promotion evidence,
+  not inferred passes.
   Executable discovery is intentionally caller-owned.
   Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
@@ -288,7 +293,8 @@ flowchart LR
   D -->|no · authenticated profile| X["fixed MV3 + Native Messaging<br/>installed bridge"]
   D -->|no bridge| A["AX active-page + tab strip<br/>typed depth limit"]
   S --> C["contained spawn before user code<br/>Unix process group · Windows Job"]
-  C --> E["macOS lifecycle ✓ · Windows ×2 compile ✓<br/>Linux + native Windows courts pending"]
+  C --> E["macOS lifecycle ✓ · Windows ×2 compile ✓<br/>Win x86 first-instruction Job proof ✓"]
+  E --> P["pending: Linux lifecycle · Win ARM64<br/>Win browser lifecycle + descendant cleanup"]
   X --> R["versioned request + at-most-once receipt"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical
