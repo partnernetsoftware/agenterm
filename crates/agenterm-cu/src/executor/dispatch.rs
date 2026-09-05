@@ -831,6 +831,13 @@ impl Executor {
                 "os": crate::mcu_surface::host_os(),
             }))),
             Command::Screenshot { path, window, .. } => screenshot(path, *window),
+            Command::DeviceScreenshot {
+                path,
+                device,
+                timeout_ms,
+                list,
+                ..
+            } => device_screenshot_payload(path.as_deref(), device.as_deref(), *timeout_ms, *list),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
             Command::PointerPosition { .. } => pointer_position(),
             Command::Click { .. } => {

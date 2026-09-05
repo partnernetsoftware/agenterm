@@ -140,6 +140,7 @@ version = "0.1.16"
 dependencies = [
  "ab_glyph",
  "atspi",
+ "cc",
  "libc",
  "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",

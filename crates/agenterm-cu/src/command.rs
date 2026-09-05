@@ -888,6 +888,23 @@ pub enum Command {
         #[serde(skip_serializing_if = "Option::is_none")]
         window: Option<isize>,
     },
+    /// Capture one frame from a physically connected device source published
+    /// by the host capture stack. This is independent of desktop/window
+    /// screenshots and carries the host Camera authorization in inventory
+    /// replies, including when no source is published.
+    DeviceScreenshot {
+        target: TargetRef,
+        /// Absent only for inventory mode.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        /// Exact published source name or uid; optional for a sole source.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+        #[serde(default)]
+        list: bool,
+    },
     /// Move the pointer to absolute target-session screen coordinates without
     /// pressing, releasing, clicking, dragging, or scrolling any button.
     PointerMove {
@@ -2015,6 +2032,7 @@ impl Command {
             Self::Observe { .. } => "observe".into(),
             Self::Verify { .. } => "verify".into(),
             Self::Screenshot { .. } => "screenshot".into(),
+            Self::DeviceScreenshot { .. } => "device-screenshot".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
             Self::PointerPosition { .. } => "pointer-position".into(),
             Self::Click { .. } => "click".into(),
@@ -2143,6 +2161,7 @@ impl Command {
             | Self::Observe { target, .. }
             | Self::Verify { target, .. }
             | Self::Screenshot { target, .. }
+            | Self::DeviceScreenshot { target, .. }
             | Self::PointerMove { target, .. }
             | Self::PointerPosition { target, .. }
             | Self::Click { target, .. }
@@ -2276,6 +2295,33 @@ impl Command {
 mod tests {
     use super::*;
     use crate::auth::Grant;
+
+    #[test]
+    fn device_screenshot_inventory_preserves_host_diagnostic_wire_shape() {
+        let command = Command::DeviceScreenshot {
+            target: TargetRef::Ssh,
+            path: None,
+            device: None,
+            timeout_ms: None,
+            list: true,
+        };
+        assert_eq!(command.verb(), "device-screenshot");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(command.target(), TargetRef::Ssh);
+        let encoded = serde_json::to_value(&command).expect("wire encode");
+        assert_eq!(encoded["verb"], "device-screenshot");
+        assert_eq!(encoded["list"], true);
+        assert!(encoded.get("path").is_none());
+        let decoded: Command = serde_json::from_value(encoded).expect("wire decode");
+        assert!(matches!(
+            decoded,
+            Command::DeviceScreenshot {
+                target: TargetRef::Ssh,
+                list: true,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn shell_exec_is_distinct_from_transport_exec_and_keeps_closed_budgets() {

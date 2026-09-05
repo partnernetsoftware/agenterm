@@ -1,7 +1,7 @@
 //! Accessibility observation: tree / query / hit / focused / observe /
 //! verify, the incremental pair snapshot / diff, the independent AT-SPI
 //! read-backs, `wait`, and the non-tree observers (`screenshot`, `zoom`,
-//! `pointer-position`, and `desktop-state`).
+//! `device-screenshot`, `pointer-position`, and `desktop-state`).
 
 use agenterm_cu::{Command, TargetRef, WaitCondition};
 
@@ -216,6 +216,7 @@ pub fn parse(
         }
         "wait" => wait(target, args),
         "screenshot" => screenshot(target, args),
+        "device-screenshot" => device_screenshot(target, args),
         "zoom" => {
             let Some(window) = flag_window(args)? else {
                 return Err("zoom requires --window <handle>".into());
@@ -562,10 +563,79 @@ fn screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
     })
 }
 
+fn device_screenshot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let list = take_switch(args, "--list");
+    let path = flag_text(args, "--out")?;
+    let device = flag_text(args, "--device")?;
+    let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?;
+    if !args.is_empty() {
+        return Err(format!(
+            "device-screenshot accepts only --list or --out PATH [--device NAME|UID] [--timeout-ms N]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    if list && (path.is_some() || device.is_some() || timeout_ms.is_some()) {
+        return Err("device-screenshot --list cannot be combined with capture flags".into());
+    }
+    if !list && path.as_deref().is_none_or(str::is_empty) {
+        return Err("device-screenshot requires --out PATH (or --list)".into());
+    }
+    Ok(Command::DeviceScreenshot {
+        target,
+        path,
+        device,
+        timeout_ms,
+        list,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::verbs;
     use super::*;
+
+    #[test]
+    fn device_screenshot_keeps_inventory_and_capture_shapes_disjoint() {
+        let spec = verbs::lookup("device-screenshot").expect("device verb");
+        let mut list = vec!["--list".into()];
+        assert!(matches!(
+            parse(spec, "device-screenshot", TargetRef::Current, &mut list).expect("inventory"),
+            Command::DeviceScreenshot { list: true, .. }
+        ));
+
+        let mut capture = vec![
+            "--out".into(),
+            "shot.png".into(),
+            "--device".into(),
+            "fixture-device".into(),
+            "--timeout-ms".into(),
+            "2500".into(),
+        ];
+        assert!(matches!(
+            parse(
+                spec,
+                "device-screenshot",
+                TargetRef::Current,
+                &mut capture
+            )
+            .expect("capture"),
+            Command::DeviceScreenshot {
+                path: Some(path),
+                device: Some(device),
+                timeout_ms: Some(2500),
+                list: false,
+                ..
+            } if path == "shot.png" && device == "fixture-device"
+        ));
+
+        for mut invalid in [
+            vec!["--list".into(), "--out".into(), "shot.png".into()],
+            Vec::new(),
+            vec!["--unknown".into()],
+        ] {
+            assert!(parse(spec, "device-screenshot", TargetRef::Current, &mut invalid).is_err());
+        }
+    }
 
     #[test]
     fn desktop_state_accepts_the_mcu_state_alias_with_closed_flags() {

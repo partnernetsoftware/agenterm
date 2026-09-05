@@ -1836,6 +1836,37 @@
       ]
     },
     {
+      "name": "device-screenshot",
+      "command": "device-screenshot",
+      "aliases": [],
+      "grant": "observe",
+      "family": "a11y-observe",
+      "summary": "inventory or capture a host-published wired-device screen source",
+      "usage": "device-screenshot --list\ndevice-screenshot --out PATH [--device NAME|UID] [--timeout-ms N]",
+      "args": [
+        {
+          "flag": "--list",
+          "value": "",
+          "help": "inventory sources plus host Camera authorization and usbmux evidence"
+        },
+        {
+          "flag": "--out",
+          "value": "PATH",
+          "help": "new PNG path; existing destinations are never overwritten"
+        },
+        {
+          "flag": "--device",
+          "value": "NAME|UID",
+          "help": "exact published source name or uid (optional for a sole source)"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "first-frame deadline, 1..120000 (default 10000)"
+        }
+      ]
+    },
+    {
       "name": "zoom",
       "command": "zoom",
       "aliases": [],
@@ -4138,6 +4169,10 @@
     {
       "name": "screenshot",
       "text": "agenterm-cu screenshot    (also: shot)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  screenshot [--out PATH | PATH] [--window HANDLE]\n\narguments:\n  --out PATH                    PNG path (default: a temp file named by pid)\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n\nLast resort, never the primary observation: the a11y verbs are. --window\nis never a positional path. `shot` is the MCU spelling.\n"
+    },
+    {
+      "name": "device-screenshot",
+      "text": "agenterm-cu device-screenshot\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  device-screenshot --list\n  device-screenshot --out PATH [--device NAME|UID] [--timeout-ms N]\n\narguments:\n  --list                        inventory sources plus host Camera authorization and usbmux evidence\n  --out PATH                    new PNG path; existing destinations are never overwritten\n  --device NAME|UID             exact published source name or uid (optional for a sole source)\n  --timeout-ms N                first-frame deadline, 1..120000 (default 10000)\n\nThe host capture inventory and usbmux pairing are independent evidence. An\nempty source list never proves the phone is locked or untrusted. Camera TCC\ndenial or undecided consent is reported as a host error; an authorized host\nwith no DAL source is device_source_not_published. Frame bytes are never\nprinted, and a successful capture atomically creates a new output path. This\nuses Camera permission, not Screen Recording.\n"
     },
     {
       "name": "zoom",

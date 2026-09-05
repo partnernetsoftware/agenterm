@@ -414,6 +414,15 @@ pub trait DeviceCaptureBackend {
     ) -> Result<DeviceCaptureFrame, DeviceStreamFailure>;
 }
 
+/// Construct the selected native backend without exposing its Objective-C ABI
+/// to product crates. The product feature is currently macOS-only; other hosts
+/// must advertise an explicit platform limitation rather than fabricate an
+/// empty inventory.
+#[cfg(all(feature = "device-capture", target_os = "macos"))]
+pub fn native_backend() -> impl DeviceCaptureBackend {
+    crate::selected::device_capture::MacosDeviceCaptureBackend
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

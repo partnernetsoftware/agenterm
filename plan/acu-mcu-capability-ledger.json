@@ -768,6 +768,15 @@
           "next": "portable serial vocabulary mapped by native adapters, with unsupported combinations rejected before opening"
         },
         {
+          "id": "device.screen-capture",
+          "mcu_shape": null,
+          "acu_shape": "device-screenshot --list | --out PATH [--device NAME|UID] [--timeout-ms N]",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-fixture-live-device-pending", "linux": "not-applicable-ios-host", "windows": "not-applicable-ios-host"},
+          "next": "run one non-sensitive public-CLI list/capture court from the fixed installed app identity, then qualify the macOS cell",
+          "note": "ACU exceeds MCU here. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
+        },
+        {
           "id": "audio.default-output.observe",
           "mcu_shape": "audio status with default output identity, volume and muted state",
           "acu_shape": null,

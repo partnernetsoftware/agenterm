@@ -40,6 +40,7 @@ pub const GROUPS: &[Group] = &[
             "observe",
             "screenshot",
             "shot",
+            "device-screenshot",
             "elements",
             "inspect",
             "snapshot",

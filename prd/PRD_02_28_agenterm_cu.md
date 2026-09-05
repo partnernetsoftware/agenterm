@@ -810,19 +810,33 @@ flowchart LR
   output state. Device paths are locators rather than durable identity;
   mutations require a live lease or plan, target revalidation, bounded I/O and
   independently read-back post-state. Backend gaps remain platform-limited.
-- [ ] `device-screenshot` is a planned current-main leaf; a stale experiment
-  is evidence, not merge authority. Its classifier must never infer a phone
+- [~] `device-screenshot` is now an integrated current-target leaf, with live
+  promotion still waiting on a non-sensitive device court. Its classifier must
+  never infer a phone
   trust/lock fault from an empty host capture inventory. Preflight separates
   host Camera TCC, usbmux availability/pairing, DAL source publication and
   stream/frame delivery: zero sources with denied/unknown Camera permission is
-  `host_camera_denied|host_camera_consent_required`; a healthy paired device
+  `host_tcc_denied|host_tcc_consent_required`; a healthy paired device
   with no published DAL row is `device_source_not_published`; only an enumerated
   target plus direct evidence may produce a device-specific failure. `--list`
   reports those host signals. Accessibility is independent from pure DAL
-  capture. The pure `agenterm-platform::device_capture` contract and eight
-  fixture classifiers are now live without touching a real phone or prompt;
-  the native adapter, public verb and atomic no-overwrite PNG publication are
-  still pending.
+  capture. The shared contract, macOS AVFoundation/CoreMediaIO adapter and
+  public verb are now connected: observation never requests TCC consent; native
+  and Rust boundaries cap PNG bytes at 64 MiB; timeout remains
+  `device_frame_timeout`; publication is same-parent, atomic and no-clobber;
+  image bytes never enter stdout. Fixture courts cover the exact field failure,
+  successful empty inventory, TCC precedence, oversized native output, timeout,
+  complete publication and a concurrent destination race without touching a
+  real phone or permission prompt. This is `[~]`, not `[x]`, until a disposable
+  non-sensitive device proves list + capture through the public CLI.
+- [ ] daily device automation uses only a fixed-path, promoted, signed
+  `AgentermCu.app` identity. Camera, Accessibility and Screen Recording are
+  independent TCC services and are granted to that stable identity only;
+  worktree binaries are development-court artifacts and must not become the
+  operational entry. Changing path or bytes may create a new TCC identity, so
+  deployment must publish one versioned artifact, verify its digest/signature,
+  switch the fixed path atomically, and surface any required human consent as a
+  host-side typed state. The release/signing/install court remains open.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

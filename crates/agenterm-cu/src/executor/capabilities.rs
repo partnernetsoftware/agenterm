@@ -162,6 +162,22 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         mechanism::Capability::Screenshot,
         serde_json::json!({ "group": "capture" }),
     );
+    let device_screenshot_verb = if cfg!(target_os = "macos") {
+        serde_json::json!({
+            "status": "available",
+            "group": "device-capture",
+            "grant": "observe",
+            "permission": "camera",
+            "inventory_evidence": ["host_camera_authorization", "usbmux", "sources"],
+        })
+    } else {
+        serde_json::json!({
+            "status": "unsupported",
+            "group": "device-capture",
+            "grant": "observe",
+            "reason": "wired device capture is currently implemented on macOS hosts only",
+        })
+    };
     let pointer_inject_verb = capability_verb(
         mechanism::Capability::InputInject,
         serde_json::json!({ "scope": "desktop", "group": "pointer" }),
@@ -390,6 +406,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 serde_json::json!({ "group": "geometry", "mode": "raise" }),
             ),
             "screenshot": screenshot_verb,
+            "device-screenshot": device_screenshot_verb,
             "click": {
                 "status": tree_verb.get("status").cloned().unwrap_or(serde_json::json!("unsupported")),
                 "grant": "actuate",
@@ -794,6 +811,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("focused", "observe"),
             ("observe", "observe"),
             ("screenshot", "observe"),
+            ("device-screenshot", "observe"),
             ("pointer-position", "observe"),
             ("clipboard-read", "observe"),
             ("get-text", "observe"),
