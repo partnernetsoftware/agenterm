@@ -142,8 +142,9 @@ MCU retirement blockers
 │  ├─ [x] registered qjswasm journey green on macOS
 │  ├─ [x] same journey green on Linux x86_64 execute-only court
 │  └─ [ ] Linux aarch64 and Windows journeys green
-├─ [ ] machine transactions
-│  ├─ recoverable file copy/move
+├─ [~] machine transactions
+│  ├─ [x] recoverable file copy: marker-owned no-replace publication + crash recovery
+│  ├─ [~] recoverable file move: implementation/review in progress; not evidence-green yet
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ privilege plan/broker/OS consent
 │  └─ CoreSimulator plus required device/service operations
@@ -154,6 +155,14 @@ MCU retirement blockers
 `acu.ts` now has **22 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
+
+The current implementation knife is recoverable `file move`, not a second
+copy mechanism. It must reuse the proven copy-transaction ownership rule:
+publish the random marker with an atomic no-replace operation, retain the same
+opened read/write object through marker verification, identity persistence and
+copying, and never turn a path precheck followed by rename or reopen into
+deletion authority. Linux/Windows native evidence remains required after the
+local qjswasm journey is green.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
