@@ -8,11 +8,13 @@ use crate::contained_process::{ContainedChild, ContainedHeadlessCommand};
 use crate::process_spawn::ProcessExit;
 
 use super::super::{
-    SimulatorBootReceipt, SimulatorDevice, SimulatorDeviceList, SimulatorError, SimulatorErrorKind,
+    SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorBootReceipt,
+    SimulatorDevice, SimulatorDeviceList, SimulatorError, SimulatorErrorKind, parse_app_list,
     parse_device_list,
 };
 
 const XCRUN: &str = "/usr/bin/xcrun";
+const PLUTIL: &str = "/usr/bin/plutil";
 const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -86,6 +88,170 @@ pub(crate) fn boot_exact(
     }
 }
 
+pub(crate) fn list_apps(udid: &str, max: usize) -> Result<SimulatorAppList, SimulatorError> {
+    let deadline = Instant::now()
+        .checked_add(LIST_TIMEOUT)
+        .ok_or_else(|| SimulatorError::new(SimulatorErrorKind::Timeout, "deadline overflow"))?;
+    let before = require_booted_device(udid, deadline)?;
+    let apps = list_apps_until(udid, max, deadline)?;
+    verify_same_booted_device(&before, deadline)?;
+    Ok(apps)
+}
+
+pub(crate) fn launch_exact(
+    udid: &str,
+    bundle_id: &str,
+    timeout: Duration,
+) -> Result<SimulatorAppLifecycleReceipt, SimulatorError> {
+    app_lifecycle(udid, bundle_id, timeout, SimulatorAppAction::Launch)
+}
+
+pub(crate) fn terminate_exact(
+    udid: &str,
+    bundle_id: &str,
+    timeout: Duration,
+) -> Result<SimulatorAppLifecycleReceipt, SimulatorError> {
+    app_lifecycle(udid, bundle_id, timeout, SimulatorAppAction::Terminate)
+}
+
+fn app_lifecycle(
+    udid: &str,
+    bundle_id: &str,
+    timeout: Duration,
+    action: SimulatorAppAction,
+) -> Result<SimulatorAppLifecycleReceipt, SimulatorError> {
+    let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
+        SimulatorError::new(SimulatorErrorKind::InvalidTimeout, "deadline overflow")
+    })?;
+    let before = require_booted_device(udid, deadline)?;
+    let inventory = list_apps_until(udid, super::super::MAX_VISITED_APPS, deadline)?;
+    if !inventory.apps.iter().any(|app| app.bundle_id == bundle_id) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::NotFound,
+            "the exact app bundle id is not installed on the simulator",
+        ));
+    }
+    let verb = match action {
+        SimulatorAppAction::Launch => "launch",
+        SimulatorAppAction::Terminate => "terminate",
+    };
+    let output = run_xcrun(&["simctl", verb, udid, bundle_id], deadline)?;
+    let after = verify_same_booted_device(&before, deadline)?;
+    if !matches!(output.exit, ProcessExit::Code(0)) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Unavailable,
+            "xcrun simctl did not accept the exact app lifecycle request",
+        ));
+    }
+    let launch_pid = match action {
+        SimulatorAppAction::Launch => Some(parse_launch_pid(&output.stdout, bundle_id)?),
+        SimulatorAppAction::Terminate => {
+            if output.stdout.iter().any(|byte| !byte.is_ascii_whitespace()) {
+                return Err(SimulatorError::new(
+                    SimulatorErrorKind::Unavailable,
+                    "simctl terminate returned an unexpected acknowledgement",
+                ));
+            }
+            None
+        }
+    };
+    Ok(SimulatorAppLifecycleReceipt {
+        device_udid: before.udid,
+        bundle_id: bundle_id.to_owned(),
+        action,
+        device_state_before: before.state,
+        device_state_after: after.state,
+        accepted: true,
+        verified: false,
+        launch_pid,
+    })
+}
+
+fn parse_launch_pid(stdout: &[u8], bundle_id: &str) -> Result<u32, SimulatorError> {
+    let text = std::str::from_utf8(stdout).map_err(|_| {
+        SimulatorError::new(
+            SimulatorErrorKind::Unavailable,
+            "simctl launch acknowledgement is not UTF-8",
+        )
+    })?;
+    let line = text.trim();
+    let expected_prefix = format!("{bundle_id}: ");
+    let pid = line
+        .strip_prefix(&expected_prefix)
+        .filter(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value != 0)
+        .ok_or_else(|| {
+            SimulatorError::new(
+                SimulatorErrorKind::Unavailable,
+                "simctl launch acknowledgement has an unexpected shape",
+            )
+        })?;
+    Ok(pid)
+}
+
+fn require_booted_device(udid: &str, deadline: Instant) -> Result<SimulatorDevice, SimulatorError> {
+    let inventory = list_exact_until(udid, deadline)?;
+    let device = exact_device(&inventory, udid)?.cloned().ok_or_else(|| {
+        SimulatorError::new(SimulatorErrorKind::NotFound, "exact simulator not found")
+    })?;
+    if !device.is_booted() {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Unavailable,
+            "installed apps require an already booted simulator",
+        ));
+    }
+    Ok(device)
+}
+
+fn verify_same_booted_device(
+    before: &SimulatorDevice,
+    deadline: Instant,
+) -> Result<SimulatorDevice, SimulatorError> {
+    let inventory = list_exact_until(&before.udid, deadline)?;
+    let after = exact_device(&inventory, &before.udid)?
+        .cloned()
+        .ok_or_else(|| SimulatorError::new(SimulatorErrorKind::Changed, "simulator disappeared"))?;
+    if after.runtime != before.runtime
+        || after.device_type != before.device_type
+        || !after.is_booted()
+    {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "simulator identity or Booted state changed during the operation",
+        ));
+    }
+    Ok(after)
+}
+
+fn list_apps_until(
+    udid: &str,
+    max: usize,
+    deadline: Instant,
+) -> Result<SimulatorAppList, SimulatorError> {
+    let raw = run_xcrun(&["simctl", "listapps", udid], deadline)?;
+    if !matches!(raw.exit, ProcessExit::Code(0)) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Unavailable,
+            "xcrun simctl listapps failed",
+        ));
+    }
+    let open_step = String::from_utf8(raw.stdout).map_err(|_| {
+        SimulatorError::new(
+            SimulatorErrorKind::InvalidJson,
+            "listapps output is not UTF-8",
+        )
+    })?;
+    let json = run_plutil(open_step, deadline)?;
+    if !matches!(json.exit, ProcessExit::Code(0)) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidJson,
+            "system plutil rejected simctl listapps output",
+        ));
+    }
+    parse_app_list(&json.stdout, udid, max)
+}
+
 fn receipt(
     udid: &str,
     before_state: &str,
@@ -157,14 +323,46 @@ struct CommandOutput {
 
 fn run_xcrun(args: &[&str], deadline: Instant) -> Result<CommandOutput, SimulatorError> {
     validate_xcrun()?;
+    run_program(XCRUN, args, None, deadline)
+}
+
+fn run_plutil(input: String, deadline: Instant) -> Result<CommandOutput, SimulatorError> {
+    validate_system_tool(PLUTIL, "plutil")?;
+    run_program(
+        PLUTIL,
+        &["-convert", "json", "-o", "-", "--", "-"],
+        Some(input),
+        deadline,
+    )
+}
+
+fn run_program(
+    program: &str,
+    args: &[&str],
+    stdin: Option<String>,
+    deadline: Instant,
+) -> Result<CommandOutput, SimulatorError> {
     if Instant::now() >= deadline {
         return Err(SimulatorError::new(
             SimulatorErrorKind::Timeout,
             "CoreSimulator command deadline expired before spawn",
         ));
     }
-    let mut command = ContainedHeadlessCommand::new(XCRUN);
+    let mut command = ContainedHeadlessCommand::new(program);
     command.args(args.iter().copied()).capture_output();
+    if program == XCRUN {
+        for (key, _) in std::env::vars_os() {
+            if key
+                .to_str()
+                .is_some_and(|key| key.starts_with("SIMCTL_CHILD_"))
+            {
+                command.env_remove(key);
+            }
+        }
+    }
+    if let Some(stdin) = stdin {
+        command.stdin_text(stdin);
+    }
     let mut child = command.spawn().map_err(|_| {
         SimulatorError::new(
             SimulatorErrorKind::Unavailable,
@@ -257,16 +455,20 @@ fn run_xcrun(args: &[&str], deadline: Instant) -> Result<CommandOutput, Simulato
 }
 
 fn validate_xcrun() -> Result<(), SimulatorError> {
-    let metadata = std::fs::symlink_metadata(Path::new(XCRUN)).map_err(|_| {
+    validate_system_tool(XCRUN, "xcrun")
+}
+
+fn validate_system_tool(path: &str, name: &'static str) -> Result<(), SimulatorError> {
+    let metadata = std::fs::symlink_metadata(Path::new(path)).map_err(|_| {
         SimulatorError::new(
             SimulatorErrorKind::Unavailable,
-            "the fixed system xcrun is unavailable",
+            format!("the fixed system {name} is unavailable"),
         )
     })?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(SimulatorError::new(
             SimulatorErrorKind::Unavailable,
-            "the fixed system xcrun is not a regular non-symlink file",
+            format!("the fixed system {name} is not a regular non-symlink file"),
         ));
     }
     Ok(())
@@ -377,5 +579,25 @@ mod tests {
         assert_eq!(result.before_state, "Booted");
         assert_eq!(result.after_state, "Booted");
         assert!(result.already_booted);
+    }
+
+    #[test]
+    fn launch_acknowledgement_is_exact_and_pid_is_not_verification() {
+        assert_eq!(
+            parse_launch_pid(b"com.example.app: 4242\n", "com.example.app").unwrap(),
+            4242
+        );
+        for invalid in [
+            b"com.example.other: 4242\n".as_slice(),
+            b"com.example.app: 0\n",
+            b"com.example.app: 42\nextra\n",
+        ] {
+            assert_eq!(
+                parse_launch_pid(invalid, "com.example.app")
+                    .unwrap_err()
+                    .kind,
+                SimulatorErrorKind::Unavailable
+            );
+        }
     }
 }

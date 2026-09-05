@@ -6,9 +6,11 @@ use std::time::Duration;
 mod selected;
 
 pub const MAX_SIMULATOR_DEVICES: usize = 200;
+pub const MAX_SIMULATOR_APPS: usize = 200;
 const MAX_JSON_DEPTH: usize = 64;
 const MAX_JSON_STRING_BYTES: usize = 4_096;
 const MAX_VISITED_DEVICES: usize = 5_000;
+const MAX_VISITED_APPS: usize = 5_000;
 const MAX_RUNTIME_BYTES: usize = 512;
 const MAX_DEVICE_TYPE_BYTES: usize = 512;
 const MAX_STATE_BYTES: usize = 64;
@@ -43,12 +45,51 @@ pub struct SimulatorBootReceipt {
     pub already_booted: bool,
 }
 
+/// Privacy-minimized installed-app row. Container and data paths emitted by
+/// simctl are deliberately not retained in this public result.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatorApp {
+    pub bundle_id: String,
+    pub name: Option<String>,
+    pub application_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatorAppList {
+    pub device_udid: String,
+    pub apps: Vec<SimulatorApp>,
+    pub visited: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SimulatorAppAction {
+    Launch,
+    Terminate,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatorAppLifecycleReceipt {
+    pub device_udid: String,
+    pub bundle_id: String,
+    pub action: SimulatorAppAction,
+    pub device_state_before: String,
+    pub device_state_after: String,
+    /// The public simctl process accepted the request.
+    pub accepted: bool,
+    /// No stable public simctl app-state query closes this effect in this cut.
+    pub verified: bool,
+    /// Launch acknowledgement only; never treated as sustained-process proof.
+    pub launch_pid: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SimulatorErrorKind {
     Unsupported,
     InvalidLimit,
     InvalidUdid,
+    InvalidBundleId,
     InvalidTimeout,
     Unavailable,
     NotFound,
@@ -66,6 +107,7 @@ impl SimulatorErrorKind {
             Self::Unsupported => "simulator_unsupported",
             Self::InvalidLimit => "simulator_limit_invalid",
             Self::InvalidUdid => "simulator_udid_invalid",
+            Self::InvalidBundleId => "simulator_bundle_id_invalid",
             Self::InvalidTimeout => "simulator_timeout_invalid",
             Self::Unavailable => "simulator_unavailable",
             Self::NotFound => "simulator_not_found",
@@ -131,11 +173,63 @@ pub fn boot_exact(udid: &str, timeout: Duration) -> Result<SimulatorBootReceipt,
     selected::boot_exact(udid, timeout)
 }
 
+/// List installed applications on one exact booted simulator. Runtime-only
+/// paths emitted by simctl are parsed transiently and discarded.
+pub fn list_apps(exact_udid: &str, max: usize) -> Result<SimulatorAppList, SimulatorError> {
+    validate_udid(exact_udid)?;
+    validate_app_limit(max)?;
+    selected::list_apps(exact_udid, max)
+}
+
+pub fn launch_exact(
+    exact_udid: &str,
+    bundle_id: &str,
+    timeout: Duration,
+) -> Result<SimulatorAppLifecycleReceipt, SimulatorError> {
+    validate_lifecycle_input(exact_udid, bundle_id, timeout)?;
+    selected::launch_exact(exact_udid, bundle_id, timeout)
+}
+
+pub fn terminate_exact(
+    exact_udid: &str,
+    bundle_id: &str,
+    timeout: Duration,
+) -> Result<SimulatorAppLifecycleReceipt, SimulatorError> {
+    validate_lifecycle_input(exact_udid, bundle_id, timeout)?;
+    selected::terminate_exact(exact_udid, bundle_id, timeout)
+}
+
+fn validate_lifecycle_input(
+    udid: &str,
+    bundle_id: &str,
+    timeout: Duration,
+) -> Result<(), SimulatorError> {
+    validate_udid(udid)?;
+    validate_bundle_id(bundle_id)?;
+    if timeout.is_zero() || timeout > Duration::from_secs(600) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidTimeout,
+            "timeout must be within 1ns..=600s",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_limit(max: usize) -> Result<(), SimulatorError> {
     if !(1..=MAX_SIMULATOR_DEVICES).contains(&max) {
         return Err(SimulatorError::new(
             SimulatorErrorKind::InvalidLimit,
             "device limit must be within 1..=200",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_app_limit(max: usize) -> Result<(), SimulatorError> {
+    if !(1..=MAX_SIMULATOR_APPS).contains(&max) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidLimit,
+            "app limit must be within 1..=200",
         ));
     }
     Ok(())
@@ -160,6 +254,33 @@ fn validate_udid(udid: &str) -> Result<(), SimulatorError> {
     Ok(())
 }
 
+fn validate_bundle_id(bundle_id: &str) -> Result<(), SimulatorError> {
+    let valid = !bundle_id.is_empty()
+        && bundle_id.len() <= 255
+        && bundle_id.split('.').count() >= 2
+        && bundle_id.split('.').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                && segment
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && segment
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        });
+    if !valid {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidBundleId,
+            "bundle id must be a bounded dotted ASCII identifier",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn parse_device_list(
     bytes: &[u8],
     max: usize,
@@ -170,6 +291,27 @@ pub(crate) fn parse_device_list(
     parser.whitespace();
     if parser.position != bytes.len() {
         return Err(invalid_json("trailing bytes after root object"));
+    }
+    Ok(result)
+}
+
+pub(crate) fn parse_app_list(
+    bytes: &[u8],
+    device_udid: &str,
+    max: usize,
+) -> Result<SimulatorAppList, SimulatorError> {
+    validate_udid(device_udid)?;
+    if max == 0 || max > MAX_VISITED_APPS {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidLimit,
+            "internal app parse limit is invalid",
+        ));
+    }
+    let mut parser = JsonParser::new(bytes);
+    let result = parser.parse_app_root(device_udid, max)?;
+    parser.whitespace();
+    if parser.position != bytes.len() {
+        return Err(invalid_json("trailing bytes after app root object"));
     }
     Ok(result)
 }
@@ -204,6 +346,85 @@ impl<'a> JsonParser<'a> {
             }
         })?;
         devices.ok_or_else(|| invalid_json("missing devices object"))
+    }
+
+    fn parse_app_root(
+        &mut self,
+        device_udid: &str,
+        max: usize,
+    ) -> Result<SimulatorAppList, SimulatorError> {
+        self.whitespace();
+        self.expect(b'{')?;
+        let mut apps = Vec::new();
+        let mut visited = 0usize;
+        self.object_fields(|parser, bundle_id| {
+            visited = visited
+                .checked_add(1)
+                .ok_or_else(|| invalid_json("app count overflow"))?;
+            if visited > MAX_VISITED_APPS {
+                return Err(invalid_json("app inventory exceeds native scan bound"));
+            }
+            validate_bundle_id(&bundle_id)
+                .map_err(|_| invalid_json("app bundle id has invalid grammar"))?;
+            let app = parser.parse_app(bundle_id)?;
+            apps.push(app);
+            Ok(())
+        })?;
+        apps.sort_by(|left, right| left.bundle_id.cmp(&right.bundle_id));
+        apps.truncate(max);
+        Ok(SimulatorAppList {
+            device_udid: device_udid.to_owned(),
+            truncated: visited > max,
+            apps,
+            visited,
+        })
+    }
+
+    fn parse_app(&mut self, bundle_id: String) -> Result<SimulatorApp, SimulatorError> {
+        self.whitespace();
+        self.expect(b'{')?;
+        let mut declared_id = None;
+        let mut display_name = None;
+        let mut bundle_name = None;
+        let mut application_type = None;
+        self.object_fields(|parser, key| match key.as_str() {
+            "CFBundleIdentifier" => {
+                parse_unique_string(parser, &mut declared_id, "duplicate app bundle id")
+            }
+            "CFBundleDisplayName" => {
+                parse_unique_string(parser, &mut display_name, "duplicate app display name")
+            }
+            "CFBundleName" => {
+                parse_unique_string(parser, &mut bundle_name, "duplicate app bundle name")
+            }
+            "ApplicationType" => parse_unique_string(
+                parser,
+                &mut application_type,
+                "duplicate app application type",
+            ),
+            _ => parser.skip_value(1),
+        })?;
+        if declared_id
+            .as_deref()
+            .is_some_and(|value| value != bundle_id)
+        {
+            return Err(invalid_json("app key and declared bundle id differ"));
+        }
+        let name = display_name.or(bundle_name);
+        if name
+            .as_deref()
+            .is_some_and(|value| !bounded_field(value, 512))
+            || application_type
+                .as_deref()
+                .is_some_and(|value| !bounded_field(value, 64))
+        {
+            return Err(invalid_json("app name or application type is invalid"));
+        }
+        Ok(SimulatorApp {
+            bundle_id,
+            name,
+            application_type,
+        })
     }
 
     fn parse_runtime_map(&mut self, max: usize) -> Result<SimulatorDeviceList, SimulatorError> {
@@ -600,6 +821,37 @@ mod tests {
             boot_exact(UDID_1, Duration::ZERO).unwrap_err().kind,
             SimulatorErrorKind::InvalidTimeout
         );
+        assert_eq!(
+            launch_exact(UDID_1, "not valid", Duration::from_secs(1))
+                .unwrap_err()
+                .kind,
+            SimulatorErrorKind::InvalidBundleId
+        );
+    }
+
+    #[test]
+    fn app_inventory_is_sorted_truncated_and_privacy_minimized() {
+        let fixture = br#"{
+          "org.example.zeta":{"CFBundleIdentifier":"org.example.zeta","CFBundleName":"Zeta","ApplicationType":"User","DataContainer":"file:///synthetic/private/data"},
+          "com.example.alpha":{"CFBundleIdentifier":"com.example.alpha","CFBundleDisplayName":"Alpha","ApplicationType":"System","Bundle":"file:///synthetic/runtime/App.app"}
+        }"#;
+        let list = parse_app_list(fixture, UDID_1, 1).unwrap();
+        assert_eq!(list.device_udid, UDID_1);
+        assert_eq!(list.visited, 2);
+        assert!(list.truncated);
+        assert_eq!(list.apps.len(), 1);
+        assert_eq!(list.apps[0].bundle_id, "com.example.alpha");
+        assert_eq!(list.apps[0].name.as_deref(), Some("Alpha"));
+        assert_eq!(list.apps[0].application_type.as_deref(), Some("System"));
+    }
+
+    #[test]
+    fn app_inventory_rejects_bundle_identity_mismatch() {
+        let fixture = br#"{"com.example.app":{"CFBundleIdentifier":"com.example.other"}}"#;
+        assert_eq!(
+            parse_app_list(fixture, UDID_1, 10).unwrap_err().kind,
+            SimulatorErrorKind::InvalidJson
+        );
     }
 
     #[test]
@@ -624,6 +876,22 @@ mod tests {
             boot_exact(UDID_1, Duration::from_secs(1)).unwrap_err().kind,
             SimulatorErrorKind::Unsupported
         );
+        assert_eq!(
+            list_apps(UDID_1, 1).unwrap_err().kind,
+            SimulatorErrorKind::Unsupported
+        );
+        assert_eq!(
+            launch_exact(UDID_1, "com.example.app", Duration::from_secs(1))
+                .unwrap_err()
+                .kind,
+            SimulatorErrorKind::Unsupported
+        );
+        assert_eq!(
+            terminate_exact(UDID_1, "com.example.app", Duration::from_secs(1))
+                .unwrap_err()
+                .kind,
+            SimulatorErrorKind::Unsupported
+        );
     }
 
     #[cfg(all(target_os = "macos", feature = "simulator"))]
@@ -634,5 +902,21 @@ mod tests {
         assert!(list.devices.len() <= 3);
         assert!(list.visited >= list.devices.len());
         assert_eq!(list.truncated, list.visited > list.devices.len());
+    }
+
+    #[cfg(all(target_os = "macos", feature = "simulator"))]
+    #[test]
+    #[ignore = "read-only local CoreSimulator app inventory probe"]
+    fn live_list_apps_is_bounded_or_truthfully_skips_without_boot() {
+        let devices =
+            list_devices(MAX_SIMULATOR_DEVICES).expect("read local CoreSimulator device inventory");
+        let Some(device) = devices.devices.iter().find(|device| device.is_booted()) else {
+            eprintln!("SKIP: no already-Booted CoreSimulator device");
+            return;
+        };
+        let apps = list_apps(&device.udid, 3).expect("read installed apps without booting");
+        assert!(apps.apps.len() <= 3);
+        assert!(apps.visited >= apps.apps.len());
+        assert_eq!(apps.truncated, apps.visited > apps.apps.len());
     }
 }
