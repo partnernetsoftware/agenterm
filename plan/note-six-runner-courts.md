@@ -25,8 +25,9 @@
 | macos-aarch64 | `macos-15` | `osx-aarch64-clean` | ready（本机自己也是这一格） |
 | macos-x86_64 | `macos-15-intel` | **没有注册 court** | ← 唯一真缺口 |
 
-court 定义在 `~/repos/minicon/scripts/utm-courts.json`，驱动是
-`~/repos/minicon/scripts/utm-court.sh`：
+court 现在由独立的 `utm-court` 仓拥有：注册表是
+`~/repos/utm-court/courts/registry.json`，统一入口是
+`~/repos/utm-court/bin/utm-court`：
 `start` / `wait-ready COURT SECONDS` / `push COURT HOST GUEST` /
 `exec COURT -- CMD...` / `pull COURT GUEST HOST|-` / `release`。
 
@@ -34,8 +35,12 @@ court 定义在 `~/repos/minicon/scripts/utm-courts.json`，驱动是
 **只消费匹配 build cell 产出的归档，不 checkout、不调 cargo**。
 
 macos-x86_64 那一格：UTM 里有 `scratch-osx-x86-64-c2-opencore066-catalina`，
-但**没有登记进 `utm-courts.json`**，所以 `utm-court.sh` 够不着它。要么把它登记成
+但**没有登记进该仓的 registry**，所以统一 CLI 够不着它。要么把它登记成
 court，要么这一格仍走 GitHub `macos-15-intel`。**别当它已经有了。**
+
+仓库边界：VM、镜像、lease、Guest Agent、interactive recovery 与资源回收
+都只能在 `utm-court` 演进；AgenTerm 只保留调用统一 CLI、发送精确产物、执行
+公共旅程和消费证据的薄测试入口。不得把 UTM 生命周期机制复制回产品仓。
 
 ## 三个会咬人的点（我今天挨个撞过）
 

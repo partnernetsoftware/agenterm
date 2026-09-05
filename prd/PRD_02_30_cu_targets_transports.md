@@ -1055,8 +1055,8 @@ recorded above as unproven rather than claimed.
   bar and pinned by `cu-linux-smoke`; [x] pinned on Windows by
   `cu-windows-smoke` (11 steps / 11 evidence ids, 2026-09-01). The `cargo-xwin` build of `agenterm-cu.exe` +
   `agenterm.dll` for `aarch64-pc-windows-msvc` runs on a Windows-on-ARM
-  guest (11 26200) reached through the sibling `minicon` project's
-  `scripts/utm-court.sh`, whose adapter is the QEMU guest agent over
+  guest (11 26200) reached through the independent `utm-court` repository's
+  `bin/utm-court`, whose adapter is the QEMU guest agent over
   virtio-serial rather than any TCP service -- which is why a port scan
   found nothing. The agent lives in session 0 and cannot see the desktop,
   so the verbs run through a one-shot scheduled task in the interactive

@@ -59,7 +59,7 @@ identity-bound baseline，再在 duration/interval/event/inventory 四重预算�
 started/exited；PID 重用表现为旧 identity exited + 新 identity started。macOS 公共
 CLI 已抓到 owned child 的真实退出，三平台 qjswasm 证据等待最新 HEAD 原生复跑。
 入口一直都在，只是在隔壁项目里：`minicon` 的
-`scripts/utm-court.sh` 把这两台 Windows 虚拟机登记为 `qemu-guest-agent` 适配器——
+独立 `utm-court` 仓把这两台 Windows 虚拟机登记为 `qemu-guest-agent` 适配器——
 **代理走 virtio-serial 而不是 TCP**，所以扫端口当然什么都扫不到。用它的
 `start`/`wait-ready`/`push`/`exec`/`pull` 把 `cargo-xwin` 编出来的
 `agenterm-cu.exe` + `agenterm.dll` 推进去执行（客户机是 Windows on ARM 11 26200；

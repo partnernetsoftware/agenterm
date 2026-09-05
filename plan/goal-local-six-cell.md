@@ -1083,7 +1083,7 @@ execute → receipt → stop` 封成同一 CLI lease，且只把本轮 lease 真
 
 ### 5.22 Linux x86_64 court service recovery（2026-09-05）
 
-`minicon` 仓的 `scripts/utm-court.sh` 已经提供上述产品无关 lease。重启 UTM
+独立 `utm-court` 仓的 `bin/utm-court` 已经提供上述产品无关 lease。重启 UTM
 服务后，五个已登记 VM 的状态从陈旧 `starting` 恢复为可判定的 `stopped`；本轮
 只租用 `lnx-x86_64-desktop`，等待 QEMU Guest Agent ready，通过 court push/exec/pull
 完成证据后再 release，未留下常驻 guest。
@@ -1098,6 +1098,10 @@ typed `file_inspect_failed`。这关闭的是 Linux x86_64 **原生 ACU focused 
 可复用经验：court 内动态库必须与可执行文件一起使用临时名传输、完成后再发布
 为最终 sibling 名，并在执行前回传两个 guest hash。只验证宿主哈希或让 loader
 偶然命中 guest 旧库，都不能作为 exact-byte court 证据。
+
+边界已收紧：本文件只拥有 AgenTerm 的 build/execute/evidence 合同；VM 注册、
+镜像封存、QGA/交互 worker 恢复和 stop/release 实现归独立 `utm-court` 仓。
+`scripts/utm-cu-*.sh` 只能调用其公共 CLI，不能在这里长出第二套 UTM 服务。
 
 ### 5.23 Windows x86_64 focused court（2026-09-05）
 
