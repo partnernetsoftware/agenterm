@@ -1358,10 +1358,13 @@ flowchart LR
   This is one native court, not six-cell delivery. Linux must run the same
   public fixture on native courts; Windows still needs a native COM or
   controlled virtual-COM court because a Unix PTY is not Windows evidence.
-  Partial-write failure semantics must preserve known lower bounds and delivery
-  uncertainty before byte I/O can be promoted. Until those courts pass,
-  lifecycle, serial configuration and byte I/O remain `[~]`; only the lossless
-  native argument shapes may leave the transitional MCU fallback.
+  Partial-write failures now preserve three independent facts end to end:
+  known-written lower bound, delivery uncertainty and retry safety. An effect
+  may be certain yet unsafe to retry when native bytes were accepted before a
+  later durable-state failure; an attempted native write failure is therefore
+  conservatively non-retryable. Until the remaining courts pass, lifecycle,
+  serial configuration and byte I/O remain `[~]`; only the lossless native
+  argument shapes may leave the transitional MCU fallback.
 
 ```text
 device.inventory
@@ -1391,7 +1394,7 @@ device.claim + byte I/O
 ├─ [x] session-end closes jobs and device owners or returns cleanup-uncertain
 ├─ [x] macOS public qjswasm fixture: replay/refusal/I/O/renew/release/TTL/session cleanup
 ├─ [x] durable state + audit exclude locator/secret/payload/fixture token
-├─ [ ] partial-write lower-bound/delivery-uncertainty semantics
+├─ [x] partial-write lower bound / delivery uncertainty / retry safety are independent
 ├─ [ ] Linux native public qjswasm courts
 └─ [ ] Windows native COM/virtual-COM runtime court
 ```

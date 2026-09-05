@@ -68,6 +68,7 @@ pub enum FinalOutcomeKind {
 #[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum FinalReplay {
     JobSpawn { job_id: String, generation: u64 },
+    DeviceClaim { lease_id: String, generation: u64 },
 }
 
 /// Bounded, non-secret outcome metadata retained for exact replay.
@@ -620,6 +621,17 @@ fn validate_outcome(outcome: &FinalOutcome) -> Result<(), CuError> {
                     return Err(CuError::new(
                         "request_outcome_invalid",
                         "job replay requires a lowercase UUID v4 and nonzero generation",
+                    ));
+                }
+            }
+            FinalReplay::DeviceClaim {
+                lease_id,
+                generation,
+            } => {
+                if *generation == 0 || !is_lowercase_uuid_v4(lease_id) {
+                    return Err(CuError::new(
+                        "request_outcome_invalid",
+                        "device replay requires a lowercase UUID v4 and nonzero generation",
                     ));
                 }
             }

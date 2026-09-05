@@ -65,6 +65,18 @@ storage-device-inventory = [
     "windows-sys/Win32_System_SystemInformation",
 ]
 device-inventory = ["current-target-binding", "storage-device-inventory"]
+device-io = [
+    "device-inventory",
+    "process-observation",
+    "dep:libc",
+    "dep:windows-sys",
+    "windows-sys/Win32_Foundation",
+    "windows-sys/Win32_Devices_Communication",
+    "windows-sys/Win32_Devices_DeviceAndDriverInstallation",
+    "windows-sys/Win32_Storage_FileSystem",
+    "windows-sys/Win32_System_IO",
+    "windows-sys/Win32_System_Ioctl",
+]
 entropy = [
     "dep:libc",
     "dep:windows-sys",
@@ -461,6 +473,8 @@ full = [
     "clipboard",
     "screenshot",
     "device-capture",
+    "device-inventory",
+    "device-io",
     "font",
     "webview",
 ]

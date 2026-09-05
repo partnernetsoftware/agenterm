@@ -2452,6 +2452,113 @@
       ]
     },
     {
+      "name": "device-claims",
+      "command": "device-claims",
+      "aliases": ["device claims"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list bounded device-lease metadata without secrets or native locators",
+      "usage": "device claims [--offset N] [--max N]\ndevice-claims [--offset N] [--max N]",
+      "args": [
+        {"flag": "--offset", "value": "N", "help": "zero-based row offset, 0..1024"},
+        {"flag": "--max", "value": "N", "help": "row bound, 1..1024 (default 100)"}
+      ]
+    },
+    {
+      "name": "device-claim",
+      "command": "device-claim",
+      "aliases": ["device claim"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "claim one opaque serial device through a resident exclusive native owner",
+      "usage": "device claim DEVICE_ID [--ttl-seconds N] [--baud N --data-bits N --parity KIND --stop-bits N --flow KIND]\ndevice-claim DEVICE_ID [same options]",
+      "args": [
+        {"flag": "DEVICE_ID", "value": null, "help": "installation-scoped agt-device-v1 identity from device-list"},
+        {"flag": "--ttl-seconds", "value": "N", "help": "lease duration, 1..86400 (default 300)"},
+        {"flag": "--baud", "value": "N", "help": "serial baud rate (default 9600 when serial options are present)"},
+        {"flag": "--data-bits", "value": "N", "help": "serial data bits, 5..8 (default 8)"},
+        {"flag": "--parity", "value": "KIND", "help": "none|even|odd (default none)"},
+        {"flag": "--stop-bits", "value": "N", "help": "1|2 (default 1)"},
+        {"flag": "--flow", "value": "KIND", "help": "none|software|hardware (default none)"}
+      ]
+    },
+    {
+      "name": "device-status",
+      "command": "device-status",
+      "aliases": ["device status"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "inspect one device lease without exposing its authority secret",
+      "usage": "device status LEASE_ID --generation N\ndevice-status LEASE_ID --generation N",
+      "args": [
+        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
+        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"}
+      ]
+    },
+    {
+      "name": "device-read",
+      "command": "device-read",
+      "aliases": ["device read"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "consume one bounded byte chunk from the resident device owner",
+      "usage": "device read LEASE_ID --generation N --lease SECRET [--max-bytes N] [--timeout-ms N] [--encoding base64|hex]\ndevice-read LEASE_ID [same options]",
+      "args": [
+        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
+        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
+        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"},
+        {"flag": "--max-bytes", "value": "N", "help": "read bound, 1..65536 (default 65536)"},
+        {"flag": "--timeout-ms", "value": "N", "help": "operation deadline, 1..300000 (default 1000)"},
+        {"flag": "--encoding", "value": "KIND", "help": "base64|hex (default base64)"}
+      ]
+    },
+    {
+      "name": "device-write",
+      "command": "device-write",
+      "aliases": ["device write"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "write one bounded byte chunk through the resident device owner",
+      "usage": "device write LEASE_ID --generation N --lease SECRET (--data-base64 DATA|--hex HEX) [--timeout-ms N]\ndevice-write LEASE_ID [same options]",
+      "args": [
+        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
+        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
+        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"},
+        {"flag": "--data-base64", "value": "DATA", "help": "base64 payload, decoded size 1..65536"},
+        {"flag": "--hex", "value": "HEX", "help": "hex payload, decoded size 1..65536"},
+        {"flag": "--timeout-ms", "value": "N", "help": "operation deadline, 1..300000 (default 1000)"}
+      ]
+    },
+    {
+      "name": "device-renew",
+      "command": "device-renew",
+      "aliases": ["device renew"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "renew one session-bound device lease and its runtime lock",
+      "usage": "device renew LEASE_ID --generation N --lease SECRET [--ttl-seconds N]\ndevice-renew LEASE_ID [same options]",
+      "args": [
+        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
+        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
+        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"},
+        {"flag": "--ttl-seconds", "value": "N", "help": "new lease duration, 1..86400 (default 300)"}
+      ]
+    },
+    {
+      "name": "device-release",
+      "command": "device-release",
+      "aliases": ["device release"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "restore and close the exact native handle, then release its runtime lock",
+      "usage": "device release LEASE_ID --generation N --lease SECRET\ndevice-release LEASE_ID --generation N --lease SECRET",
+      "args": [
+        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
+        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
+        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"}
+      ]
+    },
+    {
       "name": "simulator-boot",
       "command": "simulator-boot",
       "aliases": [
@@ -5084,6 +5191,34 @@
     {
       "name": "device-watch",
       "text": "agenterm-cu device-watch    (also: device watch)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  device watch [--type usb|bluetooth|audio|camera|gpu|all] [--max N]\n               [--duration-ms N] [--interval-ms N] [--event-max N]\n  device-watch [same options]\n\narguments:\n  --type KIND                   usb|bluetooth|audio|camera|gpu|all (default all)\n  --max N                       inventory bound per sample, 1..5000 (default 500)\n  --duration-ms N               overall duration, 1000..3600000 (default 10000)\n  --interval-ms N               poll interval, 250..60000 (default 2000)\n  --event-max N                 event ceiling, 1..5000 (default 1000)\n\nPolls the same privacy-preserving native inventory as device-list under one\nmonotonic deadline. Only two consecutive complete, non-truncated provider\nsnapshots may emit added, removed or changed events. Partial or unavailable\nproviders suppress inferred events and report incomplete coverage instead of\nfabricating device changes. Returned identities remain installation-scoped\npseudonyms; serials, addresses, instance ids and native paths never appear.\n"
+    },
+    {
+      "name": "device-claims",
+      "text": "agenterm-cu device-claims    (also: device claims)\n  scope: observe    family: System & permissions\n\nusage:\n  device claims [--offset N] [--max N]\n\nLists bounded durable lease metadata. Plaintext lease secrets and native device locators are never returned.\n"
+    },
+    {
+      "name": "device-claim",
+      "text": "agenterm-cu device-claim    (also: device claim)\n  scope: actuate    family: System & permissions\n\nusage:\n  device claim DEVICE_ID [--ttl-seconds N] [--baud N] [--data-bits N]\n               [--parity none|even|odd] [--stop-bits 1|2]\n               [--flow none|software|hardware]\n\nClaims the opaque device id with one resident process holding one kernel-exclusive native handle. The lease secret is returned only by the first successful call; preserve it privately. Serial defaults are 9600/8/none/1/none.\n"
+    },
+    {
+      "name": "device-status",
+      "text": "agenterm-cu device-status    (also: device status)\n  scope: observe    family: System & permissions\n\nusage:\n  device status LEASE_ID --generation N\n\nReports state, exact owner liveness, byte counters and expiry without returning authority or a native locator.\n"
+    },
+    {
+      "name": "device-read",
+      "text": "agenterm-cu device-read    (also: device read)\n  scope: actuate    family: System & permissions\n\nusage:\n  device read LEASE_ID --generation N --lease SECRET [--max-bytes N] [--timeout-ms N] [--encoding base64|hex]\n\nConsumes one bounded chunk from the same resident native handle. A timeout is typed; no second device open is performed.\n"
+    },
+    {
+      "name": "device-write",
+      "text": "agenterm-cu device-write    (also: device write)\n  scope: actuate    family: System & permissions\n\nusage:\n  device write LEASE_ID --generation N --lease SECRET (--data-base64 DATA|--hex HEX) [--timeout-ms N]\n\nWrites at most 65536 decoded bytes through the resident owner and reports the known delivery result. Payload and lease authority are redacted from audit output.\n"
+    },
+    {
+      "name": "device-renew",
+      "text": "agenterm-cu device-renew    (also: device renew)\n  scope: actuate    family: System & permissions\n\nusage:\n  device renew LEASE_ID --generation N --lease SECRET [--ttl-seconds N]\n\nRenews the session-bound native owner and the matching runtime lock without reopening the device.\n"
+    },
+    {
+      "name": "device-release",
+      "text": "agenterm-cu device-release    (also: device release)\n  scope: actuate    family: System & permissions\n\nusage:\n  device release LEASE_ID --generation N --lease SECRET\n\nRestores the saved device configuration, closes the exact native handle and then releases its runtime lock. Cleanup uncertainty is a typed failure, never a false success.\n"
     },
     {
       "name": "simulator-boot",

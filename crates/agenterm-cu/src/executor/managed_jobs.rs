@@ -47,6 +47,9 @@ pub(super) fn replay_payload(replay: &FinalReplay) -> Value {
             "job_id": job_id,
             "generation": generation,
         }),
+        FinalReplay::DeviceClaim { .. } => {
+            unreachable!("managed-job replay requires managed-job identity")
+        }
     }
 }
 

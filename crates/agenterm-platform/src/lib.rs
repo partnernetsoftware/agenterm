@@ -82,6 +82,7 @@ pub enum Capability {
     Storage,
     StorageDeviceInventory,
     DeviceInventory,
+    DeviceIo,
     Entropy,
     ConsoleInterrupt,
     ConsoleLineEditor,
@@ -155,6 +156,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::Storage => (cfg!(feature = "storage"), true),
         Capability::StorageDeviceInventory => (cfg!(feature = "storage-device-inventory"), true),
         Capability::DeviceInventory => (cfg!(feature = "device-inventory"), true),
+        Capability::DeviceIo => (cfg!(feature = "device-io"), true),
         Capability::Entropy => (cfg!(feature = "entropy"), true),
         Capability::ConsoleInterrupt => (cfg!(feature = "console-interrupt"), true),
         Capability::ConsoleLineEditor => (cfg!(feature = "console-line-editor"), true),
@@ -285,6 +287,8 @@ pub mod storage_device_inventory;
 
 #[cfg(feature = "device-inventory")]
 pub mod device_inventory;
+#[cfg(feature = "device-io")]
+pub mod device_io;
 
 #[cfg(feature = "current-target-binding")]
 pub mod current_target_binding;

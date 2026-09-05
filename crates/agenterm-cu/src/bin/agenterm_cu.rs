@@ -41,6 +41,12 @@ fn main() {
     if matches!(args.as_slice(), [arg] if arg == agenterm_cu::MANAGED_JOB_OWNER_ARG) {
         std::process::exit(agenterm_cu::run_managed_job_owner());
     }
+    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::DEVICE_LEASE_OWNER_ARG) {
+        std::process::exit(agenterm_cu::run_device_lease_owner());
+    }
+    if args.first().map(String::as_str) == Some(agenterm_cu::DEVICE_IO_FIXTURE_ARG) {
+        std::process::exit(agenterm_cu::run_device_io_test_fixture(&args[1..]));
+    }
     if args.first().map(String::as_str) == Some(agenterm_cu::network_probe::FIXTURE_ARG) {
         std::process::exit(agenterm_cu::network_probe::run_loopback_fixture(&args[1..]));
     }

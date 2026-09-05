@@ -31,6 +31,52 @@ pub const DEVICE_WATCH_DURATION_MS_MAX: u64 = 3_600_000;
 pub const DEVICE_WATCH_INTERVAL_MS_MIN: u64 = 250;
 pub const DEVICE_WATCH_INTERVAL_MS_MAX: u64 = 60_000;
 pub const DEVICE_WATCH_EVENTS_MAX: usize = 5_000;
+pub const DEVICE_LEASE_LIST_MAX: usize = 1_024;
+pub const DEVICE_IO_BYTES_MAX: usize = 64 * 1024;
+pub const DEVICE_IO_TIMEOUT_MS_MAX: u64 = 300_000;
+pub const DEVICE_LEASE_TTL_SECONDS_MAX: u64 = 86_400;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceDataEncoding {
+    Base64,
+    Hex,
+}
+
+impl DeviceDataEncoding {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Base64 => "base64",
+            Self::Hex => "hex",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceSerialParity {
+    None,
+    Even,
+    Odd,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceSerialFlow {
+    None,
+    Software,
+    Hardware,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceSerialConfiguration {
+    pub baud: u32,
+    pub data_bits: u8,
+    pub parity: DeviceSerialParity,
+    pub stop_bits: u8,
+    pub flow: DeviceSerialFlow,
+}
 
 pub fn validate_simulator_udid(udid: &str) -> Result<(), &'static str> {
     let bytes = udid.as_bytes();
@@ -1815,6 +1861,56 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_device_watch_event_max")]
         event_max: usize,
     },
+    DeviceClaims {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+    },
+    DeviceClaim {
+        target: TargetRef,
+        device_id: String,
+        ttl_seconds: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        serial: Option<DeviceSerialConfiguration>,
+    },
+    DeviceStatus {
+        target: TargetRef,
+        lease_id: String,
+        generation: u64,
+    },
+    DeviceRead {
+        target: TargetRef,
+        lease_id: String,
+        generation: u64,
+        lease: String,
+        max_bytes: usize,
+        timeout_ms: u64,
+        encoding: DeviceDataEncoding,
+    },
+    DeviceWrite {
+        target: TargetRef,
+        lease_id: String,
+        generation: u64,
+        lease: String,
+        data: String,
+        encoding: DeviceDataEncoding,
+        timeout_ms: u64,
+    },
+    DeviceRenew {
+        target: TargetRef,
+        lease_id: String,
+        generation: u64,
+        lease: String,
+        ttl_seconds: u64,
+    },
+    DeviceRelease {
+        target: TargetRef,
+        lease_id: String,
+        generation: u64,
+        lease: String,
+    },
     SimulatorDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_max")]
@@ -3088,6 +3184,13 @@ impl Command {
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::DeviceList { .. } => "device-list".into(),
             Self::DeviceWatch { .. } => "device-watch".into(),
+            Self::DeviceClaims { .. } => "device-claims".into(),
+            Self::DeviceClaim { .. } => "device-claim".into(),
+            Self::DeviceStatus { .. } => "device-status".into(),
+            Self::DeviceRead { .. } => "device-read".into(),
+            Self::DeviceWrite { .. } => "device-write".into(),
+            Self::DeviceRenew { .. } => "device-renew".into(),
+            Self::DeviceRelease { .. } => "device-release".into(),
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
@@ -3257,6 +3360,13 @@ impl Command {
             | Self::StorageDevices { target, .. }
             | Self::DeviceList { target, .. }
             | Self::DeviceWatch { target, .. }
+            | Self::DeviceClaims { target, .. }
+            | Self::DeviceClaim { target, .. }
+            | Self::DeviceStatus { target, .. }
+            | Self::DeviceRead { target, .. }
+            | Self::DeviceWrite { target, .. }
+            | Self::DeviceRenew { target, .. }
+            | Self::DeviceRelease { target, .. }
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
             | Self::SimulatorApps { target, .. }
@@ -3356,6 +3466,11 @@ impl Command {
             | Self::JobWrite { .. }
             | Self::JobStop { .. }
             | Self::JobRenew { .. }
+            | Self::DeviceClaim { .. }
+            | Self::DeviceRead { .. }
+            | Self::DeviceWrite { .. }
+            | Self::DeviceRenew { .. }
+            | Self::DeviceRelease { .. }
             | Self::ProcessKill { .. }
             | Self::ProcessSetState { .. }
             | Self::ProcessSignal { .. }
@@ -3600,6 +3715,84 @@ impl Command {
                 }
                 Ok(())
             }
+            Self::DeviceClaims { offset, max, .. } => {
+                if offset.is_some_and(|value| value > DEVICE_LEASE_LIST_MAX)
+                    || max.is_some_and(|value| !(1..=DEVICE_LEASE_LIST_MAX).contains(&value))
+                {
+                    return Err("device claims requires offset in 0..=1024 and max in 1..=1024");
+                }
+                Ok(())
+            }
+            Self::DeviceClaim {
+                device_id,
+                ttl_seconds,
+                serial,
+                ..
+            } => {
+                validate_device_public_id(device_id)?;
+                validate_device_ttl(*ttl_seconds)?;
+                if let Some(serial) = serial {
+                    validate_device_serial(serial)?;
+                }
+                Ok(())
+            }
+            Self::DeviceStatus {
+                lease_id,
+                generation,
+                ..
+            } => {
+                validate_device_lease_identity(lease_id, *generation)?;
+                Ok(())
+            }
+            Self::DeviceRead {
+                lease_id,
+                generation,
+                lease,
+                max_bytes,
+                timeout_ms,
+                ..
+            } => {
+                validate_device_lease_identity(lease_id, *generation)?;
+                validate_device_lease_secret(lease)?;
+                if !(1..=DEVICE_IO_BYTES_MAX).contains(max_bytes) {
+                    return Err("device read max_bytes must be in 1..=65536");
+                }
+                validate_device_io_timeout(*timeout_ms)
+            }
+            Self::DeviceWrite {
+                lease_id,
+                generation,
+                lease,
+                data,
+                encoding,
+                timeout_ms,
+                ..
+            } => {
+                validate_device_lease_identity(lease_id, *generation)?;
+                validate_device_lease_secret(lease)?;
+                validate_device_encoded_data(data, *encoding)?;
+                validate_device_io_timeout(*timeout_ms)
+            }
+            Self::DeviceRenew {
+                lease_id,
+                generation,
+                lease,
+                ttl_seconds,
+                ..
+            } => {
+                validate_device_lease_identity(lease_id, *generation)?;
+                validate_device_lease_secret(lease)?;
+                validate_device_ttl(*ttl_seconds)
+            }
+            Self::DeviceRelease {
+                lease_id,
+                generation,
+                lease,
+                ..
+            } => {
+                validate_device_lease_identity(lease_id, *generation)?;
+                validate_device_lease_secret(lease)
+            }
             Self::SimulatorBoot {
                 udid,
                 timeout_ms,
@@ -3682,6 +3875,103 @@ fn validate_job_generation(generation: u64) -> Result<(), &'static str> {
         return Err("managed-job generation must be nonzero");
     }
     Ok(())
+}
+
+fn validate_device_public_id(device_id: &str) -> Result<(), &'static str> {
+    if device_id.len() != 78
+        || !device_id.starts_with("agt-device-v1-")
+        || !is_lower_hex(&device_id[14..])
+    {
+        return Err("device id must be one installation-scoped agt-device-v1 identifier");
+    }
+    Ok(())
+}
+
+fn validate_device_lease_identity(lease_id: &str, generation: u64) -> Result<(), &'static str> {
+    validate_job_id(lease_id).map_err(|_| "device lease id must be a lowercase UUID v4")?;
+    if generation == 0 {
+        return Err("device lease generation must be nonzero");
+    }
+    Ok(())
+}
+
+fn validate_device_lease_secret(lease: &str) -> Result<(), &'static str> {
+    if lease.len() != 64 || !is_lower_hex(lease) {
+        return Err("device lease secret must be 64 lowercase hexadecimal bytes");
+    }
+    Ok(())
+}
+
+fn validate_device_ttl(ttl_seconds: u64) -> Result<(), &'static str> {
+    if !(1..=DEVICE_LEASE_TTL_SECONDS_MAX).contains(&ttl_seconds) {
+        return Err("device lease ttl_seconds must be in 1..=86400");
+    }
+    Ok(())
+}
+
+fn validate_device_io_timeout(timeout_ms: u64) -> Result<(), &'static str> {
+    if !(1..=DEVICE_IO_TIMEOUT_MS_MAX).contains(&timeout_ms) {
+        return Err("device I/O timeout_ms must be in 1..=300000");
+    }
+    Ok(())
+}
+
+fn validate_device_serial(serial: &DeviceSerialConfiguration) -> Result<(), &'static str> {
+    const BAUDS: [u32; 19] = [
+        50, 75, 110, 134, 150, 200, 300, 600, 1_200, 1_800, 2_400, 4_800, 9_600, 19_200, 38_400,
+        57_600, 115_200, 230_400, 460_800,
+    ];
+    if !BAUDS.contains(&serial.baud)
+        || !(5..=8).contains(&serial.data_bits)
+        || !matches!(serial.stop_bits, 1 | 2)
+    {
+        return Err("device serial configuration is outside the closed serial contract");
+    }
+    Ok(())
+}
+
+fn validate_device_encoded_data(
+    data: &str,
+    encoding: DeviceDataEncoding,
+) -> Result<(), &'static str> {
+    match encoding {
+        DeviceDataEncoding::Hex => {
+            if data.is_empty()
+                || !data.len().is_multiple_of(2)
+                || data.len() / 2 > DEVICE_IO_BYTES_MAX
+                || !data.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err("device write hex must encode 1..=65536 bytes");
+            }
+        }
+        DeviceDataEncoding::Base64 => {
+            if data.is_empty() || data.len() > 4 * DEVICE_IO_BYTES_MAX.div_ceil(3) {
+                return Err("device write base64 must encode 1..=65536 bytes");
+            }
+            let padding = data.bytes().rev().take_while(|byte| *byte == b'=').count();
+            let alphabet = data.len().saturating_sub(padding);
+            if !data.len().is_multiple_of(4)
+                || padding > 2
+                || !data[..alphabet]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/')
+                || !data[alphabet..].bytes().all(|byte| byte == b'=')
+            {
+                return Err("device write base64 is not canonical padded base64");
+            }
+            let decoded = data.len() / 4 * 3 - padding;
+            if decoded == 0 || decoded > DEVICE_IO_BYTES_MAX {
+                return Err("device write base64 must encode 1..=65536 bytes");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_lower_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 #[cfg(test)]
@@ -5747,6 +6037,113 @@ mod tests {
             }),
         ] {
             assert!(serde_json::from_value::<Command>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn device_lease_commands_keep_secret_io_and_grant_bounds_on_the_wire() {
+        let device_id = format!("agt-device-v1-{}", "a".repeat(64));
+        let lease_id = "00000000-0000-4000-8000-000000000001";
+        let lease = "b".repeat(64);
+        let claim = Command::DeviceClaim {
+            target: TargetRef::Current,
+            device_id: device_id.clone(),
+            ttl_seconds: 60,
+            serial: Some(DeviceSerialConfiguration {
+                baud: 115_200,
+                data_bits: 8,
+                parity: DeviceSerialParity::None,
+                stop_bits: 1,
+                flow: DeviceSerialFlow::None,
+            }),
+        };
+        assert_eq!(claim.required_grant(), Grant::Actuate);
+        claim.validate().unwrap();
+        let encoded = serde_json::to_value(&claim).unwrap();
+        assert_eq!(encoded["device_id"], device_id);
+        let _: Command = serde_json::from_value(encoded).unwrap();
+
+        for command in [
+            Command::DeviceRead {
+                target: TargetRef::Current,
+                lease_id: lease_id.into(),
+                generation: 1,
+                lease: lease.clone(),
+                max_bytes: 64,
+                timeout_ms: 1_000,
+                encoding: DeviceDataEncoding::Hex,
+            },
+            Command::DeviceWrite {
+                target: TargetRef::Current,
+                lease_id: lease_id.into(),
+                generation: 1,
+                lease: lease.clone(),
+                data: "AP8K".into(),
+                encoding: DeviceDataEncoding::Base64,
+                timeout_ms: 1_000,
+            },
+            Command::DeviceRenew {
+                target: TargetRef::Current,
+                lease_id: lease_id.into(),
+                generation: 1,
+                lease: lease.clone(),
+                ttl_seconds: 60,
+            },
+            Command::DeviceRelease {
+                target: TargetRef::Current,
+                lease_id: lease_id.into(),
+                generation: 1,
+                lease: lease.clone(),
+            },
+        ] {
+            command.validate().unwrap();
+            assert_eq!(command.required_grant(), Grant::Actuate);
+            let _: Command =
+                serde_json::from_value(serde_json::to_value(command).unwrap()).unwrap();
+        }
+
+        let status = Command::DeviceStatus {
+            target: TargetRef::Current,
+            lease_id: lease_id.into(),
+            generation: 1,
+        };
+        assert_eq!(status.required_grant(), Grant::Observe);
+        status.validate().unwrap();
+        let claims = Command::DeviceClaims {
+            target: TargetRef::Current,
+            offset: Some(0),
+            max: Some(100),
+        };
+        assert_eq!(claims.required_grant(), Grant::Observe);
+        claims.validate().unwrap();
+
+        for invalid in [
+            Command::DeviceClaim {
+                target: TargetRef::Current,
+                device_id: "path-is-not-authority".into(),
+                ttl_seconds: 60,
+                serial: None,
+            },
+            Command::DeviceRead {
+                target: TargetRef::Current,
+                lease_id: lease_id.into(),
+                generation: 0,
+                lease: lease.clone(),
+                max_bytes: 1,
+                timeout_ms: 1,
+                encoding: DeviceDataEncoding::Hex,
+            },
+            Command::DeviceWrite {
+                target: TargetRef::Current,
+                lease_id: lease_id.into(),
+                generation: 1,
+                lease,
+                data: "not hex".into(),
+                encoding: DeviceDataEncoding::Hex,
+                timeout_ms: 1,
+            },
+        ] {
+            assert!(invalid.validate().is_err());
         }
     }
 

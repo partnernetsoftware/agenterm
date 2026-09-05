@@ -87,6 +87,14 @@ pub(crate) mod device_inventory;
 #[path = "adapters/windows/device_inventory.rs"]
 pub(crate) mod device_inventory;
 
+#[cfg(all(feature = "device-io", windows))]
+#[path = "adapters/windows/device_io.rs"]
+pub(crate) mod device_io;
+
+#[cfg(all(feature = "device-io", any(target_os = "linux", target_os = "macos")))]
+#[path = "adapters/unix/device_io.rs"]
+pub(crate) mod device_io;
+
 pub(crate) const fn app_container_process_supported() -> bool {
     #[cfg(windows)]
     {

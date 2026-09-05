@@ -3,9 +3,10 @@
 use agenterm_cu::{
     Command, DeviceInventorySelector, PermissionAction, PermissionKind, SetupAction, TargetRef,
     command::{
-        DEVICE_INVENTORY_MAX, DEVICE_WATCH_DURATION_MS_MAX, DEVICE_WATCH_EVENTS_MAX,
-        DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN, JobEnvironment,
-        JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
+        DEVICE_INVENTORY_MAX, DEVICE_IO_BYTES_MAX, DEVICE_WATCH_DURATION_MS_MAX,
+        DEVICE_WATCH_EVENTS_MAX, DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN,
+        DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
+        JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
     },
 };
 
@@ -15,6 +16,8 @@ const DEFAULT_SESSION_TTL_SECONDS: u64 = 3_600;
 const DEFAULT_LOCK_TTL_SECONDS: u64 = 300;
 const DEFAULT_JOB_TTL_SECONDS: u64 = 3_600;
 const DEFAULT_JOB_EVENTS_MAX_BYTES: usize = 65_536;
+const DEFAULT_DEVICE_TTL_SECONDS: u64 = 300;
+const DEFAULT_DEVICE_IO_TIMEOUT_MS: u64 = 1_000;
 
 pub fn parse(
     spec: &VerbSpec,
@@ -134,6 +137,24 @@ pub fn parse(
         };
         command.validate().map_err(str::to_owned)?;
         return Ok(command);
+    }
+    if matches!(
+        spec.name,
+        "device-claims"
+            | "device-claim"
+            | "device-status"
+            | "device-read"
+            | "device-write"
+            | "device-renew"
+            | "device-release"
+    ) {
+        if args
+            .first()
+            .is_some_and(|arg| spec.aliases.contains(&format!("device {arg}").as_str()))
+        {
+            args.remove(0);
+        }
+        return parse_device_lease(spec.name, target, args);
     }
     if spec.name == "audit-compact" && args.first().is_some_and(|arg| arg == "compact") {
         args.remove(0);
@@ -302,6 +323,144 @@ pub fn parse(
         "capabilities" => Ok(Command::Capabilities { target }),
         "doctor" => Ok(Command::Doctor { target }),
         other => Err(format!("unknown command '{other}'")),
+    }
+}
+
+fn parse_device_lease(
+    name: &str,
+    target: TargetRef,
+    args: &mut Vec<String>,
+) -> Result<Command, String> {
+    let command = match name {
+        "device-claims" => Command::DeviceClaims {
+            target,
+            offset: flag_parsed(args, "--offset")?,
+            max: flag_parsed(args, "--max")?,
+        },
+        "device-claim" => {
+            let device_id = positional(args, "DEVICE_ID")?;
+            let ttl_seconds = ttl_flag(args, DEFAULT_DEVICE_TTL_SECONDS)?;
+            let baud = flag_parsed::<u32>(args, "--baud")?;
+            let data_bits = flag_parsed::<u8>(args, "--data-bits")?;
+            let parity = flag_text(args, "--parity")?;
+            let stop_bits = flag_parsed::<u8>(args, "--stop-bits")?;
+            let flow = flag_text(args, "--flow")?;
+            let serial_requested = baud.is_some()
+                || data_bits.is_some()
+                || parity.is_some()
+                || stop_bits.is_some()
+                || flow.is_some();
+            let serial = if serial_requested {
+                Some(DeviceSerialConfiguration {
+                    baud: baud.unwrap_or(9_600),
+                    data_bits: data_bits.unwrap_or(8),
+                    parity: match parity.as_deref().unwrap_or("none") {
+                        "none" => DeviceSerialParity::None,
+                        "even" => DeviceSerialParity::Even,
+                        "odd" => DeviceSerialParity::Odd,
+                        value => {
+                            return Err(format!(
+                                "--parity must be none, even or odd; got {value:?}"
+                            ));
+                        }
+                    },
+                    stop_bits: stop_bits.unwrap_or(1),
+                    flow: match flow.as_deref().unwrap_or("none") {
+                        "none" => DeviceSerialFlow::None,
+                        "software" => DeviceSerialFlow::Software,
+                        "hardware" => DeviceSerialFlow::Hardware,
+                        value => {
+                            return Err(format!(
+                                "--flow must be none, software or hardware; got {value:?}"
+                            ));
+                        }
+                    },
+                })
+            } else {
+                None
+            };
+            Command::DeviceClaim {
+                target,
+                device_id,
+                ttl_seconds,
+                serial,
+            }
+        }
+        "device-status" => Command::DeviceStatus {
+            target,
+            lease_id: positional(args, "LEASE_ID")?,
+            generation: generation_flag(args)?,
+        },
+        "device-read" => Command::DeviceRead {
+            target,
+            lease_id: positional(args, "LEASE_ID")?,
+            generation: generation_flag(args)?,
+            lease: positional_or_flag(args, "--lease", "LEASE")?,
+            max_bytes: flag_parsed(args, "--max-bytes")?.unwrap_or(DEVICE_IO_BYTES_MAX),
+            timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(DEFAULT_DEVICE_IO_TIMEOUT_MS),
+            encoding: parse_data_encoding(
+                flag_text(args, "--encoding")?
+                    .as_deref()
+                    .unwrap_or("base64"),
+            )?,
+        },
+        "device-write" => {
+            let lease_id = positional(args, "LEASE_ID")?;
+            let generation = generation_flag(args)?;
+            let lease = positional_or_flag(args, "--lease", "LEASE")?;
+            let data_base64 = flag_text(args, "--data-base64")?;
+            let data_hex = flag_text(args, "--hex")?;
+            let (data, encoding) = match (data_base64, data_hex) {
+                (Some(data), None) => (data, DeviceDataEncoding::Base64),
+                (None, Some(data)) => (data, DeviceDataEncoding::Hex),
+                _ => {
+                    return Err(
+                        "device-write requires exactly one of --data-base64 or --hex".into(),
+                    );
+                }
+            };
+            Command::DeviceWrite {
+                target,
+                lease_id,
+                generation,
+                lease,
+                data,
+                encoding,
+                timeout_ms: flag_parsed(args, "--timeout-ms")?
+                    .unwrap_or(DEFAULT_DEVICE_IO_TIMEOUT_MS),
+            }
+        }
+        "device-renew" => Command::DeviceRenew {
+            target,
+            lease_id: positional(args, "LEASE_ID")?,
+            generation: generation_flag(args)?,
+            lease: positional_or_flag(args, "--lease", "LEASE")?,
+            ttl_seconds: ttl_flag(args, DEFAULT_DEVICE_TTL_SECONDS)?,
+        },
+        "device-release" => Command::DeviceRelease {
+            target,
+            lease_id: positional(args, "LEASE_ID")?,
+            generation: generation_flag(args)?,
+            lease: positional_or_flag(args, "--lease", "LEASE")?,
+        },
+        other => return Err(format!("unknown device lease command {other:?}")),
+    };
+    if !args.is_empty() {
+        return Err(format!("{name} received unexpected argument {:?}", args[0]));
+    }
+    command.validate().map_err(str::to_owned)?;
+    Ok(command)
+}
+
+fn generation_flag(args: &mut Vec<String>) -> Result<u64, String> {
+    flag_parsed(args, "--generation")?.ok_or_else(|| "--generation N is required".to_owned())
+}
+
+fn parse_data_encoding(value: &str) -> Result<DeviceDataEncoding, String> {
+    match value {
+        "base64" => Ok(DeviceDataEncoding::Base64),
+        "hex" => Ok(DeviceDataEncoding::Hex),
+        _ => Err(format!("--encoding must be base64 or hex; got {value:?}")),
     }
 }
 
@@ -791,6 +950,93 @@ mod tests {
         assert!(parse("device-watch", &["--duration-ms", "999"]).is_err());
         assert!(parse("device-watch", &["--interval-ms", "249"]).is_err());
         assert!(parse("device-watch", &["--event-max", "5001"]).is_err());
+    }
+
+    #[test]
+    fn device_lease_shapes_keep_authority_and_payload_flags_closed() {
+        let device_id = format!("agt-device-v1-{}", "a".repeat(64));
+        let lease_id = "00000000-0000-4000-8000-000000000001";
+        let lease = "b".repeat(64);
+        assert!(matches!(
+            parse(
+                "device",
+                &[
+                    "claim", &device_id, "--ttl", "60", "--baud", "115200", "--parity", "even",
+                ],
+            )
+            .unwrap(),
+            Command::DeviceClaim {
+                ttl_seconds: 60,
+                serial: Some(DeviceSerialConfiguration {
+                    baud: 115_200,
+                    parity: DeviceSerialParity::Even,
+                    ..
+                }),
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(
+                "device-read",
+                &[
+                    lease_id,
+                    "--generation",
+                    "1",
+                    "--lease",
+                    &lease,
+                    "--max-bytes",
+                    "7",
+                    "--encoding",
+                    "hex",
+                ],
+            )
+            .unwrap(),
+            Command::DeviceRead {
+                generation: 1,
+                max_bytes: 7,
+                encoding: DeviceDataEncoding::Hex,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(
+                "device",
+                &[
+                    "write",
+                    lease_id,
+                    "--generation",
+                    "1",
+                    "--lease",
+                    &lease,
+                    "--hex",
+                    "00ff",
+                ],
+            )
+            .unwrap(),
+            Command::DeviceWrite {
+                data,
+                encoding: DeviceDataEncoding::Hex,
+                ..
+            } if data == "00ff"
+        ));
+        assert!(
+            parse(
+                "device-write",
+                &[
+                    lease_id,
+                    "--generation",
+                    "1",
+                    "--lease",
+                    &lease,
+                    "--hex",
+                    "00",
+                    "--data-base64",
+                    "AA==",
+                ],
+            )
+            .is_err()
+        );
+        assert!(parse("device-status", &[lease_id]).is_err());
     }
 
     #[test]

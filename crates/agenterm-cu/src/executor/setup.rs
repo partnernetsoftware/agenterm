@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::{
     command::SetupAction,
+    device_lease_store::{DeviceLeaseRefreshBlockers, DeviceLeaseStore},
     managed_job_store::{ManagedJobRefreshBlockers, ManagedJobStore},
     reply::CuError,
     runtime_coordinator::RuntimeCoordinator,
@@ -27,22 +28,38 @@ pub(super) fn setup_payload(
     };
     match action {
         SetupAction::Check => {
-            let blockers = ManagedJobStore::refresh_blockers_read_only()
+            let job_blockers = ManagedJobStore::refresh_blockers_read_only()
+                .map_err(runtime_refresh_preflight_error)?;
+            let device_blockers = DeviceLeaseStore::refresh_blockers_read_only()
                 .map_err(runtime_refresh_preflight_error)?;
             let mut setup = setup_entrypoint::run(&source, &bin_dir, SetupMode::Check)?;
-            attach_runtime_refresh(&mut setup, SetupAction::Check, blockers)?;
+            attach_runtime_refresh(
+                &mut setup,
+                SetupAction::Check,
+                job_blockers,
+                device_blockers,
+            )?;
             Ok(setup)
         }
         SetupAction::Apply => {
             let runtime = RuntimeCoordinator::open().map_err(runtime_refresh_preflight_error)?;
             let _refresh_fence = runtime.acquire_refresh_fence()?;
-            let store = ManagedJobStore::open().map_err(runtime_refresh_preflight_error)?;
-            let blockers = store
+            let job_store = ManagedJobStore::open().map_err(runtime_refresh_preflight_error)?;
+            let job_blockers = job_store
+                .refresh_blockers()
+                .map_err(runtime_refresh_preflight_error)?;
+            let device_store = DeviceLeaseStore::open().map_err(runtime_refresh_preflight_error)?;
+            let device_blockers = device_store
                 .refresh_blockers()
                 .map_err(runtime_refresh_preflight_error)?;
             let mut setup = setup_entrypoint::run(&source, &bin_dir, SetupMode::Apply)?;
             attach_installation_identity(&mut setup)?;
-            attach_runtime_refresh(&mut setup, SetupAction::Apply, blockers)?;
+            attach_runtime_refresh(
+                &mut setup,
+                SetupAction::Apply,
+                job_blockers,
+                device_blockers,
+            )?;
             Ok(setup)
         }
     }
@@ -120,7 +137,8 @@ fn runtime_refresh_preflight_error(error: CuError) -> CuError {
 fn attach_runtime_refresh(
     setup: &mut serde_json::Value,
     mode: SetupAction,
-    blockers: ManagedJobRefreshBlockers,
+    job_blockers: ManagedJobRefreshBlockers,
+    device_blockers: DeviceLeaseRefreshBlockers,
 ) -> Result<(), CuError> {
     let object = setup.as_object_mut().ok_or_else(|| {
         CuError::new(
@@ -134,7 +152,7 @@ fn attach_runtime_refresh(
         .and_then(|value| value.get("performed"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let ready = launcher_ready && blockers.blocking == 0;
+    let ready = launcher_ready && job_blockers.blocking == 0 && device_blockers.blocking == 0;
     object.insert(
         "runtime_refresh".into(),
         serde_json::json!({
@@ -150,18 +168,24 @@ fn attach_runtime_refresh(
             },
             "owned_resources": {
                 "managed_jobs": {
-                    "blocking": blockers.blocking,
+                    "blocking": job_blockers.blocking,
                     "states": {
-                        "start_intent": blockers.start_intent,
-                        "starting": blockers.starting,
-                        "running": blockers.running,
-                        "orphaned_uncertain": blockers.orphaned_uncertain,
+                        "start_intent": job_blockers.start_intent,
+                        "starting": job_blockers.starting,
+                        "running": job_blockers.running,
+                        "orphaned_uncertain": job_blockers.orphaned_uncertain,
                     }
                 },
                 "device_leases": {
-                    "provider": "unavailable",
-                    "active": 0,
-                    "authority": "no-native-claim-surface"
+                    "blocking": device_blockers.blocking,
+                    "states": {
+                        "claim_intent": device_blockers.claim_intent,
+                        "opening": device_blockers.opening,
+                        "active": device_blockers.active,
+                        "owner_lost": device_blockers.owner_lost,
+                        "cleanup_uncertain": device_blockers.cleanup_uncertain,
+                    },
+                    "authority": "resident-native-owner"
                 }
             },
             "preservation": {
@@ -171,8 +195,8 @@ fn attach_runtime_refresh(
                 "released": 0
             },
             "action": {
-                "performed": launcher_performed && blockers.blocking == 0,
-                "effect": if launcher_performed && blockers.blocking == 0 {
+                "performed": launcher_performed && job_blockers.blocking == 0 && device_blockers.blocking == 0,
+                "effect": if launcher_performed && job_blockers.blocking == 0 && device_blockers.blocking == 0 {
                     "future_activation_published"
                 } else {
                     "none"
@@ -206,6 +230,7 @@ mod tests {
             &mut value,
             SetupAction::Apply,
             ManagedJobRefreshBlockers::default(),
+            DeviceLeaseRefreshBlockers::default(),
         )
         .unwrap();
         assert_eq!(value["runtime_refresh"]["status"], "ready");
@@ -224,10 +249,34 @@ mod tests {
                 running: 1,
                 ..ManagedJobRefreshBlockers::default()
             },
+            DeviceLeaseRefreshBlockers::default(),
         )
         .unwrap();
         assert_eq!(value["runtime_refresh"]["status"], "deferred");
         assert_eq!(value["runtime_refresh"]["action"]["performed"], false);
         assert_eq!(value["runtime_refresh"]["preservation"]["stopped"], 0);
+    }
+
+    #[test]
+    fn runtime_refresh_defers_without_releasing_a_device_owner() {
+        let mut value = setup_value("ready", true);
+        attach_runtime_refresh(
+            &mut value,
+            SetupAction::Apply,
+            ManagedJobRefreshBlockers::default(),
+            DeviceLeaseRefreshBlockers {
+                blocking: 1,
+                active: 1,
+                ..DeviceLeaseRefreshBlockers::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(value["runtime_refresh"]["status"], "deferred");
+        assert_eq!(value["runtime_refresh"]["action"]["performed"], false);
+        assert_eq!(
+            value["runtime_refresh"]["owned_resources"]["device_leases"]["states"]["active"],
+            1
+        );
+        assert_eq!(value["runtime_refresh"]["preservation"]["released"], 0);
     }
 }

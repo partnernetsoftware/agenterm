@@ -1,4 +1,11 @@
-use std::{ffi::OsStr, fs, io::Read as _, os::unix::ffi::OsStrExt as _, path::Path, time::Instant};
+use std::{
+    ffi::OsStr,
+    fs,
+    io::Read as _,
+    os::unix::ffi::OsStrExt as _,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use crate::{
     contract::device_inventory::{
@@ -223,6 +230,15 @@ fn scan_class(
                 "Linux device inventory allocation failed",
             )
         })?;
+        let locator = if spec.kind == DeviceKind::Usb {
+            find_serial_locator(&path, deadline).map(|value| {
+                crate::device_inventory::NativeDeviceLocator {
+                    value: value.into_os_string(),
+                }
+            })
+        } else {
+            None
+        };
         devices.push(NativeDeviceRecord {
             identity_material: identity,
             identity_continuity: if stable_parts.is_empty() {
@@ -235,6 +251,7 @@ fn scan_class(
             vendor: first_text(&path, spec.vendor_fields, deadline, &mut read_errors),
             model: first_text(&path, spec.model_fields, deadline, &mut read_errors),
             transport: Some(spec.transport.to_owned()),
+            locator,
         });
     }
     let state = if truncated || read_errors != 0 {
@@ -250,6 +267,31 @@ fn scan_class(
         truncated,
         (read_errors != 0).then_some("provider-read-errors"),
     ))
+}
+
+fn find_serial_locator(root: &Path, deadline: Instant) -> Option<PathBuf> {
+    let mut pending = vec![(root.to_path_buf(), 0_u8)];
+    let mut visited = 0_usize;
+    while let Some((path, depth)) = pending.pop() {
+        if Instant::now() >= deadline || visited >= 256 {
+            return None;
+        }
+        visited += 1;
+        let entries = fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let bytes = name.as_bytes();
+            if (bytes.starts_with(b"ttyUSB") || bytes.starts_with(b"ttyACM"))
+                && fs::symlink_metadata(entry.path()).ok().is_some()
+            {
+                return Some(Path::new("/dev").join(name));
+            }
+            if depth < 3 && entry.file_type().ok().is_some_and(|kind| kind.is_dir()) {
+                pending.push((entry.path(), depth + 1));
+            }
+        }
+    }
+    None
 }
 
 fn matches_entry(spec: &ClassSpec, name: &OsStr) -> bool {

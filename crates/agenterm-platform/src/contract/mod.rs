@@ -24,6 +24,8 @@ pub mod current_target_binding;
 #[cfg(feature = "desktop-host")]
 pub mod desktop_host;
 pub mod device_inventory;
+#[cfg(feature = "device-io")]
+pub mod device_io;
 #[cfg(feature = "entropy")]
 pub mod entropy;
 #[cfg(feature = "font")]

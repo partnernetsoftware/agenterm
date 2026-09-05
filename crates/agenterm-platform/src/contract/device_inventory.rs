@@ -6,6 +6,7 @@ pub const DEVICE_INVENTORY_MAX_ROWS: usize = 5_000;
 pub const DEVICE_INVENTORY_SCAN_CEILING: usize = 10_000;
 pub const DEVICE_INVENTORY_FIELD_CEILING: usize = 512;
 pub const DEVICE_INVENTORY_PROVIDER_OUTPUT_CEILING: usize = 2 * 1024 * 1024;
+pub const DEVICE_ID_PREFIX: &str = "agt-device-v1-";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DeviceSelector {

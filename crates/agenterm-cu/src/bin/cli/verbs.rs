@@ -265,6 +265,11 @@ mod tests {
             "page-click",
             "app",
             "browser-bridge-setup",
+            "device-claim",
+            "device-read",
+            "device-write",
+            "device-renew",
+            "device-release",
             "simulator-boot",
             "simulator-launch",
             "simulator-terminate",
@@ -274,6 +279,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 73, "{actuate:?}");
+        assert_eq!(actuate.len(), 78, "{actuate:?}");
     }
 }

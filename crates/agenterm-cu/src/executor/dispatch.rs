@@ -1226,6 +1226,81 @@ impl Executor {
                 event_max,
                 ..
             } => device_watch_payload(*selector, *max, *duration_ms, *interval_ms, *event_max),
+            Command::DeviceClaims { offset, max, .. } => device_claims_payload(*offset, *max),
+            Command::DeviceClaim {
+                device_id,
+                ttl_seconds,
+                serial,
+                ..
+            } => device_claim_payload(
+                device_id,
+                *ttl_seconds,
+                serial.as_ref(),
+                require_job_request(job_request, "device-claim")?,
+            ),
+            Command::DeviceStatus {
+                lease_id,
+                generation,
+                ..
+            } => device_status_payload(lease_id, *generation),
+            Command::DeviceRead {
+                lease_id,
+                generation,
+                lease,
+                max_bytes,
+                timeout_ms,
+                encoding,
+                ..
+            } => device_read_payload(
+                lease_id,
+                *generation,
+                lease,
+                *max_bytes,
+                *timeout_ms,
+                *encoding,
+                require_job_request(job_request, "device-read")?,
+            ),
+            Command::DeviceWrite {
+                lease_id,
+                generation,
+                lease,
+                data,
+                encoding,
+                timeout_ms,
+                ..
+            } => device_write_payload(
+                lease_id,
+                *generation,
+                lease,
+                data,
+                *encoding,
+                *timeout_ms,
+                require_job_request(job_request, "device-write")?,
+            ),
+            Command::DeviceRenew {
+                lease_id,
+                generation,
+                lease,
+                ttl_seconds,
+                ..
+            } => device_renew_payload(
+                lease_id,
+                *generation,
+                lease,
+                *ttl_seconds,
+                require_job_request(job_request, "device-renew")?,
+            ),
+            Command::DeviceRelease {
+                lease_id,
+                generation,
+                lease,
+                ..
+            } => device_release_payload(
+                lease_id,
+                *generation,
+                lease,
+                require_job_request(job_request, "device-release")?,
+            ),
             Command::SimulatorDevices { max, .. } => simulator_devices_payload(*max),
             Command::SimulatorBoot {
                 udid,

@@ -1,0 +1,357 @@
+// Public black-box court for native device claim, resident ownership and I/O.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// Unix uses an invocation-owned PTY echo fixture. The fixture publishes only
+// an opaque token; its native locator stays in an owner-bound private registry.
+// Windows is intentionally not claimed by this court: it needs a native COM or
+// virtual-COM runner rather than a Unix-shaped simulation.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.device-lease"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function base_env(run_directory) {
+  return {
+    HOME: rh.join(run_directory, "home"),
+    USERPROFILE: rh.join(run_directory, "home"),
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_DEVICE_LEASE_PATH: rh.join(run_directory, "cu-device-leases.json")
+  };
+}
+
+function fixture_env(run_directory, registry_root, token) {
+  const env = base_env(run_directory);
+  env.AGENTERM_PLATFORM_INTERNAL_DEVICE_FIXTURE = "1";
+  env.AGENTERM_PLATFORM_DEVICE_FIXTURE_ROOT = registry_root;
+  env.AGENTERM_PLATFORM_DEVICE_FIXTURE_TOKEN = token;
+  return env;
+}
+
+function invoke(run_directory, executable, env, arguments, expect_success) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "cu_device_lease_empty_reply:" + arguments[arguments.length - 1]);
+  let reply = null;
+  try { reply = JSON.parse(text); }
+  catch (error) { throw "cu_device_lease_invalid_json:" + arguments[arguments.length - 1]; }
+  ensure(output.success === expect_success, "cu_device_lease_process_state:" + reply.command);
+  ensure(reply.ok === expect_success, "cu_device_lease_reply_state:" + reply.command);
+  return reply;
+}
+
+function mutation_prefix(request_id, session_id, session_lease) {
+  return [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id,
+    "--session", session_id,
+    "--session-lease", session_lease
+  ];
+}
+
+function append_all(target, values) {
+  for (const value of values) { target.push(value); }
+  return target;
+}
+
+function start_session(run_directory, executable, env, label, ttl) {
+  return invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", label, "--ttl-seconds", "" + ttl
+  ], true).data;
+}
+
+function end_session(run_directory, executable, env, session) {
+  return invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "actuate",
+    "session-end", session.session_id, "--lease", session.lease, "--confirm"
+  ], true).data;
+}
+
+function claim_args(request_id, session, device_id, ttl) {
+  const args = mutation_prefix(request_id, session.session_id, session.lease);
+  return append_all(args, [
+    "device-claim", device_id, "--ttl-seconds", "" + ttl,
+    "--baud", "9600", "--data-bits", "8", "--parity", "none",
+    "--stop-bits", "1", "--flow", "none"
+  ]);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(!harness.host_is_windows(), "cu.device-lease requires a Unix PTY court; Windows owns a native COM court");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_device_lease_executable_missing");
+
+const context = harness.new_context(repo, "cu-device-lease");
+const run_directory = context.run_directory;
+const registry_root = rh.join(run_directory, "device-fixture-registry");
+const fixture_stdout = rh.join(run_directory, "device-fixture.stdout");
+const fixture_stderr = rh.join(run_directory, "device-fixture.stderr");
+const owned_children = [];
+let fixture = null;
+let fixture_reaped = false;
+let token = "";
+let env = null;
+let primary_session = null;
+let secondary_session = null;
+let expiry_session = null;
+let primary_ended = false;
+let secondary_ended = false;
+let expiry_ended = false;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP enroll one isolated installation identity before any observation");
+  rh.create_dir_all(run_directory);
+  const setup = invoke(run_directory, executable, base_env(run_directory), [
+    "--target", "current", "--grant", "actuate", "setup",
+    "--bin-dir", rh.join(run_directory, "bin")
+  ], true);
+  ensure(setup.data.installation_identity.status === "ready", "cu_device_lease_identity");
+
+  print("STEP start the env-gated owner-bound PTY fixture and wait for its opaque token");
+  fixture = harness.start_child(context, {
+    program: executable,
+    args: ["--agenterm-cu-internal-device-io-fixture", registry_root, "120000"],
+    current_dir: run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    stdout_path: fixture_stdout,
+    stderr_path: fixture_stderr,
+    timeout_ms: 125000
+  }, "device-io-fixture");
+  owned_children.push(fixture);
+  for (let poll = 0; poll < 500; poll = poll + 1) {
+    if (direct_file(fixture_stdout)) {
+      const ready_text = rh.read_text(fixture_stdout).trim();
+      if (ready_text.startsWith("{") && ready_text.endsWith("}")) {
+        const ready = JSON.parse(ready_text);
+        if (typeof ready.token === "string" && ready.token.length === 64) {
+          token = ready.token;
+          break;
+        }
+      }
+    }
+    ensure(harness.child_state(fixture) !== "exited", "cu_device_lease_fixture_early_exit");
+    harness.sleep_ms(10);
+  }
+  ensure(token.length === 64, "cu_device_lease_fixture_not_ready");
+  env = fixture_env(run_directory, registry_root, token);
+
+  print("STEP public inventory exposes one opaque fixture identity and no native locator");
+  const inventory = invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "observe",
+    "device-list", "--type", "usb", "--max", "50"
+  ], true).data;
+  let device = null;
+  for (const row of inventory.devices) {
+    if (row.transport === "private-pty-fixture") { device = row; }
+  }
+  ensure(device !== null && device.id.startsWith("agt-device-v1-"), "cu_device_lease_inventory");
+  ensure(device.path === undefined && device.locator === undefined, "cu_device_lease_locator_leak");
+
+  print("STEP claim one exact native object and prove request replay never returns authority or opens twice");
+  primary_session = start_session(run_directory, executable, env, "device-court", 120);
+  const claim_command = claim_args("device-court-claim", primary_session, device.id, 60);
+  const claimed = invoke(run_directory, executable, env, claim_command, true).data;
+  const lease_id = claimed.lease_id;
+  const generation = claimed.generation;
+  const lease = claimed.lease;
+  ensure(claimed.state === "active" && claimed.owner_live === true, "cu_device_lease_claim_active");
+  ensure(claimed.exclusive === "kernel" && lease.length === 64, "cu_device_lease_claim_authority");
+  const replayed = invoke(run_directory, executable, env, claim_command, true).data;
+  ensure(replayed.lease_id === lease_id && replayed.generation === generation,
+         "cu_device_lease_replay_identity");
+  ensure(replayed.effect === "not_repeated" && replayed.lease === undefined
+         && replayed.lease_secret_replayed === false, "cu_device_lease_replay_secret");
+
+  print("STEP setup refresh sees the resident owner and defers without releasing it");
+  const refresh = invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "actuate", "setup",
+    "--bin-dir", rh.join(run_directory, "bin")
+  ], true).data.runtime_refresh;
+  ensure(refresh.status === "deferred"
+         && refresh.owned_resources.device_leases.blocking === 1
+         && refresh.preservation.released === 0
+         && refresh.preservation.stopped === 0, "cu_device_lease_refresh_preservation");
+
+  print("STEP wrong secret, generation and session fail typed before touching the retained object");
+  const wrong_secret_args = mutation_prefix("device-court-wrong-secret", primary_session.session_id, primary_session.lease);
+  append_all(wrong_secret_args, [
+    "device-read", lease_id, "--generation", "" + generation,
+    "--lease", "0000000000000000000000000000000000000000000000000000000000000000",
+    "--max-bytes", "8", "--timeout-ms", "10", "--encoding", "hex"
+  ]);
+  const wrong_secret = invoke(run_directory, executable, env, wrong_secret_args, false);
+  ensure(wrong_secret.error.code === "device_lease_invalid", "cu_device_lease_wrong_secret");
+  const wrong_generation_args = mutation_prefix("device-court-wrong-generation", primary_session.session_id, primary_session.lease);
+  append_all(wrong_generation_args, [
+    "device-read", lease_id, "--generation", "" + (generation + 1),
+    "--lease", lease, "--max-bytes", "8", "--timeout-ms", "10", "--encoding", "hex"
+  ]);
+  const wrong_generation = invoke(run_directory, executable, env, wrong_generation_args, false);
+  ensure(wrong_generation.error.code === "device_lease_identity_changed", "cu_device_lease_wrong_generation");
+  secondary_session = start_session(run_directory, executable, env, "device-court-foreign", 120);
+  const wrong_session_args = mutation_prefix("device-court-wrong-session", secondary_session.session_id, secondary_session.lease);
+  append_all(wrong_session_args, [
+    "device-read", lease_id, "--generation", "" + generation,
+    "--lease", lease, "--max-bytes", "8", "--timeout-ms", "10", "--encoding", "hex"
+  ]);
+  const wrong_session = invoke(run_directory, executable, env, wrong_session_args, false);
+  ensure(wrong_session.error.code === "device_lease_session_mismatch", "cu_device_lease_wrong_session");
+  end_session(run_directory, executable, env, secondary_session);
+  secondary_ended = true;
+
+  print("STEP write and read exact binary bytes through the same resident native handle");
+  const payload_hex = "6163752d6465766963652d636f757274";
+  const write_args = mutation_prefix("device-court-write", primary_session.session_id, primary_session.lease);
+  append_all(write_args, [
+    "device-write", lease_id, "--generation", "" + generation, "--lease", lease,
+    "--hex", payload_hex, "--timeout-ms", "1000"
+  ]);
+  const written = invoke(run_directory, executable, env, write_args, true).data;
+  ensure(written.delivery === "complete" && written.written_bytes === 16
+         && written.payload_redacted === true, "cu_device_lease_write");
+  const read_args = mutation_prefix("device-court-read", primary_session.session_id, primary_session.lease);
+  append_all(read_args, [
+    "device-read", lease_id, "--generation", "" + generation, "--lease", lease,
+    "--max-bytes", "64", "--timeout-ms", "1000", "--encoding", "hex"
+  ]);
+  const read = invoke(run_directory, executable, env, read_args, true).data;
+  ensure(read.state === "data" && read.data === payload_hex && read.bytes === 16,
+         "cu_device_lease_read");
+
+  print("STEP renew and explicit release publish verified counters and terminal state");
+  const renew_args = mutation_prefix("device-court-renew", primary_session.session_id, primary_session.lease);
+  append_all(renew_args, [
+    "device-renew", lease_id, "--generation", "" + generation, "--lease", lease,
+    "--ttl-seconds", "90"
+  ]);
+  const renewed = invoke(run_directory, executable, env, renew_args, true).data;
+  ensure(renewed.expires_at_utc_ms > claimed.expires_at_utc_ms, "cu_device_lease_renew");
+  const release_args = mutation_prefix("device-court-release", primary_session.session_id, primary_session.lease);
+  append_all(release_args, [
+    "device-release", lease_id, "--generation", "" + generation, "--lease", lease
+  ]);
+  const released = invoke(run_directory, executable, env, release_args, true).data;
+  ensure(released.state === "released" && released.bytes_read === "16"
+         && released.bytes_written === "16", "cu_device_lease_release");
+  const status = invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "observe",
+    "device-status", lease_id, "--generation", "" + generation
+  ], true).data;
+  ensure(status.state === "released" && status.owner_live === false, "cu_device_lease_status");
+
+  print("STEP session-end releases a second active device owner instead of orphaning it");
+  const second_claim = invoke(run_directory, executable, env,
+    claim_args("device-court-session-end-claim", primary_session, device.id, 60), true).data;
+  const ended = end_session(run_directory, executable, env, primary_session);
+  primary_ended = true;
+  ensure(ended.devices.released === 1 && ended.devices.failed_count === 0,
+         "cu_device_lease_session_end_cleanup");
+  const ended_status = invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "observe",
+    "device-status", second_claim.lease_id, "--generation", "" + second_claim.generation
+  ], true).data;
+  ensure(ended_status.state === "released" && ended_status.owner_live === false,
+         "cu_device_lease_session_end_status");
+
+  print("STEP lease expiry closes and restores the retained native object without caller cleanup");
+  expiry_session = start_session(run_directory, executable, env, "device-court-expiry", 30);
+  const expiring = invoke(run_directory, executable, env,
+    claim_args("device-court-expiry-claim", expiry_session, device.id, 3), true).data;
+  harness.sleep_ms(4200);
+  const expired = invoke(run_directory, executable, env, [
+    "--target", "current", "--grant", "observe",
+    "device-status", expiring.lease_id, "--generation", "" + expiring.generation
+  ], true).data;
+  ensure(expired.state === "expired" && expired.owner_live === false,
+         "cu_device_lease_expiry_cleanup");
+  const expiry_end = end_session(run_directory, executable, env, expiry_session);
+  expiry_ended = true;
+  ensure(expiry_end.devices.already_terminal === 1 && expiry_end.devices.failed_count === 0,
+         "cu_device_lease_expiry_session_cleanup");
+
+  print("STEP durable state and audit contain neither lease authority, payload nor native locator");
+  const audit_text = rh.read_text(rh.join(run_directory, "cu-audit.jsonl"));
+  const state_text = rh.read_text(rh.join(run_directory, "cu-device-leases.json"));
+  ensure(!audit_text.includes(lease) && !audit_text.includes(payload_hex), "cu_device_lease_audit_secret");
+  ensure(!state_text.includes(lease) && !state_text.includes(token)
+         && !state_text.includes("/dev/"), "cu_device_lease_state_secret");
+
+  print("STEP remove the opaque fixture record and reap its one exact owner");
+  ensure(rh.try_remove_file(rh.join(registry_root, token + ".json")),
+         "cu_device_lease_fixture_registry_cleanup");
+  const fixture_result = harness.child_wait(fixture, 5000);
+  fixture_reaped = true;
+  ensure(fixture_result.success === true && fixture_result.exit_code === 0,
+         "cu_device_lease_fixture_exit");
+  ensure(harness.process_present(fixture.pid) === 0, "cu_device_lease_fixture_orphan");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (env !== null) {
+  if (expiry_session !== null && !expiry_ended) {
+    try { end_session(run_directory, executable, env, expiry_session); }
+    catch (cleanup_error) { print("cleanup expiry session failed"); }
+  }
+  if (secondary_session !== null && !secondary_ended) {
+    try { end_session(run_directory, executable, env, secondary_session); }
+    catch (cleanup_error) { print("cleanup secondary session failed"); }
+  }
+  if (primary_session !== null && !primary_ended) {
+    try { end_session(run_directory, executable, env, primary_session); }
+    catch (cleanup_error) { print("cleanup primary session failed"); }
+  }
+}
+if (token !== "") {
+  try { rh.try_remove_file(rh.join(registry_root, token + ".json")); }
+  catch (cleanup_error) { print("cleanup fixture registry failed"); }
+}
+if (fixture !== null && !fixture_reaped) {
+  if (harness.child_state(fixture) === "running") {
+    try { harness.child_kill(fixture); }
+    catch (cleanup_error) { print("cleanup fixture kill failed"); }
+  }
+  try { harness.child_wait(fixture, 3000); fixture_reaped = true; }
+  catch (cleanup_error) { print("cleanup fixture wait failed"); }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, owned_children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.device-lease");
+  harness.remove_run(context);
+  print("PASS: device claim, replay, authority refusal, exact I/O, renewal, release and session cleanup");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

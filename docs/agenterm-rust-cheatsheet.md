@@ -4145,6 +4145,26 @@ through the owner's explicit lifecycle command. A provider that has no native
 claim inventory is `unavailable`; publishing `active: 0` must not be interpreted
 as proof that no external owner exists.
 
+## Keep native device authority private and write failures three-dimensional
+
+A public peripheral id is a selector, not an openable locator. Re-enumerate it
+inside `agenterm-platform`, bind one exact native object, and let one resident
+owner retain that fd or HANDLE through configuration, read, write, renewal,
+expiry and release. Pass the private locator and high-entropy lease only through
+the bounded owner launch channel. Durable state and audit may contain opaque
+identity, generation, counters and redacted effect metadata, but never the raw
+locator, lease, byte payload or fixture token.
+
+Do not derive retry safety from delivery certainty. A native write can accept a
+known prefix and then fail while publishing its durable counter: delivery is
+known, but replaying the complete request is unsafe. Carry known-written lower
+bound, delivery uncertainty and retry safety as three independent fields from
+the platform error through the resident owner, IPC reply, public error and
+audit projection. After a write system call was attempted, default to
+non-retryable uncertainty unless the platform proves a stronger result. Test
+the public journey with an invocation-owned, private-registry fixture; never
+grant test authority by accepting a caller-supplied raw device path.
+
 ## Keep host dispatch acceptance distinct from handler success
 
 Opening a path or URL through LaunchServices, `xdg-open`, or `ShellExecuteW`

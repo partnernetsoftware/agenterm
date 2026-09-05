@@ -54,6 +54,7 @@ mod clipboard;
 mod desktop_state;
 mod device_capture;
 mod device_inventory;
+mod device_leases;
 mod dispatch;
 mod errors;
 mod files;
@@ -101,6 +102,7 @@ use clipboard::*;
 use desktop_state::*;
 use device_capture::*;
 use device_inventory::*;
+use device_leases::*;
 use errors::*;
 use files::*;
 use host_notification::*;
@@ -440,11 +442,29 @@ impl Executor {
                             Some(replay @ FinalReplay::JobSpawn { .. }) => {
                                 CuReply::ok(command, replay_payload(replay))
                             }
-                            None => CuReply::err(
+                            _ => CuReply::err(
                                 command,
                                 CuError::new(
                                     "managed_job_replay_projection_missing",
                                     "completed job-spawn has no sealed public replay result",
+                                ),
+                            ),
+                        };
+                    }
+                    if matches!(command, Command::DeviceClaim { .. }) {
+                        return match status
+                            .outcome
+                            .as_ref()
+                            .and_then(|outcome| outcome.replay.as_ref())
+                        {
+                            Some(replay @ FinalReplay::DeviceClaim { .. }) => {
+                                CuReply::ok(command, device_replay_payload(replay))
+                            }
+                            _ => CuReply::err(
+                                command,
+                                CuError::new(
+                                    "device_replay_projection_missing",
+                                    "completed device claim has no sealed public replay identity",
                                 ),
                             ),
                         };
@@ -458,7 +478,10 @@ impl Executor {
                         }),
                     );
                 }
-                let detail = if matches!(command, Command::JobSpawn { .. }) {
+                let detail = if matches!(
+                    command,
+                    Command::JobSpawn { .. } | Command::DeviceClaim { .. }
+                ) {
                     serde_json::json!({
                         "effect": "not_repeated",
                         "idempotent": true,
@@ -480,7 +503,10 @@ impl Executor {
                 );
             }
             Ok(ReserveDecision::Uncertain(status)) => {
-                let detail = if matches!(command, Command::JobSpawn { .. }) {
+                let detail = if matches!(
+                    command,
+                    Command::JobSpawn { .. } | Command::DeviceClaim { .. }
+                ) {
                     serde_json::json!({
                         "effect": "unknown",
                         "idempotent": true,
@@ -545,11 +571,12 @@ impl Executor {
             return CuReply::err(command, error);
         }
 
-        if reply
-            .error
-            .as_ref()
-            .is_some_and(|error| error.code == "managed_job_outcome_unknown")
-        {
+        if reply.error.as_ref().is_some_and(|error| {
+            matches!(
+                error.code.as_str(),
+                "managed_job_outcome_unknown" | "device_owner_outcome_unknown"
+            )
+        }) {
             let _ = store.mark_outcome_unknown(
                 &identity.request_id,
                 &fingerprint,
@@ -573,6 +600,20 @@ impl Executor {
                             )
                         })
                         .and_then(replay_from_spawn_reply)
+                        .and_then(|replay| outcome.with_replay(replay))
+                })
+            } else if matches!(command, Command::DeviceClaim { .. }) {
+                outcome.and_then(|outcome| {
+                    reply
+                        .data
+                        .as_ref()
+                        .ok_or_else(|| {
+                            CuError::new(
+                                "device_replay_projection_invalid",
+                                "successful device claim omitted its public identity",
+                            )
+                        })
+                        .and_then(replay_from_device_claim)
                         .and_then(|replay| outcome.with_replay(replay))
                 })
             } else {
@@ -794,6 +835,38 @@ impl Executor {
                         })
                     })
                 })
+        } else if matches!(command, Command::DeviceClaim { .. }) {
+            reply
+                .data
+                .as_ref()
+                .map(|data| {
+                    serde_json::json!({
+                        "lease_id": data.get("lease_id"),
+                        "generation": data.get("generation"),
+                        "device_id": data.get("device_id"),
+                        "state": data.get("state"),
+                        "exclusive": data.get("exclusive"),
+                        "serial": data.get("serial"),
+                        "expires_at_utc_ms": data.get("expires_at_utc_ms"),
+                        "lease_redacted": true,
+                    })
+                })
+                .or_else(|| {
+                    reply.error.as_ref().map(|error| {
+                        serde_json::json!({
+                            "code": error.code,
+                            "lease_redacted": true,
+                        })
+                    })
+                })
+        } else if matches!(
+            command,
+            Command::DeviceRead { .. }
+                | Command::DeviceWrite { .. }
+                | Command::DeviceRenew { .. }
+                | Command::DeviceRelease { .. }
+        ) {
+            Some(device_operation_audit_detail(command, reply))
         } else if matches!(command, Command::ShellExec { .. }) {
             // Shell output routinely contains credentials and other private
             // material. Preserve bounded execution evidence without copying
@@ -843,6 +916,52 @@ impl Executor {
             Err(error) => CuReply::err(command, error),
         }
     }
+}
+
+fn device_operation_audit_detail(command: &Command, reply: &CuReply) -> serde_json::Value {
+    let Some(data) = reply.data.as_ref() else {
+        let error = reply.error.as_ref();
+        let source = error.and_then(|error| error.detail.as_ref());
+        return serde_json::json!({
+            "code": error.map(|error| error.code.as_str()),
+            "effect": source.and_then(|value| value.get("effect")),
+            "known_written_lower_bound": source
+                .and_then(|value| value.get("known_written_lower_bound")),
+            "delivery_uncertain": source.and_then(|value| value.get("delivery_uncertain")),
+            "retry_safe": source.and_then(|value| value.get("retry_safe")),
+            "device_state": source.and_then(|value| value.get("device_state")),
+            "cause": source.and_then(|value| value.get("cause")),
+            "lease_redacted": true,
+            "payload_redacted": true,
+        });
+    };
+    let common = serde_json::json!({
+        "schema_version": data.get("schema_version"),
+        "lease_id": data.get("lease_id"),
+        "generation": data.get("generation"),
+        "lease_redacted": true,
+        "payload_redacted": true,
+    });
+    let mut detail = common.as_object().cloned().unwrap_or_default();
+    let keys: &[&str] = match command {
+        Command::DeviceRead { .. } => &["encoding", "bytes", "state", "total_bytes_read"],
+        Command::DeviceWrite { .. } => &[
+            "requested_bytes",
+            "written_bytes",
+            "delivery",
+            "total_bytes_written",
+            "effect",
+        ],
+        Command::DeviceRenew { .. } => &["expires_at_utc_ms", "effect"],
+        Command::DeviceRelease { .. } => &["state", "bytes_read", "bytes_written", "effect"],
+        _ => unreachable!("device audit projection requires a device operation"),
+    };
+    for key in keys {
+        if let Some(value) = data.get(*key) {
+            detail.insert((*key).to_owned(), value.clone());
+        }
+    }
+    serde_json::Value::Object(detail)
 }
 
 #[cfg(test)]
@@ -1056,6 +1175,45 @@ mod tests {
         assert_eq!(record["detail"]["output_redacted"], true);
         assert_eq!(record["detail"]["stdout_bytes"], 23);
         assert_eq!(record["detail"]["stderr_bytes"], 23);
+        remove_audit_scratch(&path);
+    }
+
+    #[test]
+    fn device_read_audit_keeps_metrics_but_never_persists_payload_or_lease() {
+        let path = audit_scratch("device-read-redaction");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        let command = Command::DeviceRead {
+            target: TargetRef::Current,
+            lease_id: "018f7ad4-cf08-4ab3-a43d-11c0f2a4bb11".into(),
+            generation: 1,
+            lease: "private-lease-material".into(),
+            max_bytes: 64,
+            timeout_ms: 1_000,
+            encoding: crate::command::DeviceDataEncoding::Base64,
+        };
+        let reply = CuReply::ok(
+            &command,
+            serde_json::json!({
+                "schema_version": 1,
+                "lease_id": "018f7ad4-cf08-4ab3-a43d-11c0f2a4bb11",
+                "generation": 1,
+                "encoding": "base64",
+                "data": "cHJpdmF0ZS1kZXZpY2UtcGF5bG9hZA==",
+                "bytes": 22,
+                "state": "data",
+                "total_bytes_read": "22",
+                "lease_redacted": true,
+            }),
+        );
+        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        let text = std::fs::read_to_string(&path).expect("read audit");
+        assert!(!text.contains("private-lease-material"));
+        assert!(!text.contains("cHJpdmF0ZS1kZXZpY2UtcGF5bG9hZA=="));
+        let record: serde_json::Value = serde_json::from_str(text.trim()).expect("audit JSON");
+        assert_eq!(record["detail"]["payload_redacted"], true);
+        assert_eq!(record["detail"]["lease_redacted"], true);
+        assert_eq!(record["detail"]["bytes"], 22);
+        assert!(record["detail"].get("data").is_none());
         remove_audit_scratch(&path);
     }
 

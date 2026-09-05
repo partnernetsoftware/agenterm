@@ -94,9 +94,19 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  runtime-status  observe host inventory",
+            "  device-watch  device-list  storage-devices  resource-status  runtime-status  device-claims  device-status\n  device-claim  device-read  device-write  device-renew  device-release",
             1,
         );
+    }
+    text = text.replace(
+        "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
+        "",
+    );
+    while text.lines().count() > 165 {
+        let Some(blank) = text.find("\n\n") else {
+            break;
+        };
+        text.remove(blank);
     }
     text
 }
@@ -220,6 +230,13 @@ fn append_missing_top_level_rows(text: &mut String) {
         "storage-devices",
         "device-list",
         "device-watch",
+        "device-claims",
+        "device-claim",
+        "device-status",
+        "device-read",
+        "device-write",
+        "device-renew",
+        "device-release",
     ];
     let compact_process = [
         "process-argv",

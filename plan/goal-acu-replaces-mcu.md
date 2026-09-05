@@ -47,7 +47,7 @@ ACU replaces MCU
 │  ├─ [x] opaque id → exact resident native object; no raw locator as public authority
 │  ├─ [x] macOS public qjswasm claim/replay/I/O/renew/release/TTL/session court
 │  ├─ [x] durable state and audit exclude locator, lease secret and byte payload
-│  ├─ [ ] preserve partial-write lower bound and delivery uncertainty on failure
+│  ├─ [x] preserve partial-write lower bound, delivery uncertainty and retry safety independently
 │  ├─ [ ] Linux native public qjswasm court
 │  └─ [ ] Windows native COM/virtual-COM court
 ├─ qjswasm execution core

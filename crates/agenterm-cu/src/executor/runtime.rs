@@ -1,6 +1,8 @@
 //! Durable runtime session and target-lock command adapters.
 
 use super::*;
+use crate::device_lease_store::{DeviceLeaseState, DeviceLeaseStore};
+use crate::executor::device_leases::stop_session_devices;
 use crate::executor::managed_jobs::stop_session_jobs;
 use crate::managed_job_store::{ManagedJobState, ManagedJobStore};
 use crate::runtime_coordinator::RuntimeCoordinator;
@@ -35,6 +37,7 @@ pub(super) fn runtime_status_payload() -> Result<serde_json::Value, CuError> {
     let coordinator = RuntimeCoordinator::open()?;
     let counts = coordinator.status_counts(now)?;
     let jobs = ManagedJobStore::open()?.list()?;
+    let device_leases = DeviceLeaseStore::open()?.list()?;
 
     let mut starting = 0usize;
     let mut running_declared = 0usize;
@@ -50,6 +53,22 @@ pub(super) fn runtime_status_payload() -> Result<serde_json::Value, CuError> {
             | ManagedJobState::Signaled { .. } => terminal += 1,
             ManagedJobState::Detached => detached += 1,
             ManagedJobState::OrphanedUncertain => orphaned_uncertain += 1,
+        }
+    }
+    let mut device_claiming = 0usize;
+    let mut device_active = 0usize;
+    let mut device_terminal = 0usize;
+    let mut device_uncertain = 0usize;
+    for lease in &device_leases {
+        match lease.state {
+            DeviceLeaseState::ClaimIntent | DeviceLeaseState::Opening => device_claiming += 1,
+            DeviceLeaseState::Active => device_active += 1,
+            DeviceLeaseState::Released
+            | DeviceLeaseState::Expired
+            | DeviceLeaseState::OpenFailed { .. } => device_terminal += 1,
+            DeviceLeaseState::OwnerLost | DeviceLeaseState::CleanupUncertain { .. } => {
+                device_uncertain += 1;
+            }
         }
     }
 
@@ -74,6 +93,14 @@ pub(super) fn runtime_status_payload() -> Result<serde_json::Value, CuError> {
             "terminal": terminal,
             "detached": detached,
             "orphaned_uncertain": orphaned_uncertain,
+            "owner_liveness_probed": false,
+        },
+        "device_leases": {
+            "total_records": device_leases.len(),
+            "claiming": device_claiming,
+            "active_declared": device_active,
+            "terminal": device_terminal,
+            "owner_or_cleanup_uncertain": device_uncertain,
             "owner_liveness_probed": false,
         },
         "action": {
@@ -131,28 +158,34 @@ pub(super) fn session_end_payload(
     let _session_gate = coordinator.acquire_session_gate(session_id)?;
     let ended = coordinator.session_end(session_id, lease, runtime_now_utc_s()?)?;
     let mut payload = runtime_json(&ended)?;
-    match stop_session_jobs(session_id) {
-        Ok(cleanup) => {
-            payload
-                .as_object_mut()
-                .expect("session end serializes as an object")
-                .insert("jobs".to_owned(), cleanup);
-            Ok(payload)
-        }
-        Err(mut error) => {
-            let jobs = error
-                .detail
-                .take()
-                .and_then(|detail| detail.get("jobs").cloned());
-            error.detail = Some(serde_json::json!({
-                "effect": "session_ended",
-                "session": ended.session,
-                "released_locks": ended.released_locks,
-                "jobs": jobs,
-            }));
-            Err(error)
-        }
+    let jobs = stop_session_jobs(session_id);
+    let devices = stop_session_devices(session_id, lease);
+    if let (Ok(jobs), Ok(devices)) = (&jobs, &devices) {
+        let object = payload
+            .as_object_mut()
+            .expect("session end serializes as an object");
+        object.insert("jobs".to_owned(), jobs.clone());
+        object.insert("devices".to_owned(), devices.clone());
+        return Ok(payload);
     }
+    let project = |result: Result<serde_json::Value, CuError>, field: &str| match result {
+        Ok(value) => value,
+        Err(error) => error
+            .detail
+            .and_then(|detail| detail.get(field).cloned())
+            .unwrap_or_else(|| serde_json::json!({ "code": error.code })),
+    };
+    Err(CuError::new(
+        "runtime_session_cleanup_uncertain",
+        "session ended but one or more resident resources were not proved stopped",
+    )
+    .with_detail(serde_json::json!({
+        "effect": "session_ended",
+        "session": ended.session,
+        "released_locks": ended.released_locks,
+        "jobs": project(jobs, "jobs"),
+        "devices": project(devices, "devices"),
+    })))
 }
 
 pub(super) fn lock_acquire_payload(

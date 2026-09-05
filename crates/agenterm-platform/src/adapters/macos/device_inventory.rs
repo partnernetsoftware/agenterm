@@ -204,6 +204,13 @@ fn parse_record(
         object,
         &["location_id", "_spdisplays_displayID", "sppci_bus"],
     )?;
+    let locator = field(object, &["bsd_name"])?.and_then(|name| {
+        (name.starts_with("cu.") || name.starts_with("tty.")).then(|| {
+            crate::device_inventory::NativeDeviceLocator {
+                value: Path::new("/dev").join(name).into_os_string(),
+            }
+        })
+    });
     let mut identity = Vec::new();
     append_part(
         &mut identity,
@@ -249,6 +256,7 @@ fn parse_record(
         vendor,
         model,
         transport: Some(kind.as_str().to_owned()),
+        locator,
     }))
 }
 

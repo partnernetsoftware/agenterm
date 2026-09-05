@@ -877,10 +877,10 @@
           "acu_shape": "device-read and device-write with base64|hex encoding, 64 KiB bound, 300 s timeout bound and exact lease/session/generation authority",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-implementation-public-court-pending", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-public-qjswasm-green-partial-delivery-review-and-linux-windows-courts-pending",
+          "qualification": "macos-public-qjswasm-green-partial-delivery-contract-green-linux-windows-courts-pending",
           "evidence": ["cu.device-lease"],
-          "note": "One resident owner performs I/O on the same native object retained at claim. The macOS public qjswasm court proves exact binary echo and wrong-authority refusal. Payload, lease material, native locator and fixture token do not enter durable state or audit evidence.",
-          "next": "preserve known-written lower bounds and delivery uncertainty on failures, then run Linux and Windows native courts"
+          "note": "One resident owner performs I/O on the same native object retained at claim. The macOS public qjswasm court proves exact binary echo and wrong-authority refusal. Payload, lease material, native locator and fixture token do not enter durable state or audit evidence. Write failures carry known-written lower bound, delivery uncertainty and retry safety as independent fields; a known post-effect failure is not mislabeled retry-safe.",
+          "next": "run the same byte-I/O contract on Linux and Windows native courts"
         },
         {
           "id": "device.serial-config",

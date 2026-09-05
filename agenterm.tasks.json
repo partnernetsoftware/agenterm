@@ -841,6 +841,23 @@
         "task.cu-device-watch-smoke"
       ]
     },
+    "cu-device-lease-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-device-lease-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 200000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-device-lease-smoke"
+      ]
+    },
     "cu-privilege-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2843,6 +2860,26 @@
       "dependencies": [],
       "platforms": [
         "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-device-lease-smoke",
+      "description": "Prove Unix native device claim, exact replay, lease authority refusal, bounded binary I/O, renewal, explicit release and session-owned cleanup over one owner-bound private PTY fixture.",
+      "entry": "scripts/qjs/cu-device-lease-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
         "linux",
         "macos"
       ],

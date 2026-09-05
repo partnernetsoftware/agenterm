@@ -5,13 +5,15 @@
 //! enrolled current-target binding. Inventory never enrolls or rotates that
 //! identity.
 
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::{
     path::Path,
     time::{Duration, Instant},
 };
 
 pub use crate::contract::device_inventory::{
-    DEVICE_INVENTORY_FIELD_CEILING, DEVICE_INVENTORY_MAX_ROWS,
+    DEVICE_ID_PREFIX, DEVICE_INVENTORY_FIELD_CEILING, DEVICE_INVENTORY_MAX_ROWS,
     DEVICE_INVENTORY_PROVIDER_OUTPUT_CEILING, DEVICE_INVENTORY_SCAN_CEILING,
     DeviceIdentityContinuity, DeviceInventory, DeviceInventoryError, DeviceInventoryErrorKind,
     DeviceKind, DeviceProviderState, DeviceProviderStatus, DeviceRecord, DeviceSelector,
@@ -25,6 +27,13 @@ use crate::{
 const INVENTORY_TIMEOUT: Duration = Duration::from_secs(15);
 const PSEUDONYM_DOMAIN: &[u8] = b"agenterm-platform/device-inventory-id/v1";
 
+#[cfg(unix)]
+#[derive(Clone)]
+pub(crate) struct NativeDeviceLocator {
+    /// Provider-owned locator. It never crosses the platform facade.
+    pub(crate) value: OsString,
+}
+
 pub(crate) struct NativeDeviceRecord {
     pub(crate) identity_material: Vec<u8>,
     pub(crate) identity_continuity: DeviceIdentityContinuity,
@@ -33,6 +42,8 @@ pub(crate) struct NativeDeviceRecord {
     pub(crate) vendor: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) transport: Option<String>,
+    #[cfg(unix)]
+    pub(crate) locator: Option<NativeDeviceLocator>,
 }
 
 pub(crate) struct NativeDeviceInventory {
@@ -96,7 +107,8 @@ pub fn enumerate_with_timeout(
                 "inventory deadline could not be represented",
             )
         })?;
-    let native = selected::device_inventory::enumerate_native(selector, deadline)?;
+    let mut native = selected::device_inventory::enumerate_native(selector, deadline)?;
+    append_test_fixture_if_enabled(&mut native, selector)?;
     let materials = pseudonym_materials(&native.devices)?;
     let material_refs: Vec<&[u8]> = materials.iter().map(Vec::as_slice).collect();
     let digests = current_target_binding::derive_installation_scoped_digests(
@@ -153,7 +165,11 @@ fn finish_inventory(
         validate_public_field(device.model.as_deref())?;
         validate_public_field(device.transport.as_deref())?;
         devices.push(DeviceRecord {
-            id: format!("agt-device-v1-{}", encode_hex(digest)),
+            id: format!(
+                "{}{}",
+                crate::contract::device_inventory::DEVICE_ID_PREFIX,
+                encode_hex(digest)
+            ),
             identity_continuity: device.identity_continuity,
             kind: device.kind,
             name: device.name,
@@ -181,6 +197,85 @@ fn finish_inventory(
         truncated: projection_truncated || provider_truncated,
         complete,
     })
+}
+
+pub(crate) fn resolve_native(
+    private_state_dir: &Path,
+    public_id: &str,
+) -> Result<NativeDeviceRecord, DeviceInventoryError> {
+    let suffix = public_id
+        .strip_prefix(crate::contract::device_inventory::DEVICE_ID_PREFIX)
+        .filter(|suffix| {
+            suffix.len() == 64
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        .ok_or_else(|| {
+            error(
+                DeviceInventoryErrorKind::IdentityInvalid,
+                "device-id-invalid",
+                "device id is not an AgenTerm device pseudonym",
+            )
+        })?;
+    let _ = suffix;
+    let deadline = Instant::now()
+        .checked_add(INVENTORY_TIMEOUT)
+        .ok_or_else(|| {
+            error(
+                DeviceInventoryErrorKind::Timeout,
+                "device-inventory-deadline-overflow",
+                "inventory deadline could not be represented",
+            )
+        })?;
+    let mut native = selected::device_inventory::enumerate_native(DeviceSelector::All, deadline)?;
+    append_test_fixture_if_enabled(&mut native, DeviceSelector::All)?;
+    let materials = pseudonym_materials(&native.devices)?;
+    let refs: Vec<&[u8]> = materials.iter().map(Vec::as_slice).collect();
+    let digests = current_target_binding::derive_installation_scoped_digests(
+        private_state_dir,
+        PSEUDONYM_DOMAIN,
+        &refs,
+    )
+    .map_err(map_identity_error)?;
+    let mut matches = native
+        .devices
+        .into_iter()
+        .zip(digests)
+        .filter_map(|(record, digest)| {
+            (format!(
+                "{}{}",
+                crate::contract::device_inventory::DEVICE_ID_PREFIX,
+                encode_hex(&digest)
+            ) == public_id)
+                .then_some(record)
+        });
+    let record = matches.next().ok_or_else(|| {
+        error(
+            DeviceInventoryErrorKind::ProviderFailed,
+            "device-not-found",
+            "device id is not present in the current native inventory",
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(error(
+            DeviceInventoryErrorKind::MalformedSnapshot,
+            "device-ambiguous",
+            "device id matched more than one native inventory row",
+        ));
+    }
+    Ok(record)
+}
+
+fn append_test_fixture_if_enabled(
+    native: &mut NativeDeviceInventory,
+    selector: DeviceSelector,
+) -> Result<(), DeviceInventoryError> {
+    #[cfg(all(unix, feature = "device-io"))]
+    selected::device_io::append_test_fixture(native, selector)?;
+    #[cfg(not(all(unix, feature = "device-io")))]
+    let _ = (native, selector);
+    Ok(())
 }
 
 fn pseudonym_materials(
@@ -293,6 +388,8 @@ mod tests {
                 vendor: None,
                 model: None,
                 transport: Some("usb".into()),
+                #[cfg(unix)]
+                locator: None,
             }],
             providers: vec![provider(DeviceKind::Usb, DeviceProviderState::Complete)],
         }
@@ -318,6 +415,8 @@ mod tests {
             vendor: None,
             model: None,
             transport: None,
+            #[cfg(unix)]
+            locator: None,
         });
         inventory.providers[0].state = DeviceProviderState::Partial;
         let inventory =
