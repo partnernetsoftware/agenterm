@@ -1542,6 +1542,13 @@ scan neighbors, publish the private profile path, or confuse this pure launch
 contract with durable ownership: a resident owner must still retain the exact
 process-tree guard and prove endpoint/profile cleanup.
 
+Treat removal as a second identity court, not the inverse of creation. Require
+the terminal state, exact owner/browser absence, an uncontended owner lock, the
+same opened profile object, an exact private owner marker and a closed entry
+set. An unknown process observation is not absence, and marker reads must use a
+bounded no-follow opened file. Only those facts authorize removal of the owned
+tree; a name or path string alone never does.
+
 When a caller has a browser PID instead of a CDP port, treat the process
 command line as secret-bearing mechanism input, not evidence. Observe a stable
 native start identity, perform one bounded exact-PID command-line query, observe

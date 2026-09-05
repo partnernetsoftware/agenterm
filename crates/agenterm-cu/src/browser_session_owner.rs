@@ -30,8 +30,8 @@ use std::process::{Command, Stdio};
 use crate::browser_session::owned_launch_args;
 use crate::browser_session::{
     ACTIVE_PORT_MAX_BYTES, BrowserSessionEndpoint, BrowserSessionPaths, BrowserSessionRecord,
-    BrowserSessionState, ProcessIdentity, active_port_path, parse_active_port, publish_record,
-    read_record, same_generation, session_paths,
+    BrowserSessionState, FileObjectIdentity, ProcessIdentity, active_port_path, parse_active_port,
+    publish_record, read_record, same_generation, session_paths,
 };
 
 pub const OWNER_ARG: &str = "--agenterm-cu-internal-browser-session-owner";
@@ -76,6 +76,10 @@ impl BrowserOwnerSpec {
                 start_identity: "validation".into(),
             },
             owner_spawn_mode: "validation".into(),
+            profile_identity: FileObjectIdentity {
+                filesystem_id: 1,
+                object_id: 1,
+            },
             browser: None,
             endpoint: None,
             last_error_code: None,
@@ -613,6 +617,10 @@ mod tests {
                 start_identity: "new-owner".into(),
             },
             owner_spawn_mode: "independent".into(),
+            profile_identity: FileObjectIdentity {
+                filesystem_id: 11,
+                object_id: 12,
+            },
             browser: Some(ProcessIdentity {
                 pid: 23,
                 start_identity: "browser".into(),

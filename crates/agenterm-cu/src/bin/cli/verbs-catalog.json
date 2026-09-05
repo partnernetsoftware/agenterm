@@ -3149,6 +3149,120 @@
       ]
     },
     {
+      "name": "browser-session-start",
+      "command": "browser-session-start",
+      "aliases": [
+        "browser session-start"
+      ],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "start one named bounded browser automation session",
+      "usage": "browser-session-start NAME --browser PATH [--ready-timeout-ms N] [--ttl-ms N]\nbrowser session-start ...",
+      "args": [
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "unique browser-session name"
+        },
+        {
+          "flag": "--browser",
+          "value": "PATH",
+          "help": "exact browser executable path"
+        },
+        {
+          "flag": "--ready-timeout-ms",
+          "value": "N",
+          "help": "readiness deadline, 1000..=60000 (default 15000)"
+        },
+        {
+          "flag": "--ttl-ms",
+          "value": "N",
+          "help": "session lifetime, 1000..=86400000 (default 3600000)"
+        }
+      ]
+    },
+    {
+      "name": "browser-session-list",
+      "command": "browser-session-list",
+      "aliases": [
+        "browser session-list"
+      ],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "list owned browser automation sessions",
+      "usage": "browser-session-list\nbrowser session-list",
+      "args": []
+    },
+    {
+      "name": "browser-session-status",
+      "command": "browser-session-status",
+      "aliases": [
+        "browser session-status"
+      ],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "observe one named browser automation session",
+      "usage": "browser-session-status NAME\nbrowser session-status NAME",
+      "args": [
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "browser-session name"
+        }
+      ]
+    },
+    {
+      "name": "browser-session-stop",
+      "command": "browser-session-stop",
+      "aliases": [
+        "browser session-stop"
+      ],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "stop one named browser automation session",
+      "usage": "browser-session-stop NAME --expect stopped [--timeout-ms N]\nbrowser session-stop ...",
+      "args": [
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "browser-session name"
+        },
+        {
+          "flag": "--expect",
+          "value": "stopped",
+          "help": "required stopped postcondition"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "stop deadline, 1000..=60000 (default 15000)"
+        }
+      ]
+    },
+    {
+      "name": "browser-session-remove",
+      "command": "browser-session-remove",
+      "aliases": [
+        "browser session-remove"
+      ],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "remove one stopped browser automation session",
+      "usage": "browser-session-remove NAME --expect stopped\nbrowser session-remove ...",
+      "args": [
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "browser-session name"
+        },
+        {
+          "flag": "--expect",
+          "value": "stopped",
+          "help": "required stopped precondition"
+        }
+      ]
+    },
+    {
       "name": "page",
       "command": "page",
       "aliases": [],
@@ -3946,6 +4060,26 @@
     {
       "name": "browser-open",
       "text": "agenterm-cu browser-open    (also: browser open)\n  scope: actuate    family: Browser page & tabs\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  browser-open --profile NAME [--url URL] [--app SUB] [--timeout-ms N]\n  browser open ...                                    (MCU spelling)\n\narguments:\n  --profile NAME                profile name from browser-profiles (exact, else unique case-insensitive substring)\n  --url URL                     open this URL in the profile (a tab of its window when it has one)\n  --app SUB                     Brave Origin | Brave Browser | Google Chrome (substring; default: the one running)\n  --timeout-ms N                how long to wait for the window (default 8000, max 120000)\n\nResolves NAME to its profile directory (exact name first, then a unique\ncase-insensitive substring; browser_profile_not_found /\nbrowser_profile_ambiguous carry the candidates) and runs macOS `open -na\n<app> --args --profile-directory=<dir> [URL]`: the Chromium process\nsingleton hands that command line to the running instance, which opens a\nwindow of the profile (or, with a URL, a tab in the profile's existing\nwindow) and the user's browser is never quit or restarted. Then polls the\nwindow inventory (default 8000 ms) until a window with that\nbrowser_profile appears that was not in the before snapshot, or -- when\nthe profile already had a window and a URL was given -- until that\nwindow's title changes. Reply: {handle, browser_profile, title, created,\ntab_index, tab_title, tabs: {before, after}} -- the new tab is the\nselected row the window's strip gained (diffed against the strip read\nbefore the launch; null when none can be told apart) -- plus the receipt\n(reserved before `open`, completed / failed after the read-back); timeout\n-> browser_window_not_found. `open` activates the browser, so this is\nactuation; nothing here needs a CDP port. Without --url the profile's own\nlast session is restored: after a browser restart only the last-used\nprofile comes back by itself, and `browser open --profile X` is how the\nother profiles' windows are brought back.\n"
+    },
+    {
+      "name": "browser-session-start",
+      "text": "agenterm-cu browser-session-start    (also: browser session-start)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-start NAME --browser PATH [--ready-timeout-ms N] [--ttl-ms N]\n\nStarts one named browser automation session with an exact browser executable path. Readiness is bounded to 1000..=60000 ms (default 15000); lifetime is bounded to 1000..=86400000 ms (default 3600000).\n"
+    },
+    {
+      "name": "browser-session-list",
+      "text": "agenterm-cu browser-session-list    (also: browser session-list)\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-session-list\n\nLists the browser automation sessions owned by this runtime.\n"
+    },
+    {
+      "name": "browser-session-status",
+      "text": "agenterm-cu browser-session-status    (also: browser session-status)\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-session-status NAME\n\nObserves one named browser automation session.\n"
+    },
+    {
+      "name": "browser-session-stop",
+      "text": "agenterm-cu browser-session-stop    (also: browser session-stop)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-stop NAME --expect stopped [--timeout-ms N]\n\nStops one named browser automation session and requires the literal stopped postcondition. The deadline is 1000..=60000 ms (default 15000).\n"
+    },
+    {
+      "name": "browser-session-remove",
+      "text": "agenterm-cu browser-session-remove    (also: browser session-remove)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-remove NAME --expect stopped\n\nRemoves one named browser automation session only with the literal stopped precondition.\n"
     },
     {
       "name": "page",

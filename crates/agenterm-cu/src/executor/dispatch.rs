@@ -723,6 +723,26 @@ impl Executor {
                 *timeout_ms,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::BrowserSessionStart {
+                name,
+                browser,
+                ready_timeout_ms,
+                ttl_ms,
+                ..
+            } => browser_session_start_payload(name, browser, *ready_timeout_ms, *ttl_ms),
+            Command::BrowserSessionList { .. } => browser_session_list_payload(),
+            Command::BrowserSessionStatus { name, .. } => browser_session_status_payload(name),
+            Command::BrowserSessionStop {
+                name,
+                expect_stopped,
+                timeout_ms,
+                ..
+            } => browser_session_stop_payload(name, *expect_stopped, *timeout_ms),
+            Command::BrowserSessionRemove {
+                name,
+                expect_stopped,
+                ..
+            } => browser_session_remove_payload(name, *expect_stopped),
             Command::App {
                 window,
                 action,

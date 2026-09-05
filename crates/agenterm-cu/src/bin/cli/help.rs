@@ -61,6 +61,8 @@ pub fn top_level_text() -> String {
         "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
     );
     text = text.replace("\n\nUnmapped MCU groups", "\nUnmapped MCU groups");
+    text = text.replace("\n\nClipboard", "\nClipboard");
+    text = text.replace("\n\nTransports", "\nTransports");
     append_missing_top_level_rows(&mut text);
     text
 }
@@ -193,10 +195,18 @@ fn append_missing_top_level_rows(text: &mut String) {
         "terminal-events",
         "terminal-output",
     ];
+    let compact_browser_session = [
+        "browser-session-start",
+        "browser-session-list",
+        "browser-session-status",
+        "browser-session-stop",
+        "browser-session-remove",
+    ];
     let mut missing = verbs::VERBS
         .iter()
         .filter(|spec| !compact_process.contains(&spec.name))
         .filter(|spec| !compact_terminal.contains(&spec.name))
+        .filter(|spec| !compact_browser_session.contains(&spec.name))
         .filter(|spec| !text.contains(&format!("  {}", spec.name)))
         .map(|spec| {
             let row = verbs::cold_verb(spec.name);
@@ -215,6 +225,15 @@ fn append_missing_top_level_rows(text: &mut String) {
     {
         missing.push(
             "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd  process-environment"
+                .to_owned(),
+        );
+    }
+    if compact_browser_session
+        .iter()
+        .any(|name| !text.contains(&format!("  {name}")))
+    {
+        missing.push(
+            "  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
                 .to_owned(),
         );
     }

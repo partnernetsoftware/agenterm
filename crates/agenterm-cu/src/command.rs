@@ -1611,6 +1611,37 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
     },
+    /// Start one named, bounded browser automation session using the exact
+    /// browser executable path supplied by the caller.
+    BrowserSessionStart {
+        target: TargetRef,
+        name: String,
+        browser: String,
+        ready_timeout_ms: u64,
+        ttl_ms: u64,
+    },
+    /// List the browser sessions owned by this computer-use runtime.
+    BrowserSessionList {
+        target: TargetRef,
+    },
+    /// Observe one named browser session.
+    BrowserSessionStatus {
+        target: TargetRef,
+        name: String,
+    },
+    /// Stop one named browser session and verify the stopped postcondition.
+    BrowserSessionStop {
+        target: TargetRef,
+        name: String,
+        expect_stopped: bool,
+        timeout_ms: u64,
+    },
+    /// Remove one already-stopped named browser session.
+    BrowserSessionRemove {
+        target: TargetRef,
+        name: String,
+        expect_stopped: bool,
+    },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
     Unlock {
@@ -1923,6 +1954,11 @@ impl Command {
             Self::TabClose { .. } => "tab-close".into(),
             Self::BrowserProfiles { .. } => "browser-profiles".into(),
             Self::BrowserOpen { .. } => "browser-open".into(),
+            Self::BrowserSessionStart { .. } => "browser-session-start".into(),
+            Self::BrowserSessionList { .. } => "browser-session-list".into(),
+            Self::BrowserSessionStatus { .. } => "browser-session-status".into(),
+            Self::BrowserSessionStop { .. } => "browser-session-stop".into(),
+            Self::BrowserSessionRemove { .. } => "browser-session-remove".into(),
             Self::Unlock { .. } => "unlock".into(),
             Self::Activate { .. } => "activate".into(),
             Self::Raise { .. } => "raise".into(),
@@ -2034,6 +2070,11 @@ impl Command {
             | Self::TabClose { target, .. }
             | Self::BrowserProfiles { target, .. }
             | Self::BrowserOpen { target, .. }
+            | Self::BrowserSessionStart { target, .. }
+            | Self::BrowserSessionList { target, .. }
+            | Self::BrowserSessionStatus { target, .. }
+            | Self::BrowserSessionStop { target, .. }
+            | Self::BrowserSessionRemove { target, .. }
             | Self::Unlock { target, .. }
             | Self::Activate { target, .. }
             | Self::Raise { target, .. }
@@ -2080,6 +2121,9 @@ impl Command {
             | Self::TabSelect { .. }
             | Self::TabClose { .. }
             | Self::BrowserOpen { .. }
+            | Self::BrowserSessionStart { .. }
+            | Self::BrowserSessionStop { .. }
+            | Self::BrowserSessionRemove { .. }
             | Self::PageClick { .. }
             | Self::PageDownload { .. }
             | Self::PageHover { .. }
@@ -3116,6 +3160,76 @@ mod tests {
                 "verb": "windows", "target": "current", "app": "Brave", "browser_profile": "work"
             })
         );
+    }
+
+    #[test]
+    fn browser_session_commands_have_closed_wire_shapes_and_grants() {
+        let start = Command::BrowserSessionStart {
+            target: TargetRef::Current,
+            name: "research".into(),
+            browser: "/opt/browser".into(),
+            ready_timeout_ms: 15_000,
+            ttl_ms: 3_600_000,
+        };
+        assert_eq!(start.verb(), "browser-session-start");
+        assert_eq!(start.target(), TargetRef::Current);
+        assert_eq!(start.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&start).expect("serialize"),
+            serde_json::json!({
+                "verb": "browser-session-start", "target": "current",
+                "name": "research", "browser": "/opt/browser",
+                "ready_timeout_ms": 15000, "ttl_ms": 3600000
+            })
+        );
+
+        let list = Command::BrowserSessionList {
+            target: TargetRef::Ssh,
+        };
+        assert_eq!(list.verb(), "browser-session-list");
+        assert_eq!(list.required_grant(), Grant::Observe);
+
+        let status = Command::BrowserSessionStatus {
+            target: TargetRef::Vnc,
+            name: "research".into(),
+        };
+        assert_eq!(status.verb(), "browser-session-status");
+        assert_eq!(status.required_grant(), Grant::Observe);
+
+        let stop = Command::BrowserSessionStop {
+            target: TargetRef::Current,
+            name: "research".into(),
+            expect_stopped: true,
+            timeout_ms: 15_000,
+        };
+        assert_eq!(stop.verb(), "browser-session-stop");
+        assert_eq!(stop.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&stop).expect("serialize"),
+            serde_json::json!({
+                "verb": "browser-session-stop", "target": "current",
+                "name": "research", "expect_stopped": true, "timeout_ms": 15000
+            })
+        );
+
+        let remove = Command::BrowserSessionRemove {
+            target: TargetRef::Current,
+            name: "research".into(),
+            expect_stopped: true,
+        };
+        assert_eq!(remove.verb(), "browser-session-remove");
+        assert_eq!(remove.required_grant(), Grant::Actuate);
+        let back: Command =
+            serde_json::from_value(serde_json::to_value(&remove).expect("serialize"))
+                .expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::BrowserSessionRemove {
+                target: TargetRef::Current,
+                ref name,
+                expect_stopped: true,
+            } if name == "research"
+        ));
     }
 
     #[test]

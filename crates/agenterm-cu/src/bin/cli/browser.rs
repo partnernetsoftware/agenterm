@@ -2,7 +2,8 @@
 //! background-tab verbs `page find|click|download|hover|scroll|drag|dialog|files|fill|type|nav|screenshot`), the page
 //! reader (`page-text`: a11y with `--window`, CDP with a target selector),
 //! the tab strip (`tab list|select|close`), the profile verbs (`browser
-//! profiles|open`), and the MCU `page` group word.
+//! profiles|open`), browser-session lifecycle verbs, and the MCU `page`
+//! group word.
 
 use agenterm_cu::{Command, TargetRef};
 
@@ -40,6 +41,11 @@ pub fn parse(
             "tab-close" => tab(target, Some("close"), args),
             "browser-profiles" => browser(target, Some("profiles"), args),
             "browser-open" => browser(target, Some("open"), args),
+            "browser-session-start" => browser(target, Some("session-start"), args),
+            "browser-session-list" => browser(target, Some("session-list"), args),
+            "browser-session-status" => browser(target, Some("session-status"), args),
+            "browser-session-stop" => browser(target, Some("session-stop"), args),
+            "browser-session-remove" => browser(target, Some("session-remove"), args),
             other => Err(format!("unknown command '{other}'")),
         },
     }
@@ -817,8 +823,8 @@ fn page_targets(target: TargetRef, args: &mut Vec<String>) -> Result<Command, St
     })
 }
 
-/// `browser profiles` / `browser open`: the Chromium-family profile verbs.
-/// The flat spellings pass their sub-command in.
+/// `browser profiles` / `browser open` and the named browser-session lifecycle
+/// verbs. The flat spellings pass their sub-command in.
 fn browser(
     target: TargetRef,
     sub: Option<&str>,
@@ -828,7 +834,10 @@ fn browser(
         Some(sub) => sub.to_owned(),
         None => {
             let Some(sub) = args.first().cloned() else {
-                return Err("browser requires a subcommand: profiles | open".into());
+                return Err(
+                    "browser requires a subcommand: profiles | open | session-start | session-list | session-status | session-stop | session-remove"
+                        .into(),
+                );
             };
             args.remove(0);
             sub
@@ -878,9 +887,92 @@ fn browser(
                 timeout_ms,
             })
         }
+        "session-start" => {
+            let browser = flag_text(args, "--browser")?
+                .ok_or_else(|| "browser session-start requires --browser PATH".to_owned())?;
+            if browser.trim().is_empty() {
+                return Err("browser session-start --browser must not be empty".into());
+            }
+            let ready_timeout_ms =
+                flag_parsed::<u64>(args, "--ready-timeout-ms")?.unwrap_or(15_000);
+            if !(1_000..=60_000).contains(&ready_timeout_ms) {
+                return Err(
+                    "browser session-start --ready-timeout-ms must be in 1000..=60000".into(),
+                );
+            }
+            let ttl_ms = flag_parsed::<u64>(args, "--ttl-ms")?.unwrap_or(3_600_000);
+            if !(1_000..=86_400_000).contains(&ttl_ms) {
+                return Err("browser session-start --ttl-ms must be in 1000..=86400000".into());
+            }
+            let name = one_session_name("browser session-start", args)?;
+            Ok(Command::BrowserSessionStart {
+                target,
+                name,
+                browser,
+                ready_timeout_ms,
+                ttl_ms,
+            })
+        }
+        "session-list" => {
+            if !args.is_empty() {
+                return Err(format!(
+                    "browser session-list takes no arguments; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::BrowserSessionList { target })
+        }
+        "session-status" => {
+            let name = one_session_name("browser session-status", args)?;
+            Ok(Command::BrowserSessionStatus { target, name })
+        }
+        "session-stop" => {
+            let expect_stopped = expect_stopped("browser session-stop", args)?;
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(15_000);
+            if !(1_000..=60_000).contains(&timeout_ms) {
+                return Err("browser session-stop --timeout-ms must be in 1000..=60000".into());
+            }
+            let name = one_session_name("browser session-stop", args)?;
+            Ok(Command::BrowserSessionStop {
+                target,
+                name,
+                expect_stopped,
+                timeout_ms,
+            })
+        }
+        "session-remove" => {
+            let expect_stopped = expect_stopped("browser session-remove", args)?;
+            let name = one_session_name("browser session-remove", args)?;
+            Ok(Command::BrowserSessionRemove {
+                target,
+                name,
+                expect_stopped,
+            })
+        }
         other => Err(format!(
-            "unknown browser subcommand {other:?}; expected profiles | open"
+            "unknown browser subcommand {other:?}; expected profiles | open | session-start | session-list | session-status | session-stop | session-remove"
         )),
+    }
+}
+
+fn one_session_name(verb: &str, args: &mut Vec<String>) -> Result<String, String> {
+    if args.len() != 1 || args[0].starts_with('-') {
+        return Err(format!("{verb} requires exactly one NAME positional"));
+    }
+    let name = args.remove(0);
+    if name.trim().is_empty() {
+        return Err(format!("{verb} NAME must not be empty"));
+    }
+    Ok(name)
+}
+
+fn expect_stopped(verb: &str, args: &mut Vec<String>) -> Result<bool, String> {
+    match flag_text(args, "--expect")?.as_deref() {
+        Some("stopped") => Ok(true),
+        Some(other) => Err(format!(
+            "{verb} --expect must be the literal 'stopped', got {other:?}"
+        )),
+        None => Err(format!("{verb} requires --expect stopped")),
     }
 }
 
@@ -956,5 +1048,116 @@ fn tab(target: TargetRef, sub: Option<&str>, args: &mut Vec<String>) -> Result<C
         other => Err(format!(
             "unknown tab subcommand {other:?}; expected list | select | close"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn browser_session_parsing_materializes_defaults_and_postconditions() {
+        let mut start = words(&["research", "--browser", "/opt/browser"]);
+        assert!(matches!(
+            browser(TargetRef::Current, Some("session-start"), &mut start),
+            Ok(Command::BrowserSessionStart {
+                target: TargetRef::Current,
+                ref name,
+                ref browser,
+                ready_timeout_ms: 15_000,
+                ttl_ms: 3_600_000,
+            }) if name == "research" && browser == "/opt/browser"
+        ));
+
+        let mut grouped = words(&[
+            "session-stop",
+            "research",
+            "--expect",
+            "stopped",
+            "--timeout-ms",
+            "4200",
+        ]);
+        assert!(matches!(
+            browser(TargetRef::Ssh, None, &mut grouped),
+            Ok(Command::BrowserSessionStop {
+                target: TargetRef::Ssh,
+                ref name,
+                expect_stopped: true,
+                timeout_ms: 4_200,
+            }) if name == "research"
+        ));
+
+        let mut list = Vec::new();
+        assert!(matches!(
+            browser(TargetRef::Vnc, Some("session-list"), &mut list),
+            Ok(Command::BrowserSessionList {
+                target: TargetRef::Vnc
+            })
+        ));
+        let mut status = words(&["research"]);
+        assert!(matches!(
+            browser(TargetRef::Current, Some("session-status"), &mut status),
+            Ok(Command::BrowserSessionStatus { ref name, .. }) if name == "research"
+        ));
+        let mut remove = words(&["research", "--expect", "stopped"]);
+        assert!(matches!(
+            browser(TargetRef::Current, Some("session-remove"), &mut remove),
+            Ok(Command::BrowserSessionRemove {
+                ref name,
+                expect_stopped: true,
+                ..
+            }) if name == "research"
+        ));
+    }
+
+    #[test]
+    fn browser_session_parsing_rejects_unknown_duplicate_and_out_of_range_inputs() {
+        for input in [
+            vec!["research", "--browser", "/opt/browser", "--unknown"],
+            vec![
+                "research",
+                "--browser",
+                "/opt/browser",
+                "--browser",
+                "/other/browser",
+            ],
+            vec![
+                "research",
+                "--browser",
+                "/opt/browser",
+                "--ready-timeout-ms",
+                "999",
+            ],
+            vec![
+                "research",
+                "--browser",
+                "/opt/browser",
+                "--ttl-ms",
+                "86400001",
+            ],
+        ] {
+            let mut args = words(&input);
+            assert!(
+                browser(TargetRef::Current, Some("session-start"), &mut args).is_err(),
+                "accepted {input:?}"
+            );
+        }
+
+        for input in [
+            vec!["research"],
+            vec!["research", "--expect", "running"],
+            vec!["research", "--expect", "stopped", "--expect", "stopped"],
+            vec!["research", "--expect", "stopped", "--timeout-ms", "60001"],
+        ] {
+            let mut args = words(&input);
+            assert!(
+                browser(TargetRef::Current, Some("session-stop"), &mut args).is_err(),
+                "accepted {input:?}"
+            );
+        }
     }
 }

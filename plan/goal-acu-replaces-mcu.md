@@ -370,7 +370,7 @@ Q4 browser and platform depth
 │  ├─ [x] page current-focus type: editable preflight + same-focus/value-growth proof; plaintext redacted
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [~] browser control without a pre-opened CDP port
-│  ├─ [~] owned browser-session: launch/registry + Unix resident owner ✓; Windows atomic Job spawn + public lifecycle + live courts pending
+│  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows atomic Job spawn + Linux/Windows courts pending
 │  ├─ [~] MV3/Native Messaging: protocol v1 framing/validation core; host/extension/installer pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [ ] Simulator facade

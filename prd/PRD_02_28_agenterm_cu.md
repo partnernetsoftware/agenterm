@@ -256,11 +256,18 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   unwind. A prior endpoint file is removed before spawn, so a replacement
   generation cannot inherit stale readiness. Cleanup uncertainty—including an
   unexpectedly exited Unix tree root—is a durable state, never a claimed stop.
-  The current owner refuses Windows before browser spawn because assigning a
+  The public lifecycle now reaches that owner. Start requires one absolute
+  executable and bounded readiness/TTL. Stop requires the literal
+  `--expect stopped` postcondition and verifies both identities absent; remove
+  repeats that proof, locks out the owner, checks the private profile object
+  identity plus exact owner marker, refuses unknown entries, and only then
+  removes owned state. A real macOS Chrome court passed ready → inventory →
+  status → stopped → removed without opening a window. The current owner
+  refuses Windows before browser spawn because assigning a
   running Chromium process to a Job leaves a fork-before-assignment escape
   window; Windows remains typed unavailable until the platform crate provides
-  atomic contained spawn. Public lifecycle verbs,
-  executable discovery and live three-host cleanup evidence remain open.
+  atomic contained spawn. Executable discovery is intentionally caller-owned;
+  Windows atomic contained spawn plus Linux/Windows cleanup courts remain open.
   Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
   retain AX/tab-strip control. The authenticated-profile route is a separately
@@ -277,7 +284,7 @@ flowchart LR
   D -->|no · disposable state| S["owned browser-session<br/>isolated profile + random port"]
   D -->|no · authenticated profile| X["fixed MV3 + Native Messaging<br/>installed bridge"]
   D -->|no bridge| A["AX active-page + tab strip<br/>typed depth limit"]
-  S --> C["exact identity + process-tree cleanup"]
+  S --> C["public lifecycle ✓ macOS<br/>exact identity + process-tree cleanup"]
   X --> R["versioned request + at-most-once receipt"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical

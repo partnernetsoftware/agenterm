@@ -67,6 +67,13 @@ pub struct ProcessIdentity {
     pub start_identity: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileObjectIdentity {
+    pub filesystem_id: u64,
+    pub object_id: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserSessionEndpoint {
@@ -84,6 +91,7 @@ pub struct BrowserSessionRecord {
     pub state: BrowserSessionState,
     pub owner: ProcessIdentity,
     pub owner_spawn_mode: String,
+    pub profile_identity: FileObjectIdentity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<ProcessIdentity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -319,6 +327,10 @@ mod tests {
                 start_identity: "owner-start".into(),
             },
             owner_spawn_mode: "independent".into(),
+            profile_identity: FileObjectIdentity {
+                filesystem_id: 11,
+                object_id: 12,
+            },
             browser: None,
             endpoint: None,
             last_error_code: None,
